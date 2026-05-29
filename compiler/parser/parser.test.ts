@@ -495,4 +495,26 @@ describe("Parser (with recovery)", () => {
             column: 0
         });
     });
+
+    it("recovers from errors inside block statements by scanning braces", () => {
+        const parser = new Parser(tokenizeReader("{ oops; let ignored = 1; }; let ok = 2; what;"));
+        const ast = parser.parseFile();
+
+        expect(ast).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "ok" },
+                    initializer: { kind: "IntLiteral", value: 2 }
+                }
+            ]
+        });
+        expect(parser.errors.map((e) => e.message)).toEqual([
+            "Expected statement",
+            "Expected statement"
+        ]);
+        expect(parser.errors[0].token?.value).toBe("oops");
+        expect(parser.errors[1].token?.value).toBe("what");
+    });
 });

@@ -29,18 +29,22 @@ export interface ParseIssue {
     token?: Token;
 }
 
+type RecoveryHint = "block";
+
 export class ParseError extends Error {
     token?: Token;
+    recoveryHint?: RecoveryHint;
 
-    constructor(message: string, token?: Token) {
+    constructor(message: string, token?: Token, recoveryHint?: RecoveryHint) {
         super(message);
         this.name = "ParseError";
         this.token = token;
+        this.recoveryHint = recoveryHint;
     }
 }
 
-function fail(message: string, token?: Token): never {
-    throw new ParseError(message, token);
+function fail(message: string, token?: Token, recoveryHint?: RecoveryHint): never {
+    throw new ParseError(message, token, recoveryHint);
 }
 
 function buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
@@ -358,14 +362,21 @@ function parseBlockStatement(r: ListReader<Token>): BlockStatement {
             continue
         }
 
-        body.push(parseStatement(r))
+        try {
+            body.push(parseStatement(r))
+        } catch (error) {
+            if (error instanceof ParseError) {
+                throw new ParseError(error.message, error.token, "block")
+            }
+            throw error
+        }
 
         if (r.peek()?.type === "symbol" && r.peek()?.value === ";") {
             r.skip()
         }
     }
 
-    fail("Expected '}' to close block statement", r.peek() ?? openBrace)
+    fail("Expected '}' to close block statement", r.peek() ?? openBrace, "block")
 }
 
 function parseWhileStatement(r: ListReader<Token>): WhileStatement {
@@ -491,7 +502,11 @@ export class Parser {
             return parseStatement(this.tokens);
         } catch (error) {
             this.emitErrorFrom(error);
-            this.recover();
+            if (error instanceof ParseError) {
+                this.recover(error.recoveryHint);
+            } else {
+                this.recover();
+            }
             return null;
         }
     }
@@ -518,13 +533,43 @@ export class Parser {
         this.errors.push({ message, token });
     }
 
-    recover(): void {
+    recover(recoveryHint?: RecoveryHint): void {
+        if (recoveryHint === "block") {
+            this.recoverBlock();
+            return;
+        }
+
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
             if (token?.type === "symbol" && token.value === ";") {
                 this.tokens.skip();
                 return;
             }
+            this.tokens.skip();
+        }
+    }
+
+    private recoverBlock(): void {
+        let balance = 0;
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+
+            if (token?.type === "symbol" && token.value === "{") {
+                balance += 1;
+                this.tokens.skip();
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "}") {
+                balance -= 1;
+                this.tokens.skip();
+                if (balance < 0) {
+                    return;
+                }
+                continue;
+            }
+
             this.tokens.skip();
         }
     }
