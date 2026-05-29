@@ -671,6 +671,14 @@ describe("parseStatement", () => {
             members: []
         });
     });
+
+    it("rejects class primary constructor syntax in typescript parser mode", () => {
+        expect(() =>
+            parseStatement(tokenizeReader("class Point(val x: number, val y: number) {}"), {
+                language: "typescript"
+            })
+        ).toThrow("Class primary constructor syntax is only available in MyLang mode");
+    });
 });
 
 describe("parseProgram", () => {

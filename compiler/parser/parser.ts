@@ -4,14 +4,14 @@ import {
     ArrayLiteral,
     AssignmentExpression,
     BinaryExpression,
-    BreakStatement,
     BlockStatement,
-    ContinueStatement,
+    BreakStatement,
     ClassFieldMember,
     ClassMember,
     ClassMethodMember,
     ClassPrimaryConstructorParameter,
     ClassStatement,
+    ContinueStatement,
     DoWhileStatement,
     Expr,
     ExprStatement,
@@ -20,24 +20,31 @@ import {
     FunctionStatement,
     Identifier,
     IntLiteral,
-    VarStatement,
     MemberExpression,
     ObjectLiteral,
     ObjectProperty,
     Program,
+    ReturnStatement,
     Statement,
     StringLiteral,
     UnaryExpression,
     VariableDeclarationKind,
-    ReturnStatement,
+    VarStatement,
     WhileStatement
 } from "compiler/ast/ast";
 
-type BinaryOperator = BinaryExpression["operator"]
-type AssignmentOperator = AssignmentExpression["operator"]
-const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="]
+type BinaryOperator = BinaryExpression["operator"];
+type AssignmentOperator = AssignmentExpression["operator"];
+
+const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="];
 const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
 const FUNCTION_DECLARATION_KEYWORDS: readonly FunctionDeclarationKind[] = ["fun", "function"];
+
+export type ParseLanguage = "mylang" | "typescript";
+
+export interface ParserOptions {
+    language?: ParseLanguage;
+}
 
 export interface ParseIssue {
     message: string;
@@ -58,891 +65,17 @@ export class ParseError extends Error {
     }
 }
 
-function fail(message: string, token?: Token, recoveryHint?: RecoveryHint): never {
-    throw new ParseError(message, token, recoveryHint);
-}
-
-function getLastReadToken(r: ListReader<Token>): Token | undefined {
-    if (r.offset <= 0) {
-        return undefined;
-    }
-    return r.items[r.offset - 1];
-}
-
-function tokenAt(r: ListReader<Token>, preferred?: Token): Token | undefined {
-    return preferred ?? r.peek() ?? getLastReadToken(r);
-}
-
-function hasLineBreakBetween(a: Token | undefined, b: Token | undefined): boolean {
-    if (!a || !b) {
-        return false;
-    }
-    return a.range.end.line < b.range.start.line;
-}
-
-function consumeStatementSeparator(
-    r: ListReader<Token>,
-    context: "file" | "block",
-    previousToken: Token | undefined
-): void {
-    if (!r.hasMore) {
-        return;
-    }
-
-    const next = r.peek();
-    if (next?.type === "symbol" && next.value === ";") {
-        r.skip();
-        return;
-    }
-
-    if (context === "block" && next?.type === "symbol" && next.value === "}") {
-        return;
-    }
-
-    if (hasLineBreakBetween(previousToken, next)) {
-        return;
-    }
-
-    const suffix = context === "block" ? "or '}'" : "or end of file";
-    fail(`Expected ';', newline, ${suffix} between statements`, next, context === "block" ? "block" : undefined);
-}
-
-function buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
-    return {
-        kind: "BinaryExpression",
-        operator,
-        left,
-        right
-    }
-}
-
-function parseLeftAssociative(
-    r: ListReader<Token>,
-    operators: readonly BinaryOperator[],
-    parseNext: (reader: ListReader<Token>) => Expr
-): Expr {
-    let left = parseNext(r)
-
-    while (r.hasMore) {
-        const token = r.peek()
-        if (token?.type !== "symbol" || !operators.includes(token.value as BinaryOperator)) {
-            break
-        }
-
-        r.skip()
-        const right = parseNext(r)
-        left = buildBinary(token.value as BinaryOperator, left, right)
-    }
-
-    return left
-}
-
-function parseArrayLiteral(r: ListReader<Token>): ArrayLiteral {
-    const elements: Expr[] = []
-
-    if (r.peek()?.type === "symbol" && r.peek()?.value === "]") {
-        r.skip()
-        return {
-            kind: "ArrayLiteral",
-            elements
-        } as ArrayLiteral
-    }
-
-    while (r.hasMore) {
-        elements.push(parseExpression(r))
-
-        const separator = r.peek()
-        if (separator?.type === "symbol" && separator.value === ",") {
-            r.skip()
-            continue
-        }
-
-        if (separator?.type === "symbol" && separator.value === "]") {
-            r.skip()
-            return {
-                kind: "ArrayLiteral",
-                elements
-            } as ArrayLiteral
-        }
-
-        break
-    }
-
-    fail("Expected ',' or ']' in array literal", tokenAt(r))
-}
-
-function parseObjectLiteral(r: ListReader<Token>): ObjectLiteral {
-    const properties: ObjectProperty[] = []
-
-    if (r.peek()?.type === "symbol" && r.peek()?.value === "}") {
-        r.skip()
-        return {
-            kind: "ObjectLiteral",
-            properties
-        } as ObjectLiteral
-    }
-
-    while (r.hasMore) {
-        const key = r.read()
-        if (key?.type !== "identifier") {
-            fail("Expected identifier key in object literal", key)
-        }
-
-        const colon = r.read()
-        if (colon?.type !== "symbol" || colon.value !== ":") {
-            fail("Expected ':' after object key", colon)
-        }
-
-        properties.push({
-            kind: "ObjectProperty",
-            key: { kind: "Identifier", name: key.value } as Identifier,
-            value: parseExpression(r)
-        } as ObjectProperty)
-
-        const separator = r.peek()
-        if (separator?.type === "symbol" && separator.value === ",") {
-            r.skip()
-            continue
-        }
-
-        if (separator?.type === "symbol" && separator.value === "}") {
-            r.skip()
-            return {
-                kind: "ObjectLiteral",
-                properties
-            } as ObjectLiteral
-        }
-
-        break
-    }
-
-    fail("Expected ',' or '}' in object literal", tokenAt(r))
-}
-
-function parsePrimary(r: ListReader<Token>): Expr {
-    const token = r.read();
-
-    if (token?.type === "symbol" && token.value === "(") {
-        const expr = parseExpression(r);
-        const close = r.read();
-        if (close?.type !== "symbol" || close.value !== ")") {
-            fail("Expected ')' after parenthesized expression", tokenAt(r, close));
-        }
-        return expr;
-    }
-
-    if (token?.type === "symbol" && token.value === "[") {
-        return parseArrayLiteral(r)
-    }
-
-    if (token?.type === "symbol" && token.value === "{") {
-        return parseObjectLiteral(r)
-    }
-
-    if (token?.type === "number") {
-        return { kind: "IntLiteral", value: parseInt(token.value, 10) } as IntLiteral;
-    }
-
-    if (token?.type === "string") {
-        return { kind: "StringLiteral", value: token.value } as StringLiteral;
-    }
-
-    if (token?.type === "identifier") {
-        return { kind: "Identifier", name: token.value } as Identifier;
-    }
-
-    fail("Expected a number literal, string literal, identifier, '(', '[' or '{'", tokenAt(r, token));
-}
-
-function parsePostfix(r: ListReader<Token>): Expr {
-    let expr = parsePrimary(r)
-
-    while (r.hasMore) {
-        const token = r.peek()
-
-        if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
-            r.skip()
-            const property = r.read()
-            if (property?.type !== "identifier") {
-                fail(`Expected identifier after '${token.value}'`, tokenAt(r, property ?? token))
-            }
-
-            expr = {
-                kind: "MemberExpression",
-                object: expr,
-                property: { kind: "Identifier", name: property.value } as Identifier,
-                computed: false,
-                optional: token.value === "?." ? true : undefined,
-                nonNullAsserted: token.value === "!." ? true : undefined
-            } as MemberExpression
-            continue
-        }
-
-        if (token?.type === "symbol" && token.value === "[") {
-            r.skip()
-            const property = parseExpression(r)
-            const close = r.read()
-            if (close?.type !== "symbol" || close.value !== "]") {
-                fail("Expected ']' after computed member access", tokenAt(r, close))
-            }
-
-            expr = {
-                kind: "MemberExpression",
-                object: expr,
-                property,
-                computed: true
-            } as MemberExpression
-            continue
-        }
-
-        break
-    }
-
-    return expr
-}
-
-function parseUnary(r: ListReader<Token>): Expr {
-    const token = r.peek()
-    if (token?.type === "symbol" && (token.value === "+" || token.value === "-")) {
-        r.skip()
-        const argument = parseUnary(r)
-        return {
-            kind: "UnaryExpression",
-            operator: token.value,
-            argument
-        } as UnaryExpression
-    }
-
-    return parsePostfix(r)
-}
-
-function parseExponentiation(r: ListReader<Token>): Expr {
-    const left = parseUnary(r)
-    if (r.peek()?.type === "symbol" && r.peek()?.value === "**") {
-        r.skip()
-        const right = parseExponentiation(r)
-        return buildBinary("**", left, right)
-    }
-    return left
-}
-
-function parseMultiplicative(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["*", "/", "%"], parseExponentiation)
-}
-
-function parseAdditive(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["+", "-"], parseMultiplicative)
-}
-
-function parseRelational(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["<", ">", "<=", ">="], parseAdditive)
-}
-
-function parseEquality(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["===", "!=="], parseRelational)
-}
-
-function parseBitwiseAnd(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["&"], parseEquality)
-}
-
-function parseBitwiseXor(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["^"], parseBitwiseAnd)
-}
-
-function parseBitwiseOr(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["|"], parseBitwiseXor)
-}
-
-function parseLogicalAnd(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["&&"], parseBitwiseOr)
-}
-
-function parseLogicalOr(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["||"], parseLogicalAnd)
-}
-
-function parseAssignment(r: ListReader<Token>): Expr {
-    const left = parseLogicalOr(r)
-    const token = r.peek()
-
-    if (token?.type === "symbol" && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
-        r.skip()
-        const right = parseAssignment(r)
-        return {
-            kind: "AssignmentExpression",
-            operator: token.value as AssignmentOperator,
-            left,
-            right
-        } as AssignmentExpression
-    }
-
-    return left
-}
-
-export function parseExpression(r: ListReader<Token>): Expr {
-    return parseAssignment(r)
-}
-
-function parseVarStatement(r: ListReader<Token>): VarStatement {
-    const declarationKeyword = r.read()
-    if (
-        declarationKeyword?.type !== "identifier" ||
-        !VARIABLE_DECLARATION_KEYWORDS.includes(declarationKeyword.value as VariableDeclarationKind)
-    ) {
-        fail("Expected variable declaration statement", tokenAt(r, declarationKeyword))
-    }
-
-    const nameToken = r.read()
-    if (nameToken?.type !== "identifier") {
-        fail("Expected identifier after 'let'", tokenAt(r, nameToken))
-    }
-
-    let typeAnnotation: Identifier | undefined
-    const maybeColon = r.peek()
-    if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
-        r.skip()
-        const typeToken = r.read()
-        if (typeToken?.type !== "identifier") {
-            fail("Expected type identifier after ':' in let statement", tokenAt(r, typeToken))
-        }
-        typeAnnotation = { kind: "Identifier", name: typeToken.value } as Identifier
-    }
-
-    let initializer: Expr | undefined
-    const maybeEquals = r.peek()
-    if (maybeEquals?.type === "symbol" && maybeEquals.value === "=") {
-        r.skip()
-        initializer = parseExpression(r)
-    }
-
-    const statement: VarStatement = {
-        kind: "VarStatement",
-        declarationKind: declarationKeyword.value as VariableDeclarationKind,
-        name: { kind: "Identifier", name: nameToken.value } as Identifier
-    }
-    if (typeAnnotation) {
-        statement.typeAnnotation = typeAnnotation
-    }
-    if (initializer) {
-        statement.initializer = initializer
-    }
-    return statement
-}
-
-function parseFunctionStatement(r: ListReader<Token>): FunctionStatement {
-    const declarationKeyword = r.read()
-    if (
-        declarationKeyword?.type !== "identifier" ||
-        !FUNCTION_DECLARATION_KEYWORDS.includes(declarationKeyword.value as FunctionDeclarationKind)
-    ) {
-        fail("Expected function declaration statement", tokenAt(r, declarationKeyword))
-    }
-
-    const nameToken = r.read()
-    if (nameToken?.type !== "identifier") {
-        fail("Expected function name after declaration keyword", tokenAt(r, nameToken))
-    }
-
-    const openParen = r.read()
-    if (openParen?.type !== "symbol" || openParen.value !== "(") {
-        fail("Expected '(' after function name", tokenAt(r, openParen))
-    }
-
-    const parameters: FunctionParameter[] = []
-    parameters.push(...parseFunctionParameters(r))
-
-    const closeParen = r.read()
-    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-        fail("Expected ')' after function parameters", tokenAt(r, closeParen))
-    }
-
-    let returnType: Identifier | undefined
-    if (r.peek()?.type === "symbol" && r.peek()?.value === ":") {
-        r.skip()
-        const returnTypeToken = r.read()
-        if (returnTypeToken?.type !== "identifier") {
-            fail("Expected return type after ':' in function declaration", tokenAt(r, returnTypeToken))
-        }
-        returnType = { kind: "Identifier", name: returnTypeToken.value } as Identifier
-    }
-
-    if (r.peek()?.type !== "symbol" || r.peek()?.value !== "{") {
-        fail("Expected '{' to start function body", tokenAt(r))
-    }
-    const body = parseBlockStatement(r)
-
-    const statement: FunctionStatement = {
-        kind: "FunctionStatement",
-        declarationKind: declarationKeyword.value as FunctionDeclarationKind,
-        name: { kind: "Identifier", name: nameToken.value } as Identifier,
-        parameters,
-        body
-    }
-    if (returnType) {
-        statement.returnType = returnType
-    }
-
-    return statement
-}
-
-function parseFunctionParameters(r: ListReader<Token>): FunctionParameter[] {
-    const parameters: FunctionParameter[] = []
-    if (r.peek()?.type === "symbol" && r.peek()?.value === ")") {
-        return parameters
-    }
-
-    while (r.hasMore) {
-        const parameterNameToken = r.read()
-        if (parameterNameToken?.type !== "identifier") {
-            fail("Expected parameter name in function declaration", tokenAt(r, parameterNameToken))
-        }
-
-        let parameterOptional = false
-        if (r.peek()?.type === "symbol" && r.peek()?.value === "?") {
-            r.skip()
-            parameterOptional = true
-        }
-
-        let parameterTypeAnnotation: Identifier | undefined
-        if (r.peek()?.type === "symbol" && r.peek()?.value === ":") {
-            r.skip()
-            const parameterTypeToken = r.read()
-            if (parameterTypeToken?.type !== "identifier") {
-                fail("Expected parameter type after ':'", tokenAt(r, parameterTypeToken))
-            }
-            parameterTypeAnnotation = { kind: "Identifier", name: parameterTypeToken.value } as Identifier
-        }
-
-        let parameterDefaultValue: Expr | undefined
-        if (r.peek()?.type === "symbol" && r.peek()?.value === "=") {
-            r.skip()
-            parameterDefaultValue = parseExpression(r)
-        }
-
-        const parameter: FunctionParameter = {
-            kind: "FunctionParameter",
-            name: { kind: "Identifier", name: parameterNameToken.value } as Identifier
-        }
-        if (parameterOptional) {
-            parameter.optional = true
-        }
-        if (parameterTypeAnnotation) {
-            parameter.typeAnnotation = parameterTypeAnnotation
-        }
-        if (parameterDefaultValue) {
-            parameter.defaultValue = parameterDefaultValue
-        }
-        parameters.push(parameter)
-
-        const separator = r.peek()
-        if (separator?.type === "symbol" && separator.value === ",") {
-            r.skip()
-            continue
-        }
-        if (separator?.type === "symbol" && separator.value === ")") {
-            break
-        }
-        fail("Expected ',' or ')' in function parameter list", tokenAt(r, separator))
-    }
-
-    return parameters
-}
-
-function parseClassMember(r: ListReader<Token>): ClassMember {
-    const memberNameToken = r.read()
-    if (memberNameToken?.type !== "identifier") {
-        fail("Expected class member name", tokenAt(r, memberNameToken))
-    }
-
-    if (r.peek()?.type === "symbol" && r.peek()?.value === "(") {
-        r.skip()
-        const parameters = parseFunctionParameters(r)
-
-        const closeParen = r.read()
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-            fail("Expected ')' after method parameters", tokenAt(r, closeParen))
-        }
-
-        let returnType: Identifier | undefined
-        if (r.peek()?.type === "symbol" && r.peek()?.value === ":") {
-            r.skip()
-            const returnTypeToken = r.read()
-            if (returnTypeToken?.type !== "identifier") {
-                fail("Expected return type after ':' in class method", tokenAt(r, returnTypeToken))
-            }
-            returnType = { kind: "Identifier", name: returnTypeToken.value } as Identifier
-        }
-
-        if (r.peek()?.type !== "symbol" || r.peek()?.value !== "{") {
-            fail("Expected '{' to start class method body", tokenAt(r))
-        }
-
-        const methodMember: ClassMethodMember = {
-            kind: "ClassMethodMember",
-            name: { kind: "Identifier", name: memberNameToken.value } as Identifier,
-            parameters,
-            body: parseBlockStatement(r)
-        }
-        if (returnType) {
-            methodMember.returnType = returnType
-        }
-
-        return methodMember
-    }
-
-    let typeAnnotation: Identifier | undefined
-    if (r.peek()?.type === "symbol" && r.peek()?.value === ":") {
-        r.skip()
-        const typeToken = r.read()
-        if (typeToken?.type !== "identifier") {
-            fail("Expected type identifier after ':' in class field", tokenAt(r, typeToken))
-        }
-        typeAnnotation = { kind: "Identifier", name: typeToken.value } as Identifier
-    }
-
-    let initializer: Expr | undefined
-    if (r.peek()?.type === "symbol" && r.peek()?.value === "=") {
-        r.skip()
-        initializer = parseExpression(r)
-    }
-
-    const fieldMember: ClassFieldMember = {
-        kind: "ClassFieldMember",
-        name: { kind: "Identifier", name: memberNameToken.value } as Identifier
-    }
-    if (typeAnnotation) {
-        fieldMember.typeAnnotation = typeAnnotation
-    }
-    if (initializer) {
-        fieldMember.initializer = initializer
-    }
-    return fieldMember
-}
-
-function parseClassPrimaryConstructorParameters(r: ListReader<Token>): ClassPrimaryConstructorParameter[] {
-    const parameters: ClassPrimaryConstructorParameter[] = []
-    if (r.peek()?.type === "symbol" && r.peek()?.value === ")") {
-        return parameters
-    }
-
-    while (r.hasMore) {
-        const declarationToken = r.read()
-        if (
-            declarationToken?.type !== "identifier" ||
-            !VARIABLE_DECLARATION_KEYWORDS.includes(declarationToken.value as VariableDeclarationKind)
-        ) {
-            fail("Expected declaration keyword in class primary constructor parameter", tokenAt(r, declarationToken))
-        }
-
-        const parameterNameToken = r.read()
-        if (parameterNameToken?.type !== "identifier") {
-            fail("Expected parameter name in class primary constructor", tokenAt(r, parameterNameToken))
-        }
-
-        let parameterTypeAnnotation: Identifier | undefined
-        if (r.peek()?.type === "symbol" && r.peek()?.value === ":") {
-            r.skip()
-            const parameterTypeToken = r.read()
-            if (parameterTypeToken?.type !== "identifier") {
-                fail("Expected parameter type after ':'", tokenAt(r, parameterTypeToken))
-            }
-            parameterTypeAnnotation = { kind: "Identifier", name: parameterTypeToken.value } as Identifier
-        }
-
-        let parameterDefaultValue: Expr | undefined
-        if (r.peek()?.type === "symbol" && r.peek()?.value === "=") {
-            r.skip()
-            parameterDefaultValue = parseExpression(r)
-        }
-
-        const parameter: ClassPrimaryConstructorParameter = {
-            kind: "ClassPrimaryConstructorParameter",
-            declarationKind: declarationToken.value as VariableDeclarationKind,
-            name: { kind: "Identifier", name: parameterNameToken.value } as Identifier
-        }
-        if (parameterTypeAnnotation) {
-            parameter.typeAnnotation = parameterTypeAnnotation
-        }
-        if (parameterDefaultValue) {
-            parameter.defaultValue = parameterDefaultValue
-        }
-        parameters.push(parameter)
-
-        const separator = r.peek()
-        if (separator?.type === "symbol" && separator.value === ",") {
-            r.skip()
-            continue
-        }
-        if (separator?.type === "symbol" && separator.value === ")") {
-            break
-        }
-        fail("Expected ',' or ')' in class primary constructor parameter list", tokenAt(r, separator))
-    }
-
-    return parameters
-}
-
-function parseClassStatement(r: ListReader<Token>): ClassStatement {
-    const classKeyword = r.read()
-    if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
-        fail("Expected class declaration statement", tokenAt(r, classKeyword))
-    }
-
-    const classNameToken = r.read()
-    if (classNameToken?.type !== "identifier") {
-        fail("Expected class name after 'class'", tokenAt(r, classNameToken))
-    }
-
-    let primaryConstructorParameters: ClassPrimaryConstructorParameter[] | undefined
-    if (r.peek()?.type === "symbol" && r.peek()?.value === "(") {
-        r.skip()
-        primaryConstructorParameters = parseClassPrimaryConstructorParameters(r)
-
-        const closeParen = r.read()
-        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-            fail("Expected ')' after class primary constructor parameters", tokenAt(r, closeParen))
-        }
-    }
-
-    const openBrace = r.read()
-    if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
-        fail("Expected '{' to start class body", tokenAt(r, openBrace))
-    }
-
-    const members: ClassMember[] = []
-    while (r.hasMore) {
-        const token = r.peek()
-        if (token?.type === "symbol" && token.value === "}") {
-            r.skip()
-            const statement: ClassStatement = {
-                kind: "ClassStatement",
-                name: { kind: "Identifier", name: classNameToken.value } as Identifier,
-                members
-            }
-            if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
-                statement.primaryConstructorParameters = primaryConstructorParameters
-            }
-            return statement
-        }
-
-        if (token?.type === "symbol" && token.value === ";") {
-            r.skip()
-            continue
-        }
-
-        const member = parseClassMember(r)
-        members.push(member)
-        consumeStatementSeparator(r, "block", getLastReadToken(r))
-    }
-
-    fail("Expected '}' to close class body", tokenAt(r, openBrace), "block")
-}
-
-function parseBlockStatement(r: ListReader<Token>): BlockStatement {
-    const openBrace = r.read()
-    if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
-        fail("Expected '{' to start block statement", tokenAt(r, openBrace))
-    }
-
-    const body: Statement[] = []
-
-    while (r.hasMore) {
-        const token = r.peek()
-
-        if (token?.type === "symbol" && token.value === "}") {
-            r.skip()
-            return {
-                kind: "BlockStatement",
-                body
-            } as BlockStatement
-        }
-
-        if (token?.type === "symbol" && token.value === ";") {
-            r.skip()
-            continue
-        }
-
-        try {
-            const statement = parseStatement(r)
-            body.push(statement)
-            consumeStatementSeparator(r, "block", getLastReadToken(r))
-        } catch (error) {
-            if (error instanceof ParseError) {
-                throw new ParseError(error.message, error.token, "block")
-            }
-            throw error
-        }
-    }
-
-    fail("Expected '}' to close block statement", tokenAt(r, openBrace), "block")
-}
-
-function parseWhileStatement(r: ListReader<Token>): WhileStatement {
-    const whileKeyword = r.read()
-    if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
-        fail("Expected 'while' statement", tokenAt(r, whileKeyword))
-    }
-
-    const openParen = r.read()
-    if (openParen?.type !== "symbol" || openParen.value !== "(") {
-        fail("Expected '(' after 'while'", tokenAt(r, openParen))
-    }
-
-    const condition = parseExpression(r)
-
-    const closeParen = r.read()
-    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-        fail("Expected ')' after while condition", tokenAt(r, closeParen))
-    }
-
-    const body = parseStatement(r)
-    return {
-        kind: "WhileStatement",
-        condition,
-        body
-    } as WhileStatement
-}
-
-function parseDoWhileStatement(r: ListReader<Token>): DoWhileStatement {
-    const doKeyword = r.read()
-    if (doKeyword?.type !== "identifier" || doKeyword.value !== "do") {
-        fail("Expected 'do' statement", tokenAt(r, doKeyword))
-    }
-
-    const body = parseStatement(r)
-
-    const whileKeyword = r.read()
-    if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
-        fail("Expected 'while' after do-statement body", tokenAt(r, whileKeyword))
-    }
-
-    const openParen = r.read()
-    if (openParen?.type !== "symbol" || openParen.value !== "(") {
-        fail("Expected '(' after 'while'", tokenAt(r, openParen))
-    }
-
-    const condition = parseExpression(r)
-
-    const closeParen = r.read()
-    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-        fail("Expected ')' after do-while condition", tokenAt(r, closeParen))
-    }
-
-    return {
-        kind: "DoWhileStatement",
-        body,
-        condition
-    } as DoWhileStatement
-}
-
-function parseReturnStatement(r: ListReader<Token>): ReturnStatement {
-    const returnKeyword = r.read()
-    if (returnKeyword?.type !== "identifier" || returnKeyword.value !== "return") {
-        fail("Expected 'return' statement", tokenAt(r, returnKeyword))
-    }
-
-    const next = r.peek()
-    if (!next) {
-        return { kind: "ReturnStatement" } as ReturnStatement
-    }
-    if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
-        return { kind: "ReturnStatement" } as ReturnStatement
-    }
-    if (hasLineBreakBetween(returnKeyword, next)) {
-        return { kind: "ReturnStatement" } as ReturnStatement
-    }
-
-    return {
-        kind: "ReturnStatement",
-        expression: parseExpression(r)
-    } as ReturnStatement
-}
-
-function parseContinueStatement(r: ListReader<Token>): ContinueStatement {
-    const continueKeyword = r.read()
-    if (continueKeyword?.type !== "identifier" || continueKeyword.value !== "continue") {
-        fail("Expected 'continue' statement", tokenAt(r, continueKeyword))
-    }
-    return { kind: "ContinueStatement" } as ContinueStatement
-}
-
-function parseBreakStatement(r: ListReader<Token>): BreakStatement {
-    const breakKeyword = r.read()
-    if (breakKeyword?.type !== "identifier" || breakKeyword.value !== "break") {
-        fail("Expected 'break' statement", tokenAt(r, breakKeyword))
-    }
-    return { kind: "BreakStatement" } as BreakStatement
-}
-
-export function parseStatement(r: ListReader<Token>): Statement {
-    const token = r.peek()
-    if (token?.type === "identifier" && VARIABLE_DECLARATION_KEYWORDS.includes(token.value as VariableDeclarationKind)) {
-        return parseVarStatement(r)
-    }
-    if (token?.type === "identifier" && FUNCTION_DECLARATION_KEYWORDS.includes(token.value as FunctionDeclarationKind)) {
-        return parseFunctionStatement(r)
-    }
-    if (token?.type === "identifier" && token.value === "class") {
-        return parseClassStatement(r)
-    }
-    if (token?.type === "identifier" && token.value === "do") {
-        return parseDoWhileStatement(r)
-    }
-    if (token?.type === "identifier" && token.value === "while") {
-        return parseWhileStatement(r)
-    }
-    if (token?.type === "identifier" && token.value === "return") {
-        return parseReturnStatement(r)
-    }
-    if (token?.type === "identifier" && token.value === "continue") {
-        return parseContinueStatement(r)
-    }
-    if (token?.type === "identifier" && token.value === "break") {
-        return parseBreakStatement(r)
-    }
-    if (token?.type === "symbol" && token.value === "{") {
-        return parseBlockStatement(r)
-    }
-
-    return {
-        kind: "ExprStatement",
-        expression: parseExpression(r)
-    } as ExprStatement
-}
-
-export function parseFile(r: ListReader<Token>): Program {
-    const body: Statement[] = []
-
-    while (r.hasMore) {
-        if (r.peek()?.type === "symbol" && r.peek()?.value === ";") {
-            r.skip()
-            continue
-        }
-
-        const statement = parseStatement(r)
-        body.push(statement)
-        consumeStatementSeparator(r, "file", getLastReadToken(r))
-    }
-
-    return {
-        kind: "Program",
-        body
-    } as Program
-}
-
-export function parseProgram(r: ListReader<Token>): Program {
-    return parseFile(r)
-}
-
 export class Parser {
     public errors: ParseIssue[] = [];
+    public readonly language: ParseLanguage;
 
-    constructor(public tokens: ListReader<Token>) { }
+    constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
+        this.language = options.language ?? "mylang";
+    }
 
     parseExpression(): Expr | null {
         try {
-            return parseExpression(this.tokens);
+            return this.parseExpressionOrThrow();
         } catch (error) {
             this.emitErrorFrom(error);
             return null;
@@ -951,7 +84,7 @@ export class Parser {
 
     parseStatement(): Statement | null {
         try {
-            return parseStatement(this.tokens);
+            return this.parseStatementOrThrow();
         } catch (error) {
             this.emitErrorFrom(error);
             if (error instanceof ParseError) {
@@ -984,7 +117,7 @@ export class Parser {
                     this.tokens.offset > statementStartOffset
                         ? this.tokens.items[this.tokens.offset - 1]
                         : undefined;
-                consumeStatementSeparator(this.tokens, "file", previousToken);
+                this.consumeStatementSeparator("file", previousToken);
             } catch (error) {
                 this.emitErrorFrom(error);
                 if (error instanceof ParseError) {
@@ -996,6 +129,66 @@ export class Parser {
         }
 
         return { kind: "Program", body } as Program;
+    }
+
+    parseExpressionOrThrow(): Expr {
+        return this.parseAssignment();
+    }
+
+    parseStatementOrThrow(): Statement {
+        const token = this.tokens.peek();
+        if (token?.type === "identifier" && VARIABLE_DECLARATION_KEYWORDS.includes(token.value as VariableDeclarationKind)) {
+            return this.parseVarStatement();
+        }
+        if (token?.type === "identifier" && FUNCTION_DECLARATION_KEYWORDS.includes(token.value as FunctionDeclarationKind)) {
+            return this.parseFunctionStatement();
+        }
+        if (token?.type === "identifier" && token.value === "class") {
+            return this.parseClassStatement();
+        }
+        if (token?.type === "identifier" && token.value === "do") {
+            return this.parseDoWhileStatement();
+        }
+        if (token?.type === "identifier" && token.value === "while") {
+            return this.parseWhileStatement();
+        }
+        if (token?.type === "identifier" && token.value === "return") {
+            return this.parseReturnStatement();
+        }
+        if (token?.type === "identifier" && token.value === "continue") {
+            return this.parseContinueStatement();
+        }
+        if (token?.type === "identifier" && token.value === "break") {
+            return this.parseBreakStatement();
+        }
+        if (token?.type === "symbol" && token.value === "{") {
+            return this.parseBlockStatement();
+        }
+
+        return {
+            kind: "ExprStatement",
+            expression: this.parseExpressionOrThrow()
+        } as ExprStatement;
+    }
+
+    parseFileOrThrow(): Program {
+        const body: Statement[] = [];
+
+        while (this.tokens.hasMore) {
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
+                this.tokens.skip();
+                continue;
+            }
+
+            const statement = this.parseStatementOrThrow();
+            body.push(statement);
+            this.consumeStatementSeparator("file", this.getLastReadToken());
+        }
+
+        return {
+            kind: "Program",
+            body
+        } as Program;
     }
 
     emitError(message: string, token: Token | undefined = this.tokens.peek()): void {
@@ -1051,4 +244,835 @@ export class Parser {
 
         this.emitError(error instanceof Error ? error.message : String(error));
     }
+
+    private fail(message: string, token?: Token, recoveryHint?: RecoveryHint): never {
+        throw new ParseError(message, token, recoveryHint);
+    }
+
+    private getLastReadToken(): Token | undefined {
+        if (this.tokens.offset <= 0) {
+            return undefined;
+        }
+        return this.tokens.items[this.tokens.offset - 1];
+    }
+
+    private tokenAt(preferred?: Token): Token | undefined {
+        return preferred ?? this.tokens.peek() ?? this.getLastReadToken();
+    }
+
+    private hasLineBreakBetween(a: Token | undefined, b: Token | undefined): boolean {
+        if (!a || !b) {
+            return false;
+        }
+        return a.range.end.line < b.range.start.line;
+    }
+
+    private consumeStatementSeparator(
+        context: "file" | "block",
+        previousToken: Token | undefined
+    ): void {
+        if (!this.tokens.hasMore) {
+            return;
+        }
+
+        const next = this.tokens.peek();
+        if (next?.type === "symbol" && next.value === ";") {
+            this.tokens.skip();
+            return;
+        }
+
+        if (context === "block" && next?.type === "symbol" && next.value === "}") {
+            return;
+        }
+
+        if (this.hasLineBreakBetween(previousToken, next)) {
+            return;
+        }
+
+        const suffix = context === "block" ? "or '}'" : "or end of file";
+        this.fail(`Expected ';', newline, ${suffix} between statements`, next, context === "block" ? "block" : undefined);
+    }
+
+    private buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
+        return {
+            kind: "BinaryExpression",
+            operator,
+            left,
+            right
+        };
+    }
+
+    private parseLeftAssociative(
+        operators: readonly BinaryOperator[],
+        parseNext: () => Expr
+    ): Expr {
+        let left = parseNext();
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+            if (token?.type !== "symbol" || !operators.includes(token.value as BinaryOperator)) {
+                break;
+            }
+
+            this.tokens.skip();
+            const right = parseNext();
+            left = this.buildBinary(token.value as BinaryOperator, left, right);
+        }
+
+        return left;
+    }
+
+    private parseArrayLiteral(): ArrayLiteral {
+        const elements: Expr[] = [];
+
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
+            this.tokens.skip();
+            return {
+                kind: "ArrayLiteral",
+                elements
+            } as ArrayLiteral;
+        }
+
+        while (this.tokens.hasMore) {
+            elements.push(this.parseExpressionOrThrow());
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                continue;
+            }
+
+            if (separator?.type === "symbol" && separator.value === "]") {
+                this.tokens.skip();
+                return {
+                    kind: "ArrayLiteral",
+                    elements
+                } as ArrayLiteral;
+            }
+
+            break;
+        }
+
+        this.fail("Expected ',' or ']' in array literal", this.tokenAt());
+    }
+
+    private parseObjectLiteral(): ObjectLiteral {
+        const properties: ObjectProperty[] = [];
+
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
+            this.tokens.skip();
+            return {
+                kind: "ObjectLiteral",
+                properties
+            } as ObjectLiteral;
+        }
+
+        while (this.tokens.hasMore) {
+            const key = this.tokens.read();
+            if (key?.type !== "identifier") {
+                this.fail("Expected identifier key in object literal", key);
+            }
+
+            const colon = this.tokens.read();
+            if (colon?.type !== "symbol" || colon.value !== ":") {
+                this.fail("Expected ':' after object key", colon);
+            }
+
+            properties.push({
+                kind: "ObjectProperty",
+                key: { kind: "Identifier", name: key.value } as Identifier,
+                value: this.parseExpressionOrThrow()
+            } as ObjectProperty);
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                continue;
+            }
+
+            if (separator?.type === "symbol" && separator.value === "}") {
+                this.tokens.skip();
+                return {
+                    kind: "ObjectLiteral",
+                    properties
+                } as ObjectLiteral;
+            }
+
+            break;
+        }
+
+        this.fail("Expected ',' or '}' in object literal", this.tokenAt());
+    }
+
+    private parsePrimary(): Expr {
+        const token = this.tokens.read();
+
+        if (token?.type === "symbol" && token.value === "(") {
+            const expr = this.parseExpressionOrThrow();
+            const close = this.tokens.read();
+            if (close?.type !== "symbol" || close.value !== ")") {
+                this.fail("Expected ')' after parenthesized expression", this.tokenAt(close));
+            }
+            return expr;
+        }
+
+        if (token?.type === "symbol" && token.value === "[") {
+            return this.parseArrayLiteral();
+        }
+
+        if (token?.type === "symbol" && token.value === "{") {
+            return this.parseObjectLiteral();
+        }
+
+        if (token?.type === "number") {
+            return { kind: "IntLiteral", value: parseInt(token.value, 10) } as IntLiteral;
+        }
+
+        if (token?.type === "string") {
+            return { kind: "StringLiteral", value: token.value } as StringLiteral;
+        }
+
+        if (token?.type === "identifier") {
+            return { kind: "Identifier", name: token.value } as Identifier;
+        }
+
+        this.fail("Expected a number literal, string literal, identifier, '(', '[' or '{'", this.tokenAt(token));
+    }
+
+    private parsePostfix(): Expr {
+        let expr = this.parsePrimary();
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+
+            if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
+                this.tokens.skip();
+                const property = this.tokens.read();
+                if (property?.type !== "identifier") {
+                    this.fail(`Expected identifier after '${token.value}'`, this.tokenAt(property ?? token));
+                }
+
+                expr = {
+                    kind: "MemberExpression",
+                    object: expr,
+                    property: { kind: "Identifier", name: property.value } as Identifier,
+                    computed: false,
+                    optional: token.value === "?." ? true : undefined,
+                    nonNullAsserted: token.value === "!." ? true : undefined
+                } as MemberExpression;
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "[") {
+                this.tokens.skip();
+                const property = this.parseExpressionOrThrow();
+                const close = this.tokens.read();
+                if (close?.type !== "symbol" || close.value !== "]") {
+                    this.fail("Expected ']' after computed member access", this.tokenAt(close));
+                }
+
+                expr = {
+                    kind: "MemberExpression",
+                    object: expr,
+                    property,
+                    computed: true
+                } as MemberExpression;
+                continue;
+            }
+
+            break;
+        }
+
+        return expr;
+    }
+
+    private parseUnary(): Expr {
+        const token = this.tokens.peek();
+        if (token?.type === "symbol" && (token.value === "+" || token.value === "-")) {
+            this.tokens.skip();
+            const argument = this.parseUnary();
+            return {
+                kind: "UnaryExpression",
+                operator: token.value,
+                argument
+            } as UnaryExpression;
+        }
+
+        return this.parsePostfix();
+    }
+
+    private parseExponentiation(): Expr {
+        const left = this.parseUnary();
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "**") {
+            this.tokens.skip();
+            const right = this.parseExponentiation();
+            return this.buildBinary("**", left, right);
+        }
+        return left;
+    }
+
+    private parseMultiplicative(): Expr {
+        return this.parseLeftAssociative(["*", "/", "%"], () => this.parseExponentiation());
+    }
+
+    private parseAdditive(): Expr {
+        return this.parseLeftAssociative(["+", "-"], () => this.parseMultiplicative());
+    }
+
+    private parseRelational(): Expr {
+        return this.parseLeftAssociative(["<", ">", "<=", ">="], () => this.parseAdditive());
+    }
+
+    private parseEquality(): Expr {
+        return this.parseLeftAssociative(["===", "!=="], () => this.parseRelational());
+    }
+
+    private parseBitwiseAnd(): Expr {
+        return this.parseLeftAssociative(["&"], () => this.parseEquality());
+    }
+
+    private parseBitwiseXor(): Expr {
+        return this.parseLeftAssociative(["^"], () => this.parseBitwiseAnd());
+    }
+
+    private parseBitwiseOr(): Expr {
+        return this.parseLeftAssociative(["|"], () => this.parseBitwiseXor());
+    }
+
+    private parseLogicalAnd(): Expr {
+        return this.parseLeftAssociative(["&&"], () => this.parseBitwiseOr());
+    }
+
+    private parseLogicalOr(): Expr {
+        return this.parseLeftAssociative(["||"], () => this.parseLogicalAnd());
+    }
+
+    private parseAssignment(): Expr {
+        const left = this.parseLogicalOr();
+        const token = this.tokens.peek();
+
+        if (token?.type === "symbol" && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
+            this.tokens.skip();
+            const right = this.parseAssignment();
+            return {
+                kind: "AssignmentExpression",
+                operator: token.value as AssignmentOperator,
+                left,
+                right
+            } as AssignmentExpression;
+        }
+
+        return left;
+    }
+
+    private parseVarStatement(): VarStatement {
+        const declarationKeyword = this.tokens.read();
+        if (
+            declarationKeyword?.type !== "identifier" ||
+            !VARIABLE_DECLARATION_KEYWORDS.includes(declarationKeyword.value as VariableDeclarationKind)
+        ) {
+            this.fail("Expected variable declaration statement", this.tokenAt(declarationKeyword));
+        }
+
+        const nameToken = this.tokens.read();
+        if (nameToken?.type !== "identifier") {
+            this.fail("Expected identifier after 'let'", this.tokenAt(nameToken));
+        }
+
+        let typeAnnotation: Identifier | undefined;
+        const maybeColon = this.tokens.peek();
+        if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
+            this.tokens.skip();
+            const typeToken = this.tokens.read();
+            if (typeToken?.type !== "identifier") {
+                this.fail("Expected type identifier after ':' in let statement", this.tokenAt(typeToken));
+            }
+            typeAnnotation = { kind: "Identifier", name: typeToken.value } as Identifier;
+        }
+
+        let initializer: Expr | undefined;
+        const maybeEquals = this.tokens.peek();
+        if (maybeEquals?.type === "symbol" && maybeEquals.value === "=") {
+            this.tokens.skip();
+            initializer = this.parseExpressionOrThrow();
+        }
+
+        const statement: VarStatement = {
+            kind: "VarStatement",
+            declarationKind: declarationKeyword.value as VariableDeclarationKind,
+            name: { kind: "Identifier", name: nameToken.value } as Identifier
+        };
+        if (typeAnnotation) {
+            statement.typeAnnotation = typeAnnotation;
+        }
+        if (initializer) {
+            statement.initializer = initializer;
+        }
+        return statement;
+    }
+
+    private parseFunctionStatement(): FunctionStatement {
+        const declarationKeyword = this.tokens.read();
+        if (
+            declarationKeyword?.type !== "identifier" ||
+            !FUNCTION_DECLARATION_KEYWORDS.includes(declarationKeyword.value as FunctionDeclarationKind)
+        ) {
+            this.fail("Expected function declaration statement", this.tokenAt(declarationKeyword));
+        }
+
+        const nameToken = this.tokens.read();
+        if (nameToken?.type !== "identifier") {
+            this.fail("Expected function name after declaration keyword", this.tokenAt(nameToken));
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after function name", this.tokenAt(openParen));
+        }
+
+        const parameters: FunctionParameter[] = [];
+        parameters.push(...this.parseFunctionParameters());
+
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after function parameters", this.tokenAt(closeParen));
+        }
+
+        let returnType: Identifier | undefined;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            this.tokens.skip();
+            const returnTypeToken = this.tokens.read();
+            if (returnTypeToken?.type !== "identifier") {
+                this.fail("Expected return type after ':' in function declaration", this.tokenAt(returnTypeToken));
+            }
+            returnType = { kind: "Identifier", name: returnTypeToken.value } as Identifier;
+        }
+
+        if (this.tokens.peek()?.type !== "symbol" || this.tokens.peek()?.value !== "{") {
+            this.fail("Expected '{' to start function body", this.tokenAt());
+        }
+        const body = this.parseBlockStatement();
+
+        const statement: FunctionStatement = {
+            kind: "FunctionStatement",
+            declarationKind: declarationKeyword.value as FunctionDeclarationKind,
+            name: { kind: "Identifier", name: nameToken.value } as Identifier,
+            parameters,
+            body
+        };
+        if (returnType) {
+            statement.returnType = returnType;
+        }
+
+        return statement;
+    }
+
+    private parseFunctionParameters(): FunctionParameter[] {
+        const parameters: FunctionParameter[] = [];
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+            return parameters;
+        }
+
+        while (this.tokens.hasMore) {
+            const parameterNameToken = this.tokens.read();
+            if (parameterNameToken?.type !== "identifier") {
+                this.fail("Expected parameter name in function declaration", this.tokenAt(parameterNameToken));
+            }
+
+            let parameterOptional = false;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+                this.tokens.skip();
+                parameterOptional = true;
+            }
+
+            let parameterTypeAnnotation: Identifier | undefined;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                this.tokens.skip();
+                const parameterTypeToken = this.tokens.read();
+                if (parameterTypeToken?.type !== "identifier") {
+                    this.fail("Expected parameter type after ':'", this.tokenAt(parameterTypeToken));
+                }
+                parameterTypeAnnotation = { kind: "Identifier", name: parameterTypeToken.value } as Identifier;
+            }
+
+            let parameterDefaultValue: Expr | undefined;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+                this.tokens.skip();
+                parameterDefaultValue = this.parseExpressionOrThrow();
+            }
+
+            const parameter: FunctionParameter = {
+                kind: "FunctionParameter",
+                name: { kind: "Identifier", name: parameterNameToken.value } as Identifier
+            };
+            if (parameterOptional) {
+                parameter.optional = true;
+            }
+            if (parameterTypeAnnotation) {
+                parameter.typeAnnotation = parameterTypeAnnotation;
+            }
+            if (parameterDefaultValue) {
+                parameter.defaultValue = parameterDefaultValue;
+            }
+            parameters.push(parameter);
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                continue;
+            }
+            if (separator?.type === "symbol" && separator.value === ")") {
+                break;
+            }
+            this.fail("Expected ',' or ')' in function parameter list", this.tokenAt(separator));
+        }
+
+        return parameters;
+    }
+
+    private parseClassMember(): ClassMember {
+        const memberNameToken = this.tokens.read();
+        if (memberNameToken?.type !== "identifier") {
+            this.fail("Expected class member name", this.tokenAt(memberNameToken));
+        }
+
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+            this.tokens.skip();
+            const parameters = this.parseFunctionParameters();
+
+            const closeParen = this.tokens.read();
+            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                this.fail("Expected ')' after method parameters", this.tokenAt(closeParen));
+            }
+
+            let returnType: Identifier | undefined;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                this.tokens.skip();
+                const returnTypeToken = this.tokens.read();
+                if (returnTypeToken?.type !== "identifier") {
+                    this.fail("Expected return type after ':' in class method", this.tokenAt(returnTypeToken));
+                }
+                returnType = { kind: "Identifier", name: returnTypeToken.value } as Identifier;
+            }
+
+            if (this.tokens.peek()?.type !== "symbol" || this.tokens.peek()?.value !== "{") {
+                this.fail("Expected '{' to start class method body", this.tokenAt());
+            }
+
+            const methodMember: ClassMethodMember = {
+                kind: "ClassMethodMember",
+                name: { kind: "Identifier", name: memberNameToken.value } as Identifier,
+                parameters,
+                body: this.parseBlockStatement()
+            };
+            if (returnType) {
+                methodMember.returnType = returnType;
+            }
+
+            return methodMember;
+        }
+
+        let typeAnnotation: Identifier | undefined;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            this.tokens.skip();
+            const typeToken = this.tokens.read();
+            if (typeToken?.type !== "identifier") {
+                this.fail("Expected type identifier after ':' in class field", this.tokenAt(typeToken));
+            }
+            typeAnnotation = { kind: "Identifier", name: typeToken.value } as Identifier;
+        }
+
+        let initializer: Expr | undefined;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+            this.tokens.skip();
+            initializer = this.parseExpressionOrThrow();
+        }
+
+        const fieldMember: ClassFieldMember = {
+            kind: "ClassFieldMember",
+            name: { kind: "Identifier", name: memberNameToken.value } as Identifier
+        };
+        if (typeAnnotation) {
+            fieldMember.typeAnnotation = typeAnnotation;
+        }
+        if (initializer) {
+            fieldMember.initializer = initializer;
+        }
+        return fieldMember;
+    }
+
+    private parseClassPrimaryConstructorParameters(): ClassPrimaryConstructorParameter[] {
+        const parameters: ClassPrimaryConstructorParameter[] = [];
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+            return parameters;
+        }
+
+        while (this.tokens.hasMore) {
+            const declarationToken = this.tokens.read();
+            if (
+                declarationToken?.type !== "identifier" ||
+                !VARIABLE_DECLARATION_KEYWORDS.includes(declarationToken.value as VariableDeclarationKind)
+            ) {
+                this.fail("Expected declaration keyword in class primary constructor parameter", this.tokenAt(declarationToken));
+            }
+
+            const parameterNameToken = this.tokens.read();
+            if (parameterNameToken?.type !== "identifier") {
+                this.fail("Expected parameter name in class primary constructor", this.tokenAt(parameterNameToken));
+            }
+
+            let parameterTypeAnnotation: Identifier | undefined;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                this.tokens.skip();
+                const parameterTypeToken = this.tokens.read();
+                if (parameterTypeToken?.type !== "identifier") {
+                    this.fail("Expected parameter type after ':'", this.tokenAt(parameterTypeToken));
+                }
+                parameterTypeAnnotation = { kind: "Identifier", name: parameterTypeToken.value } as Identifier;
+            }
+
+            let parameterDefaultValue: Expr | undefined;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+                this.tokens.skip();
+                parameterDefaultValue = this.parseExpressionOrThrow();
+            }
+
+            const parameter: ClassPrimaryConstructorParameter = {
+                kind: "ClassPrimaryConstructorParameter",
+                declarationKind: declarationToken.value as VariableDeclarationKind,
+                name: { kind: "Identifier", name: parameterNameToken.value } as Identifier
+            };
+            if (parameterTypeAnnotation) {
+                parameter.typeAnnotation = parameterTypeAnnotation;
+            }
+            if (parameterDefaultValue) {
+                parameter.defaultValue = parameterDefaultValue;
+            }
+            parameters.push(parameter);
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                continue;
+            }
+            if (separator?.type === "symbol" && separator.value === ")") {
+                break;
+            }
+            this.fail("Expected ',' or ')' in class primary constructor parameter list", this.tokenAt(separator));
+        }
+
+        return parameters;
+    }
+
+    private parseClassStatement(): ClassStatement {
+        const classKeyword = this.tokens.read();
+        if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
+            this.fail("Expected class declaration statement", this.tokenAt(classKeyword));
+        }
+
+        const classNameToken = this.tokens.read();
+        if (classNameToken?.type !== "identifier") {
+            this.fail("Expected class name after 'class'", this.tokenAt(classNameToken));
+        }
+
+        let primaryConstructorParameters: ClassPrimaryConstructorParameter[] | undefined;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+            if (this.language !== "mylang") {
+                this.fail("Class primary constructor syntax is only available in MyLang mode", this.tokenAt());
+            }
+
+            this.tokens.skip();
+            primaryConstructorParameters = this.parseClassPrimaryConstructorParameters();
+
+            const closeParen = this.tokens.read();
+            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                this.fail("Expected ')' after class primary constructor parameters", this.tokenAt(closeParen));
+            }
+        }
+
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' to start class body", this.tokenAt(openBrace));
+        }
+
+        const members: ClassMember[] = [];
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+            if (token?.type === "symbol" && token.value === "}") {
+                this.tokens.skip();
+                const statement: ClassStatement = {
+                    kind: "ClassStatement",
+                    name: { kind: "Identifier", name: classNameToken.value } as Identifier,
+                    members
+                };
+                if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
+                    statement.primaryConstructorParameters = primaryConstructorParameters;
+                }
+                return statement;
+            }
+
+            if (token?.type === "symbol" && token.value === ";") {
+                this.tokens.skip();
+                continue;
+            }
+
+            const member = this.parseClassMember();
+            members.push(member);
+            this.consumeStatementSeparator("block", this.getLastReadToken());
+        }
+
+        this.fail("Expected '}' to close class body", this.tokenAt(openBrace), "block");
+    }
+
+    private parseBlockStatement(): BlockStatement {
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' to start block statement", this.tokenAt(openBrace));
+        }
+
+        const body: Statement[] = [];
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+
+            if (token?.type === "symbol" && token.value === "}") {
+                this.tokens.skip();
+                return {
+                    kind: "BlockStatement",
+                    body
+                } as BlockStatement;
+            }
+
+            if (token?.type === "symbol" && token.value === ";") {
+                this.tokens.skip();
+                continue;
+            }
+
+            try {
+                const statement = this.parseStatementOrThrow();
+                body.push(statement);
+                this.consumeStatementSeparator("block", this.getLastReadToken());
+            } catch (error) {
+                if (error instanceof ParseError) {
+                    throw new ParseError(error.message, error.token, "block");
+                }
+                throw error;
+            }
+        }
+
+        this.fail("Expected '}' to close block statement", this.tokenAt(openBrace), "block");
+    }
+
+    private parseWhileStatement(): WhileStatement {
+        const whileKeyword = this.tokens.read();
+        if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
+            this.fail("Expected 'while' statement", this.tokenAt(whileKeyword));
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after 'while'", this.tokenAt(openParen));
+        }
+
+        const condition = this.parseExpressionOrThrow();
+
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after while condition", this.tokenAt(closeParen));
+        }
+
+        const body = this.parseStatementOrThrow();
+        return {
+            kind: "WhileStatement",
+            condition,
+            body
+        } as WhileStatement;
+    }
+
+    private parseDoWhileStatement(): DoWhileStatement {
+        const doKeyword = this.tokens.read();
+        if (doKeyword?.type !== "identifier" || doKeyword.value !== "do") {
+            this.fail("Expected 'do' statement", this.tokenAt(doKeyword));
+        }
+
+        const body = this.parseStatementOrThrow();
+
+        const whileKeyword = this.tokens.read();
+        if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
+            this.fail("Expected 'while' after do-statement body", this.tokenAt(whileKeyword));
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after 'while'", this.tokenAt(openParen));
+        }
+
+        const condition = this.parseExpressionOrThrow();
+
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after do-while condition", this.tokenAt(closeParen));
+        }
+
+        return {
+            kind: "DoWhileStatement",
+            body,
+            condition
+        } as DoWhileStatement;
+    }
+
+    private parseReturnStatement(): ReturnStatement {
+        const returnKeyword = this.tokens.read();
+        if (returnKeyword?.type !== "identifier" || returnKeyword.value !== "return") {
+            this.fail("Expected 'return' statement", this.tokenAt(returnKeyword));
+        }
+
+        const next = this.tokens.peek();
+        if (!next) {
+            return { kind: "ReturnStatement" } as ReturnStatement;
+        }
+        if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
+            return { kind: "ReturnStatement" } as ReturnStatement;
+        }
+        if (this.hasLineBreakBetween(returnKeyword, next)) {
+            return { kind: "ReturnStatement" } as ReturnStatement;
+        }
+
+        return {
+            kind: "ReturnStatement",
+            expression: this.parseExpressionOrThrow()
+        } as ReturnStatement;
+    }
+
+    private parseContinueStatement(): ContinueStatement {
+        const continueKeyword = this.tokens.read();
+        if (continueKeyword?.type !== "identifier" || continueKeyword.value !== "continue") {
+            this.fail("Expected 'continue' statement", this.tokenAt(continueKeyword));
+        }
+        return { kind: "ContinueStatement" } as ContinueStatement;
+    }
+
+    private parseBreakStatement(): BreakStatement {
+        const breakKeyword = this.tokens.read();
+        if (breakKeyword?.type !== "identifier" || breakKeyword.value !== "break") {
+            this.fail("Expected 'break' statement", this.tokenAt(breakKeyword));
+        }
+        return { kind: "BreakStatement" } as BreakStatement;
+    }
+}
+
+export function parseExpression(r: ListReader<Token>, options: ParserOptions = {}): Expr {
+    return new Parser(r, options).parseExpressionOrThrow();
+}
+
+export function parseStatement(r: ListReader<Token>, options: ParserOptions = {}): Statement {
+    return new Parser(r, options).parseStatementOrThrow();
+}
+
+export function parseFile(r: ListReader<Token>, options: ParserOptions = {}): Program {
+    return new Parser(r, options).parseFileOrThrow();
+}
+
+export function parseProgram(r: ListReader<Token>, options: ParserOptions = {}): Program {
+    return parseFile(r, options);
 }
