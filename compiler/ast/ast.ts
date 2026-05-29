@@ -84,6 +84,12 @@ export interface WhileStatement extends Statement {
     body: Statement
 }
 
+export interface DoWhileStatement extends Statement {
+    kind: "DoWhileStatement"
+    body: Statement
+    condition: Expr
+}
+
 export interface Program extends Node {
     kind: "Program"
     body: Statement[]

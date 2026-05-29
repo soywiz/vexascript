@@ -5,6 +5,7 @@ import {
     AssignmentExpression,
     BinaryExpression,
     BlockStatement,
+    DoWhileStatement,
     Expr,
     Identifier,
     IntLiteral,
@@ -393,10 +394,45 @@ function parseWhileStatement(r: ListReader<Token>): WhileStatement {
     } as WhileStatement
 }
 
+function parseDoWhileStatement(r: ListReader<Token>): DoWhileStatement {
+    const doKeyword = r.read()
+    if (doKeyword?.type !== "identifier" || doKeyword.value !== "do") {
+        fail("Expected 'do' statement", doKeyword ?? r.peek())
+    }
+
+    const body = parseStatement(r)
+
+    const whileKeyword = r.read()
+    if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
+        fail("Expected 'while' after do-statement body", whileKeyword ?? r.peek())
+    }
+
+    const openParen = r.read()
+    if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        fail("Expected '(' after 'while'", openParen ?? r.peek())
+    }
+
+    const condition = parseExpression(r)
+
+    const closeParen = r.read()
+    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        fail("Expected ')' after do-while condition", closeParen ?? r.peek())
+    }
+
+    return {
+        kind: "DoWhileStatement",
+        body,
+        condition
+    } as DoWhileStatement
+}
+
 export function parseStatement(r: ListReader<Token>): Statement {
     const token = r.peek()
     if (token?.type === "identifier" && token.value === "let") {
         return parseLetStatement(r)
+    }
+    if (token?.type === "identifier" && token.value === "do") {
+        return parseDoWhileStatement(r)
     }
     if (token?.type === "identifier" && token.value === "while") {
         return parseWhileStatement(r)

@@ -310,6 +310,23 @@ describe("parseStatement", () => {
             }
         });
     });
+
+    it("parses a do-while statement with single-statement body", () => {
+        expect(parseStatement(tokenizeReader("do let x = 1 while (x + 1)"))).toEqual({
+            kind: "DoWhileStatement",
+            body: {
+                kind: "LetStatement",
+                name: { kind: "Identifier", name: "x" },
+                initializer: { kind: "IntLiteral", value: 1 }
+            },
+            condition: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "Identifier", name: "x" },
+                right: { kind: "IntLiteral", value: 1 }
+            }
+        });
+    });
 });
 
 describe("parseProgram", () => {
@@ -401,6 +418,43 @@ describe("parseProgram", () => {
                     kind: "LetStatement",
                     name: { kind: "Identifier", name: "c" },
                     initializer: { kind: "IntLiteral", value: 4 }
+                }
+            ]
+        });
+    });
+
+    it("parses do-while statements with block bodies", () => {
+        expect(parseProgram(tokenizeReader("do { let i = 0; let j = i + 1 } while (j); let done = 1;"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "DoWhileStatement",
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "LetStatement",
+                                name: { kind: "Identifier", name: "i" },
+                                initializer: { kind: "IntLiteral", value: 0 }
+                            },
+                            {
+                                kind: "LetStatement",
+                                name: { kind: "Identifier", name: "j" },
+                                initializer: {
+                                    kind: "BinaryExpression",
+                                    operator: "+",
+                                    left: { kind: "Identifier", name: "i" },
+                                    right: { kind: "IntLiteral", value: 1 }
+                                }
+                            }
+                        ]
+                    },
+                    condition: { kind: "Identifier", name: "j" }
+                },
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "done" },
+                    initializer: { kind: "IntLiteral", value: 1 }
                 }
             ]
         });
