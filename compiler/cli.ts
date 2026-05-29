@@ -16,7 +16,7 @@ async function buildFile(input: string, out?: string): Promise<void> {
   const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
   await writeFile(outputPath, result.code, "utf8");
 
-  console.log(`Compilado: ${sourcePath} -> ${outputPath}`);
+  console.log(`Compiled: ${sourcePath} -> ${outputPath}`);
   if (result.warnings.length > 0) {
     for (const warning of result.warnings) {
       console.warn(`warning: ${warning}`);
@@ -44,30 +44,30 @@ async function main(): Promise<void> {
 
   const program = new Command()
     .name("mylang")
-    .description("CLI del compilador MyLang")
+    .description("MyLang compiler CLI")
     .version("0.1.0");
 
   program
     .command("build")
-    .description("Compila un archivo MyLang a JavaScript")
-    .argument("<input>", "Archivo de entrada")
-    .option("-o, --out <file>", "Archivo de salida")
+    .description("Compile a MyLang file to JavaScript")
+    .argument("<input>", "Input file")
+    .option("-o, --out <file>", "Output file")
     .action(async (input: string, opts: { out?: string }) => {
       await buildFile(input, opts.out);
     });
 
   program
     .command("tokens")
-    .description("Muestra tokens del archivo")
-    .argument("<input>", "Archivo de entrada")
+    .description("Show file tokens")
+    .argument("<input>", "Input file")
     .action(async (input: string) => {
       await printTokens(input);
     });
 
   program
     .command("ast")
-    .description("Muestra AST simplificado")
-    .argument("<input>", "Archivo de entrada")
+    .description("Show simplified AST")
+    .argument("<input>", "Input file")
     .action(async (input: string) => {
       await printAst(input);
     });

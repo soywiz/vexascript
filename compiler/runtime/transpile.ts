@@ -4,14 +4,14 @@ export interface TranspileResult {
 }
 
 /**
- * Transpilador base para un lenguaje parecido a TypeScript.
- * Ahora mismo hace una transformación mínima como placeholder.
+ * Base transpiler for a TypeScript-like language.
+ * For now, it performs only a minimal placeholder transformation.
  */
 export function transpile(source: string): TranspileResult {
   const warnings: string[] = [];
 
   if (source.includes("any")) {
-    warnings.push("Evita 'any' en MyLang cuando sea posible.");
+    warnings.push("Avoid 'any' in MyLang when possible.");
   }
 
   const code = source

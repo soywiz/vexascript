@@ -35,7 +35,7 @@ function validateDocument(doc: TextDocument): void {
         start: doc.positionAt(anyIndex),
         end: doc.positionAt(anyIndex + 3)
       },
-      message: "MyLang: evita 'any' cuando puedas.",
+      message: "MyLang: avoid 'any' when possible.",
       source: "mylang-ls"
     });
   }

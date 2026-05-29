@@ -2,12 +2,16 @@
 
 ## Testing policy
 
-- Trabajamos con TDD (Test-Driven Development).
-- Cada nueva feature debe venir acompañada de tests en el mismo cambio.
-- La suite oficial de tests se ejecuta con Vitest.
-- Criterio de aceptación mínimo: no se considera completada una feature si no tiene tests automatizados que validen su comportamiento.
+- We follow TDD (Test-Driven Development).
+- Every new feature must include tests in the same change.
+- The official test suite runs with Vitest.
+- Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
+
+## Language policy
+
+- All code and documentation must be written in English.
 
 ## Commands
 
-- Ejecutar tests una vez: `pnpm test`
-- Ejecutar tests en watch: `pnpm test:watch`
+- Run tests once: `pnpm test`
+- Run tests in watch mode: `pnpm test:watch`

@@ -1,18 +1,18 @@
 # MyLang
 
-Proyecto base con:
+Base project with:
 
-- Vite + TypeScript para playground web.
-- Compilador CLI en un único bundle (`dist/mylang.js`).
-- Language Server embebido en la misma CLI con `--language-server`.
+- Vite + TypeScript for the web playground.
+- Compiler CLI in a single bundle (`dist/mylang.js`).
+- Language Server embedded in the same CLI with `--language-server`.
 
-## Instalar
+## Install
 
 ```bash
 pnpm install
 ```
 
-## Desarrollo web
+## Web development
 
 ```bash
 pnpm dev
@@ -24,10 +24,10 @@ pnpm dev
 pnpm build
 ```
 
-Esto genera:
+This generates:
 
-- `dist/` del frontend (Vite)
-- `dist/mylang.js` (bundle único del compilador + herramientas + LSP)
+- `dist/` for the frontend (Vite)
+- `dist/mylang.js` (single bundle for compiler + tooling + LSP)
 
 ## Tests (TDD)
 
@@ -39,30 +39,30 @@ pnpm test
 pnpm test:watch
 ```
 
-## Uso de la CLI
+## CLI usage
 
-### Compilar archivo
-
-```bash
-pnpm node dist/mylang.js build ejemplo.my -o ejemplo.js
-```
-
-### Ver tokens
+### Compile a file
 
 ```bash
-pnpm node dist/mylang.js tokens ejemplo.my
+pnpm node dist/mylang.js build example.my -o example.js
 ```
 
-### Ver AST simplificado
+### View tokens
 
 ```bash
-pnpm node dist/mylang.js ast ejemplo.my
+pnpm node dist/mylang.js tokens example.my
 ```
 
-### Levantar language server
+### View simplified AST
+
+```bash
+pnpm node dist/mylang.js ast example.my
+```
+
+### Start language server
 
 ```bash
 pnpm node dist/mylang.js --language-server
 ```
 
-El servidor LSP se comunica por `stdio`, para integrarlo con editores.
+The LSP server communicates via `stdio` for editor integration.
