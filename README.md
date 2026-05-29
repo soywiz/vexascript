@@ -21,6 +21,18 @@ This generates:
 
 - `dist/mylang.js` (single bundle for compiler + tooling + LSP)
 
+## Build and run CLI in one command
+
+```bash
+pnpm run cli <args>
+```
+
+Example:
+
+```bash
+pnpm run cli tokens example.my
+```
+
 ## Tests (TDD)
 
 ```bash

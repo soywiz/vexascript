@@ -14,7 +14,7 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   minify: false,
-  noExternal: [/(.*)/],
+  external: ["commander", "vscode-languageserver", "vscode-languageserver-textdocument"],
   banner: {
     js: "#!/usr/bin/env node"
   }

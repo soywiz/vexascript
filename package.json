@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "cli": "pnpm build && node dist/mylang.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
