@@ -1,5 +1,6 @@
 {
   "files.associations": {
     "*.my": "mylang"
-  }
+  },
+  "workbench.iconTheme": "mylang-icons"
 }

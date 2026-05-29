@@ -1,0 +1,10 @@
+{
+  "iconDefinitions": {
+    "_mylangFile": {
+      "iconPath": "./icons/mylang-file.svg"
+    }
+  },
+  "fileExtensions": {
+    "my": "_mylangFile"
+  }
+}
