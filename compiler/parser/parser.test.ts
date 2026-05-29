@@ -566,6 +566,44 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses function parameters with optional marker and default value", () => {
+        expect(parseStatement(tokenizeReader("fun test(a, v, c?, d: Int = demo) { return d }"))).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            name: { kind: "Identifier", name: "test" },
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "a" }
+                },
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "v" }
+                },
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "c" },
+                    optional: true
+                },
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "d" },
+                    typeAnnotation: { kind: "Identifier", name: "Int" },
+                    defaultValue: { kind: "Identifier", name: "demo" }
+                }
+            ],
+            body: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "Identifier", name: "d" }
+                    }
+                ]
+            }
+        });
+    });
+
     it("parses return/continue/break statements", () => {
         expect(parseStatement(tokenizeReader("return value"))).toEqual({
             kind: "ReturnStatement",

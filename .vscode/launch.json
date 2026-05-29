@@ -6,10 +6,6 @@
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
-      "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/plugins/vscode",
-        "${workspaceFolder}"
-      ],
       "preLaunchTask": "mylang: prepare vscode extension",
       "autoAttachChildProcesses": true
     }

@@ -452,6 +452,12 @@ function parseFunctionStatement(r: ListReader<Token>): FunctionStatement {
                 fail("Expected parameter name in function declaration", tokenAt(r, parameterNameToken))
             }
 
+            let parameterOptional = false
+            if (r.peek()?.type === "symbol" && r.peek()?.value === "?") {
+                r.skip()
+                parameterOptional = true
+            }
+
             let parameterTypeAnnotation: Identifier | undefined
             if (r.peek()?.type === "symbol" && r.peek()?.value === ":") {
                 r.skip()
@@ -462,12 +468,24 @@ function parseFunctionStatement(r: ListReader<Token>): FunctionStatement {
                 parameterTypeAnnotation = { kind: "Identifier", name: parameterTypeToken.value } as Identifier
             }
 
+            let parameterDefaultValue: Expr | undefined
+            if (r.peek()?.type === "symbol" && r.peek()?.value === "=") {
+                r.skip()
+                parameterDefaultValue = parseExpression(r)
+            }
+
             const parameter: FunctionParameter = {
                 kind: "FunctionParameter",
                 name: { kind: "Identifier", name: parameterNameToken.value } as Identifier
             }
+            if (parameterOptional) {
+                parameter.optional = true
+            }
             if (parameterTypeAnnotation) {
                 parameter.typeAnnotation = parameterTypeAnnotation
+            }
+            if (parameterDefaultValue) {
+                parameter.defaultValue = parameterDefaultValue
             }
             parameters.push(parameter)
 

@@ -76,7 +76,9 @@ export type FunctionDeclarationKind = "fun" | "function";
 export interface FunctionParameter extends Node {
     kind: "FunctionParameter"
     name: Identifier
+    optional?: boolean
     typeAnnotation?: Identifier
+    defaultValue?: Expr
 }
 
 export interface VarStatement extends Statement {
