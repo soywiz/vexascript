@@ -58,6 +58,12 @@ describe("VS Code extension syntax highlighting", () => {
       )?.patterns?.[0]?.patterns?.[0]?.match ?? "";
 
     expect(keywordPatterns.join(" ")).toContain("let");
+    expect(keywordPatterns.join(" ")).toContain("var");
+    expect(keywordPatterns.join(" ")).toContain("val");
+    expect(keywordPatterns.join(" ")).toContain("const");
+    expect(keywordPatterns.join(" ")).toContain("function");
+    expect(keywordPatterns.join(" ")).toContain("fun");
+    expect(keywordPatterns.join(" ")).toContain("do");
     expect(operatorPatterns.join(" ")).toContain("\\+=");
     expect(operatorPatterns.join(" ")).toContain("\\*\\*");
     expect(stringEscapeMatch).toBe("\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})");

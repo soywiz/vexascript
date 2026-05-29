@@ -101,11 +101,11 @@
       "patterns": [
         {
           "name": "keyword.declaration.mylang",
-          "match": "\\b(let)\\b"
+          "match": "\\b(let|var|val|const|function|fun)\\b"
         },
         {
           "name": "keyword.control.mylang",
-          "match": "\\b(if|else|return|while|for|break|continue)\\b"
+          "match": "\\b(if|else|return|while|for|break|continue|do)\\b"
         },
         {
           "name": "storage.type.mylang",

@@ -9,6 +9,8 @@ export interface Expr extends Node {
 export interface Statement extends Node {
 }
 
+export type VariableDeclarationKind = "let" | "var" | "val" | "const";
+
 export interface IntLiteral extends Node {
     kind: "IntLiteral"
     value: number
@@ -71,6 +73,7 @@ export interface ObjectLiteral extends Node {
 
 export interface LetStatement extends Statement {
     kind: "LetStatement"
+    declarationKind: VariableDeclarationKind
     name: Identifier
     typeAnnotation?: Identifier
     initializer?: Expr

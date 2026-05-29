@@ -353,6 +353,7 @@ describe("parseStatement", () => {
     it("parses a let statement", () => {
         expect(parseStatement(tokenizeReader("let myvar = 1 + 2"))).toEqual({
             kind: "LetStatement",
+            declarationKind: "let",
             name: { kind: "Identifier", name: "myvar" },
             initializer: {
                 kind: "BinaryExpression",
@@ -366,6 +367,7 @@ describe("parseStatement", () => {
     it("parses a let statement with optional type and initializer", () => {
         expect(parseStatement(tokenizeReader("let name: Type = value"))).toEqual({
             kind: "LetStatement",
+            declarationKind: "let",
             name: { kind: "Identifier", name: "name" },
             typeAnnotation: { kind: "Identifier", name: "Type" },
             initializer: { kind: "Identifier", name: "value" }
@@ -375,6 +377,7 @@ describe("parseStatement", () => {
     it("parses a let statement with optional type and no initializer", () => {
         expect(parseStatement(tokenizeReader("let name: Type"))).toEqual({
             kind: "LetStatement",
+            declarationKind: "let",
             name: { kind: "Identifier", name: "name" },
             typeAnnotation: { kind: "Identifier", name: "Type" }
         });
@@ -383,7 +386,28 @@ describe("parseStatement", () => {
     it("parses a let statement with no type and no initializer", () => {
         expect(parseStatement(tokenizeReader("let name"))).toEqual({
             kind: "LetStatement",
+            declarationKind: "let",
             name: { kind: "Identifier", name: "name" }
+        });
+    });
+
+    it("parses var/val/const declarations and stores declaration kind", () => {
+        expect(parseStatement(tokenizeReader("var x = 1"))).toEqual({
+            kind: "LetStatement",
+            declarationKind: "var",
+            name: { kind: "Identifier", name: "x" },
+            initializer: { kind: "IntLiteral", value: 1 }
+        });
+        expect(parseStatement(tokenizeReader("val y: Num"))).toEqual({
+            kind: "LetStatement",
+            declarationKind: "val",
+            name: { kind: "Identifier", name: "y" },
+            typeAnnotation: { kind: "Identifier", name: "Num" }
+        });
+        expect(parseStatement(tokenizeReader("const z"))).toEqual({
+            kind: "LetStatement",
+            declarationKind: "const",
+            name: { kind: "Identifier", name: "z" }
         });
     });
 
@@ -393,6 +417,7 @@ describe("parseStatement", () => {
             body: [
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "a" },
                     initializer: { kind: "IntLiteral", value: 1 }
                 },
@@ -401,6 +426,7 @@ describe("parseStatement", () => {
                     body: [
                         {
                             kind: "LetStatement",
+                            declarationKind: "let",
                             name: { kind: "Identifier", name: "b" },
                             initializer: {
                                 kind: "BinaryExpression",
@@ -413,6 +439,7 @@ describe("parseStatement", () => {
                 },
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "c" },
                     initializer: { kind: "IntLiteral", value: 3 }
                 }
@@ -431,6 +458,7 @@ describe("parseStatement", () => {
             },
             body: {
                 kind: "LetStatement",
+                declarationKind: "let",
                 name: { kind: "Identifier", name: "b" },
                 initializer: { kind: "IntLiteral", value: 2 }
             }
@@ -442,6 +470,7 @@ describe("parseStatement", () => {
             kind: "DoWhileStatement",
             body: {
                 kind: "LetStatement",
+                declarationKind: "let",
                 name: { kind: "Identifier", name: "x" },
                 initializer: { kind: "IntLiteral", value: 1 }
             },
@@ -474,11 +503,13 @@ describe("parseProgram", () => {
             body: [
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "a" },
                     initializer: { kind: "IntLiteral", value: 1 }
                 },
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "b" },
                     initializer: {
                         kind: "BinaryExpression",
@@ -497,6 +528,7 @@ describe("parseProgram", () => {
             body: [
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "a" },
                     initializer: { kind: "IntLiteral", value: 1 }
                 },
@@ -505,11 +537,13 @@ describe("parseProgram", () => {
                     body: [
                         {
                             kind: "LetStatement",
+                            declarationKind: "let",
                             name: { kind: "Identifier", name: "b" },
                             initializer: { kind: "IntLiteral", value: 2 }
                         },
                         {
                             kind: "LetStatement",
+                            declarationKind: "let",
                             name: { kind: "Identifier", name: "c" },
                             initializer: {
                                 kind: "BinaryExpression",
@@ -536,11 +570,13 @@ describe("parseProgram", () => {
                         body: [
                             {
                                 kind: "LetStatement",
+                                declarationKind: "let",
                                 name: { kind: "Identifier", name: "a" },
                                 initializer: { kind: "IntLiteral", value: 2 }
                             },
                             {
                                 kind: "LetStatement",
+                                declarationKind: "let",
                                 name: { kind: "Identifier", name: "b" },
                                 initializer: {
                                     kind: "BinaryExpression",
@@ -554,6 +590,7 @@ describe("parseProgram", () => {
                 },
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "c" },
                     initializer: { kind: "IntLiteral", value: 4 }
                 }
@@ -572,11 +609,13 @@ describe("parseProgram", () => {
                         body: [
                             {
                                 kind: "LetStatement",
+                                declarationKind: "let",
                                 name: { kind: "Identifier", name: "i" },
                                 initializer: { kind: "IntLiteral", value: 0 }
                             },
                             {
                                 kind: "LetStatement",
+                                declarationKind: "let",
                                 name: { kind: "Identifier", name: "j" },
                                 initializer: {
                                     kind: "BinaryExpression",
@@ -591,6 +630,7 @@ describe("parseProgram", () => {
                 },
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "done" },
                     initializer: { kind: "IntLiteral", value: 1 }
                 }
@@ -604,6 +644,7 @@ describe("parseProgram", () => {
             body: [
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "a" },
                     initializer: { kind: "IntLiteral", value: 1 }
                 },
@@ -649,6 +690,7 @@ describe("Parser (with recovery)", () => {
             body: [
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "ok" },
                     initializer: { kind: "IntLiteral", value: 1 }
                 }
@@ -674,6 +716,7 @@ describe("Parser (with recovery)", () => {
             body: [
                 {
                     kind: "LetStatement",
+                    declarationKind: "let",
                     name: { kind: "Identifier", name: "ok" },
                     initializer: { kind: "IntLiteral", value: 2 }
                 }

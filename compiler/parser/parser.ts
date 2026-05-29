@@ -18,12 +18,14 @@ import {
     Statement,
     StringLiteral,
     UnaryExpression,
+    VariableDeclarationKind,
     WhileStatement
 } from "compiler/ast/ast";
 
 type BinaryOperator = BinaryExpression["operator"]
 type AssignmentOperator = AssignmentExpression["operator"]
 const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="]
+const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
 
 export interface ParseIssue {
     message: string;
@@ -371,9 +373,12 @@ export function parseExpression(r: ListReader<Token>): Expr {
 }
 
 function parseLetStatement(r: ListReader<Token>): LetStatement {
-    const letKeyword = r.read()
-    if (letKeyword?.type !== "identifier" || letKeyword.value !== "let") {
-        fail("Expected 'let' statement", tokenAt(r, letKeyword))
+    const declarationKeyword = r.read()
+    if (
+        declarationKeyword?.type !== "identifier" ||
+        !VARIABLE_DECLARATION_KEYWORDS.includes(declarationKeyword.value as VariableDeclarationKind)
+    ) {
+        fail("Expected variable declaration statement", tokenAt(r, declarationKeyword))
     }
 
     const nameToken = r.read()
@@ -401,6 +406,7 @@ function parseLetStatement(r: ListReader<Token>): LetStatement {
 
     const statement: LetStatement = {
         kind: "LetStatement",
+        declarationKind: declarationKeyword.value as VariableDeclarationKind,
         name: { kind: "Identifier", name: nameToken.value } as Identifier
     }
     if (typeAnnotation) {
@@ -511,7 +517,7 @@ function parseDoWhileStatement(r: ListReader<Token>): DoWhileStatement {
 
 export function parseStatement(r: ListReader<Token>): Statement {
     const token = r.peek()
-    if (token?.type === "identifier" && token.value === "let") {
+    if (token?.type === "identifier" && VARIABLE_DECLARATION_KEYWORDS.includes(token.value as VariableDeclarationKind)) {
         return parseLetStatement(r)
     }
     if (token?.type === "identifier" && token.value === "do") {
