@@ -308,6 +308,30 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses a let statement with optional type and initializer", () => {
+        expect(parseStatement(tokenizeReader("let name: Type = value"))).toEqual({
+            kind: "LetStatement",
+            name: { kind: "Identifier", name: "name" },
+            typeAnnotation: { kind: "Identifier", name: "Type" },
+            initializer: { kind: "Identifier", name: "value" }
+        });
+    });
+
+    it("parses a let statement with optional type and no initializer", () => {
+        expect(parseStatement(tokenizeReader("let name: Type"))).toEqual({
+            kind: "LetStatement",
+            name: { kind: "Identifier", name: "name" },
+            typeAnnotation: { kind: "Identifier", name: "Type" }
+        });
+    });
+
+    it("parses a let statement with no type and no initializer", () => {
+        expect(parseStatement(tokenizeReader("let name"))).toEqual({
+            kind: "LetStatement",
+            name: { kind: "Identifier", name: "name" }
+        });
+    });
+
     it("parses a block statement with nested statements", () => {
         expect(parseStatement(tokenizeReader("{ let a = 1; { let b = a + 2 }\nlet c = 3 }"))).toEqual({
             kind: "BlockStatement",

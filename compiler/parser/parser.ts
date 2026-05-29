@@ -375,17 +375,35 @@ function parseLetStatement(r: ListReader<Token>): LetStatement {
         fail("Expected identifier after 'let'", nameToken ?? r.peek())
     }
 
-    const equalsToken = r.read()
-    if (equalsToken?.type !== "symbol" || equalsToken.value !== "=") {
-        fail("Expected '=' in let statement", equalsToken ?? r.peek())
+    let typeAnnotation: Identifier | undefined
+    const maybeColon = r.peek()
+    if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
+        r.skip()
+        const typeToken = r.read()
+        if (typeToken?.type !== "identifier") {
+            fail("Expected type identifier after ':' in let statement", typeToken ?? r.peek())
+        }
+        typeAnnotation = { kind: "Identifier", name: typeToken.value } as Identifier
     }
 
-    const initializer = parseExpression(r)
-    return {
+    let initializer: Expr | undefined
+    const maybeEquals = r.peek()
+    if (maybeEquals?.type === "symbol" && maybeEquals.value === "=") {
+        r.skip()
+        initializer = parseExpression(r)
+    }
+
+    const statement: LetStatement = {
         kind: "LetStatement",
-        name: { kind: "Identifier", name: nameToken.value } as Identifier,
-        initializer
-    } as LetStatement
+        name: { kind: "Identifier", name: nameToken.value } as Identifier
+    }
+    if (typeAnnotation) {
+        statement.typeAnnotation = typeAnnotation
+    }
+    if (initializer) {
+        statement.initializer = initializer
+    }
+    return statement
 }
 
 function parseBlockStatement(r: ListReader<Token>): BlockStatement {

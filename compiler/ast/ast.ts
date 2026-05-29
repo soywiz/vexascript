@@ -70,7 +70,8 @@ export interface ObjectLiteral extends Node {
 export interface LetStatement extends Statement {
     kind: "LetStatement"
     name: Identifier
-    initializer: Expr
+    typeAnnotation?: Identifier
+    initializer?: Expr
 }
 
 export interface ExprStatement extends Statement {
