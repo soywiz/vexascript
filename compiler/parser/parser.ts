@@ -1,8 +1,16 @@
 import { ListReader } from "compiler/utils/ListReader";
 import { Token } from "./tokenizer";
-import { BinaryExpression, Expr, IntLiteral } from "compiler/ast/ast";
+import {
+    AssignmentExpression,
+    BinaryExpression,
+    Expr,
+    Identifier,
+    IntLiteral
+} from "compiler/ast/ast";
 
 type BinaryOperator = BinaryExpression["operator"]
+type AssignmentOperator = AssignmentExpression["operator"]
+const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="]
 
 function buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
     return {
@@ -50,6 +58,10 @@ function parsePrimary(r: ListReader<Token>): Expr {
         return { kind: "IntLiteral", value: parseInt(token.value, 10) } as IntLiteral;
     }
 
+    if (token?.type === "identifier") {
+        return { kind: "Identifier", name: token.value } as Identifier;
+    }
+
     throw new Error("Expected a number literal or '('");
 }
 
@@ -91,6 +103,24 @@ function parseLogicalOr(r: ListReader<Token>): Expr {
     return parseLeftAssociative(r, ["||"], parseLogicalAnd)
 }
 
+function parseAssignment(r: ListReader<Token>): Expr {
+    const left = parseLogicalOr(r)
+    const token = r.peek()
+
+    if (token?.type === "symbol" && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
+        r.skip()
+        const right = parseAssignment(r)
+        return {
+            kind: "AssignmentExpression",
+            operator: token.value as AssignmentOperator,
+            left,
+            right
+        } as AssignmentExpression
+    }
+
+    return left
+}
+
 export function parseExpression(r: ListReader<Token>): Expr {
-    return parseLogicalOr(r)
+    return parseAssignment(r)
 }

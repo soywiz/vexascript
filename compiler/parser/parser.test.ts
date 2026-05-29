@@ -102,4 +102,45 @@ describe("parseExpression", () => {
             }
         });
     });
+
+    it("parses all requested compound assignment operators", () => {
+        const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="] as const;
+
+        for (const operator of operators) {
+            expect(parseExpression(tokenizeReader(`a ${operator} 1`))).toEqual({
+                kind: "AssignmentExpression",
+                operator,
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "IntLiteral", value: 1 }
+            });
+        }
+    });
+
+    it("parses compound assignment as right-associative", () => {
+        expect(parseExpression(tokenizeReader("a += b *= c"))).toEqual({
+            kind: "AssignmentExpression",
+            operator: "+=",
+            left: { kind: "Identifier", name: "a" },
+            right: {
+                kind: "AssignmentExpression",
+                operator: "*=",
+                left: { kind: "Identifier", name: "b" },
+                right: { kind: "Identifier", name: "c" }
+            }
+        });
+    });
+
+    it("parses logical expressions on the right side of assignment", () => {
+        expect(parseExpression(tokenizeReader("a ||= b && c"))).toEqual({
+            kind: "AssignmentExpression",
+            operator: "||=",
+            left: { kind: "Identifier", name: "a" },
+            right: {
+                kind: "BinaryExpression",
+                operator: "&&",
+                left: { kind: "Identifier", name: "b" },
+                right: { kind: "Identifier", name: "c" }
+            }
+        });
+    });
 })

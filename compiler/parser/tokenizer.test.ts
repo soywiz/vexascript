@@ -30,4 +30,28 @@ describe("tokenizer", () => {
             { type: "number", value: "5" }
         ])
     })
+
+    it("tokenizes compound assignment operators", () => {
+        expect(tokenize("a += b -= c %= d *= e /= f &= g |= h &&= i ||= j")).toStrictEqual([
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "+=" },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: "-=" },
+            { type: "identifier", value: "c" },
+            { type: "symbol", value: "%=" },
+            { type: "identifier", value: "d" },
+            { type: "symbol", value: "*=" },
+            { type: "identifier", value: "e" },
+            { type: "symbol", value: "/=" },
+            { type: "identifier", value: "f" },
+            { type: "symbol", value: "&=" },
+            { type: "identifier", value: "g" },
+            { type: "symbol", value: "|=" },
+            { type: "identifier", value: "h" },
+            { type: "symbol", value: "&&=" },
+            { type: "identifier", value: "i" },
+            { type: "symbol", value: "||=" },
+            { type: "identifier", value: "j" }
+        ])
+    })
 })
