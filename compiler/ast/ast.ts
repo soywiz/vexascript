@@ -71,12 +71,29 @@ export interface ObjectLiteral extends Node {
     properties: ObjectProperty[]
 }
 
+export type FunctionDeclarationKind = "fun" | "function";
+
+export interface FunctionParameter extends Node {
+    kind: "FunctionParameter"
+    name: Identifier
+    typeAnnotation?: Identifier
+}
+
 export interface VarStatement extends Statement {
     kind: "VarStatement"
     declarationKind: VariableDeclarationKind
     name: Identifier
     typeAnnotation?: Identifier
     initializer?: Expr
+}
+
+export interface FunctionStatement extends Statement {
+    kind: "FunctionStatement"
+    declarationKind: FunctionDeclarationKind
+    name: Identifier
+    parameters: FunctionParameter[]
+    returnType?: Identifier
+    body: BlockStatement
 }
 
 export interface ExprStatement extends Statement {
@@ -99,6 +116,19 @@ export interface DoWhileStatement extends Statement {
     kind: "DoWhileStatement"
     body: Statement
     condition: Expr
+}
+
+export interface ReturnStatement extends Statement {
+    kind: "ReturnStatement"
+    expression?: Expr
+}
+
+export interface ContinueStatement extends Statement {
+    kind: "ContinueStatement"
+}
+
+export interface BreakStatement extends Statement {
+    kind: "BreakStatement"
 }
 
 export interface Program extends Node {

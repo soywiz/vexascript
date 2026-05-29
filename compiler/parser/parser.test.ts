@@ -494,6 +494,93 @@ describe("parseStatement", () => {
             }
         });
     });
+
+    it("parses a function statement with optional parameter and return types (fun)", () => {
+        expect(parseStatement(tokenizeReader("fun demo(a, b, c: optType): optType { return a + b }"))).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            name: { kind: "Identifier", name: "demo" },
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "a" }
+                },
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "b" }
+                },
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "c" },
+                    typeAnnotation: { kind: "Identifier", name: "optType" }
+                }
+            ],
+            returnType: { kind: "Identifier", name: "optType" },
+            body: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: {
+                            kind: "BinaryExpression",
+                            operator: "+",
+                            left: { kind: "Identifier", name: "a" },
+                            right: { kind: "Identifier", name: "b" }
+                        }
+                    }
+                ]
+            }
+        });
+    });
+
+    it("parses a function statement using function keyword", () => {
+        expect(parseStatement(tokenizeReader("function demo(a, b, c: optType): optType { return c }"))).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "function",
+            name: { kind: "Identifier", name: "demo" },
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "a" }
+                },
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "b" }
+                },
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "c" },
+                    typeAnnotation: { kind: "Identifier", name: "optType" }
+                }
+            ],
+            returnType: { kind: "Identifier", name: "optType" },
+            body: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "Identifier", name: "c" }
+                    }
+                ]
+            }
+        });
+    });
+
+    it("parses return/continue/break statements", () => {
+        expect(parseStatement(tokenizeReader("return value"))).toEqual({
+            kind: "ReturnStatement",
+            expression: { kind: "Identifier", name: "value" }
+        });
+        expect(parseStatement(tokenizeReader("return"))).toEqual({
+            kind: "ReturnStatement"
+        });
+        expect(parseStatement(tokenizeReader("continue"))).toEqual({
+            kind: "ContinueStatement"
+        });
+        expect(parseStatement(tokenizeReader("break"))).toEqual({
+            kind: "BreakStatement"
+        });
+    });
 });
 
 describe("parseProgram", () => {
@@ -664,6 +751,47 @@ describe("parseProgram", () => {
                         operator: "+",
                         left: { kind: "Identifier", name: "a" },
                         right: { kind: "IntLiteral", value: 3 }
+                    }
+                }
+            ]
+        });
+    });
+
+    it("parses function bodies with return/continue/break statements", () => {
+        expect(
+            parseProgram(
+                tokenizeReader("fun demo(a, b, c: optType): optType {\nreturn\ncontinue\nbreak\n}\n")
+            )
+        ).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "FunctionStatement",
+                    declarationKind: "fun",
+                    name: { kind: "Identifier", name: "demo" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "a" }
+                        },
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "b" }
+                        },
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "c" },
+                            typeAnnotation: { kind: "Identifier", name: "optType" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "optType" },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            { kind: "ReturnStatement" },
+                            { kind: "ContinueStatement" },
+                            { kind: "BreakStatement" }
+                        ]
                     }
                 }
             ]
