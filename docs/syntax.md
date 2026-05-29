@@ -175,6 +175,10 @@ Supported unary operators:
 
 - unary plus (`+x`)
 - unary minus (`-x`)
+- prefix increment (`++x`)
+- prefix decrement (`--x`)
+- postfix increment (`x++`)
+- postfix decrement (`x--`)
 
 ### Binary operators
 
@@ -183,8 +187,9 @@ Supported binary operators:
 - exponentiation: `**`
 - multiplicative: `*`, `/`, `%`
 - additive: `+`, `-`
+- shift: `<<`, `>>`, `>>>`
 - relational: `<`, `>`, `<=`, `>=`
-- equality: `===`, `!==`
+- equality: `==`, `!=`, `===`, `!==`
 - bitwise: `&`, `^`, `|`
 - logical: `&&`, `||`
 
@@ -194,6 +199,7 @@ Supported assignment operators:
 
 - `=`
 - `+=`, `-=`, `*=`, `/=`, `%=`
+- `<<=`, `>>=`, `>>>=`
 - `&=`, `|=`
 - `&&=`, `||=`
 
@@ -253,6 +259,18 @@ for (;;) {
 }
 ```
 
+### If / else
+
+MyLang supports TypeScript-style `if` statements with optional `else`:
+
+```mylang
+if (condition) {
+  doWork
+} else {
+  fallback
+}
+```
+
 ### Return, continue, break
 
 Supported statements:
@@ -298,7 +316,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function` and TypeScript-style `for` statements.
+When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function`, TypeScript-style `for` statements, and `if` / `else` statements.
 
 Example:
 
@@ -307,5 +325,9 @@ declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Mome
 
 for (let i = 0; i < 10; i += 1) {
   const current = i;
+}
+
+if (current > 0) {
+  current--;
 }
 ```

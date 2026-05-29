@@ -4,6 +4,7 @@ import {
   DoWhileStatement,
   ForStatement,
   FunctionStatement,
+  IfStatement,
   Program,
   Statement,
   VarStatement,
@@ -93,6 +94,17 @@ function findVarStatementAtPosition(node: Statement, line: number, character: nu
       }
     }
     return findVarStatementAtPosition(forStatement.body, line, character);
+  }
+
+  if (node.kind === "IfStatement") {
+    const ifStatement = node as IfStatement;
+    const thenMatch = findVarStatementAtPosition(ifStatement.thenBranch, line, character);
+    if (thenMatch) {
+      return thenMatch;
+    }
+    if (ifStatement.elseBranch) {
+      return findVarStatementAtPosition(ifStatement.elseBranch, line, character);
+    }
   }
 
   if (node.kind === "FunctionStatement") {

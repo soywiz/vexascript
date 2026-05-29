@@ -17,6 +17,7 @@ import {
   FunctionParameter,
   FunctionStatement,
   Identifier,
+  IfStatement,
   IntLiteral,
   MemberExpression,
   ObjectLiteral,
@@ -25,6 +26,7 @@ import {
   Statement,
   StringLiteral,
   UnaryExpression,
+  UpdateExpression,
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
@@ -40,6 +42,7 @@ type KnownExpr =
   | ArrayLiteral
   | ObjectLiteral
   | UnaryExpression
+  | UpdateExpression
   | BinaryExpression
   | AssignmentExpression
   | MemberExpression;
@@ -53,6 +56,7 @@ type KnownStatement =
   | WhileStatement
   | DoWhileStatement
   | ForStatement
+  | IfStatement
   | ReturnStatement
   | ContinueStatement
   | BreakStatement;
@@ -64,10 +68,15 @@ const BINARY_PRECEDENCE: Record<BinaryExpression["operator"], number> = {
   "%": 12,
   "+": 11,
   "-": 11,
+  "<<": 10.5,
+  ">>": 10.5,
+  ">>>": 10.5,
   "<": 10,
   ">": 10,
   "<=": 10,
   ">=": 10,
+  "==": 9,
+  "!=": 9,
   "===": 9,
   "!==": 9,
   "&": 8,
@@ -144,6 +153,9 @@ function exprPrecedence(expr: Expr): number {
   }
   if (node.kind === "UnaryExpression") {
     return UNARY_PRECEDENCE;
+  }
+  if (node.kind === "UpdateExpression") {
+    return node.prefix ? UNARY_PRECEDENCE : MEMBER_PRECEDENCE;
   }
   if (node.kind === "MemberExpression") {
     return MEMBER_PRECEDENCE;
@@ -230,6 +242,14 @@ function formatExpression(expr: Expr): string {
       exprPrecedence(node.argument) < UNARY_PRECEDENCE
     );
     return `${node.operator}${argument}`;
+  }
+  if (node.kind === "UpdateExpression") {
+    const precedence = node.prefix ? UNARY_PRECEDENCE : MEMBER_PRECEDENCE;
+    const argument = withOptionalParens(
+      formatExpression(node.argument),
+      exprPrecedence(node.argument) < precedence
+    );
+    return node.prefix ? `${node.operator}${argument}` : `${argument}${node.operator}`;
   }
   if (node.kind === "BinaryExpression") {
     return formatBinaryExpression(node);
@@ -329,6 +349,25 @@ function formatForStatement(statement: ForStatement, level: number): string {
   return `${header}\n${formatStatement(statement.body, level + 1)}`;
 }
 
+function formatIfStatement(statement: IfStatement, level: number): string {
+  const header = `${indent(level)}if (${formatExpression(statement.condition)})`;
+  const thenNode = statement.thenBranch as KnownStatement;
+  const thenFormatted =
+    thenNode.kind === "BlockStatement"
+      ? `${header} ${formatBlockInline(thenNode, level)}`
+      : `${header}\n${formatStatement(statement.thenBranch, level + 1)}`;
+
+  if (!statement.elseBranch) {
+    return thenFormatted;
+  }
+
+  const elseNode = statement.elseBranch as KnownStatement;
+  if (elseNode.kind === "BlockStatement") {
+    return `${thenFormatted} else ${formatBlockInline(elseNode, level)}`;
+  }
+  return `${thenFormatted} else\n${formatStatement(statement.elseBranch, level + 1)}`;
+}
+
 function formatClassMethodMember(member: ClassMethodMember, level: number): string {
   const returnType = member.returnType ? `: ${formatIdentifier(member.returnType)}` : "";
   const header =
@@ -400,6 +439,9 @@ function formatStatement(statement: Statement, level: number): string {
   }
   if (node.kind === "ForStatement") {
     return formatForStatement(node, level);
+  }
+  if (node.kind === "IfStatement") {
+    return formatIfStatement(node, level);
   }
   if (node.kind === "ReturnStatement") {
     return node.expression

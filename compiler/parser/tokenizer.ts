@@ -301,6 +301,10 @@ function readSymbol(scanner: Scanner): string {
     advanceCode(scanner);
     return "+=";
   }
+  if (ch === CODE_PLUS && next === CODE_PLUS) {
+    advanceCode(scanner);
+    return "++";
+  }
   if (ch === CODE_QUESTION && next === CODE_DOT) {
     advanceCode(scanner);
     return "?.";
@@ -329,6 +333,10 @@ function readSymbol(scanner: Scanner): string {
     advanceCode(scanner);
     return "-=";
   }
+  if (ch === CODE_MINUS && next === CODE_MINUS) {
+    advanceCode(scanner);
+    return "--";
+  }
   if (ch === CODE_STAR && next === CODE_STAR) {
     advanceCode(scanner);
     return "**";
@@ -345,9 +353,33 @@ function readSymbol(scanner: Scanner): string {
     advanceCode(scanner);
     return "%=";
   }
+  if (ch === CODE_LT && next === CODE_LT) {
+    advanceCode(scanner);
+    if (scanner.reader.peekCode() === CODE_EQUALS) {
+      advanceCode(scanner);
+      return "<<=";
+    }
+    return "<<";
+  }
   if (ch === CODE_LT && next === CODE_EQUALS) {
     advanceCode(scanner);
     return "<=";
+  }
+  if (ch === CODE_GT && next === CODE_GT) {
+    advanceCode(scanner);
+    if (scanner.reader.peekCode() === CODE_GT) {
+      advanceCode(scanner);
+      if (scanner.reader.peekCode() === CODE_EQUALS) {
+        advanceCode(scanner);
+        return ">>>=";
+      }
+      return ">>>";
+    }
+    if (scanner.reader.peekCode() === CODE_EQUALS) {
+      advanceCode(scanner);
+      return ">>=";
+    }
+    return ">>";
   }
   if (ch === CODE_GT && next === CODE_EQUALS) {
     advanceCode(scanner);

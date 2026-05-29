@@ -32,14 +32,14 @@ export interface StringLiteral extends Node {
 
 export interface BinaryExpression extends Node {
     kind: "BinaryExpression"
-    operator: "+" | "-" | "*" | "/" | "%" | "**" | "<" | ">" | "<=" | ">=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&"
+    operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&"
     left: Expr
     right: Expr
 }
 
 export interface AssignmentExpression extends Node {
     kind: "AssignmentExpression"
-    operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||="
+    operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||=" | "<<=" | ">>=" | ">>>="
     left: Expr
     right: Expr
 }
@@ -57,6 +57,13 @@ export interface UnaryExpression extends Node {
     kind: "UnaryExpression"
     operator: "+" | "-"
     argument: Expr
+}
+
+export interface UpdateExpression extends Node {
+    kind: "UpdateExpression"
+    operator: "++" | "--"
+    argument: Expr
+    prefix: boolean
 }
 
 export interface ArrayLiteral extends Node {
@@ -163,6 +170,13 @@ export interface ForStatement extends Statement {
     condition?: Expr
     update?: Expr
     body: Statement
+}
+
+export interface IfStatement extends Statement {
+    kind: "IfStatement"
+    condition: Expr
+    thenBranch: Statement
+    elseBranch?: Statement
 }
 
 export interface ReturnStatement extends Statement {

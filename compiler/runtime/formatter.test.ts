@@ -59,4 +59,19 @@ describe("formatSource", () => {
     expect(formatSource("for(let i=0;i<3;i+=1){let x=i}"))
       .toBe("for (let i = 0; i < 3; i += 1) {\n  let x = i;\n}");
   });
+
+  it("formats if-else statements", () => {
+    expect(formatSource("if(a<1){let b=2}else return b"))
+      .toBe("if (a < 1) {\n  let b = 2;\n} else\n  return b;");
+  });
+
+  it("formats prefix and postfix increment/decrement", () => {
+    expect(formatSource("++a\na--"))
+      .toBe("++a;\na--;");
+  });
+
+  it("formats shift and equality operators", () => {
+    expect(formatSource("a<<1\nb>>=2\nc===d\nx!=y"))
+      .toBe("a << 1;\nb >>= 2;\nc === d;\nx != y;");
+  });
 });

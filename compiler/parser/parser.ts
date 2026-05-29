@@ -20,6 +20,7 @@ import {
     FunctionParameter,
     FunctionStatement,
     Identifier,
+    IfStatement,
     IntLiteral,
     MemberExpression,
     Node,
@@ -30,6 +31,7 @@ import {
     Statement,
     StringLiteral,
     UnaryExpression,
+    UpdateExpression,
     VariableDeclarationKind,
     VarStatement,
     WhileStatement
@@ -38,7 +40,7 @@ import {
 type BinaryOperator = BinaryExpression["operator"];
 type AssignmentOperator = AssignmentExpression["operator"];
 
-const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="];
+const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "<<=", ">>=", ">>>="];
 const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
 const FUNCTION_DECLARATION_KEYWORDS: readonly FunctionDeclarationKind[] = ["fun", "function"];
 
@@ -163,6 +165,9 @@ export class Parser {
         }
         if (token?.type === "identifier" && token.value === "for") {
             return this.parseForStatement();
+        }
+        if (token?.type === "identifier" && token.value === "if") {
+            return this.parseIfStatement();
         }
         if (token?.type === "identifier" && token.value === "while") {
             return this.parseWhileStatement();
@@ -721,6 +726,16 @@ export class Parser {
                 continue;
             }
 
+            if (token?.type === "symbol" && (token.value === "++" || token.value === "--")) {
+                this.tokens.skip();
+                return this.attachNodeBounds({
+                    kind: "UpdateExpression",
+                    operator: token.value,
+                    argument: expr,
+                    prefix: false
+                } as UpdateExpression, expr.firstToken, token);
+            }
+
             break;
         }
 
@@ -729,6 +744,16 @@ export class Parser {
 
     private parseUnary(): Expr {
         const token = this.tokens.peek();
+        if (token?.type === "symbol" && (token.value === "++" || token.value === "--")) {
+            this.tokens.skip();
+            const argument = this.parseUnary();
+            return this.attachNodeBounds({
+                kind: "UpdateExpression",
+                operator: token.value,
+                argument,
+                prefix: true
+            } as UpdateExpression, token, argument.lastToken ?? this.getLastReadToken());
+        }
         if (token?.type === "symbol" && (token.value === "+" || token.value === "-")) {
             this.tokens.skip();
             const argument = this.parseUnary();
@@ -760,12 +785,16 @@ export class Parser {
         return this.parseLeftAssociative(["+", "-"], () => this.parseMultiplicative());
     }
 
+    private parseShift(): Expr {
+        return this.parseLeftAssociative(["<<", ">>", ">>>"], () => this.parseAdditive());
+    }
+
     private parseRelational(): Expr {
-        return this.parseLeftAssociative(["<", ">", "<=", ">="], () => this.parseAdditive());
+        return this.parseLeftAssociative(["<", ">", "<=", ">="], () => this.parseShift());
     }
 
     private parseEquality(): Expr {
-        return this.parseLeftAssociative(["===", "!=="], () => this.parseRelational());
+        return this.parseLeftAssociative(["==", "!=", "===", "!=="], () => this.parseRelational());
     }
 
     private parseBitwiseAnd(): Expr {
@@ -1446,6 +1475,42 @@ export class Parser {
         }
 
         return this.attachNodeBounds(statement, forKeyword, this.getLastReadToken() ?? forKeyword);
+    }
+
+    private parseIfStatement(): IfStatement {
+        const ifKeyword = this.tokens.read();
+        if (ifKeyword?.type !== "identifier" || ifKeyword.value !== "if") {
+            this.fail("Expected 'if' statement", this.tokenAt(ifKeyword));
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after 'if'", this.tokenAt(openParen));
+        }
+
+        const condition = this.parseExpressionOrThrow();
+
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after if condition", this.tokenAt(closeParen));
+        }
+
+        const thenBranch = this.parseStatementOrThrow();
+        let elseBranch: Statement | undefined;
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "else") {
+            this.tokens.skip();
+            elseBranch = this.parseStatementOrThrow();
+        }
+
+        const statement: IfStatement = {
+            kind: "IfStatement",
+            condition,
+            thenBranch
+        };
+        if (elseBranch) {
+            statement.elseBranch = elseBranch;
+        }
+        return this.attachNodeBounds(statement, ifKeyword, this.getLastReadToken() ?? ifKeyword);
     }
 
     private parseReturnStatement(): ReturnStatement {

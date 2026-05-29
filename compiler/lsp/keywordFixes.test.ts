@@ -76,4 +76,16 @@ describe("findDeclarationKeywordReplacementAtPosition", () => {
       }
     });
   });
+
+  it("finds declaration inside if branches", () => {
+    const ast = parseFile(tokenizeReader("if (ok) { let a = 1 } else { let b = 2 }"));
+    expect(findDeclarationKeywordReplacementAtPosition(ast, 0, 12)).toEqual({
+      from: "let",
+      to: "const",
+      range: {
+        start: { line: 0, character: 10 },
+        end: { line: 0, character: 13 }
+      }
+    });
+  });
 });

@@ -66,6 +66,36 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for prefix increment and decrement", () => {
+        expect(parseExpression(tokenizeReader("++a"))).toEqual({
+            kind: "UpdateExpression",
+            operator: "++",
+            argument: { kind: "Identifier", name: "a" },
+            prefix: true
+        });
+        expect(parseExpression(tokenizeReader("--b"))).toEqual({
+            kind: "UpdateExpression",
+            operator: "--",
+            argument: { kind: "Identifier", name: "b" },
+            prefix: true
+        });
+    });
+
+    it("builds an AST for postfix increment and decrement", () => {
+        expect(parseExpression(tokenizeReader("a++"))).toEqual({
+            kind: "UpdateExpression",
+            operator: "++",
+            argument: { kind: "Identifier", name: "a" },
+            prefix: false
+        });
+        expect(parseExpression(tokenizeReader("b--"))).toEqual({
+            kind: "UpdateExpression",
+            operator: "--",
+            argument: { kind: "Identifier", name: "b" },
+            prefix: false
+        });
+    });
+
     it("builds an AST for nested array literals", () => {
         expect(parseExpression(tokenizeReader("[1, 2, [3, 4]]"))).toEqual({
             kind: "ArrayLiteral",
@@ -236,7 +266,24 @@ describe("parseExpression", () => {
         });
     });
 
-    it("applies precedence for relational operators", () => {
+    it("applies precedence for shift and relational operators", () => {
+        expect(parseExpression(tokenizeReader("1 + 2 << 3 < 4"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "<",
+            left: {
+                kind: "BinaryExpression",
+                operator: "<<",
+                left: {
+                    kind: "BinaryExpression",
+                    operator: "+",
+                    left: { kind: "IntLiteral", value: 1 },
+                    right: { kind: "IntLiteral", value: 2 }
+                },
+                right: { kind: "IntLiteral", value: 3 }
+            },
+            right: { kind: "IntLiteral", value: 4 }
+        });
+
         expect(parseExpression(tokenizeReader("1 < 2 <= 3"))).toEqual({
             kind: "BinaryExpression",
             operator: "<=",
@@ -251,30 +298,58 @@ describe("parseExpression", () => {
     });
 
     it("applies precedence for equality over bitwise and under relational", () => {
-        expect(parseExpression(tokenizeReader("1 < 2 === 3 & 4"))).toEqual({
+        expect(parseExpression(tokenizeReader("1 < 2 == 3 != 4 === 5 !== 6 & 7"))).toEqual({
             kind: "BinaryExpression",
             operator: "&",
             left: {
                 kind: "BinaryExpression",
-                operator: "===",
+                operator: "!==",
                 left: {
                     kind: "BinaryExpression",
-                    operator: "<",
-                    left: { kind: "IntLiteral", value: 1 },
-                    right: { kind: "IntLiteral", value: 2 }
+                    operator: "===",
+                    left: {
+                        kind: "BinaryExpression",
+                        operator: "!=",
+                        left: {
+                            kind: "BinaryExpression",
+                            operator: "==",
+                            left: {
+                                kind: "BinaryExpression",
+                                operator: "<",
+                                left: { kind: "IntLiteral", value: 1 },
+                                right: { kind: "IntLiteral", value: 2 }
+                            },
+                            right: { kind: "IntLiteral", value: 3 }
+                        },
+                        right: { kind: "IntLiteral", value: 4 }
+                    },
+                    right: { kind: "IntLiteral", value: 5 }
                 },
-                right: { kind: "IntLiteral", value: 3 }
+                right: { kind: "IntLiteral", value: 6 }
             },
-            right: { kind: "IntLiteral", value: 4 }
+            right: { kind: "IntLiteral", value: 7 }
         });
     });
 
     it("parses all requested compound assignment operators", () => {
-        const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="] as const;
+        const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "<<=", ">>=", ">>>="] as const;
 
         for (const operator of operators) {
             expect(parseExpression(tokenizeReader(`a ${operator} 1`))).toEqual({
                 kind: "AssignmentExpression",
+                operator,
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "IntLiteral", value: 1 }
+            });
+        }
+    });
+
+    it("parses all requested shift operators", () => {
+        const operators = ["<<", ">>", ">>>"] as const;
+
+        for (const operator of operators) {
+            expect(parseExpression(tokenizeReader(`a ${operator} 1`))).toEqual({
+                kind: "BinaryExpression",
                 operator,
                 left: { kind: "Identifier", name: "a" },
                 right: { kind: "IntLiteral", value: 1 }
@@ -483,6 +558,39 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses an if statement with single-statement branch", () => {
+        expect(parseStatement(tokenizeReader("if (a < 1) let b = 2"))).toEqual({
+            kind: "IfStatement",
+            condition: {
+                kind: "BinaryExpression",
+                operator: "<",
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "IntLiteral", value: 1 }
+            },
+            thenBranch: {
+                kind: "VarStatement",
+                declarationKind: "let",
+                name: { kind: "Identifier", name: "b" },
+                initializer: { kind: "IntLiteral", value: 2 }
+            }
+        });
+    });
+
+    it("parses an if-else statement", () => {
+        expect(parseStatement(tokenizeReader("if (a) return b else return c"))).toEqual({
+            kind: "IfStatement",
+            condition: { kind: "Identifier", name: "a" },
+            thenBranch: {
+                kind: "ReturnStatement",
+                expression: { kind: "Identifier", name: "b" }
+            },
+            elseBranch: {
+                kind: "ReturnStatement",
+                expression: { kind: "Identifier", name: "c" }
+            }
+        });
+    });
+
     it("parses a for statement with declaration initializer", () => {
         expect(parseStatement(tokenizeReader("for (let i = 0; i < 10; i += 1) let value = i"))).toEqual({
             kind: "ForStatement",
@@ -584,6 +692,15 @@ describe("parseStatement", () => {
                 operator: "+",
                 left: { kind: "Identifier", name: "a" },
                 right: { kind: "IntLiteral", value: 1 }
+            }
+        });
+        expect(parseStatement(tokenizeReader("a++"))).toEqual({
+            kind: "ExprStatement",
+            expression: {
+                kind: "UpdateExpression",
+                operator: "++",
+                argument: { kind: "Identifier", name: "a" },
+                prefix: false
             }
         });
     });
@@ -961,6 +1078,46 @@ describe("parseProgram", () => {
                         ]
                     },
                     condition: { kind: "Identifier", name: "j" }
+                },
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "done" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                }
+            ]
+        });
+    });
+
+    it("parses if-else statements with block bodies", () => {
+        expect(parseProgram(tokenizeReader("if (ok) { let a = 1 } else { let b = 2 }; let done = 1;"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "IfStatement",
+                    condition: { kind: "Identifier", name: "ok" },
+                    thenBranch: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "VarStatement",
+                                declarationKind: "let",
+                                name: { kind: "Identifier", name: "a" },
+                                initializer: { kind: "IntLiteral", value: 1 }
+                            }
+                        ]
+                    },
+                    elseBranch: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "VarStatement",
+                                declarationKind: "let",
+                                name: { kind: "Identifier", name: "b" },
+                                initializer: { kind: "IntLiteral", value: 2 }
+                            }
+                        ]
+                    }
                 },
                 {
                     kind: "VarStatement",

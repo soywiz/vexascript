@@ -36,7 +36,7 @@ describe("tokenizer", () => {
     })
 
     it("tokenizes relational and equality operators", () => {
-        expect(simplifyTokens("a < b <= c > d >= e === f !== g = h")).toStrictEqual([
+        expect(simplifyTokens("a < b <= c > d >= e == f != g === h !== i = j")).toStrictEqual([
             { type: "identifier", value: "a" },
             { type: "symbol", value: "<" },
             { type: "identifier", value: "b" },
@@ -46,12 +46,28 @@ describe("tokenizer", () => {
             { type: "identifier", value: "d" },
             { type: "symbol", value: ">=" },
             { type: "identifier", value: "e" },
-            { type: "symbol", value: "===" },
+            { type: "symbol", value: "==" },
             { type: "identifier", value: "f" },
-            { type: "symbol", value: "!==" },
+            { type: "symbol", value: "!=" },
             { type: "identifier", value: "g" },
+            { type: "symbol", value: "===" },
+            { type: "identifier", value: "h" },
+            { type: "symbol", value: "!==" },
+            { type: "identifier", value: "i" },
             { type: "symbol", value: "=" },
-            { type: "identifier", value: "h" }
+            { type: "identifier", value: "j" }
+        ])
+    })
+
+    it("tokenizes shift operators", () => {
+        expect(simplifyTokens("a << b >> c >>> d")).toStrictEqual([
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "<<" },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: ">>" },
+            { type: "identifier", value: "c" },
+            { type: "symbol", value: ">>>" },
+            { type: "identifier", value: "d" }
         ])
     })
 
@@ -66,7 +82,7 @@ describe("tokenizer", () => {
     })
 
     it("tokenizes compound assignment operators", () => {
-        expect(simplifyTokens("a += b -= c %= d *= e /= f &= g |= h &&= i ||= j")).toStrictEqual([
+        expect(simplifyTokens("a += b -= c %= d *= e /= f &= g |= h &&= i ||= j <<= k >>= l >>>= m")).toStrictEqual([
             { type: "identifier", value: "a" },
             { type: "symbol", value: "+=" },
             { type: "identifier", value: "b" },
@@ -85,7 +101,26 @@ describe("tokenizer", () => {
             { type: "symbol", value: "&&=" },
             { type: "identifier", value: "i" },
             { type: "symbol", value: "||=" },
-            { type: "identifier", value: "j" }
+            { type: "identifier", value: "j" },
+            { type: "symbol", value: "<<=" },
+            { type: "identifier", value: "k" },
+            { type: "symbol", value: ">>=" },
+            { type: "identifier", value: "l" },
+            { type: "symbol", value: ">>>=" },
+            { type: "identifier", value: "m" }
+        ])
+    })
+
+    it("tokenizes increment and decrement operators", () => {
+        expect(simplifyTokens("++a a++ --b b--")).toStrictEqual([
+            { type: "symbol", value: "++" },
+            { type: "identifier", value: "a" },
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "++" },
+            { type: "symbol", value: "--" },
+            { type: "identifier", value: "b" },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: "--" }
         ])
     })
 
