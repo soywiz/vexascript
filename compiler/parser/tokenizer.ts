@@ -1,9 +1,32 @@
 import { StrReader } from "compiler/utils/StrReader";
 import { ListReader } from "compiler/utils/ListReader";
 
+export interface SourcePosition {
+  offset: number;
+  line: number;
+  column: number;
+}
+
+export interface SourceRange {
+  start: SourcePosition;
+  end: SourcePosition;
+}
+
 export interface Token {
   type: "identifier" | "number" | "string" | "symbol";
   value: string;
+  index: number;
+  range: SourceRange;
+}
+
+export class TokenizeError extends Error {
+  range: SourceRange;
+
+  constructor(message: string, range: SourceRange) {
+    super(message);
+    this.name = "TokenizeError";
+    this.range = range;
+  }
 }
 
 const CODE_SPACE = 32;
@@ -34,6 +57,31 @@ const CODE_AMPERSAND = 38;
 const CODE_PIPE = 124;
 const CODE_STAR = 42;
 
+interface Scanner {
+  reader: StrReader;
+  line: number;
+  column: number;
+}
+
+function snapshot(scanner: Scanner): SourcePosition {
+  return {
+    offset: scanner.reader.offset,
+    line: scanner.line,
+    column: scanner.column
+  };
+}
+
+function advanceCode(scanner: Scanner): number {
+  const code = scanner.reader.readCode();
+  if (code === 10) {
+    scanner.line += 1;
+    scanner.column = 0;
+  } else {
+    scanner.column += 1;
+  }
+  return code;
+}
+
 function isWhitespaceCode(code: number): boolean {
   return code === CODE_SPACE || code === 10 || code === 13 || code === 9;
 }
@@ -62,33 +110,33 @@ function isHexDigitCode(code: number): boolean {
   );
 }
 
-function readIdentifier(reader: StrReader): string {
-  const start = reader.offset;
-  reader.skip();
-  while (reader.hasMore && isIdentifierPartCode(reader.peekCode())) {
-    reader.skip();
+function readIdentifier(scanner: Scanner): string {
+  const start = scanner.reader.offset;
+  advanceCode(scanner);
+  while (scanner.reader.hasMore && isIdentifierPartCode(scanner.reader.peekCode())) {
+    advanceCode(scanner);
   }
-  return reader.str.slice(start, reader.offset);
+  return scanner.reader.str.slice(start, scanner.reader.offset);
 }
 
-function readNumber(reader: StrReader): string {
-  const start = reader.offset;
-  reader.skip();
-  while (reader.hasMore && isDigitCode(reader.peekCode())) {
-    reader.skip();
+function readNumber(scanner: Scanner): string {
+  const start = scanner.reader.offset;
+  advanceCode(scanner);
+  while (scanner.reader.hasMore && isDigitCode(scanner.reader.peekCode())) {
+    advanceCode(scanner);
   }
-  return reader.str.slice(start, reader.offset);
+  return scanner.reader.str.slice(start, scanner.reader.offset);
 }
 
-function readEscapedString(reader: StrReader, quoteCode: number): string {
-  reader.readCode();
+function readEscapedString(scanner: Scanner, quoteCode: number, start: SourcePosition): string {
+  advanceCode(scanner);
   let value = "";
-  let segmentStart = reader.offset;
+  let segmentStart = scanner.reader.offset;
 
-  while (reader.hasMore) {
-    const code = reader.readCode();
+  while (scanner.reader.hasMore) {
+    const code = advanceCode(scanner);
     if (code === quoteCode) {
-      value += reader.str.slice(segmentStart, reader.offset - 1);
+      value += scanner.reader.str.slice(segmentStart, scanner.reader.offset - 1);
       return value;
     }
 
@@ -96,13 +144,16 @@ function readEscapedString(reader: StrReader, quoteCode: number): string {
       continue;
     }
 
-    value += reader.str.slice(segmentStart, reader.offset - 1);
+    value += scanner.reader.str.slice(segmentStart, scanner.reader.offset - 1);
 
-    if (!reader.hasMore) {
-      throw new Error("Unterminated escape sequence in string literal");
+    if (!scanner.reader.hasMore) {
+      throw new TokenizeError("Unterminated escape sequence in string literal", {
+        start,
+        end: snapshot(scanner)
+      });
     }
 
-    const escCode = reader.readCode();
+    const escCode = advanceCode(scanner);
     if (escCode === CODE_N_LOWER) {
       value += "\n";
     } else if (escCode === CODE_R_LOWER) {
@@ -118,12 +169,18 @@ function readEscapedString(reader: StrReader, quoteCode: number): string {
     } else if (escCode === CODE_U_LOWER) {
       let hexCodePoint = 0;
       for (let i = 0; i < 4; i++) {
-        if (!reader.hasMore) {
-          throw new Error("Invalid unicode escape sequence in string literal");
+        if (!scanner.reader.hasMore) {
+          throw new TokenizeError("Invalid unicode escape sequence in string literal", {
+            start,
+            end: snapshot(scanner)
+          });
         }
-        const hexCode = reader.readCode();
+        const hexCode = advanceCode(scanner);
         if (!isHexDigitCode(hexCode)) {
-          throw new Error("Invalid unicode escape sequence in string literal");
+          throw new TokenizeError("Invalid unicode escape sequence in string literal", {
+            start,
+            end: snapshot(scanner)
+          });
         }
         hexCodePoint <<= 4;
         if (hexCode >= CODE_ZERO && hexCode <= CODE_NINE) {
@@ -136,69 +193,73 @@ function readEscapedString(reader: StrReader, quoteCode: number): string {
       }
       value += String.fromCharCode(hexCodePoint);
     } else {
-      throw new Error(
-        `Unsupported escape sequence \\${String.fromCharCode(escCode)} in string literal`
+      throw new TokenizeError(
+        `Unsupported escape sequence \\${String.fromCharCode(escCode)} in string literal`,
+        { start, end: snapshot(scanner) }
       );
     }
 
-    segmentStart = reader.offset;
+    segmentStart = scanner.reader.offset;
   }
 
-  throw new Error("Unterminated string literal");
+  throw new TokenizeError("Unterminated string literal", {
+    start,
+    end: snapshot(scanner)
+  });
 }
 
-function readSymbol(reader: StrReader): string {
-  const ch = reader.readCode();
-  const next = reader.peekCode();
+function readSymbol(scanner: Scanner): string {
+  const ch = advanceCode(scanner);
+  const next = scanner.reader.peekCode();
 
   if (ch === CODE_PIPE && next === CODE_PIPE) {
-    reader.readCode();
-    if (reader.peekCode() === CODE_EQUALS) {
-      reader.readCode();
+    advanceCode(scanner);
+    if (scanner.reader.peekCode() === CODE_EQUALS) {
+      advanceCode(scanner);
       return "||=";
     }
     return "||";
   }
   if (ch === CODE_PIPE && next === CODE_EQUALS) {
-    reader.readCode();
+    advanceCode(scanner);
     return "|=";
   }
 
   if (ch === CODE_AMPERSAND && next === CODE_AMPERSAND) {
-    reader.readCode();
-    if (reader.peekCode() === CODE_EQUALS) {
-      reader.readCode();
+    advanceCode(scanner);
+    if (scanner.reader.peekCode() === CODE_EQUALS) {
+      advanceCode(scanner);
       return "&&=";
     }
     return "&&";
   }
   if (ch === CODE_AMPERSAND && next === CODE_EQUALS) {
-    reader.readCode();
+    advanceCode(scanner);
     return "&=";
   }
 
   if (ch === CODE_PLUS && next === CODE_EQUALS) {
-    reader.readCode();
+    advanceCode(scanner);
     return "+=";
   }
   if (ch === CODE_MINUS && next === CODE_EQUALS) {
-    reader.readCode();
+    advanceCode(scanner);
     return "-=";
   }
   if (ch === CODE_STAR && next === CODE_STAR) {
-    reader.readCode();
+    advanceCode(scanner);
     return "**";
   }
   if (ch === CODE_STAR && next === CODE_EQUALS) {
-    reader.readCode();
+    advanceCode(scanner);
     return "*=";
   }
   if (ch === CODE_SLASH && next === CODE_EQUALS) {
-    reader.readCode();
+    advanceCode(scanner);
     return "/=";
   }
   if (ch === CODE_PERCENT && next === CODE_EQUALS) {
-    reader.readCode();
+    advanceCode(scanner);
     return "%=";
   }
 
@@ -206,32 +267,47 @@ function readSymbol(reader: StrReader): string {
 }
 
 export function tokenize(input: string): Token[] {
-  const reader = new StrReader(input);
+  const scanner: Scanner = {
+    reader: new StrReader(input),
+    line: 0,
+    column: 0
+  };
   const tokens: Token[] = [];
 
-  while (reader.hasMore) {
-    const code = reader.peekCode();
+  while (scanner.reader.hasMore) {
+    const code = scanner.reader.peekCode();
     if (isWhitespaceCode(code)) {
-      reader.skip();
+      advanceCode(scanner);
       continue;
     }
+
+    const start = snapshot(scanner);
+    let type: Token["type"];
+    let value: string;
 
     if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
-      tokens.push({ type: "string", value: readEscapedString(reader, code) });
-      continue;
+      type = "string";
+      value = readEscapedString(scanner, code, start);
+    } else if (isIdentifierStartCode(code)) {
+      type = "identifier";
+      value = readIdentifier(scanner);
+    } else if (isDigitCode(code)) {
+      type = "number";
+      value = readNumber(scanner);
+    } else {
+      type = "symbol";
+      value = readSymbol(scanner);
     }
 
-    if (isIdentifierStartCode(code)) {
-      tokens.push({ type: "identifier", value: readIdentifier(reader) });
-      continue;
-    }
-
-    if (isDigitCode(code)) {
-      tokens.push({ type: "number", value: readNumber(reader) });
-      continue;
-    }
-
-    tokens.push({ type: "symbol", value: readSymbol(reader) });
+    tokens.push({
+      type,
+      value,
+      index: tokens.length,
+      range: {
+        start,
+        end: snapshot(scanner)
+      }
+    });
   }
 
   return tokens;

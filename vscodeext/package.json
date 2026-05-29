@@ -1,0 +1,37 @@
+{
+  "name": "mylang-vscodeext",
+  "displayName": "MyLang",
+  "description": "VS Code support for MyLang (.my) using the bundled MyLang LSP",
+  "version": "0.0.1",
+  "publisher": "mylang",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:mylang"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "mylang",
+        "aliases": [
+          "MyLang",
+          "mylang"
+        ],
+        "extensions": [
+          ".my"
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "echo \"No lint configured\""
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

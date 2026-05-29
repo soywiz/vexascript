@@ -34,7 +34,8 @@ describe("CLI", () => {
     await runCli(["node", "mylang", "tokens", input]);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(String(logSpy.mock.calls[0][0]))).toEqual([
+    const tokens = JSON.parse(String(logSpy.mock.calls[0][0])) as Array<{ type: string; value: string }>;
+    expect(tokens.map(({ type, value }) => ({ type, value }))).toEqual([
       { type: "identifier", value: "a" },
       { type: "symbol", value: "+=" },
       { type: "number", value: "1" }

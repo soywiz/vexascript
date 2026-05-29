@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
+import { Parser, parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
 describe("parseExpression", () => {
@@ -292,6 +292,33 @@ describe("parseFile", () => {
         expect(parseFile(tokenizeReader(""))).toEqual({
             kind: "Program",
             body: []
+        });
+    });
+});
+
+describe("Parser (with recovery)", () => {
+    it("collects multiple statement-level errors and recovers at semicolons", () => {
+        const parser = new Parser(tokenizeReader("oops; let ok = 1; what;"));
+        const ast = parser.parseFile();
+
+        expect(ast).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "ok" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                }
+            ]
+        });
+        expect(parser.errors.map((e) => e.message)).toEqual([
+            "Expected statement",
+            "Expected statement"
+        ]);
+        expect(parser.errors[0].token?.range.start).toEqual({
+            offset: 0,
+            line: 0,
+            column: 0
         });
     });
 });

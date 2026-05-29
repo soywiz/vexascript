@@ -2,9 +2,13 @@ import { describe } from "node:test";
 import { tokenize } from "./tokenizer";
 import { expect, it } from "vitest";
 
+function simplifyTokens(input: string) {
+    return tokenize(input).map(({ type, value }) => ({ type, value }));
+}
+
 describe("tokenizer", () => {
     it("tokenize expression", () => {
-        expect(tokenize("1 + 2")).toStrictEqual([
+        expect(simplifyTokens("1 + 2")).toStrictEqual([
             { type: "number", value: "1" },
             { type: "symbol", value: "+" },
             { type: "number", value: "2" }
@@ -12,7 +16,7 @@ describe("tokenizer", () => {
     })
 
     it("tokenizes expression without spaces", () => {
-        expect(tokenize("1+2")).toStrictEqual([
+        expect(simplifyTokens("1+2")).toStrictEqual([
             { type: "number", value: "1" },
             { type: "symbol", value: "+" },
             { type: "number", value: "2" }
@@ -20,7 +24,7 @@ describe("tokenizer", () => {
     })
 
     it("tokenizes multi-character operators", () => {
-        expect(tokenize("2**3 || 4 && 5")).toStrictEqual([
+        expect(simplifyTokens("2**3 || 4 && 5")).toStrictEqual([
             { type: "number", value: "2" },
             { type: "symbol", value: "**" },
             { type: "number", value: "3" },
@@ -32,7 +36,7 @@ describe("tokenizer", () => {
     })
 
     it("tokenizes compound assignment operators", () => {
-        expect(tokenize("a += b -= c %= d *= e /= f &= g |= h &&= i ||= j")).toStrictEqual([
+        expect(simplifyTokens("a += b -= c %= d *= e /= f &= g |= h &&= i ||= j")).toStrictEqual([
             { type: "identifier", value: "a" },
             { type: "symbol", value: "+=" },
             { type: "identifier", value: "b" },
@@ -56,17 +60,35 @@ describe("tokenizer", () => {
     })
 
     it("tokenizes string literals with escapes", () => {
-        expect(tokenize("\"hello\\n\\r\\t...world\" \"hi\\u0020there\"")).toStrictEqual([
+        expect(simplifyTokens("\"hello\\n\\r\\t...world\" \"hi\\u0020there\"")).toStrictEqual([
             { type: "string", value: "hello\n\r\t...world" },
             { type: "string", value: "hi there" }
         ])
     })
 
     it("tokenizes single-quoted string literals", () => {
-        expect(tokenize("'abc' 'it\\'s' 'path\\\\file'")).toStrictEqual([
+        expect(simplifyTokens("'abc' 'it\\'s' 'path\\\\file'")).toStrictEqual([
             { type: "string", value: "abc" },
             { type: "string", value: "it's" },
             { type: "string", value: "path\\file" }
         ])
     })
+
+    it("tracks offset/line/column ranges for tokens", () => {
+        const tokens = tokenize("a\n+ 2");
+        expect(tokens.map((token) => token.range)).toEqual([
+            {
+                start: { offset: 0, line: 0, column: 0 },
+                end: { offset: 1, line: 0, column: 1 }
+            },
+            {
+                start: { offset: 2, line: 1, column: 0 },
+                end: { offset: 3, line: 1, column: 1 }
+            },
+            {
+                start: { offset: 4, line: 1, column: 2 },
+                end: { offset: 5, line: 1, column: 3 }
+            }
+        ]);
+    });
 })
