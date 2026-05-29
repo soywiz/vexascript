@@ -27,4 +27,21 @@ describe("formatSource", () => {
     expect(formatSource("let a=1\na+=2\nwhile(a<10)a+=1"))
       .toBe("let a = 1;\na += 2;\nwhile (a < 10)\n  a += 1;");
   });
+
+  it("inserts a blank line between function/class declarations and keeps variable declarations together", () => {
+    expect(
+      formatSource("let a=1\nlet b=2\nfun a(){}\nclass B{}\nfun c(){}")
+    ).toBe(
+      "let a = 1;\n" +
+        "let b = 2;\n" +
+        "fun a() {\n" +
+        "}\n" +
+        "\n" +
+        "class B {\n" +
+        "}\n" +
+        "\n" +
+        "fun c() {\n" +
+        "}"
+    );
+  });
 });

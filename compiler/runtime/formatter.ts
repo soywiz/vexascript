@@ -225,7 +225,7 @@ function formatBlockInline(block: BlockStatement, level: number): string {
     return "{\n" + `${indent(level)}}`;
   }
 
-  const body = block.body.map((statement) => formatStatement(statement, level + 1)).join("\n");
+  const body = formatStatementList(block.body, level + 1);
   return "{\n" + `${body}\n${indent(level)}}`;
 }
 
@@ -327,8 +327,31 @@ function formatStatement(statement: Statement, level: number): string {
   throw new Error("Unsupported statement kind");
 }
 
+function isFunctionOrClassDeclaration(statement: Statement): boolean {
+  const node = statement as KnownStatement;
+  return node.kind === "FunctionStatement" || node.kind === "ClassStatement";
+}
+
+function shouldInsertBlankLineBetween(previous: Statement, next: Statement): boolean {
+  return isFunctionOrClassDeclaration(previous) && isFunctionOrClassDeclaration(next);
+}
+
+function formatStatementList(statements: Statement[], level: number): string {
+  if (statements.length === 0) {
+    return "";
+  }
+
+  let result = formatStatement(statements[0], level);
+  for (let i = 1; i < statements.length; i += 1) {
+    const separator = shouldInsertBlankLineBetween(statements[i - 1], statements[i]) ? "\n\n" : "\n";
+    result += `${separator}${formatStatement(statements[i], level)}`;
+  }
+
+  return result;
+}
+
 function formatProgram(program: Program): string {
-  return program.body.map((statement) => formatStatement(statement, 0)).join("\n");
+  return formatStatementList(program.body, 0);
 }
 
 export function formatSource(source: string): string {
