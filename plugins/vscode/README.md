@@ -6,7 +6,7 @@ This extension wires VS Code `.my` files to the MyLang language server.
 
 - Registers language id `mylang` for `*.my`.
 - Adds syntax highlighting for `.my` via TextMate grammar (`source.mylang`).
-- Contributes `MyLang Icons` file icon theme with a custom icon for `.my`.
+- Adds a custom language icon for `.my` without replacing the active file icon theme.
 - Starts the bundled server using:
   - `node ../../dist/mylang.js --lsp`
 - Uses stdio transport via `vscode-languageclient`.
@@ -33,10 +33,7 @@ pnpm run vscodeext:launch
 
 4. Open any `.my` file. It should be recognized as `mylang` and show parse/tokenizer diagnostics while editing.
 
-To enable the custom `.my` file icon:
-
-- Run `Preferences: File Icon Theme` in VS Code.
-- Select `MyLang Icons`.
+The `.my` icon is contributed by the language itself and does not require selecting a separate icon theme.
 
 Alternative debug flow:
 

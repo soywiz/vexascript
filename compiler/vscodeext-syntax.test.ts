@@ -4,8 +4,13 @@ import { describe, expect, it } from "vitest";
 
 type VscodeExtPackage = {
   contributes?: {
-    languages?: Array<{ id?: string; configuration?: string }>;
+    languages?: Array<{
+      id?: string;
+      configuration?: string;
+      icon?: { light?: string; dark?: string };
+    }>;
     grammars?: Array<{ language?: string; scopeName?: string; path?: string }>;
+    iconThemes?: Array<unknown>;
   };
 };
 
@@ -18,7 +23,11 @@ describe("VS Code extension syntax highlighting", () => {
     const language = pkg.contributes?.languages?.find((item) => item.id === "mylang");
     expect(language).toBeDefined();
     expect(language?.configuration).toBe("./language-configuration.json");
+    expect(language?.icon?.light).toBe("./icons/mylang-file.svg");
+    expect(language?.icon?.dark).toBe("./icons/mylang-file.svg");
+    expect(pkg.contributes?.iconThemes).toBeUndefined();
     expect(existsSync(resolve(extRoot, "language-configuration.json"))).toBe(true);
+    expect(existsSync(resolve(extRoot, "icons", "mylang-file.svg"))).toBe(true);
 
     const grammar = pkg.contributes?.grammars?.find((item) => item.language === "mylang");
     expect(grammar).toBeDefined();
