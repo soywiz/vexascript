@@ -36,3 +36,9 @@ export interface MemberExpression extends Node {
     property: Expr
     computed: boolean
 }
+
+export interface UnaryExpression extends Node {
+    kind: "UnaryExpression"
+    operator: "+" | "-"
+    argument: Expr
+}

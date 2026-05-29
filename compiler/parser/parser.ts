@@ -6,7 +6,8 @@ import {
     Expr,
     Identifier,
     IntLiteral,
-    MemberExpression
+    MemberExpression,
+    UnaryExpression
 } from "compiler/ast/ast";
 
 type BinaryOperator = BinaryExpression["operator"]
@@ -111,8 +112,23 @@ function parsePostfix(r: ListReader<Token>): Expr {
     return expr
 }
 
+function parseUnary(r: ListReader<Token>): Expr {
+    const token = r.peek()
+    if (token?.type === "symbol" && (token.value === "+" || token.value === "-")) {
+        r.skip()
+        const argument = parseUnary(r)
+        return {
+            kind: "UnaryExpression",
+            operator: token.value,
+            argument
+        } as UnaryExpression
+    }
+
+    return parsePostfix(r)
+}
+
 function parseExponentiation(r: ListReader<Token>): Expr {
-    const left = parsePostfix(r)
+    const left = parseUnary(r)
     if (r.peek()?.type === "symbol" && r.peek()?.value === "**") {
         r.skip()
         const right = parseExponentiation(r)

@@ -27,6 +27,44 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for unary plus", () => {
+        expect(parseExpression(tokenizeReader("+1"))).toEqual({
+            kind: "UnaryExpression",
+            operator: "+",
+            argument: { kind: "IntLiteral", value: 1 }
+        });
+    });
+
+    it("builds an AST for unary minus with parenthesized expression", () => {
+        expect(parseExpression(tokenizeReader("-(1 + 2)"))).toEqual({
+            kind: "UnaryExpression",
+            operator: "-",
+            argument: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "IntLiteral", value: 1 },
+                right: { kind: "IntLiteral", value: 2 }
+            }
+        });
+    });
+
+    it("builds an AST for nested array literals", () => {
+        expect(parseExpression(tokenizeReader("[1, 2, [3, 4]]"))).toEqual({
+            kind: "ArrayLiteral",
+            elements: [
+                { kind: "IntLiteral", value: 1 },
+                { kind: "IntLiteral", value: 2 },
+                {
+                    kind: "ArrayLiteral",
+                    elements: [
+                        { kind: "IntLiteral", value: 3 },
+                        { kind: "IntLiteral", value: 4 }
+                    ]
+                }
+            ]
+        });
+    });
+
     it("builds an AST for chained member/index access", () => {
         expect(parseExpression(tokenizeReader("a.b[1].c"))).toEqual({
             kind: "MemberExpression",
