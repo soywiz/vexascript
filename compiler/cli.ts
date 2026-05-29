@@ -9,6 +9,22 @@ async function runLanguageServer(): Promise<void> {
   await import("./lsp/server");
 }
 
+function hasLspTransportArg(argv: string[]): boolean {
+  for (const arg of argv) {
+    if (arg === "--stdio" || arg === "--node-ipc" || arg.startsWith("--socket")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function ensureLspTransportArg(argv: string[]): string[] {
+  if (hasLspTransportArg(argv)) {
+    return argv;
+  }
+  return [...argv, "--stdio"];
+}
+
 async function buildFile(input: string, out?: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
@@ -77,7 +93,14 @@ function createProgram(): Command {
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   if (argv.includes("--language-server") || argv.includes("--lsp")) {
-    await runLanguageServer();
+    const lspArgv = ensureLspTransportArg(argv);
+    const originalArgv = process.argv;
+    process.argv = lspArgv;
+    try {
+      await runLanguageServer();
+    } finally {
+      process.argv = originalArgv;
+    }
     return;
   }
 

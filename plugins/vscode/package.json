@@ -12,7 +12,8 @@
   ],
   "activationEvents": [
     "onLanguage:mylang",
-    "workspaceContains:**/*.my"
+    "workspaceContains:**/*.my",
+    "onStartupFinished"
   ],
   "main": "./extension.js",
   "contributes": {

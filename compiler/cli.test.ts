@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runCli } from "./cli";
+import { ensureLspTransportArg, runCli } from "./cli";
 
 describe("CLI", () => {
   afterEach(() => {
@@ -67,5 +67,35 @@ describe("CLI", () => {
         }
       ]
     });
+  });
+
+  it("adds --stdio when starting language server without transport arg", () => {
+    expect(ensureLspTransportArg(["node", "mylang", "--lsp"])).toEqual([
+      "node",
+      "mylang",
+      "--lsp",
+      "--stdio"
+    ]);
+  });
+
+  it("keeps existing language server transport arg", () => {
+    expect(ensureLspTransportArg(["node", "mylang", "--lsp", "--stdio"])).toEqual([
+      "node",
+      "mylang",
+      "--lsp",
+      "--stdio"
+    ]);
+    expect(ensureLspTransportArg(["node", "mylang", "--lsp", "--node-ipc"])).toEqual([
+      "node",
+      "mylang",
+      "--lsp",
+      "--node-ipc"
+    ]);
+    expect(ensureLspTransportArg(["node", "mylang", "--lsp", "--socket=6010"])).toEqual([
+      "node",
+      "mylang",
+      "--lsp",
+      "--socket=6010"
+    ]);
   });
 });

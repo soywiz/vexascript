@@ -1,0 +1,6 @@
+{
+  "files.associations": {
+    "*.my": "mylang"
+  },
+  "typescript.tsserver.maxTsServerMemory": 4096
+}

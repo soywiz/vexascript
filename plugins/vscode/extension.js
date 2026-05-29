@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { workspace } = require("vscode");
+const { workspace, window } = require("vscode");
 const {
   LanguageClient,
   TransportKind
@@ -9,6 +9,9 @@ const {
 let client;
 
 function activate(context) {
+  const outputChannel = window.createOutputChannel("MyLang LSP");
+  context.subscriptions.push(outputChannel);
+
   const serverModule = path.resolve(
     context.extensionPath,
     "..",
@@ -20,18 +23,23 @@ function activate(context) {
   const serverOptions = {
     run: {
       command: "node",
-      args: [serverModule, "--lsp"],
+      args: [serverModule, "--lsp", "--stdio"],
       transport: TransportKind.stdio
     },
     debug: {
       command: "node",
-      args: [serverModule, "--lsp"],
+      args: [serverModule, "--lsp", "--stdio"],
       transport: TransportKind.stdio
     }
   };
 
   const clientOptions = {
-    documentSelector: [{ scheme: "file", language: "mylang" }],
+    documentSelector: [
+      { scheme: "file", language: "mylang" },
+      { scheme: "file", pattern: "**/*.my" }
+    ],
+    outputChannel,
+    traceOutputChannel: outputChannel,
     synchronize: {
       fileEvents: workspace.createFileSystemWatcher("**/*.my")
     }

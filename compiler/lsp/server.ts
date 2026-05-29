@@ -12,7 +12,7 @@ import { ListReader } from "compiler/utils/ListReader";
 import { Parser } from "compiler/parser/parser";
 import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
 
-const connection = createConnection(ProposedFeatures.all);
+const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
 
 connection.onInitialize(() => {
