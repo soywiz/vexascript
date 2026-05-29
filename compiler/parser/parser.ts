@@ -2,6 +2,38 @@ import { ListReader } from "compiler/utils/ListReader";
 import { Token } from "./tokenizer";
 import { BinaryExpression, Expr, IntLiteral } from "compiler/ast/ast";
 
+type BinaryOperator = BinaryExpression["operator"]
+
+function buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
+    return {
+        kind: "BinaryExpression",
+        operator,
+        left,
+        right
+    }
+}
+
+function parseLeftAssociative(
+    r: ListReader<Token>,
+    operators: readonly BinaryOperator[],
+    parseNext: (reader: ListReader<Token>) => Expr
+): Expr {
+    let left = parseNext(r)
+
+    while (r.hasMore) {
+        const token = r.peek()
+        if (token?.type !== "symbol" || !operators.includes(token.value as BinaryOperator)) {
+            break
+        }
+
+        r.skip()
+        const right = parseNext(r)
+        left = buildBinary(token.value as BinaryOperator, left, right)
+    }
+
+    return left
+}
+
 function parsePrimary(r: ListReader<Token>): Expr {
     const token = r.read();
 
@@ -21,40 +53,44 @@ function parsePrimary(r: ListReader<Token>): Expr {
     throw new Error("Expected a number literal or '('");
 }
 
-function parseMultiplicative(r: ListReader<Token>): Expr {
-    let left = parsePrimary(r)
-
-    while (r.hasMore && r.peek()?.type === "symbol" && r.peek()?.value === "*") {
+function parseExponentiation(r: ListReader<Token>): Expr {
+    const left = parsePrimary(r)
+    if (r.peek()?.type === "symbol" && r.peek()?.value === "**") {
         r.skip()
-        const right = parsePrimary(r)
-        left = {
-            kind: "BinaryExpression",
-            operator: "*",
-            left,
-            right
-        } as BinaryExpression
+        const right = parseExponentiation(r)
+        return buildBinary("**", left, right)
     }
-
     return left
+}
+
+function parseMultiplicative(r: ListReader<Token>): Expr {
+    return parseLeftAssociative(r, ["*", "/", "%"], parseExponentiation)
 }
 
 function parseAdditive(r: ListReader<Token>): Expr {
-    let left = parseMultiplicative(r)
+    return parseLeftAssociative(r, ["+", "-"], parseMultiplicative)
+}
 
-    while (r.hasMore && r.peek()?.type === "symbol" && r.peek()?.value === "+") {
-        r.skip()
-        const right = parseMultiplicative(r)
-        left = {
-            kind: "BinaryExpression",
-            operator: "+",
-            left,
-            right
-        } as BinaryExpression
-    }
+function parseBitwiseAnd(r: ListReader<Token>): Expr {
+    return parseLeftAssociative(r, ["&"], parseAdditive)
+}
 
-    return left
+function parseBitwiseXor(r: ListReader<Token>): Expr {
+    return parseLeftAssociative(r, ["^"], parseBitwiseAnd)
+}
+
+function parseBitwiseOr(r: ListReader<Token>): Expr {
+    return parseLeftAssociative(r, ["|"], parseBitwiseXor)
+}
+
+function parseLogicalAnd(r: ListReader<Token>): Expr {
+    return parseLeftAssociative(r, ["&&"], parseBitwiseOr)
+}
+
+function parseLogicalOr(r: ListReader<Token>): Expr {
+    return parseLeftAssociative(r, ["||"], parseLogicalAnd)
 }
 
 export function parseExpression(r: ListReader<Token>): Expr {
-    return parseAdditive(r)
+    return parseLogicalOr(r)
 }

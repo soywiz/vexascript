@@ -18,4 +18,16 @@ describe("tokenizer", () => {
             { type: "number", value: "2" }
         ])
     })
+
+    it("tokenizes multi-character operators", () => {
+        expect(tokenize("2**3 || 4 && 5")).toStrictEqual([
+            { type: "number", value: "2" },
+            { type: "symbol", value: "**" },
+            { type: "number", value: "3" },
+            { type: "symbol", value: "||" },
+            { type: "number", value: "4" },
+            { type: "symbol", value: "&&" },
+            { type: "number", value: "5" }
+        ])
+    })
 })

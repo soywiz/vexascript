@@ -13,7 +13,7 @@ export interface IntLiteral extends Node {
 
 export interface BinaryExpression extends Node {
     kind: "BinaryExpression"
-    operator: "+" | "*"
+    operator: "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "||" | "&&"
     left: Expr
     right: Expr
 }

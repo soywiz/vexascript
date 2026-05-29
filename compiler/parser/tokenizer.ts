@@ -6,7 +6,7 @@ export interface Token {
 }
 
 export function tokenize(input: string): Token[] {
-  const raw = input.match(/[A-Za-z_][A-Za-z0-9_]*|\d+|[^\s]/g) ?? [];
+  const raw = input.match(/\*\*|\|\||&&|[A-Za-z_][A-Za-z0-9_]*|\d+|[^\s]/g) ?? [];
 
   return raw.map((part) => {
     if (/^[A-Za-z_]/.test(part)) {
