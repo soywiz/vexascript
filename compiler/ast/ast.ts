@@ -157,6 +157,14 @@ export interface DoWhileStatement extends Statement {
     condition: Expr
 }
 
+export interface ForStatement extends Statement {
+    kind: "ForStatement"
+    initializer?: VarStatement | Expr
+    condition?: Expr
+    update?: Expr
+    body: Statement
+}
+
 export interface ReturnStatement extends Statement {
     kind: "ReturnStatement"
     expression?: Expr

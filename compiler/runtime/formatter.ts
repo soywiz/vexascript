@@ -13,6 +13,7 @@ import {
   DoWhileStatement,
   Expr,
   ExprStatement,
+  ForStatement,
   FunctionParameter,
   FunctionStatement,
   Identifier,
@@ -51,6 +52,7 @@ type KnownStatement =
   | BlockStatement
   | WhileStatement
   | DoWhileStatement
+  | ForStatement
   | ReturnStatement
   | ContinueStatement
   | BreakStatement;
@@ -302,6 +304,31 @@ function formatDoWhileStatement(statement: DoWhileStatement, level: number): str
   return `${indent(level)}do\n${formatStatement(statement.body, level + 1)}\n${indent(level)}${whileSuffix}`;
 }
 
+function formatForInitializer(initializer: VarStatement | Expr): string {
+  if ((initializer as KnownStatement).kind === "VarStatement") {
+    const declaration = initializer as VarStatement;
+    const typeAnnotation = declaration.typeAnnotation ? `: ${formatIdentifier(declaration.typeAnnotation)}` : "";
+    const value = declaration.initializer ? ` = ${formatExpression(declaration.initializer)}` : "";
+    return `${declaration.declarationKind} ${formatIdentifier(declaration.name)}${typeAnnotation}${value}`;
+  }
+
+  return formatExpression(initializer as Expr);
+}
+
+function formatForStatement(statement: ForStatement, level: number): string {
+  const initializer = statement.initializer ? formatForInitializer(statement.initializer) : "";
+  const condition = statement.condition ? formatExpression(statement.condition) : "";
+  const update = statement.update ? formatExpression(statement.update) : "";
+  const header = `${indent(level)}for (${initializer}; ${condition}; ${update})`;
+  const bodyNode = statement.body as KnownStatement;
+
+  if (bodyNode.kind === "BlockStatement") {
+    return `${header} ${formatBlockInline(bodyNode, level)}`;
+  }
+
+  return `${header}\n${formatStatement(statement.body, level + 1)}`;
+}
+
 function formatClassMethodMember(member: ClassMethodMember, level: number): string {
   const returnType = member.returnType ? `: ${formatIdentifier(member.returnType)}` : "";
   const header =
@@ -370,6 +397,9 @@ function formatStatement(statement: Statement, level: number): string {
   }
   if (node.kind === "DoWhileStatement") {
     return formatDoWhileStatement(node, level);
+  }
+  if (node.kind === "ForStatement") {
+    return formatForStatement(node, level);
   }
   if (node.kind === "ReturnStatement") {
     return node.expression

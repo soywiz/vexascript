@@ -64,4 +64,16 @@ describe("findDeclarationKeywordReplacementAtPosition", () => {
       }
     });
   });
+
+  it("finds declaration inside for initializer", () => {
+    const ast = parseFile(tokenizeReader("for (let i = 0; i < 1; i += 1) { }"));
+    expect(findDeclarationKeywordReplacementAtPosition(ast, 0, 6)).toEqual({
+      from: "let",
+      to: "const",
+      range: {
+        start: { line: 0, character: 5 },
+        end: { line: 0, character: 8 }
+      }
+    });
+  });
 });

@@ -2,6 +2,7 @@ import {
   BlockStatement,
   ClassStatement,
   DoWhileStatement,
+  ForStatement,
   FunctionStatement,
   Program,
   Statement,
@@ -81,6 +82,17 @@ function findVarStatementAtPosition(node: Statement, line: number, character: nu
 
   if (node.kind === "DoWhileStatement") {
     return findVarStatementAtPosition((node as DoWhileStatement).body, line, character);
+  }
+
+  if (node.kind === "ForStatement") {
+    const forStatement = node as ForStatement;
+    if (forStatement.initializer && forStatement.initializer.kind === "VarStatement") {
+      const initializerMatch = findVarStatementAtPosition(forStatement.initializer, line, character);
+      if (initializerMatch) {
+        return initializerMatch;
+      }
+    }
+    return findVarStatementAtPosition(forStatement.body, line, character);
   }
 
   if (node.kind === "FunctionStatement") {

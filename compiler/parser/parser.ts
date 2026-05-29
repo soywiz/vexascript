@@ -15,6 +15,7 @@ import {
     DoWhileStatement,
     Expr,
     ExprStatement,
+    ForStatement,
     FunctionDeclarationKind,
     FunctionParameter,
     FunctionStatement,
@@ -159,6 +160,9 @@ export class Parser {
         }
         if (token?.type === "identifier" && token.value === "do") {
             return this.parseDoWhileStatement();
+        }
+        if (token?.type === "identifier" && token.value === "for") {
+            return this.parseForStatement();
         }
         if (token?.type === "identifier" && token.value === "while") {
             return this.parseWhileStatement();
@@ -1375,6 +1379,73 @@ export class Parser {
             body,
             condition
         } as DoWhileStatement, doKeyword, this.getLastReadToken() ?? doKeyword);
+    }
+
+    private parseForStatement(): ForStatement {
+        const forKeyword = this.tokens.read();
+        if (forKeyword?.type !== "identifier" || forKeyword.value !== "for") {
+            this.fail("Expected 'for' statement", this.tokenAt(forKeyword));
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after 'for'", this.tokenAt(openParen));
+        }
+
+        let initializer: VarStatement | Expr | undefined;
+        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";")) {
+            const initialToken = this.tokens.peek();
+            if (
+                initialToken?.type === "identifier" &&
+                this.isVariableDeclarationKeyword(initialToken.value)
+            ) {
+                initializer = this.parseVarStatement();
+            } else {
+                initializer = this.parseExpressionOrThrow();
+            }
+        }
+
+        const firstSemicolon = this.tokens.read();
+        if (firstSemicolon?.type !== "symbol" || firstSemicolon.value !== ";") {
+            this.fail("Expected ';' after for initializer", this.tokenAt(firstSemicolon));
+        }
+
+        let condition: Expr | undefined;
+        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";")) {
+            condition = this.parseExpressionOrThrow();
+        }
+
+        const secondSemicolon = this.tokens.read();
+        if (secondSemicolon?.type !== "symbol" || secondSemicolon.value !== ";") {
+            this.fail("Expected ';' after for condition", this.tokenAt(secondSemicolon));
+        }
+
+        let update: Expr | undefined;
+        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
+            update = this.parseExpressionOrThrow();
+        }
+
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after for update", this.tokenAt(closeParen));
+        }
+
+        const body = this.parseStatementOrThrow();
+        const statement: ForStatement = {
+            kind: "ForStatement",
+            body
+        };
+        if (initializer) {
+            statement.initializer = initializer;
+        }
+        if (condition) {
+            statement.condition = condition;
+        }
+        if (update) {
+            statement.update = update;
+        }
+
+        return this.attachNodeBounds(statement, forKeyword, this.getLastReadToken() ?? forKeyword);
     }
 
     private parseReturnStatement(): ReturnStatement {

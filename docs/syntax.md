@@ -235,6 +235,24 @@ do {
 } while (condition)
 ```
 
+### For
+
+MyLang supports TypeScript-style `for` loops:
+
+```mylang
+for (let i = 0; i < 10; i += 1) {
+  work
+}
+```
+
+Each clause is optional:
+
+```mylang
+for (;;) {
+  break
+}
+```
+
 ### Return, continue, break
 
 Supported statements:
@@ -280,10 +298,14 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function`.
+When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function` and TypeScript-style `for` statements.
 
 Example:
 
 ```typescript
 declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
+
+for (let i = 0; i < 10; i += 1) {
+  const current = i;
+}
 ```

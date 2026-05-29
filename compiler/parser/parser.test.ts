@@ -483,6 +483,99 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses a for statement with declaration initializer", () => {
+        expect(parseStatement(tokenizeReader("for (let i = 0; i < 10; i += 1) let value = i"))).toEqual({
+            kind: "ForStatement",
+            initializer: {
+                kind: "VarStatement",
+                declarationKind: "let",
+                name: { kind: "Identifier", name: "i" },
+                initializer: { kind: "IntLiteral", value: 0 }
+            },
+            condition: {
+                kind: "BinaryExpression",
+                operator: "<",
+                left: { kind: "Identifier", name: "i" },
+                right: { kind: "IntLiteral", value: 10 }
+            },
+            update: {
+                kind: "AssignmentExpression",
+                operator: "+=",
+                left: { kind: "Identifier", name: "i" },
+                right: { kind: "IntLiteral", value: 1 }
+            },
+            body: {
+                kind: "VarStatement",
+                declarationKind: "let",
+                name: { kind: "Identifier", name: "value" },
+                initializer: { kind: "Identifier", name: "i" }
+            }
+        });
+    });
+
+    it("parses for statement clauses as optional", () => {
+        expect(parseStatement(tokenizeReader("for (;; ) break"))).toEqual({
+            kind: "ForStatement",
+            body: {
+                kind: "BreakStatement"
+            }
+        });
+    });
+
+    it("supports val declaration in for initializer in mylang mode", () => {
+        expect(parseStatement(tokenizeReader("for (val i = 0; i < 1; i += 1) break"), { language: "mylang" })).toEqual({
+            kind: "ForStatement",
+            initializer: {
+                kind: "VarStatement",
+                declarationKind: "val",
+                name: { kind: "Identifier", name: "i" },
+                initializer: { kind: "IntLiteral", value: 0 }
+            },
+            condition: {
+                kind: "BinaryExpression",
+                operator: "<",
+                left: { kind: "Identifier", name: "i" },
+                right: { kind: "IntLiteral", value: 1 }
+            },
+            update: {
+                kind: "AssignmentExpression",
+                operator: "+=",
+                left: { kind: "Identifier", name: "i" },
+                right: { kind: "IntLiteral", value: 1 }
+            },
+            body: {
+                kind: "BreakStatement"
+            }
+        });
+    });
+
+    it("treats 'val' as identifier in for initializer in typescript mode", () => {
+        expect(parseStatement(tokenizeReader("for (val = 0; val < 1; val += 1) break"), { language: "typescript" })).toEqual({
+            kind: "ForStatement",
+            initializer: {
+                kind: "AssignmentExpression",
+                operator: "=",
+                left: { kind: "Identifier", name: "val" },
+                right: { kind: "IntLiteral", value: 0 }
+            },
+            condition: {
+                kind: "BinaryExpression",
+                operator: "<",
+                left: { kind: "Identifier", name: "val" },
+                right: { kind: "IntLiteral", value: 1 }
+            },
+            update: {
+                kind: "AssignmentExpression",
+                operator: "+=",
+                left: { kind: "Identifier", name: "val" },
+                right: { kind: "IntLiteral", value: 1 }
+            },
+            body: {
+                kind: "BreakStatement"
+            }
+        });
+    });
+
     it("parses an expression statement", () => {
         expect(parseStatement(tokenizeReader("a + 1"))).toEqual({
             kind: "ExprStatement",
@@ -868,6 +961,52 @@ describe("parseProgram", () => {
                         ]
                     },
                     condition: { kind: "Identifier", name: "j" }
+                },
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "done" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                }
+            ]
+        });
+    });
+
+    it("parses for statements with block bodies", () => {
+        expect(parseProgram(tokenizeReader("for (let i = 0; i < 2; i += 1) { let x = i }; let done = 1;"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "ForStatement",
+                    initializer: {
+                        kind: "VarStatement",
+                        declarationKind: "let",
+                        name: { kind: "Identifier", name: "i" },
+                        initializer: { kind: "IntLiteral", value: 0 }
+                    },
+                    condition: {
+                        kind: "BinaryExpression",
+                        operator: "<",
+                        left: { kind: "Identifier", name: "i" },
+                        right: { kind: "IntLiteral", value: 2 }
+                    },
+                    update: {
+                        kind: "AssignmentExpression",
+                        operator: "+=",
+                        left: { kind: "Identifier", name: "i" },
+                        right: { kind: "IntLiteral", value: 1 }
+                    },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "VarStatement",
+                                declarationKind: "let",
+                                name: { kind: "Identifier", name: "x" },
+                                initializer: { kind: "Identifier", name: "i" }
+                            }
+                        ]
+                    }
                 },
                 {
                     kind: "VarStatement",
