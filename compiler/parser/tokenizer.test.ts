@@ -10,4 +10,12 @@ describe("tokenizer", () => {
             { type: "number", value: "2" }
         ])
     })
-}) 
+
+    it("tokenizes expression without spaces", () => {
+        expect(tokenize("1+2")).toStrictEqual([
+            { type: "number", value: "1" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: "2" }
+        ])
+    })
+})

@@ -9,4 +9,13 @@ describe("parseExpression", () => {
             { kind: "IntLiteral", value: 10 }
         );
     });
+
+    it("builds an AST for addition expression", () => {
+        expect(parseExpression(tokenizeReader("1+2"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "+",
+            left: { kind: "IntLiteral", value: 1 },
+            right: { kind: "IntLiteral", value: 2 }
+        });
+    });
 })
