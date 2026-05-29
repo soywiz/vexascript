@@ -29,3 +29,10 @@ export interface AssignmentExpression extends Node {
     left: Expr
     right: Expr
 }
+
+export interface MemberExpression extends Node {
+    kind: "MemberExpression"
+    object: Expr
+    property: Expr
+    computed: boolean
+}

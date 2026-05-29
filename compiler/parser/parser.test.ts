@@ -18,6 +18,34 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for identifier plus integer", () => {
+        expect(parseExpression(tokenizeReader("a + 1"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "+",
+            left: { kind: "Identifier", name: "a" },
+            right: { kind: "IntLiteral", value: 1 }
+        });
+    });
+
+    it("builds an AST for chained member/index access", () => {
+        expect(parseExpression(tokenizeReader("a.b[1].c"))).toEqual({
+            kind: "MemberExpression",
+            object: {
+                kind: "MemberExpression",
+                object: {
+                    kind: "MemberExpression",
+                    object: { kind: "Identifier", name: "a" },
+                    property: { kind: "Identifier", name: "b" },
+                    computed: false
+                },
+                property: { kind: "IntLiteral", value: 1 },
+                computed: true
+            },
+            property: { kind: "Identifier", name: "c" },
+            computed: false
+        });
+    });
+
     it("builds an AST for multiplication with parenthesized addition", () => {
         expect(parseExpression(tokenizeReader("1*(2+3)"))).toEqual({
             kind: "BinaryExpression",

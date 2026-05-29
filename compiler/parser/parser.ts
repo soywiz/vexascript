@@ -5,7 +5,8 @@ import {
     BinaryExpression,
     Expr,
     Identifier,
-    IntLiteral
+    IntLiteral,
+    MemberExpression
 } from "compiler/ast/ast";
 
 type BinaryOperator = BinaryExpression["operator"]
@@ -65,8 +66,53 @@ function parsePrimary(r: ListReader<Token>): Expr {
     throw new Error("Expected a number literal or '('");
 }
 
+function parsePostfix(r: ListReader<Token>): Expr {
+    let expr = parsePrimary(r)
+
+    while (r.hasMore) {
+        const token = r.peek()
+
+        if (token?.type === "symbol" && token.value === ".") {
+            r.skip()
+            const property = r.read()
+            if (property?.type !== "identifier") {
+                throw new Error("Expected identifier after '.'")
+            }
+
+            expr = {
+                kind: "MemberExpression",
+                object: expr,
+                property: { kind: "Identifier", name: property.value } as Identifier,
+                computed: false
+            } as MemberExpression
+            continue
+        }
+
+        if (token?.type === "symbol" && token.value === "[") {
+            r.skip()
+            const property = parseExpression(r)
+            const close = r.read()
+            if (close?.type !== "symbol" || close.value !== "]") {
+                throw new Error("Expected ']' after computed member access")
+            }
+
+            expr = {
+                kind: "MemberExpression",
+                object: expr,
+                property,
+                computed: true
+            } as MemberExpression
+            continue
+        }
+
+        break
+    }
+
+    return expr
+}
+
 function parseExponentiation(r: ListReader<Token>): Expr {
-    const left = parsePrimary(r)
+    const left = parsePostfix(r)
     if (r.peek()?.type === "symbol" && r.peek()?.value === "**") {
         r.skip()
         const right = parseExponentiation(r)
