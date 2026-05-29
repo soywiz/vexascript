@@ -260,6 +260,56 @@ describe("parseStatement", () => {
             }
         });
     });
+
+    it("parses a block statement with nested statements", () => {
+        expect(parseStatement(tokenizeReader("{ let a = 1; { let b = a + 2 } let c = 3 }"))).toEqual({
+            kind: "BlockStatement",
+            body: [
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "a" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "BlockStatement",
+                    body: [
+                        {
+                            kind: "LetStatement",
+                            name: { kind: "Identifier", name: "b" },
+                            initializer: {
+                                kind: "BinaryExpression",
+                                operator: "+",
+                                left: { kind: "Identifier", name: "a" },
+                                right: { kind: "IntLiteral", value: 2 }
+                            }
+                        }
+                    ]
+                },
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "c" },
+                    initializer: { kind: "IntLiteral", value: 3 }
+                }
+            ]
+        });
+    });
+
+    it("parses a while statement with single-statement body", () => {
+        expect(parseStatement(tokenizeReader("while (a + 1) let b = 2"))).toEqual({
+            kind: "WhileStatement",
+            condition: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "IntLiteral", value: 1 }
+            },
+            body: {
+                kind: "LetStatement",
+                name: { kind: "Identifier", name: "b" },
+                initializer: { kind: "IntLiteral", value: 2 }
+            }
+        });
+    });
 });
 
 describe("parseProgram", () => {
@@ -281,6 +331,76 @@ describe("parseProgram", () => {
                         left: { kind: "Identifier", name: "a" },
                         right: { kind: "IntLiteral", value: 2 }
                     }
+                }
+            ]
+        });
+    });
+
+    it("parses block statements at top level", () => {
+        expect(parseProgram(tokenizeReader("let a = 1; { let b = 2; let c = b + 1 };"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "a" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "BlockStatement",
+                    body: [
+                        {
+                            kind: "LetStatement",
+                            name: { kind: "Identifier", name: "b" },
+                            initializer: { kind: "IntLiteral", value: 2 }
+                        },
+                        {
+                            kind: "LetStatement",
+                            name: { kind: "Identifier", name: "c" },
+                            initializer: {
+                                kind: "BinaryExpression",
+                                operator: "+",
+                                left: { kind: "Identifier", name: "b" },
+                                right: { kind: "IntLiteral", value: 1 }
+                            }
+                        }
+                    ]
+                }
+            ]
+        });
+    });
+
+    it("parses while statements with block bodies", () => {
+        expect(parseProgram(tokenizeReader("while (1) { let a = 2; let b = a + 3 }; let c = 4;"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "WhileStatement",
+                    condition: { kind: "IntLiteral", value: 1 },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "LetStatement",
+                                name: { kind: "Identifier", name: "a" },
+                                initializer: { kind: "IntLiteral", value: 2 }
+                            },
+                            {
+                                kind: "LetStatement",
+                                name: { kind: "Identifier", name: "b" },
+                                initializer: {
+                                    kind: "BinaryExpression",
+                                    operator: "+",
+                                    left: { kind: "Identifier", name: "a" },
+                                    right: { kind: "IntLiteral", value: 3 }
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "c" },
+                    initializer: { kind: "IntLiteral", value: 4 }
                 }
             ]
         });

@@ -4,6 +4,7 @@ import {
     ArrayLiteral,
     AssignmentExpression,
     BinaryExpression,
+    BlockStatement,
     Expr,
     Identifier,
     IntLiteral,
@@ -14,7 +15,8 @@ import {
     Program,
     Statement,
     StringLiteral,
-    UnaryExpression
+    UnaryExpression,
+    WhileStatement
 } from "compiler/ast/ast";
 
 type BinaryOperator = BinaryExpression["operator"]
@@ -331,10 +333,76 @@ function parseLetStatement(r: ListReader<Token>): LetStatement {
     } as LetStatement
 }
 
+function parseBlockStatement(r: ListReader<Token>): BlockStatement {
+    const openBrace = r.read()
+    if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+        fail("Expected '{' to start block statement", openBrace ?? r.peek())
+    }
+
+    const body: Statement[] = []
+
+    while (r.hasMore) {
+        const token = r.peek()
+
+        if (token?.type === "symbol" && token.value === "}") {
+            r.skip()
+            return {
+                kind: "BlockStatement",
+                body
+            } as BlockStatement
+        }
+
+        if (token?.type === "symbol" && token.value === ";") {
+            r.skip()
+            continue
+        }
+
+        body.push(parseStatement(r))
+
+        if (r.peek()?.type === "symbol" && r.peek()?.value === ";") {
+            r.skip()
+        }
+    }
+
+    fail("Expected '}' to close block statement", r.peek() ?? openBrace)
+}
+
+function parseWhileStatement(r: ListReader<Token>): WhileStatement {
+    const whileKeyword = r.read()
+    if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
+        fail("Expected 'while' statement", whileKeyword ?? r.peek())
+    }
+
+    const openParen = r.read()
+    if (openParen?.type !== "symbol" || openParen.value !== "(") {
+        fail("Expected '(' after 'while'", openParen ?? r.peek())
+    }
+
+    const condition = parseExpression(r)
+
+    const closeParen = r.read()
+    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+        fail("Expected ')' after while condition", closeParen ?? r.peek())
+    }
+
+    const body = parseStatement(r)
+    return {
+        kind: "WhileStatement",
+        condition,
+        body
+    } as WhileStatement
+}
+
 export function parseStatement(r: ListReader<Token>): Statement {
     const token = r.peek()
     if (token?.type === "identifier" && token.value === "let") {
         return parseLetStatement(r)
+    }
+    if (token?.type === "identifier" && token.value === "while") {
+        return parseWhileStatement(r)
+    }
+    if (token?.type === "symbol" && token.value === "{") {
+        return parseBlockStatement(r)
     }
 
     fail("Expected statement", token)

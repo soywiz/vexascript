@@ -73,6 +73,17 @@ export interface LetStatement extends Statement {
     initializer: Expr
 }
 
+export interface BlockStatement extends Statement {
+    kind: "BlockStatement"
+    body: Statement[]
+}
+
+export interface WhileStatement extends Statement {
+    kind: "WhileStatement"
+    condition: Expr
+    body: Statement
+}
+
 export interface Program extends Node {
     kind: "Program"
     body: Statement[]
