@@ -29,36 +29,36 @@ export class TokenizeError extends Error {
   }
 }
 
-const CODE_SPACE = 32;
-const CODE_BANG = 33;
-const CODE_DOUBLE_QUOTE = 34;
-const CODE_PERCENT = 37;
-const CODE_SINGLE_QUOTE = 39;
-const CODE_PLUS = 43;
-const CODE_MINUS = 45;
-const CODE_DOT = 46;
-const CODE_SLASH = 47;
-const CODE_ZERO = 48;
-const CODE_NINE = 57;
-const CODE_COLON = 58;
-const CODE_LT = 60;
-const CODE_EQUALS = 61;
-const CODE_GT = 62;
-const CODE_A_UPPER = 65;
-const CODE_F_UPPER = 70;
-const CODE_Z_UPPER = 90;
-const CODE_BACKSLASH = 92;
-const CODE_UNDERSCORE = 95;
-const CODE_A_LOWER = 97;
-const CODE_F_LOWER = 102;
-const CODE_N_LOWER = 110;
-const CODE_R_LOWER = 114;
-const CODE_T_LOWER = 116;
-const CODE_U_LOWER = 117;
-const CODE_Z_LOWER = 122;
-const CODE_AMPERSAND = 38;
-const CODE_PIPE = 124;
-const CODE_STAR = 42;
+const CODE_SPACE = 32; // " "
+const CODE_BANG = 33; // !
+const CODE_DOUBLE_QUOTE = 34; // "
+const CODE_PERCENT = 37; // %
+const CODE_AMPERSAND = 38; // &
+const CODE_SINGLE_QUOTE = 39; // '
+const CODE_STAR = 42; // *
+const CODE_PLUS = 43; // +
+const CODE_MINUS = 45; // -
+const CODE_DOT = 46; // .
+const CODE_SLASH = 47; // /
+const CODE_ZERO = 48; // 0
+const CODE_NINE = 57; // 9
+const CODE_COLON = 58; // :
+const CODE_LT = 60; // <
+const CODE_EQUALS = 61; // =
+const CODE_GT = 62; // >
+const CODE_A_UPPER = 65; // A
+const CODE_F_UPPER = 70; // F
+const CODE_Z_UPPER = 90; // Z
+const CODE_BACKSLASH = 92; // \
+const CODE_UNDERSCORE = 95; // _
+const CODE_A_LOWER = 97; // a
+const CODE_F_LOWER = 102; // f
+const CODE_N_LOWER = 110; // n
+const CODE_R_LOWER = 114; // r
+const CODE_T_LOWER = 116; // t
+const CODE_U_LOWER = 117; // u
+const CODE_Z_LOWER = 122; // z
+const CODE_PIPE = 124; // |
 
 interface Scanner {
   reader: StrReader;
