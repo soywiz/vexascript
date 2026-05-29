@@ -29,6 +29,16 @@ Esto genera:
 - `dist/` del frontend (Vite)
 - `dist/mylang.js` (bundle único del compilador + herramientas + LSP)
 
+## Tests (TDD)
+
+```bash
+pnpm test
+```
+
+```bash
+pnpm test:watch
+```
+
 ## Uso de la CLI
 
 ### Compilar archivo
