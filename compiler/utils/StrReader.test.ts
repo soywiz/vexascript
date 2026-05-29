@@ -19,6 +19,15 @@ describe("StrReader", () => {
         expect(reader.peek()).toBe("y");
     });
 
+    it("supports peekCode and readCode", () => {
+        const reader = new StrReader("AZ");
+
+        expect(reader.peekCode()).toBe("A".charCodeAt(0));
+        expect(reader.readCode()).toBe("A".charCodeAt(0));
+        expect(reader.peekCode()).toBe("Z".charCodeAt(0));
+        expect(reader.readCode()).toBe("Z".charCodeAt(0));
+    });
+
     it("tracks eof and hasMore correctly", () => {
         const reader = new StrReader("hi");
 
@@ -48,6 +57,14 @@ describe("StrReader", () => {
         expect(reader.peek()).toBe("");
         expect(reader.read()).toBe("");
         expect(reader.eof).toBe(true);
+    });
+
+    it("returns NaN at eof for code readers", () => {
+        const reader = new StrReader("a");
+        reader.readCode();
+
+        expect(Number.isNaN(reader.peekCode())).toBe(true);
+        expect(Number.isNaN(reader.readCode())).toBe(true);
     });
 
     it("reports source length", () => {

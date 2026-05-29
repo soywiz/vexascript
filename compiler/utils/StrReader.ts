@@ -33,4 +33,10 @@ export class StrReader {
     readCode() {
         return this.str.charCodeAt(this.offset++)
     }
+
+    readCount(count: number) {
+        const result = this.str.substr(this.offset, count)
+        this.offset += result.length
+        return result
+    }
 }
