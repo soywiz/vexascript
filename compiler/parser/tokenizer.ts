@@ -1,3 +1,5 @@
+import { ListReader } from "compiler/utils/ListReader";
+
 export interface Token {
   type: "identifier" | "number" | "symbol";
   value: string;
@@ -17,12 +19,6 @@ export function tokenize(input: string): Token[] {
   });
 }
 
-export function toAstPreview(input: string): object {
-  return {
-    kind: "Program",
-    body: tokenize(input).map((token) => ({
-      kind: "TokenNode",
-      token
-    }))
-  };
+export function tokenizeReader(input: string): ListReader<Token> {
+    return new ListReader(tokenize(input))
 }
