@@ -44,4 +44,9 @@ describe("formatSource", () => {
         "}"
     );
   });
+
+  it("keeps unicode escape sequences in string literals", () => {
+    expect(formatSource("let a = b.c[\"d\\n\\uaa00\"].dddd"))
+      .toBe("let a = b.c[\"d\\n\\uaa00\"].dddd;");
+  });
 });

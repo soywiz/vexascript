@@ -87,6 +87,50 @@ function formatIdentifier(identifier: Identifier): string {
   return identifier.name;
 }
 
+function formatHex4(code: number): string {
+  return code.toString(16).padStart(4, "0");
+}
+
+function formatStringLiteral(value: string): string {
+  let result = '"';
+
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+
+    if (code === 0x22) {
+      result += '\\"';
+      continue;
+    }
+    if (code === 0x5c) {
+      result += "\\\\";
+      continue;
+    }
+    if (code === 0x0a) {
+      result += "\\n";
+      continue;
+    }
+    if (code === 0x0d) {
+      result += "\\r";
+      continue;
+    }
+    if (code === 0x09) {
+      result += "\\t";
+      continue;
+    }
+
+    const isPrintableAscii = code >= 0x20 && code <= 0x7e;
+    if (isPrintableAscii) {
+      result += String.fromCharCode(code);
+      continue;
+    }
+
+    result += `\\u${formatHex4(code)}`;
+  }
+
+  result += '"';
+  return result;
+}
+
 function exprPrecedence(expr: Expr): number {
   const node = expr as KnownExpr;
   if (node.kind === "AssignmentExpression") {
@@ -163,7 +207,7 @@ function formatExpression(expr: Expr): string {
     return String(node.value);
   }
   if (node.kind === "StringLiteral") {
-    return JSON.stringify(node.value);
+    return formatStringLiteral(node.value);
   }
   if (node.kind === "Identifier") {
     return formatIdentifier(node);
