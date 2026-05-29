@@ -18,11 +18,19 @@ export class StrReader {
         return this.str.charAt(this.offset)
     }
 
+    peekCode() {
+        return this.str.charCodeAt(this.offset)
+    }
+
     skip(count: number = 1) {
         this.offset += count
     }
 
     read() {
         return this.str.charAt(this.offset++)
+    }
+
+    readCode() {
+        return this.str.charCodeAt(this.offset++)
     }
 }
