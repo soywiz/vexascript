@@ -7,9 +7,12 @@ import {
     Expr,
     Identifier,
     IntLiteral,
+    LetStatement,
     MemberExpression,
     ObjectLiteral,
     ObjectProperty,
+    Program,
+    Statement,
     StringLiteral,
     UnaryExpression
 } from "compiler/ast/ast";
@@ -283,4 +286,65 @@ function parseAssignment(r: ListReader<Token>): Expr {
 
 export function parseExpression(r: ListReader<Token>): Expr {
     return parseAssignment(r)
+}
+
+function parseLetStatement(r: ListReader<Token>): LetStatement {
+    const letKeyword = r.read()
+    if (letKeyword?.type !== "identifier" || letKeyword.value !== "let") {
+        throw new Error("Expected 'let' statement")
+    }
+
+    const nameToken = r.read()
+    if (nameToken?.type !== "identifier") {
+        throw new Error("Expected identifier after 'let'")
+    }
+
+    const equalsToken = r.read()
+    if (equalsToken?.type !== "symbol" || equalsToken.value !== "=") {
+        throw new Error("Expected '=' in let statement")
+    }
+
+    const initializer = parseExpression(r)
+    return {
+        kind: "LetStatement",
+        name: { kind: "Identifier", name: nameToken.value } as Identifier,
+        initializer
+    } as LetStatement
+}
+
+export function parseStatement(r: ListReader<Token>): Statement {
+    const token = r.peek()
+    if (token?.type === "identifier" && token.value === "let") {
+        return parseLetStatement(r)
+    }
+
+    throw new Error("Unsupported statement")
+}
+
+export function parseFile(r: ListReader<Token>): Program {
+    const body: Statement[] = []
+
+    while (r.hasMore) {
+        if (r.peek()?.type === "symbol" && r.peek()?.value === ";") {
+            r.skip()
+            continue
+        }
+
+        body.push(parseStatement(r))
+
+        if (r.peek()?.type === "symbol" && r.peek()?.value === ";") {
+            r.skip()
+        } else if (r.hasMore) {
+            throw new Error("Expected ';' between statements")
+        }
+    }
+
+    return {
+        kind: "Program",
+        body
+    } as Program
+}
+
+export function parseProgram(r: ListReader<Token>): Program {
+    return parseFile(r)
 }

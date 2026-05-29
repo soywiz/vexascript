@@ -1,4 +1,4 @@
-import { parseExpression } from "../parser/parser";
+import { parseFile } from "../parser/parser";
 import { tokenize as tokenizeSource, tokenizeReader, type Token } from "../parser/tokenizer";
 
 export function tokenize(source: string): Token[] {
@@ -6,5 +6,5 @@ export function tokenize(source: string): Token[] {
 }
 
 export function toAstPreview(source: string) {
-  return parseExpression(tokenizeReader(source));
+  return parseFile(tokenizeReader(source));
 }

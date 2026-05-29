@@ -44,6 +44,10 @@ function createProgram(): Command {
     .version("0.1.0");
 
   program
+    .option("--lsp", "Start the language server over stdio")
+    .option("--language-server", "Start the language server over stdio (alias of --lsp)");
+
+  program
     .command("build")
     .description("Compile a MyLang file to JavaScript")
     .argument("<input>", "Input file")
@@ -72,7 +76,7 @@ function createProgram(): Command {
 }
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
-  if (argv.includes("--language-server")) {
+  if (argv.includes("--language-server") || argv.includes("--lsp")) {
     await runLanguageServer();
     return;
   }

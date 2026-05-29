@@ -44,7 +44,7 @@ describe("CLI", () => {
   it("ast command prints parsed AST as JSON", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "ast.my");
-    await writeFile(input, "a + 1", "utf8");
+    await writeFile(input, "let myvar = 1 + 2;", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -52,10 +52,19 @@ describe("CLI", () => {
 
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(logSpy.mock.calls[0][0]))).toEqual({
-      kind: "BinaryExpression",
-      operator: "+",
-      left: { kind: "Identifier", name: "a" },
-      right: { kind: "IntLiteral", value: 1 }
+      kind: "Program",
+      body: [
+        {
+          kind: "LetStatement",
+          name: { kind: "Identifier", name: "myvar" },
+          initializer: {
+            kind: "BinaryExpression",
+            operator: "+",
+            left: { kind: "IntLiteral", value: 1 },
+            right: { kind: "IntLiteral", value: 2 }
+          }
+        }
+      ]
     });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseExpression } from "./parser";
+import { parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
 describe("parseExpression", () => {
@@ -246,3 +246,52 @@ describe("parseExpression", () => {
         });
     });
 })
+
+describe("parseStatement", () => {
+    it("parses a let statement", () => {
+        expect(parseStatement(tokenizeReader("let myvar = 1 + 2"))).toEqual({
+            kind: "LetStatement",
+            name: { kind: "Identifier", name: "myvar" },
+            initializer: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "IntLiteral", value: 1 },
+                right: { kind: "IntLiteral", value: 2 }
+            }
+        });
+    });
+});
+
+describe("parseProgram", () => {
+    it("parses multiple let statements separated by semicolons", () => {
+        expect(parseProgram(tokenizeReader("let a = 1; let b = a + 2;"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "a" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "b" },
+                    initializer: {
+                        kind: "BinaryExpression",
+                        operator: "+",
+                        left: { kind: "Identifier", name: "a" },
+                        right: { kind: "IntLiteral", value: 2 }
+                    }
+                }
+            ]
+        });
+    });
+});
+
+describe("parseFile", () => {
+    it("parses an empty file", () => {
+        expect(parseFile(tokenizeReader(""))).toEqual({
+            kind: "Program",
+            body: []
+        });
+    });
+});

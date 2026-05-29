@@ -1,5 +1,9 @@
 # AGENTS
 
+## Project context
+
+- MyLang is a language derived from TypeScript.
+
 ## Testing policy
 
 - We follow TDD (Test-Driven Development).

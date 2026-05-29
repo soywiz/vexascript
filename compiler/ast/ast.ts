@@ -6,6 +6,9 @@ export interface Node {
 export interface Expr extends Node {
 }
 
+export interface Statement extends Node {
+}
+
 export interface IntLiteral extends Node {
     kind: "IntLiteral"
     value: number
@@ -62,4 +65,15 @@ export interface ObjectProperty extends Node {
 export interface ObjectLiteral extends Node {
     kind: "ObjectLiteral"
     properties: ObjectProperty[]
+}
+
+export interface LetStatement extends Statement {
+    kind: "LetStatement"
+    name: Identifier
+    initializer: Expr
+}
+
+export interface Program extends Node {
+    kind: "Program"
+    body: Statement[]
 }

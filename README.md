@@ -1,9 +1,11 @@
 # MyLang
 
+MyLang is a language derived from TypeScript.
+
 Node.js CLI project with:
 
 - Compiler CLI in a single bundle (`dist/mylang.js`).
-- Language Server embedded in the same CLI with `--language-server`.
+- Language Server embedded in the same CLI with `--language-server` or `--lsp`.
 
 ## Install
 
@@ -69,4 +71,14 @@ pnpm node dist/mylang.js ast example.my
 pnpm node dist/mylang.js --language-server
 ```
 
+```bash
+pnpm node dist/mylang.js --lsp
+```
+
 The LSP server communicates via `stdio` for editor integration.
+
+You can also see this documented in CLI help:
+
+```bash
+pnpm node dist/mylang.js --help
+```
