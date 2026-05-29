@@ -10,6 +10,7 @@ import {
     MemberExpression,
     ObjectLiteral,
     ObjectProperty,
+    StringLiteral,
     UnaryExpression
 } from "compiler/ast/ast";
 
@@ -153,11 +154,15 @@ function parsePrimary(r: ListReader<Token>): Expr {
         return { kind: "IntLiteral", value: parseInt(token.value, 10) } as IntLiteral;
     }
 
+    if (token?.type === "string") {
+        return { kind: "StringLiteral", value: token.value } as StringLiteral;
+    }
+
     if (token?.type === "identifier") {
         return { kind: "Identifier", name: token.value } as Identifier;
     }
 
-    throw new Error("Expected a number literal, identifier, '(', '[' or '{'");
+    throw new Error("Expected a number literal, string literal, identifier, '(', '[' or '{'");
 }
 
 function parsePostfix(r: ListReader<Token>): Expr {

@@ -9,6 +9,24 @@ describe("parseExpression", () => {
         );
     });
 
+    it("builds an AST for escaped string literal", () => {
+        expect(parseExpression(tokenizeReader("\"hello\\n\\r\\t...world\""))).toEqual(
+            { kind: "StringLiteral", value: "hello\n\r\t...world" }
+        );
+    });
+
+    it("builds an AST for unicode escaped string literal", () => {
+        expect(parseExpression(tokenizeReader("\"hi\\u0020there\""))).toEqual(
+            { kind: "StringLiteral", value: "hi there" }
+        );
+    });
+
+    it("builds an AST for single-quoted string literal", () => {
+        expect(parseExpression(tokenizeReader("'abc'"))).toEqual(
+            { kind: "StringLiteral", value: "abc" }
+        );
+    });
+
     it("builds an AST for addition expression", () => {
         expect(parseExpression(tokenizeReader("1+2"))).toEqual({
             kind: "BinaryExpression",

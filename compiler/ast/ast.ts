@@ -16,6 +16,11 @@ export interface Identifier extends Node {
     name: string
 }
 
+export interface StringLiteral extends Node {
+    kind: "StringLiteral"
+    value: string
+}
+
 export interface BinaryExpression extends Node {
     kind: "BinaryExpression"
     operator: "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "||" | "&&"

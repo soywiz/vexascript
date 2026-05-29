@@ -54,4 +54,19 @@ describe("tokenizer", () => {
             { type: "identifier", value: "j" }
         ])
     })
+
+    it("tokenizes string literals with escapes", () => {
+        expect(tokenize("\"hello\\n\\r\\t...world\" \"hi\\u0020there\"")).toStrictEqual([
+            { type: "string", value: "hello\n\r\t...world" },
+            { type: "string", value: "hi there" }
+        ])
+    })
+
+    it("tokenizes single-quoted string literals", () => {
+        expect(tokenize("'abc' 'it\\'s' 'path\\\\file'")).toStrictEqual([
+            { type: "string", value: "abc" },
+            { type: "string", value: "it's" },
+            { type: "string", value: "path\\file" }
+        ])
+    })
 })
