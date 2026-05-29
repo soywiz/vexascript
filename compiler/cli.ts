@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { transpile } from "./runtime/transpile";
 import { toAstPreview, tokenize } from "./runtime/tooling";
@@ -36,12 +37,7 @@ async function printAst(input: string): Promise<void> {
   console.log(JSON.stringify(toAstPreview(source), null, 2));
 }
 
-async function main(): Promise<void> {
-  if (process.argv.includes("--language-server")) {
-    await runLanguageServer();
-    return;
-  }
-
+function createProgram(): Command {
   const program = new Command()
     .name("mylang")
     .description("MyLang compiler CLI")
@@ -72,10 +68,29 @@ async function main(): Promise<void> {
       await printAst(input);
     });
 
-  await program.parseAsync(process.argv);
+  return program;
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+export async function runCli(argv: string[] = process.argv): Promise<void> {
+  if (argv.includes("--language-server")) {
+    await runLanguageServer();
+    return;
+  }
+
+  await createProgram().parseAsync(argv);
+}
+
+async function main(): Promise<void> {
+  await runCli(process.argv);
+}
+
+const isDirectExecution =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectExecution) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

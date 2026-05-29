@@ -10,5 +10,5 @@
     "types": ["node"],
     "baseUrl": "."
   },
-  "include": ["src", "compiler", "vite.config.ts", "tsup.config.ts"]
+  "include": ["compiler", "tsup.config.ts"]
 }

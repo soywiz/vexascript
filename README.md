@@ -1,8 +1,7 @@
 # MyLang
 
-Base project with:
+Node.js CLI project with:
 
-- Vite + TypeScript for the web playground.
 - Compiler CLI in a single bundle (`dist/mylang.js`).
 - Language Server embedded in the same CLI with `--language-server`.
 
@@ -10,12 +9,6 @@ Base project with:
 
 ```bash
 pnpm install
-```
-
-## Web development
-
-```bash
-pnpm dev
 ```
 
 ## Build
@@ -26,7 +19,6 @@ pnpm build
 
 This generates:
 
-- `dist/` for the frontend (Vite)
 - `dist/mylang.js` (single bundle for compiler + tooling + LSP)
 
 ## Tests (TDD)

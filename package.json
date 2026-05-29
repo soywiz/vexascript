@@ -2,17 +2,13 @@
   "name": "mylang",
   "version": "0.1.0",
   "private": true,
-  "description": "TypeScript + Vite project for a TypeScript-like language with CLI compiler and language server",
+  "description": "Node.js CLI project for a TypeScript-like language with compiler and language server",
   "type": "module",
   "bin": {
     "mylang": "dist/mylang.js"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && tsup",
-    "build:web": "vite build",
-    "build:compiler": "tsup",
-    "preview": "vite preview",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -26,7 +22,6 @@
     "@types/node": "^22.15.30",
     "vitest": "^2.1.8",
     "typescript": "^5.8.3",
-    "tsup": "^8.1.0",
-    "vite": "^6.3.5"
+    "tsup": "^8.1.0"
   }
 }

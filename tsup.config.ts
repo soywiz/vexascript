@@ -1,7 +1,9 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["compiler/cli.ts"],
+  entry: {
+    mylang: "compiler/cli.ts"
+  },
   outDir: "dist",
   outExtension: () => ({ js: ".js" }),
   format: ["esm"],
