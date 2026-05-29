@@ -248,3 +248,22 @@ let a = 1
 let b = 2;
 a += b
 ```
+
+## Comments
+
+MyLang supports two comment styles:
+
+- single-line comments with `//`
+- block comments with `/* ... */`
+
+Examples:
+
+```mylang
+let a = 1 // single-line comment
+
+/*
+multi-line
+block comment
+*/
+let b = 2
+```

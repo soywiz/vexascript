@@ -960,6 +960,31 @@ describe("parseProgram", () => {
             ]
         });
     });
+
+    it("parses programs with single-line and block comments", () => {
+        expect(parseProgram(tokenizeReader("let a = 1 // comment\n/* block */\nlet b = a + 2"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "a" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "b" },
+                    initializer: {
+                        kind: "BinaryExpression",
+                        operator: "+",
+                        left: { kind: "Identifier", name: "a" },
+                        right: { kind: "IntLiteral", value: 2 }
+                    }
+                }
+            ]
+        });
+    });
 });
 
 describe("parseFile", () => {

@@ -114,6 +114,61 @@ function isHexDigitCode(code: number): boolean {
   );
 }
 
+function peekNextCode(scanner: Scanner): number {
+  return scanner.reader.str.charCodeAt(scanner.reader.offset + 1);
+}
+
+function skipLineComment(scanner: Scanner): void {
+  advanceCode(scanner);
+  advanceCode(scanner);
+
+  while (scanner.reader.hasMore) {
+    if (scanner.reader.peekCode() === 10) {
+      return;
+    }
+    advanceCode(scanner);
+  }
+}
+
+function skipBlockComment(scanner: Scanner, start: SourcePosition): void {
+  advanceCode(scanner);
+  advanceCode(scanner);
+
+  while (scanner.reader.hasMore) {
+    const code = scanner.reader.peekCode();
+    const nextCode = peekNextCode(scanner);
+    if (code === CODE_STAR && nextCode === CODE_SLASH) {
+      advanceCode(scanner);
+      advanceCode(scanner);
+      return;
+    }
+    advanceCode(scanner);
+  }
+
+  throw new TokenizeError("Unterminated block comment", {
+    start,
+    end: snapshot(scanner)
+  });
+}
+
+function skipComment(scanner: Scanner): boolean {
+  if (!scanner.reader.hasMore || scanner.reader.peekCode() !== CODE_SLASH) {
+    return false;
+  }
+
+  const nextCode = peekNextCode(scanner);
+  if (nextCode === CODE_SLASH) {
+    skipLineComment(scanner);
+    return true;
+  }
+  if (nextCode === CODE_STAR) {
+    skipBlockComment(scanner, snapshot(scanner));
+    return true;
+  }
+
+  return false;
+}
+
 function readIdentifier(scanner: Scanner): string {
   const start = scanner.reader.offset;
   advanceCode(scanner);
@@ -314,6 +369,10 @@ export function tokenize(input: string): Token[] {
     const code = scanner.reader.peekCode();
     if (isWhitespaceCode(code)) {
       advanceCode(scanner);
+      continue;
+    }
+
+    if (skipComment(scanner)) {
       continue;
     }
 

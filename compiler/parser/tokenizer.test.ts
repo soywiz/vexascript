@@ -104,6 +104,36 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("ignores single-line comments", () => {
+        expect(simplifyTokens("let a = 1 // trailing\nlet b = 2")).toStrictEqual([
+            { type: "identifier", value: "let" },
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "=" },
+            { type: "number", value: "1" },
+            { type: "identifier", value: "let" },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: "=" },
+            { type: "number", value: "2" }
+        ])
+    })
+
+    it("ignores block comments, including multiline comments", () => {
+        expect(simplifyTokens("let a = /* inline */ 1\n/* multi\nline */\nlet b = 2")).toStrictEqual([
+            { type: "identifier", value: "let" },
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "=" },
+            { type: "number", value: "1" },
+            { type: "identifier", value: "let" },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: "=" },
+            { type: "number", value: "2" }
+        ])
+    })
+
+    it("throws when block comment is unterminated", () => {
+        expect(() => tokenize("let a = 1 /* unterminated")).toThrow("Unterminated block comment")
+    })
+
     it("tracks offset/line/column ranges for tokens", () => {
         const tokens = tokenize("a\n+ 2");
         expect(tokens.map((token) => token.range)).toEqual([
