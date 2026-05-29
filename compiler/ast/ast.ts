@@ -98,6 +98,29 @@ export interface FunctionStatement extends Statement {
     body: BlockStatement
 }
 
+export interface ClassFieldMember extends Node {
+    kind: "ClassFieldMember"
+    name: Identifier
+    typeAnnotation?: Identifier
+    initializer?: Expr
+}
+
+export interface ClassMethodMember extends Node {
+    kind: "ClassMethodMember"
+    name: Identifier
+    parameters: FunctionParameter[]
+    returnType?: Identifier
+    body: BlockStatement
+}
+
+export type ClassMember = ClassFieldMember | ClassMethodMember;
+
+export interface ClassStatement extends Statement {
+    kind: "ClassStatement"
+    name: Identifier
+    members: ClassMember[]
+}
+
 export interface ExprStatement extends Statement {
     kind: "ExprStatement"
     expression: Expr

@@ -619,6 +619,36 @@ describe("parseStatement", () => {
             kind: "BreakStatement"
         });
     });
+
+    it("parses class statement with field, constructor, and method", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Demo {\na = 10\n\nconstructor() {\n}\n\ndemo() {\n}\n}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Demo" },
+            members: [
+                {
+                    kind: "ClassFieldMember",
+                    name: { kind: "Identifier", name: "a" },
+                    initializer: { kind: "IntLiteral", value: 10 }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "constructor" },
+                    parameters: [],
+                    body: { kind: "BlockStatement", body: [] }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "demo" },
+                    parameters: [],
+                    body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
 });
 
 describe("parseProgram", () => {
@@ -831,6 +861,47 @@ describe("parseProgram", () => {
                             { kind: "BreakStatement" }
                         ]
                     }
+                }
+            ]
+        });
+    });
+
+    it("parses class declarations mixed with other statements", () => {
+        expect(
+            parseProgram(
+                tokenizeReader("class Demo {\na = 10\nconstructor() {}\ndemo() {}\n}\nlet after = 1")
+            )
+        ).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "ClassStatement",
+                    name: { kind: "Identifier", name: "Demo" },
+                    members: [
+                        {
+                            kind: "ClassFieldMember",
+                            name: { kind: "Identifier", name: "a" },
+                            initializer: { kind: "IntLiteral", value: 10 }
+                        },
+                        {
+                            kind: "ClassMethodMember",
+                            name: { kind: "Identifier", name: "constructor" },
+                            parameters: [],
+                            body: { kind: "BlockStatement", body: [] }
+                        },
+                        {
+                            kind: "ClassMethodMember",
+                            name: { kind: "Identifier", name: "demo" },
+                            parameters: [],
+                            body: { kind: "BlockStatement", body: [] }
+                        }
+                    ]
+                },
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "after" },
+                    initializer: { kind: "IntLiteral", value: 1 }
                 }
             ]
         });
