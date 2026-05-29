@@ -10,6 +10,10 @@
   "scripts": {
     "build": "tsup",
     "cli": "pnpm build && node dist/mylang.js",
+    "vscodeext:install": "pnpm --dir plugins/vscode install",
+    "vscodeext:launch": "pnpm vscodeext:install && pnpm build && code --new-window --extensionDevelopmentPath=./plugins/vscode .",
+    "vscodeext:launch:insiders": "pnpm vscodeext:install && pnpm build && code-insiders --new-window --extensionDevelopmentPath=./plugins/vscode .",
+    "ide": "pnpm vscodeext:launch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

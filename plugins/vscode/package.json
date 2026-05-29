@@ -5,13 +5,14 @@
   "version": "0.0.1",
   "publisher": "mylang",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.74.0"
   },
   "categories": [
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:mylang"
+    "onLanguage:mylang",
+    "workspaceContains:**/*.my"
   ],
   "main": "./extension.js",
   "contributes": {

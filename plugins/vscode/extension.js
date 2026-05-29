@@ -9,7 +9,13 @@ const {
 let client;
 
 function activate(context) {
-  const serverModule = path.join(context.extensionPath, "..", "dist", "mylang.js");
+  const serverModule = path.resolve(
+    context.extensionPath,
+    "..",
+    "..",
+    "dist",
+    "mylang.js"
+  );
 
   const serverOptions = {
     run: {

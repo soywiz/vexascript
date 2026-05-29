@@ -82,3 +82,11 @@ You can also see this documented in CLI help:
 ```bash
 pnpm node dist/mylang.js --help
 ```
+
+## VS Code extension (local dev)
+
+```bash
+pnpm run vscodeext:launch
+```
+
+This command installs extension dependencies, builds the compiler/LSP, and opens VS Code with `plugins/vscode` as the extension development path.
