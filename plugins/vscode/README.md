@@ -5,6 +5,7 @@ This extension wires VS Code `.my` files to the MyLang language server.
 ## How it works
 
 - Registers language id `mylang` for `*.my`.
+- Adds syntax highlighting for `.my` via TextMate grammar (`source.mylang`).
 - Contributes `MyLang Icons` file icon theme with a custom icon for `.my`.
 - Starts the bundled server using:
   - `node ../../dist/mylang.js --lsp`

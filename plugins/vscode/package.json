@@ -27,7 +27,15 @@
         ],
         "extensions": [
           ".my"
-        ]
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mylang",
+        "scopeName": "source.mylang",
+        "path": "./syntaxes/mylang.tmLanguage.json"
       }
     ],
     "iconThemes": [
