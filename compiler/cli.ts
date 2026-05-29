@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { transpile } from "./runtime/transpile";
-import { toAstPreview, tokenize } from "./runtime/tooling";
+import { format, toAstPreview, tokenize } from "./runtime/tooling";
 
 async function runLanguageServer(): Promise<void> {
   await import("./lsp/server");
@@ -53,6 +53,31 @@ async function printAst(input: string): Promise<void> {
   console.log(JSON.stringify(toAstPreview(source), null, 2));
 }
 
+async function formatFile(input: string, opts: { write?: boolean; out?: string }): Promise<void> {
+  if (opts.write && opts.out) {
+    throw new Error("Cannot use --write and --out together");
+  }
+
+  const sourcePath = resolve(process.cwd(), input);
+  const source = await readFile(sourcePath, "utf8");
+  const formatted = format(source);
+
+  if (opts.write) {
+    await writeFile(sourcePath, `${formatted}\n`, "utf8");
+    console.log(`Formatted: ${sourcePath}`);
+    return;
+  }
+
+  if (opts.out) {
+    const outputPath = resolve(process.cwd(), opts.out);
+    await writeFile(outputPath, `${formatted}\n`, "utf8");
+    console.log(`Formatted: ${sourcePath} -> ${outputPath}`);
+    return;
+  }
+
+  console.log(formatted);
+}
+
 function createProgram(): Command {
   const program = new Command()
     .name("mylang")
@@ -86,6 +111,16 @@ function createProgram(): Command {
     .argument("<input>", "Input file")
     .action(async (input: string) => {
       await printAst(input);
+    });
+
+  program
+    .command("format")
+    .description("Format a MyLang file")
+    .argument("<input>", "Input file")
+    .option("-w, --write", "Overwrite the input file")
+    .option("-o, --out <file>", "Output file")
+    .action(async (input: string, opts: { write?: boolean; out?: string }) => {
+      await formatFile(input, opts);
     });
 
   return program;

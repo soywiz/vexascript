@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+import { formatSource } from "./formatter";
+
+describe("formatSource", () => {
+  it("formats function parameters with optional marker and default value", () => {
+    expect(formatSource("fun test(a,v,c?,d:Int=demo){return d}"))
+      .toBe("fun test(a, v, c?, d: Int = demo) {\n  return d;\n}");
+  });
+
+  it("formats class declaration with field, constructor, and method", () => {
+    expect(
+      formatSource("class Demo { a=10; constructor(){}; demo(){} }")
+    ).toBe(
+      "class Demo {\n" +
+        "  a = 10;\n" +
+        "\n" +
+        "  constructor() {\n" +
+        "  }\n" +
+        "\n" +
+        "  demo() {\n" +
+        "  }\n" +
+        "}"
+    );
+  });
+
+  it("formats program statements with canonical spacing and semicolons", () => {
+    expect(formatSource("let a=1\na+=2\nwhile(a<10)a+=1"))
+      .toBe("let a = 1;\na += 2;\nwhile (a < 10)\n  a += 1;");
+  });
+});

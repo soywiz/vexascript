@@ -6,13 +6,15 @@ import {
   type Diagnostic,
   DiagnosticSeverity,
   CompletionItemKind,
-  CodeActionKind
+  CodeActionKind,
+  type TextEdit
 } from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { ListReader } from "compiler/utils/ListReader";
 import { Parser } from "compiler/parser/parser";
 import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
+import { createFullDocumentFormatEdit } from "./formatting";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
@@ -24,7 +26,8 @@ connection.onInitialize(() => {
       completionProvider: {
         resolveProvider: false
       },
-      codeActionProvider: true
+      codeActionProvider: true,
+      documentFormattingProvider: true
     }
   };
 });
@@ -156,6 +159,15 @@ connection.onCodeAction((params) => {
       }
     }
   ];
+});
+
+connection.onDocumentFormatting((params): TextEdit[] => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return [];
+  }
+
+  return [createFullDocumentFormatEdit(doc.getText())];
 });
 
 documents.listen(connection);

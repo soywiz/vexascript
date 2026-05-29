@@ -15,6 +15,11 @@
 
 - All code and documentation must be written in English.
 
+## Documentation policy
+
+- Language syntax documentation lives in `docs/syntax.md`.
+- Every time new language syntax support is added, `docs/syntax.md` must be updated in the same change.
+
 ## Commands
 
 - Run tests once: `pnpm test`

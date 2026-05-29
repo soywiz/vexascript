@@ -65,6 +65,18 @@ pnpm node dist/mylang.js tokens example.my
 pnpm node dist/mylang.js ast example.my
 ```
 
+### Format a file
+
+```bash
+pnpm node dist/mylang.js format example.my
+```
+
+Overwrite the input file in place:
+
+```bash
+pnpm node dist/mylang.js format example.my --write
+```
+
 ### Start language server
 
 ```bash
