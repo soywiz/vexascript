@@ -5,12 +5,14 @@ import {
   TextDocumentSyncKind,
   type Diagnostic,
   DiagnosticSeverity,
-  CompletionItemKind
+  CompletionItemKind,
+  CodeActionKind
 } from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { ListReader } from "compiler/utils/ListReader";
 import { Parser } from "compiler/parser/parser";
 import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
+import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
@@ -21,7 +23,8 @@ connection.onInitialize(() => {
       textDocumentSync: TextDocumentSyncKind.Incremental,
       completionProvider: {
         resolveProvider: false
-      }
+      },
+      codeActionProvider: true
     }
   };
 });
@@ -112,6 +115,46 @@ connection.onCompletion(() => {
     { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
     { label: "type", kind: CompletionItemKind.Keyword, detail: "Keyword" },
     { label: "interface", kind: CompletionItemKind.Keyword, detail: "Keyword" }
+  ];
+});
+
+connection.onCodeAction((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return [];
+  }
+
+  let tokens: Token[];
+  try {
+    tokens = tokenize(doc.getText());
+  } catch {
+    return [];
+  }
+
+  const replacement = findDeclarationKeywordReplacementAtPosition(
+    tokens,
+    params.range.start.line,
+    params.range.start.character
+  );
+  if (!replacement) {
+    return [];
+  }
+
+  return [
+    {
+      title: `Replace '${replacement.from}' with '${replacement.to}'`,
+      kind: CodeActionKind.QuickFix,
+      edit: {
+        changes: {
+          [params.textDocument.uri]: [
+            {
+              range: replacement.range,
+              newText: replacement.to
+            }
+          ]
+        }
+      }
+    }
   ];
 });
 

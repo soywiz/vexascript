@@ -71,8 +71,8 @@ export interface ObjectLiteral extends Node {
     properties: ObjectProperty[]
 }
 
-export interface LetStatement extends Statement {
-    kind: "LetStatement"
+export interface VarStatement extends Statement {
+    kind: "VarStatement"
     declarationKind: VariableDeclarationKind
     name: Identifier
     typeAnnotation?: Identifier

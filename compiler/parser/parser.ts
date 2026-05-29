@@ -10,7 +10,7 @@ import {
     ExprStatement,
     Identifier,
     IntLiteral,
-    LetStatement,
+    VarStatement,
     MemberExpression,
     ObjectLiteral,
     ObjectProperty,
@@ -372,7 +372,7 @@ export function parseExpression(r: ListReader<Token>): Expr {
     return parseAssignment(r)
 }
 
-function parseLetStatement(r: ListReader<Token>): LetStatement {
+function parseVarStatement(r: ListReader<Token>): VarStatement {
     const declarationKeyword = r.read()
     if (
         declarationKeyword?.type !== "identifier" ||
@@ -404,8 +404,8 @@ function parseLetStatement(r: ListReader<Token>): LetStatement {
         initializer = parseExpression(r)
     }
 
-    const statement: LetStatement = {
-        kind: "LetStatement",
+    const statement: VarStatement = {
+        kind: "VarStatement",
         declarationKind: declarationKeyword.value as VariableDeclarationKind,
         name: { kind: "Identifier", name: nameToken.value } as Identifier
     }
@@ -518,7 +518,7 @@ function parseDoWhileStatement(r: ListReader<Token>): DoWhileStatement {
 export function parseStatement(r: ListReader<Token>): Statement {
     const token = r.peek()
     if (token?.type === "identifier" && VARIABLE_DECLARATION_KEYWORDS.includes(token.value as VariableDeclarationKind)) {
-        return parseLetStatement(r)
+        return parseVarStatement(r)
     }
     if (token?.type === "identifier" && token.value === "do") {
         return parseDoWhileStatement(r)

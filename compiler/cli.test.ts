@@ -56,7 +56,7 @@ describe("CLI", () => {
       kind: "Program",
       body: [
         {
-          kind: "LetStatement",
+          kind: "VarStatement",
           declarationKind: "let",
           name: { kind: "Identifier", name: "myvar" },
           initializer: {
