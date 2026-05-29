@@ -58,6 +58,16 @@ function sum(a, b) {
 }
 ```
 
+### Ambient function declarations
+
+MyLang also supports ambient function declarations using `declare function`.
+
+Example:
+
+```mylang
+declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
+```
+
 ### Parameters
 
 Function parameters support:
@@ -266,4 +276,14 @@ multi-line
 block comment
 */
 let b = 2
+```
+
+## TypeScript parser mode
+
+When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function`.
+
+Example:
+
+```typescript
+declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
 ```

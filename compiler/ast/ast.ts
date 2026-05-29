@@ -96,6 +96,7 @@ export interface VarStatement extends Statement {
 export interface FunctionStatement extends Statement {
     kind: "FunctionStatement"
     declarationKind: FunctionDeclarationKind
+    declared?: boolean
     name: Identifier
     parameters: FunctionParameter[]
     returnType?: Identifier

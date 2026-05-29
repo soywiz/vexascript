@@ -145,6 +145,15 @@ export class Parser {
         if (token?.type === "identifier" && this.isFunctionDeclarationKeyword(token.value)) {
             return this.parseFunctionStatement();
         }
+        if (this.isDeclareFunctionStart()) {
+            return this.parseDeclareFunctionStatement();
+        }
+        if (this.isDeclareNamespaceStart()) {
+            return this.parseDeclareNamespaceStatement();
+        }
+        if (this.isTypeScriptExportAssignmentStart()) {
+            return this.parseTypeScriptExportAssignmentStatement();
+        }
         if (token?.type === "identifier" && token.value === "class") {
             return this.parseClassStatement();
         }
@@ -308,6 +317,146 @@ export class Parser {
             return value === "function";
         }
         return FUNCTION_DECLARATION_KEYWORDS.includes(value as FunctionDeclarationKind);
+    }
+
+    private peekToken(offset: number = 0): Token | undefined {
+        return this.tokens.items[this.tokens.offset + offset];
+    }
+
+    private isDeclareFunctionStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "declare" &&
+            second?.type === "identifier" &&
+            second.value === "function"
+        );
+    }
+
+    private isDeclareNamespaceStart(): boolean {
+        if (this.language !== "typescript") {
+            return false;
+        }
+
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "declare" &&
+            second?.type === "identifier" &&
+            (second.value === "namespace" || second.value === "module")
+        );
+    }
+
+    private isTypeScriptExportAssignmentStart(): boolean {
+        if (this.language !== "typescript") {
+            return false;
+        }
+
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "export" &&
+            second?.type === "symbol" &&
+            second.value === "="
+        );
+    }
+
+    private skipUntilMatchingCloseParen(openParen: Token): Token {
+        let depth = 1;
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.read();
+            if (!token) {
+                break;
+            }
+
+            if (token.type === "symbol" && token.value === "(") {
+                depth += 1;
+                continue;
+            }
+            if (token.type === "symbol" && token.value === ")") {
+                depth -= 1;
+                if (depth === 0) {
+                    return token;
+                }
+            }
+        }
+
+        this.fail("Expected ')' after function parameters", this.tokenAt(openParen));
+    }
+
+    private skipUntilMatchingCloseSymbol(openToken: Token, openValue: string, closeValue: string, missingCloseMessage: string): Token {
+        let depth = 1;
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.read();
+            if (!token) {
+                break;
+            }
+
+            if (token.type === "symbol" && token.value === openValue) {
+                depth += 1;
+                continue;
+            }
+
+            if (token.type === "symbol" && token.value === closeValue) {
+                depth -= 1;
+                if (depth === 0) {
+                    return token;
+                }
+            }
+        }
+
+        this.fail(missingCloseMessage, this.tokenAt(openToken));
+    }
+
+    private skipTypeAnnotationUntilStatementEnd(): void {
+        let parenDepth = 0;
+        let bracketDepth = 0;
+        let braceDepth = 0;
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+            if (!token) {
+                return;
+            }
+
+            if (token.type === "symbol") {
+                if (token.value === "(") {
+                    parenDepth += 1;
+                } else if (token.value === ")") {
+                    if (parenDepth > 0) {
+                        parenDepth -= 1;
+                    }
+                } else if (token.value === "[") {
+                    bracketDepth += 1;
+                } else if (token.value === "]") {
+                    if (bracketDepth > 0) {
+                        bracketDepth -= 1;
+                    }
+                } else if (token.value === "{") {
+                    braceDepth += 1;
+                } else if (token.value === "}") {
+                    if (braceDepth > 0) {
+                        braceDepth -= 1;
+                    }
+                }
+
+                if (
+                    token.value === ";" &&
+                    parenDepth === 0 &&
+                    bracketDepth === 0 &&
+                    braceDepth === 0
+                ) {
+                    return;
+                }
+            }
+
+            this.tokens.skip();
+        }
     }
 
     private getLastReadToken(): Token | undefined {
@@ -753,6 +902,125 @@ export class Parser {
         }
 
         return this.attachNodeBounds(statement, declarationKeyword, this.getLastReadToken() ?? declarationKeyword);
+    }
+
+    private parseDeclareFunctionStatement(): FunctionStatement {
+        const declareKeyword = this.tokens.read();
+        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+            this.fail("Expected 'declare' before function declaration", this.tokenAt(declareKeyword));
+        }
+
+        const functionKeyword = this.tokens.read();
+        if (functionKeyword?.type !== "identifier" || functionKeyword.value !== "function") {
+            this.fail("Expected 'function' after 'declare'", this.tokenAt(functionKeyword));
+        }
+
+        const nameToken = this.tokens.read();
+        if (nameToken?.type !== "identifier") {
+            this.fail("Expected function name after declaration keyword", this.tokenAt(nameToken));
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after function name", this.tokenAt(openParen));
+        }
+
+        this.skipUntilMatchingCloseParen(openParen);
+
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            this.tokens.skip();
+            this.skipTypeAnnotationUntilStatementEnd();
+        }
+
+        const maybeSemicolon = this.tokens.peek();
+        if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
+            this.tokens.skip();
+        }
+
+        const emptyBody = this.attachNodeBounds(
+            { kind: "BlockStatement", body: [] } as BlockStatement,
+            functionKeyword,
+            functionKeyword
+        );
+
+        const statement: FunctionStatement = {
+            kind: "FunctionStatement",
+            declarationKind: "function",
+            declared: true,
+            name: this.buildIdentifierFromToken(nameToken),
+            parameters: [],
+            body: emptyBody
+        };
+
+        return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
+    }
+
+    private parseDeclareNamespaceStatement(): Statement {
+        const declareKeyword = this.tokens.read();
+        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+            this.fail("Expected 'declare' before namespace declaration", this.tokenAt(declareKeyword));
+        }
+
+        const namespaceKeyword = this.tokens.read();
+        if (
+            namespaceKeyword?.type !== "identifier" ||
+            (namespaceKeyword.value !== "namespace" && namespaceKeyword.value !== "module")
+        ) {
+            this.fail("Expected 'namespace' or 'module' after 'declare'", this.tokenAt(namespaceKeyword));
+        }
+
+        const namespaceNameToken = this.tokens.read();
+        if (namespaceNameToken?.type !== "identifier") {
+            this.fail("Expected namespace name after declaration keyword", this.tokenAt(namespaceNameToken));
+        }
+
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+            this.tokens.skip();
+            const segmentToken = this.tokens.read();
+            if (segmentToken?.type !== "identifier") {
+                this.fail("Expected identifier after '.' in namespace name", this.tokenAt(segmentToken));
+            }
+        }
+
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' to start namespace body", this.tokenAt(openBrace));
+        }
+
+        this.skipUntilMatchingCloseSymbol(openBrace, "{", "}", "Expected '}' to close namespace body");
+
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
+            this.tokens.skip();
+        }
+
+        return this.attachNodeBounds(
+            { kind: "BlockStatement", body: [] } as BlockStatement,
+            declareKeyword,
+            this.getLastReadToken() ?? declareKeyword
+        );
+    }
+
+    private parseTypeScriptExportAssignmentStatement(): ExprStatement {
+        const exportKeyword = this.tokens.read();
+        if (exportKeyword?.type !== "identifier" || exportKeyword.value !== "export") {
+            this.fail("Expected 'export' in export assignment", this.tokenAt(exportKeyword));
+        }
+
+        const equalsToken = this.tokens.read();
+        if (equalsToken?.type !== "symbol" || equalsToken.value !== "=") {
+            this.fail("Expected '=' after 'export'", this.tokenAt(equalsToken));
+        }
+
+        const expression = this.parseExpressionOrThrow();
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
+            this.tokens.skip();
+        }
+
+        return this.attachNodeBounds(
+            { kind: "ExprStatement", expression } as ExprStatement,
+            exportKeyword,
+            this.getLastReadToken() ?? exportKeyword
+        );
     }
 
     private parseFunctionParameters(): FunctionParameter[] {

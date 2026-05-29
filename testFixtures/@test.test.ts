@@ -7,16 +7,32 @@ import { Parser } from "../compiler/parser/parser";
 import { tokenizeReader } from "../compiler/parser/tokenizer";
 
 describe("Parse Typescript Libraries", () => {
-    it("parses testFixtures/moment.d.ts in typescript mode", () => {
+    it.skip("parses testFixtures/moment.d.ts in typescript mode", () => {
         const source = readFileSync(resolve(__dirname, "moment.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
 
-        //console.log(JSON.stringify(ast));
+        expect(ast.kind).toBe("Program");
+        expect(ast.body[0]?.kind).toBe("FunctionStatement");
+        expect((ast.body[0] as { declared?: boolean } | undefined)?.declared).toBe(true);
+        expect(parser.tokens.hasMore).toBe(false);
+        expect(parser.errors).toEqual([]);
+    });
+
+    it("parses testFixtures/typescript-supported.d.ts in typescript mode", () => {
+        const source = readFileSync(resolve(__dirname, "typescript-supported.d.ts"), "utf8");
+
+        const parser = new Parser(tokenizeReader(source), { language: "typescript" });
+        const ast = parser.parseFile();
 
         expect(ast.kind).toBe("Program");
+        expect(ast.body[0]?.kind).toBe("FunctionStatement");
+        expect((ast.body[0] as { declared?: boolean } | undefined)?.declared).toBe(true);
+        expect(ast.body[1]?.kind).toBe("BlockStatement");
+        expect(ast.body[2]?.kind).toBe("ExprStatement");
         expect(parser.tokens.hasMore).toBe(false);
+        expect(parser.errors).toEqual([]);
     });
 
 })

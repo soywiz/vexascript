@@ -703,6 +703,38 @@ describe("parseStatement", () => {
             }
         });
     });
+
+    it("parses 'declare function' as a function declaration in typescript mode", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;"),
+                { language: "typescript" }
+            )
+        ).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "function",
+            declared: true,
+            name: { kind: "Identifier", name: "moment" },
+            parameters: [],
+            body: { kind: "BlockStatement", body: [] }
+        });
+    });
+
+    it("parses 'declare function' as a function declaration in mylang mode", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;"),
+                { language: "mylang" }
+            )
+        ).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "function",
+            declared: true,
+            name: { kind: "Identifier", name: "moment" },
+            parameters: [],
+            body: { kind: "BlockStatement", body: [] }
+        });
+    });
 });
 
 describe("parseProgram", () => {
