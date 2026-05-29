@@ -96,6 +96,24 @@ class Demo {
 }
 ```
 
+### Optional primary constructor
+
+Class declarations support an optional primary constructor parameter list after the class name.
+
+Each primary constructor parameter currently supports:
+
+- declaration kind (`let`, `var`, `val`, `const`)
+- parameter name
+- optional type annotation (`: TypeName`)
+- optional default value (`= expression`)
+
+Example:
+
+```mylang
+class Point(val x: number, val y: number) {
+}
+```
+
 ### Class fields
 
 Class fields support:

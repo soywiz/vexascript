@@ -49,4 +49,9 @@ describe("formatSource", () => {
     expect(formatSource("let a = b.c[\"d\\n\\uaa00\"].dddd"))
       .toBe("let a = b.c[\"d\\n\\uaa00\"].dddd;");
   });
+
+  it("formats class primary constructor parameters", () => {
+    expect(formatSource("class Point(val x:number,val y:number){}"))
+      .toBe("class Point(val x: number, val y: number) {\n}");
+  });
 });

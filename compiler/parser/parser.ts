@@ -10,6 +10,7 @@ import {
     ClassFieldMember,
     ClassMember,
     ClassMethodMember,
+    ClassPrimaryConstructorParameter,
     ClassStatement,
     DoWhileStatement,
     Expr,
@@ -619,6 +620,69 @@ function parseClassMember(r: ListReader<Token>): ClassMember {
     return fieldMember
 }
 
+function parseClassPrimaryConstructorParameters(r: ListReader<Token>): ClassPrimaryConstructorParameter[] {
+    const parameters: ClassPrimaryConstructorParameter[] = []
+    if (r.peek()?.type === "symbol" && r.peek()?.value === ")") {
+        return parameters
+    }
+
+    while (r.hasMore) {
+        const declarationToken = r.read()
+        if (
+            declarationToken?.type !== "identifier" ||
+            !VARIABLE_DECLARATION_KEYWORDS.includes(declarationToken.value as VariableDeclarationKind)
+        ) {
+            fail("Expected declaration keyword in class primary constructor parameter", tokenAt(r, declarationToken))
+        }
+
+        const parameterNameToken = r.read()
+        if (parameterNameToken?.type !== "identifier") {
+            fail("Expected parameter name in class primary constructor", tokenAt(r, parameterNameToken))
+        }
+
+        let parameterTypeAnnotation: Identifier | undefined
+        if (r.peek()?.type === "symbol" && r.peek()?.value === ":") {
+            r.skip()
+            const parameterTypeToken = r.read()
+            if (parameterTypeToken?.type !== "identifier") {
+                fail("Expected parameter type after ':'", tokenAt(r, parameterTypeToken))
+            }
+            parameterTypeAnnotation = { kind: "Identifier", name: parameterTypeToken.value } as Identifier
+        }
+
+        let parameterDefaultValue: Expr | undefined
+        if (r.peek()?.type === "symbol" && r.peek()?.value === "=") {
+            r.skip()
+            parameterDefaultValue = parseExpression(r)
+        }
+
+        const parameter: ClassPrimaryConstructorParameter = {
+            kind: "ClassPrimaryConstructorParameter",
+            declarationKind: declarationToken.value as VariableDeclarationKind,
+            name: { kind: "Identifier", name: parameterNameToken.value } as Identifier
+        }
+        if (parameterTypeAnnotation) {
+            parameter.typeAnnotation = parameterTypeAnnotation
+        }
+        if (parameterDefaultValue) {
+            parameter.defaultValue = parameterDefaultValue
+        }
+        parameters.push(parameter)
+
+        const separator = r.peek()
+        if (separator?.type === "symbol" && separator.value === ",") {
+            r.skip()
+            continue
+        }
+        if (separator?.type === "symbol" && separator.value === ")") {
+            break
+        }
+        fail("Expected ',' or ')' in class primary constructor parameter list", tokenAt(r, separator))
+    }
+
+    return parameters
+}
+
 function parseClassStatement(r: ListReader<Token>): ClassStatement {
     const classKeyword = r.read()
     if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
@@ -628,6 +692,17 @@ function parseClassStatement(r: ListReader<Token>): ClassStatement {
     const classNameToken = r.read()
     if (classNameToken?.type !== "identifier") {
         fail("Expected class name after 'class'", tokenAt(r, classNameToken))
+    }
+
+    let primaryConstructorParameters: ClassPrimaryConstructorParameter[] | undefined
+    if (r.peek()?.type === "symbol" && r.peek()?.value === "(") {
+        r.skip()
+        primaryConstructorParameters = parseClassPrimaryConstructorParameters(r)
+
+        const closeParen = r.read()
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            fail("Expected ')' after class primary constructor parameters", tokenAt(r, closeParen))
+        }
     }
 
     const openBrace = r.read()
@@ -640,11 +715,15 @@ function parseClassStatement(r: ListReader<Token>): ClassStatement {
         const token = r.peek()
         if (token?.type === "symbol" && token.value === "}") {
             r.skip()
-            return {
+            const statement: ClassStatement = {
                 kind: "ClassStatement",
                 name: { kind: "Identifier", name: classNameToken.value } as Identifier,
                 members
-            } as ClassStatement
+            }
+            if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
+                statement.primaryConstructorParameters = primaryConstructorParameters
+            }
+            return statement
         }
 
         if (token?.type === "symbol" && token.value === ";") {

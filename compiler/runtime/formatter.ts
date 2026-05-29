@@ -7,6 +7,7 @@ import {
   ClassFieldMember,
   ClassMember,
   ClassMethodMember,
+  ClassPrimaryConstructorParameter,
   ClassStatement,
   ContinueStatement,
   DoWhileStatement,
@@ -321,13 +322,27 @@ function formatClassMember(member: ClassMember, level: number): string {
   return formatClassMethodMember(member, level);
 }
 
+function formatClassPrimaryConstructorParameter(parameter: ClassPrimaryConstructorParameter): string {
+  const typeAnnotation = parameter.typeAnnotation
+    ? `: ${formatIdentifier(parameter.typeAnnotation)}`
+    : "";
+  const defaultValue = parameter.defaultValue ? ` = ${formatExpression(parameter.defaultValue)}` : "";
+  return `${parameter.declarationKind} ${formatIdentifier(parameter.name)}${typeAnnotation}${defaultValue}`;
+}
+
 function formatClassStatement(statement: ClassStatement, level: number): string {
+  const primaryConstructorParameters = statement.primaryConstructorParameters
+    ? `(${statement.primaryConstructorParameters
+        .map((parameter) => formatClassPrimaryConstructorParameter(parameter))
+        .join(", ")})`
+    : "";
+
   if (statement.members.length === 0) {
-    return `${indent(level)}class ${formatIdentifier(statement.name)} {\n${indent(level)}}`;
+    return `${indent(level)}class ${formatIdentifier(statement.name)}${primaryConstructorParameters} {\n${indent(level)}}`;
   }
 
   const members = statement.members.map((member) => formatClassMember(member, level + 1)).join("\n\n");
-  return `${indent(level)}class ${formatIdentifier(statement.name)} {\n${members}\n${indent(level)}}`;
+  return `${indent(level)}class ${formatIdentifier(statement.name)}${primaryConstructorParameters} {\n${members}\n${indent(level)}}`;
 }
 
 function formatStatement(statement: Statement, level: number): string {

@@ -649,6 +649,28 @@ describe("parseStatement", () => {
             ]
         });
     });
+
+    it("parses class statement with primary constructor parameters", () => {
+        expect(parseStatement(tokenizeReader("class Point(val x: number, val y: number) {\n}"))).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Point" },
+            primaryConstructorParameters: [
+                {
+                    kind: "ClassPrimaryConstructorParameter",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "x" },
+                    typeAnnotation: { kind: "Identifier", name: "number" }
+                },
+                {
+                    kind: "ClassPrimaryConstructorParameter",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "y" },
+                    typeAnnotation: { kind: "Identifier", name: "number" }
+                }
+            ],
+            members: []
+        });
+    });
 });
 
 describe("parseProgram", () => {

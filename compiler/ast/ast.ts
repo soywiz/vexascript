@@ -115,9 +115,18 @@ export interface ClassMethodMember extends Node {
 
 export type ClassMember = ClassFieldMember | ClassMethodMember;
 
+export interface ClassPrimaryConstructorParameter extends Node {
+    kind: "ClassPrimaryConstructorParameter"
+    declarationKind: VariableDeclarationKind
+    name: Identifier
+    typeAnnotation?: Identifier
+    defaultValue?: Expr
+}
+
 export interface ClassStatement extends Statement {
     kind: "ClassStatement"
     name: Identifier
+    primaryConstructorParameters?: ClassPrimaryConstructorParameter[]
     members: ClassMember[]
 }
 
