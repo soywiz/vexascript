@@ -65,6 +65,24 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for object literals", () => {
+        expect(parseExpression(tokenizeReader("{a: 1, b: 2}"))).toEqual({
+            kind: "ObjectLiteral",
+            properties: [
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "Identifier", name: "a" },
+                    value: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "Identifier", name: "b" },
+                    value: { kind: "IntLiteral", value: 2 }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for chained member/index access", () => {
         expect(parseExpression(tokenizeReader("a.b[1].c"))).toEqual({
             kind: "MemberExpression",

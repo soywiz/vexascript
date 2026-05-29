@@ -42,3 +42,19 @@ export interface UnaryExpression extends Node {
     operator: "+" | "-"
     argument: Expr
 }
+
+export interface ArrayLiteral extends Node {
+    kind: "ArrayLiteral"
+    elements: Expr[]
+}
+
+export interface ObjectProperty extends Node {
+    kind: "ObjectProperty"
+    key: Identifier
+    value: Expr
+}
+
+export interface ObjectLiteral extends Node {
+    kind: "ObjectLiteral"
+    properties: ObjectProperty[]
+}

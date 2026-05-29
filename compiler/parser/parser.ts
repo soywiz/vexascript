@@ -1,12 +1,15 @@
 import { ListReader } from "compiler/utils/ListReader";
 import { Token } from "./tokenizer";
 import {
+    ArrayLiteral,
     AssignmentExpression,
     BinaryExpression,
     Expr,
     Identifier,
     IntLiteral,
     MemberExpression,
+    ObjectLiteral,
+    ObjectProperty,
     UnaryExpression
 } from "compiler/ast/ast";
 
@@ -44,6 +47,88 @@ function parseLeftAssociative(
     return left
 }
 
+function parseArrayLiteral(r: ListReader<Token>): ArrayLiteral {
+    const elements: Expr[] = []
+
+    if (r.peek()?.type === "symbol" && r.peek()?.value === "]") {
+        r.skip()
+        return {
+            kind: "ArrayLiteral",
+            elements
+        } as ArrayLiteral
+    }
+
+    while (r.hasMore) {
+        elements.push(parseExpression(r))
+
+        const separator = r.peek()
+        if (separator?.type === "symbol" && separator.value === ",") {
+            r.skip()
+            continue
+        }
+
+        if (separator?.type === "symbol" && separator.value === "]") {
+            r.skip()
+            return {
+                kind: "ArrayLiteral",
+                elements
+            } as ArrayLiteral
+        }
+
+        break
+    }
+
+    throw new Error("Expected ',' or ']' in array literal")
+}
+
+function parseObjectLiteral(r: ListReader<Token>): ObjectLiteral {
+    const properties: ObjectProperty[] = []
+
+    if (r.peek()?.type === "symbol" && r.peek()?.value === "}") {
+        r.skip()
+        return {
+            kind: "ObjectLiteral",
+            properties
+        } as ObjectLiteral
+    }
+
+    while (r.hasMore) {
+        const key = r.read()
+        if (key?.type !== "identifier") {
+            throw new Error("Expected identifier key in object literal")
+        }
+
+        const colon = r.read()
+        if (colon?.type !== "symbol" || colon.value !== ":") {
+            throw new Error("Expected ':' after object key")
+        }
+
+        properties.push({
+            kind: "ObjectProperty",
+            key: { kind: "Identifier", name: key.value } as Identifier,
+            value: parseExpression(r)
+        } as ObjectProperty)
+
+        const separator = r.peek()
+        if (separator?.type === "symbol" && separator.value === ",") {
+            r.skip()
+            continue
+        }
+
+        if (separator?.type === "symbol" && separator.value === "}") {
+            r.skip()
+            return {
+                kind: "ObjectLiteral",
+                properties
+            } as ObjectLiteral
+        }
+
+        break
+    }
+
+    throw new Error("Expected ',' or '}' in object literal")
+}
+
 function parsePrimary(r: ListReader<Token>): Expr {
     const token = r.read();
 
@@ -56,6 +141,14 @@ function parsePrimary(r: ListReader<Token>): Expr {
         return expr;
     }
 
+    if (token?.type === "symbol" && token.value === "[") {
+        return parseArrayLiteral(r)
+    }
+
+    if (token?.type === "symbol" && token.value === "{") {
+        return parseObjectLiteral(r)
+    }
+
     if (token?.type === "number") {
         return { kind: "IntLiteral", value: parseInt(token.value, 10) } as IntLiteral;
     }
@@ -64,7 +157,7 @@ function parsePrimary(r: ListReader<Token>): Expr {
         return { kind: "Identifier", name: token.value } as Identifier;
     }
 
-    throw new Error("Expected a number literal or '('");
+    throw new Error("Expected a number literal, identifier, '(', '[' or '{'");
 }
 
 function parsePostfix(r: ListReader<Token>): Expr {
