@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseExpression } from "./parser";
-import { tokenize, tokenizeReader } from "./tokenizer";
-import { ListReader } from "compiler/utils/ListReader";
+import { tokenizeReader } from "./tokenizer";
 
 describe("parseExpression", () => {
     it("builds an AST for a single literal", () => {
@@ -16,6 +15,20 @@ describe("parseExpression", () => {
             operator: "+",
             left: { kind: "IntLiteral", value: 1 },
             right: { kind: "IntLiteral", value: 2 }
+        });
+    });
+
+    it("builds an AST for multiplication with parenthesized addition", () => {
+        expect(parseExpression(tokenizeReader("1*(2+3)"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "*",
+            left: { kind: "IntLiteral", value: 1 },
+            right: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "IntLiteral", value: 2 },
+                right: { kind: "IntLiteral", value: 3 }
+            }
         });
     });
 })
