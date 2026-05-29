@@ -26,14 +26,14 @@ export interface StringLiteral extends Node {
 
 export interface BinaryExpression extends Node {
     kind: "BinaryExpression"
-    operator: "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "||" | "&&"
+    operator: "+" | "-" | "*" | "/" | "%" | "**" | "<" | ">" | "<=" | ">=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&"
     left: Expr
     right: Expr
 }
 
 export interface AssignmentExpression extends Node {
     kind: "AssignmentExpression"
-    operator: "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||="
+    operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||="
     left: Expr
     right: Expr
 }
@@ -71,6 +71,11 @@ export interface LetStatement extends Statement {
     kind: "LetStatement"
     name: Identifier
     initializer: Expr
+}
+
+export interface ExprStatement extends Statement {
+    kind: "ExprStatement"
+    expression: Expr
 }
 
 export interface BlockStatement extends Statement {

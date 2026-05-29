@@ -205,6 +205,39 @@ describe("parseExpression", () => {
         });
     });
 
+    it("applies precedence for relational operators", () => {
+        expect(parseExpression(tokenizeReader("1 < 2 <= 3"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "<=",
+            left: {
+                kind: "BinaryExpression",
+                operator: "<",
+                left: { kind: "IntLiteral", value: 1 },
+                right: { kind: "IntLiteral", value: 2 }
+            },
+            right: { kind: "IntLiteral", value: 3 }
+        });
+    });
+
+    it("applies precedence for equality over bitwise and under relational", () => {
+        expect(parseExpression(tokenizeReader("1 < 2 === 3 & 4"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "&",
+            left: {
+                kind: "BinaryExpression",
+                operator: "===",
+                left: {
+                    kind: "BinaryExpression",
+                    operator: "<",
+                    left: { kind: "IntLiteral", value: 1 },
+                    right: { kind: "IntLiteral", value: 2 }
+                },
+                right: { kind: "IntLiteral", value: 3 }
+            },
+            right: { kind: "IntLiteral", value: 4 }
+        });
+    });
+
     it("parses all requested compound assignment operators", () => {
         const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="] as const;
 
@@ -216,6 +249,20 @@ describe("parseExpression", () => {
                 right: { kind: "IntLiteral", value: 1 }
             });
         }
+    });
+
+    it("parses '=' assignment expression", () => {
+        expect(parseExpression(tokenizeReader("a = b + 1"))).toEqual({
+            kind: "AssignmentExpression",
+            operator: "=",
+            left: { kind: "Identifier", name: "a" },
+            right: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "Identifier", name: "b" },
+                right: { kind: "IntLiteral", value: 1 }
+            }
+        });
     });
 
     it("parses compound assignment as right-associative", () => {
@@ -262,7 +309,7 @@ describe("parseStatement", () => {
     });
 
     it("parses a block statement with nested statements", () => {
-        expect(parseStatement(tokenizeReader("{ let a = 1; { let b = a + 2 } let c = 3 }"))).toEqual({
+        expect(parseStatement(tokenizeReader("{ let a = 1; { let b = a + 2 }\nlet c = 3 }"))).toEqual({
             kind: "BlockStatement",
             body: [
                 {
@@ -323,6 +370,18 @@ describe("parseStatement", () => {
                 kind: "BinaryExpression",
                 operator: "+",
                 left: { kind: "Identifier", name: "x" },
+                right: { kind: "IntLiteral", value: 1 }
+            }
+        });
+    });
+
+    it("parses an expression statement", () => {
+        expect(parseStatement(tokenizeReader("a + 1"))).toEqual({
+            kind: "ExprStatement",
+            expression: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "Identifier", name: "a" },
                 right: { kind: "IntLiteral", value: 1 }
             }
         });
@@ -459,6 +518,37 @@ describe("parseProgram", () => {
             ]
         });
     });
+
+    it("parses statements separated by newlines", () => {
+        expect(parseProgram(tokenizeReader("let a = 1\na += 2\na + 3"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "LetStatement",
+                    name: { kind: "Identifier", name: "a" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "ExprStatement",
+                    expression: {
+                        kind: "AssignmentExpression",
+                        operator: "+=",
+                        left: { kind: "Identifier", name: "a" },
+                        right: { kind: "IntLiteral", value: 2 }
+                    }
+                },
+                {
+                    kind: "ExprStatement",
+                    expression: {
+                        kind: "BinaryExpression",
+                        operator: "+",
+                        left: { kind: "Identifier", name: "a" },
+                        right: { kind: "IntLiteral", value: 3 }
+                    }
+                }
+            ]
+        });
+    });
 });
 
 describe("parseFile", () => {
@@ -472,7 +562,7 @@ describe("parseFile", () => {
 
 describe("Parser (with recovery)", () => {
     it("collects multiple statement-level errors and recovers at semicolons", () => {
-        const parser = new Parser(tokenizeReader("oops; let ok = 1; what;"));
+        const parser = new Parser(tokenizeReader("=; let ok = 1; =;"));
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
@@ -486,8 +576,8 @@ describe("Parser (with recovery)", () => {
             ]
         });
         expect(parser.errors.map((e) => e.message)).toEqual([
-            "Expected statement",
-            "Expected statement"
+            "Expected a number literal, string literal, identifier, '(', '[' or '{'",
+            "Expected a number literal, string literal, identifier, '(', '[' or '{'"
         ]);
         expect(parser.errors[0].token?.range.start).toEqual({
             offset: 0,
@@ -497,7 +587,7 @@ describe("Parser (with recovery)", () => {
     });
 
     it("recovers from errors inside block statements by scanning braces", () => {
-        const parser = new Parser(tokenizeReader("{ oops; let ignored = 1; }; let ok = 2; what;"));
+        const parser = new Parser(tokenizeReader("{ =; let ignored = 1; }; let ok = 2; =;"));
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
@@ -511,10 +601,10 @@ describe("Parser (with recovery)", () => {
             ]
         });
         expect(parser.errors.map((e) => e.message)).toEqual([
-            "Expected statement",
-            "Expected statement"
+            "Expected a number literal, string literal, identifier, '(', '[' or '{'",
+            "Expected a number literal, string literal, identifier, '(', '[' or '{'"
         ]);
-        expect(parser.errors[0].token?.value).toBe("oops");
-        expect(parser.errors[1].token?.value).toBe("what");
+        expect(parser.errors[0].token?.value).toBe("=");
+        expect(parser.errors[1].token?.value).toBe("=");
     });
 });

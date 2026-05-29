@@ -35,6 +35,26 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes relational and equality operators", () => {
+        expect(simplifyTokens("a < b <= c > d >= e === f !== g = h")).toStrictEqual([
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "<" },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: "<=" },
+            { type: "identifier", value: "c" },
+            { type: "symbol", value: ">" },
+            { type: "identifier", value: "d" },
+            { type: "symbol", value: ">=" },
+            { type: "identifier", value: "e" },
+            { type: "symbol", value: "===" },
+            { type: "identifier", value: "f" },
+            { type: "symbol", value: "!==" },
+            { type: "identifier", value: "g" },
+            { type: "symbol", value: "=" },
+            { type: "identifier", value: "h" }
+        ])
+    })
+
     it("tokenizes compound assignment operators", () => {
         expect(simplifyTokens("a += b -= c %= d *= e /= f &= g |= h &&= i ||= j")).toStrictEqual([
             { type: "identifier", value: "a" },

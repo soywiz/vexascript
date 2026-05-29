@@ -7,6 +7,7 @@ import {
     BlockStatement,
     DoWhileStatement,
     Expr,
+    ExprStatement,
     Identifier,
     IntLiteral,
     LetStatement,
@@ -22,7 +23,7 @@ import {
 
 type BinaryOperator = BinaryExpression["operator"]
 type AssignmentOperator = AssignmentExpression["operator"]
-const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="]
+const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||="]
 
 export interface ParseIssue {
     message: string;
@@ -45,6 +46,47 @@ export class ParseError extends Error {
 
 function fail(message: string, token?: Token, recoveryHint?: RecoveryHint): never {
     throw new ParseError(message, token, recoveryHint);
+}
+
+function getLastReadToken(r: ListReader<Token>): Token | undefined {
+    if (r.offset <= 0) {
+        return undefined;
+    }
+    return r.items[r.offset - 1];
+}
+
+function hasLineBreakBetween(a: Token | undefined, b: Token | undefined): boolean {
+    if (!a || !b) {
+        return false;
+    }
+    return a.range.end.line < b.range.start.line;
+}
+
+function consumeStatementSeparator(
+    r: ListReader<Token>,
+    context: "file" | "block",
+    previousToken: Token | undefined
+): void {
+    if (!r.hasMore) {
+        return;
+    }
+
+    const next = r.peek();
+    if (next?.type === "symbol" && next.value === ";") {
+        r.skip();
+        return;
+    }
+
+    if (context === "block" && next?.type === "symbol" && next.value === "}") {
+        return;
+    }
+
+    if (hasLineBreakBetween(previousToken, next)) {
+        return;
+    }
+
+    const suffix = context === "block" ? "or '}'" : "or end of file";
+    fail(`Expected ';', newline, ${suffix} between statements`, next, context === "block" ? "block" : undefined);
 }
 
 function buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
@@ -272,8 +314,16 @@ function parseAdditive(r: ListReader<Token>): Expr {
     return parseLeftAssociative(r, ["+", "-"], parseMultiplicative)
 }
 
+function parseRelational(r: ListReader<Token>): Expr {
+    return parseLeftAssociative(r, ["<", ">", "<=", ">="], parseAdditive)
+}
+
+function parseEquality(r: ListReader<Token>): Expr {
+    return parseLeftAssociative(r, ["===", "!=="], parseRelational)
+}
+
 function parseBitwiseAnd(r: ListReader<Token>): Expr {
-    return parseLeftAssociative(r, ["&"], parseAdditive)
+    return parseLeftAssociative(r, ["&"], parseEquality)
 }
 
 function parseBitwiseXor(r: ListReader<Token>): Expr {
@@ -363,16 +413,14 @@ function parseBlockStatement(r: ListReader<Token>): BlockStatement {
         }
 
         try {
-            body.push(parseStatement(r))
+            const statement = parseStatement(r)
+            body.push(statement)
+            consumeStatementSeparator(r, "block", getLastReadToken(r))
         } catch (error) {
             if (error instanceof ParseError) {
                 throw new ParseError(error.message, error.token, "block")
             }
             throw error
-        }
-
-        if (r.peek()?.type === "symbol" && r.peek()?.value === ";") {
-            r.skip()
         }
     }
 
@@ -452,7 +500,10 @@ export function parseStatement(r: ListReader<Token>): Statement {
         return parseBlockStatement(r)
     }
 
-    fail("Expected statement", token)
+    return {
+        kind: "ExprStatement",
+        expression: parseExpression(r)
+    } as ExprStatement
 }
 
 export function parseFile(r: ListReader<Token>): Program {
@@ -464,13 +515,9 @@ export function parseFile(r: ListReader<Token>): Program {
             continue
         }
 
-        body.push(parseStatement(r))
-
-        if (r.peek()?.type === "symbol" && r.peek()?.value === ";") {
-            r.skip()
-        } else if (r.hasMore) {
-            fail("Expected ';' between statements", r.peek())
-        }
+        const statement = parseStatement(r)
+        body.push(statement)
+        consumeStatementSeparator(r, "file", getLastReadToken(r))
     }
 
     return {
@@ -520,9 +567,26 @@ export class Parser {
                 continue;
             }
 
+            const statementStartOffset = this.tokens.offset;
             const statement = this.parseStatement();
-            if (statement) {
-                body.push(statement);
+            if (!statement) {
+                continue;
+            }
+            body.push(statement);
+
+            try {
+                const previousToken =
+                    this.tokens.offset > statementStartOffset
+                        ? this.tokens.items[this.tokens.offset - 1]
+                        : undefined;
+                consumeStatementSeparator(this.tokens, "file", previousToken);
+            } catch (error) {
+                this.emitErrorFrom(error);
+                if (error instanceof ParseError) {
+                    this.recover(error.recoveryHint);
+                } else {
+                    this.recover();
+                }
             }
         }
 

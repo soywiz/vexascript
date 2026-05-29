@@ -30,6 +30,7 @@ export class TokenizeError extends Error {
 }
 
 const CODE_SPACE = 32;
+const CODE_BANG = 33;
 const CODE_DOUBLE_QUOTE = 34;
 const CODE_PERCENT = 37;
 const CODE_SINGLE_QUOTE = 39;
@@ -40,7 +41,9 @@ const CODE_SLASH = 47;
 const CODE_ZERO = 48;
 const CODE_NINE = 57;
 const CODE_COLON = 58;
+const CODE_LT = 60;
 const CODE_EQUALS = 61;
+const CODE_GT = 62;
 const CODE_A_UPPER = 65;
 const CODE_F_UPPER = 70;
 const CODE_Z_UPPER = 90;
@@ -242,6 +245,22 @@ function readSymbol(scanner: Scanner): string {
     advanceCode(scanner);
     return "+=";
   }
+  if (ch === CODE_EQUALS && next === CODE_EQUALS) {
+    advanceCode(scanner);
+    if (scanner.reader.peekCode() === CODE_EQUALS) {
+      advanceCode(scanner);
+      return "===";
+    }
+    return "==";
+  }
+  if (ch === CODE_BANG && next === CODE_EQUALS) {
+    advanceCode(scanner);
+    if (scanner.reader.peekCode() === CODE_EQUALS) {
+      advanceCode(scanner);
+      return "!==";
+    }
+    return "!=";
+  }
   if (ch === CODE_MINUS && next === CODE_EQUALS) {
     advanceCode(scanner);
     return "-=";
@@ -261,6 +280,14 @@ function readSymbol(scanner: Scanner): string {
   if (ch === CODE_PERCENT && next === CODE_EQUALS) {
     advanceCode(scanner);
     return "%=";
+  }
+  if (ch === CODE_LT && next === CODE_EQUALS) {
+    advanceCode(scanner);
+    return "<=";
+  }
+  if (ch === CODE_GT && next === CODE_EQUALS) {
+    advanceCode(scanner);
+    return ">=";
   }
 
   return String.fromCharCode(ch);
