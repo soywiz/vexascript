@@ -679,6 +679,30 @@ describe("parseStatement", () => {
             })
         ).toThrow("Class primary constructor syntax is only available in MyLang mode");
     });
+
+    it("treats 'val' as identifier in typescript parser mode", () => {
+        expect(parseStatement(tokenizeReader("val = 1"), { language: "typescript" })).toEqual({
+            kind: "ExprStatement",
+            expression: {
+                kind: "AssignmentExpression",
+                operator: "=",
+                left: { kind: "Identifier", name: "val" },
+                right: { kind: "IntLiteral", value: 1 }
+            }
+        });
+    });
+
+    it("treats 'fun' as identifier in typescript parser mode", () => {
+        expect(parseStatement(tokenizeReader("fun = 1"), { language: "typescript" })).toEqual({
+            kind: "ExprStatement",
+            expression: {
+                kind: "AssignmentExpression",
+                operator: "=",
+                left: { kind: "Identifier", name: "fun" },
+                right: { kind: "IntLiteral", value: 1 }
+            }
+        });
+    });
 });
 
 describe("parseProgram", () => {

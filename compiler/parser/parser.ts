@@ -139,10 +139,10 @@ export class Parser {
 
     parseStatementOrThrow(): Statement {
         const token = this.tokens.peek();
-        if (token?.type === "identifier" && VARIABLE_DECLARATION_KEYWORDS.includes(token.value as VariableDeclarationKind)) {
+        if (token?.type === "identifier" && this.isVariableDeclarationKeyword(token.value)) {
             return this.parseVarStatement();
         }
-        if (token?.type === "identifier" && FUNCTION_DECLARATION_KEYWORDS.includes(token.value as FunctionDeclarationKind)) {
+        if (token?.type === "identifier" && this.isFunctionDeclarationKeyword(token.value)) {
             return this.parseFunctionStatement();
         }
         if (token?.type === "identifier" && token.value === "class") {
@@ -294,6 +294,20 @@ export class Parser {
 
     private fail(message: string, token?: Token, recoveryHint?: RecoveryHint): never {
         throw new ParseError(message, token, recoveryHint);
+    }
+
+    private isVariableDeclarationKeyword(value: string): boolean {
+        if (this.language === "typescript") {
+            return value === "let" || value === "var" || value === "const";
+        }
+        return VARIABLE_DECLARATION_KEYWORDS.includes(value as VariableDeclarationKind);
+    }
+
+    private isFunctionDeclarationKeyword(value: string): boolean {
+        if (this.language === "typescript") {
+            return value === "function";
+        }
+        return FUNCTION_DECLARATION_KEYWORDS.includes(value as FunctionDeclarationKind);
     }
 
     private getLastReadToken(): Token | undefined {
