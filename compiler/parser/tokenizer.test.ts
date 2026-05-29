@@ -55,6 +55,16 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes safe and non-null member-access operators", () => {
+        expect(simplifyTokens("a?.b!.c")).toStrictEqual([
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "?." },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: "!." },
+            { type: "identifier", value: "c" }
+        ])
+    })
+
     it("tokenizes compound assignment operators", () => {
         expect(simplifyTokens("a += b -= c %= d *= e /= f &= g |= h &&= i ||= j")).toStrictEqual([
             { type: "identifier", value: "a" },

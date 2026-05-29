@@ -43,6 +43,8 @@ export interface MemberExpression extends Node {
     object: Expr
     property: Expr
     computed: boolean
+    optional?: boolean
+    nonNullAsserted?: boolean
 }
 
 export interface UnaryExpression extends Node {

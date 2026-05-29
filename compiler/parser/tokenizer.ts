@@ -46,6 +46,7 @@ const CODE_COLON = 58; // :
 const CODE_LT = 60; // <
 const CODE_EQUALS = 61; // =
 const CODE_GT = 62; // >
+const CODE_QUESTION = 63; // ?
 const CODE_A_UPPER = 65; // A
 const CODE_F_UPPER = 70; // F
 const CODE_Z_UPPER = 90; // Z
@@ -244,6 +245,14 @@ function readSymbol(scanner: Scanner): string {
   if (ch === CODE_PLUS && next === CODE_EQUALS) {
     advanceCode(scanner);
     return "+=";
+  }
+  if (ch === CODE_QUESTION && next === CODE_DOT) {
+    advanceCode(scanner);
+    return "?.";
+  }
+  if (ch === CODE_BANG && next === CODE_DOT) {
+    advanceCode(scanner);
+    return "!.";
   }
   if (ch === CODE_EQUALS && next === CODE_EQUALS) {
     advanceCode(scanner);

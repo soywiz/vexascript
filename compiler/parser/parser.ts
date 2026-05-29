@@ -55,6 +55,10 @@ function getLastReadToken(r: ListReader<Token>): Token | undefined {
     return r.items[r.offset - 1];
 }
 
+function tokenAt(r: ListReader<Token>, preferred?: Token): Token | undefined {
+    return preferred ?? r.peek() ?? getLastReadToken(r);
+}
+
 function hasLineBreakBetween(a: Token | undefined, b: Token | undefined): boolean {
     if (!a || !b) {
         return false;
@@ -150,7 +154,7 @@ function parseArrayLiteral(r: ListReader<Token>): ArrayLiteral {
         break
     }
 
-    fail("Expected ',' or ']' in array literal", r.peek())
+    fail("Expected ',' or ']' in array literal", tokenAt(r))
 }
 
 function parseObjectLiteral(r: ListReader<Token>): ObjectLiteral {
@@ -198,7 +202,7 @@ function parseObjectLiteral(r: ListReader<Token>): ObjectLiteral {
         break
     }
 
-    fail("Expected ',' or '}' in object literal", r.peek())
+    fail("Expected ',' or '}' in object literal", tokenAt(r))
 }
 
 function parsePrimary(r: ListReader<Token>): Expr {
@@ -208,7 +212,7 @@ function parsePrimary(r: ListReader<Token>): Expr {
         const expr = parseExpression(r);
         const close = r.read();
         if (close?.type !== "symbol" || close.value !== ")") {
-            fail("Expected ')' after parenthesized expression", close ?? r.peek());
+            fail("Expected ')' after parenthesized expression", tokenAt(r, close));
         }
         return expr;
     }
@@ -233,7 +237,7 @@ function parsePrimary(r: ListReader<Token>): Expr {
         return { kind: "Identifier", name: token.value } as Identifier;
     }
 
-    fail("Expected a number literal, string literal, identifier, '(', '[' or '{'", token ?? r.peek());
+    fail("Expected a number literal, string literal, identifier, '(', '[' or '{'", tokenAt(r, token));
 }
 
 function parsePostfix(r: ListReader<Token>): Expr {
@@ -242,18 +246,20 @@ function parsePostfix(r: ListReader<Token>): Expr {
     while (r.hasMore) {
         const token = r.peek()
 
-        if (token?.type === "symbol" && token.value === ".") {
+        if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
             r.skip()
             const property = r.read()
             if (property?.type !== "identifier") {
-                fail("Expected identifier after '.'", property ?? r.peek())
+                fail(`Expected identifier after '${token.value}'`, tokenAt(r, property ?? token))
             }
 
             expr = {
                 kind: "MemberExpression",
                 object: expr,
                 property: { kind: "Identifier", name: property.value } as Identifier,
-                computed: false
+                computed: false,
+                optional: token.value === "?." ? true : undefined,
+                nonNullAsserted: token.value === "!." ? true : undefined
             } as MemberExpression
             continue
         }
@@ -263,7 +269,7 @@ function parsePostfix(r: ListReader<Token>): Expr {
             const property = parseExpression(r)
             const close = r.read()
             if (close?.type !== "symbol" || close.value !== "]") {
-                fail("Expected ']' after computed member access", close ?? r.peek())
+                fail("Expected ']' after computed member access", tokenAt(r, close))
             }
 
             expr = {
@@ -367,12 +373,12 @@ export function parseExpression(r: ListReader<Token>): Expr {
 function parseLetStatement(r: ListReader<Token>): LetStatement {
     const letKeyword = r.read()
     if (letKeyword?.type !== "identifier" || letKeyword.value !== "let") {
-        fail("Expected 'let' statement", letKeyword ?? r.peek())
+        fail("Expected 'let' statement", tokenAt(r, letKeyword))
     }
 
     const nameToken = r.read()
     if (nameToken?.type !== "identifier") {
-        fail("Expected identifier after 'let'", nameToken ?? r.peek())
+        fail("Expected identifier after 'let'", tokenAt(r, nameToken))
     }
 
     let typeAnnotation: Identifier | undefined
@@ -381,7 +387,7 @@ function parseLetStatement(r: ListReader<Token>): LetStatement {
         r.skip()
         const typeToken = r.read()
         if (typeToken?.type !== "identifier") {
-            fail("Expected type identifier after ':' in let statement", typeToken ?? r.peek())
+            fail("Expected type identifier after ':' in let statement", tokenAt(r, typeToken))
         }
         typeAnnotation = { kind: "Identifier", name: typeToken.value } as Identifier
     }
@@ -409,7 +415,7 @@ function parseLetStatement(r: ListReader<Token>): LetStatement {
 function parseBlockStatement(r: ListReader<Token>): BlockStatement {
     const openBrace = r.read()
     if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
-        fail("Expected '{' to start block statement", openBrace ?? r.peek())
+        fail("Expected '{' to start block statement", tokenAt(r, openBrace))
     }
 
     const body: Statement[] = []
@@ -442,25 +448,25 @@ function parseBlockStatement(r: ListReader<Token>): BlockStatement {
         }
     }
 
-    fail("Expected '}' to close block statement", r.peek() ?? openBrace, "block")
+    fail("Expected '}' to close block statement", tokenAt(r, openBrace), "block")
 }
 
 function parseWhileStatement(r: ListReader<Token>): WhileStatement {
     const whileKeyword = r.read()
     if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
-        fail("Expected 'while' statement", whileKeyword ?? r.peek())
+        fail("Expected 'while' statement", tokenAt(r, whileKeyword))
     }
 
     const openParen = r.read()
     if (openParen?.type !== "symbol" || openParen.value !== "(") {
-        fail("Expected '(' after 'while'", openParen ?? r.peek())
+        fail("Expected '(' after 'while'", tokenAt(r, openParen))
     }
 
     const condition = parseExpression(r)
 
     const closeParen = r.read()
     if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-        fail("Expected ')' after while condition", closeParen ?? r.peek())
+        fail("Expected ')' after while condition", tokenAt(r, closeParen))
     }
 
     const body = parseStatement(r)
@@ -474,26 +480,26 @@ function parseWhileStatement(r: ListReader<Token>): WhileStatement {
 function parseDoWhileStatement(r: ListReader<Token>): DoWhileStatement {
     const doKeyword = r.read()
     if (doKeyword?.type !== "identifier" || doKeyword.value !== "do") {
-        fail("Expected 'do' statement", doKeyword ?? r.peek())
+        fail("Expected 'do' statement", tokenAt(r, doKeyword))
     }
 
     const body = parseStatement(r)
 
     const whileKeyword = r.read()
     if (whileKeyword?.type !== "identifier" || whileKeyword.value !== "while") {
-        fail("Expected 'while' after do-statement body", whileKeyword ?? r.peek())
+        fail("Expected 'while' after do-statement body", tokenAt(r, whileKeyword))
     }
 
     const openParen = r.read()
     if (openParen?.type !== "symbol" || openParen.value !== "(") {
-        fail("Expected '(' after 'while'", openParen ?? r.peek())
+        fail("Expected '(' after 'while'", tokenAt(r, openParen))
     }
 
     const condition = parseExpression(r)
 
     const closeParen = r.read()
     if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-        fail("Expected ')' after do-while condition", closeParen ?? r.peek())
+        fail("Expected ')' after do-while condition", tokenAt(r, closeParen))
     }
 
     return {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Parser, parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
+import { ParseError, Parser, parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
 describe("parseExpression", () => {
@@ -117,6 +117,37 @@ describe("parseExpression", () => {
             },
             property: { kind: "Identifier", name: "c" },
             computed: false
+        });
+    });
+
+    it("builds an AST for safe and non-null member access", () => {
+        expect(parseExpression(tokenizeReader("a?.b!.c"))).toEqual({
+            kind: "MemberExpression",
+            object: {
+                kind: "MemberExpression",
+                object: { kind: "Identifier", name: "a" },
+                property: { kind: "Identifier", name: "b" },
+                computed: false,
+                optional: true
+            },
+            property: { kind: "Identifier", name: "c" },
+            computed: false,
+            nonNullAsserted: true
+        });
+    });
+
+    it("builds an AST for mixed safe access and computed member access", () => {
+        expect(parseExpression(tokenizeReader("b?.c[\"d\"]"))).toEqual({
+            kind: "MemberExpression",
+            object: {
+                kind: "MemberExpression",
+                object: { kind: "Identifier", name: "b" },
+                property: { kind: "Identifier", name: "c" },
+                computed: false,
+                optional: true
+            },
+            property: { kind: "StringLiteral", value: "d" },
+            computed: true
         });
     });
 
@@ -291,6 +322,30 @@ describe("parseExpression", () => {
                 right: { kind: "Identifier", name: "c" }
             }
         });
+    });
+
+    it("reports member-access parse errors at the trailing dot token", () => {
+        try {
+            parseExpression(tokenizeReader("a.b['d']."));
+            throw new Error("Expected parseExpression to throw");
+        } catch (error) {
+            expect(error).toBeInstanceOf(ParseError);
+            const parseError = error as ParseError;
+            expect(parseError.message).toBe("Expected identifier after '.'");
+            expect(parseError.token?.value).toBe(".");
+        }
+    });
+
+    it("reports safe member-access parse errors at the trailing ?.", () => {
+        try {
+            parseExpression(tokenizeReader("a?."));
+            throw new Error("Expected parseExpression to throw");
+        } catch (error) {
+            expect(error).toBeInstanceOf(ParseError);
+            const parseError = error as ParseError;
+            expect(parseError.message).toBe("Expected identifier after '?.'");
+            expect(parseError.token?.value).toBe("?.");
+        }
     });
 })
 
