@@ -21,6 +21,7 @@ import {
     Identifier,
     IntLiteral,
     MemberExpression,
+    Node,
     ObjectLiteral,
     ObjectProperty,
     Program,
@@ -97,6 +98,7 @@ export class Parser {
     }
 
     parseFile(): Program {
+        const startToken = this.tokens.peek();
         const body: Statement[] = [];
 
         while (this.tokens.hasMore) {
@@ -128,7 +130,7 @@ export class Parser {
             }
         }
 
-        return { kind: "Program", body } as Program;
+        return this.attachNodeBounds({ kind: "Program", body } as Program, startToken, this.getLastReadToken() ?? startToken);
     }
 
     parseExpressionOrThrow(): Expr {
@@ -165,13 +167,19 @@ export class Parser {
             return this.parseBlockStatement();
         }
 
-        return {
-            kind: "ExprStatement",
-            expression: this.parseExpressionOrThrow()
-        } as ExprStatement;
+        const expression = this.parseExpressionOrThrow();
+        return this.attachNodeBounds(
+            {
+                kind: "ExprStatement",
+                expression
+            } as ExprStatement,
+            expression.firstToken,
+            expression.lastToken
+        );
     }
 
     parseFileOrThrow(): Program {
+        const startToken = this.tokens.peek();
         const body: Statement[] = [];
 
         while (this.tokens.hasMore) {
@@ -185,10 +193,14 @@ export class Parser {
             this.consumeStatementSeparator("file", this.getLastReadToken());
         }
 
-        return {
-            kind: "Program",
-            body
-        } as Program;
+        return this.attachNodeBounds(
+            {
+                kind: "Program",
+                body
+            } as Program,
+            startToken,
+            this.getLastReadToken() ?? startToken
+        );
     }
 
     emitError(message: string, token: Token | undefined = this.tokens.peek()): void {
@@ -245,6 +257,41 @@ export class Parser {
         this.emitError(error instanceof Error ? error.message : String(error));
     }
 
+    private attachNodeBounds<T extends Node>(node: T, firstToken?: Token, lastToken?: Token): T {
+        const resolvedFirst = firstToken ?? this.getLastReadToken();
+        const resolvedLast = lastToken ?? this.getLastReadToken() ?? resolvedFirst;
+        if (resolvedFirst) {
+            Object.defineProperty(node, "firstToken", {
+                value: resolvedFirst,
+                enumerable: false,
+                writable: true,
+                configurable: true
+            });
+        }
+        if (resolvedLast) {
+            Object.defineProperty(node, "lastToken", {
+                value: resolvedLast,
+                enumerable: false,
+                writable: true,
+                configurable: true
+            });
+        }
+        return node;
+    }
+
+    private withNodeBounds<T extends Node>(startToken: Token | undefined, build: () => T): T {
+        const node = build();
+        return this.attachNodeBounds(node, startToken, this.getLastReadToken() ?? startToken);
+    }
+
+    private buildIdentifierFromToken(token: Token): Identifier {
+        return this.attachNodeBounds(
+            { kind: "Identifier", name: token.value } as Identifier,
+            token,
+            token
+        );
+    }
+
     private fail(message: string, token?: Token, recoveryHint?: RecoveryHint): never {
         throw new ParseError(message, token, recoveryHint);
     }
@@ -294,12 +341,12 @@ export class Parser {
     }
 
     private buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
-        return {
+        return this.attachNodeBounds({
             kind: "BinaryExpression",
             operator,
             left,
             right
-        };
+        } as BinaryExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
     }
 
     private parseLeftAssociative(
@@ -323,14 +370,17 @@ export class Parser {
     }
 
     private parseArrayLiteral(): ArrayLiteral {
+        const startToken = this.getLastReadToken();
         const elements: Expr[] = [];
 
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
             this.tokens.skip();
-            return {
-                kind: "ArrayLiteral",
-                elements
-            } as ArrayLiteral;
+            return this.withNodeBounds(startToken, () => {
+                return {
+                    kind: "ArrayLiteral",
+                    elements
+                } as ArrayLiteral;
+            });
         }
 
         while (this.tokens.hasMore) {
@@ -344,10 +394,12 @@ export class Parser {
 
             if (separator?.type === "symbol" && separator.value === "]") {
                 this.tokens.skip();
-                return {
-                    kind: "ArrayLiteral",
-                    elements
-                } as ArrayLiteral;
+                return this.withNodeBounds(startToken, () => {
+                    return {
+                        kind: "ArrayLiteral",
+                        elements
+                    } as ArrayLiteral;
+                });
             }
 
             break;
@@ -357,14 +409,17 @@ export class Parser {
     }
 
     private parseObjectLiteral(): ObjectLiteral {
+        const startToken = this.getLastReadToken();
         const properties: ObjectProperty[] = [];
 
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
             this.tokens.skip();
-            return {
-                kind: "ObjectLiteral",
-                properties
-            } as ObjectLiteral;
+            return this.withNodeBounds(startToken, () => {
+                return {
+                    kind: "ObjectLiteral",
+                    properties
+                } as ObjectLiteral;
+            });
         }
 
         while (this.tokens.hasMore) {
@@ -378,11 +433,18 @@ export class Parser {
                 this.fail("Expected ':' after object key", colon);
             }
 
-            properties.push({
-                kind: "ObjectProperty",
-                key: { kind: "Identifier", name: key.value } as Identifier,
-                value: this.parseExpressionOrThrow()
-            } as ObjectProperty);
+            const value = this.parseExpressionOrThrow();
+            properties.push(
+                this.attachNodeBounds(
+                    {
+                        kind: "ObjectProperty",
+                        key: this.buildIdentifierFromToken(key),
+                        value
+                    } as ObjectProperty,
+                    key,
+                    this.getLastReadToken() ?? key
+                )
+            );
 
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
@@ -392,10 +454,12 @@ export class Parser {
 
             if (separator?.type === "symbol" && separator.value === "}") {
                 this.tokens.skip();
-                return {
-                    kind: "ObjectLiteral",
-                    properties
-                } as ObjectLiteral;
+                return this.withNodeBounds(startToken, () => {
+                    return {
+                        kind: "ObjectLiteral",
+                        properties
+                    } as ObjectLiteral;
+                });
             }
 
             break;
@@ -425,15 +489,23 @@ export class Parser {
         }
 
         if (token?.type === "number") {
-            return { kind: "IntLiteral", value: parseInt(token.value, 10) } as IntLiteral;
+            return this.attachNodeBounds(
+                { kind: "IntLiteral", value: parseInt(token.value, 10) } as IntLiteral,
+                token,
+                token
+            );
         }
 
         if (token?.type === "string") {
-            return { kind: "StringLiteral", value: token.value } as StringLiteral;
+            return this.attachNodeBounds(
+                { kind: "StringLiteral", value: token.value } as StringLiteral,
+                token,
+                token
+            );
         }
 
         if (token?.type === "identifier") {
-            return { kind: "Identifier", name: token.value } as Identifier;
+            return this.buildIdentifierFromToken(token);
         }
 
         this.fail("Expected a number literal, string literal, identifier, '(', '[' or '{'", this.tokenAt(token));
@@ -455,11 +527,12 @@ export class Parser {
                 expr = {
                     kind: "MemberExpression",
                     object: expr,
-                    property: { kind: "Identifier", name: property.value } as Identifier,
+                    property: this.buildIdentifierFromToken(property),
                     computed: false,
                     optional: token.value === "?." ? true : undefined,
                     nonNullAsserted: token.value === "!." ? true : undefined
                 } as MemberExpression;
+                this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, property);
                 continue;
             }
 
@@ -477,6 +550,7 @@ export class Parser {
                     property,
                     computed: true
                 } as MemberExpression;
+                this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
                 continue;
             }
 
@@ -491,11 +565,11 @@ export class Parser {
         if (token?.type === "symbol" && (token.value === "+" || token.value === "-")) {
             this.tokens.skip();
             const argument = this.parseUnary();
-            return {
+            return this.attachNodeBounds({
                 kind: "UnaryExpression",
                 operator: token.value,
                 argument
-            } as UnaryExpression;
+            } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
         }
 
         return this.parsePostfix();
@@ -554,12 +628,12 @@ export class Parser {
         if (token?.type === "symbol" && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
             this.tokens.skip();
             const right = this.parseAssignment();
-            return {
+            return this.attachNodeBounds({
                 kind: "AssignmentExpression",
                 operator: token.value as AssignmentOperator,
                 left,
                 right
-            } as AssignmentExpression;
+            } as AssignmentExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
         }
 
         return left;
@@ -600,7 +674,7 @@ export class Parser {
         const statement: VarStatement = {
             kind: "VarStatement",
             declarationKind: declarationKeyword.value as VariableDeclarationKind,
-            name: { kind: "Identifier", name: nameToken.value } as Identifier
+            name: this.buildIdentifierFromToken(nameToken)
         };
         if (typeAnnotation) {
             statement.typeAnnotation = typeAnnotation;
@@ -608,7 +682,7 @@ export class Parser {
         if (initializer) {
             statement.initializer = initializer;
         }
-        return statement;
+        return this.attachNodeBounds(statement, declarationKeyword, this.getLastReadToken() ?? declarationKeyword);
     }
 
     private parseFunctionStatement(): FunctionStatement {
@@ -645,7 +719,7 @@ export class Parser {
             if (returnTypeToken?.type !== "identifier") {
                 this.fail("Expected return type after ':' in function declaration", this.tokenAt(returnTypeToken));
             }
-            returnType = { kind: "Identifier", name: returnTypeToken.value } as Identifier;
+            returnType = this.buildIdentifierFromToken(returnTypeToken);
         }
 
         if (this.tokens.peek()?.type !== "symbol" || this.tokens.peek()?.value !== "{") {
@@ -656,7 +730,7 @@ export class Parser {
         const statement: FunctionStatement = {
             kind: "FunctionStatement",
             declarationKind: declarationKeyword.value as FunctionDeclarationKind,
-            name: { kind: "Identifier", name: nameToken.value } as Identifier,
+            name: this.buildIdentifierFromToken(nameToken),
             parameters,
             body
         };
@@ -664,7 +738,7 @@ export class Parser {
             statement.returnType = returnType;
         }
 
-        return statement;
+        return this.attachNodeBounds(statement, declarationKeyword, this.getLastReadToken() ?? declarationKeyword);
     }
 
     private parseFunctionParameters(): FunctionParameter[] {
@@ -692,7 +766,7 @@ export class Parser {
                 if (parameterTypeToken?.type !== "identifier") {
                     this.fail("Expected parameter type after ':'", this.tokenAt(parameterTypeToken));
                 }
-                parameterTypeAnnotation = { kind: "Identifier", name: parameterTypeToken.value } as Identifier;
+                parameterTypeAnnotation = this.buildIdentifierFromToken(parameterTypeToken);
             }
 
             let parameterDefaultValue: Expr | undefined;
@@ -703,7 +777,7 @@ export class Parser {
 
             const parameter: FunctionParameter = {
                 kind: "FunctionParameter",
-                name: { kind: "Identifier", name: parameterNameToken.value } as Identifier
+                name: this.buildIdentifierFromToken(parameterNameToken)
             };
             if (parameterOptional) {
                 parameter.optional = true;
@@ -714,7 +788,7 @@ export class Parser {
             if (parameterDefaultValue) {
                 parameter.defaultValue = parameterDefaultValue;
             }
-            parameters.push(parameter);
+            parameters.push(this.attachNodeBounds(parameter, parameterNameToken, this.getLastReadToken() ?? parameterNameToken));
 
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
@@ -752,7 +826,7 @@ export class Parser {
                 if (returnTypeToken?.type !== "identifier") {
                     this.fail("Expected return type after ':' in class method", this.tokenAt(returnTypeToken));
                 }
-                returnType = { kind: "Identifier", name: returnTypeToken.value } as Identifier;
+                returnType = this.buildIdentifierFromToken(returnTypeToken);
             }
 
             if (this.tokens.peek()?.type !== "symbol" || this.tokens.peek()?.value !== "{") {
@@ -761,7 +835,7 @@ export class Parser {
 
             const methodMember: ClassMethodMember = {
                 kind: "ClassMethodMember",
-                name: { kind: "Identifier", name: memberNameToken.value } as Identifier,
+                name: this.buildIdentifierFromToken(memberNameToken),
                 parameters,
                 body: this.parseBlockStatement()
             };
@@ -769,7 +843,7 @@ export class Parser {
                 methodMember.returnType = returnType;
             }
 
-            return methodMember;
+            return this.attachNodeBounds(methodMember, memberNameToken, this.getLastReadToken() ?? memberNameToken);
         }
 
         let typeAnnotation: Identifier | undefined;
@@ -779,7 +853,7 @@ export class Parser {
             if (typeToken?.type !== "identifier") {
                 this.fail("Expected type identifier after ':' in class field", this.tokenAt(typeToken));
             }
-            typeAnnotation = { kind: "Identifier", name: typeToken.value } as Identifier;
+            typeAnnotation = this.buildIdentifierFromToken(typeToken);
         }
 
         let initializer: Expr | undefined;
@@ -790,7 +864,7 @@ export class Parser {
 
         const fieldMember: ClassFieldMember = {
             kind: "ClassFieldMember",
-            name: { kind: "Identifier", name: memberNameToken.value } as Identifier
+            name: this.buildIdentifierFromToken(memberNameToken)
         };
         if (typeAnnotation) {
             fieldMember.typeAnnotation = typeAnnotation;
@@ -798,7 +872,7 @@ export class Parser {
         if (initializer) {
             fieldMember.initializer = initializer;
         }
-        return fieldMember;
+        return this.attachNodeBounds(fieldMember, memberNameToken, this.getLastReadToken() ?? memberNameToken);
     }
 
     private parseClassPrimaryConstructorParameters(): ClassPrimaryConstructorParameter[] {
@@ -828,7 +902,7 @@ export class Parser {
                 if (parameterTypeToken?.type !== "identifier") {
                     this.fail("Expected parameter type after ':'", this.tokenAt(parameterTypeToken));
                 }
-                parameterTypeAnnotation = { kind: "Identifier", name: parameterTypeToken.value } as Identifier;
+                parameterTypeAnnotation = this.buildIdentifierFromToken(parameterTypeToken);
             }
 
             let parameterDefaultValue: Expr | undefined;
@@ -840,7 +914,7 @@ export class Parser {
             const parameter: ClassPrimaryConstructorParameter = {
                 kind: "ClassPrimaryConstructorParameter",
                 declarationKind: declarationToken.value as VariableDeclarationKind,
-                name: { kind: "Identifier", name: parameterNameToken.value } as Identifier
+                name: this.buildIdentifierFromToken(parameterNameToken)
             };
             if (parameterTypeAnnotation) {
                 parameter.typeAnnotation = parameterTypeAnnotation;
@@ -848,7 +922,7 @@ export class Parser {
             if (parameterDefaultValue) {
                 parameter.defaultValue = parameterDefaultValue;
             }
-            parameters.push(parameter);
+            parameters.push(this.attachNodeBounds(parameter, declarationToken, this.getLastReadToken() ?? declarationToken));
 
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
@@ -902,13 +976,13 @@ export class Parser {
                 this.tokens.skip();
                 const statement: ClassStatement = {
                     kind: "ClassStatement",
-                    name: { kind: "Identifier", name: classNameToken.value } as Identifier,
+                    name: this.buildIdentifierFromToken(classNameToken),
                     members
                 };
                 if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
                     statement.primaryConstructorParameters = primaryConstructorParameters;
                 }
-                return statement;
+                return this.attachNodeBounds(statement, classKeyword, this.getLastReadToken() ?? classKeyword);
             }
 
             if (token?.type === "symbol" && token.value === ";") {
@@ -937,10 +1011,10 @@ export class Parser {
 
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
-                return {
+                return this.attachNodeBounds({
                     kind: "BlockStatement",
                     body
-                } as BlockStatement;
+                } as BlockStatement, openBrace, this.getLastReadToken() ?? openBrace);
             }
 
             if (token?.type === "symbol" && token.value === ";") {
@@ -982,11 +1056,11 @@ export class Parser {
         }
 
         const body = this.parseStatementOrThrow();
-        return {
+        return this.attachNodeBounds({
             kind: "WhileStatement",
             condition,
             body
-        } as WhileStatement;
+        } as WhileStatement, whileKeyword, this.getLastReadToken() ?? whileKeyword);
     }
 
     private parseDoWhileStatement(): DoWhileStatement {
@@ -1014,11 +1088,11 @@ export class Parser {
             this.fail("Expected ')' after do-while condition", this.tokenAt(closeParen));
         }
 
-        return {
+        return this.attachNodeBounds({
             kind: "DoWhileStatement",
             body,
             condition
-        } as DoWhileStatement;
+        } as DoWhileStatement, doKeyword, this.getLastReadToken() ?? doKeyword);
     }
 
     private parseReturnStatement(): ReturnStatement {
@@ -1029,19 +1103,19 @@ export class Parser {
 
         const next = this.tokens.peek();
         if (!next) {
-            return { kind: "ReturnStatement" } as ReturnStatement;
+            return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
         }
         if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
-            return { kind: "ReturnStatement" } as ReturnStatement;
+            return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
         }
         if (this.hasLineBreakBetween(returnKeyword, next)) {
-            return { kind: "ReturnStatement" } as ReturnStatement;
+            return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
         }
 
-        return {
+        return this.attachNodeBounds({
             kind: "ReturnStatement",
             expression: this.parseExpressionOrThrow()
-        } as ReturnStatement;
+        } as ReturnStatement, returnKeyword, this.getLastReadToken() ?? returnKeyword);
     }
 
     private parseContinueStatement(): ContinueStatement {
@@ -1049,7 +1123,7 @@ export class Parser {
         if (continueKeyword?.type !== "identifier" || continueKeyword.value !== "continue") {
             this.fail("Expected 'continue' statement", this.tokenAt(continueKeyword));
         }
-        return { kind: "ContinueStatement" } as ContinueStatement;
+        return this.attachNodeBounds({ kind: "ContinueStatement" } as ContinueStatement, continueKeyword, continueKeyword);
     }
 
     private parseBreakStatement(): BreakStatement {
@@ -1057,7 +1131,7 @@ export class Parser {
         if (breakKeyword?.type !== "identifier" || breakKeyword.value !== "break") {
             this.fail("Expected 'break' statement", this.tokenAt(breakKeyword));
         }
-        return { kind: "BreakStatement" } as BreakStatement;
+        return this.attachNodeBounds({ kind: "BreakStatement" } as BreakStatement, breakKeyword, breakKeyword);
     }
 }
 

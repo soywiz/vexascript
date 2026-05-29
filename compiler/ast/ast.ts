@@ -1,6 +1,10 @@
 
+import type { Token } from "compiler/parser/tokenizer"
+
 export interface Node {
     kind: string
+    firstToken?: Token
+    lastToken?: Token
 }
 
 export interface Expr extends Node {

@@ -945,6 +945,16 @@ describe("parseFile", () => {
             body: []
         });
     });
+
+    it("stores first and last token metadata on AST nodes", () => {
+        const ast = parseFile(tokenizeReader("let value = a + 1"));
+        const statement = ast.body[0];
+
+        expect(ast.firstToken?.value).toBe("let");
+        expect(ast.lastToken?.value).toBe("1");
+        expect(statement.firstToken?.value).toBe("let");
+        expect(statement.lastToken?.value).toBe("1");
+    });
 });
 
 describe("Parser (with recovery)", () => {

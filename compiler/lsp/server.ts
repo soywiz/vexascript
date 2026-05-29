@@ -11,6 +11,7 @@ import {
 } from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { ListReader } from "compiler/utils/ListReader";
+import { Program } from "compiler/ast/ast";
 import { Parser } from "compiler/parser/parser";
 import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
@@ -127,15 +128,17 @@ connection.onCodeAction((params) => {
     return [];
   }
 
-  let tokens: Token[];
+  let ast: Program;
   try {
-    tokens = tokenize(doc.getText());
+    const tokens = tokenize(doc.getText());
+    const parser = new Parser(new ListReader<Token>(tokens));
+    ast = parser.parseFile();
   } catch {
     return [];
   }
 
   const replacement = findDeclarationKeywordReplacementAtPosition(
-    tokens,
+    ast,
     params.range.start.line,
     params.range.start.character
   );

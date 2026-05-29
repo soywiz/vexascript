@@ -1,4 +1,13 @@
-import { Token } from "compiler/parser/tokenizer";
+import {
+  BlockStatement,
+  ClassStatement,
+  DoWhileStatement,
+  FunctionStatement,
+  Program,
+  Statement,
+  VarStatement,
+  WhileStatement
+} from "compiler/ast/ast";
 
 export interface KeywordReplacement {
   from: "let" | "const" | "var" | "val";
@@ -16,7 +25,22 @@ const ALTERNATES: Record<KeywordReplacement["from"], KeywordReplacement["to"]> =
   val: "var"
 };
 
-function isPositionInsideToken(token: Token, line: number, character: number): boolean {
+function isPositionInsideTokenRange(
+  token:
+    | {
+        range: {
+          start: { line: number; column: number };
+          end: { line: number; column: number };
+        };
+      }
+    | undefined,
+  line: number,
+  character: number
+): boolean {
+  if (!token) {
+    return false;
+  }
+
   const start = token.range.start;
   const end = token.range.end;
 
@@ -33,28 +57,85 @@ function isPositionInsideToken(token: Token, line: number, character: number): b
   return true;
 }
 
+function findVarStatementAtPosition(node: Statement, line: number, character: number): VarStatement | null {
+  if (!isPositionInsideTokenRange(node.firstToken && node.lastToken ? { range: { start: node.firstToken.range.start, end: node.lastToken.range.end } } : undefined, line, character)) {
+    return null;
+  }
+
+  if (node.kind === "VarStatement") {
+    return node as VarStatement;
+  }
+
+  if (node.kind === "BlockStatement") {
+    for (const child of (node as BlockStatement).body) {
+      const match = findVarStatementAtPosition(child, line, character);
+      if (match) {
+        return match;
+      }
+    }
+  }
+
+  if (node.kind === "WhileStatement") {
+    return findVarStatementAtPosition((node as WhileStatement).body, line, character);
+  }
+
+  if (node.kind === "DoWhileStatement") {
+    return findVarStatementAtPosition((node as DoWhileStatement).body, line, character);
+  }
+
+  if (node.kind === "FunctionStatement") {
+    return findVarStatementAtPosition((node as FunctionStatement).body, line, character);
+  }
+
+  if (node.kind === "ClassStatement") {
+    for (const member of (node as ClassStatement).members) {
+      if (member.kind === "ClassMethodMember") {
+        const match = findVarStatementAtPosition(member.body, line, character);
+        if (match) {
+          return match;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export function findDeclarationKeywordReplacementAtPosition(
-  tokens: Token[],
+  ast: Program,
   line: number,
   character: number
 ): KeywordReplacement | null {
-  const token = tokens.find((item) => isPositionInsideToken(item, line, character));
-  if (!token || token.type !== "identifier") {
-    return null;
-  }
-
-  const from = token.value as KeywordReplacement["from"];
-  const to = ALTERNATES[from];
-  if (!to) {
-    return null;
-  }
-
-  return {
-    from,
-    to,
-    range: {
-      start: { line: token.range.start.line, character: token.range.start.column },
-      end: { line: token.range.end.line, character: token.range.end.column }
+  for (const statement of ast.body) {
+    const variableStatement = findVarStatementAtPosition(statement, line, character);
+    if (!variableStatement) {
+      continue;
     }
-  };
+
+    const declarationToken = variableStatement.firstToken;
+    if (!declarationToken || declarationToken.type !== "identifier") {
+      return null;
+    }
+
+    if (!isPositionInsideTokenRange(declarationToken, line, character)) {
+      return null;
+    }
+
+    const from = declarationToken.value as KeywordReplacement["from"];
+    const to = ALTERNATES[from];
+    if (!to) {
+      return null;
+    }
+
+    return {
+      from,
+      to,
+      range: {
+        start: { line: declarationToken.range.start.line, character: declarationToken.range.start.column },
+        end: { line: declarationToken.range.end.line, character: declarationToken.range.end.column }
+      }
+    };
+  }
+
+  return null;
 }
