@@ -5,7 +5,6 @@ import {
   TextDocumentSyncKind,
   type Diagnostic,
   DiagnosticSeverity,
-  CompletionItemKind,
   CodeActionKind,
   type TextEdit
 } from "vscode-languageserver/node.js";
@@ -16,6 +15,10 @@ import { Parser } from "compiler/parser/parser";
 import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
+import {
+  createCompletionItemsForPosition,
+  createKeywordOnlyCompletionItems
+} from "./completion";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
@@ -114,12 +117,24 @@ function validateDocument(doc: TextDocument): void {
 documents.onDidOpen((event) => validateDocument(event.document));
 documents.onDidChangeContent((event) => validateDocument(event.document));
 
-connection.onCompletion(() => {
-  return [
-    { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
-    { label: "type", kind: CompletionItemKind.Keyword, detail: "Keyword" },
-    { label: "interface", kind: CompletionItemKind.Keyword, detail: "Keyword" }
-  ];
+connection.onCompletion((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return createKeywordOnlyCompletionItems();
+  }
+
+  try {
+    const tokens = tokenize(doc.getText());
+    const parser = new Parser(new ListReader<Token>(tokens));
+    const ast = parser.parseFile();
+    return createCompletionItemsForPosition(
+      ast,
+      params.position.line,
+      params.position.character
+    );
+  } catch {
+    return createKeywordOnlyCompletionItems();
+  }
 });
 
 connection.onCodeAction((params) => {
