@@ -64,4 +64,28 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("'prop'"))).toBe(false);
     expect(messages.some((message) => message.includes("'a'"))).toBe(false);
   });
+
+  it("reports semantic errors for illegal break/continue usage", () => {
+    const source =
+      "break\n" +
+      "continue\n" +
+      "switch (x) {\n" +
+      "  case 1:\n" +
+      "    break\n" +
+      "    continue\n" +
+      "}\n" +
+      "while (x) {\n" +
+      "  continue\n" +
+      "  break\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Illegal 'break' statement outside of a loop or switch");
+    expect(messages).toContain("Illegal 'continue' statement outside of a loop");
+    expect(messages.filter((message) => message === "Illegal 'continue' statement outside of a loop")).toHaveLength(2);
+    expect(messages.filter((message) => message === "Illegal 'break' statement outside of a loop or switch")).toHaveLength(1);
+  });
 });

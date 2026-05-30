@@ -47,6 +47,11 @@ interface Scope {
   children: Scope[];
 }
 
+interface FlowContext {
+  loopDepth: number;
+  switchDepth: number;
+}
+
 export class Analysis {
   private readonly rootScope: Scope;
   private readonly issues: AnalysisIssue[] = [];
@@ -61,7 +66,7 @@ export class Analysis {
         node: program
       });
     }
-    this.visitProgram(program, this.rootScope);
+    this.visitProgram(program, this.rootScope, { loopDepth: 0, switchDepth: 0 });
   }
 
   getVisibleSymbolsAt(line: number, character: number): AnalysisSymbol[] {
@@ -104,16 +109,16 @@ export class Analysis {
     scope.symbols.set(symbol.name, symbol);
   }
 
-  private visitProgram(program: Program, scope: Scope): void {
+  private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
     for (const statement of program.body) {
-      this.visitStatement(statement, scope);
+      this.visitStatement(statement, scope, flow);
     }
   }
 
-  private visitStatement(statement: Statement, scope: Scope): void {
+  private visitStatement(statement: Statement, scope: Scope, flow: FlowContext): void {
     switch (statement.kind) {
       case "VarStatement":
-        this.visitVarStatement(statement as VarStatement, scope);
+        this.visitVarStatement(statement as VarStatement, scope, flow);
         return;
       case "FunctionStatement":
         this.visitFunctionStatement(statement as FunctionStatement, scope, true);
@@ -125,28 +130,36 @@ export class Analysis {
         this.visitExpression((statement as ExprStatement).expression, scope);
         return;
       case "BlockStatement":
-        this.visitBlockStatement(statement as BlockStatement, scope);
+        this.visitBlockStatement(statement as BlockStatement, scope, flow);
         return;
       case "WhileStatement": {
         const whileStatement = statement as WhileStatement;
         this.visitExpression(whileStatement.condition, scope);
-        this.visitStatement(whileStatement.body, this.createScope(scope, whileStatement));
+        const loopFlow: FlowContext = {
+          loopDepth: flow.loopDepth + 1,
+          switchDepth: flow.switchDepth
+        };
+        this.visitStatement(whileStatement.body, this.createScope(scope, whileStatement), loopFlow);
         return;
       }
       case "DoWhileStatement": {
         const doWhileStatement = statement as DoWhileStatement;
-        this.visitStatement(doWhileStatement.body, this.createScope(scope, doWhileStatement));
+        const loopFlow: FlowContext = {
+          loopDepth: flow.loopDepth + 1,
+          switchDepth: flow.switchDepth
+        };
+        this.visitStatement(doWhileStatement.body, this.createScope(scope, doWhileStatement), loopFlow);
         this.visitExpression(doWhileStatement.condition, scope);
         return;
       }
       case "ForStatement":
-        this.visitForStatement(statement as ForStatement, scope);
+        this.visitForStatement(statement as ForStatement, scope, flow);
         return;
       case "IfStatement":
-        this.visitIfStatement(statement as IfStatement, scope);
+        this.visitIfStatement(statement as IfStatement, scope, flow);
         return;
       case "SwitchStatement":
-        this.visitSwitchStatement(statement as SwitchStatement, scope);
+        this.visitSwitchStatement(statement as SwitchStatement, scope, flow);
         return;
       case "ReturnStatement": {
         const returnStatement = statement as ReturnStatement;
@@ -156,14 +169,27 @@ export class Analysis {
         return;
       }
       case "ContinueStatement":
+        if (flow.loopDepth <= 0) {
+          this.issues.push({
+            message: "Illegal 'continue' statement outside of a loop",
+            node: statement
+          });
+        }
+        return;
       case "BreakStatement":
+        if (flow.loopDepth <= 0 && flow.switchDepth <= 0) {
+          this.issues.push({
+            message: "Illegal 'break' statement outside of a loop or switch",
+            node: statement
+          });
+        }
         return;
       default:
         return;
     }
   }
 
-  private visitVarStatement(statement: VarStatement, scope: Scope): void {
+  private visitVarStatement(statement: VarStatement, scope: Scope, flow: FlowContext): void {
     this.declare(scope, {
       name: statement.name.name,
       kind: "variable",
@@ -197,7 +223,7 @@ export class Analysis {
 
     // Function body runs within function scope.
     for (const bodyStatement of statement.body.body) {
-      this.visitStatement(bodyStatement, functionScope);
+      this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0 });
     }
   }
 
@@ -235,19 +261,23 @@ export class Analysis {
     }
   }
 
-  private visitBlockStatement(statement: BlockStatement, scope: Scope): void {
+  private visitBlockStatement(statement: BlockStatement, scope: Scope, flow: FlowContext): void {
     const blockScope = this.createScope(scope, statement);
     for (const child of statement.body) {
-      this.visitStatement(child, blockScope);
+      this.visitStatement(child, blockScope, flow);
     }
   }
 
-  private visitForStatement(statement: ForStatement, scope: Scope): void {
+  private visitForStatement(statement: ForStatement, scope: Scope, flow: FlowContext): void {
     const loopScope = this.createScope(scope, statement);
+    const loopFlow: FlowContext = {
+      loopDepth: flow.loopDepth + 1,
+      switchDepth: flow.switchDepth
+    };
 
     if (statement.initializer) {
       if (statement.initializer.kind === "VarStatement") {
-        this.visitVarStatement(statement.initializer as VarStatement, loopScope);
+        this.visitVarStatement(statement.initializer as VarStatement, loopScope, loopFlow);
       } else {
         this.visitExpression(statement.initializer as Expr, loopScope);
       }
@@ -258,20 +288,24 @@ export class Analysis {
     if (statement.update) {
       this.visitExpression(statement.update, loopScope);
     }
-    this.visitStatement(statement.body, loopScope);
+    this.visitStatement(statement.body, loopScope, loopFlow);
   }
 
-  private visitIfStatement(statement: IfStatement, scope: Scope): void {
+  private visitIfStatement(statement: IfStatement, scope: Scope, flow: FlowContext): void {
     this.visitExpression(statement.condition, scope);
-    this.visitStatement(statement.thenBranch, this.createScope(scope, statement.thenBranch));
+    this.visitStatement(statement.thenBranch, this.createScope(scope, statement.thenBranch), flow);
     if (statement.elseBranch) {
-      this.visitStatement(statement.elseBranch, this.createScope(scope, statement.elseBranch));
+      this.visitStatement(statement.elseBranch, this.createScope(scope, statement.elseBranch), flow);
     }
   }
 
-  private visitSwitchStatement(statement: SwitchStatement, scope: Scope): void {
+  private visitSwitchStatement(statement: SwitchStatement, scope: Scope, flow: FlowContext): void {
     this.visitExpression(statement.discriminant, scope);
     const switchScope = this.createScope(scope, statement);
+    const switchFlow: FlowContext = {
+      loopDepth: flow.loopDepth,
+      switchDepth: flow.switchDepth + 1
+    };
 
     for (const switchCase of statement.cases) {
       const caseScope = this.createScope(switchScope, switchCase);
@@ -279,7 +313,7 @@ export class Analysis {
         this.visitExpression(switchCase.test, caseScope);
       }
       for (const consequent of switchCase.consequent) {
-        this.visitStatement(consequent, caseScope);
+        this.visitStatement(consequent, caseScope, switchFlow);
       }
     }
   }
