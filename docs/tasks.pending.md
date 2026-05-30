@@ -6,7 +6,6 @@ This document tracks the current technical backlog for MyLang.
 
 - Add source maps to the transpile pipeline so JavaScript runtime errors map back to `.my` files.
 - Add cross-file/project symbol indexing for global go-to-definition and find-references.
-- Introduce compilation phases with explicit contracts (`parse -> bind -> typecheck -> emit`) and reusable artifacts.
 
 ## Semantic Analysis
 

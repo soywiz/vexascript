@@ -1,8 +1,8 @@
-import { Analysis } from "compiler/analysis/Analysis";
+import type { Analysis } from "compiler/analysis/Analysis";
 import type { Program } from "compiler/ast/ast";
-import { Parser, type ParseIssue } from "compiler/parser/parser";
-import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
-import { ListReader } from "compiler/utils/ListReader";
+import type { ParseIssue } from "compiler/parser/parser";
+import type { TokenizeError } from "compiler/parser/tokenizer";
+import { compileSource } from "compiler/pipeline/compile";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 
 export interface AnalysisSession {
@@ -14,47 +14,14 @@ export interface AnalysisSession {
 }
 
 export function createAnalysisSession(source: string): AnalysisSession {
-  try {
-    const tokens = tokenize(source);
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-
-    try {
-      return {
-        ast,
-        parserErrors: [...parser.errors],
-        analysis: new Analysis(ast),
-        tokenizeError: null,
-        fatalError: null
-      };
-    } catch (error) {
-      return {
-        ast,
-        parserErrors: [...parser.errors],
-        analysis: null,
-        tokenizeError: null,
-        fatalError: error instanceof Error ? error.message : String(error)
-      };
-    }
-  } catch (error) {
-    if (error instanceof TokenizeError) {
-      return {
-        ast: null,
-        parserErrors: [],
-        analysis: null,
-        tokenizeError: error,
-        fatalError: null
-      };
-    }
-
-    return {
-      ast: null,
-      parserErrors: [],
-      analysis: null,
-      tokenizeError: null,
-      fatalError: error instanceof Error ? error.message : String(error)
-    };
-  }
+  const artifacts = compileSource(source);
+  return {
+    ast: artifacts.ast,
+    parserErrors: artifacts.parserIssues,
+    analysis: artifacts.analysis,
+    tokenizeError: artifacts.tokenizeError,
+    fatalError: artifacts.fatalError
+  };
 }
 
 export function buildAnalysisForSource(source: string): Analysis | null {
