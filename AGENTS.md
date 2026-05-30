@@ -10,6 +10,10 @@
 - Every new feature must include tests in the same change.
 - The official test suite runs with Vitest.
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
+- Before closing any task, the full test suite must pass.
+- If tests fail, they must be fixed before finishing the task.
+- Skipping tests is allowed only as a last resort in exceptional cases; overusing skips weakens the suite and is not acceptable.
+- If requirements change, update tests to match the new expected behavior instead of preserving outdated assertions.
 
 ## Language policy
 

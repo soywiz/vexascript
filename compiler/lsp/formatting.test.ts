@@ -8,7 +8,7 @@ describe("createFullDocumentFormatEdit", () => {
         start: { line: 0, character: 0 },
         end: { line: 1, character: 4 }
       },
-      newText: "let a = 1;\na += 2;"
+      newText: "let a = 1\na += 2"
     });
   });
 

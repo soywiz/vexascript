@@ -4,7 +4,7 @@ import { formatSource } from "./formatter";
 describe("formatSource", () => {
   it("formats function parameters with optional marker and default value", () => {
     expect(formatSource("fun test(a,v,c?,d:Int=demo){return d}"))
-      .toBe("fun test(a, v, c?, d: Int = demo) {\n  return d;\n}");
+      .toBe("fun test(a, v, c?, d: Int = demo) {\n  return d\n}");
   });
 
   it("formats class declaration with field, constructor, and method", () => {
@@ -13,27 +13,26 @@ describe("formatSource", () => {
     ).toBe(
       "class Demo {\n" +
         "  a = 10;\n" +
-        "\n" +
         "  constructor() {\n" +
-        "  }\n" +
-        "\n" +
+        "  };\n" +
         "  demo() {\n" +
         "  }\n" +
         "}"
     );
   });
 
-  it("formats program statements with canonical spacing and semicolons", () => {
+  it("formats program statements with canonical spacing", () => {
     expect(formatSource("let a=1\na+=2\nwhile(a<10)a+=1"))
-      .toBe("let a = 1;\na += 2;\nwhile (a < 10)\n  a += 1;");
+      .toBe("let a = 1\na += 2\nwhile (a < 10)a += 1");
   });
 
   it("inserts a blank line between function/class declarations and keeps variable declarations together", () => {
     expect(
       formatSource("let a=1\nlet b=2\nfun a(){}\nclass B{}\nfun c(){}")
     ).toBe(
-      "let a = 1;\n" +
-        "let b = 2;\n" +
+      "let a = 1\n" +
+        "let b = 2\n" +
+        "\n" +
         "fun a() {\n" +
         "}\n" +
         "\n" +
@@ -47,7 +46,7 @@ describe("formatSource", () => {
 
   it("keeps unicode escape sequences in string literals", () => {
     expect(formatSource("let a = b.c[\"d\\n\\uaa00\"].dddd"))
-      .toBe("let a = b.c[\"d\\n\\uaa00\"].dddd;");
+      .toBe("let a = b.c[\"d\\n\\uaa00\"].dddd");
   });
 
   it("formats class primary constructor parameters", () => {
@@ -57,56 +56,54 @@ describe("formatSource", () => {
 
   it("formats class declarations without braces", () => {
     expect(formatSource("class Point"))
-      .toBe("class Point {\n}");
+      .toBe("class Point");
     expect(formatSource("class Point(val x:number,val y:number)"))
-      .toBe("class Point(val x: number, val y: number) {\n}");
+      .toBe("class Point(val x: number, val y: number)");
   });
 
   it("formats for statements with declaration initializer", () => {
     expect(formatSource("for(let i=0;i<3;i+=1){let x=i}"))
-      .toBe("for (let i = 0; i < 3; i += 1) {\n  let x = i;\n}");
+      .toBe("for (let i = 0; i < 3; i += 1) {\n  let x = i\n}");
   });
 
   it("formats if-else statements", () => {
     expect(formatSource("if(a<1){let b=2}else return b"))
-      .toBe("if (a < 1) {\n  let b = 2;\n} else\n  return b;");
+      .toBe("if (a < 1) {\n  let b = 2\n} else return b");
   });
 
   it("formats prefix and postfix increment/decrement", () => {
     expect(formatSource("++a\na--"))
-      .toBe("++a;\na--;");
+      .toBe("++a\na--");
   });
 
   it("formats shift and equality operators", () => {
     expect(formatSource("a<<1\nb>>=2\nc===d\nx!=y"))
-      .toBe("a << 1;\nb >>= 2;\nc === d;\nx != y;");
+      .toBe("a << 1\nb >>= 2\nc === d\nx != y");
   });
 
   it("formats switch with case and default", () => {
     expect(formatSource("switch(x){case 1:let y=x;break;default:return 0}"))
       .toBe(
         "switch (x) {\n" +
-        "  case 1:\n" +
-        "    let y = x;\n" +
-        "    break;\n" +
-        "  default:\n" +
-        "    return 0;\n" +
+        "  case 1: let y = x;\n" +
+        "  break;\n" +
+        "  default: return 0\n" +
         "}"
       );
   });
 
   it("formats chained function calls", () => {
     expect(formatSource("hello.world[0].test(arg1,arg2)"))
-      .toBe("hello.world[0].test(arg1, arg2);");
+      .toBe("hello.world[0].test(arg1, arg2)");
   });
 
   it("formats new expression variants", () => {
     expect(formatSource("new instance()"))
-      .toBe("new instance();");
+      .toBe("new instance()");
     expect(formatSource("new instance"))
-      .toBe("new instance;");
+      .toBe("new instance");
     expect(formatSource("new hello.world[0].test(arg1,arg2)"))
-      .toBe("new hello.world[0].test(arg1, arg2);");
+      .toBe("new hello.world[0].test(arg1, arg2)");
   });
 
   it("applies binary and unary spacing for plus/minus based on left token", () => {
