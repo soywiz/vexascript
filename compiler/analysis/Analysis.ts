@@ -11,6 +11,7 @@ import {
   Expr,
   ExprStatement,
   ForStatement,
+  FunctionParameter,
   FunctionStatement,
   IfStatement,
   MemberExpression,
@@ -28,11 +29,14 @@ import {
 import type { Node } from "compiler/ast/ast";
 
 export type AnalysisSymbolKind = "variable" | "parameter" | "function" | "class" | "method";
+export type AnalysisValueType = "int" | "string" | "boolean" | "unknown" | string;
+const UNKNOWN_TYPE: AnalysisValueType = "unknown";
 
 export interface AnalysisSymbol {
   name: string;
   kind: AnalysisSymbolKind;
   node: Node;
+  valueType?: AnalysisValueType;
 }
 
 export interface AnalysisIssue {
@@ -55,15 +59,21 @@ interface FlowContext {
 export class Analysis {
   private readonly rootScope: Scope;
   private readonly issues: AnalysisIssue[] = [];
-  private static readonly BUILTIN_IDENTIFIERS = new Set(["true", "false", "null", "undefined"]);
+  private static readonly BUILTIN_IDENTIFIERS = new Map<string, AnalysisValueType>([
+    ["true", "boolean"],
+    ["false", "boolean"],
+    ["null", "null"],
+    ["undefined", "undefined"]
+  ]);
 
   constructor(private readonly program: Program) {
     this.rootScope = this.createScope(undefined, program);
-    for (const name of Analysis.BUILTIN_IDENTIFIERS) {
+    for (const [name, valueType] of Analysis.BUILTIN_IDENTIFIERS) {
       this.declare(this.rootScope, {
         name,
         kind: "variable",
-        node: program
+        node: program,
+        valueType
       });
     }
     this.predeclareGlobalDeclarations(program.body, this.rootScope);
@@ -193,26 +203,28 @@ export class Analysis {
   private visitVarStatement(statement: VarStatement, scope: Scope, flow: FlowContext): void {
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
+        const inferredType =
+          declaration.typeAnnotation?.name ??
+          (declaration.initializer ? this.visitExpression(declaration.initializer, scope) : UNKNOWN_TYPE);
         this.declare(scope, {
           name: declaration.name.name,
           kind: "variable",
-          node: declaration
+          node: declaration,
+          valueType: inferredType
         });
-        if (declaration.initializer) {
-          this.visitExpression(declaration.initializer, scope);
-        }
       }
       return;
     }
 
+    const inferredType =
+      statement.typeAnnotation?.name ??
+      (statement.initializer ? this.visitExpression(statement.initializer, scope) : UNKNOWN_TYPE);
     this.declare(scope, {
       name: statement.name.name,
       kind: "variable",
-      node: statement
+      node: statement,
+      valueType: inferredType
     });
-    if (statement.initializer) {
-      this.visitExpression(statement.initializer, scope);
-    }
   }
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope, declareInParent: boolean): void {
@@ -220,20 +232,22 @@ export class Analysis {
       this.declare(scope, {
         name: statement.name.name,
         kind: "function",
-        node: statement
+        node: statement,
+        valueType: this.buildFunctionType(statement.parameters, statement.returnType?.name)
       });
     }
 
     const functionScope = this.createScope(scope, statement);
     for (const parameter of statement.parameters) {
+      const parameterType =
+        parameter.typeAnnotation?.name ??
+        (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
       this.declare(functionScope, {
         name: parameter.name.name,
         kind: "parameter",
-        node: parameter
+        node: parameter,
+        valueType: parameterType
       });
-      if (parameter.defaultValue) {
-        this.visitExpression(parameter.defaultValue, functionScope);
-      }
     }
 
     // Function body runs within function scope.
@@ -246,7 +260,8 @@ export class Analysis {
     this.declare(scope, {
       name: statement.name.name,
       kind: "class",
-      node: statement
+      node: statement,
+      valueType: statement.name.name
     });
 
     const classScope = this.createScope(scope, statement);
@@ -263,7 +278,8 @@ export class Analysis {
       this.declare(classScope, {
         name: method.name.name,
         kind: "method",
-        node: method
+        node: method,
+        valueType: this.buildFunctionType(method.parameters, method.returnType?.name)
       });
       const syntheticFunction = {
         kind: "FunctionStatement",
@@ -333,13 +349,13 @@ export class Analysis {
     }
   }
 
-  private visitExpression(expression: Expr, scope: Scope): void {
+  private visitExpression(expression: Expr, scope: Scope): AnalysisValueType {
     switch (expression.kind) {
       case "BinaryExpression": {
         const binary = expression as BinaryExpression;
-        this.visitExpression(binary.left, scope);
-        this.visitExpression(binary.right, scope);
-        return;
+        const leftType = this.visitExpression(binary.left, scope);
+        const rightType = this.visitExpression(binary.right, scope);
+        return this.inferBinaryType(binary.operator, leftType, rightType);
       }
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;
@@ -350,8 +366,7 @@ export class Analysis {
           });
         }
         this.visitExpression(assignment.left, scope);
-        this.visitExpression(assignment.right, scope);
-        return;
+        return this.visitExpression(assignment.right, scope);
       }
       case "MemberExpression": {
         const member = expression as MemberExpression;
@@ -359,7 +374,7 @@ export class Analysis {
         if (member.computed) {
           this.visitExpression(member.property, scope);
         }
-        return;
+        return UNKNOWN_TYPE;
       }
       case "CallExpression": {
         const call = expression as CallExpression;
@@ -367,7 +382,7 @@ export class Analysis {
         for (const argument of call.arguments) {
           this.visitExpression(argument, scope);
         }
-        return;
+        return UNKNOWN_TYPE;
       }
       case "NewExpression": {
         const newExpression = expression as NewExpression;
@@ -377,33 +392,89 @@ export class Analysis {
             this.visitExpression(argument, scope);
           }
         }
-        return;
+        return UNKNOWN_TYPE;
       }
-      case "UnaryExpression":
-        this.visitExpression((expression as UnaryExpression).argument, scope);
-        return;
+      case "UnaryExpression": {
+        const unary = expression as UnaryExpression;
+        const argumentType = this.visitExpression(unary.argument, scope);
+        if ((unary.operator === "+" || unary.operator === "-") && argumentType === "int") {
+          return "int";
+        }
+        return UNKNOWN_TYPE;
+      }
       case "UpdateExpression":
         this.visitExpression((expression as UpdateExpression).argument, scope);
-        return;
+        return "int";
       case "ArrayLiteral":
         for (const element of (expression as ArrayLiteral).elements) {
           this.visitExpression(element, scope);
         }
-        return;
+        return "array";
       case "ObjectLiteral":
         for (const property of (expression as ObjectLiteral).properties) {
           this.visitExpression(property.value, scope);
         }
-        return;
+        return "object";
       case "Identifier":
-        this.reportIfUnresolvedIdentifier(expression as Node & { kind: "Identifier"; name: string }, scope);
-        return;
+        return this.resolveIdentifierType(expression as Node & { kind: "Identifier"; name: string }, scope);
       case "IntLiteral":
+        return "int";
       case "StringLiteral":
-        return;
+        return "string";
       default:
-        return;
+        return UNKNOWN_TYPE;
     }
+  }
+
+  private inferBinaryType(
+    operator: BinaryExpression["operator"],
+    leftType: AnalysisValueType,
+    rightType: AnalysisValueType
+  ): AnalysisValueType {
+    if (operator === "+" && (leftType === "string" || rightType === "string")) {
+      return "string";
+    }
+
+    if (
+      operator === "+" ||
+      operator === "-" ||
+      operator === "*" ||
+      operator === "/" ||
+      operator === "%" ||
+      operator === "**" ||
+      operator === "<<" ||
+      operator === ">>" ||
+      operator === ">>>" ||
+      operator === "&" ||
+      operator === "|" ||
+      operator === "^"
+    ) {
+      return leftType === "int" && rightType === "int" ? "int" : UNKNOWN_TYPE;
+    }
+
+    if (
+      operator === "<" ||
+      operator === ">" ||
+      operator === "<=" ||
+      operator === ">=" ||
+      operator === "==" ||
+      operator === "!=" ||
+      operator === "===" ||
+      operator === "!==" ||
+      operator === "||" ||
+      operator === "&&"
+    ) {
+      return "boolean";
+    }
+
+    return UNKNOWN_TYPE;
+  }
+
+  private buildFunctionType(parameters: FunctionParameter[], returnType: string | undefined): AnalysisValueType {
+    const parameterTypeList = parameters
+      .map((parameter) => `${parameter.name.name}: ${parameter.typeAnnotation?.name ?? UNKNOWN_TYPE}`)
+      .join(", ");
+    return `(${parameterTypeList}) => ${returnType ?? UNKNOWN_TYPE}`;
   }
 
   private isLValueExpression(expression: Expr): boolean {
@@ -456,6 +527,21 @@ export class Analysis {
     return null;
   }
 
+  private resolveIdentifierType(
+    identifier: Node & { kind: "Identifier"; name: string },
+    scope: Scope
+  ): AnalysisValueType {
+    const symbol = this.resolve(identifier.name, scope);
+    if (symbol) {
+      return symbol.valueType ?? UNKNOWN_TYPE;
+    }
+    this.issues.push({
+      message: `Undefined variable '${identifier.name}'`,
+      node: identifier
+    });
+    return UNKNOWN_TYPE;
+  }
+
   private reportIfUnresolvedIdentifier(
     identifier: Node & { kind: "Identifier"; name: string },
     scope: Scope
@@ -478,14 +564,16 @@ export class Analysis {
             this.declare(scope, {
               name: declaration.name.name,
               kind: "variable",
-              node: declaration
+              node: declaration,
+              valueType: declaration.typeAnnotation?.name ?? UNKNOWN_TYPE
             });
           }
         } else {
           this.declare(scope, {
             name: variableStatement.name.name,
             kind: "variable",
-            node: variableStatement
+            node: variableStatement,
+            valueType: variableStatement.typeAnnotation?.name ?? UNKNOWN_TYPE
           });
         }
         continue;
@@ -496,7 +584,8 @@ export class Analysis {
         this.declare(scope, {
           name: functionStatement.name.name,
           kind: "function",
-          node: functionStatement
+          node: functionStatement,
+          valueType: this.buildFunctionType(functionStatement.parameters, functionStatement.returnType?.name)
         });
         continue;
       }
@@ -506,7 +595,8 @@ export class Analysis {
         this.declare(scope, {
           name: classStatement.name.name,
           kind: "class",
-          node: classStatement
+          node: classStatement,
+          valueType: classStatement.name.name
         });
       }
     }

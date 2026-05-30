@@ -2,11 +2,18 @@ import { describe, expect, it } from "vitest";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
+import type { AnalysisSymbol } from "./Analysis";
 
 function namesOfVisibleSymbolsAt(source: string, line: number, character: number): string[] {
   const ast = parseFile(tokenizeReader(source));
   const analysis = new Analysis(ast);
   return analysis.getVisibleSymbolsAt(line, character).map((symbol) => symbol.name).sort();
+}
+
+function symbolsOfVisibleSymbolsAt(source: string, line: number, character: number): Map<string, AnalysisSymbol> {
+  const ast = parseFile(tokenizeReader(source));
+  const analysis = new Analysis(ast);
+  return new Map(analysis.getVisibleSymbolsAt(line, character).map((symbol) => [symbol.name, symbol]));
 }
 
 describe("Analysis", () => {
@@ -170,5 +177,25 @@ describe("Analysis", () => {
     const messages = analysis.getIssues().map((issue) => issue.message);
 
     expect(messages.some((message) => message.includes("'lol'"))).toBe(false);
+  });
+
+  it("infers expression and variable types, including function signature types", () => {
+    const source =
+      "val a = 10\n" +
+      "val b = a + 20\n" +
+      "val s = \"hello\"\n" +
+      "function hello(x: int): int {\n" +
+      "  return x + b\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  return s\n" +
+      "}\n";
+
+    const symbols = symbolsOfVisibleSymbolsAt(source, 7, 3);
+
+    expect(symbols.get("a")?.valueType).toBe("int");
+    expect(symbols.get("b")?.valueType).toBe("int");
+    expect(symbols.get("s")?.valueType).toBe("string");
+    expect(symbols.get("hello")?.valueType).toBe("(x: int) => int");
   });
 });

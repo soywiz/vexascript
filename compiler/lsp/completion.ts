@@ -20,6 +20,13 @@ function symbolKindToCompletionKind(symbol: AnalysisSymbol): CompletionItemKind 
   return CompletionItemKind.Variable;
 }
 
+function symbolDetail(symbol: AnalysisSymbol): string {
+  if (symbol.valueType) {
+    return `In-scope ${symbol.kind}: ${symbol.valueType}`;
+  }
+  return `In-scope ${symbol.kind}`;
+}
+
 export function createCompletionItemsForPosition(
   ast: Program,
   line: number,
@@ -33,7 +40,7 @@ export function createCompletionItemsForPosition(
     items.push({
       label: symbol.name,
       kind: symbolKindToCompletionKind(symbol),
-      detail: `In-scope ${symbol.kind}`
+      detail: symbolDetail(symbol)
     });
   }
 
