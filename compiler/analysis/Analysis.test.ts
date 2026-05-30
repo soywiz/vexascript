@@ -198,4 +198,25 @@ describe("Analysis", () => {
     expect(symbols.get("s")?.valueType).toBe("string");
     expect(symbols.get("hello")?.valueType).toBe("(x: int) => int");
   });
+
+  it("resolves builtin and declared class types in annotations and reports unknown types", () => {
+    const source =
+      "function makePoint(p: Point): int {\n" +
+      "  return 1\n" +
+      "}\n" +
+      "class Point {\n" +
+      "}\n" +
+      "fun bad(v: MissingType) {\n" +
+      "  return v\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("Unknown type 'Point'"))).toBe(false);
+    expect(messages).toContain(
+      "Unknown type 'MissingType'. Expected builtin type (int, number, string, boolean) or declared class/interface"
+    );
+  });
 });

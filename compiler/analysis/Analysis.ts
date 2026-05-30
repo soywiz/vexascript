@@ -59,6 +59,7 @@ interface FlowContext {
 export class Analysis {
   private readonly rootScope: Scope;
   private readonly issues: AnalysisIssue[] = [];
+  private static readonly BUILTIN_TYPE_NAMES = new Set(["int", "number", "string", "boolean"]);
   private static readonly BUILTIN_IDENTIFIERS = new Map<string, AnalysisValueType>([
     ["true", "boolean"],
     ["false", "boolean"],
@@ -204,7 +205,7 @@ export class Analysis {
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
         const inferredType =
-          declaration.typeAnnotation?.name ??
+          this.resolveTypeAnnotation(declaration.typeAnnotation, scope) ??
           (declaration.initializer ? this.visitExpression(declaration.initializer, scope) : UNKNOWN_TYPE);
         this.declare(scope, {
           name: declaration.name.name,
@@ -217,7 +218,7 @@ export class Analysis {
     }
 
     const inferredType =
-      statement.typeAnnotation?.name ??
+      this.resolveTypeAnnotation(statement.typeAnnotation, scope) ??
       (statement.initializer ? this.visitExpression(statement.initializer, scope) : UNKNOWN_TYPE);
     this.declare(scope, {
       name: statement.name.name,
@@ -233,14 +234,17 @@ export class Analysis {
         name: statement.name.name,
         kind: "function",
         node: statement,
-        valueType: this.buildFunctionType(statement.parameters, statement.returnType?.name)
+        valueType: this.buildFunctionType(
+          statement.parameters,
+          this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE
+        )
       });
     }
 
     const functionScope = this.createScope(scope, statement);
     for (const parameter of statement.parameters) {
       const parameterType =
-        parameter.typeAnnotation?.name ??
+        this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
         (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
       this.declare(functionScope, {
         name: parameter.name.name,
@@ -279,7 +283,10 @@ export class Analysis {
         name: method.name.name,
         kind: "method",
         node: method,
-        valueType: this.buildFunctionType(method.parameters, method.returnType?.name)
+        valueType: this.buildFunctionType(
+          method.parameters,
+          this.resolveTypeAnnotation(method.returnType, classScope) ?? UNKNOWN_TYPE
+        )
       });
       const syntheticFunction = {
         kind: "FunctionStatement",
@@ -477,6 +484,30 @@ export class Analysis {
     return `(${parameterTypeList}) => ${returnType ?? UNKNOWN_TYPE}`;
   }
 
+  private resolveTypeAnnotation(
+    typeAnnotation: Node & { kind: "Identifier"; name: string } | undefined,
+    scope: Scope
+  ): AnalysisValueType | undefined {
+    if (!typeAnnotation) {
+      return undefined;
+    }
+
+    if (Analysis.BUILTIN_TYPE_NAMES.has(typeAnnotation.name)) {
+      return typeAnnotation.name;
+    }
+
+    const symbol = this.resolve(typeAnnotation.name, scope);
+    if (symbol && symbol.kind === "class") {
+      return typeAnnotation.name;
+    }
+
+    this.issues.push({
+      message: `Unknown type '${typeAnnotation.name}'. Expected builtin type (int, number, string, boolean) or declared class/interface`,
+      node: typeAnnotation
+    });
+    return UNKNOWN_TYPE;
+  }
+
   private isLValueExpression(expression: Expr): boolean {
     return expression.kind === "Identifier" || expression.kind === "MemberExpression";
   }
@@ -585,7 +616,7 @@ export class Analysis {
           name: functionStatement.name.name,
           kind: "function",
           node: functionStatement,
-          valueType: this.buildFunctionType(functionStatement.parameters, functionStatement.returnType?.name)
+          valueType: this.buildFunctionType(functionStatement.parameters, functionStatement.returnType?.name ?? UNKNOWN_TYPE)
         });
         continue;
       }

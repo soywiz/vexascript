@@ -35,5 +35,9 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("fn");
     expect(labels).toContain("type");
     expect(labels).toContain("interface");
+    expect(labels).toContain("int");
+    expect(labels).toContain("number");
+    expect(labels).toContain("string");
+    expect(labels).toContain("boolean");
   });
 });
