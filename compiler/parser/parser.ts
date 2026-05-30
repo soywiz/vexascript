@@ -17,6 +17,7 @@ import {
     Expr,
     ExprStatement,
     ForStatement,
+    FloatLiteral,
     FunctionDeclarationKind,
     FunctionParameter,
     FunctionStatement,
@@ -869,8 +870,19 @@ export class Parser {
         }
 
         if (token?.type === "number") {
+            const numericValue = Number(token.value);
+            if (!Number.isFinite(numericValue)) {
+                this.fail("Invalid numeric literal", this.tokenAt(token));
+            }
+            if (token.value.includes(".") || token.value.includes("e") || token.value.includes("E")) {
+                return this.attachNodeBounds(
+                    { kind: "FloatLiteral", value: numericValue } as FloatLiteral,
+                    token,
+                    token
+                );
+            }
             return this.attachNodeBounds(
-                { kind: "IntLiteral", value: parseInt(token.value, 10) } as IntLiteral,
+                { kind: "IntLiteral", value: numericValue } as IntLiteral,
                 token,
                 token
             );

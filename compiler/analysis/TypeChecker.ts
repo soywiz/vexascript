@@ -408,6 +408,9 @@ export class TypeChecker {
       case "IntLiteral":
         result = builtinType("int");
         break;
+      case "FloatLiteral":
+        result = builtinType("number");
+        break;
       case "StringLiteral":
         result = builtinType("string");
         break;

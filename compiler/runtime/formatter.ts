@@ -143,8 +143,26 @@ function tokenizeForFormatting(source: string): FormatToken[] {
     if (isDigit(ch)) {
       const start = i;
       i += 1;
-      while (i < source.length && /[0-9A-Za-z_]/.test(source[i])) {
+      while (i < source.length && /[0-9]/.test(source[i])) {
         i += 1;
+      }
+      if (i + 1 < source.length && source[i] === "." && /[0-9]/.test(source[i + 1])) {
+        i += 1;
+        while (i < source.length && /[0-9]/.test(source[i])) {
+          i += 1;
+        }
+      }
+      if (i < source.length && (source[i] === "e" || source[i] === "E")) {
+        let exponentIndex = i + 1;
+        if (exponentIndex < source.length && (source[exponentIndex] === "+" || source[exponentIndex] === "-")) {
+          exponentIndex += 1;
+        }
+        if (exponentIndex < source.length && /[0-9]/.test(source[exponentIndex])) {
+          i = exponentIndex + 1;
+          while (i < source.length && /[0-9]/.test(source[i])) {
+            i += 1;
+          }
+        }
       }
       tokens.push({ type: "number", value: source.slice(start, i) });
       continue;

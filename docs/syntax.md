@@ -192,6 +192,7 @@ Method signatures support the same parameter syntax as function declarations.
 Supported literals:
 
 - integer literals (`10`)
+- decimal/scientific number literals (`10.573`, `10e-3`)
 - string literals (`"hello"`, `'hello'`)
 - array literals (`[1, 2, 3]`)
 - object literals (`{a: 1, b: 2}`)
@@ -463,6 +464,7 @@ switch (current) {
 ### Expression typing
 
 - Integer literals have type `int`.
+- Decimal/scientific numeric literals have type `number`.
 - String literals have type `string`.
 - `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
 - `+` with at least one `string` operand infers `string`.

@@ -12,6 +12,7 @@ import type {
   Expr,
   ExprStatement,
   ForStatement,
+  FloatLiteral,
   FunctionParameter,
   FunctionStatement,
   Identifier,
@@ -138,6 +139,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
     switch (expression.kind) {
       case "IntLiteral":
         return String((expression as IntLiteral).value);
+      case "FloatLiteral":
+        return String((expression as FloatLiteral).value);
       case "StringLiteral":
         return JSON.stringify((expression as StringLiteral).value);
       case "Identifier":

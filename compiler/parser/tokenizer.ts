@@ -39,6 +39,7 @@ export class TokenizeError extends Error {
 const CODE_SPACE = 32; // " "
 const CODE_BANG = 33; // !
 const CODE_DOUBLE_QUOTE = 34; // "
+const CODE_E_UPPER = 69; // E
 const CODE_PERCENT = 37; // %
 const CODE_AMPERSAND = 38; // &
 const CODE_SINGLE_QUOTE = 39; // '
@@ -60,6 +61,7 @@ const CODE_Z_UPPER = 90; // Z
 const CODE_BACKSLASH = 92; // \
 const CODE_UNDERSCORE = 95; // _
 const CODE_A_LOWER = 97; // a
+const CODE_E_LOWER = 101; // e
 const CODE_F_LOWER = 102; // f
 const CODE_N_LOWER = 110; // n
 const CODE_R_LOWER = 114; // r
@@ -191,12 +193,41 @@ function readIdentifier(reader: StrReader): string {
 }
 
 function readNumber(reader: StrReader): string {
-  const start = reader.offset;
+  const startPosition = snapshot(reader);
+  const startOffset = reader.offset;
   advanceCode(reader);
   while (reader.hasMore && isDigitCode(reader.peekCode())) {
     advanceCode(reader);
   }
-  return reader.str.slice(start, reader.offset);
+
+  if (
+    reader.hasMore &&
+    reader.peekCode() === CODE_DOT &&
+    isDigitCode(reader.str.charCodeAt(reader.offset + 1))
+  ) {
+    advanceCode(reader);
+    while (reader.hasMore && isDigitCode(reader.peekCode())) {
+      advanceCode(reader);
+    }
+  }
+
+  if (reader.hasMore && (reader.peekCode() === CODE_E_LOWER || reader.peekCode() === CODE_E_UPPER)) {
+    advanceCode(reader);
+    if (reader.hasMore && (reader.peekCode() === CODE_PLUS || reader.peekCode() === CODE_MINUS)) {
+      advanceCode(reader);
+    }
+    if (!reader.hasMore || !isDigitCode(reader.peekCode())) {
+      throw new TokenizeError("Invalid exponent in number literal", {
+        start: startPosition,
+        end: snapshot(reader)
+      });
+    }
+    while (reader.hasMore && isDigitCode(reader.peekCode())) {
+      advanceCode(reader);
+    }
+  }
+
+  return reader.str.slice(startOffset, reader.offset);
 }
 
 function readEscapedString(reader: StrReader, quoteCode: number, start: SourcePosition): string {

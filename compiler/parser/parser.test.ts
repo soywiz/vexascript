@@ -9,6 +9,15 @@ describe("parseExpression", () => {
         );
     });
 
+    it("builds an AST for decimal and scientific literals", () => {
+        expect(parseExpression(tokenizeReader("10.573"))).toEqual(
+            { kind: "FloatLiteral", value: 10.573 }
+        );
+        expect(parseExpression(tokenizeReader("10e-3"))).toEqual(
+            { kind: "FloatLiteral", value: 0.01 }
+        );
+    });
+
     it("builds an AST for escaped string literal", () => {
         expect(parseExpression(tokenizeReader("\"hello\\n\\r\\t...world\""))).toEqual(
             { kind: "StringLiteral", value: "hello\n\r\t...world" }

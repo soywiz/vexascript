@@ -36,6 +36,13 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toBe("import { Point } from \"./a\";");
   });
 
+  it("emits decimal and scientific numeric literals", () => {
+    const program = parseFile(tokenizeReader("let a = 10.573\nlet b = 10e-3"));
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("let a = 10.573;");
+    expect(emitted).toContain("let b = 0.01;");
+  });
+
   it("omits ambient declare class/var statements from emitted JavaScript", () => {
     const program = parseFile(
       tokenizeReader("declare class Console { log(a: number) }\ndeclare var console: Console\nconsole.log(42)")

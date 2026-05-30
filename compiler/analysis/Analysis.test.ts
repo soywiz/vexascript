@@ -283,4 +283,14 @@ describe("Analysis", () => {
 
     expect(symbols.get("p")?.valueType).toBe("Point");
   });
+
+  it("infers number type for decimal and scientific literals", () => {
+    const source =
+      "let a = 10.573\n" +
+      "let b = 10e-3\n";
+    const symbols = symbolsOfVisibleSymbolsAt(source, 1, 5);
+
+    expect(symbols.get("a")?.valueType).toBe("number");
+    expect(symbols.get("b")?.valueType).toBe("number");
+  });
 });

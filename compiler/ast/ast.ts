@@ -20,6 +20,11 @@ export interface IntLiteral extends Node {
     value: number
 }
 
+export interface FloatLiteral extends Node {
+    kind: "FloatLiteral"
+    value: number
+}
+
 export interface Identifier extends Node {
     kind: "Identifier"
     name: string

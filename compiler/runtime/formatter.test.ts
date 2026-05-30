@@ -165,4 +165,9 @@ describe("formatSource", () => {
       "val a = +10"
     );
   });
+
+  it("keeps scientific notation literals without splitting exponent sign", () => {
+    expect(formatSource("let a=10e-3\nlet b=10.573"))
+      .toBe("let a = 10e-3\nlet b = 10.573");
+  });
 });

@@ -25,6 +25,14 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes decimal and scientific numbers", () => {
+        expect(simplifyTokens("10.573 + 10e-3")).toStrictEqual([
+            { type: "number", value: "10.573" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: "10e-3" }
+        ])
+    })
+
     it("tokenizes multi-character operators", () => {
         expect(simplifyTokens("2**3 || 4 && 5")).toStrictEqual([
             { type: "number", value: "2" },
@@ -208,6 +216,10 @@ describe("tokenizer", () => {
 
     it("throws when block comment is unterminated", () => {
         expect(() => tokenize("let a = 1 /* unterminated")).toThrow("Unterminated block comment")
+    })
+
+    it("throws when scientific notation exponent is invalid", () => {
+        expect(() => tokenize("10e+")).toThrow("Invalid exponent in number literal")
     })
 
     it("tracks offset/line/column ranges for tokens", () => {
