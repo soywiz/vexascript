@@ -110,6 +110,7 @@ export class Analysis {
   }
 
   private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
+    this.predeclareScopeStatements(program.body, scope);
     for (const statement of program.body) {
       this.visitStatement(statement, scope, flow);
     }
@@ -210,6 +211,7 @@ export class Analysis {
     }
 
     const functionScope = this.createScope(scope, statement);
+    this.predeclareScopeStatements(statement.body.body, functionScope);
     for (const parameter of statement.parameters) {
       this.declare(functionScope, {
         name: parameter.name.name,
@@ -263,6 +265,7 @@ export class Analysis {
 
   private visitBlockStatement(statement: BlockStatement, scope: Scope, flow: FlowContext): void {
     const blockScope = this.createScope(scope, statement);
+    this.predeclareScopeStatements(statement.body, blockScope);
     for (const child of statement.body) {
       this.visitStatement(child, blockScope, flow);
     }
@@ -309,6 +312,7 @@ export class Analysis {
 
     for (const switchCase of statement.cases) {
       const caseScope = this.createScope(switchScope, switchCase);
+      this.predeclareScopeStatements(switchCase.consequent, caseScope);
       if (switchCase.test) {
         this.visitExpression(switchCase.test, caseScope);
       }
@@ -442,5 +446,28 @@ export class Analysis {
       message: `Undefined variable '${identifier.name}'`,
       node: identifier
     });
+  }
+
+  private predeclareScopeStatements(statements: Statement[], scope: Scope): void {
+    for (const statement of statements) {
+      if (statement.kind === "FunctionStatement") {
+        const functionStatement = statement as FunctionStatement;
+        this.declare(scope, {
+          name: functionStatement.name.name,
+          kind: "function",
+          node: functionStatement
+        });
+        continue;
+      }
+
+      if (statement.kind === "ClassStatement") {
+        const classStatement = statement as ClassStatement;
+        this.declare(scope, {
+          name: classStatement.name.name,
+          kind: "class",
+          node: classStatement
+        });
+      }
+    }
   }
 }

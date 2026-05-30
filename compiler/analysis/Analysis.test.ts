@@ -88,4 +88,24 @@ describe("Analysis", () => {
     expect(messages.filter((message) => message === "Illegal 'continue' statement outside of a loop")).toHaveLength(2);
     expect(messages.filter((message) => message === "Illegal 'break' statement outside of a loop or switch")).toHaveLength(1);
   });
+
+  it("resolves class/function symbols declared later in the same scope", () => {
+    const source =
+      "fun demo() {\n" +
+      "  const a = new Point(1, 2)\n" +
+      "  return makePoint(a)\n" +
+      "}\n" +
+      "class Point {\n" +
+      "}\n" +
+      "fun makePoint(value) {\n" +
+      "  return value\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("'Point'"))).toBe(false);
+    expect(messages.some((message) => message.includes("'makePoint'"))).toBe(false);
+  });
 });
