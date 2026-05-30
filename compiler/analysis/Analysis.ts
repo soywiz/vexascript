@@ -66,6 +66,7 @@ export class Analysis {
         node: program
       });
     }
+    this.predeclareGlobalDeclarations(program.body, this.rootScope);
     this.visitProgram(program, this.rootScope, { loopDepth: 0, switchDepth: 0 });
   }
 
@@ -110,7 +111,6 @@ export class Analysis {
   }
 
   private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
-    this.predeclareScopeStatements(program.body, scope);
     for (const statement of program.body) {
       this.visitStatement(statement, scope, flow);
     }
@@ -211,7 +211,6 @@ export class Analysis {
     }
 
     const functionScope = this.createScope(scope, statement);
-    this.predeclareScopeStatements(statement.body.body, functionScope);
     for (const parameter of statement.parameters) {
       this.declare(functionScope, {
         name: parameter.name.name,
@@ -265,7 +264,6 @@ export class Analysis {
 
   private visitBlockStatement(statement: BlockStatement, scope: Scope, flow: FlowContext): void {
     const blockScope = this.createScope(scope, statement);
-    this.predeclareScopeStatements(statement.body, blockScope);
     for (const child of statement.body) {
       this.visitStatement(child, blockScope, flow);
     }
@@ -312,7 +310,6 @@ export class Analysis {
 
     for (const switchCase of statement.cases) {
       const caseScope = this.createScope(switchScope, switchCase);
-      this.predeclareScopeStatements(switchCase.consequent, caseScope);
       if (switchCase.test) {
         this.visitExpression(switchCase.test, caseScope);
       }
@@ -448,8 +445,18 @@ export class Analysis {
     });
   }
 
-  private predeclareScopeStatements(statements: Statement[], scope: Scope): void {
+  private predeclareGlobalDeclarations(statements: Statement[], scope: Scope): void {
     for (const statement of statements) {
+      if (statement.kind === "VarStatement") {
+        const variableStatement = statement as VarStatement;
+        this.declare(scope, {
+          name: variableStatement.name.name,
+          kind: "variable",
+          node: variableStatement
+        });
+        continue;
+      }
+
       if (statement.kind === "FunctionStatement") {
         const functionStatement = statement as FunctionStatement;
         this.declare(scope, {

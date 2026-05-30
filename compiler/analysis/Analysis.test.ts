@@ -108,4 +108,35 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("'Point'"))).toBe(false);
     expect(messages.some((message) => message.includes("'makePoint'"))).toBe(false);
   });
+
+  it("allows forward references only from global scope declarations", () => {
+    const source =
+      "fun demo() {\n" +
+      "  while (zz) {\n" +
+      "    break\n" +
+      "  }\n" +
+      "  return zz\n" +
+      "}\n" +
+      "var zz = true\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("'zz'"))).toBe(false);
+  });
+
+  it("requires local variables to be declared before use inside function scope", () => {
+    const source =
+      "fun demo() {\n" +
+      "  return localValue\n" +
+      "  let localValue = 1\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Undefined variable 'localValue'");
+  });
 });
