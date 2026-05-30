@@ -38,7 +38,8 @@ describe("CLI", () => {
     expect(tokens.map(({ type, value }) => ({ type, value }))).toEqual([
       { type: "identifier", value: "a" },
       { type: "symbol", value: "+=" },
-      { type: "number", value: "1" }
+      { type: "number", value: "1" },
+      { type: "eof", value: "<eof>" }
     ]);
   });
 

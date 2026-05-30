@@ -1,548 +1,399 @@
-import {
-  ArrayLiteral,
-  AssignmentExpression,
-  BinaryExpression,
-  BlockStatement,
-  BreakStatement,
-  CallExpression,
-  ClassFieldMember,
-  ClassMember,
-  ClassMethodMember,
-  ClassPrimaryConstructorParameter,
-  ClassStatement,
-  ContinueStatement,
-  DoWhileStatement,
-  Expr,
-  ExprStatement,
-  ForStatement,
-  FunctionParameter,
-  FunctionStatement,
-  Identifier,
-  IfStatement,
-  IntLiteral,
-  MemberExpression,
-  NewExpression,
-  ObjectLiteral,
-  Program,
-  ReturnStatement,
-  Statement,
-  StringLiteral,
-  SwitchCase,
-  SwitchStatement,
-  UnaryExpression,
-  UpdateExpression,
-  VarStatement,
-  WhileStatement
-} from "compiler/ast/ast";
-import { parseFile } from "compiler/parser/parser";
-import { tokenizeReader } from "compiler/parser/tokenizer";
+interface FormatToken {
+  type: "identifier" | "number" | "string" | "commentLine" | "commentBlock" | "symbol" | "newline";
+  value: string;
+}
 
 const INDENT = "  ";
 
-type KnownExpr =
-  | IntLiteral
-  | StringLiteral
-  | Identifier
-  | ArrayLiteral
-  | ObjectLiteral
-  | UnaryExpression
-  | UpdateExpression
-  | BinaryExpression
-  | AssignmentExpression
-  | CallExpression
-  | NewExpression
-  | MemberExpression;
+const MULTI_CHAR_SYMBOLS = [
+  ">>>=",
+  "===",
+  "!==",
+  "<<=",
+  ">>=",
+  ">>>",
+  "&&=",
+  "||=",
+  "??=",
+  "++",
+  "--",
+  "**",
+  "<=",
+  ">=",
+  "==",
+  "!=",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "&=",
+  "|=",
+  "&&",
+  "||",
+  "<<",
+  ">>",
+  "?.",
+  "!."
+] as const;
 
-type KnownStatement =
-  | VarStatement
-  | FunctionStatement
-  | ClassStatement
-  | ExprStatement
-  | BlockStatement
-  | WhileStatement
-  | DoWhileStatement
-  | ForStatement
-  | IfStatement
-  | SwitchStatement
-  | ReturnStatement
-  | ContinueStatement
-  | BreakStatement;
+const UNARY_PREFIX_OPERATORS = new Set(["+", "-", "++", "--", "!", "~"]);
+const BINARY_OPERATORS = new Set([
+  "+", "-", "*", "/", "%", "**",
+  "<<", ">>", ">>>",
+  "<", ">", "<=", ">=",
+  "==", "!=", "===", "!==",
+  "&", "|", "^", "&&", "||",
+  "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=", "&=", "|=", "&&=", "||="
+]);
 
-const BINARY_PRECEDENCE: Record<BinaryExpression["operator"], number> = {
-  "**": 13,
-  "*": 12,
-  "/": 12,
-  "%": 12,
-  "+": 11,
-  "-": 11,
-  "<<": 10.5,
-  ">>": 10.5,
-  ">>>": 10.5,
-  "<": 10,
-  ">": 10,
-  "<=": 10,
-  ">=": 10,
-  "==": 9,
-  "!=": 9,
-  "===": 9,
-  "!==": 9,
-  "&": 8,
-  "^": 7,
-  "|": 6,
-  "&&": 5,
-  "||": 4
-};
+const CONTROL_KEYWORDS_WITH_PAREN = new Set(["if", "for", "while", "switch", "catch"]);
 
-const ASSIGNMENT_PRECEDENCE = 1;
-const UNARY_PRECEDENCE = 14;
-const MEMBER_PRECEDENCE = 15;
-const PRIMARY_PRECEDENCE = 16;
-
-function indent(level: number): string {
-  return INDENT.repeat(level);
+function isIdentifierStart(ch: string): boolean {
+  return /[A-Za-z_]/.test(ch);
 }
 
-function formatIdentifier(identifier: Identifier): string {
-  return identifier.name;
+function isIdentifierPart(ch: string): boolean {
+  return /[A-Za-z0-9_]/.test(ch);
 }
 
-function formatHex4(code: number): string {
-  return code.toString(16).padStart(4, "0");
+function isDigit(ch: string): boolean {
+  return /[0-9]/.test(ch);
 }
 
-function formatStringLiteral(value: string): string {
-  let result = '"';
+function tokenizeForFormatting(source: string): FormatToken[] {
+  const tokens: FormatToken[] = [];
+  let i = 0;
 
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
+  while (i < source.length) {
+    const ch = source[i];
 
-    if (code === 0x22) {
-      result += '\\"';
-      continue;
-    }
-    if (code === 0x5c) {
-      result += "\\\\";
-      continue;
-    }
-    if (code === 0x0a) {
-      result += "\\n";
-      continue;
-    }
-    if (code === 0x0d) {
-      result += "\\r";
-      continue;
-    }
-    if (code === 0x09) {
-      result += "\\t";
+    if (ch === "\r") {
+      i += 1;
       continue;
     }
 
-    const isPrintableAscii = code >= 0x20 && code <= 0x7e;
-    if (isPrintableAscii) {
-      result += String.fromCharCode(code);
+    if (ch === "\n") {
+      tokens.push({ type: "newline", value: "\n" });
+      i += 1;
       continue;
     }
 
-    result += `\\u${formatHex4(code)}`;
+    if (ch === " " || ch === "\t" || ch === "\v" || ch === "\f") {
+      i += 1;
+      continue;
+    }
+
+    if (ch === "/" && source[i + 1] === "/") {
+      const start = i;
+      i += 2;
+      while (i < source.length && source[i] !== "\n") {
+        i += 1;
+      }
+      tokens.push({ type: "commentLine", value: source.slice(start, i) });
+      continue;
+    }
+
+    if (ch === "/" && source[i + 1] === "*") {
+      const start = i;
+      i += 2;
+      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) {
+        i += 1;
+      }
+      if (i < source.length) {
+        i += 2;
+      }
+      tokens.push({ type: "commentBlock", value: source.slice(start, i) });
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      const start = i;
+      i += 1;
+      while (i < source.length) {
+        if (source[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (source[i] === quote) {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      tokens.push({ type: "string", value: source.slice(start, i) });
+      continue;
+    }
+
+    if (isIdentifierStart(ch)) {
+      const start = i;
+      i += 1;
+      while (i < source.length && isIdentifierPart(source[i])) {
+        i += 1;
+      }
+      tokens.push({ type: "identifier", value: source.slice(start, i) });
+      continue;
+    }
+
+    if (isDigit(ch)) {
+      const start = i;
+      i += 1;
+      while (i < source.length && /[0-9A-Za-z_.]/.test(source[i])) {
+        i += 1;
+      }
+      tokens.push({ type: "number", value: source.slice(start, i) });
+      continue;
+    }
+
+    let matched = "";
+    for (const symbol of MULTI_CHAR_SYMBOLS) {
+      if (source.startsWith(symbol, i)) {
+        matched = symbol;
+        break;
+      }
+    }
+
+    if (matched.length > 0) {
+      tokens.push({ type: "symbol", value: matched });
+      i += matched.length;
+      continue;
+    }
+
+    tokens.push({ type: "symbol", value: ch });
+    i += 1;
   }
 
-  result += '"';
-  return result;
+  return tokens;
 }
 
-function exprPrecedence(expr: Expr): number {
-  const node = expr as KnownExpr;
-  if (node.kind === "AssignmentExpression") {
-    return ASSIGNMENT_PRECEDENCE;
+function isWordLike(token: FormatToken | undefined): boolean {
+  if (!token) {
+    return false;
   }
-  if (node.kind === "BinaryExpression") {
-    return BINARY_PRECEDENCE[node.operator];
-  }
-  if (node.kind === "UnaryExpression") {
-    return UNARY_PRECEDENCE;
-  }
-  if (node.kind === "UpdateExpression") {
-    return node.prefix ? UNARY_PRECEDENCE : MEMBER_PRECEDENCE;
-  }
-  if (node.kind === "CallExpression") {
-    return MEMBER_PRECEDENCE;
-  }
-  if (node.kind === "NewExpression") {
-    return UNARY_PRECEDENCE;
-  }
-  if (node.kind === "MemberExpression") {
-    return MEMBER_PRECEDENCE;
-  }
-  return PRIMARY_PRECEDENCE;
+  return token.type === "identifier" || token.type === "number" || token.type === "string";
 }
 
-function shouldParenthesizeChild(
-  child: Expr,
-  parentPrecedence: number,
-  side: "left" | "right",
-  associativity: "left" | "right"
-): boolean {
-  const childPrecedence = exprPrecedence(child);
-  if (childPrecedence < parentPrecedence) {
-    return true;
-  }
-  if (childPrecedence > parentPrecedence) {
+function isMemberOperator(token: FormatToken | undefined): boolean {
+  return token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.");
+}
+
+function isUnaryPrefix(current: FormatToken, previousSignificant: FormatToken | undefined): boolean {
+  if (current.type !== "symbol" || !UNARY_PREFIX_OPERATORS.has(current.value)) {
     return false;
   }
 
-  if (side === "left") {
-    return associativity === "right";
+  if (!previousSignificant) {
+    return true;
   }
-  return associativity === "left";
-}
 
-function withOptionalParens(value: string, shouldWrap: boolean): string {
-  return shouldWrap ? `(${value})` : value;
-}
-
-function formatAssignmentExpression(expr: AssignmentExpression): string {
-  const left = withOptionalParens(
-    formatExpression(expr.left),
-    shouldParenthesizeChild(expr.left, ASSIGNMENT_PRECEDENCE, "left", "right")
-  );
-  const right = withOptionalParens(
-    formatExpression(expr.right),
-    shouldParenthesizeChild(expr.right, ASSIGNMENT_PRECEDENCE, "right", "right")
-  );
-  return `${left} ${expr.operator} ${right}`;
-}
-
-function formatBinaryExpression(expr: BinaryExpression): string {
-  const precedence = BINARY_PRECEDENCE[expr.operator];
-  const associativity: "left" | "right" = expr.operator === "**" ? "right" : "left";
-
-  const left = withOptionalParens(
-    formatExpression(expr.left),
-    shouldParenthesizeChild(expr.left, precedence, "left", associativity)
-  );
-  const right = withOptionalParens(
-    formatExpression(expr.right),
-    shouldParenthesizeChild(expr.right, precedence, "right", associativity)
-  );
-
-  return `${left} ${expr.operator} ${right}`;
-}
-
-function formatExpression(expr: Expr): string {
-  const node = expr as KnownExpr;
-
-  if (node.kind === "IntLiteral") {
-    return String(node.value);
-  }
-  if (node.kind === "StringLiteral") {
-    return formatStringLiteral(node.value);
-  }
-  if (node.kind === "Identifier") {
-    return formatIdentifier(node);
-  }
-  if (node.kind === "ArrayLiteral") {
-    return `[${node.elements.map((element) => formatExpression(element)).join(", ")}]`;
-  }
-  if (node.kind === "ObjectLiteral") {
-    const properties = node.properties.map(
-      (property) => `${formatIdentifier(property.key)}: ${formatExpression(property.value)}`
-    );
-    return `{${properties.length > 0 ? ` ${properties.join(", ")} ` : ""}}`;
-  }
-  if (node.kind === "UnaryExpression") {
-    const argument = withOptionalParens(
-      formatExpression(node.argument),
-      exprPrecedence(node.argument) < UNARY_PRECEDENCE
-    );
-    return `${node.operator}${argument}`;
-  }
-  if (node.kind === "UpdateExpression") {
-    const precedence = node.prefix ? UNARY_PRECEDENCE : MEMBER_PRECEDENCE;
-    const argument = withOptionalParens(
-      formatExpression(node.argument),
-      exprPrecedence(node.argument) < precedence
-    );
-    return node.prefix ? `${node.operator}${argument}` : `${argument}${node.operator}`;
-  }
-  if (node.kind === "BinaryExpression") {
-    return formatBinaryExpression(node);
-  }
-  if (node.kind === "AssignmentExpression") {
-    return formatAssignmentExpression(node);
-  }
-  if (node.kind === "CallExpression") {
-    const callee = withOptionalParens(
-      formatExpression(node.callee),
-      exprPrecedence(node.callee) < MEMBER_PRECEDENCE
-    );
-    const args = node.arguments.map((argument) => formatExpression(argument)).join(", ");
-    return `${callee}(${args})`;
-  }
-  if (node.kind === "NewExpression") {
-    const callee = withOptionalParens(
-      formatExpression(node.callee),
-      exprPrecedence(node.callee) < UNARY_PRECEDENCE
-    );
-    if (node.arguments) {
-      const args = node.arguments.map((argument) => formatExpression(argument)).join(", ");
-      return `new ${callee}(${args})`;
+  if (previousSignificant.type === "symbol") {
+    const v = previousSignificant.value;
+    if (
+      v === "(" || v === "[" || v === "{" || v === "," || v === ";" || v === ":" ||
+      BINARY_OPERATORS.has(v)
+    ) {
+      return true;
     }
-    return `new ${callee}`;
   }
-  if (node.kind === "MemberExpression") {
-    const object = withOptionalParens(
-      formatExpression(node.object),
-      exprPrecedence(node.object) < MEMBER_PRECEDENCE
-    );
 
-    if (node.computed) {
-      return `${object}[${formatExpression(node.property)}]`;
+  if (previousSignificant.type === "identifier") {
+    const keyword = previousSignificant.value;
+    if (keyword === "return" || keyword === "case" || keyword === "default" || keyword === "throw") {
+      return true;
     }
-
-    const accessor = node.optional ? "?." : node.nonNullAsserted ? "!." : ".";
-    return `${object}${accessor}${formatExpression(node.property)}`;
   }
 
-  throw new Error("Unsupported expression kind");
+  return false;
 }
 
-function formatParameter(parameter: FunctionParameter): string {
-  const optionalMarker = parameter.optional ? "?" : "";
-  const typeAnnotation = parameter.typeAnnotation
-    ? `: ${formatIdentifier(parameter.typeAnnotation)}`
-    : "";
-  const defaultValue = parameter.defaultValue ? ` = ${formatExpression(parameter.defaultValue)}` : "";
-  return `${formatIdentifier(parameter.name)}${optionalMarker}${typeAnnotation}${defaultValue}`;
+function isBinaryOperatorToken(current: FormatToken, previousSignificant: FormatToken | undefined): boolean {
+  if (current.type !== "symbol" || !BINARY_OPERATORS.has(current.value)) {
+    return false;
+  }
+  return !isUnaryPrefix(current, previousSignificant);
 }
 
-function formatParameterList(parameters: FunctionParameter[]): string {
-  return parameters.map((parameter) => formatParameter(parameter)).join(", ");
-}
-
-function formatBlockInline(block: BlockStatement, level: number): string {
-  if (block.body.length === 0) {
-    return "{\n" + `${indent(level)}}`;
+function shouldSpaceBefore(
+  previous: FormatToken | undefined,
+  current: FormatToken,
+  previousSignificant: FormatToken | undefined
+): boolean {
+  if (!previous) {
+    return false;
   }
 
-  const body = formatStatementList(block.body, level + 1);
-  return "{\n" + `${body}\n${indent(level)}}`;
-}
-
-function formatFunctionStatement(statement: FunctionStatement, level: number): string {
-  const returnType = statement.returnType ? `: ${formatIdentifier(statement.returnType)}` : "";
-  const signature =
-    `${indent(level)}${statement.declarationKind} ${formatIdentifier(statement.name)}` +
-    `(${formatParameterList(statement.parameters)})${returnType}`;
-  return `${signature} ${formatBlockInline(statement.body, level)}`;
-}
-
-function formatWhileStatement(statement: WhileStatement, level: number): string {
-  const header = `${indent(level)}while (${formatExpression(statement.condition)})`;
-  const bodyNode = statement.body as KnownStatement;
-  if (bodyNode.kind === "BlockStatement") {
-    return `${header} ${formatBlockInline(bodyNode, level)}`;
-  }
-  return `${header}\n${formatStatement(statement.body, level + 1)}`;
-}
-
-function formatDoWhileStatement(statement: DoWhileStatement, level: number): string {
-  const whileSuffix = `while (${formatExpression(statement.condition)});`;
-  const bodyNode = statement.body as KnownStatement;
-
-  if (bodyNode.kind === "BlockStatement") {
-    return `${indent(level)}do ${formatBlockInline(bodyNode, level)} ${whileSuffix}`;
+  if (isMemberOperator(previous) || isMemberOperator(current)) {
+    return false;
   }
 
-  return `${indent(level)}do\n${formatStatement(statement.body, level + 1)}\n${indent(level)}${whileSuffix}`;
-}
-
-function formatForInitializer(initializer: VarStatement | Expr): string {
-  if ((initializer as KnownStatement).kind === "VarStatement") {
-    const declaration = initializer as VarStatement;
-    const typeAnnotation = declaration.typeAnnotation ? `: ${formatIdentifier(declaration.typeAnnotation)}` : "";
-    const value = declaration.initializer ? ` = ${formatExpression(declaration.initializer)}` : "";
-    return `${declaration.declarationKind} ${formatIdentifier(declaration.name)}${typeAnnotation}${value}`;
+  if (current.type === "symbol" && (current.value === ")" || current.value === "]" || current.value === "}" || current.value === "," || current.value === ";")) {
+    return false;
   }
 
-  return formatExpression(initializer as Expr);
-}
-
-function formatForStatement(statement: ForStatement, level: number): string {
-  const initializer = statement.initializer ? formatForInitializer(statement.initializer) : "";
-  const condition = statement.condition ? formatExpression(statement.condition) : "";
-  const update = statement.update ? formatExpression(statement.update) : "";
-  const header = `${indent(level)}for (${initializer}; ${condition}; ${update})`;
-  const bodyNode = statement.body as KnownStatement;
-
-  if (bodyNode.kind === "BlockStatement") {
-    return `${header} ${formatBlockInline(bodyNode, level)}`;
+  if (previous.type === "symbol" && (previous.value === "(" || previous.value === "[" || previous.value === "{")) {
+    return false;
   }
 
-  return `${header}\n${formatStatement(statement.body, level + 1)}`;
-}
-
-function formatIfStatement(statement: IfStatement, level: number): string {
-  const header = `${indent(level)}if (${formatExpression(statement.condition)})`;
-  const thenNode = statement.thenBranch as KnownStatement;
-  const thenFormatted =
-    thenNode.kind === "BlockStatement"
-      ? `${header} ${formatBlockInline(thenNode, level)}`
-      : `${header}\n${formatStatement(statement.thenBranch, level + 1)}`;
-
-  if (!statement.elseBranch) {
-    return thenFormatted;
+  if (current.type === "symbol" && current.value === ":") {
+    return false;
   }
 
-  const elseNode = statement.elseBranch as KnownStatement;
-  if (elseNode.kind === "BlockStatement") {
-    return `${thenFormatted} else ${formatBlockInline(elseNode, level)}`;
-  }
-  return `${thenFormatted} else\n${formatStatement(statement.elseBranch, level + 1)}`;
-}
-
-function formatSwitchCase(caseNode: SwitchCase, level: number): string {
-  const label = caseNode.test
-    ? `${indent(level)}case ${formatExpression(caseNode.test)}:`
-    : `${indent(level)}default:`;
-
-  if (caseNode.consequent.length === 0) {
-    return label;
+  if (current.type === "symbol" && current.value === "{") {
+    return !!previousSignificant && !(previousSignificant.type === "symbol" && previousSignificant.value === "{");
   }
 
-  const body = formatStatementList(caseNode.consequent, level + 1);
-  return `${label}\n${body}`;
-}
-
-function formatSwitchStatement(statement: SwitchStatement, level: number): string {
-  if (statement.cases.length === 0) {
-    return `${indent(level)}switch (${formatExpression(statement.discriminant)}) {\n${indent(level)}}`;
+  if (previous.type === "symbol" && (previous.value === "," || previous.value === ":")) {
+    return true;
   }
 
-  const cases = statement.cases.map((caseNode) => formatSwitchCase(caseNode, level + 1)).join("\n");
-  return `${indent(level)}switch (${formatExpression(statement.discriminant)}) {\n${cases}\n${indent(level)}}`;
-}
-
-function formatClassMethodMember(member: ClassMethodMember, level: number): string {
-  const returnType = member.returnType ? `: ${formatIdentifier(member.returnType)}` : "";
-  const header =
-    `${indent(level)}${formatIdentifier(member.name)}(${formatParameterList(member.parameters)})${returnType}`;
-  return `${header} ${formatBlockInline(member.body, level)}`;
-}
-
-function formatClassFieldMember(member: ClassFieldMember, level: number): string {
-  const typeAnnotation = member.typeAnnotation ? `: ${formatIdentifier(member.typeAnnotation)}` : "";
-  const initializer = member.initializer ? ` = ${formatExpression(member.initializer)}` : "";
-  return `${indent(level)}${formatIdentifier(member.name)}${typeAnnotation}${initializer};`;
-}
-
-function formatClassMember(member: ClassMember, level: number): string {
-  if (member.kind === "ClassFieldMember") {
-    return formatClassFieldMember(member, level);
-  }
-  return formatClassMethodMember(member, level);
-}
-
-function formatClassPrimaryConstructorParameter(parameter: ClassPrimaryConstructorParameter): string {
-  const typeAnnotation = parameter.typeAnnotation
-    ? `: ${formatIdentifier(parameter.typeAnnotation)}`
-    : "";
-  const defaultValue = parameter.defaultValue ? ` = ${formatExpression(parameter.defaultValue)}` : "";
-  return `${parameter.declarationKind} ${formatIdentifier(parameter.name)}${typeAnnotation}${defaultValue}`;
-}
-
-function formatClassStatement(statement: ClassStatement, level: number): string {
-  const primaryConstructorParameters = statement.primaryConstructorParameters
-    ? `(${statement.primaryConstructorParameters
-        .map((parameter) => formatClassPrimaryConstructorParameter(parameter))
-        .join(", ")})`
-    : "";
-
-  if (statement.members.length === 0) {
-    return `${indent(level)}class ${formatIdentifier(statement.name)}${primaryConstructorParameters} {\n${indent(level)}}`;
+  if (current.type === "symbol" && current.value === "(") {
+    return !!(previous.type === "identifier" && CONTROL_KEYWORDS_WITH_PAREN.has(previous.value));
   }
 
-  const members = statement.members.map((member) => formatClassMember(member, level + 1)).join("\n\n");
-  return `${indent(level)}class ${formatIdentifier(statement.name)}${primaryConstructorParameters} {\n${members}\n${indent(level)}}`;
-}
-
-function formatStatement(statement: Statement, level: number): string {
-  const node = statement as KnownStatement;
-
-  if (node.kind === "VarStatement") {
-    const typeAnnotation = node.typeAnnotation ? `: ${formatIdentifier(node.typeAnnotation)}` : "";
-    const initializer = node.initializer ? ` = ${formatExpression(node.initializer)}` : "";
-    return `${indent(level)}${node.declarationKind} ${formatIdentifier(node.name)}${typeAnnotation}${initializer};`;
-  }
-  if (node.kind === "FunctionStatement") {
-    return formatFunctionStatement(node, level);
-  }
-  if (node.kind === "ClassStatement") {
-    return formatClassStatement(node, level);
-  }
-  if (node.kind === "ExprStatement") {
-    return `${indent(level)}${formatExpression(node.expression)};`;
-  }
-  if (node.kind === "BlockStatement") {
-    return `${indent(level)}${formatBlockInline(node, level)}`;
-  }
-  if (node.kind === "WhileStatement") {
-    return formatWhileStatement(node, level);
-  }
-  if (node.kind === "DoWhileStatement") {
-    return formatDoWhileStatement(node, level);
-  }
-  if (node.kind === "ForStatement") {
-    return formatForStatement(node, level);
-  }
-  if (node.kind === "IfStatement") {
-    return formatIfStatement(node, level);
-  }
-  if (node.kind === "SwitchStatement") {
-    return formatSwitchStatement(node, level);
-  }
-  if (node.kind === "ReturnStatement") {
-    return node.expression
-      ? `${indent(level)}return ${formatExpression(node.expression)};`
-      : `${indent(level)}return;`;
-  }
-  if (node.kind === "ContinueStatement") {
-    return `${indent(level)}continue;`;
-  }
-  if (node.kind === "BreakStatement") {
-    return `${indent(level)}break;`;
+  if (isBinaryOperatorToken(current, previousSignificant)) {
+    return true;
   }
 
-  throw new Error("Unsupported statement kind");
-}
-
-function isFunctionOrClassDeclaration(statement: Statement): boolean {
-  const node = statement as KnownStatement;
-  return node.kind === "FunctionStatement" || node.kind === "ClassStatement";
-}
-
-function shouldInsertBlankLineBetween(previous: Statement, next: Statement): boolean {
-  return isFunctionOrClassDeclaration(previous) && isFunctionOrClassDeclaration(next);
-}
-
-function formatStatementList(statements: Statement[], level: number): string {
-  if (statements.length === 0) {
-    return "";
+  if (previous.type === "symbol" && isBinaryOperatorToken(previous, undefined)) {
+    return true;
   }
 
-  let result = formatStatement(statements[0], level);
-  for (let i = 1; i < statements.length; i += 1) {
-    const separator = shouldInsertBlankLineBetween(statements[i - 1], statements[i]) ? "\n\n" : "\n";
-    result += `${separator}${formatStatement(statements[i], level)}`;
+  if (previous.type === "symbol" && isUnaryPrefix(previous, previousSignificant)) {
+    return false;
   }
 
-  return result;
-}
+  if (isWordLike(previous) && isWordLike(current)) {
+    return true;
+  }
 
-function formatProgram(program: Program): string {
-  return formatStatementList(program.body, 0);
+  return false;
 }
 
 export function formatSource(source: string): string {
-  const ast = parseFile(tokenizeReader(source));
-  return formatProgram(ast);
+  const tokens = tokenizeForFormatting(source);
+
+  let result = "";
+  let indentLevel = 0;
+  let atLineStart = true;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+
+  let previousEmitted: FormatToken | undefined;
+  let previousSignificant: FormatToken | undefined;
+
+  const writeIndentIfNeeded = (): void => {
+    if (atLineStart) {
+      result += INDENT.repeat(Math.max(indentLevel, 0));
+      atLineStart = false;
+    }
+  };
+
+  const writeNewline = (): void => {
+    result = result.replace(/[ \t]+$/g, "");
+    if (!result.endsWith("\n")) {
+      result += "\n";
+    }
+    atLineStart = true;
+    previousEmitted = undefined;
+  };
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+
+    if (token.type === "newline") {
+      if (parenDepth === 0 && bracketDepth === 0 && !atLineStart) {
+        writeNewline();
+      }
+      continue;
+    }
+
+    if (token.type === "commentLine") {
+      writeIndentIfNeeded();
+      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant)) {
+        result += " ";
+      }
+      result += token.value;
+      previousEmitted = token;
+      previousSignificant = token;
+      writeNewline();
+      continue;
+    }
+
+    if (token.type === "commentBlock") {
+      writeIndentIfNeeded();
+      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant)) {
+        result += " ";
+      }
+      result += token.value;
+      previousEmitted = token;
+      previousSignificant = token;
+      continue;
+    }
+
+    if (token.type === "symbol" && token.value === "}") {
+      if (!atLineStart) {
+        writeNewline();
+      }
+      indentLevel = Math.max(0, indentLevel - 1);
+      writeIndentIfNeeded();
+      result += token.value;
+      previousEmitted = token;
+      previousSignificant = token;
+      const next = tokens[index + 1];
+      if (next && next.type === "identifier" && next.value === "else") {
+        result += " ";
+        atLineStart = false;
+        previousEmitted = undefined;
+        continue;
+      }
+      if (next && !(next.type === "symbol" && (next.value === ";" || next.value === "," || next.value === ")" || next.value === "]" || next.value === "."))) {
+        writeNewline();
+      }
+      continue;
+    }
+
+    writeIndentIfNeeded();
+
+    if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant)) {
+      result += " ";
+    }
+
+    result += token.value;
+    previousEmitted = token;
+    previousSignificant = token;
+
+    if (token.type === "symbol") {
+      if (token.value === "{") {
+        indentLevel += 1;
+        writeNewline();
+        continue;
+      }
+      if (token.value === ";") {
+        if (parenDepth === 0 && bracketDepth === 0) {
+          writeNewline();
+        } else {
+          result += " ";
+          atLineStart = false;
+          previousEmitted = undefined;
+        }
+        continue;
+      }
+      if (token.value === ":" && previousSignificant?.type === "identifier" && (previousSignificant.value === "case" || previousSignificant.value === "default")) {
+        writeNewline();
+        continue;
+      }
+      if (token.value === "(") {
+        parenDepth += 1;
+      } else if (token.value === ")") {
+        parenDepth = Math.max(0, parenDepth - 1);
+      } else if (token.value === "[") {
+        bracketDepth += 1;
+      } else if (token.value === "]") {
+        bracketDepth = Math.max(0, bracketDepth - 1);
+      }
+    }
+  }
+
+  return result.trimEnd();
 }

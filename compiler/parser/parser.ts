@@ -109,6 +109,11 @@ export class Parser {
         const body: Statement[] = [];
 
         while (this.tokens.hasMore) {
+            if (this.isEofToken(this.tokens.peek())) {
+                this.tokens.skip();
+                break;
+            }
+
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
                 this.tokens.skip();
                 continue;
@@ -137,7 +142,11 @@ export class Parser {
             }
         }
 
-        return this.attachNodeBounds({ kind: "Program", body } as Program, startToken, this.getLastReadToken() ?? startToken);
+        return this.attachNodeBounds(
+            { kind: "Program", body } as Program,
+            startToken,
+            this.getLastNonEofReadToken() ?? startToken
+        );
     }
 
     parseExpressionOrThrow(): Expr {
@@ -208,6 +217,11 @@ export class Parser {
         const body: Statement[] = [];
 
         while (this.tokens.hasMore) {
+            if (this.isEofToken(this.tokens.peek())) {
+                this.tokens.skip();
+                break;
+            }
+
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
                 this.tokens.skip();
                 continue;
@@ -224,7 +238,7 @@ export class Parser {
                 body
             } as Program,
             startToken,
-            this.getLastReadToken() ?? startToken
+            this.getLastNonEofReadToken() ?? startToken
         );
     }
 
@@ -240,6 +254,9 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
+            if (this.isEofToken(token)) {
+                return;
+            }
             if (token?.type === "symbol" && token.value === ";") {
                 this.tokens.skip();
                 return;
@@ -482,8 +499,22 @@ export class Parser {
         return this.tokens.items[this.tokens.offset - 1];
     }
 
+    private getLastNonEofReadToken(): Token | undefined {
+        for (let i = this.tokens.offset - 1; i >= 0; i -= 1) {
+            const token = this.tokens.items[i];
+            if (token?.type !== "eof") {
+                return token;
+            }
+        }
+        return undefined;
+    }
+
     private tokenAt(preferred?: Token): Token | undefined {
         return preferred ?? this.tokens.peek() ?? this.getLastReadToken();
+    }
+
+    private isEofToken(token?: Token): boolean {
+        return token?.type === "eof";
     }
 
     private hasLineBreakBetween(a: Token | undefined, b: Token | undefined): boolean {
@@ -502,6 +533,11 @@ export class Parser {
         }
 
         const next = this.tokens.peek();
+        if (context === "file" && this.isEofToken(next)) {
+            this.tokens.skip();
+            return;
+        }
+
         if (next?.type === "symbol" && next.value === ";") {
             this.tokens.skip();
             return;
@@ -726,7 +762,10 @@ export class Parser {
                 this.tokens.skip();
                 const property = this.tokens.read();
                 if (property?.type !== "identifier") {
-                    this.fail(`Expected identifier after '${token.value}'`, this.tokenAt(property ?? token));
+                    this.fail(
+                        `Expected identifier after '${token.value}'`,
+                        this.tokenAt(property?.type === "eof" ? token : property ?? token)
+                    );
                 }
 
                 expr = {
@@ -1379,6 +1418,9 @@ export class Parser {
         const members: ClassMember[] = [];
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
+            if (this.isEofToken(token)) {
+                this.fail("Expected '}' to close class body", this.tokenAt(openBrace), "block");
+            }
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
                 const statement: ClassStatement = {
@@ -1415,6 +1457,9 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
+            if (this.isEofToken(token)) {
+                this.fail("Expected '}' to close block statement", this.tokenAt(openBrace), "block");
+            }
 
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
@@ -1633,6 +1678,9 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
+            if (this.isEofToken(token)) {
+                this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "block");
+            }
 
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
@@ -1700,6 +1748,9 @@ export class Parser {
 
         const next = this.tokens.peek();
         if (!next) {
+            return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
+        }
+        if (this.isEofToken(next)) {
             return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
         }
         if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {

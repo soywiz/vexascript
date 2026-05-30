@@ -13,9 +13,16 @@ export interface SourceRange {
 }
 
 export interface Token {
-  type: "identifier" | "number" | "string" | "symbol";
+  type: "identifier" | "number" | "string" | "symbol" | "eof";
   value: string;
   index: number;
+  range: SourceRange;
+  leadingComments?: TokenComment[];
+}
+
+export interface TokenComment {
+  kind: "line" | "block";
+  value: string;
   range: SourceRange;
 }
 
@@ -118,19 +125,34 @@ function peekNextCode(scanner: Scanner): number {
   return scanner.reader.str.charCodeAt(scanner.reader.offset + 1);
 }
 
-function skipLineComment(scanner: Scanner): void {
+function readLineComment(scanner: Scanner): TokenComment {
+  const start = snapshot(scanner);
+  const startOffset = scanner.reader.offset;
   advanceCode(scanner);
   advanceCode(scanner);
 
   while (scanner.reader.hasMore) {
     if (scanner.reader.peekCode() === 10) {
-      return;
+      const end = snapshot(scanner);
+      return {
+        kind: "line",
+        value: scanner.reader.str.slice(startOffset, scanner.reader.offset),
+        range: { start, end }
+      };
     }
     advanceCode(scanner);
   }
+
+  const end = snapshot(scanner);
+  return {
+    kind: "line",
+    value: scanner.reader.str.slice(startOffset, scanner.reader.offset),
+    range: { start, end }
+  };
 }
 
-function skipBlockComment(scanner: Scanner, start: SourcePosition): void {
+function readBlockComment(scanner: Scanner, start: SourcePosition): TokenComment {
+  const startOffset = scanner.reader.offset;
   advanceCode(scanner);
   advanceCode(scanner);
 
@@ -140,7 +162,12 @@ function skipBlockComment(scanner: Scanner, start: SourcePosition): void {
     if (code === CODE_STAR && nextCode === CODE_SLASH) {
       advanceCode(scanner);
       advanceCode(scanner);
-      return;
+      const end = snapshot(scanner);
+      return {
+        kind: "block",
+        value: scanner.reader.str.slice(startOffset, scanner.reader.offset),
+        range: { start, end }
+      };
     }
     advanceCode(scanner);
   }
@@ -151,22 +178,20 @@ function skipBlockComment(scanner: Scanner, start: SourcePosition): void {
   });
 }
 
-function skipComment(scanner: Scanner): boolean {
+function readComment(scanner: Scanner): TokenComment | null {
   if (!scanner.reader.hasMore || scanner.reader.peekCode() !== CODE_SLASH) {
-    return false;
+    return null;
   }
 
   const nextCode = peekNextCode(scanner);
   if (nextCode === CODE_SLASH) {
-    skipLineComment(scanner);
-    return true;
+    return readLineComment(scanner);
   }
   if (nextCode === CODE_STAR) {
-    skipBlockComment(scanner, snapshot(scanner));
-    return true;
+    return readBlockComment(scanner, snapshot(scanner));
   }
 
-  return false;
+  return null;
 }
 
 function readIdentifier(scanner: Scanner): string {
@@ -396,6 +421,7 @@ export function tokenize(input: string): Token[] {
     column: 0
   };
   const tokens: Token[] = [];
+  let pendingComments: TokenComment[] = [];
 
   while (scanner.reader.hasMore) {
     const code = scanner.reader.peekCode();
@@ -404,7 +430,9 @@ export function tokenize(input: string): Token[] {
       continue;
     }
 
-    if (skipComment(scanner)) {
+    const comment = readComment(scanner);
+    if (comment) {
+      pendingComments.push(comment);
       continue;
     }
 
@@ -433,9 +461,23 @@ export function tokenize(input: string): Token[] {
       range: {
         start,
         end: snapshot(scanner)
-      }
+      },
+      leadingComments: pendingComments.length > 0 ? pendingComments : undefined
     });
+    pendingComments = [];
   }
+
+  const eofPosition = snapshot(scanner);
+  tokens.push({
+    type: "eof",
+    value: "<eof>",
+    index: tokens.length,
+    range: {
+      start: eofPosition,
+      end: eofPosition
+    },
+    leadingComments: pendingComments.length > 0 ? pendingComments : undefined
+  });
 
   return tokens;
 }

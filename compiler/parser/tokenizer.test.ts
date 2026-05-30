@@ -2,8 +2,10 @@ import { describe } from "node:test";
 import { tokenize } from "./tokenizer";
 import { expect, it } from "vitest";
 
-function simplifyTokens(input: string) {
-    return tokenize(input).map(({ type, value }) => ({ type, value }));
+function simplifyTokens(input: string, includeEof: boolean = false) {
+    const tokens = tokenize(input);
+    const filteredTokens = includeEof ? tokens : tokens.filter((token) => token.type !== "eof");
+    return filteredTokens.map(({ type, value }) => ({ type, value }));
 }
 
 describe("tokenizer", () => {
@@ -152,6 +154,13 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("attaches single-line comments to the next token as leading comments", () => {
+        const tokens = tokenize("let a = 1 // trailing\nlet b = 2");
+        expect(tokens[4]?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
+            { kind: "line", value: "// trailing" }
+        ]);
+    });
+
     it("ignores block comments, including multiline comments", () => {
         expect(simplifyTokens("let a = /* inline */ 1\n/* multi\nline */\nlet b = 2")).toStrictEqual([
             { type: "identifier", value: "let" },
@@ -165,12 +174,36 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("attaches block comments to the next token as leading comments", () => {
+        const tokens = tokenize("let a = /* inline */ 1\n/* multi\nline */\nlet b = 2");
+        expect(tokens[3]?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
+            { kind: "block", value: "/* inline */" }
+        ]);
+        expect(tokens[4]?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
+            { kind: "block", value: "/* multi\nline */" }
+        ]);
+    });
+
+    it("attaches trailing comments to the eof token", () => {
+        const tokens = tokenize("let a = 1\n// trailing");
+        const eof = tokens[tokens.length - 1];
+        expect(eof.type).toBe("eof");
+        expect(eof.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
+            { kind: "line", value: "// trailing" }
+        ]);
+    });
+
+    it("always emits an eof token", () => {
+        expect(simplifyTokens("1 + 2", true).at(-1)).toEqual({ type: "eof", value: "<eof>" });
+        expect(simplifyTokens("", true)).toEqual([{ type: "eof", value: "<eof>" }]);
+    });
+
     it("throws when block comment is unterminated", () => {
         expect(() => tokenize("let a = 1 /* unterminated")).toThrow("Unterminated block comment")
     })
 
     it("tracks offset/line/column ranges for tokens", () => {
-        const tokens = tokenize("a\n+ 2");
+        const tokens = tokenize("a\n+ 2").filter((token) => token.type !== "eof");
         expect(tokens.map((token) => token.range)).toEqual([
             {
                 start: { offset: 0, line: 0, column: 0 },
@@ -185,5 +218,15 @@ describe("tokenizer", () => {
                 end: { offset: 5, line: 1, column: 3 }
             }
         ]);
+    });
+
+    it("tracks eof token range at the end of input", () => {
+        const tokens = tokenize("a\n+ 2");
+        const eof = tokens[tokens.length - 1];
+        expect(eof.type).toBe("eof");
+        expect(eof.range).toEqual({
+            start: { offset: 5, line: 1, column: 3 },
+            end: { offset: 5, line: 1, column: 3 }
+        });
     });
 })
