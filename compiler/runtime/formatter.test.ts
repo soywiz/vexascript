@@ -87,4 +87,9 @@ describe("formatSource", () => {
         "}"
       );
   });
+
+  it("formats chained function calls", () => {
+    expect(formatSource("hello.world[0].test(arg1,arg2)"))
+      .toBe("hello.world[0].test(arg1, arg2);");
+  });
 });

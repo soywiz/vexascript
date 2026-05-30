@@ -4,6 +4,7 @@ import {
   BinaryExpression,
   BlockStatement,
   BreakStatement,
+  CallExpression,
   ClassFieldMember,
   ClassMember,
   ClassMethodMember,
@@ -47,6 +48,7 @@ type KnownExpr =
   | UpdateExpression
   | BinaryExpression
   | AssignmentExpression
+  | CallExpression
   | MemberExpression;
 
 type KnownStatement =
@@ -160,6 +162,9 @@ function exprPrecedence(expr: Expr): number {
   if (node.kind === "UpdateExpression") {
     return node.prefix ? UNARY_PRECEDENCE : MEMBER_PRECEDENCE;
   }
+  if (node.kind === "CallExpression") {
+    return MEMBER_PRECEDENCE;
+  }
   if (node.kind === "MemberExpression") {
     return MEMBER_PRECEDENCE;
   }
@@ -259,6 +264,14 @@ function formatExpression(expr: Expr): string {
   }
   if (node.kind === "AssignmentExpression") {
     return formatAssignmentExpression(node);
+  }
+  if (node.kind === "CallExpression") {
+    const callee = withOptionalParens(
+      formatExpression(node.callee),
+      exprPrecedence(node.callee) < MEMBER_PRECEDENCE
+    );
+    const args = node.arguments.map((argument) => formatExpression(argument)).join(", ");
+    return `${callee}(${args})`;
   }
   if (node.kind === "MemberExpression") {
     const object = withOptionalParens(

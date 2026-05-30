@@ -212,6 +212,14 @@ Supported member access forms:
 - non-null asserted access: `obj!.prop`
 - computed access: `obj[index]`
 
+### Function calls
+
+Function call expressions are supported, including calls chained from member access:
+
+```mylang
+hello.world[0].test(arg1, arg2)
+```
+
 ## Statements and control flow
 
 ### Block statements

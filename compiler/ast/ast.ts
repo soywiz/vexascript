@@ -53,6 +53,12 @@ export interface MemberExpression extends Node {
     nonNullAsserted?: boolean
 }
 
+export interface CallExpression extends Node {
+    kind: "CallExpression"
+    callee: Expr
+    arguments: Expr[]
+}
+
 export interface UnaryExpression extends Node {
     kind: "UnaryExpression"
     operator: "+" | "-"

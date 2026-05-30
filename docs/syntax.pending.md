@@ -82,7 +82,6 @@ Scope notes:
 
 ## Expressions
 
-- Function calls (`fn()`, `obj.method()`).
 - `new` expressions.
 - Conditional/ternary operator (`cond ? a : b`).
 - Nullish coalescing (`??`) and `??=`.

@@ -6,6 +6,7 @@ import {
     BinaryExpression,
     BlockStatement,
     BreakStatement,
+    CallExpression,
     ClassFieldMember,
     ClassMember,
     ClassMethodMember,
@@ -754,6 +755,35 @@ export class Parser {
                     computed: true
                 } as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "(") {
+                this.tokens.skip();
+                const args: Expr[] = [];
+
+                if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
+                    while (this.tokens.hasMore) {
+                        args.push(this.parseExpressionOrThrow());
+                        const separator = this.tokens.peek();
+                        if (separator?.type === "symbol" && separator.value === ",") {
+                            this.tokens.skip();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+
+                const close = this.tokens.read();
+                if (close?.type !== "symbol" || close.value !== ")") {
+                    this.fail("Expected ')' after call arguments", this.tokenAt(close));
+                }
+
+                expr = this.attachNodeBounds({
+                    kind: "CallExpression",
+                    callee: expr,
+                    arguments: args
+                } as CallExpression, expr.firstToken, close);
                 continue;
             }
 

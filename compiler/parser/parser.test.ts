@@ -181,6 +181,32 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for chained member access with function call", () => {
+        expect(parseExpression(tokenizeReader("hello.world[0].test(arg1, arg2)"))).toEqual({
+            kind: "CallExpression",
+            callee: {
+                kind: "MemberExpression",
+                object: {
+                    kind: "MemberExpression",
+                    object: {
+                        kind: "MemberExpression",
+                        object: { kind: "Identifier", name: "hello" },
+                        property: { kind: "Identifier", name: "world" },
+                        computed: false
+                    },
+                    property: { kind: "IntLiteral", value: 0 },
+                    computed: true
+                },
+                property: { kind: "Identifier", name: "test" },
+                computed: false
+            },
+            arguments: [
+                { kind: "Identifier", name: "arg1" },
+                { kind: "Identifier", name: "arg2" }
+            ]
+        });
+    });
+
     it("builds an AST for multiplication with parenthesized addition", () => {
         expect(parseExpression(tokenizeReader("1*(2+3)"))).toEqual({
             kind: "BinaryExpression",
