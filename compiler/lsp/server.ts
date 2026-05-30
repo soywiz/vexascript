@@ -14,7 +14,7 @@ import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
-import { createAutoImportCodeActions } from "./importFixes";
+import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./importFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -93,6 +93,18 @@ function validateDocument(doc: TextDocument): void {
   connection.sendDiagnostics({ uri: doc.uri, diagnostics });
 }
 
+function completionPrefixAt(text: string, offset: number): string {
+  let i = Math.max(0, Math.min(offset, text.length));
+  while (i > 0) {
+    const ch = text[i - 1];
+    if (!/[A-Za-z0-9_]/.test(ch)) {
+      break;
+    }
+    i -= 1;
+  }
+  return text.slice(i, offset);
+}
+
 documents.onDidOpen((event) => validateDocument(event.document));
 documents.onDidChangeContent((event) => validateDocument(event.document));
 documents.onDidClose((event) => {
@@ -109,10 +121,26 @@ connection.onCompletion((params) => {
   if (!session.ast) {
     return createKeywordOnlyCompletionItems();
   }
+  const text = doc.getText();
+  const prefix = completionPrefixAt(text, doc.offsetAt(params.position));
+  const visibleSymbols = session.analysis?.getVisibleSymbolsAt(
+    params.position.line,
+    params.position.character
+  ) ?? [];
+  const autoImportSuggestions = buildAutoImportSuggestions({
+    uri: doc.uri,
+    ast: session.ast,
+    sourceRoots,
+    prefix,
+    excludeSymbols: new Set(visibleSymbols.map((symbol) => symbol.name))
+  });
+
   return createCompletionItemsForPosition(
     session.ast,
     params.position.line,
-    params.position.character
+    params.position.character,
+    session.analysis,
+    autoImportSuggestions
   );
 });
 

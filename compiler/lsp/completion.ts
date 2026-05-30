@@ -3,6 +3,7 @@ import type { CompletionItem } from "vscode-languageserver/node.js";
 import type { Program } from "compiler/ast/ast";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
+import type { AutoImportSuggestion } from "./importFixes";
 
 const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
@@ -34,17 +35,47 @@ function symbolDetail(symbol: AnalysisSymbol): string {
 export function createCompletionItemsForPosition(
   ast: Program,
   line: number,
-  character: number
+  character: number,
+  analysis?: Analysis | null,
+  autoImportSuggestions: AutoImportSuggestion[] = []
 ): CompletionItem[] {
-  const analysis = new Analysis(ast);
-  const visibleSymbols = analysis.getVisibleSymbolsAt(line, character);
+  const resolvedAnalysis = analysis ?? new Analysis(ast);
+  const visibleSymbols = resolvedAnalysis.getVisibleSymbolsAt(line, character);
 
   const items: CompletionItem[] = [...KEYWORD_COMPLETIONS];
+  const seenLabels = new Set(items.map((item) => item.label));
   for (const symbol of visibleSymbols) {
+    seenLabels.add(symbol.name);
     items.push({
       label: symbol.name,
       kind: symbolKindToCompletionKind(symbol),
       detail: symbolDetail(symbol)
+    });
+  }
+
+  for (const suggestion of autoImportSuggestions) {
+    if (seenLabels.has(suggestion.symbol.name)) {
+      continue;
+    }
+    seenLabels.add(suggestion.symbol.name);
+
+    let kind = CompletionItemKind.Variable;
+    if (suggestion.symbol.kind === "class") {
+      kind = CompletionItemKind.Class;
+    } else if (suggestion.symbol.kind === "function") {
+      kind = CompletionItemKind.Function;
+    }
+
+    items.push({
+      label: suggestion.symbol.name,
+      kind,
+      detail: `Auto import from ${suggestion.importPath}`,
+      additionalTextEdits: [
+        {
+          range: suggestion.range,
+          newText: `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
+        }
+      ]
     });
   }
 

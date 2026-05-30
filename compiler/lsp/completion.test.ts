@@ -40,4 +40,32 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("string");
     expect(labels).toContain("boolean");
   });
+
+  it("includes auto-import completion items with additional text edits", () => {
+    const source = "fun demo() {\n  return Poi\n}\n";
+    const ast = parseFile(tokenizeReader(source));
+    const items = createCompletionItemsForPosition(
+      ast,
+      1,
+      12,
+      undefined,
+      [
+        {
+          symbol: { name: "Point", filePath: "/tmp/a.my", kind: "class" },
+          importPath: "./a",
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 }
+          }
+        }
+      ]
+    );
+    const point = items.find((item) => item.label === "Point");
+
+    expect(point).toBeDefined();
+    expect(point?.detail).toBe("Auto import from ./a");
+    expect(point?.additionalTextEdits?.[0]?.newText).toBe(
+      "import { Point } from \"./a\"\n"
+    );
+  });
 });

@@ -5,7 +5,10 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
-import { createAutoImportCodeActions } from "./importFixes";
+import {
+  buildAutoImportSuggestions,
+  createAutoImportCodeActions
+} from "./importFixes";
 
 function undefinedVariableDiagnostic(name: string): Diagnostic {
   return {
@@ -62,5 +65,28 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toEqual([]);
+  });
+
+  it("builds completion-friendly auto-import suggestions filtered by prefix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
+    const fileA = join(root, "a.my");
+    const fileB = join(root, "b.my");
+
+    await writeFile(fileA, "class Point\nclass Vector\n", "utf8");
+    const sourceB = "fun demo() {\n  return Poi\n}\n";
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const suggestions = buildAutoImportSuggestions({
+      uri: pathToFileURL(fileB).toString(),
+      ast: sessionB.ast,
+      sourceRoots: [root],
+      prefix: "Poi",
+      excludeSymbols: new Set()
+    });
+
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]?.symbol.name).toBe("Point");
+    expect(suggestions[0]?.importPath).toBe("./a");
   });
 });

@@ -8,9 +8,10 @@ import { CodeActionKind } from "vscode-languageserver/node.js";
 
 const UNDEFINED_VARIABLE_PATTERN = /^Undefined variable '([A-Za-z_][A-Za-z0-9_]*)'$/;
 
-interface SymbolExport {
+export interface SymbolExport {
   name: string;
   filePath: string;
+  kind: "class" | "function" | "variable";
 }
 
 function scanMyFiles(root: string): string[] {
@@ -42,31 +43,34 @@ function scanMyFiles(root: string): string[] {
   return files;
 }
 
-function topLevelDeclaredNames(program: Program): string[] {
-  const names: string[] = [];
+function topLevelDeclaredNames(program: Program): Array<{
+  name: string;
+  kind: "class" | "function" | "variable";
+}> {
+  const names: Array<{ name: string; kind: "class" | "function" | "variable" }> = [];
   for (const statement of program.body) {
     if (statement.kind === "ClassStatement") {
-      names.push(statement.name.name);
+      names.push({ name: statement.name.name, kind: "class" });
       continue;
     }
     if (statement.kind === "FunctionStatement") {
-      names.push(statement.name.name);
+      names.push({ name: statement.name.name, kind: "function" });
       continue;
     }
     if (statement.kind === "VarStatement") {
       if (statement.declarations && statement.declarations.length > 0) {
         for (const declaration of statement.declarations) {
-          names.push(declaration.name.name);
+          names.push({ name: declaration.name.name, kind: "variable" });
         }
       } else {
-        names.push(statement.name.name);
+        names.push({ name: statement.name.name, kind: "variable" });
       }
     }
   }
   return names;
 }
 
-function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
+export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
   const exports: SymbolExport[] = [];
 
   for (const root of sourceRoots) {
@@ -77,8 +81,8 @@ function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
         if (!session.ast) {
           continue;
         }
-        for (const name of topLevelDeclaredNames(session.ast)) {
-          exports.push({ name, filePath });
+        for (const symbol of topLevelDeclaredNames(session.ast)) {
+          exports.push({ ...symbol, filePath });
         }
       } catch {
         // Ignore unreadable files for quick-fix discovery.
@@ -104,7 +108,7 @@ function extractUndefinedSymbols(diagnostics: Diagnostic[]): string[] {
   return Array.from(names.values());
 }
 
-function hasImportedSymbol(ast: Program, symbolName: string): boolean {
+export function hasImportedSymbol(ast: Program, symbolName: string): boolean {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") {
       continue;
@@ -116,7 +120,7 @@ function hasImportedSymbol(ast: Program, symbolName: string): boolean {
   return false;
 }
 
-function toImportPath(fromFilePath: string, targetFilePath: string): string {
+export function toImportPath(fromFilePath: string, targetFilePath: string): string {
   const fromDir = dirname(fromFilePath);
   const relativePath = relative(fromDir, targetFilePath).replace(/\\/g, "/");
   const withoutExt = relativePath.endsWith(".my")
@@ -144,7 +148,7 @@ function chooseBestExport(
   return sorted[0] ?? null;
 }
 
-function importInsertionRange(ast: Program): Range {
+export function importInsertionRange(ast: Program): Range {
   let lastImport: Statement | null = null;
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") {
@@ -167,7 +171,7 @@ function importInsertionRange(ast: Program): Range {
   };
 }
 
-function uriToFilePath(uri: string): string | null {
+export function uriToFilePath(uri: string): string | null {
   if (!uri.startsWith("file://")) {
     return null;
   }
@@ -244,4 +248,79 @@ export function createAutoImportCodeActions(params: {
 
 export function pathToUri(path: string): string {
   return pathToFileURL(path).toString();
+}
+
+export interface AutoImportSuggestion {
+  symbol: SymbolExport;
+  importPath: string;
+  range: Range;
+}
+
+export function buildAutoImportSuggestions(params: {
+  uri: string;
+  ast: Program | null;
+  sourceRoots: string[];
+  prefix?: string;
+  excludeSymbols?: Set<string>;
+}): AutoImportSuggestion[] {
+  const { uri, ast, sourceRoots, prefix, excludeSymbols } = params;
+  if (!ast || sourceRoots.length === 0) {
+    return [];
+  }
+
+  const currentFilePath = uriToFilePath(uri);
+  if (!currentFilePath) {
+    return [];
+  }
+
+  const exportedSymbols = buildSymbolExports(sourceRoots);
+  if (exportedSymbols.length === 0) {
+    return [];
+  }
+
+  const normalizedPrefix = prefix?.trim() ?? "";
+  if (normalizedPrefix.length === 0) {
+    return [];
+  }
+  const results: AutoImportSuggestion[] = [];
+  const seen = new Set<string>();
+  const range = importInsertionRange(ast);
+
+  for (const symbolExport of exportedSymbols) {
+    if (symbolExport.filePath === currentFilePath) {
+      continue;
+    }
+    if (excludeSymbols?.has(symbolExport.name)) {
+      continue;
+    }
+    if (hasImportedSymbol(ast, symbolExport.name)) {
+      continue;
+    }
+    if (normalizedPrefix.length > 0 && !symbolExport.name.startsWith(normalizedPrefix)) {
+      continue;
+    }
+    if (seen.has(symbolExport.name)) {
+      continue;
+    }
+
+    const candidates = exportedSymbols.filter(
+      (candidate) =>
+        candidate.name === symbolExport.name &&
+        candidate.filePath !== currentFilePath
+    );
+    const best = chooseBestExport(candidates, currentFilePath);
+    if (!best) {
+      continue;
+    }
+
+    const importPath = toImportPath(currentFilePath, best.filePath);
+    seen.add(best.name);
+    results.push({
+      symbol: best,
+      importPath,
+      range
+    });
+  }
+
+  return results.sort((a, b) => a.symbol.name.localeCompare(b.symbol.name));
 }
