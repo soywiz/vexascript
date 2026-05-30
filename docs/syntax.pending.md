@@ -82,7 +82,6 @@ Scope notes:
 
 ## Expressions
 
-- `new` expressions.
 - Conditional/ternary operator (`cond ? a : b`).
 - Nullish coalescing (`??`) and `??=`.
 - Optional call (`fn?.()`).

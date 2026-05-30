@@ -220,6 +220,16 @@ Function call expressions are supported, including calls chained from member acc
 hello.world[0].test(arg1, arg2)
 ```
 
+### New expressions
+
+TypeScript-style `new` expressions are supported, including constructor arguments and member-based constructor targets:
+
+```mylang
+new instance()
+new instance
+new hello.world[0].test(arg1, arg2)
+```
+
 ## Statements and control flow
 
 ### Block statements

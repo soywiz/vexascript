@@ -24,6 +24,7 @@ import {
     IfStatement,
     IntLiteral,
     MemberExpression,
+    NewExpression,
     Node,
     ObjectLiteral,
     ObjectProperty,
@@ -805,6 +806,23 @@ export class Parser {
 
     private parseUnary(): Expr {
         const token = this.tokens.peek();
+        if (token?.type === "identifier" && token.value === "new") {
+            const newKeyword = this.tokens.read();
+            const constructorTarget = this.parsePostfix();
+
+            const statement: NewExpression = {
+                kind: "NewExpression",
+                callee: constructorTarget
+            };
+
+            if (constructorTarget.kind === "CallExpression") {
+                const callTarget = constructorTarget as CallExpression;
+                statement.callee = callTarget.callee;
+                statement.arguments = callTarget.arguments;
+            }
+
+            return this.attachNodeBounds(statement, newKeyword, constructorTarget.lastToken ?? this.getLastReadToken() ?? newKeyword);
+        }
         if (token?.type === "symbol" && (token.value === "++" || token.value === "--")) {
             this.tokens.skip();
             const argument = this.parseUnary();

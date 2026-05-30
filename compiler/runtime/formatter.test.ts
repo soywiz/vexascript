@@ -92,4 +92,13 @@ describe("formatSource", () => {
     expect(formatSource("hello.world[0].test(arg1,arg2)"))
       .toBe("hello.world[0].test(arg1, arg2);");
   });
+
+  it("formats new expression variants", () => {
+    expect(formatSource("new instance()"))
+      .toBe("new instance();");
+    expect(formatSource("new instance"))
+      .toBe("new instance;");
+    expect(formatSource("new hello.world[0].test(arg1,arg2)"))
+      .toBe("new hello.world[0].test(arg1, arg2);");
+  });
 });

@@ -59,6 +59,12 @@ export interface CallExpression extends Node {
     arguments: Expr[]
 }
 
+export interface NewExpression extends Node {
+    kind: "NewExpression"
+    callee: Expr
+    arguments?: Expr[]
+}
+
 export interface UnaryExpression extends Node {
     kind: "UnaryExpression"
     operator: "+" | "-"

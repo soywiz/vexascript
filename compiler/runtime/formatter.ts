@@ -21,6 +21,7 @@ import {
   IfStatement,
   IntLiteral,
   MemberExpression,
+  NewExpression,
   ObjectLiteral,
   Program,
   ReturnStatement,
@@ -49,6 +50,7 @@ type KnownExpr =
   | BinaryExpression
   | AssignmentExpression
   | CallExpression
+  | NewExpression
   | MemberExpression;
 
 type KnownStatement =
@@ -165,6 +167,9 @@ function exprPrecedence(expr: Expr): number {
   if (node.kind === "CallExpression") {
     return MEMBER_PRECEDENCE;
   }
+  if (node.kind === "NewExpression") {
+    return UNARY_PRECEDENCE;
+  }
   if (node.kind === "MemberExpression") {
     return MEMBER_PRECEDENCE;
   }
@@ -272,6 +277,17 @@ function formatExpression(expr: Expr): string {
     );
     const args = node.arguments.map((argument) => formatExpression(argument)).join(", ");
     return `${callee}(${args})`;
+  }
+  if (node.kind === "NewExpression") {
+    const callee = withOptionalParens(
+      formatExpression(node.callee),
+      exprPrecedence(node.callee) < UNARY_PRECEDENCE
+    );
+    if (node.arguments) {
+      const args = node.arguments.map((argument) => formatExpression(argument)).join(", ");
+      return `new ${callee}(${args})`;
+    }
+    return `new ${callee}`;
   }
   if (node.kind === "MemberExpression") {
     const object = withOptionalParens(
