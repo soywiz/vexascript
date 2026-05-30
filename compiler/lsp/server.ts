@@ -15,6 +15,7 @@ import { Parser } from "compiler/parser/parser";
 import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
+import { Analysis } from "compiler/analysis/Analysis";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -43,7 +44,7 @@ function validateDocument(doc: TextDocument): void {
   try {
     const tokens = tokenize(text);
     const parser = new Parser(new ListReader<Token>(tokens));
-    parser.parseFile();
+    const ast = parser.parseFile();
 
     for (const issue of parser.errors) {
       const token = issue.token;
@@ -67,6 +68,31 @@ function validateDocument(doc: TextDocument): void {
         message: issue.message,
         source: "mylang-ls"
       });
+    }
+
+    if (parser.errors.length === 0) {
+      const analysis = new Analysis(ast);
+      for (const issue of analysis.getIssues()) {
+        const token = issue.node.firstToken;
+        if (!token) {
+          continue;
+        }
+        diagnostics.push({
+          severity: DiagnosticSeverity.Error,
+          range: {
+            start: {
+              line: token.range.start.line,
+              character: token.range.start.column
+            },
+            end: {
+              line: token.range.end.line,
+              character: token.range.end.column
+            }
+          },
+          message: issue.message,
+          source: "mylang-sema"
+        });
+      }
     }
   } catch (error) {
     if (error instanceof TokenizeError) {

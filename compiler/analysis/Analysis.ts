@@ -35,6 +35,11 @@ export interface AnalysisSymbol {
   node: Node;
 }
 
+export interface AnalysisIssue {
+  message: string;
+  node: Node;
+}
+
 interface Scope {
   parent?: Scope;
   node: Node;
@@ -44,9 +49,18 @@ interface Scope {
 
 export class Analysis {
   private readonly rootScope: Scope;
+  private readonly issues: AnalysisIssue[] = [];
+  private static readonly BUILTIN_IDENTIFIERS = new Set(["true", "false", "null", "undefined"]);
 
   constructor(private readonly program: Program) {
     this.rootScope = this.createScope(undefined, program);
+    for (const name of Analysis.BUILTIN_IDENTIFIERS) {
+      this.declare(this.rootScope, {
+        name,
+        kind: "variable",
+        node: program
+      });
+    }
     this.visitProgram(program, this.rootScope);
   }
 
@@ -67,6 +81,10 @@ export class Analysis {
       current = current.parent;
     }
     return Array.from(visible.values());
+  }
+
+  getIssues(): AnalysisIssue[] {
+    return [...this.issues];
   }
 
   private createScope(parent: Scope | undefined, node: Node): Scope {
@@ -283,7 +301,9 @@ export class Analysis {
       case "MemberExpression": {
         const member = expression as MemberExpression;
         this.visitExpression(member.object, scope);
-        this.visitExpression(member.property, scope);
+        if (member.computed) {
+          this.visitExpression(member.property, scope);
+        }
         return;
       }
       case "CallExpression": {
@@ -321,6 +341,8 @@ export class Analysis {
         }
         return;
       case "Identifier":
+        this.reportIfUnresolvedIdentifier(expression as Node & { kind: "Identifier"; name: string }, scope);
+        return;
       case "IntLiteral":
       case "StringLiteral":
         return;
@@ -361,5 +383,30 @@ export class Analysis {
       return false;
     }
     return true;
+  }
+
+  private resolve(name: string, scope: Scope): AnalysisSymbol | null {
+    let current: Scope | undefined = scope;
+    while (current) {
+      const symbol = current.symbols.get(name);
+      if (symbol) {
+        return symbol;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  private reportIfUnresolvedIdentifier(
+    identifier: Node & { kind: "Identifier"; name: string },
+    scope: Scope
+  ): void {
+    if (this.resolve(identifier.name, scope)) {
+      return;
+    }
+    this.issues.push({
+      message: `Undefined variable '${identifier.name}'`,
+      node: identifier
+    });
   }
 }

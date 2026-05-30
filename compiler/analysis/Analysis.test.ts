@@ -46,4 +46,22 @@ describe("Analysis", () => {
     expect(visible).not.toContain("a");
     expect(visible).not.toContain("inner");
   });
+
+  it("reports semantic errors for unresolved variables in scope", () => {
+    const source =
+      "let top = 1\n" +
+      "fun demo(a) {\n" +
+      "  return a + missing + obj.prop + obj[dynamic]\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Undefined variable 'missing'");
+    expect(messages).toContain("Undefined variable 'obj'");
+    expect(messages).toContain("Undefined variable 'dynamic'");
+    expect(messages.some((message) => message.includes("'prop'"))).toBe(false);
+    expect(messages.some((message) => message.includes("'a'"))).toBe(false);
+  });
 });
