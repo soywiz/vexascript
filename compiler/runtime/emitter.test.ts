@@ -20,4 +20,14 @@ describe("emitProgram", () => {
       "let values = (function*(s, e) { for (let n = s; n < e; n++) yield n })(0, 3);"
     );
   });
+
+  it("preserves binary precedence with parentheses when required", () => {
+    const program = parseFile(tokenizeReader("let value = (1 + 2) * 3"));
+    expect(emitProgram(program)).toContain("let value = (1 + 2) * 3;");
+  });
+
+  it("preserves right-side grouping for left-associative operators", () => {
+    const program = parseFile(tokenizeReader("let value = 1 - (2 - 3)"));
+    expect(emitProgram(program)).toContain("let value = 1 - (2 - 3);");
+  });
 });

@@ -371,10 +371,7 @@ export class TypeChecker {
         this.visitExpression((expression as UpdateExpression).argument, scope);
         return builtinType("int");
       case "ArrayLiteral":
-        for (const element of (expression as ArrayLiteral).elements) {
-          this.visitExpression(element, scope);
-        }
-        return arrayType();
+        return this.inferArrayLiteralType(expression as ArrayLiteral, scope);
       case "ObjectLiteral":
         for (const property of (expression as ObjectLiteral).properties) {
           this.visitExpression(property.value, scope);
@@ -547,5 +544,29 @@ export class TypeChecker {
 
   private isNumberType(type: AnalysisType): boolean {
     return type.kind === "builtin" && (type.name === "int" || type.name === "number");
+  }
+
+  private inferArrayLiteralType(arrayLiteral: ArrayLiteral, scope: Scope): AnalysisType {
+    let inferredElementType: AnalysisType | undefined;
+
+    for (const element of arrayLiteral.elements) {
+      const currentType = this.visitExpression(element, scope);
+      if (!inferredElementType) {
+        inferredElementType = currentType;
+        continue;
+      }
+
+      if (this.isTypeAssignable(currentType, inferredElementType)) {
+        continue;
+      }
+      if (this.isTypeAssignable(inferredElementType, currentType)) {
+        inferredElementType = currentType;
+        continue;
+      }
+
+      inferredElementType = UNKNOWN_TYPE;
+    }
+
+    return arrayType(inferredElementType ?? UNKNOWN_TYPE);
   }
 }

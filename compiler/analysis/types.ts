@@ -104,11 +104,11 @@ export function typeToString(type: AnalysisType): string {
         .map((parameter) => `${parameter.name}: ${typeToString(parameter.type)}`)
         .join(", ")}) => ${typeToString(type.returnType)}`;
     case "array":
-      return "array";
+      return `${typeToString(type.elementType)}[]`;
     case "object":
       return "object";
     case "range":
-      return "range";
+      return `range<${typeToString(type.elementType)}>`;
     default:
       return "unknown";
   }
@@ -133,6 +133,30 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
 
   if (a.kind === "unknown" && b.kind === "unknown") {
     return true;
+  }
+
+  if (a.kind === "array" && b.kind === "array") {
+    return isSameType(a.elementType, b.elementType);
+  }
+
+  if (a.kind === "range" && b.kind === "range") {
+    return isSameType(a.elementType, b.elementType);
+  }
+
+  if (a.kind === "object" && b.kind === "object") {
+    return true;
+  }
+
+  if (a.kind === "function" && b.kind === "function") {
+    if (a.parameters.length !== b.parameters.length) {
+      return false;
+    }
+    for (let i = 0; i < a.parameters.length; i += 1) {
+      if (!isSameType(a.parameters[i]!.type, b.parameters[i]!.type)) {
+        return false;
+      }
+    }
+    return isSameType(a.returnType, b.returnType);
   }
 
   return typeToString(a) === typeToString(b);

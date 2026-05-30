@@ -3,13 +3,11 @@ import type {
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
-  BreakStatement,
   CallExpression,
   ClassFieldMember,
   ClassMethodMember,
   ClassPrimaryConstructorParameter,
   ClassStatement,
-  ContinueStatement,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -35,6 +33,25 @@ import type {
   WhileStatement
 } from "compiler/ast/ast";
 
+type Assoc = "left" | "right";
+
+const PREC_ASSIGNMENT = 1;
+const PREC_LOGICAL_OR = 2;
+const PREC_LOGICAL_AND = 3;
+const PREC_BITWISE_OR = 4;
+const PREC_BITWISE_XOR = 5;
+const PREC_BITWISE_AND = 6;
+const PREC_EQUALITY = 7;
+const PREC_RELATIONAL = 8;
+const PREC_SHIFT = 9;
+const PREC_ADDITIVE = 10;
+const PREC_MULTIPLICATIVE = 11;
+const PREC_EXPONENT = 12;
+const PREC_UNARY = 13;
+const PREC_UPDATE = 14;
+const PREC_MEMBER = 15;
+const PREC_PRIMARY = 16;
+
 function normalizeVarKind(kind: string): "let" | "var" | "const" {
   if (kind === "val") {
     return "const";
@@ -45,8 +62,169 @@ function normalizeVarKind(kind: string): "let" | "var" | "const" {
   return "let";
 }
 
+function binaryPrecedence(operator: BinaryExpression["operator"]): { precedence: number; assoc: Assoc } {
+  switch (operator) {
+    case "||":
+      return { precedence: PREC_LOGICAL_OR, assoc: "left" };
+    case "&&":
+      return { precedence: PREC_LOGICAL_AND, assoc: "left" };
+    case "|":
+      return { precedence: PREC_BITWISE_OR, assoc: "left" };
+    case "^":
+      return { precedence: PREC_BITWISE_XOR, assoc: "left" };
+    case "&":
+      return { precedence: PREC_BITWISE_AND, assoc: "left" };
+    case "==":
+    case "!=":
+    case "===":
+    case "!==":
+      return { precedence: PREC_EQUALITY, assoc: "left" };
+    case "<":
+    case ">":
+    case "<=":
+    case ">=":
+      return { precedence: PREC_RELATIONAL, assoc: "left" };
+    case "<<":
+    case ">>":
+    case ">>>":
+      return { precedence: PREC_SHIFT, assoc: "left" };
+    case "+":
+    case "-":
+      return { precedence: PREC_ADDITIVE, assoc: "left" };
+    case "*":
+    case "/":
+    case "%":
+      return { precedence: PREC_MULTIPLICATIVE, assoc: "left" };
+    case "**":
+      return { precedence: PREC_EXPONENT, assoc: "right" };
+    default:
+      return { precedence: PREC_ASSIGNMENT, assoc: "left" };
+  }
+}
+
+function expressionPrecedence(expression: Expr): number {
+  switch (expression.kind) {
+    case "AssignmentExpression":
+      return PREC_ASSIGNMENT;
+    case "BinaryExpression":
+      return binaryPrecedence((expression as BinaryExpression).operator).precedence;
+    case "UnaryExpression":
+      return PREC_UNARY;
+    case "UpdateExpression":
+      return (expression as UpdateExpression).prefix ? PREC_UNARY : PREC_UPDATE;
+    case "MemberExpression":
+    case "CallExpression":
+    case "NewExpression":
+    case "RangeExpression":
+      return PREC_MEMBER;
+    default:
+      return PREC_PRIMARY;
+  }
+}
+
+function maybeWrap(text: string, shouldWrap: boolean): string {
+  return shouldWrap ? `(${text})` : text;
+}
+
 function emitIdentifier(identifier: Identifier): string {
   return identifier.name;
+}
+
+function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "left" | "right" = "left"): string {
+  const currentPrecedence = expressionPrecedence(expression);
+
+  const emitSelf = (): string => {
+    switch (expression.kind) {
+      case "IntLiteral":
+        return String((expression as IntLiteral).value);
+      case "StringLiteral":
+        return JSON.stringify((expression as StringLiteral).value);
+      case "Identifier":
+        return emitIdentifier(expression as Identifier);
+      case "BinaryExpression": {
+        const binary = expression as BinaryExpression;
+        const { precedence, assoc } = binaryPrecedence(binary.operator);
+
+        const leftChildNeedsWrap =
+          binary.left.kind === "BinaryExpression" &&
+          binaryPrecedence((binary.left as BinaryExpression).operator).precedence === precedence &&
+          assoc === "right";
+        const rightChildNeedsWrap =
+          binary.right.kind === "BinaryExpression" &&
+          binaryPrecedence((binary.right as BinaryExpression).operator).precedence === precedence &&
+          assoc === "left";
+
+        const leftText = maybeWrap(emitExpression(binary.left, precedence, "left"), leftChildNeedsWrap);
+        const rightText = maybeWrap(emitExpression(binary.right, precedence, "right"), rightChildNeedsWrap);
+        return `${leftText} ${binary.operator} ${rightText}`;
+      }
+      case "RangeExpression": {
+        const range = expression as RangeExpression;
+        return `(function*(s, e) { for (let n = s; n < e; n++) yield n })(${emitExpression(range.start)}, ${emitExpression(range.end)})`;
+      }
+      case "AssignmentExpression": {
+        const assignment = expression as AssignmentExpression;
+        const leftText = emitExpression(assignment.left, PREC_ASSIGNMENT, "left");
+        const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
+        return `${leftText} ${assignment.operator} ${rightText}`;
+      }
+      case "MemberExpression": {
+        const member = expression as MemberExpression;
+        const objectText = emitExpression(member.object, PREC_MEMBER, "left");
+        if (member.computed) {
+          return `${objectText}[${emitExpression(member.property)}]`;
+        }
+        const access = member.optional ? "?." : member.nonNullAsserted ? "!." : ".";
+        return `${objectText}${access}${emitExpression(member.property, PREC_MEMBER, "right")}`;
+      }
+      case "CallExpression": {
+        const call = expression as CallExpression;
+        const calleeText = emitExpression(call.callee, PREC_MEMBER, "left");
+        return `${calleeText}(${call.arguments.map((argument) => emitExpression(argument)).join(", ")})`;
+      }
+      case "NewExpression": {
+        const newExpression = expression as NewExpression;
+        const calleeText = emitExpression(newExpression.callee, PREC_MEMBER, "left");
+        if (newExpression.arguments) {
+          return `new ${calleeText}(${newExpression.arguments.map((argument) => emitExpression(argument)).join(", ")})`;
+        }
+        return `new ${calleeText}`;
+      }
+      case "UnaryExpression": {
+        const unary = expression as UnaryExpression;
+        return `${unary.operator}${emitExpression(unary.argument, PREC_UNARY, "right")}`;
+      }
+      case "UpdateExpression": {
+        const update = expression as UpdateExpression;
+        if (update.prefix) {
+          return `${update.operator}${emitExpression(update.argument, PREC_UNARY, "right")}`;
+        }
+        return `${emitExpression(update.argument, PREC_UPDATE, "left")}${update.operator}`;
+      }
+      case "ArrayLiteral":
+        return `[${(expression as ArrayLiteral).elements.map((element) => emitExpression(element)).join(", ")}]`;
+      case "ObjectLiteral": {
+        const objectLiteral = expression as ObjectLiteral;
+        return `{${objectLiteral.properties
+          .map((property) => `${property.key.name}: ${emitExpression(property.value)}`)
+          .join(", ")}}`;
+      }
+      default:
+        return "undefined";
+    }
+  };
+
+  const self = emitSelf();
+
+  if (currentPrecedence < parentPrecedence) {
+    return `(${self})`;
+  }
+
+  if (currentPrecedence === parentPrecedence && expression.kind === "AssignmentExpression" && side === "left") {
+    return `(${self})`;
+  }
+
+  return self;
 }
 
 function emitFunctionParameters(parameters: FunctionParameter[]): string {
@@ -128,10 +306,6 @@ function emitForIteratorHeader(iterator: ForStatement["iterator"]): string {
   return emitExpression(iterator as Expr);
 }
 
-function emitRangeAsGenerator(range: RangeExpression): string {
-  return `(function*(s, e) { for (let n = s; n < e; n++) yield n })(${emitExpression(range.start)}, ${emitExpression(range.end)})`;
-}
-
 function emitClassPrimaryConstructor(
   parameters: ClassPrimaryConstructorParameter[] | undefined,
   members: Array<ClassFieldMember | ClassMethodMember>
@@ -168,69 +342,6 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 
   const method = member as ClassMethodMember;
   return `${method.name.name}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
-}
-
-export function emitExpression(expression: Expr): string {
-  switch (expression.kind) {
-    case "IntLiteral":
-      return String((expression as IntLiteral).value);
-    case "StringLiteral":
-      return JSON.stringify((expression as StringLiteral).value);
-    case "Identifier":
-      return emitIdentifier(expression as Identifier);
-    case "BinaryExpression": {
-      const binary = expression as BinaryExpression;
-      return `${emitExpression(binary.left)} ${binary.operator} ${emitExpression(binary.right)}`;
-    }
-    case "RangeExpression":
-      return emitRangeAsGenerator(expression as RangeExpression);
-    case "AssignmentExpression": {
-      const assignment = expression as AssignmentExpression;
-      return `${emitExpression(assignment.left)} ${assignment.operator} ${emitExpression(assignment.right)}`;
-    }
-    case "MemberExpression": {
-      const member = expression as MemberExpression;
-      if (member.computed) {
-        return `${emitExpression(member.object)}[${emitExpression(member.property)}]`;
-      }
-      const access = member.optional ? "?." : member.nonNullAsserted ? "!." : ".";
-      return `${emitExpression(member.object)}${access}${emitExpression(member.property)}`;
-    }
-    case "CallExpression": {
-      const call = expression as CallExpression;
-      return `${emitExpression(call.callee)}(${call.arguments.map((argument) => emitExpression(argument)).join(", ")})`;
-    }
-    case "NewExpression": {
-      const newExpression = expression as NewExpression;
-      if (newExpression.arguments) {
-        return `new ${emitExpression(newExpression.callee)}(${newExpression.arguments
-          .map((argument) => emitExpression(argument))
-          .join(", ")})`;
-      }
-      return `new ${emitExpression(newExpression.callee)}`;
-    }
-    case "UnaryExpression": {
-      const unary = expression as UnaryExpression;
-      return `${unary.operator}${emitExpression(unary.argument)}`;
-    }
-    case "UpdateExpression": {
-      const update = expression as UpdateExpression;
-      if (update.prefix) {
-        return `${update.operator}${emitExpression(update.argument)}`;
-      }
-      return `${emitExpression(update.argument)}${update.operator}`;
-    }
-    case "ArrayLiteral":
-      return `[${(expression as ArrayLiteral).elements.map((element) => emitExpression(element)).join(", ")}]`;
-    case "ObjectLiteral": {
-      const objectLiteral = expression as ObjectLiteral;
-      return `{${objectLiteral.properties
-        .map((property) => `${property.key.name}: ${emitExpression(property.value)}`)
-        .join(", ")}}`;
-    }
-    default:
-      return "undefined";
-  }
 }
 
 function emitForStatement(statement: ForStatement): string {

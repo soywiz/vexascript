@@ -213,6 +213,19 @@ describe("Analysis", () => {
     expect(symbols.get("hello")?.valueType).toBe("(x: int) => int");
   });
 
+  it("infers typed arrays from literal element types", () => {
+    const source =
+      "let nums = [1, 2, 3]\n" +
+      "let mixed = [1, \"x\"]\n" +
+      "fun demo() {\n" +
+      "  return nums\n" +
+      "}\n";
+
+    const symbols = symbolsOfVisibleSymbolsAt(source, 3, 3);
+    expect(symbols.get("nums")?.valueType).toBe("int[]");
+    expect(symbols.get("mixed")?.valueType).toBe("unknown[]");
+  });
+
   it("resolves builtin and declared class types in annotations and reports unknown types", () => {
     const source =
       "function makePoint(p: Point): int {\n" +

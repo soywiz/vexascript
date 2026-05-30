@@ -428,3 +428,31 @@ switch (current) {
     break;
 }
 ```
+
+## Semantic Rules (Current)
+
+### Name resolution
+
+- Global scope allows forward references to declarations.
+- Local/function scopes require a symbol to be declared before use.
+
+### Builtin types and assignability
+
+- Builtin types: `int`, `number`, `string`, `boolean`.
+- `int` is assignable to `number`.
+- Other assignability checks are strict by type identity in the current version.
+
+### Expression typing
+
+- Integer literals have type `int`.
+- String literals have type `string`.
+- `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
+- `+` with at least one `string` operand infers `string`.
+- Comparisons/equality/logical operators infer `boolean`.
+- `start ... end` infers `range<int>` and is end-exclusive.
+
+### Collection typing
+
+- Array literals infer an element type from their items.
+- Homogeneous arrays infer typed arrays, for example `int[]`.
+- Mixed incompatible arrays fall back to `unknown[]`.
