@@ -61,7 +61,7 @@ export interface ParseIssue {
     token?: Token;
 }
 
-type RecoveryHint = "block";
+type RecoveryHint = "block" | "switch";
 
 export class ParseError extends Error {
     token?: Token;
@@ -251,59 +251,95 @@ export class Parser {
     recover(recoveryHint?: RecoveryHint, originToken?: Token): void {
         const startToken = originToken ?? this.tokens.peek();
         const startLine = startToken?.range.start.line ?? -1;
+        const allowSwitchCaseLabels = recoveryHint === "switch";
 
-        if (recoveryHint === "block") {
-            this.recoverBlock();
+        if (originToken?.type === "symbol" && (originToken.value === ";" || originToken.value === "}")) {
             return;
         }
+        if (
+            allowSwitchCaseLabels &&
+            originToken?.type === "identifier" &&
+            (originToken.value === "case" || originToken.value === "default")
+        ) {
+            return;
+        }
+
+        let parenDepth = 0;
+        let bracketDepth = 0;
+        let braceDepth = 0;
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
             if (this.isEofToken(token)) {
                 return;
             }
-            if (token?.type === "symbol" && token.value === "}") {
-                return;
+
+            if (token?.type === "symbol") {
+                if (token.value === "(") {
+                    parenDepth += 1;
+                    this.tokens.skip();
+                    continue;
+                }
+                if (token.value === "[") {
+                    bracketDepth += 1;
+                    this.tokens.skip();
+                    continue;
+                }
+                if (token.value === "{") {
+                    braceDepth += 1;
+                    this.tokens.skip();
+                    continue;
+                }
+
+                if (token.value === ")") {
+                    if (parenDepth > 0) {
+                        parenDepth -= 1;
+                        this.tokens.skip();
+                        continue;
+                    }
+                }
+                if (token.value === "]") {
+                    if (bracketDepth > 0) {
+                        bracketDepth -= 1;
+                        this.tokens.skip();
+                        continue;
+                    }
+                }
+                if (token.value === "}") {
+                    if (braceDepth > 0) {
+                        braceDepth -= 1;
+                        this.tokens.skip();
+                        continue;
+                    }
+                    return;
+                }
+
+                if (token.value === ";" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+                    this.tokens.skip();
+                    return;
+                }
             }
-            if (token?.type === "symbol" && token.value === ";") {
-                this.tokens.skip();
-                return;
-            }
-            if (recoveryHint === "block" && token?.type === "identifier" && (token.value === "case" || token.value === "default")) {
+
+            if (
+                allowSwitchCaseLabels &&
+                parenDepth === 0 &&
+                bracketDepth === 0 &&
+                braceDepth === 0 &&
+                token?.type === "identifier" &&
+                (token.value === "case" || token.value === "default")
+            ) {
                 return;
             }
             if (
                 startLine >= 0 &&
                 token?.range.start.line > startLine &&
+                parenDepth === 0 &&
+                bracketDepth === 0 &&
+                braceDepth === 0 &&
                 this.isLikelyStatementStart(token)
             ) {
                 return;
             }
-            this.tokens.skip();
-        }
-    }
-
-    private recoverBlock(): void {
-        let balance = 0;
-
-        while (this.tokens.hasMore) {
-            const token = this.tokens.peek();
-
-            if (token?.type === "symbol" && token.value === "{") {
-                balance += 1;
-                this.tokens.skip();
-                continue;
-            }
-
-            if (token?.type === "symbol" && token.value === "}") {
-                balance -= 1;
-                this.tokens.skip();
-                if (balance < 0) {
-                    return;
-                }
-                continue;
-            }
-
             this.tokens.skip();
         }
     }
@@ -627,7 +663,7 @@ export class Parser {
             return;
         }
 
-        this.fail("Expected ';', newline, 'case', 'default', or '}' between switch statements", next, "block");
+        this.fail("Expected ';', newline, 'case', 'default', or '}' between switch statements", next, "switch");
     }
 
     private buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
@@ -1575,15 +1611,26 @@ export class Parser {
                 continue;
             }
 
+            const statementStartOffset = this.tokens.offset;
+            const statement = this.parseStatement();
+            if (!statement) {
+                continue;
+            }
+            body.push(statement);
+
             try {
-                const statement = this.parseStatementOrThrow();
-                body.push(statement);
-                this.consumeStatementSeparator("block", this.getLastReadToken());
+                const previousToken =
+                    this.tokens.offset > statementStartOffset
+                        ? this.tokens.items[this.tokens.offset - 1]
+                        : undefined;
+                this.consumeStatementSeparator("block", previousToken);
             } catch (error) {
+                this.emitErrorFrom(error);
                 if (error instanceof ParseError) {
-                    throw new ParseError(error.message, error.token, "block");
+                    this.recover(error.recoveryHint, error.token);
+                } else {
+                    this.recover();
                 }
-                throw error;
             }
         }
 
@@ -1830,7 +1877,7 @@ export class Parser {
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
             if (this.isEofToken(token)) {
-                this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "block");
+                this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "switch");
             }
 
             if (token?.type === "symbol" && token.value === "}") {
@@ -1880,15 +1927,33 @@ export class Parser {
             }
 
             if (!currentCase) {
-                this.fail("Expected 'case', 'default', or '}' in switch body", this.tokenAt(token), "block");
+                this.fail("Expected 'case', 'default', or '}' in switch body", this.tokenAt(token), "switch");
             }
 
-            const statement = this.parseStatementOrThrow();
+            const statementStartOffset = this.tokens.offset;
+            const statement = this.parseStatement();
+            if (!statement) {
+                continue;
+            }
             currentCase.consequent.push(statement);
-            this.consumeSwitchStatementSeparator(this.getLastReadToken());
+
+            try {
+                const previousToken =
+                    this.tokens.offset > statementStartOffset
+                        ? this.tokens.items[this.tokens.offset - 1]
+                        : undefined;
+                this.consumeSwitchStatementSeparator(previousToken);
+            } catch (error) {
+                this.emitErrorFrom(error);
+                if (error instanceof ParseError) {
+                    this.recover(error.recoveryHint, error.token);
+                } else {
+                    this.recover();
+                }
+            }
         }
 
-        this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "block");
+        this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "switch");
     }
 
     private parseReturnStatement(): ReturnStatement {

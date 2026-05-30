@@ -1666,13 +1666,24 @@ describe("Parser (with recovery)", () => {
         });
     });
 
-    it("recovers from errors inside block statements by scanning braces", () => {
+    it("recovers from errors inside block statements and keeps valid statements", () => {
         const parser = new Parser(tokenizeReader("{ =; let ignored = 1; }; let ok = 2; =;"));
         const ast = parser.parseFile();
 
         expect(ast).toEqual({
             kind: "Program",
             body: [
+                {
+                    kind: "BlockStatement",
+                    body: [
+                        {
+                            kind: "VarStatement",
+                            declarationKind: "let",
+                            name: { kind: "Identifier", name: "ignored" },
+                            initializer: { kind: "IntLiteral", value: 1 }
+                        }
+                    ]
+                },
                 {
                     kind: "VarStatement",
                     declarationKind: "let",
@@ -1711,5 +1722,73 @@ describe("Parser (with recovery)", () => {
             ]
         });
         expect(parser.errors).toHaveLength(2);
+    });
+
+    it("recovers inside block statements and keeps later valid statements", () => {
+        const parser = new Parser(tokenizeReader("{ let a = ; let b = 2 }"));
+        const ast = parser.parseFile();
+
+        expect(ast).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "BlockStatement",
+                    body: [
+                        {
+                            kind: "VarStatement",
+                            declarationKind: "let",
+                            name: { kind: "Identifier", name: "b" },
+                            initializer: { kind: "IntLiteral", value: 2 }
+                        }
+                    ]
+                }
+            ]
+        });
+        expect(parser.errors.length).toBeGreaterThan(0);
+    });
+
+    it("recovers inside switch cases and continues with following cases", () => {
+        const parser = new Parser(tokenizeReader("switch (x) { case 1: let a = ; case 2: let b = 2; break; default: return 0 }"));
+        const ast = parser.parseFile();
+
+        expect(ast).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "SwitchStatement",
+                    discriminant: { kind: "Identifier", name: "x" },
+                    cases: [
+                        {
+                            kind: "SwitchCase",
+                            test: { kind: "IntLiteral", value: 1 },
+                            consequent: []
+                        },
+                        {
+                            kind: "SwitchCase",
+                            test: { kind: "IntLiteral", value: 2 },
+                            consequent: [
+                                {
+                                    kind: "VarStatement",
+                                    declarationKind: "let",
+                                    name: { kind: "Identifier", name: "b" },
+                                    initializer: { kind: "IntLiteral", value: 2 }
+                                },
+                                { kind: "BreakStatement" }
+                            ]
+                        },
+                        {
+                            kind: "SwitchCase",
+                            consequent: [
+                                {
+                                    kind: "ReturnStatement",
+                                    expression: { kind: "IntLiteral", value: 0 }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        });
+        expect(parser.errors.length).toBeGreaterThan(0);
     });
 });
