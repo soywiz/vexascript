@@ -3,6 +3,8 @@ interface FormatToken {
   value: string;
 }
 
+type TopLevelLineKind = "variableDeclaration" | "functionOrClassDeclaration" | "other";
+
 const INDENT = "  ";
 
 const MULTI_CHAR_SYMBOLS = [
@@ -214,10 +216,27 @@ function isBinaryOperatorToken(current: FormatToken, previousSignificant: Format
   return !isUnaryPrefix(current, previousSignificant);
 }
 
+function classifyTopLevelLineStart(token: FormatToken): TopLevelLineKind {
+  if (token.type !== "identifier") {
+    return "other";
+  }
+
+  if (token.value === "let" || token.value === "var" || token.value === "val" || token.value === "const") {
+    return "variableDeclaration";
+  }
+
+  if (token.value === "fun" || token.value === "function" || token.value === "class") {
+    return "functionOrClassDeclaration";
+  }
+
+  return "other";
+}
+
 function shouldSpaceBefore(
   previous: FormatToken | undefined,
   current: FormatToken,
-  previousSignificant: FormatToken | undefined
+  previousSignificant: FormatToken | undefined,
+  significantBeforePrevious: FormatToken | undefined
 ): boolean {
   if (!previous) {
     return false;
@@ -248,14 +267,17 @@ function shouldSpaceBefore(
   }
 
   if (current.type === "symbol" && current.value === "(") {
-    return !!(previous.type === "identifier" && CONTROL_KEYWORDS_WITH_PAREN.has(previous.value));
+    return (
+      (previous.type === "identifier" && CONTROL_KEYWORDS_WITH_PAREN.has(previous.value)) ||
+      (previous.type === "symbol" && isBinaryOperatorToken(previous, significantBeforePrevious))
+    );
   }
 
   if (isBinaryOperatorToken(current, previousSignificant)) {
     return true;
   }
 
-  if (previous.type === "symbol" && isBinaryOperatorToken(previous, undefined)) {
+  if (previous.type === "symbol" && isBinaryOperatorToken(previous, significantBeforePrevious)) {
     return true;
   }
 
@@ -281,6 +303,9 @@ export function formatSource(source: string): string {
 
   let previousEmitted: FormatToken | undefined;
   let previousSignificant: FormatToken | undefined;
+  let significantBeforePrevious: FormatToken | undefined;
+  let previousTopLevelLineKind: TopLevelLineKind | undefined;
+  let currentTopLevelLineKind: TopLevelLineKind | undefined;
 
   const writeIndentIfNeeded = (): void => {
     if (atLineStart) {
@@ -291,11 +316,39 @@ export function formatSource(source: string): string {
 
   const writeNewline = (): void => {
     result = result.replace(/[ \t]+$/g, "");
+    if (currentTopLevelLineKind) {
+      previousTopLevelLineKind = currentTopLevelLineKind;
+      currentTopLevelLineKind = undefined;
+    }
     if (!result.endsWith("\n")) {
       result += "\n";
     }
     atLineStart = true;
     previousEmitted = undefined;
+  };
+
+  const beginLineIfNeeded = (token: FormatToken): void => {
+    if (!atLineStart) {
+      return;
+    }
+
+    if (indentLevel === 0) {
+      const currentKind = classifyTopLevelLineStart(token);
+      currentTopLevelLineKind = currentKind;
+      if (
+        previousTopLevelLineKind &&
+        (previousTopLevelLineKind === "functionOrClassDeclaration" || currentKind === "functionOrClassDeclaration") &&
+        !result.endsWith("\n\n")
+      ) {
+        result = result.replace(/[ \t]+$/g, "");
+        if (!result.endsWith("\n")) {
+          result += "\n";
+        }
+        result += "\n";
+      }
+    } else {
+      currentTopLevelLineKind = undefined;
+    }
   };
 
   for (let index = 0; index < tokens.length; index += 1) {
@@ -309,29 +362,34 @@ export function formatSource(source: string): string {
     }
 
     if (token.type === "commentLine") {
+      beginLineIfNeeded(token);
       writeIndentIfNeeded();
-      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant)) {
+      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious)) {
         result += " ";
       }
       result += token.value;
       previousEmitted = token;
+      significantBeforePrevious = previousSignificant;
       previousSignificant = token;
       writeNewline();
       continue;
     }
 
     if (token.type === "commentBlock") {
+      beginLineIfNeeded(token);
       writeIndentIfNeeded();
-      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant)) {
+      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious)) {
         result += " ";
       }
       result += token.value;
       previousEmitted = token;
+      significantBeforePrevious = previousSignificant;
       previousSignificant = token;
       continue;
     }
 
     if (token.type === "symbol" && token.value === "}") {
+      beginLineIfNeeded(token);
       if (!atLineStart) {
         writeNewline();
       }
@@ -353,14 +411,16 @@ export function formatSource(source: string): string {
       continue;
     }
 
+    beginLineIfNeeded(token);
     writeIndentIfNeeded();
 
-    if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant)) {
+    if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious)) {
       result += " ";
     }
 
     result += token.value;
     previousEmitted = token;
+    significantBeforePrevious = previousSignificant;
     previousSignificant = token;
 
     if (token.type === "symbol") {

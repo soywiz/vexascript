@@ -108,4 +108,40 @@ describe("formatSource", () => {
     expect(formatSource("new hello.world[0].test(arg1,arg2)"))
       .toBe("new hello.world[0].test(arg1, arg2);");
   });
+
+  it("applies binary and unary spacing for plus/minus based on left token", () => {
+    expect(
+      formatSource(
+        "val a = 10+2\n" +
+        "val a = b+2\n" +
+        "val a = (10)+2\n" +
+        "val a = +10\n" +
+        "val a = -10"
+      )
+    ).toBe(
+      "val a = 10 + 2\n" +
+      "val a = b + 2\n" +
+      "val a = (10) + 2\n" +
+      "val a = +10\n" +
+      "val a = -10"
+    );
+  });
+
+  it("keeps variable declarations grouped and separates function/class declarations with a blank line", () => {
+    expect(
+      formatSource(
+        "var a=10\n" +
+        "var b=20\n" +
+        "fun test()\n" +
+        "class Demo()"
+      )
+    ).toBe(
+      "var a = 10\n" +
+      "var b = 20\n" +
+      "\n" +
+      "fun test()\n" +
+      "\n" +
+      "class Demo()"
+    );
+  });
 });
