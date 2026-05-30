@@ -778,6 +778,50 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses TypeScript for-of with declaration iterator", () => {
+        expect(parseStatement(tokenizeReader("for (const value of iterable) break"), { language: "typescript" })).toEqual({
+            kind: "ForStatement",
+            iterationKind: "of",
+            iterator: {
+                kind: "VarStatement",
+                declarationKind: "const",
+                name: { kind: "Identifier", name: "value" }
+            },
+            iterable: { kind: "Identifier", name: "iterable" },
+            body: {
+                kind: "BreakStatement"
+            }
+        });
+    });
+
+    it("parses TypeScript for-in with declaration iterator", () => {
+        expect(parseStatement(tokenizeReader("for (let value in iterable) break"), { language: "typescript" })).toEqual({
+            kind: "ForStatement",
+            iterationKind: "in",
+            iterator: {
+                kind: "VarStatement",
+                declarationKind: "let",
+                name: { kind: "Identifier", name: "value" }
+            },
+            iterable: { kind: "Identifier", name: "iterable" },
+            body: {
+                kind: "BreakStatement"
+            }
+        });
+    });
+
+    it("parses MyLang for-in without declaration keyword", () => {
+        expect(parseStatement(tokenizeReader("for (value in iterable) break"), { language: "mylang" })).toEqual({
+            kind: "ForStatement",
+            iterationKind: "in",
+            iterator: { kind: "Identifier", name: "value" },
+            iterable: { kind: "Identifier", name: "iterable" },
+            body: {
+                kind: "BreakStatement"
+            }
+        });
+    });
+
     it("parses a switch statement with case and default", () => {
         expect(parseStatement(tokenizeReader("switch (value) { case 1: return 1; default: return 0 }"))).toEqual({
             kind: "SwitchStatement",

@@ -1608,6 +1608,63 @@ export class Parser {
             }
         }
 
+        const maybeIterationKeyword = this.tokens.peek();
+        if (
+            maybeIterationKeyword?.type === "identifier" &&
+            (maybeIterationKeyword.value === "in" || maybeIterationKeyword.value === "of")
+        ) {
+            if (maybeIterationKeyword.value === "of" && this.language !== "typescript") {
+                this.fail("for-of syntax is only available in TypeScript mode", this.tokenAt(maybeIterationKeyword));
+            }
+
+            if (!initializer) {
+                this.fail(
+                    "Expected iterator declaration before for-in/of keyword",
+                    this.tokenAt(maybeIterationKeyword)
+                );
+            }
+
+            if (initializer.kind === "VarStatement") {
+                const iteratorDeclaration = initializer as VarStatement;
+                if (iteratorDeclaration.declarations && iteratorDeclaration.declarations.length > 1) {
+                    this.fail("for-in/of supports a single iterator declaration", iteratorDeclaration.firstToken);
+                }
+                if (iteratorDeclaration.initializer) {
+                    this.fail("for-in/of iterator declaration cannot have an initializer", iteratorDeclaration.firstToken);
+                }
+            } else {
+                if (this.language !== "mylang") {
+                    this.fail(
+                        "for-in/of without declaration keyword is only available in MyLang mode",
+                        initializer.firstToken
+                    );
+                }
+                if (maybeIterationKeyword.value !== "in") {
+                    this.fail("for-of without declaration keyword is not available in MyLang mode", initializer.firstToken);
+                }
+                if (initializer.kind !== "Identifier") {
+                    this.fail("Expected identifier iterator in MyLang for-in statement", initializer.firstToken);
+                }
+            }
+
+            this.tokens.skip();
+            const iterable = this.parseExpressionOrThrow();
+
+            const closeParen = this.tokens.read();
+            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                this.fail("Expected ')' after for-in/of iterable expression", this.tokenAt(closeParen));
+            }
+
+            const body = this.parseStatementOrThrow();
+            return this.attachNodeBounds({
+                kind: "ForStatement",
+                iterationKind: maybeIterationKeyword.value as "in" | "of",
+                iterator: initializer,
+                iterable,
+                body
+            } as ForStatement, forKeyword, this.getLastReadToken() ?? forKeyword);
+        }
+
         const firstSemicolon = this.tokens.read();
         if (firstSemicolon?.type !== "symbol" || firstSemicolon.value !== ";") {
             this.fail("Expected ';' after for initializer", this.tokenAt(firstSemicolon));

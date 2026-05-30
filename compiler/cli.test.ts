@@ -24,12 +24,12 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0][0])).toContain("Compiled:");
   });
 
-  it("run command executes testFixtures/sample.my and prints 42", async () => {
+  it("run command executes testFixtures/sample.my as a mylang for-in loop", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runCli(["node", "mylang", "run", "testFixtures/sample.my"]);
 
-    expect(logSpy).toHaveBeenCalledWith(42);
+    expect(logSpy.mock.calls).toEqual([[1], [23]]);
   });
 
   it("build command reports compilation errors to stderr and fails", async () => {

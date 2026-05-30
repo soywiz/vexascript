@@ -342,6 +342,26 @@ export class Analysis {
       switchDepth: flow.switchDepth
     };
 
+    if (statement.iterationKind && statement.iterator && statement.iterable) {
+      if (statement.iterator.kind === "VarStatement") {
+        this.visitVarStatement(statement.iterator as VarStatement, loopScope, loopFlow);
+      } else if (statement.iterator.kind === "Identifier") {
+        const iteratorIdentifier = statement.iterator as Node & { kind: "Identifier"; name: string };
+        this.declare(loopScope, {
+          name: iteratorIdentifier.name,
+          kind: "variable",
+          node: iteratorIdentifier,
+          valueType: UNKNOWN_TYPE
+        });
+      } else {
+        this.visitExpression(statement.iterator as Expr, loopScope);
+      }
+
+      this.visitExpression(statement.iterable, loopScope);
+      this.visitStatement(statement.body, loopScope, loopFlow);
+      return;
+    }
+
     if (statement.initializer) {
       if (statement.initializer.kind === "VarStatement") {
         this.visitVarStatement(statement.initializer as VarStatement, loopScope, loopFlow);

@@ -4,6 +4,7 @@ declare class Console {
 
 declare var console: Console
 
-for (let n = 0; n < 10; n++) {
+console.log(42)
+for (n in [1,2,3]) {
     console.log(n)
 }

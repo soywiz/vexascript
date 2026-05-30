@@ -1,4 +1,5 @@
 import { Analysis } from "compiler/analysis/Analysis";
+import type { Expr, ForStatement, Program, Statement } from "compiler/ast/ast";
 import { Parser } from "compiler/parser/parser";
 import { TokenizeError, tokenize } from "compiler/parser/tokenizer";
 import { ListReader } from "compiler/utils/ListReader";
@@ -53,13 +54,135 @@ function ensureTrailingSemicolon(code: string): string {
   return /[;{}]$/.test(trimmed) ? trimmed : `${trimmed};`;
 }
 
+interface Replacement {
+  start: number;
+  end: number;
+  text: string;
+}
+
+function collectForStatements(program: Program): ForStatement[] {
+  const collected: ForStatement[] = [];
+
+  const visitStatement = (statement: Statement): void => {
+    switch (statement.kind) {
+      case "ForStatement": {
+        const forStatement = statement as ForStatement;
+        collected.push(forStatement);
+        visitStatement(forStatement.body);
+        return;
+      }
+      case "BlockStatement":
+        for (const child of statement.body) {
+          visitStatement(child);
+        }
+        return;
+      case "IfStatement":
+        visitStatement(statement.thenBranch);
+        if (statement.elseBranch) {
+          visitStatement(statement.elseBranch);
+        }
+        return;
+      case "WhileStatement":
+      case "DoWhileStatement":
+        visitStatement(statement.body);
+        return;
+      case "SwitchStatement":
+        for (const switchCase of statement.cases) {
+          for (const consequent of switchCase.consequent) {
+            visitStatement(consequent);
+          }
+        }
+        return;
+      default:
+        return;
+    }
+  };
+
+  for (const statement of program.body) {
+    visitStatement(statement);
+  }
+  return collected;
+}
+
+function findMatchingCloseParen(source: string, openIndex: number): number {
+  let depth = 0;
+  for (let i = openIndex; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === "(") {
+      depth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+function exprText(source: string, expr: Expr): string {
+  if (!expr.firstToken || !expr.lastToken) {
+    return "";
+  }
+  return source.slice(expr.firstToken.range.start.offset, expr.lastToken.range.end.offset);
+}
+
+function rewriteMylangForInLoops(source: string, program: Program): string {
+  const replacements: Replacement[] = [];
+  const forStatements = collectForStatements(program);
+
+  for (const forStatement of forStatements) {
+    if (forStatement.iterationKind !== "in" || !forStatement.iterator || !forStatement.iterable) {
+      continue;
+    }
+    if (forStatement.iterator.kind !== "Identifier") {
+      continue;
+    }
+    if (!forStatement.firstToken || forStatement.firstToken.value !== "for") {
+      continue;
+    }
+
+    const forToken = forStatement.firstToken;
+    const openParen = source.indexOf("(", forToken.range.end.offset);
+    if (openParen < 0) {
+      continue;
+    }
+    const closeParen = findMatchingCloseParen(source, openParen);
+    if (closeParen < 0) {
+      continue;
+    }
+
+    const iteratorText = exprText(source, forStatement.iterator);
+    const iterableText = exprText(source, forStatement.iterable);
+    replacements.push({
+      start: openParen + 1,
+      end: closeParen,
+      text: `const ${iteratorText} of ${iterableText}`
+    });
+  }
+
+  if (replacements.length === 0) {
+    return source;
+  }
+
+  replacements.sort((a, b) => b.start - a.start);
+  let output = source;
+  for (const replacement of replacements) {
+    output = output.slice(0, replacement.start) + replacement.text + output.slice(replacement.end);
+  }
+  return output;
+}
+
 export function transpile(source: string): TranspileResult {
   const withoutDeclarations = stripDeclareStatements(source);
+  let ast: Program;
 
   try {
     const tokens = tokenize(withoutDeclarations);
     const parser = new Parser(new ListReader(tokens));
-    const ast = parser.parseFile();
+    ast = parser.parseFile();
 
     const errors: string[] = [];
     for (const issue of parser.errors) {
@@ -102,8 +225,9 @@ export function transpile(source: string): TranspileResult {
     };
   }
 
+  const rewrittenSource = rewriteMylangForInLoops(withoutDeclarations, ast);
   return {
-    code: ensureTrailingSemicolon(withoutDeclarations),
+    code: ensureTrailingSemicolon(rewrittenSource),
     warnings: [],
     errors: []
   };

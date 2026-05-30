@@ -291,6 +291,26 @@ for (;;) {
 }
 ```
 
+MyLang also supports `for-in` without declaration keyword:
+
+```mylang
+for (value in iterable) {
+  work
+}
+```
+
+When running in `typescript` parser mode, `for-in` and `for-of` with declaration iterators are supported:
+
+```typescript
+for (let value in iterable) {
+  use(value);
+}
+
+for (const value of iterable) {
+  use(value);
+}
+```
+
 ### If / else
 
 MyLang supports TypeScript-style `if` statements with optional `else`:
@@ -361,7 +381,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function`, TypeScript-style `for` statements, `if` / `else` statements, and `switch` / `case` / `default`.
+When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function`, TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, and `switch` / `case` / `default`.
 
 Example:
 

@@ -186,6 +186,9 @@ export interface DoWhileStatement extends Statement {
 
 export interface ForStatement extends Statement {
     kind: "ForStatement"
+    iterationKind?: "in" | "of"
+    iterator?: VarStatement | Expr
+    iterable?: Expr
     initializer?: VarStatement | Expr
     condition?: Expr
     update?: Expr

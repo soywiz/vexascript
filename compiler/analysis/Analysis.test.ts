@@ -179,6 +179,20 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("'lol'"))).toBe(false);
   });
 
+  it("introduces MyLang for-in iterator variable in loop scope", () => {
+    const source =
+      "let iterable = data\n" +
+      "for (value in iterable) {\n" +
+      "  return value\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("'value'"))).toBe(false);
+  });
+
   it("infers expression and variable types, including function signature types", () => {
     const source =
       "val a = 10\n" +
