@@ -148,6 +148,49 @@ export class Analysis {
     return ranges;
   }
 
+  getReferenceRangesAt(
+    line: number,
+    character: number,
+    includeDeclaration: boolean = true
+  ): AnalysisRange[] {
+    const at = this.getSymbolAt(line, character);
+    if (!at) {
+      return [];
+    }
+
+    const symbol = at.symbol;
+    const ranges: AnalysisRange[] = [];
+    const seen = new Set<string>();
+
+    if (includeDeclaration) {
+      const declarationRange = this.nodeToRange(symbol.node);
+      if (declarationRange) {
+        const key = this.rangeKey(declarationRange);
+        if (!seen.has(key)) {
+          seen.add(key);
+          ranges.push(declarationRange);
+        }
+      }
+    }
+
+    for (const resolution of this.identifierResolutions) {
+      if (resolution.symbol !== symbol) {
+        continue;
+      }
+      const range = this.nodeToRange(resolution.identifier);
+      if (!range) {
+        continue;
+      }
+      const key = this.rangeKey(range);
+      if (!seen.has(key)) {
+        seen.add(key);
+        ranges.push(range);
+      }
+    }
+
+    return ranges;
+  }
+
   getHoverAt(line: number, character: number): AnalysisHoverInfo | null {
     const symbolMatch = this.getSymbolAt(line, character);
     if (symbolMatch) {

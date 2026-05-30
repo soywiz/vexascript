@@ -82,3 +82,17 @@ export function createRenameWorkspaceEdit(
     }
   };
 }
+
+export function createReferences(
+  analysis: Analysis,
+  uri: string,
+  line: number,
+  character: number,
+  includeDeclaration: boolean
+): Location[] {
+  const ranges = analysis.getReferenceRangesAt(line, character, includeDeclaration);
+  return ranges.map((range) => ({
+    uri,
+    range
+  }));
+}

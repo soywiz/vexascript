@@ -24,6 +24,7 @@ import {
   createDefinitionLocation,
   createHover,
   createPrepareRename,
+  createReferences,
   createRenameWorkspaceEdit
 } from "./navigation";
 
@@ -41,6 +42,7 @@ connection.onInitialize(() => {
       documentFormattingProvider: true,
       definitionProvider: true,
       hoverProvider: true,
+      referencesProvider: true,
       renameProvider: {
         prepareProvider: true
       }
@@ -313,6 +315,32 @@ connection.onRenameRequest((params) => {
     );
   } catch {
     return null;
+  }
+});
+
+connection.onReferences((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return [];
+  }
+
+  try {
+    const tokens = tokenize(doc.getText());
+    const parser = new Parser(new ListReader<Token>(tokens));
+    const ast = parser.parseFile();
+    if (parser.errors.length > 0) {
+      return [];
+    }
+    const analysis = new Analysis(ast);
+    return createReferences(
+      analysis,
+      params.textDocument.uri,
+      params.position.line,
+      params.position.character,
+      params.context.includeDeclaration
+    );
+  } catch {
+    return [];
   }
 });
 

@@ -6,6 +6,7 @@ import {
   createDefinitionLocation,
   createHover,
   createPrepareRename,
+  createReferences,
   createRenameWorkspaceEdit
 } from "./navigation";
 
@@ -82,6 +83,68 @@ describe("lsp navigation", () => {
         ]
       }
     });
+  });
+
+  it("returns references including declaration", () => {
+    const source =
+      "let value = 1\nfun demo() {\n  let local = value\n  return value + local\n}\n";
+    const analysis = analysisOf(source);
+
+    const references = createReferences(analysis, URI, 2, 16, true);
+    expect(references).toEqual([
+      {
+        uri: URI,
+        range: {
+          start: { line: 0, character: 4 },
+          end: { line: 0, character: 9 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 2, character: 14 },
+          end: { line: 2, character: 19 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 3, character: 9 },
+          end: { line: 3, character: 14 }
+        }
+      }
+    ]);
+  });
+
+  it("returns references without declaration when requested", () => {
+    const source =
+      "let value = 1\nfun demo() {\n  let local = value\n  return value + local\n}\n";
+    const analysis = analysisOf(source);
+
+    const references = createReferences(analysis, URI, 2, 16, false);
+    expect(references).toEqual([
+      {
+        uri: URI,
+        range: {
+          start: { line: 2, character: 14 },
+          end: { line: 2, character: 19 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 3, character: 9 },
+          end: { line: 3, character: 14 }
+        }
+      }
+    ]);
+  });
+
+  it("returns empty references when there is no symbol", () => {
+    const source = "let value = 1\n";
+    const analysis = analysisOf(source);
+
+    expect(createReferences(analysis, URI, 0, 0, true)).toEqual([]);
   });
 
   it("does not allow rename for builtin symbols", () => {
