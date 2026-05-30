@@ -10,5 +10,5 @@
     "types": ["node"],
     "baseUrl": "."
   },
-  "include": ["compiler", "tsup.config.ts"]
+  "include": ["compiler"]
 }

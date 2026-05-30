@@ -8,7 +8,7 @@
     "mylang": "dist/mylang.js"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "rm -rf dist && esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' && chmod +x dist/mylang.js",
     "cli": "pnpm build && node dist/mylang.js",
     "vscodeext:install": "pnpm --dir plugins/vscode install",
     "vscodeext:launch": "pnpm vscodeext:install && pnpm build && code --new-window --extensionDevelopmentPath=./plugins/vscode .",
@@ -25,8 +25,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
+    "esbuild": "^0.21.5",
     "vitest": "^2.1.8",
-    "typescript": "^5.8.3",
-    "tsup": "^8.1.0"
+    "typescript": "^5.8.3"
   }
 }
