@@ -204,9 +204,23 @@ export class Analysis {
   private visitVarStatement(statement: VarStatement, scope: Scope, flow: FlowContext): void {
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
-        const inferredType =
-          this.resolveTypeAnnotation(declaration.typeAnnotation, scope) ??
-          (declaration.initializer ? this.visitExpression(declaration.initializer, scope) : UNKNOWN_TYPE);
+        const explicitType = this.resolveTypeAnnotation(declaration.typeAnnotation, scope);
+        const initializerType = declaration.initializer
+          ? this.visitExpression(declaration.initializer, scope)
+          : undefined;
+        if (
+          explicitType &&
+          initializerType &&
+          explicitType !== UNKNOWN_TYPE &&
+          initializerType !== UNKNOWN_TYPE &&
+          !this.isTypeAssignable(initializerType, explicitType)
+        ) {
+          this.issues.push({
+            message: `Type '${initializerType}' is not assignable to type '${explicitType}'`,
+            node: declaration.name
+          });
+        }
+        const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name: declaration.name.name,
           kind: "variable",
@@ -217,9 +231,23 @@ export class Analysis {
       return;
     }
 
-    const inferredType =
-      this.resolveTypeAnnotation(statement.typeAnnotation, scope) ??
-      (statement.initializer ? this.visitExpression(statement.initializer, scope) : UNKNOWN_TYPE);
+    const explicitType = this.resolveTypeAnnotation(statement.typeAnnotation, scope);
+    const initializerType = statement.initializer
+      ? this.visitExpression(statement.initializer, scope)
+      : undefined;
+    if (
+      explicitType &&
+      initializerType &&
+      explicitType !== UNKNOWN_TYPE &&
+      initializerType !== UNKNOWN_TYPE &&
+      !this.isTypeAssignable(initializerType, explicitType)
+    ) {
+      this.issues.push({
+        message: `Type '${initializerType}' is not assignable to type '${explicitType}'`,
+        node: statement.name
+      });
+    }
+    const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
     this.declare(scope, {
       name: statement.name.name,
       kind: "variable",
@@ -475,6 +503,18 @@ export class Analysis {
     }
 
     return UNKNOWN_TYPE;
+  }
+
+  private isTypeAssignable(sourceType: AnalysisValueType, targetType: AnalysisValueType): boolean {
+    if (sourceType === targetType) {
+      return true;
+    }
+
+    if (sourceType === "int" && targetType === "number") {
+      return true;
+    }
+
+    return false;
   }
 
   private buildFunctionType(parameters: FunctionParameter[], returnType: string | undefined): AnalysisValueType {

@@ -71,7 +71,7 @@ describe("CLI", () => {
     });
   });
 
-  it("format command prints formatted source", async () => {
+  it("format command overwrites input file with formatted source", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "format.my");
     await writeFile(input, "let a=1\na+=2", "utf8");
@@ -80,8 +80,9 @@ describe("CLI", () => {
 
     await runCli(["node", "mylang", "format", input]);
 
+    expect(await readFile(input, "utf8")).toBe("let a = 1\na += 2\n");
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(String(logSpy.mock.calls[0][0])).toBe("let a = 1\na += 2");
+    expect(String(logSpy.mock.calls[0][0])).toContain("Formatted:");
   });
 
   it("format command writes formatted source with --write", async () => {

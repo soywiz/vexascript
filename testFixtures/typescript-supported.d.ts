@@ -4,6 +4,7 @@
 declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
 
 declare namespace moment {
+
 }
 
 export = moment;

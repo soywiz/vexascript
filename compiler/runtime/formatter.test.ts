@@ -141,4 +141,23 @@ describe("formatSource", () => {
       "class Demo()"
     );
   });
+
+  it("preserves one blank line when the input contains extra consecutive newlines", () => {
+    expect(formatSource("let a=1\n\n\n\nlet b=2"))
+      .toBe("let a = 1\n\nlet b = 2");
+  });
+
+  it("does not insert extra blank lines for regular consecutive statements", () => {
+    expect(
+      formatSource(
+        "var b = 20 = 2;\n" +
+        "val a = 10 + 2\n" +
+        "val a = +10"
+      )
+    ).toBe(
+      "var b = 20 = 2;\n" +
+      "val a = 10 + 2\n" +
+      "val a = +10"
+    );
+  });
 });

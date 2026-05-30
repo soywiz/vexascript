@@ -219,4 +219,19 @@ describe("Analysis", () => {
       "Unknown type 'MissingType'. Expected builtin type (int, number, string, boolean) or declared class/interface"
     );
   });
+
+  it("reports variable type mismatch on the variable name when initializer is not assignable", () => {
+    const source = "let aa: string = 10 * 2\n";
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const issues = analysis.getIssues();
+
+    const mismatch = issues.find((issue) =>
+      issue.message === "Type 'int' is not assignable to type 'string'"
+    );
+    expect(mismatch).toBeDefined();
+    expect(mismatch?.node.kind).toBe("Identifier");
+    expect((mismatch?.node as { name?: string }).name).toBe("aa");
+    expect(mismatch?.node.firstToken?.value).toBe("aa");
+  });
 });

@@ -355,8 +355,25 @@ export function formatSource(source: string): string {
     const token = tokens[index];
 
     if (token.type === "newline") {
-      if (parenDepth === 0 && bracketDepth === 0 && !atLineStart) {
-        writeNewline();
+      if (parenDepth === 0 && bracketDepth === 0) {
+        let newlineRunLength = 1;
+        while (
+          index + newlineRunLength < tokens.length &&
+          tokens[index + newlineRunLength]?.type === "newline"
+        ) {
+          newlineRunLength += 1;
+        }
+
+        if (!atLineStart) {
+          writeNewline();
+        }
+
+        if (newlineRunLength > 1 && !result.endsWith("\n\n")) {
+          // Preserve user-authored blank lines while collapsing long runs to one empty line.
+          result += "\n";
+        }
+
+        index += newlineRunLength - 1;
       }
       continue;
     }

@@ -54,28 +54,20 @@ async function printAst(input: string): Promise<void> {
 }
 
 async function formatFile(input: string, opts: { write?: boolean; out?: string }): Promise<void> {
-  if (opts.write && opts.out) {
-    throw new Error("Cannot use --write and --out together");
-  }
-
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
   const formatted = format(source);
+  const formattedWithTrailingNewline = `${formatted}\n`;
 
-  if (opts.write) {
-    await writeFile(sourcePath, `${formatted}\n`, "utf8");
-    console.log(`Formatted: ${sourcePath}`);
-    return;
-  }
-
+  await writeFile(sourcePath, formattedWithTrailingNewline, "utf8");
   if (opts.out) {
     const outputPath = resolve(process.cwd(), opts.out);
-    await writeFile(outputPath, `${formatted}\n`, "utf8");
-    console.log(`Formatted: ${sourcePath} -> ${outputPath}`);
+    await writeFile(outputPath, formattedWithTrailingNewline, "utf8");
+    console.log(`Formatted: ${sourcePath} (and wrote copy to ${outputPath})`);
     return;
   }
 
-  console.log(formatted);
+  console.log(`Formatted: ${sourcePath}`);
 }
 
 function createProgram(): Command {
@@ -117,7 +109,7 @@ function createProgram(): Command {
     .command("format")
     .description("Format a MyLang file")
     .argument("<input>", "Input file")
-    .option("-w, --write", "Overwrite the input file")
+    .option("-w, --write", "Deprecated: formatting now always overwrites the input file")
     .option("-o, --out <file>", "Output file")
     .action(async (input: string, opts: { write?: boolean; out?: string }) => {
       await formatFile(input, opts);
