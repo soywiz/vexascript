@@ -226,6 +226,8 @@ Range expressions are supported with `start ... end`:
 0 ... 10
 ```
 
+`...` is end-exclusive, so `0 ... 10` iterates/generates values from `0` to `9`.
+
 ### Member access
 
 Supported member access forms:

@@ -8,7 +8,7 @@ describe("transpile", () => {
       "  log(a: number)",
       "}",
       "declare var console: Console",
-      "for (n in [1,23]) {",
+      "for (n in [1,2, 3]) {",
       "  console.log(n)",
       "}"
     ].join("\n");
@@ -16,7 +16,7 @@ describe("transpile", () => {
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("for (const n of [1,23]) {");
+    expect(result.code).toContain("for (const n of [1, 2, 3]) {");
     expect(result.code).toContain("console.log(n)");
   });
 

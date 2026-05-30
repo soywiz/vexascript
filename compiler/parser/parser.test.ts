@@ -1688,4 +1688,28 @@ describe("Parser (with recovery)", () => {
         expect(parser.errors[0].token?.value).toBe("=");
         expect(parser.errors[1].token?.value).toBe("=");
     });
+
+    it("recovers at newline statement boundaries without needing semicolons", () => {
+        const parser = new Parser(tokenizeReader("=\nlet ok = 1\nlet done = 2\n!"));
+        const ast = parser.parseFile();
+
+        expect(ast).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "ok" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "done" },
+                    initializer: { kind: "IntLiteral", value: 2 }
+                }
+            ]
+        });
+        expect(parser.errors).toHaveLength(2);
+    });
 });

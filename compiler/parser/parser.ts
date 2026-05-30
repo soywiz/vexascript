@@ -98,7 +98,7 @@ export class Parser {
         } catch (error) {
             this.emitErrorFrom(error);
             if (error instanceof ParseError) {
-                this.recover(error.recoveryHint);
+                this.recover(error.recoveryHint, error.token);
             } else {
                 this.recover();
             }
@@ -137,7 +137,7 @@ export class Parser {
             } catch (error) {
                 this.emitErrorFrom(error);
                 if (error instanceof ParseError) {
-                    this.recover(error.recoveryHint);
+                    this.recover(error.recoveryHint, error.token);
                 } else {
                     this.recover();
                 }
@@ -248,7 +248,10 @@ export class Parser {
         this.errors.push({ message, token });
     }
 
-    recover(recoveryHint?: RecoveryHint): void {
+    recover(recoveryHint?: RecoveryHint, originToken?: Token): void {
+        const startToken = originToken ?? this.tokens.peek();
+        const startLine = startToken?.range.start.line ?? -1;
+
         if (recoveryHint === "block") {
             this.recoverBlock();
             return;
@@ -259,8 +262,21 @@ export class Parser {
             if (this.isEofToken(token)) {
                 return;
             }
+            if (token?.type === "symbol" && token.value === "}") {
+                return;
+            }
             if (token?.type === "symbol" && token.value === ";") {
                 this.tokens.skip();
+                return;
+            }
+            if (recoveryHint === "block" && token?.type === "identifier" && (token.value === "case" || token.value === "default")) {
+                return;
+            }
+            if (
+                startLine >= 0 &&
+                token?.range.start.line > startLine &&
+                this.isLikelyStatementStart(token)
+            ) {
                 return;
             }
             this.tokens.skip();
@@ -290,6 +306,37 @@ export class Parser {
 
             this.tokens.skip();
         }
+    }
+
+    private isLikelyStatementStart(token: Token | undefined): boolean {
+        if (!token) {
+            return false;
+        }
+        if (token.type === "symbol" && (token.value === "}" || token.value === "{")) {
+            return true;
+        }
+        if (token.type !== "identifier") {
+            return false;
+        }
+        return (
+            token.value === "let" ||
+            token.value === "var" ||
+            token.value === "val" ||
+            token.value === "const" ||
+            token.value === "fun" ||
+            token.value === "function" ||
+            token.value === "class" ||
+            token.value === "if" ||
+            token.value === "for" ||
+            token.value === "while" ||
+            token.value === "do" ||
+            token.value === "switch" ||
+            token.value === "return" ||
+            token.value === "break" ||
+            token.value === "continue" ||
+            token.value === "case" ||
+            token.value === "default"
+        );
     }
 
     private emitErrorFrom(error: unknown): void {
