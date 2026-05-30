@@ -41,6 +41,21 @@ async function buildFile(input: string, out?: string): Promise<void> {
   }
 }
 
+async function runFile(input: string): Promise<void> {
+  const sourcePath = resolve(process.cwd(), input);
+  const source = await readFile(sourcePath, "utf8");
+  const result = transpile(source);
+  const jsToExecute = `${result.code}\n//# sourceURL=${sourcePath}`;
+  const moduleUrl = `data:text/javascript;base64,${Buffer.from(jsToExecute, "utf8").toString("base64")}`;
+  await import(moduleUrl);
+
+  if (result.warnings.length > 0) {
+    for (const warning of result.warnings) {
+      console.warn(`warning: ${warning}`);
+    }
+  }
+}
+
 async function printTokens(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
@@ -87,6 +102,14 @@ function createProgram(): Command {
     .option("-o, --out <file>", "Output file")
     .action(async (input: string, opts: { out?: string }) => {
       await buildFile(input, opts.out);
+    });
+
+  program
+    .command("run")
+    .description("Transpile and run a MyLang file with Node.js")
+    .argument("<input>", "Input file")
+    .action(async (input: string) => {
+      await runFile(input);
     });
 
   program

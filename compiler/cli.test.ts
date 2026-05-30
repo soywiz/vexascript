@@ -24,6 +24,14 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0][0])).toContain("Compiled:");
   });
 
+  it("run command executes testFixtures/sample.my and prints 42", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "run", "testFixtures/sample.my"]);
+
+    expect(logSpy).toHaveBeenCalledWith(42);
+  });
+
   it("tokens command prints token list as JSON", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "tokens.my");

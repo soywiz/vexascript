@@ -1,0 +1,7 @@
+declare class Console {
+    log(a: number)
+}
+
+declare var console: Console
+
+console.log(42)
