@@ -198,6 +198,7 @@ Supported unary operators:
 
 Supported binary operators:
 
+- range: `...`
 - exponentiation: `**`
 - multiplicative: `*`, `/`, `%`
 - additive: `+`, `-`
@@ -216,6 +217,14 @@ Supported assignment operators:
 - `<<=`, `>>=`, `>>>=`
 - `&=`, `|=`
 - `&&=`, `||=`
+
+### Range expressions
+
+Range expressions are supported with `start ... end`:
+
+```mylang
+0 ... 10
+```
 
 ### Member access
 
@@ -297,6 +306,20 @@ MyLang also supports `for-in` without declaration keyword:
 for (value in iterable) {
   work
 }
+```
+
+MyLang also supports `for-of` without declaration keyword:
+
+```mylang
+for (value of iterable) {
+  work
+}
+```
+
+Range iteration syntax is supported and transpiles to a classic index loop:
+
+```mylang
+for (a of 0 ... 10) console.log(a)
 ```
 
 When running in `typescript` parser mode, `for-in` and `for-of` with declaration iterators are supported:

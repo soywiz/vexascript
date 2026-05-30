@@ -338,6 +338,15 @@ function readSymbol(scanner: Scanner): string {
     advanceCode(scanner);
     return "!.";
   }
+  if (
+    ch === CODE_DOT &&
+    next === CODE_DOT &&
+    scanner.reader.str.charCodeAt(scanner.reader.offset + 1) === CODE_DOT
+  ) {
+    advanceCode(scanner);
+    advanceCode(scanner);
+    return "...";
+  }
   if (ch === CODE_EQUALS && next === CODE_EQUALS) {
     advanceCode(scanner);
     if (scanner.reader.peekCode() === CODE_EQUALS) {

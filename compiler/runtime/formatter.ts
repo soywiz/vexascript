@@ -35,6 +35,7 @@ const MULTI_CHAR_SYMBOLS = [
   "||",
   "<<",
   ">>",
+  "...",
   "?.",
   "!."
 ] as const;
@@ -43,6 +44,7 @@ const UNARY_PREFIX_OPERATORS = new Set(["+", "-", "++", "--", "!", "~"]);
 const BINARY_OPERATORS = new Set([
   "+", "-", "*", "/", "%", "**",
   "<<", ">>", ">>>",
+  "...",
   "<", ">", "<=", ">=",
   "==", "!=", "===", "!==",
   "&", "|", "^", "&&", "||",
@@ -141,7 +143,7 @@ function tokenizeForFormatting(source: string): FormatToken[] {
     if (isDigit(ch)) {
       const start = i;
       i += 1;
-      while (i < source.length && /[0-9A-Za-z_.]/.test(source[i])) {
+      while (i < source.length && /[0-9A-Za-z_]/.test(source[i])) {
         i += 1;
       }
       tokens.push({ type: "number", value: source.slice(start, i) });

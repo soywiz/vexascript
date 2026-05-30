@@ -29,6 +29,7 @@ import {
     ObjectLiteral,
     ObjectProperty,
     Program,
+    RangeExpression,
     ReturnStatement,
     Statement,
     StringLiteral,
@@ -904,8 +905,24 @@ export class Parser {
         return this.parseLeftAssociative(["+", "-"], () => this.parseMultiplicative());
     }
 
+    private parseRange(): Expr {
+        let left = this.parseAdditive();
+
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "...") {
+            this.tokens.skip();
+            const right = this.parseAdditive();
+            left = this.attachNodeBounds({
+                kind: "RangeExpression",
+                start: left,
+                end: right
+            } as RangeExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
+        }
+
+        return left;
+    }
+
     private parseShift(): Expr {
-        return this.parseLeftAssociative(["<<", ">>", ">>>"], () => this.parseAdditive());
+        return this.parseLeftAssociative(["<<", ">>", ">>>"], () => this.parseRange());
     }
 
     private parseRelational(): Expr {
@@ -1613,10 +1630,6 @@ export class Parser {
             maybeIterationKeyword?.type === "identifier" &&
             (maybeIterationKeyword.value === "in" || maybeIterationKeyword.value === "of")
         ) {
-            if (maybeIterationKeyword.value === "of" && this.language !== "typescript") {
-                this.fail("for-of syntax is only available in TypeScript mode", this.tokenAt(maybeIterationKeyword));
-            }
-
             if (!initializer) {
                 this.fail(
                     "Expected iterator declaration before for-in/of keyword",
@@ -1639,11 +1652,8 @@ export class Parser {
                         initializer.firstToken
                     );
                 }
-                if (maybeIterationKeyword.value !== "in") {
-                    this.fail("for-of without declaration keyword is not available in MyLang mode", initializer.firstToken);
-                }
                 if (initializer.kind !== "Identifier") {
-                    this.fail("Expected identifier iterator in MyLang for-in statement", initializer.firstToken);
+                    this.fail("Expected identifier iterator in MyLang for-in/of statement", initializer.firstToken);
                 }
             }
 

@@ -19,4 +19,24 @@ describe("transpile", () => {
     expect(result.code).toContain("for (const n of [1,23]) {");
     expect(result.code).toContain("console.log(n)");
   });
+
+  it("optimizes range iteration inside for loops to a classic for loop", () => {
+    const source = "for (a of 0 ... 10) console.log(a)";
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("for (let a = 0; a < 10; a++) console.log(a)");
+  });
+
+  it("emits generator-based range expression outside for loops", () => {
+    const source = "let values = 0 ... 10";
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain(
+      "let values = (function*(s, e) { for (let n = s; n < e; n++) yield n })(0, 10);"
+    );
+  });
 });

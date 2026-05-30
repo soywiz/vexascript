@@ -45,6 +45,14 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for range expressions", () => {
+        expect(parseExpression(tokenizeReader("0 ... 10"))).toEqual({
+            kind: "RangeExpression",
+            start: { kind: "IntLiteral", value: 0 },
+            end: { kind: "IntLiteral", value: 10 }
+        });
+    });
+
     it("builds an AST for unary plus", () => {
         expect(parseExpression(tokenizeReader("+1"))).toEqual({
             kind: "UnaryExpression",
@@ -816,6 +824,22 @@ describe("parseStatement", () => {
             iterationKind: "in",
             iterator: { kind: "Identifier", name: "value" },
             iterable: { kind: "Identifier", name: "iterable" },
+            body: {
+                kind: "BreakStatement"
+            }
+        });
+    });
+
+    it("parses MyLang for-of without declaration keyword", () => {
+        expect(parseStatement(tokenizeReader("for (value of 0 ... 10) break"), { language: "mylang" })).toEqual({
+            kind: "ForStatement",
+            iterationKind: "of",
+            iterator: { kind: "Identifier", name: "value" },
+            iterable: {
+                kind: "RangeExpression",
+                start: { kind: "IntLiteral", value: 0 },
+                end: { kind: "IntLiteral", value: 10 }
+            },
             body: {
                 kind: "BreakStatement"
             }

@@ -18,6 +18,7 @@ import {
   NewExpression,
   ObjectLiteral,
   Program,
+  RangeExpression,
   ReturnStatement,
   Statement,
   SwitchStatement,
@@ -412,6 +413,12 @@ export class Analysis {
         const leftType = this.visitExpression(binary.left, scope);
         const rightType = this.visitExpression(binary.right, scope);
         return this.inferBinaryType(binary.operator, leftType, rightType);
+      }
+      case "RangeExpression": {
+        const range = expression as RangeExpression;
+        this.visitExpression(range.start, scope);
+        this.visitExpression(range.end, scope);
+        return "range";
       }
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;

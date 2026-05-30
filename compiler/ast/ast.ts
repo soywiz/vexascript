@@ -37,6 +37,12 @@ export interface BinaryExpression extends Node {
     right: Expr
 }
 
+export interface RangeExpression extends Node {
+    kind: "RangeExpression"
+    start: Expr
+    end: Expr
+}
+
 export interface AssignmentExpression extends Node {
     kind: "AssignmentExpression"
     operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||=" | "<<=" | ">>=" | ">>>="

@@ -81,6 +81,11 @@ describe("formatSource", () => {
       .toBe("a << 1\nb >>= 2\nc === d\nx != y");
   });
 
+  it("formats range operator with binary spacing", () => {
+    expect(formatSource("for(a of 0...10)console.log(a)"))
+      .toBe("for (a of 0 ... 10)console.log(a)");
+  });
+
   it("formats switch with case and default", () => {
     expect(formatSource("switch(x){case 1:let y=x;break;default:return 0}"))
       .toBe(
