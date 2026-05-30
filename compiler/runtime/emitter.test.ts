@@ -43,6 +43,13 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let b = 0.01;");
   });
 
+  it("emits bigint and long literals as JavaScript bigint literals", () => {
+    const program = parseFile(tokenizeReader("let a = 10n\nlet b = 20L"));
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("let a = 10n;");
+    expect(emitted).toContain("let b = 20n;");
+  });
+
   it("omits ambient declare class/var statements from emitted JavaScript", () => {
     const program = parseFile(
       tokenizeReader("declare class Console { log(a: number) }\ndeclare var console: Console\nconsole.log(42)")

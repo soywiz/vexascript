@@ -65,6 +65,10 @@ export class Analysis {
     return [...this.issues];
   }
 
+  getExpressionTypes(): ReadonlyMap<Node, AnalysisType> {
+    return this.expressionTypes;
+  }
+
   getSymbolAt(line: number, character: number): AnalysisSymbolMatch | null {
     for (const resolution of this.identifierResolutions) {
       const range = this.nodeToRange(resolution.identifier);

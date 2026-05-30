@@ -17,7 +17,14 @@ import type { Node } from "compiler/ast/ast";
 import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 
-const BUILTIN_TYPE_NAMES = new Set(["int", "number", "string", "boolean"]);
+const BUILTIN_TYPE_NAMES = new Set([
+  "int",
+  "number",
+  "string",
+  "boolean",
+  "bigint",
+  "long"
+]);
 
 const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typeof UNKNOWN_TYPE>([
   ["true", builtinType("boolean")],
@@ -358,7 +365,9 @@ export class Binder {
       return undefined;
     }
     if (BUILTIN_TYPE_NAMES.has(typeAnnotation.name)) {
-      return builtinType(typeAnnotation.name as "int" | "number" | "string" | "boolean");
+      return builtinType(
+        typeAnnotation.name as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+      );
     }
     return namedType(typeAnnotation.name);
   }

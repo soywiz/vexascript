@@ -33,6 +33,14 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes bigint and long suffix literals", () => {
+        expect(simplifyTokens("10n + 20L")).toStrictEqual([
+            { type: "number", value: "10n" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: "20L" }
+        ])
+    })
+
     it("tokenizes multi-character operators", () => {
         expect(simplifyTokens("2**3 || 4 && 5")).toStrictEqual([
             { type: "number", value: "2" },

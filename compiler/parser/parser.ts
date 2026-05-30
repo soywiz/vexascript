@@ -3,6 +3,7 @@ import { Token } from "./tokenizer";
 import {
     ArrayLiteral,
     AssignmentExpression,
+    BigIntLiteral,
     BinaryExpression,
     BlockStatement,
     BreakStatement,
@@ -26,6 +27,7 @@ import {
     ImportSpecifier,
     ImportStatement,
     IntLiteral,
+    LongLiteral,
     MemberExpression,
     NewExpression,
     Node,
@@ -870,6 +872,28 @@ export class Parser {
         }
 
         if (token?.type === "number") {
+            if (token.value.endsWith("n") || token.value.endsWith("N")) {
+                const raw = token.value.slice(0, -1);
+                if (!/^\d+$/.test(raw)) {
+                    this.fail("Invalid bigint literal", this.tokenAt(token));
+                }
+                return this.attachNodeBounds(
+                    { kind: "BigIntLiteral", value: BigInt(raw) } as BigIntLiteral,
+                    token,
+                    token
+                );
+            }
+            if (token.value.endsWith("L")) {
+                const raw = token.value.slice(0, -1);
+                if (!/^\d+$/.test(raw)) {
+                    this.fail("Invalid long literal", this.tokenAt(token));
+                }
+                return this.attachNodeBounds(
+                    { kind: "LongLiteral", value: BigInt(raw) } as LongLiteral,
+                    token,
+                    token
+                );
+            }
             const numericValue = Number(token.value);
             if (!Number.isFinite(numericValue)) {
                 this.fail("Invalid numeric literal", this.tokenAt(token));

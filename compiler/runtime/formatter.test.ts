@@ -170,4 +170,9 @@ describe("formatSource", () => {
     expect(formatSource("let a=10e-3\nlet b=10.573"))
       .toBe("let a = 10e-3\nlet b = 10.573");
   });
+
+  it("keeps bigint and long literal suffixes attached to numbers", () => {
+    expect(formatSource("let a=10n+20n\nlet b=10L+20L"))
+      .toBe("let a = 10n + 20n\nlet b = 10L + 20L");
+  });
 });

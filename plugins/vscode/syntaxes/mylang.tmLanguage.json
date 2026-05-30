@@ -121,7 +121,7 @@
       "patterns": [
         {
           "name": "constant.numeric.integer.mylang",
-          "match": "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?\\b"
+          "match": "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nN]|L)?\\b"
         }
       ]
     },

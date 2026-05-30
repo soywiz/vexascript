@@ -164,6 +164,9 @@ function tokenizeForFormatting(source: string): FormatToken[] {
           }
         }
       }
+      if (i < source.length && (source[i] === "n" || source[i] === "N" || source[i] === "L")) {
+        i += 1;
+      }
       tokens.push({ type: "number", value: source.slice(start, i) });
       continue;
     }

@@ -243,7 +243,7 @@ describe("Analysis", () => {
 
     expect(messages.some((message) => message.includes("Unknown type 'Point'"))).toBe(false);
     expect(messages).toContain(
-      "Unknown type 'MissingType'. Expected builtin type (int, number, string, boolean) or declared class/interface"
+      "Unknown type 'MissingType'. Expected builtin type (int, number, string, boolean, bigint, long) or declared class/interface"
     );
   });
 
@@ -292,5 +292,21 @@ describe("Analysis", () => {
 
     expect(symbols.get("a")?.valueType).toBe("number");
     expect(symbols.get("b")?.valueType).toBe("number");
+  });
+
+  it("infers bigint and long literal and arithmetic types", () => {
+    const source =
+      "let a = 10n\n" +
+      "let b = 20n\n" +
+      "let c = a + b\n" +
+      "let x = 10L\n" +
+      "let y = 20L\n" +
+      "let z = x + y\n";
+    const symbols = symbolsOfVisibleSymbolsAt(source, 5, 5);
+
+    expect(symbols.get("a")?.valueType).toBe("bigint");
+    expect(symbols.get("c")?.valueType).toBe("bigint");
+    expect(symbols.get("x")?.valueType).toBe("long");
+    expect(symbols.get("z")?.valueType).toBe("long");
   });
 });

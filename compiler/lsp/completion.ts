@@ -11,6 +11,8 @@ const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "interface", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "int", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "number", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
+  { label: "bigint", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
+  { label: "long", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "string", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "boolean", kind: CompletionItemKind.Keyword, detail: "Builtin type" }
 ];

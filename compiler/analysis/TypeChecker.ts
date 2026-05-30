@@ -1,6 +1,7 @@
 import type {
   ArrayLiteral,
   AssignmentExpression,
+  BigIntLiteral,
   BinaryExpression,
   BlockStatement,
   CallExpression,
@@ -25,7 +26,8 @@ import type {
   UnaryExpression,
   UpdateExpression,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  LongLiteral
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import type {
@@ -54,7 +56,14 @@ export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
   private readonly identifierResolutions: IdentifierResolution[] = [];
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
-  private static readonly BUILTIN_TYPE_NAMES = new Set(["int", "number", "string", "boolean"]);
+  private static readonly BUILTIN_TYPE_NAMES = new Set([
+    "int",
+    "number",
+    "string",
+    "boolean",
+    "bigint",
+    "long"
+  ]);
 
   constructor(
     private readonly program: Program,
@@ -411,6 +420,12 @@ export class TypeChecker {
       case "FloatLiteral":
         result = builtinType("number");
         break;
+      case "BigIntLiteral":
+        result = builtinType("bigint");
+        break;
+      case "LongLiteral":
+        result = builtinType("long");
+        break;
       case "StringLiteral":
         result = builtinType("string");
         break;
@@ -450,6 +465,12 @@ export class TypeChecker {
       operator === "|" ||
       operator === "^"
     ) {
+      if (this.isBigIntType(leftType) && this.isBigIntType(rightType)) {
+        return builtinType("bigint");
+      }
+      if (this.isLongType(leftType) && this.isLongType(rightType)) {
+        return builtinType("long");
+      }
       return this.isIntType(leftType) && this.isIntType(rightType) ? builtinType("int") : UNKNOWN_TYPE;
     }
 
@@ -508,7 +529,9 @@ export class TypeChecker {
     }
 
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(typeAnnotation.name)) {
-      return builtinType(typeAnnotation.name as "int" | "number" | "string" | "boolean");
+      return builtinType(
+        typeAnnotation.name as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+      );
     }
 
     const symbol = this.resolve(typeAnnotation.name, scope, undefined);
@@ -517,7 +540,7 @@ export class TypeChecker {
     }
 
     this.issues.push({
-      message: `Unknown type '${typeAnnotation.name}'. Expected builtin type (int, number, string, boolean) or declared class/interface`,
+      message: `Unknown type '${typeAnnotation.name}'. Expected builtin type (int, number, string, boolean, bigint, long) or declared class/interface`,
       node: typeAnnotation
     });
     return UNKNOWN_TYPE;
@@ -576,6 +599,14 @@ export class TypeChecker {
 
   private isIntType(type: AnalysisType): boolean {
     return type.kind === "builtin" && type.name === "int";
+  }
+
+  private isBigIntType(type: AnalysisType): boolean {
+    return type.kind === "builtin" && type.name === "bigint";
+  }
+
+  private isLongType(type: AnalysisType): boolean {
+    return type.kind === "builtin" && type.name === "long";
   }
 
   private isNumberType(type: AnalysisType): boolean {

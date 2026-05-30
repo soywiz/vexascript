@@ -39,4 +39,15 @@ describe("transpile", () => {
       "let values = (function*(s, e) { for (let n = s; n < e; n++) yield n })(0, 10);"
     );
   });
+
+  it("wraps long arithmetic with BigInt.asIntN(64, ...)", () => {
+    const source = "let a: long = 10L\nlet b: long = 20L\nlet c = a + b";
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("let a = 10n;");
+    expect(result.code).toContain("let b = 20n;");
+    expect(result.code).toContain("let c = BigInt.asIntN(64, a + b);");
+  });
 });

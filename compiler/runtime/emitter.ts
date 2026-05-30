@@ -1,6 +1,7 @@
 import type {
   ArrayLiteral,
   AssignmentExpression,
+  BigIntLiteral,
   BinaryExpression,
   BlockStatement,
   CallExpression,
@@ -19,6 +20,7 @@ import type {
   IfStatement,
   ImportStatement,
   IntLiteral,
+  LongLiteral,
   MemberExpression,
   NewExpression,
   ObjectLiteral,
@@ -34,6 +36,8 @@ import type {
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
+import type { Node } from "compiler/ast/ast";
+import type { AnalysisType } from "compiler/analysis/types";
 
 type Assoc = "left" | "right";
 
@@ -53,6 +57,7 @@ const PREC_UNARY = 13;
 const PREC_UPDATE = 14;
 const PREC_MEMBER = 15;
 const PREC_PRIMARY = 16;
+let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
 
 function normalizeVarKind(kind: string): "let" | "var" | "const" {
   if (kind === "val") {
@@ -132,6 +137,18 @@ function emitIdentifier(identifier: Identifier): string {
   return identifier.name;
 }
 
+function isLongExpression(expression: Expr): boolean {
+  const type = activeExpressionTypes?.get(expression as unknown as Node);
+  return type?.kind === "builtin" && type.name === "long";
+}
+
+function wrapLongExpressionIfNeeded(expression: Expr, text: string): string {
+  if (!isLongExpression(expression)) {
+    return text;
+  }
+  return `BigInt.asIntN(64, ${text})`;
+}
+
 function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "left" | "right" = "left"): string {
   const currentPrecedence = expressionPrecedence(expression);
 
@@ -141,6 +158,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         return String((expression as IntLiteral).value);
       case "FloatLiteral":
         return String((expression as FloatLiteral).value);
+      case "BigIntLiteral":
+        return `${(expression as BigIntLiteral).value}n`;
+      case "LongLiteral":
+        return `${(expression as LongLiteral).value}n`;
       case "StringLiteral":
         return JSON.stringify((expression as StringLiteral).value);
       case "Identifier":
@@ -160,7 +181,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
 
         const leftText = maybeWrap(emitExpression(binary.left, precedence, "left"), leftChildNeedsWrap);
         const rightText = maybeWrap(emitExpression(binary.right, precedence, "right"), rightChildNeedsWrap);
-        return `${leftText} ${binary.operator} ${rightText}`;
+        const binaryText = `${leftText} ${binary.operator} ${rightText}`;
+        return wrapLongExpressionIfNeeded(expression, binaryText);
       }
       case "RangeExpression": {
         const range = expression as RangeExpression;
@@ -196,7 +218,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "UnaryExpression": {
         const unary = expression as UnaryExpression;
-        return `${unary.operator}${emitExpression(unary.argument, PREC_UNARY, "right")}`;
+        const unaryText = `${unary.operator}${emitExpression(unary.argument, PREC_UNARY, "right")}`;
+        return wrapLongExpressionIfNeeded(expression, unaryText);
       }
       case "UpdateExpression": {
         const update = expression as UpdateExpression;
@@ -461,9 +484,18 @@ export function emitStatement(statement: Statement): string {
   }
 }
 
-export function emitProgram(program: Program): string {
-  return program.body
-    .map((statement) => emitStatement(statement))
-    .filter((statement) => statement.trim().length > 0)
-    .join("\n");
+export function emitProgram(
+  program: Program,
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>
+): string {
+  const previous = activeExpressionTypes;
+  activeExpressionTypes = expressionTypes;
+  try {
+    return program.body
+      .map((statement) => emitStatement(statement))
+      .filter((statement) => statement.trim().length > 0)
+      .join("\n");
+  } finally {
+    activeExpressionTypes = previous;
+  }
 }

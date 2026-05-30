@@ -57,6 +57,8 @@ const CODE_GT = 62; // >
 const CODE_QUESTION = 63; // ?
 const CODE_A_UPPER = 65; // A
 const CODE_F_UPPER = 70; // F
+const CODE_L_UPPER = 76; // L
+const CODE_N_UPPER = 78; // N
 const CODE_Z_UPPER = 90; // Z
 const CODE_BACKSLASH = 92; // \
 const CODE_UNDERSCORE = 95; // _
@@ -223,6 +225,17 @@ function readNumber(reader: StrReader): string {
       });
     }
     while (reader.hasMore && isDigitCode(reader.peekCode())) {
+      advanceCode(reader);
+    }
+  }
+
+  if (reader.hasMore) {
+    const suffix = reader.peekCode();
+    if (
+      suffix === CODE_N_LOWER ||
+      suffix === CODE_N_UPPER ||
+      suffix === CODE_L_UPPER
+    ) {
       advanceCode(reader);
     }
   }

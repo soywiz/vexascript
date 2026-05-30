@@ -193,6 +193,8 @@ Supported literals:
 
 - integer literals (`10`)
 - decimal/scientific number literals (`10.573`, `10e-3`)
+- bigint literals (`10n`)
+- long literals (`10L`)
 - string literals (`"hello"`, `'hello'`)
 - array literals (`[1, 2, 3]`)
 - object literals (`{a: 1, b: 2}`)
@@ -457,7 +459,7 @@ switch (current) {
 
 ### Builtin types and assignability
 
-- Builtin types: `int`, `number`, `string`, `boolean`.
+- Builtin types: `int`, `number`, `string`, `boolean`, `bigint`, `long`.
 - `int` is assignable to `number`.
 - Other assignability checks are strict by type identity in the current version.
 
@@ -465,6 +467,13 @@ switch (current) {
 
 - Integer literals have type `int`.
 - Decimal/scientific numeric literals have type `number`.
+- BigInt literals have type `bigint`.
+- Long literals have type `long`.
+
+### Long runtime lowering
+
+- `long` literals are lowered to JavaScript `bigint` literals (`10L` -> `10n`).
+- Long arithmetic/bitwise expression results are wrapped as `BigInt.asIntN(64, expression)` to keep 64-bit signed behavior.
 - String literals have type `string`.
 - `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
 - `+` with at least one `string` operand infers `string`.

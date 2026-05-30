@@ -51,7 +51,7 @@ export function transpile(source: string): TranspileResult {
       return { code: "", warnings: [], errors };
     }
 
-    const emitted = emitProgram(ast);
+    const emitted = emitProgram(ast, analysis.getExpressionTypes());
     return {
       code: ensureTrailingSemicolon(emitted),
       warnings: [],

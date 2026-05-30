@@ -25,6 +25,16 @@ export interface FloatLiteral extends Node {
     value: number
 }
 
+export interface BigIntLiteral extends Node {
+    kind: "BigIntLiteral"
+    value: bigint
+}
+
+export interface LongLiteral extends Node {
+    kind: "LongLiteral"
+    value: bigint
+}
+
 export interface Identifier extends Node {
     kind: "Identifier"
     name: string

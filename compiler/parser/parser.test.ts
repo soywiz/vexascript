@@ -18,6 +18,15 @@ describe("parseExpression", () => {
         );
     });
 
+    it("builds an AST for bigint and long literals", () => {
+        expect(parseExpression(tokenizeReader("10n"))).toEqual(
+            { kind: "BigIntLiteral", value: 10n }
+        );
+        expect(parseExpression(tokenizeReader("20L"))).toEqual(
+            { kind: "LongLiteral", value: 20n }
+        );
+    });
+
     it("builds an AST for escaped string literal", () => {
         expect(parseExpression(tokenizeReader("\"hello\\n\\r\\t...world\""))).toEqual(
             { kind: "StringLiteral", value: "hello\n\r\t...world" }

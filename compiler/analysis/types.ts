@@ -1,4 +1,12 @@
-export type BuiltinTypeName = "int" | "number" | "string" | "boolean" | "null" | "undefined";
+export type BuiltinTypeName =
+  | "int"
+  | "number"
+  | "string"
+  | "boolean"
+  | "bigint"
+  | "long"
+  | "null"
+  | "undefined";
 
 export interface UnknownType {
   kind: "unknown";
@@ -50,6 +58,8 @@ export const BUILTIN_TYPES: Record<BuiltinTypeName, BuiltinType> = {
   number: { kind: "builtin", name: "number" },
   string: { kind: "builtin", name: "string" },
   boolean: { kind: "builtin", name: "boolean" },
+  bigint: { kind: "builtin", name: "bigint" },
+  long: { kind: "builtin", name: "long" },
   null: { kind: "builtin", name: "null" },
   undefined: { kind: "builtin", name: "undefined" }
 };

@@ -30,7 +30,7 @@ Scope notes:
 
 - Union and intersection types (`A | B`, `A & B`) in annotations.
 - Literal types (`"x"`, `123`, `true` as types).
-- `any`, `unknown`, `never`, `void`, `object`, `symbol`, `bigint`.
+- `any`, `unknown`, `never`, `void`, `object`, `symbol`.
 - Array and tuple types (`T[]`, `[A, B]`).
 - Function types (`(a: A) => B`).
 - Type literals (`{ a: string }` as type).
