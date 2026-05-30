@@ -139,4 +139,22 @@ describe("Analysis", () => {
 
     expect(messages).toContain("Undefined variable 'localValue'");
   });
+
+  it("validates assignment targets as l-values", () => {
+    const invalidSource = "20 = 10\n";
+    const invalidAst = parseFile(tokenizeReader(invalidSource));
+    const invalidAnalysis = new Analysis(invalidAst);
+    const invalidMessages = invalidAnalysis.getIssues().map((issue) => issue.message);
+    expect(invalidMessages).toContain(
+      "Invalid assignment target: left side must be an identifier or member access"
+    );
+
+    const validSource = "let a = 1\na.b[10].c = 20\n";
+    const validAst = parseFile(tokenizeReader(validSource));
+    const validAnalysis = new Analysis(validAst);
+    const validMessages = validAnalysis.getIssues().map((issue) => issue.message);
+    expect(validMessages).not.toContain(
+      "Invalid assignment target: left side must be an identifier or member access"
+    );
+  });
 });

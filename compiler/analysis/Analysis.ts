@@ -329,6 +329,12 @@ export class Analysis {
       }
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;
+        if (!this.isLValueExpression(assignment.left)) {
+          this.issues.push({
+            message: "Invalid assignment target: left side must be an identifier or member access",
+            node: assignment.left
+          });
+        }
         this.visitExpression(assignment.left, scope);
         this.visitExpression(assignment.right, scope);
         return;
@@ -384,6 +390,10 @@ export class Analysis {
       default:
         return;
     }
+  }
+
+  private isLValueExpression(expression: Expr): boolean {
+    return expression.kind === "Identifier" || expression.kind === "MemberExpression";
   }
 
   private findInnermostScope(scope: Scope, line: number, character: number): Scope | null {
