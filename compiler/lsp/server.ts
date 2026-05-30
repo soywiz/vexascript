@@ -16,6 +16,7 @@ import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
 import { Analysis } from "compiler/analysis/Analysis";
+import { collectDiagnostics } from "./diagnostics";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -52,103 +53,7 @@ connection.onInitialize(() => {
 
 function validateDocument(doc: TextDocument): void {
   const text = doc.getText();
-  const diagnostics: Diagnostic[] = [];
-
-  try {
-    const tokens = tokenize(text);
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-
-    for (const issue of parser.errors) {
-      const token = issue.token;
-      diagnostics.push({
-        severity: DiagnosticSeverity.Error,
-        range: token
-          ? {
-              start: {
-                line: token.range.start.line,
-                character: token.range.start.column
-              },
-              end: {
-                line: token.range.end.line,
-                character: token.range.end.column
-              }
-            }
-          : {
-              start: { line: 0, character: 0 },
-              end: { line: 0, character: 1 }
-            },
-        message: issue.message,
-        source: "mylang-ls"
-      });
-    }
-
-    if (parser.errors.length === 0) {
-      const analysis = new Analysis(ast);
-      for (const issue of analysis.getIssues()) {
-        const token = issue.node.firstToken;
-        if (!token) {
-          continue;
-        }
-        diagnostics.push({
-          severity: DiagnosticSeverity.Error,
-          range: {
-            start: {
-              line: token.range.start.line,
-              character: token.range.start.column
-            },
-            end: {
-              line: token.range.end.line,
-              character: token.range.end.column
-            }
-          },
-          message: issue.message,
-          source: "mylang-sema"
-        });
-      }
-    }
-  } catch (error) {
-    if (error instanceof TokenizeError) {
-      diagnostics.push({
-        severity: DiagnosticSeverity.Error,
-        range: {
-          start: {
-            line: error.range.start.line,
-            character: error.range.start.column
-          },
-          end: {
-            line: error.range.end.line,
-            character: error.range.end.column
-          }
-        },
-        message: error.message,
-        source: "mylang-ls"
-      });
-    } else {
-      diagnostics.push({
-        severity: DiagnosticSeverity.Error,
-        range: {
-          start: { line: 0, character: 0 },
-          end: { line: 0, character: 1 }
-        },
-        message: error instanceof Error ? error.message : String(error),
-        source: "mylang-ls"
-      });
-    }
-  }
-
-  const anyIndex = text.indexOf("any");
-  if (anyIndex >= 0) {
-    diagnostics.push({
-      severity: DiagnosticSeverity.Warning,
-      range: {
-        start: doc.positionAt(anyIndex),
-        end: doc.positionAt(anyIndex + 3)
-      },
-      message: "MyLang: avoid 'any' when possible.",
-      source: "mylang-ls"
-    });
-  }
+  const diagnostics = collectDiagnostics(text, (offset) => doc.positionAt(offset));
 
   connection.sendDiagnostics({ uri: doc.uri, diagnostics });
 }
