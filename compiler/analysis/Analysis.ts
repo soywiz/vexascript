@@ -1,18 +1,45 @@
 import type { Node, Program } from "compiler/ast/ast";
 import { Binder } from "./Binder";
-import type { AnalysisIssue, AnalysisSymbol, Scope } from "./model";
+import type {
+  AnalysisIssue,
+  AnalysisSymbol,
+  IdentifierResolution,
+  Scope
+} from "./model";
 import { TypeChecker } from "./TypeChecker";
+import { type AnalysisType, typeToString } from "./types";
 
 export type { AnalysisIssue, AnalysisSymbol, AnalysisSymbolKind, AnalysisValueType } from "./model";
+
+export interface AnalysisRange {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}
+
+export interface AnalysisSymbolMatch {
+  symbol: AnalysisSymbol;
+  range: AnalysisRange;
+}
+
+export interface AnalysisHoverInfo {
+  contents: string;
+  range: AnalysisRange;
+}
 
 export class Analysis {
   private readonly rootScope: Scope;
   private readonly issues: AnalysisIssue[];
+  private readonly identifierResolutions: IdentifierResolution[];
+  private readonly expressionTypes: Map<Node, AnalysisType>;
 
   constructor(program: Program) {
     const bound = new Binder(program).bind();
     this.rootScope = bound.rootScope;
-    this.issues = new TypeChecker(program, bound).check();
+
+    const checked = new TypeChecker(program, bound).check();
+    this.issues = checked.issues;
+    this.identifierResolutions = checked.identifierResolutions;
+    this.expressionTypes = checked.expressionTypes;
   }
 
   getVisibleSymbolsAt(line: number, character: number): AnalysisSymbol[] {
@@ -38,6 +65,141 @@ export class Analysis {
     return [...this.issues];
   }
 
+  getSymbolAt(line: number, character: number): AnalysisSymbolMatch | null {
+    for (const resolution of this.identifierResolutions) {
+      const range = this.nodeToRange(resolution.identifier);
+      if (range && this.rangeContains(range, line, character)) {
+        return { symbol: resolution.symbol, range };
+      }
+    }
+
+    const visible = this.getVisibleSymbolsAt(line, character);
+    let best: AnalysisSymbolMatch | null = null;
+    for (const symbol of visible) {
+      if (symbol.node.kind !== "Identifier") {
+        continue;
+      }
+      const range = this.nodeToRange(symbol.node);
+      if (range && this.rangeContains(range, line, character)) {
+        const candidate: AnalysisSymbolMatch = { symbol, range };
+        if (!best || this.rangeSize(candidate.range) < this.rangeSize(best.range)) {
+          best = candidate;
+        }
+      }
+    }
+    return best;
+  }
+
+  getDefinitionAt(line: number, character: number): AnalysisSymbolMatch | null {
+    const at = this.getSymbolAt(line, character);
+    if (!at) {
+      return null;
+    }
+
+    const range = this.nodeToRange(at.symbol.node);
+    if (!range) {
+      return null;
+    }
+
+    return {
+      symbol: at.symbol,
+      range
+    };
+  }
+
+  getRenameRangesAt(line: number, character: number): AnalysisRange[] {
+    const at = this.getSymbolAt(line, character);
+    if (!at) {
+      return [];
+    }
+
+    const symbol = at.symbol;
+    if (symbol.declaredOffset < 0) {
+      return [];
+    }
+
+    const ranges: AnalysisRange[] = [];
+    const seen = new Set<string>();
+
+    const declarationRange = this.nodeToRange(symbol.node);
+    if (declarationRange) {
+      const key = this.rangeKey(declarationRange);
+      if (!seen.has(key)) {
+        seen.add(key);
+        ranges.push(declarationRange);
+      }
+    }
+
+    for (const resolution of this.identifierResolutions) {
+      if (resolution.symbol !== symbol) {
+        continue;
+      }
+      const range = this.nodeToRange(resolution.identifier);
+      if (!range) {
+        continue;
+      }
+      const key = this.rangeKey(range);
+      if (!seen.has(key)) {
+        seen.add(key);
+        ranges.push(range);
+      }
+    }
+
+    return ranges;
+  }
+
+  getHoverAt(line: number, character: number): AnalysisHoverInfo | null {
+    const symbolMatch = this.getSymbolAt(line, character);
+    if (symbolMatch) {
+      const typeLabel = symbolMatch.symbol.valueType ?? "unknown";
+      return {
+        contents: `${symbolMatch.symbol.kind} ${symbolMatch.symbol.name}: ${typeLabel}`,
+        range: symbolMatch.range
+      };
+    }
+
+    const expressionMatch = this.findSmallestExpressionTypeAt(line, character);
+    if (!expressionMatch) {
+      return null;
+    }
+
+    return {
+      contents: `expression: ${typeToString(expressionMatch.type)}`,
+      range: expressionMatch.range
+    };
+  }
+
+  private findSmallestExpressionTypeAt(
+    line: number,
+    character: number
+  ): { type: AnalysisType; range: AnalysisRange } | null {
+    let best: { type: AnalysisType; range: AnalysisRange; size: number } | null = null;
+
+    for (const [node, type] of this.expressionTypes) {
+      const range = this.nodeToRange(node);
+      if (!range) {
+        continue;
+      }
+      if (!this.rangeContains(range, line, character)) {
+        continue;
+      }
+
+      const size = this.rangeSize(range);
+      if (!best || size < best.size) {
+        best = { type, range, size };
+      }
+    }
+
+    if (!best) {
+      return null;
+    }
+
+    return {
+      type: best.type,
+      range: best.range
+    };
+  }
+
   private findInnermostScope(scope: Scope, line: number, character: number): Scope | null {
     if (!this.nodeContainsPosition(scope.node, line, character)) {
       return null;
@@ -53,22 +215,52 @@ export class Analysis {
   }
 
   private nodeContainsPosition(node: Node, line: number, character: number): boolean {
-    if (!node.firstToken || !node.lastToken) {
+    const range = this.nodeToRange(node);
+    if (!range) {
       return true;
     }
+    return this.rangeContains(range, line, character);
+  }
 
-    const start = node.firstToken.range.start;
-    const end = node.lastToken.range.end;
+  private nodeToRange(node: Node): AnalysisRange | null {
+    if (!node.firstToken || !node.lastToken) {
+      return null;
+    }
 
-    if (line < start.line || line > end.line) {
+    return {
+      start: {
+        line: node.firstToken.range.start.line,
+        character: node.firstToken.range.start.column
+      },
+      end: {
+        line: node.lastToken.range.end.line,
+        character: node.lastToken.range.end.column
+      }
+    };
+  }
+
+  private rangeContains(range: AnalysisRange, line: number, character: number): boolean {
+    if (line < range.start.line || line > range.end.line) {
       return false;
     }
-    if (line === start.line && character < start.column) {
+    if (line === range.start.line && character < range.start.character) {
       return false;
     }
-    if (line === end.line && character > end.column) {
+    if (line === range.end.line && character > range.end.character) {
       return false;
     }
     return true;
+  }
+
+  private rangeSize(range: AnalysisRange): number {
+    const lineSpan = range.end.line - range.start.line;
+    if (lineSpan > 0) {
+      return lineSpan * 100000 + (range.end.character - range.start.character);
+    }
+    return range.end.character - range.start.character;
+  }
+
+  private rangeKey(range: AnalysisRange): string {
+    return `${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}`;
   }
 }

@@ -20,6 +20,12 @@ import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
 } from "./completion";
+import {
+  createDefinitionLocation,
+  createHover,
+  createPrepareRename,
+  createRenameWorkspaceEdit
+} from "./navigation";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
@@ -32,7 +38,12 @@ connection.onInitialize(() => {
         resolveProvider: false
       },
       codeActionProvider: true,
-      documentFormattingProvider: true
+      documentFormattingProvider: true,
+      definitionProvider: true,
+      hoverProvider: true,
+      renameProvider: {
+        prepareProvider: true
+      }
     }
   };
 });
@@ -212,6 +223,97 @@ connection.onDocumentFormatting((params): TextEdit[] => {
   }
 
   return [createFullDocumentFormatEdit(doc.getText())];
+});
+
+connection.onDefinition((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return null;
+  }
+
+  try {
+    const tokens = tokenize(doc.getText());
+    const parser = new Parser(new ListReader<Token>(tokens));
+    const ast = parser.parseFile();
+    if (parser.errors.length > 0) {
+      return null;
+    }
+    const analysis = new Analysis(ast);
+    return createDefinitionLocation(
+      analysis,
+      params.textDocument.uri,
+      params.position.line,
+      params.position.character
+    );
+  } catch {
+    return null;
+  }
+});
+
+connection.onHover((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return null;
+  }
+
+  try {
+    const tokens = tokenize(doc.getText());
+    const parser = new Parser(new ListReader<Token>(tokens));
+    const ast = parser.parseFile();
+    if (parser.errors.length > 0) {
+      return null;
+    }
+    const analysis = new Analysis(ast);
+    return createHover(analysis, params.position.line, params.position.character);
+  } catch {
+    return null;
+  }
+});
+
+connection.onPrepareRename((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return null;
+  }
+
+  try {
+    const tokens = tokenize(doc.getText());
+    const parser = new Parser(new ListReader<Token>(tokens));
+    const ast = parser.parseFile();
+    if (parser.errors.length > 0) {
+      return null;
+    }
+    const analysis = new Analysis(ast);
+    return createPrepareRename(analysis, params.position.line, params.position.character);
+  } catch {
+    return null;
+  }
+});
+
+connection.onRenameRequest((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return null;
+  }
+
+  try {
+    const tokens = tokenize(doc.getText());
+    const parser = new Parser(new ListReader<Token>(tokens));
+    const ast = parser.parseFile();
+    if (parser.errors.length > 0) {
+      return null;
+    }
+    const analysis = new Analysis(ast);
+    return createRenameWorkspaceEdit(
+      analysis,
+      params.textDocument.uri,
+      params.position.line,
+      params.position.character,
+      params.newName
+    );
+  } catch {
+    return null;
+  }
 });
 
 documents.listen(connection);

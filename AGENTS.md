@@ -23,9 +23,11 @@
 
 - Supported language syntax documentation lives in `docs/syntax.md`.
 - Pending TypeScript syntax roadmap lives in `docs/syntax.pending.md`.
+- Technical backlog and pending implementation tasks live in `docs/tasks.pending.md`.
 - Every time new language syntax support is added, `docs/syntax.md` must be updated in the same change.
 - Every time a pending syntax item is implemented, `docs/syntax.pending.md` must be updated in the same change (remove or mark the implemented item).
 - Every time new missing syntax is identified, `docs/syntax.pending.md` must be updated in the same change.
+- Every time a significant architectural or tooling gap is identified, `docs/tasks.pending.md` must be updated in the same change.
 
 ## Commands
 

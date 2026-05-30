@@ -62,10 +62,14 @@ export class Binder {
     return scope;
   }
 
-  private declare(scope: Scope, symbol: Omit<AnalysisSymbol, "declaredOffset">): void {
+  private declare(
+    scope: Scope,
+    symbol: Omit<AnalysisSymbol, "declaredOffset">,
+    declaredOffsetOverride?: number
+  ): void {
     scope.symbols.set(symbol.name, {
       ...symbol,
-      declaredOffset: symbolOffset(symbol.node)
+      declaredOffset: declaredOffsetOverride ?? symbolOffset(symbol.node)
     });
   }
 
@@ -77,7 +81,7 @@ export class Binder {
         node: this.program,
         type: symbolType,
         valueType: typeToString(symbolType)
-      });
+      }, -1);
     }
   }
 
@@ -91,7 +95,7 @@ export class Binder {
             this.declare(scope, {
               name: declaration.name.name,
               kind: "variable",
-              node: declaration,
+              node: declaration.name,
               type: symbolType,
               valueType: typeToString(symbolType)
             });
@@ -101,7 +105,7 @@ export class Binder {
           this.declare(scope, {
             name: variableStatement.name.name,
             kind: "variable",
-            node: variableStatement,
+            node: variableStatement.name,
             type: symbolType,
             valueType: typeToString(symbolType)
           });
@@ -121,7 +125,7 @@ export class Binder {
         this.declare(scope, {
           name: functionStatement.name.name,
           kind: "function",
-          node: functionStatement,
+          node: functionStatement.name,
           type: symbolType,
           valueType: typeToString(symbolType)
         });
@@ -134,7 +138,7 @@ export class Binder {
         this.declare(scope, {
           name: classStatement.name.name,
           kind: "class",
-          node: classStatement,
+          node: classStatement.name,
           type: symbolType,
           valueType: typeToString(symbolType)
         });
@@ -195,7 +199,7 @@ export class Binder {
         this.declare(scope, {
           name: declaration.name.name,
           kind: "variable",
-          node: declaration,
+          node: declaration.name,
           type: symbolType,
           valueType: typeToString(symbolType)
         });
@@ -207,7 +211,7 @@ export class Binder {
     this.declare(scope, {
       name: statement.name.name,
       kind: "variable",
-      node: statement,
+      node: statement.name,
       type: symbolType,
       valueType: typeToString(symbolType)
     });
@@ -225,7 +229,7 @@ export class Binder {
       this.declare(scope, {
         name: statement.name.name,
         kind: "function",
-        node: statement,
+        node: statement.name,
         type: symbolType,
         valueType: typeToString(symbolType)
       });
@@ -237,7 +241,7 @@ export class Binder {
       this.declare(functionScope, {
         name: parameter.name.name,
         kind: "parameter",
-        node: parameter,
+        node: parameter.name,
         type: parameterType,
         valueType: typeToString(parameterType)
       });
@@ -250,7 +254,7 @@ export class Binder {
     this.declare(scope, {
       name: statement.name.name,
       kind: "class",
-      node: statement,
+      node: statement.name,
       type: namedType(statement.name.name),
       valueType: statement.name.name
     });
@@ -269,7 +273,7 @@ export class Binder {
         this.declare(classScope, {
           name: method.name.name,
           kind: "method",
-          node: method,
+          node: method.name,
           type: methodType,
           valueType: typeToString(methodType)
         });
@@ -279,7 +283,7 @@ export class Binder {
           this.declare(methodScope, {
             name: parameter.name.name,
             kind: "parameter",
-            node: parameter,
+            node: parameter.name,
             type: parameterType,
             valueType: typeToString(parameterType)
           });

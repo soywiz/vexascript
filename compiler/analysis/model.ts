@@ -34,3 +34,14 @@ export interface BoundAnalysis {
   rootScope: Scope;
   scopeByNode: WeakMap<Node, Scope>;
 }
+
+export interface IdentifierResolution {
+  identifier: Node & { kind: "Identifier"; name: string };
+  symbol: AnalysisSymbol;
+}
+
+export interface CheckedAnalysis {
+  issues: AnalysisIssue[];
+  identifierResolutions: IdentifierResolution[];
+  expressionTypes: Map<Node, AnalysisType>;
+}

@@ -28,7 +28,14 @@ import type {
   WhileStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
-import type { AnalysisIssue, AnalysisSymbol, BoundAnalysis, FlowContext, Scope } from "./model";
+import type {
+  AnalysisSymbol,
+  BoundAnalysis,
+  CheckedAnalysis,
+  FlowContext,
+  IdentifierResolution,
+  Scope
+} from "./model";
 import {
   type AnalysisType,
   UNKNOWN_TYPE,
@@ -44,7 +51,9 @@ import {
 } from "./types";
 
 export class TypeChecker {
-  private readonly issues: AnalysisIssue[] = [];
+  private readonly issues: CheckedAnalysis["issues"] = [];
+  private readonly identifierResolutions: IdentifierResolution[] = [];
+  private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private static readonly BUILTIN_TYPE_NAMES = new Set(["int", "number", "string", "boolean"]);
 
   constructor(
@@ -52,9 +61,13 @@ export class TypeChecker {
     private readonly bound: BoundAnalysis
   ) {}
 
-  check(): AnalysisIssue[] {
+  check(): CheckedAnalysis {
     this.visitProgram(this.program, this.bound.rootScope, { loopDepth: 0, switchDepth: 0 });
-    return [...this.issues];
+    return {
+      issues: [...this.issues],
+      identifierResolutions: [...this.identifierResolutions],
+      expressionTypes: this.expressionTypes
+    };
   }
 
   private scopeFor(node: Node, fallback: Scope): Scope {
@@ -311,18 +324,21 @@ export class TypeChecker {
   }
 
   private visitExpression(expression: Expr, scope: Scope): AnalysisType {
+    let result: AnalysisType;
     switch (expression.kind) {
       case "BinaryExpression": {
         const binary = expression as BinaryExpression;
         const leftType = this.visitExpression(binary.left, scope);
         const rightType = this.visitExpression(binary.right, scope);
-        return this.inferBinaryType(binary.operator, leftType, rightType);
+        result = this.inferBinaryType(binary.operator, leftType, rightType);
+        break;
       }
       case "RangeExpression": {
         const range = expression as RangeExpression;
         this.visitExpression(range.start, scope);
         this.visitExpression(range.end, scope);
-        return rangeType(builtinType("int"));
+        result = rangeType(builtinType("int"));
+        break;
       }
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;
@@ -333,7 +349,8 @@ export class TypeChecker {
           });
         }
         this.visitExpression(assignment.left, scope);
-        return this.visitExpression(assignment.right, scope);
+        result = this.visitExpression(assignment.right, scope);
+        break;
       }
       case "MemberExpression": {
         const member = expression as MemberExpression;
@@ -341,7 +358,8 @@ export class TypeChecker {
         if (member.computed) {
           this.visitExpression(member.property, scope);
         }
-        return UNKNOWN_TYPE;
+        result = UNKNOWN_TYPE;
+        break;
       }
       case "CallExpression": {
         const call = expression as CallExpression;
@@ -349,7 +367,8 @@ export class TypeChecker {
         for (const argument of call.arguments) {
           this.visitExpression(argument, scope);
         }
-        return UNKNOWN_TYPE;
+        result = UNKNOWN_TYPE;
+        break;
       }
       case "NewExpression": {
         const newExpression = expression as NewExpression;
@@ -357,35 +376,48 @@ export class TypeChecker {
         for (const argument of newExpression.arguments ?? []) {
           this.visitExpression(argument, scope);
         }
-        return UNKNOWN_TYPE;
+        result = UNKNOWN_TYPE;
+        break;
       }
       case "UnaryExpression": {
         const unary = expression as UnaryExpression;
         const argumentType = this.visitExpression(unary.argument, scope);
         if ((unary.operator === "+" || unary.operator === "-") && this.isIntType(argumentType)) {
-          return builtinType("int");
+          result = builtinType("int");
+          break;
         }
-        return UNKNOWN_TYPE;
+        result = UNKNOWN_TYPE;
+        break;
       }
       case "UpdateExpression":
         this.visitExpression((expression as UpdateExpression).argument, scope);
-        return builtinType("int");
+        result = builtinType("int");
+        break;
       case "ArrayLiteral":
-        return this.inferArrayLiteralType(expression as ArrayLiteral, scope);
+        result = this.inferArrayLiteralType(expression as ArrayLiteral, scope);
+        break;
       case "ObjectLiteral":
         for (const property of (expression as ObjectLiteral).properties) {
           this.visitExpression(property.value, scope);
         }
-        return objectType();
+        result = objectType();
+        break;
       case "Identifier":
-        return this.resolveIdentifierType(expression as Node & { kind: "Identifier"; name: string }, scope);
+        result = this.resolveIdentifierType(expression as Node & { kind: "Identifier"; name: string }, scope);
+        break;
       case "IntLiteral":
-        return builtinType("int");
+        result = builtinType("int");
+        break;
       case "StringLiteral":
-        return builtinType("string");
+        result = builtinType("string");
+        break;
       default:
-        return UNKNOWN_TYPE;
+        result = UNKNOWN_TYPE;
+        break;
     }
+
+    this.expressionTypes.set(expression, result);
+    return result;
   }
 
   private inferBinaryType(
@@ -520,6 +552,7 @@ export class TypeChecker {
     const usageOffset = identifier.firstToken?.range.start.offset;
     const symbol = this.resolve(identifier.name, scope, usageOffset);
     if (symbol) {
+      this.identifierResolutions.push({ identifier, symbol });
       return symbol.type ?? UNKNOWN_TYPE;
     }
     this.issues.push({

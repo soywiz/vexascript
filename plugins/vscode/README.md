@@ -10,6 +10,13 @@ This extension wires VS Code `.my` files to the MyLang language server.
 - Starts the bundled server using:
   - `node ../../dist/mylang.js --lsp`
 - Uses stdio transport via `vscode-languageclient`.
+- Exposes LSP editor features including:
+  - diagnostics
+  - completion
+  - hover
+  - go-to-definition
+  - rename symbol
+  - formatting
 
 ## Local development
 
