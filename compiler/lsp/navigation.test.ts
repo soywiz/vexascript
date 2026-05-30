@@ -49,6 +49,17 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("provides class type hover for new expressions", () => {
+    const source = "class Point\nlet p = new Point()\n";
+    const analysis = analysisOf(source);
+
+    const expressionHover = createHover(analysis, 1, 9);
+    expect(expressionHover?.contents).toEqual({
+      kind: "plaintext",
+      value: "expression: Point"
+    });
+  });
+
   it("supports prepare rename and rename workspace edits", () => {
     const source = "fun demo() {\n  let local = 1\n  return local\n}\n";
     const analysis = analysisOf(source);

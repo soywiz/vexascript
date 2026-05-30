@@ -274,4 +274,13 @@ describe("Analysis", () => {
 
     expect(messages.some((message) => message.includes("'Point'"))).toBe(false);
   });
+
+  it("infers class type for new expressions", () => {
+    const source =
+      "class Point\n" +
+      "let p = new Point()\n";
+    const symbols = symbolsOfVisibleSymbolsAt(source, 1, 5);
+
+    expect(symbols.get("p")?.valueType).toBe("Point");
+  });
 });

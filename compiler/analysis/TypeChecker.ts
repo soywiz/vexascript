@@ -372,11 +372,11 @@ export class TypeChecker {
       }
       case "NewExpression": {
         const newExpression = expression as NewExpression;
-        this.visitExpression(newExpression.callee, scope);
+        const calleeType = this.visitExpression(newExpression.callee, scope);
         for (const argument of newExpression.arguments ?? []) {
           this.visitExpression(argument, scope);
         }
-        result = UNKNOWN_TYPE;
+        result = calleeType;
         break;
       }
       case "UnaryExpression": {
