@@ -49,6 +49,25 @@ describe("StrReader", () => {
         expect(reader.offset).toBe(3);
     });
 
+    it("tracks line and column while reading", () => {
+        const reader = new StrReader("a\nbc");
+
+        expect(reader.line).toBe(0);
+        expect(reader.column).toBe(0);
+
+        reader.read(); // a
+        expect(reader.line).toBe(0);
+        expect(reader.column).toBe(1);
+
+        reader.read(); // \n
+        expect(reader.line).toBe(1);
+        expect(reader.column).toBe(0);
+
+        reader.read(); // b
+        expect(reader.line).toBe(1);
+        expect(reader.column).toBe(1);
+    });
+
     it("returns empty string at eof when reading or peeking", () => {
         const reader = new StrReader("a");
 

@@ -68,29 +68,16 @@ const CODE_U_LOWER = 117; // u
 const CODE_Z_LOWER = 122; // z
 const CODE_PIPE = 124; // |
 
-interface Scanner {
-  reader: StrReader;
-  line: number;
-  column: number;
-}
-
-function snapshot(scanner: Scanner): SourcePosition {
+function snapshot(reader: StrReader): SourcePosition {
   return {
-    offset: scanner.reader.offset,
-    line: scanner.line,
-    column: scanner.column
+    offset: reader.offset,
+    line: reader.line,
+    column: reader.column
   };
 }
 
-function advanceCode(scanner: Scanner): number {
-  const code = scanner.reader.readCode();
-  if (code === 10) {
-    scanner.line += 1;
-    scanner.column = 0;
-  } else {
-    scanner.column += 1;
-  }
-  return code;
+function advanceCode(reader: StrReader): number {
+  return reader.readCode();
 }
 
 function isWhitespaceCode(code: number): boolean {
@@ -121,106 +108,106 @@ function isHexDigitCode(code: number): boolean {
   );
 }
 
-function peekNextCode(scanner: Scanner): number {
-  return scanner.reader.str.charCodeAt(scanner.reader.offset + 1);
+function peekNextCode(reader: StrReader): number {
+  return reader.str.charCodeAt(reader.offset + 1);
 }
 
-function readLineComment(scanner: Scanner): TokenComment {
-  const start = snapshot(scanner);
-  const startOffset = scanner.reader.offset;
-  advanceCode(scanner);
-  advanceCode(scanner);
+function readLineComment(reader: StrReader): TokenComment {
+  const start = snapshot(reader);
+  const startOffset = reader.offset;
+  advanceCode(reader);
+  advanceCode(reader);
 
-  while (scanner.reader.hasMore) {
-    if (scanner.reader.peekCode() === 10) {
-      const end = snapshot(scanner);
+  while (reader.hasMore) {
+    if (reader.peekCode() === 10) {
+      const end = snapshot(reader);
       return {
         kind: "line",
-        value: scanner.reader.str.slice(startOffset, scanner.reader.offset),
+        value: reader.str.slice(startOffset, reader.offset),
         range: { start, end }
       };
     }
-    advanceCode(scanner);
+    advanceCode(reader);
   }
 
-  const end = snapshot(scanner);
+  const end = snapshot(reader);
   return {
     kind: "line",
-    value: scanner.reader.str.slice(startOffset, scanner.reader.offset),
+    value: reader.str.slice(startOffset, reader.offset),
     range: { start, end }
   };
 }
 
-function readBlockComment(scanner: Scanner, start: SourcePosition): TokenComment {
-  const startOffset = scanner.reader.offset;
-  advanceCode(scanner);
-  advanceCode(scanner);
+function readBlockComment(reader: StrReader, start: SourcePosition): TokenComment {
+  const startOffset = reader.offset;
+  advanceCode(reader);
+  advanceCode(reader);
 
-  while (scanner.reader.hasMore) {
-    const code = scanner.reader.peekCode();
-    const nextCode = peekNextCode(scanner);
+  while (reader.hasMore) {
+    const code = reader.peekCode();
+    const nextCode = peekNextCode(reader);
     if (code === CODE_STAR && nextCode === CODE_SLASH) {
-      advanceCode(scanner);
-      advanceCode(scanner);
-      const end = snapshot(scanner);
+      advanceCode(reader);
+      advanceCode(reader);
+      const end = snapshot(reader);
       return {
         kind: "block",
-        value: scanner.reader.str.slice(startOffset, scanner.reader.offset),
+        value: reader.str.slice(startOffset, reader.offset),
         range: { start, end }
       };
     }
-    advanceCode(scanner);
+    advanceCode(reader);
   }
 
   throw new TokenizeError("Unterminated block comment", {
     start,
-    end: snapshot(scanner)
+    end: snapshot(reader)
   });
 }
 
-function readComment(scanner: Scanner): TokenComment | null {
-  if (!scanner.reader.hasMore || scanner.reader.peekCode() !== CODE_SLASH) {
+function readComment(reader: StrReader): TokenComment | null {
+  if (!reader.hasMore || reader.peekCode() !== CODE_SLASH) {
     return null;
   }
 
-  const nextCode = peekNextCode(scanner);
+  const nextCode = peekNextCode(reader);
   if (nextCode === CODE_SLASH) {
-    return readLineComment(scanner);
+    return readLineComment(reader);
   }
   if (nextCode === CODE_STAR) {
-    return readBlockComment(scanner, snapshot(scanner));
+    return readBlockComment(reader, snapshot(reader));
   }
 
   return null;
 }
 
-function readIdentifier(scanner: Scanner): string {
-  const start = scanner.reader.offset;
-  advanceCode(scanner);
-  while (scanner.reader.hasMore && isIdentifierPartCode(scanner.reader.peekCode())) {
-    advanceCode(scanner);
+function readIdentifier(reader: StrReader): string {
+  const start = reader.offset;
+  advanceCode(reader);
+  while (reader.hasMore && isIdentifierPartCode(reader.peekCode())) {
+    advanceCode(reader);
   }
-  return scanner.reader.str.slice(start, scanner.reader.offset);
+  return reader.str.slice(start, reader.offset);
 }
 
-function readNumber(scanner: Scanner): string {
-  const start = scanner.reader.offset;
-  advanceCode(scanner);
-  while (scanner.reader.hasMore && isDigitCode(scanner.reader.peekCode())) {
-    advanceCode(scanner);
+function readNumber(reader: StrReader): string {
+  const start = reader.offset;
+  advanceCode(reader);
+  while (reader.hasMore && isDigitCode(reader.peekCode())) {
+    advanceCode(reader);
   }
-  return scanner.reader.str.slice(start, scanner.reader.offset);
+  return reader.str.slice(start, reader.offset);
 }
 
-function readEscapedString(scanner: Scanner, quoteCode: number, start: SourcePosition): string {
-  advanceCode(scanner);
+function readEscapedString(reader: StrReader, quoteCode: number, start: SourcePosition): string {
+  advanceCode(reader);
   let value = "";
-  let segmentStart = scanner.reader.offset;
+  let segmentStart = reader.offset;
 
-  while (scanner.reader.hasMore) {
-    const code = advanceCode(scanner);
+  while (reader.hasMore) {
+    const code = advanceCode(reader);
     if (code === quoteCode) {
-      value += scanner.reader.str.slice(segmentStart, scanner.reader.offset - 1);
+      value += reader.str.slice(segmentStart, reader.offset - 1);
       return value;
     }
 
@@ -228,16 +215,16 @@ function readEscapedString(scanner: Scanner, quoteCode: number, start: SourcePos
       continue;
     }
 
-    value += scanner.reader.str.slice(segmentStart, scanner.reader.offset - 1);
+    value += reader.str.slice(segmentStart, reader.offset - 1);
 
-    if (!scanner.reader.hasMore) {
+    if (!reader.hasMore) {
       throw new TokenizeError("Unterminated escape sequence in string literal", {
         start,
-        end: snapshot(scanner)
+        end: snapshot(reader)
       });
     }
 
-    const escCode = advanceCode(scanner);
+    const escCode = advanceCode(reader);
     if (escCode === CODE_N_LOWER) {
       value += "\n";
     } else if (escCode === CODE_R_LOWER) {
@@ -253,17 +240,17 @@ function readEscapedString(scanner: Scanner, quoteCode: number, start: SourcePos
     } else if (escCode === CODE_U_LOWER) {
       let hexCodePoint = 0;
       for (let i = 0; i < 4; i++) {
-        if (!scanner.reader.hasMore) {
+        if (!reader.hasMore) {
           throw new TokenizeError("Invalid unicode escape sequence in string literal", {
             start,
-            end: snapshot(scanner)
+            end: snapshot(reader)
           });
         }
-        const hexCode = advanceCode(scanner);
+        const hexCode = advanceCode(reader);
         if (!isHexDigitCode(hexCode)) {
           throw new TokenizeError("Invalid unicode escape sequence in string literal", {
             start,
-            end: snapshot(scanner)
+            end: snapshot(reader)
           });
         }
         hexCodePoint <<= 4;
@@ -279,144 +266,144 @@ function readEscapedString(scanner: Scanner, quoteCode: number, start: SourcePos
     } else {
       throw new TokenizeError(
         `Unsupported escape sequence \\${String.fromCharCode(escCode)} in string literal`,
-        { start, end: snapshot(scanner) }
+        { start, end: snapshot(reader) }
       );
     }
 
-    segmentStart = scanner.reader.offset;
+    segmentStart = reader.offset;
   }
 
   throw new TokenizeError("Unterminated string literal", {
     start,
-    end: snapshot(scanner)
+    end: snapshot(reader)
   });
 }
 
-function readSymbol(scanner: Scanner): string {
-  const ch = advanceCode(scanner);
-  const next = scanner.reader.peekCode();
+function readSymbol(reader: StrReader): string {
+  const ch = advanceCode(reader);
+  const next = reader.peekCode();
 
   if (ch === CODE_PIPE && next === CODE_PIPE) {
-    advanceCode(scanner);
-    if (scanner.reader.peekCode() === CODE_EQUALS) {
-      advanceCode(scanner);
+    advanceCode(reader);
+    if (reader.peekCode() === CODE_EQUALS) {
+      advanceCode(reader);
       return "||=";
     }
     return "||";
   }
   if (ch === CODE_PIPE && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "|=";
   }
 
   if (ch === CODE_AMPERSAND && next === CODE_AMPERSAND) {
-    advanceCode(scanner);
-    if (scanner.reader.peekCode() === CODE_EQUALS) {
-      advanceCode(scanner);
+    advanceCode(reader);
+    if (reader.peekCode() === CODE_EQUALS) {
+      advanceCode(reader);
       return "&&=";
     }
     return "&&";
   }
   if (ch === CODE_AMPERSAND && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "&=";
   }
 
   if (ch === CODE_PLUS && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "+=";
   }
   if (ch === CODE_PLUS && next === CODE_PLUS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "++";
   }
   if (ch === CODE_QUESTION && next === CODE_DOT) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "?.";
   }
   if (ch === CODE_BANG && next === CODE_DOT) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "!.";
   }
   if (
     ch === CODE_DOT &&
     next === CODE_DOT &&
-    scanner.reader.str.charCodeAt(scanner.reader.offset + 1) === CODE_DOT
+    reader.str.charCodeAt(reader.offset + 1) === CODE_DOT
   ) {
-    advanceCode(scanner);
-    advanceCode(scanner);
+    advanceCode(reader);
+    advanceCode(reader);
     return "...";
   }
   if (ch === CODE_EQUALS && next === CODE_EQUALS) {
-    advanceCode(scanner);
-    if (scanner.reader.peekCode() === CODE_EQUALS) {
-      advanceCode(scanner);
+    advanceCode(reader);
+    if (reader.peekCode() === CODE_EQUALS) {
+      advanceCode(reader);
       return "===";
     }
     return "==";
   }
   if (ch === CODE_BANG && next === CODE_EQUALS) {
-    advanceCode(scanner);
-    if (scanner.reader.peekCode() === CODE_EQUALS) {
-      advanceCode(scanner);
+    advanceCode(reader);
+    if (reader.peekCode() === CODE_EQUALS) {
+      advanceCode(reader);
       return "!==";
     }
     return "!=";
   }
   if (ch === CODE_MINUS && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "-=";
   }
   if (ch === CODE_MINUS && next === CODE_MINUS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "--";
   }
   if (ch === CODE_STAR && next === CODE_STAR) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "**";
   }
   if (ch === CODE_STAR && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "*=";
   }
   if (ch === CODE_SLASH && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "/=";
   }
   if (ch === CODE_PERCENT && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "%=";
   }
   if (ch === CODE_LT && next === CODE_LT) {
-    advanceCode(scanner);
-    if (scanner.reader.peekCode() === CODE_EQUALS) {
-      advanceCode(scanner);
+    advanceCode(reader);
+    if (reader.peekCode() === CODE_EQUALS) {
+      advanceCode(reader);
       return "<<=";
     }
     return "<<";
   }
   if (ch === CODE_LT && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return "<=";
   }
   if (ch === CODE_GT && next === CODE_GT) {
-    advanceCode(scanner);
-    if (scanner.reader.peekCode() === CODE_GT) {
-      advanceCode(scanner);
-      if (scanner.reader.peekCode() === CODE_EQUALS) {
-        advanceCode(scanner);
+    advanceCode(reader);
+    if (reader.peekCode() === CODE_GT) {
+      advanceCode(reader);
+      if (reader.peekCode() === CODE_EQUALS) {
+        advanceCode(reader);
         return ">>>=";
       }
       return ">>>";
     }
-    if (scanner.reader.peekCode() === CODE_EQUALS) {
-      advanceCode(scanner);
+    if (reader.peekCode() === CODE_EQUALS) {
+      advanceCode(reader);
       return ">>=";
     }
     return ">>";
   }
   if (ch === CODE_GT && next === CODE_EQUALS) {
-    advanceCode(scanner);
+    advanceCode(reader);
     return ">=";
   }
 
@@ -424,43 +411,39 @@ function readSymbol(scanner: Scanner): string {
 }
 
 export function tokenize(input: string): Token[] {
-  const scanner: Scanner = {
-    reader: new StrReader(input),
-    line: 0,
-    column: 0
-  };
+  const reader = new StrReader(input);
   const tokens: Token[] = [];
   let pendingComments: TokenComment[] = [];
 
-  while (scanner.reader.hasMore) {
-    const code = scanner.reader.peekCode();
+  while (reader.hasMore) {
+    const code = reader.peekCode();
     if (isWhitespaceCode(code)) {
-      advanceCode(scanner);
+      advanceCode(reader);
       continue;
     }
 
-    const comment = readComment(scanner);
+    const comment = readComment(reader);
     if (comment) {
       pendingComments.push(comment);
       continue;
     }
 
-    const start = snapshot(scanner);
+    const start = snapshot(reader);
     let type: Token["type"];
     let value: string;
 
     if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
       type = "string";
-      value = readEscapedString(scanner, code, start);
+      value = readEscapedString(reader, code, start);
     } else if (isIdentifierStartCode(code)) {
       type = "identifier";
-      value = readIdentifier(scanner);
+      value = readIdentifier(reader);
     } else if (isDigitCode(code)) {
       type = "number";
-      value = readNumber(scanner);
+      value = readNumber(reader);
     } else {
       type = "symbol";
-      value = readSymbol(scanner);
+      value = readSymbol(reader);
     }
 
     tokens.push({
@@ -469,14 +452,14 @@ export function tokenize(input: string): Token[] {
       index: tokens.length,
       range: {
         start,
-        end: snapshot(scanner)
+        end: snapshot(reader)
       },
       leadingComments: pendingComments.length > 0 ? pendingComments : undefined
     });
     pendingComments = [];
   }
 
-  const eofPosition = snapshot(scanner);
+  const eofPosition = snapshot(reader);
   tokens.push({
     type: "eof",
     value: "<eof>",

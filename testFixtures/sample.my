@@ -5,6 +5,7 @@ declare class Console {
 declare var console: Console
 
 console.log(42)
-for (n in 0...10) {
+
+for (n in 1...4) {
     console.log(n)
 }
