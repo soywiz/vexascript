@@ -52,6 +52,8 @@ describe("VS Code extension syntax highlighting", () => {
       )?.patterns?.[0]?.patterns?.[0]?.match ?? "";
 
     expect(keywordPatterns.join(" ")).toContain("let");
+    expect(keywordPatterns.join(" ")).toContain("import");
+    expect(keywordPatterns.join(" ")).toContain("from");
     expect(keywordPatterns.join(" ")).toContain("var");
     expect(keywordPatterns.join(" ")).toContain("val");
     expect(keywordPatterns.join(" ")).toContain("const");

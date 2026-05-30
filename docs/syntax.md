@@ -101,6 +101,15 @@ fun demo(a, b): Int {
 }
 ```
 
+## Imports
+
+MyLang supports named imports at top level:
+
+```mylang
+import { Point } from "./a"
+import { Point, Vector } from "./geometry/types"
+```
+
 ## Classes
 
 ### Class declarations
@@ -410,11 +419,12 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports ambient declarations (`declare function`, `declare class`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, and `switch` / `case` / `default`.
+When the parser runs in `typescript` mode, it supports named imports (`import { ... } from "..."`), ambient declarations (`declare function`, `declare class`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, and `switch` / `case` / `default`.
 
 Example:
 
 ```typescript
+import { Point } from "./a";
 declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
 declare class Console {
   log(a: number)

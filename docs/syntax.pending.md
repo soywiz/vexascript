@@ -10,7 +10,7 @@ Scope notes:
 
 ## Program and Modules
 
-- `import` declarations (`import x from`, named imports, namespace imports, side-effect imports).
+- `import` forms beyond named imports (`import x from`, namespace imports, side-effect imports, mixed/default+named combinations).
 - `export` declarations (`export const`, `export function`, `export class`, `export default`, `export { ... }`, `export * from`).
 - `export as namespace`.
 - `import type` / `export type`.

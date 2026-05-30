@@ -31,6 +31,11 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toContain("let value = 1 - (2 - 3);");
   });
 
+  it("emits named import statements", () => {
+    const program = parseFile(tokenizeReader("import { Point } from \"./a\""));
+    expect(emitProgram(program)).toBe("import { Point } from \"./a\";");
+  });
+
   it("omits ambient declare class/var statements from emitted JavaScript", () => {
     const program = parseFile(
       tokenizeReader("declare class Console { log(a: number) }\ndeclare var console: Console\nconsole.log(42)")

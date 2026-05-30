@@ -100,6 +100,17 @@ export interface ObjectLiteral extends Node {
     properties: ObjectProperty[]
 }
 
+export interface ImportSpecifier extends Node {
+    kind: "ImportSpecifier"
+    imported: Identifier
+}
+
+export interface ImportStatement extends Statement {
+    kind: "ImportStatement"
+    specifiers: ImportSpecifier[]
+    from: StringLiteral
+}
+
 export type FunctionDeclarationKind = "fun" | "function";
 
 export interface FunctionParameter extends Node {

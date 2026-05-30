@@ -4,13 +4,17 @@ import {
   TextDocuments,
   TextDocumentSyncKind,
   CodeActionKind,
+  type CodeAction,
+  type InitializeParams,
   type TextEdit
 } from "vscode-languageserver/node.js";
+import { fileURLToPath } from "node:url";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
+import { createAutoImportCodeActions } from "./importFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -26,8 +30,41 @@ import {
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
 const analysisSessions = new AnalysisSessionCache();
+let sourceRoots: string[] = [];
 
-connection.onInitialize(() => {
+function uriToFilePath(uri: string | null | undefined): string | null {
+  if (!uri || !uri.startsWith("file://")) {
+    return null;
+  }
+  try {
+    return fileURLToPath(uri);
+  } catch {
+    return null;
+  }
+}
+
+function resolveSourceRoots(params: InitializeParams): string[] {
+  const roots: string[] = [];
+  for (const folder of params.workspaceFolders ?? []) {
+    const path = uriToFilePath(folder.uri);
+    if (path) {
+      roots.push(path);
+    }
+  }
+
+  if (roots.length === 0) {
+    const rootUri = params.rootUri ?? undefined;
+    const rootPath = rootUri ? uriToFilePath(rootUri) : params.rootPath ?? undefined;
+    if (rootPath) {
+      roots.push(rootPath);
+    }
+  }
+
+  return roots;
+}
+
+connection.onInitialize((params) => {
+  sourceRoots = resolveSourceRoots(params);
   return {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -95,12 +132,10 @@ connection.onCodeAction((params) => {
     params.range.start.line,
     params.range.start.character
   );
-  if (!replacement) {
-    return [];
-  }
+  const actions: CodeAction[] = [];
 
-  return [
-    {
+  if (replacement) {
+    actions.push({
       title: `Replace '${replacement.from}' with '${replacement.to}'`,
       kind: CodeActionKind.QuickFix,
       edit: {
@@ -113,8 +148,18 @@ connection.onCodeAction((params) => {
           ]
         }
       }
-    }
-  ];
+    });
+  }
+
+  const autoImportActions = createAutoImportCodeActions({
+    uri: params.textDocument.uri,
+    ast: session.ast,
+    diagnostics: params.context.diagnostics,
+    sourceRoots
+  });
+  actions.push(...autoImportActions);
+
+  return actions;
 });
 
 connection.onDocumentFormatting((params): TextEdit[] => {

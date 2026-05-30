@@ -1241,6 +1241,23 @@ describe("parseStatement", () => {
             typeAnnotation: { kind: "Identifier", name: "number" }
         });
     });
+
+    it("parses named import statements", () => {
+        expect(parseStatement(tokenizeReader("import { Point, Demo } from \"./a\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "Point" }
+                },
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "Demo" }
+                }
+            ],
+            from: { kind: "StringLiteral", value: "./a" }
+        });
+    });
 });
 
 describe("parseProgram", () => {

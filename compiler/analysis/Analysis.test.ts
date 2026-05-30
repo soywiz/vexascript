@@ -261,4 +261,17 @@ describe("Analysis", () => {
     expect((mismatch?.node as { name?: string }).name).toBe("aa");
     expect(mismatch?.node.firstToken?.value).toBe("aa");
   });
+
+  it("resolves symbols introduced by import statements", () => {
+    const source =
+      "import { Point } from \"./a\"\n" +
+      "fun demo() {\n" +
+      "  return new Point()\n" +
+      "}\n";
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("'Point'"))).toBe(false);
+  });
 });

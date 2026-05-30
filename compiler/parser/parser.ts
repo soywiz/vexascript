@@ -22,6 +22,8 @@ import {
     FunctionStatement,
     Identifier,
     IfStatement,
+    ImportSpecifier,
+    ImportStatement,
     IntLiteral,
     MemberExpression,
     NewExpression,
@@ -159,6 +161,9 @@ export class Parser {
         const token = this.tokens.peek();
         if (token?.type === "identifier" && this.isVariableDeclarationKeyword(token.value)) {
             return this.parseVarStatement();
+        }
+        if (token?.type === "identifier" && token.value === "import") {
+            return this.parseImportStatement();
         }
         if (token?.type === "identifier" && this.isFunctionDeclarationKeyword(token.value)) {
             return this.parseFunctionStatement();
@@ -1183,6 +1188,82 @@ export class Parser {
         }
 
         return this.attachNodeBounds(declarator, nameToken, this.getLastReadToken() ?? nameToken);
+    }
+
+    private parseImportStatement(): ImportStatement {
+        const importKeyword = this.tokens.read();
+        if (importKeyword?.type !== "identifier" || importKeyword.value !== "import") {
+            this.fail("Expected 'import' statement", this.tokenAt(importKeyword));
+        }
+
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' after 'import'", this.tokenAt(openBrace));
+        }
+
+        const specifiers: ImportSpecifier[] = [];
+        while (this.tokens.hasMore) {
+            const maybeCloseBrace = this.tokens.peek();
+            if (maybeCloseBrace?.type === "symbol" && maybeCloseBrace.value === "}") {
+                this.tokens.skip();
+                break;
+            }
+
+            const nameToken = this.tokens.read();
+            if (nameToken?.type !== "identifier") {
+                this.fail("Expected imported symbol name", this.tokenAt(nameToken));
+            }
+            const imported = this.buildIdentifierFromToken(nameToken);
+            specifiers.push(
+                this.attachNodeBounds(
+                    {
+                        kind: "ImportSpecifier",
+                        imported
+                    } as ImportSpecifier,
+                    nameToken,
+                    nameToken
+                )
+            );
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                continue;
+            }
+            if (separator?.type === "symbol" && separator.value === "}") {
+                this.tokens.skip();
+                break;
+            }
+            this.fail("Expected ',' or '}' in import specifier list", this.tokenAt(separator));
+        }
+
+        if (specifiers.length === 0) {
+            this.fail("Expected at least one imported symbol", this.tokenAt());
+        }
+
+        const fromKeyword = this.tokens.read();
+        if (fromKeyword?.type !== "identifier" || fromKeyword.value !== "from") {
+            this.fail("Expected 'from' after import specifiers", this.tokenAt(fromKeyword));
+        }
+
+        const sourceToken = this.tokens.read();
+        if (sourceToken?.type !== "string") {
+            this.fail("Expected string literal module path in import statement", this.tokenAt(sourceToken));
+        }
+
+        const statement: ImportStatement = {
+            kind: "ImportStatement",
+            specifiers,
+            from: this.attachNodeBounds(
+                {
+                    kind: "StringLiteral",
+                    value: sourceToken.value
+                } as StringLiteral,
+                sourceToken,
+                sourceToken
+            )
+        };
+        return this.attachNodeBounds(statement, importKeyword, this.getLastReadToken() ?? importKeyword);
     }
 
     private parseFunctionStatement(): FunctionStatement {

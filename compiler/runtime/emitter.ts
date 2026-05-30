@@ -16,6 +16,7 @@ import type {
   FunctionStatement,
   Identifier,
   IfStatement,
+  ImportStatement,
   IntLiteral,
   MemberExpression,
   NewExpression,
@@ -378,6 +379,13 @@ function emitForStatement(statement: ForStatement): string {
 
 export function emitStatement(statement: Statement): string {
   switch (statement.kind) {
+    case "ImportStatement": {
+      const importStatement = statement as ImportStatement;
+      const names = importStatement.specifiers
+        .map((specifier) => specifier.imported.name)
+        .join(", ");
+      return `import { ${names} } from ${JSON.stringify(importStatement.from.value)};`;
+    }
     case "VarStatement":
       return emitVarStatement(statement as VarStatement);
     case "FunctionStatement": {
