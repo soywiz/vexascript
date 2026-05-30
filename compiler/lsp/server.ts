@@ -3,8 +3,6 @@ import {
   ProposedFeatures,
   TextDocuments,
   TextDocumentSyncKind,
-  type Diagnostic,
-  DiagnosticSeverity,
   CodeActionKind,
   type TextEdit
 } from "vscode-languageserver/node.js";
@@ -12,11 +10,11 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { ListReader } from "compiler/utils/ListReader";
 import { Program } from "compiler/ast/ast";
 import { Parser } from "compiler/parser/parser";
-import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
+import { tokenize, type Token } from "compiler/parser/tokenizer";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
-import { Analysis } from "compiler/analysis/Analysis";
 import { collectDiagnostics } from "./diagnostics";
+import { buildAnalysisForSource } from "./analysisSession";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -138,23 +136,16 @@ connection.onDefinition((params) => {
     return null;
   }
 
-  try {
-    const tokens = tokenize(doc.getText());
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-    if (parser.errors.length > 0) {
-      return null;
-    }
-    const analysis = new Analysis(ast);
-    return createDefinitionLocation(
-      analysis,
-      params.textDocument.uri,
-      params.position.line,
-      params.position.character
-    );
-  } catch {
+  const analysis = buildAnalysisForSource(doc.getText());
+  if (!analysis) {
     return null;
   }
+  return createDefinitionLocation(
+    analysis,
+    params.textDocument.uri,
+    params.position.line,
+    params.position.character
+  );
 });
 
 connection.onHover((params) => {
@@ -163,18 +154,11 @@ connection.onHover((params) => {
     return null;
   }
 
-  try {
-    const tokens = tokenize(doc.getText());
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-    if (parser.errors.length > 0) {
-      return null;
-    }
-    const analysis = new Analysis(ast);
-    return createHover(analysis, params.position.line, params.position.character);
-  } catch {
+  const analysis = buildAnalysisForSource(doc.getText());
+  if (!analysis) {
     return null;
   }
+  return createHover(analysis, params.position.line, params.position.character);
 });
 
 connection.onPrepareRename((params) => {
@@ -183,18 +167,11 @@ connection.onPrepareRename((params) => {
     return null;
   }
 
-  try {
-    const tokens = tokenize(doc.getText());
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-    if (parser.errors.length > 0) {
-      return null;
-    }
-    const analysis = new Analysis(ast);
-    return createPrepareRename(analysis, params.position.line, params.position.character);
-  } catch {
+  const analysis = buildAnalysisForSource(doc.getText());
+  if (!analysis) {
     return null;
   }
+  return createPrepareRename(analysis, params.position.line, params.position.character);
 });
 
 connection.onRenameRequest((params) => {
@@ -203,24 +180,17 @@ connection.onRenameRequest((params) => {
     return null;
   }
 
-  try {
-    const tokens = tokenize(doc.getText());
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-    if (parser.errors.length > 0) {
-      return null;
-    }
-    const analysis = new Analysis(ast);
-    return createRenameWorkspaceEdit(
-      analysis,
-      params.textDocument.uri,
-      params.position.line,
-      params.position.character,
-      params.newName
-    );
-  } catch {
+  const analysis = buildAnalysisForSource(doc.getText());
+  if (!analysis) {
     return null;
   }
+  return createRenameWorkspaceEdit(
+    analysis,
+    params.textDocument.uri,
+    params.position.line,
+    params.position.character,
+    params.newName
+  );
 });
 
 connection.onReferences((params) => {
@@ -229,24 +199,17 @@ connection.onReferences((params) => {
     return [];
   }
 
-  try {
-    const tokens = tokenize(doc.getText());
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-    if (parser.errors.length > 0) {
-      return [];
-    }
-    const analysis = new Analysis(ast);
-    return createReferences(
-      analysis,
-      params.textDocument.uri,
-      params.position.line,
-      params.position.character,
-      params.context.includeDeclaration
-    );
-  } catch {
+  const analysis = buildAnalysisForSource(doc.getText());
+  if (!analysis) {
     return [];
   }
+  return createReferences(
+    analysis,
+    params.textDocument.uri,
+    params.position.line,
+    params.position.character,
+    params.context.includeDeclaration
+  );
 });
 
 documents.listen(connection);
