@@ -5,31 +5,34 @@ This document tracks the current technical backlog for MyLang.
 ## High Priority
 
 - Add source maps to the transpile pipeline so JavaScript runtime errors map back to `.my` files.
-- Expose expression-level type lookup by position for LSP hover and richer completions.
-- Improve emitter output normalization with stable formatting rules (without changing semantics).
+- Add cross-file/project symbol indexing for global go-to-definition and find-references.
+- Introduce compilation phases with explicit contracts (`parse -> bind -> typecheck -> emit`) and reusable artifacts.
 
 ## Semantic Analysis
 
-- Add object shape types and basic property type checking.
+- Add object shape types and interface member resolution.
 - Improve array type propagation through expressions and assignments.
 - Expand function type compatibility rules beyond strict structural equality.
 - Add better diagnostics for type mismatches in nested expressions.
+- Add generic type parameters and instantiation flow (functions/classes/interfaces).
 
 ## Parser and Recovery
 
 - Add more recovery tests for nested malformed constructs (`if` inside `switch`, broken `for` headers, chained calls).
 - Improve recovery heuristics for ambiguous newline-heavy code.
+- Add token-level error nodes or recover markers in AST to improve downstream diagnostics quality.
 
 ## Transpilation and Runtime
 
 - Add optional transpile target modes (for example: conservative JS vs optimized JS).
 - Add integration tests for emitted JavaScript behavior on complex language features.
+- Add a lowering/optimization pass boundary before emission (instead of mixing optimizations directly in emitter).
 
 ## LSP and DX
 
-- Add hover support with inferred type details.
-- Add go-to-definition support for local and global symbols.
-- Add rename-symbol support with scope awareness.
+- Add completion ranking by scope distance and type relevance.
+- Add semantic token support (LSP semantic highlighting) to complement TextMate grammar.
+- Add diagnostics codes/severity taxonomy and quick-fix hooks for common semantic errors.
 
 ## Documentation
 

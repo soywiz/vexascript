@@ -7,14 +7,10 @@ import {
   type TextEdit
 } from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ListReader } from "compiler/utils/ListReader";
-import { Program } from "compiler/ast/ast";
-import { Parser } from "compiler/parser/parser";
-import { tokenize, type Token } from "compiler/parser/tokenizer";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
-import { collectDiagnostics } from "./diagnostics";
-import { buildAnalysisForSource } from "./analysisSession";
+import { collectDiagnosticsFromSession } from "./diagnostics";
+import { AnalysisSessionCache } from "./analysisSession";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -29,6 +25,7 @@ import {
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
+const analysisSessions = new AnalysisSessionCache();
 
 connection.onInitialize(() => {
   return {
@@ -51,13 +48,19 @@ connection.onInitialize(() => {
 
 function validateDocument(doc: TextDocument): void {
   const text = doc.getText();
-  const diagnostics = collectDiagnostics(text, (offset) => doc.positionAt(offset));
+  const session = analysisSessions.getForDocument(doc);
+  const diagnostics = collectDiagnosticsFromSession(session, text, (offset) =>
+    doc.positionAt(offset)
+  );
 
   connection.sendDiagnostics({ uri: doc.uri, diagnostics });
 }
 
 documents.onDidOpen((event) => validateDocument(event.document));
 documents.onDidChangeContent((event) => validateDocument(event.document));
+documents.onDidClose((event) => {
+  analysisSessions.delete(event.document.uri);
+});
 
 connection.onCompletion((params) => {
   const doc = documents.get(params.textDocument.uri);
@@ -65,18 +68,15 @@ connection.onCompletion((params) => {
     return createKeywordOnlyCompletionItems();
   }
 
-  try {
-    const tokens = tokenize(doc.getText());
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-    return createCompletionItemsForPosition(
-      ast,
-      params.position.line,
-      params.position.character
-    );
-  } catch {
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.ast) {
     return createKeywordOnlyCompletionItems();
   }
+  return createCompletionItemsForPosition(
+    session.ast,
+    params.position.line,
+    params.position.character
+  );
 });
 
 connection.onCodeAction((params) => {
@@ -85,17 +85,13 @@ connection.onCodeAction((params) => {
     return [];
   }
 
-  let ast: Program;
-  try {
-    const tokens = tokenize(doc.getText());
-    const parser = new Parser(new ListReader<Token>(tokens));
-    ast = parser.parseFile();
-  } catch {
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.ast) {
     return [];
   }
 
   const replacement = findDeclarationKeywordReplacementAtPosition(
-    ast,
+    session.ast,
     params.range.start.line,
     params.range.start.character
   );
@@ -136,7 +132,7 @@ connection.onDefinition((params) => {
     return null;
   }
 
-  const analysis = buildAnalysisForSource(doc.getText());
+  const analysis = analysisSessions.getForDocument(doc).analysis;
   if (!analysis) {
     return null;
   }
@@ -154,7 +150,7 @@ connection.onHover((params) => {
     return null;
   }
 
-  const analysis = buildAnalysisForSource(doc.getText());
+  const analysis = analysisSessions.getForDocument(doc).analysis;
   if (!analysis) {
     return null;
   }
@@ -167,7 +163,7 @@ connection.onPrepareRename((params) => {
     return null;
   }
 
-  const analysis = buildAnalysisForSource(doc.getText());
+  const analysis = analysisSessions.getForDocument(doc).analysis;
   if (!analysis) {
     return null;
   }
@@ -180,7 +176,7 @@ connection.onRenameRequest((params) => {
     return null;
   }
 
-  const analysis = buildAnalysisForSource(doc.getText());
+  const analysis = analysisSessions.getForDocument(doc).analysis;
   if (!analysis) {
     return null;
   }
@@ -199,7 +195,7 @@ connection.onReferences((params) => {
     return [];
   }
 
-  const analysis = buildAnalysisForSource(doc.getText());
+  const analysis = analysisSessions.getForDocument(doc).analysis;
   if (!analysis) {
     return [];
   }

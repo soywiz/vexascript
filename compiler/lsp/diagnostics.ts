@@ -3,10 +3,8 @@ import {
   DiagnosticSeverity,
   type Position
 } from "vscode-languageserver/node.js";
-import { Analysis } from "compiler/analysis/Analysis";
-import { Parser } from "compiler/parser/parser";
-import { TokenizeError, tokenize, type Token } from "compiler/parser/tokenizer";
-import { ListReader } from "compiler/utils/ListReader";
+import type { AnalysisSession } from "./analysisSession";
+import { createAnalysisSession } from "./analysisSession";
 
 function fallbackRange() {
   return {
@@ -15,48 +13,19 @@ function fallbackRange() {
   };
 }
 
-export function collectDiagnostics(
+export function collectDiagnosticsFromSession(
+  session: AnalysisSession,
   text: string,
   positionAt: (offset: number) => Position
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
 
-  try {
-    const tokens = tokenize(text);
-    const parser = new Parser(new ListReader<Token>(tokens));
-    const ast = parser.parseFile();
-
-    for (const issue of parser.errors) {
-      const token = issue.token;
-      diagnostics.push({
-        severity: DiagnosticSeverity.Error,
-        range: token
-          ? {
-              start: {
-                line: token.range.start.line,
-                character: token.range.start.column
-              },
-              end: {
-                line: token.range.end.line,
-                character: token.range.end.column
-              }
-            }
-          : fallbackRange(),
-        message: issue.message,
-        source: "mylang-ls"
-      });
-    }
-
-    try {
-      const analysis = new Analysis(ast);
-      for (const issue of analysis.getIssues()) {
-        const token = issue.node.firstToken;
-        if (!token) {
-          continue;
-        }
-        diagnostics.push({
-          severity: DiagnosticSeverity.Error,
-          range: {
+  for (const issue of session.parserErrors) {
+    const token = issue.token;
+    diagnostics.push({
+      severity: DiagnosticSeverity.Error,
+      range: token
+        ? {
             start: {
               line: token.range.start.line,
               character: token.range.start.column
@@ -65,42 +34,60 @@ export function collectDiagnostics(
               line: token.range.end.line,
               character: token.range.end.column
             }
-          },
-          message: issue.message,
-          source: "mylang-sema"
-        });
+          }
+        : fallbackRange(),
+      message: issue.message,
+      source: "mylang-ls"
+    });
+  }
+
+  if (session.tokenizeError) {
+    diagnostics.push({
+      severity: DiagnosticSeverity.Error,
+      range: {
+        start: {
+          line: session.tokenizeError.range.start.line,
+          character: session.tokenizeError.range.start.column
+        },
+        end: {
+          line: session.tokenizeError.range.end.line,
+          character: session.tokenizeError.range.end.column
+        }
+      },
+      message: session.tokenizeError.message,
+      source: "mylang-ls"
+    });
+  }
+
+  if (session.fatalError) {
+    diagnostics.push({
+      severity: DiagnosticSeverity.Error,
+      range: fallbackRange(),
+      message: session.fatalError,
+      source: "mylang-ls"
+    });
+  }
+
+  if (session.analysis) {
+    for (const issue of session.analysis.getIssues()) {
+      const token = issue.node.firstToken;
+      if (!token) {
+        continue;
       }
-    } catch (error) {
-      diagnostics.push({
-        severity: DiagnosticSeverity.Error,
-        range: fallbackRange(),
-        message: error instanceof Error ? error.message : String(error),
-        source: "mylang-ls"
-      });
-    }
-  } catch (error) {
-    if (error instanceof TokenizeError) {
       diagnostics.push({
         severity: DiagnosticSeverity.Error,
         range: {
           start: {
-            line: error.range.start.line,
-            character: error.range.start.column
+            line: token.range.start.line,
+            character: token.range.start.column
           },
           end: {
-            line: error.range.end.line,
-            character: error.range.end.column
+            line: token.range.end.line,
+            character: token.range.end.column
           }
         },
-        message: error.message,
-        source: "mylang-ls"
-      });
-    } else {
-      diagnostics.push({
-        severity: DiagnosticSeverity.Error,
-        range: fallbackRange(),
-        message: error instanceof Error ? error.message : String(error),
-        source: "mylang-ls"
+        message: issue.message,
+        source: "mylang-sema"
       });
     }
   }
@@ -119,4 +106,12 @@ export function collectDiagnostics(
   }
 
   return diagnostics;
+}
+
+export function collectDiagnostics(
+  text: string,
+  positionAt: (offset: number) => Position
+): Diagnostic[] {
+  const session = createAnalysisSession(text);
+  return collectDiagnosticsFromSession(session, text, positionAt);
 }
