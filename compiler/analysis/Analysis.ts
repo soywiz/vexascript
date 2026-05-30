@@ -64,7 +64,8 @@ export class Analysis {
     ["true", "boolean"],
     ["false", "boolean"],
     ["null", "null"],
-    ["undefined", "undefined"]
+    ["undefined", "undefined"],
+    ["console", "unknown"]
   ]);
 
   constructor(private readonly program: Program) {

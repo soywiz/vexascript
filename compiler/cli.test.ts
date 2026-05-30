@@ -32,6 +32,30 @@ describe("CLI", () => {
     expect(logSpy).toHaveBeenCalledWith(42);
   });
 
+  it("build command reports compilation errors to stderr and fails", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
+    const input = join(dir, "broken.my");
+    await writeFile(input, "let = 1", "utf8");
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runCli(["node", "mylang", "build", input])).rejects.toThrow("Compilation failed");
+    expect(errorSpy).toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain("error:");
+  });
+
+  it("run command reports compilation errors to stderr and fails", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
+    const input = join(dir, "broken-run.my");
+    await writeFile(input, "let = 1", "utf8");
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runCli(["node", "mylang", "run", input])).rejects.toThrow("Compilation failed");
+    expect(errorSpy).toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain("error:");
+  });
+
   it("tokens command prints token list as JSON", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "tokens.my");

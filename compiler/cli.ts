@@ -29,6 +29,12 @@ async function buildFile(input: string, out?: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
   const result = transpile(source);
+  if (result.errors.length > 0) {
+    for (const error of result.errors) {
+      console.error(`error: ${error}`);
+    }
+    throw new Error(`Compilation failed for ${sourcePath}`);
+  }
 
   const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
   await writeFile(outputPath, result.code, "utf8");
@@ -45,6 +51,12 @@ async function runFile(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
   const result = transpile(source);
+  if (result.errors.length > 0) {
+    for (const error of result.errors) {
+      console.error(`error: ${error}`);
+    }
+    throw new Error(`Compilation failed for ${sourcePath}`);
+  }
   const jsToExecute = `${result.code}\n//# sourceURL=${sourcePath}`;
   const moduleUrl = `data:text/javascript;base64,${Buffer.from(jsToExecute, "utf8").toString("base64")}`;
   await import(moduleUrl);
