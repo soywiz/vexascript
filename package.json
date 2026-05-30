@@ -8,8 +8,8 @@
     "mylang": "dist/mylang.js"
   },
   "scripts": {
-    "build": "rm -rf dist && esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' && chmod +x dist/mylang.js",
-    "cli": "pnpm build && node dist/mylang.js",
+    "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && chmod +x dist/mylang.js",
+    "cli": "pnpm --silent build && node dist/mylang.js",
     "vscodeext:install": "pnpm --dir plugins/vscode install",
     "vscodeext:launch": "pnpm vscodeext:install && pnpm build && code --new-window --extensionDevelopmentPath=./plugins/vscode .",
     "vscodeext:launch:insiders": "pnpm vscodeext:install && pnpm build && code-insiders --new-window --extensionDevelopmentPath=./plugins/vscode .",
