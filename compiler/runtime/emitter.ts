@@ -256,6 +256,9 @@ function emitVarStatementBody(statement: VarStatement): string {
 }
 
 function emitVarStatement(statement: VarStatement): string {
+  if (statement.declared) {
+    return "";
+  }
   return `${normalizeVarKind(statement.declarationKind)} ${emitVarStatementBody(statement)};`;
 }
 
@@ -386,6 +389,9 @@ export function emitStatement(statement: Statement): string {
     }
     case "ClassStatement": {
       const classStatement = statement as ClassStatement;
+      if (classStatement.declared) {
+        return "";
+      }
       const members = [...classStatement.members];
       const syntheticConstructor = emitClassPrimaryConstructor(classStatement.primaryConstructorParameters, members);
       const memberLines = [

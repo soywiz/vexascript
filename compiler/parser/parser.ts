@@ -166,6 +166,12 @@ export class Parser {
         if (this.isDeclareFunctionStart()) {
             return this.parseDeclareFunctionStatement();
         }
+        if (this.isDeclareVariableStart()) {
+            return this.parseDeclareVariableStatement();
+        }
+        if (this.isDeclareClassStart()) {
+            return this.parseDeclareClassStatement();
+        }
         if (this.isDeclareNamespaceStart()) {
             return this.parseDeclareNamespaceStatement();
         }
@@ -449,6 +455,28 @@ export class Parser {
             first.value === "declare" &&
             second?.type === "identifier" &&
             second.value === "function"
+        );
+    }
+
+    private isDeclareVariableStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "declare" &&
+            second?.type === "identifier" &&
+            this.isVariableDeclarationKeyword(second.value)
+        );
+    }
+
+    private isDeclareClassStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "declare" &&
+            second?.type === "identifier" &&
+            second.value === "class"
         );
     }
 
@@ -1243,6 +1271,50 @@ export class Parser {
         return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
     }
 
+    private parseDeclareVariableStatement(): VarStatement {
+        const declareKeyword = this.tokens.read();
+        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+            this.fail("Expected 'declare' before variable declaration", this.tokenAt(declareKeyword));
+        }
+
+        const variableKeyword = this.tokens.peek();
+        if (variableKeyword?.type !== "identifier" || !this.isVariableDeclarationKeyword(variableKeyword.value)) {
+            this.fail("Expected variable declaration keyword after 'declare'", this.tokenAt(variableKeyword));
+        }
+
+        const statement = this.parseVarStatement();
+        statement.declared = true;
+
+        const maybeSemicolon = this.tokens.peek();
+        if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
+            this.tokens.skip();
+        }
+
+        return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
+    }
+
+    private parseDeclareClassStatement(): ClassStatement {
+        const declareKeyword = this.tokens.read();
+        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+            this.fail("Expected 'declare' before class declaration", this.tokenAt(declareKeyword));
+        }
+
+        const classKeyword = this.tokens.peek();
+        if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
+            this.fail("Expected 'class' after 'declare'", this.tokenAt(classKeyword));
+        }
+
+        const statement = this.parseClassStatement(true);
+        statement.declared = true;
+
+        const maybeSemicolon = this.tokens.peek();
+        if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
+            this.tokens.skip();
+        }
+
+        return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
+    }
+
     private parseDeclareNamespaceStatement(): Statement {
         const declareKeyword = this.tokens.read();
         if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
@@ -1374,7 +1446,7 @@ export class Parser {
         return parameters;
     }
 
-    private parseClassMember(): ClassMember {
+    private parseClassMember(allowSignatureOnly: boolean = false): ClassMember {
         const memberNameToken = this.tokens.read();
         if (memberNameToken?.type !== "identifier") {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
@@ -1400,7 +1472,27 @@ export class Parser {
             }
 
             if (this.tokens.peek()?.type !== "symbol" || this.tokens.peek()?.value !== "{") {
-                this.fail("Expected '{' to start class method body", this.tokenAt());
+                if (!allowSignatureOnly) {
+                    this.fail("Expected '{' to start class method body", this.tokenAt());
+                }
+
+                const signatureOnlyBody = this.attachNodeBounds(
+                    { kind: "BlockStatement", body: [] } as BlockStatement,
+                    memberNameToken,
+                    this.getLastReadToken() ?? memberNameToken
+                );
+
+                const signatureOnlyMethod: ClassMethodMember = {
+                    kind: "ClassMethodMember",
+                    name: this.buildIdentifierFromToken(memberNameToken),
+                    parameters,
+                    body: signatureOnlyBody
+                };
+                if (returnType) {
+                    signatureOnlyMethod.returnType = returnType;
+                }
+
+                return this.attachNodeBounds(signatureOnlyMethod, memberNameToken, this.getLastReadToken() ?? memberNameToken);
             }
 
             const methodMember: ClassMethodMember = {
@@ -1508,7 +1600,7 @@ export class Parser {
         return parameters;
     }
 
-    private parseClassStatement(): ClassStatement {
+    private parseClassStatement(declared: boolean = false): ClassStatement {
         const classKeyword = this.tokens.read();
         if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
             this.fail("Expected class declaration statement", this.tokenAt(classKeyword));
@@ -1542,6 +1634,9 @@ export class Parser {
                     name: this.buildIdentifierFromToken(classNameToken),
                     members: []
                 };
+                if (declared) {
+                    statement.declared = true;
+                }
                 if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
                     statement.primaryConstructorParameters = primaryConstructorParameters;
                 }
@@ -1565,6 +1660,9 @@ export class Parser {
                     name: this.buildIdentifierFromToken(classNameToken),
                     members
                 };
+                if (declared) {
+                    statement.declared = true;
+                }
                 if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
                     statement.primaryConstructorParameters = primaryConstructorParameters;
                 }
@@ -1576,7 +1674,7 @@ export class Parser {
                 continue;
             }
 
-            const member = this.parseClassMember();
+            const member = this.parseClassMember(declared);
             members.push(member);
             this.consumeStatementSeparator("block", this.getLastReadToken());
         }

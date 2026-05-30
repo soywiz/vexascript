@@ -22,7 +22,7 @@ Scope notes:
 - `interface` declarations.
 - `enum` declarations (`enum` and `const enum`).
 - `namespace` / `module` declarations with full body parsing (currently skipped as opaque block).
-- `declare` declarations beyond `declare function` (for variables, classes, enums, namespaces, modules, etc.).
+- `declare` declarations beyond current support (`declare function`, `declare class`, `declare var/let/const/val`), including enums, namespaces/modules with typed members, and other ambient forms.
 - Variable declaration lists (`let a = 1, b = 2`).
 - Destructuring declarations (`let { a } = obj`, `let [x] = arr`).
 

@@ -30,4 +30,11 @@ describe("emitProgram", () => {
     const program = parseFile(tokenizeReader("let value = 1 - (2 - 3)"));
     expect(emitProgram(program)).toContain("let value = 1 - (2 - 3);");
   });
+
+  it("omits ambient declare class/var statements from emitted JavaScript", () => {
+    const program = parseFile(
+      tokenizeReader("declare class Console { log(a: number) }\ndeclare var console: Console\nconsole.log(42)")
+    );
+    expect(emitProgram(program)).toBe("console.log(42);");
+  });
 });

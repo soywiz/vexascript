@@ -60,14 +60,18 @@ function sum(a, b) {
 }
 ```
 
-### Ambient function declarations
+### Ambient declarations
 
-MyLang also supports ambient function declarations using `declare function`.
+MyLang supports ambient declarations with `declare` for functions, classes, and variables (`var` / `let` / `const` / `val`).
 
 Example:
 
 ```mylang
 declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
+declare class Console {
+  log(a: number)
+}
+declare var console: Console
 ```
 
 ### Parameters
@@ -406,12 +410,16 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function`, TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, and `switch` / `case` / `default`.
+When the parser runs in `typescript` mode, it supports ambient declarations (`declare function`, `declare class`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, and `switch` / `case` / `default`.
 
 Example:
 
 ```typescript
 declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
+declare class Console {
+  log(a: number)
+}
+declare var console: Console
 
 for (let i = 0; i < 10; i += 1) {
   const current = i;

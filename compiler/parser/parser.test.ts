@@ -1180,6 +1180,67 @@ describe("parseStatement", () => {
             body: { kind: "BlockStatement", body: [] }
         });
     });
+
+    it("parses 'declare class' with signature-only members", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("declare class Console { log(a: number) }"),
+                { language: "mylang" }
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            declared: true,
+            name: { kind: "Identifier", name: "Console" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "log" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "a" },
+                            typeAnnotation: { kind: "Identifier", name: "number" }
+                        }
+                    ],
+                    body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
+    it("parses 'declare var/let/const/val' declarations", () => {
+        expect(parseStatement(tokenizeReader("declare var console: Console"), { language: "mylang" })).toEqual({
+            kind: "VarStatement",
+            declared: true,
+            declarationKind: "var",
+            name: { kind: "Identifier", name: "console" },
+            typeAnnotation: { kind: "Identifier", name: "Console" }
+        });
+
+        expect(parseStatement(tokenizeReader("declare let value = 1"), { language: "mylang" })).toEqual({
+            kind: "VarStatement",
+            declared: true,
+            declarationKind: "let",
+            name: { kind: "Identifier", name: "value" },
+            initializer: { kind: "IntLiteral", value: 1 }
+        });
+
+        expect(parseStatement(tokenizeReader("declare const ready: boolean"), { language: "typescript" })).toEqual({
+            kind: "VarStatement",
+            declared: true,
+            declarationKind: "const",
+            name: { kind: "Identifier", name: "ready" },
+            typeAnnotation: { kind: "Identifier", name: "boolean" }
+        });
+
+        expect(parseStatement(tokenizeReader("declare val total: number"), { language: "mylang" })).toEqual({
+            kind: "VarStatement",
+            declared: true,
+            declarationKind: "val",
+            name: { kind: "Identifier", name: "total" },
+            typeAnnotation: { kind: "Identifier", name: "number" }
+        });
+    });
 });
 
 describe("parseProgram", () => {

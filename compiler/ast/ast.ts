@@ -112,6 +112,7 @@ export interface FunctionParameter extends Node {
 
 export interface VarStatement extends Statement {
     kind: "VarStatement"
+    declared?: boolean
     declarationKind: VariableDeclarationKind
     name: Identifier
     typeAnnotation?: Identifier
@@ -163,6 +164,7 @@ export interface ClassPrimaryConstructorParameter extends Node {
 
 export interface ClassStatement extends Statement {
     kind: "ClassStatement"
+    declared?: boolean
     name: Identifier
     primaryConstructorParameters?: ClassPrimaryConstructorParameter[]
     members: ClassMember[]
