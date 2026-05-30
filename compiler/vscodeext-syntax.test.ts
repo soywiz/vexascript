@@ -65,6 +65,10 @@ describe("VS Code extension syntax highlighting", () => {
     expect(keywordPatterns.join(" ")).toContain("switch");
     expect(keywordPatterns.join(" ")).toContain("case");
     expect(keywordPatterns.join(" ")).toContain("default");
+    expect(keywordPatterns.join(" ")).toContain("throw");
+    expect(keywordPatterns.join(" ")).toContain("try");
+    expect(keywordPatterns.join(" ")).toContain("catch");
+    expect(keywordPatterns.join(" ")).toContain("finally");
     expect(keywordPatterns.join(" ")).toContain("new");
     expect(operatorPatterns.join(" ")).toContain("\\+=");
     expect(operatorPatterns.join(" ")).toContain("\\*\\*");

@@ -1039,7 +1039,7 @@ describe("parseStatement", () => {
         });
     });
 
-    it("parses return/continue/break statements", () => {
+    it("parses return/throw/continue/break statements", () => {
         expect(parseStatement(tokenizeReader("return value"))).toEqual({
             kind: "ReturnStatement",
             expression: { kind: "Identifier", name: "value" }
@@ -1047,11 +1047,101 @@ describe("parseStatement", () => {
         expect(parseStatement(tokenizeReader("return"))).toEqual({
             kind: "ReturnStatement"
         });
+        expect(parseStatement(tokenizeReader("throw value"))).toEqual({
+            kind: "ThrowStatement",
+            expression: { kind: "Identifier", name: "value" }
+        });
         expect(parseStatement(tokenizeReader("continue"))).toEqual({
             kind: "ContinueStatement"
         });
         expect(parseStatement(tokenizeReader("break"))).toEqual({
             kind: "BreakStatement"
+        });
+    });
+
+    it("parses try/catch/finally statements", () => {
+        expect(parseStatement(tokenizeReader("try { return a } catch (e) { throw e } finally { return b }"))).toEqual({
+            kind: "TryStatement",
+            tryBlock: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "Identifier", name: "a" }
+                    }
+                ]
+            },
+            catchClause: {
+                kind: "CatchClause",
+                parameter: { kind: "Identifier", name: "e" },
+                body: {
+                    kind: "BlockStatement",
+                    body: [
+                        {
+                            kind: "ThrowStatement",
+                            expression: { kind: "Identifier", name: "e" }
+                        }
+                    ]
+                }
+            },
+            finallyBlock: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "Identifier", name: "b" }
+                    }
+                ]
+            }
+        });
+    });
+
+    it("parses try/finally and catch without parameter", () => {
+        expect(parseStatement(tokenizeReader("try { return 1 } finally { return 2 }"))).toEqual({
+            kind: "TryStatement",
+            tryBlock: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "IntLiteral", value: 1 }
+                    }
+                ]
+            },
+            finallyBlock: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "IntLiteral", value: 2 }
+                    }
+                ]
+            }
+        });
+
+        expect(parseStatement(tokenizeReader("try { return 1 } catch { return 2 }"))).toEqual({
+            kind: "TryStatement",
+            tryBlock: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "IntLiteral", value: 1 }
+                    }
+                ]
+            },
+            catchClause: {
+                kind: "CatchClause",
+                body: {
+                    kind: "BlockStatement",
+                    body: [
+                        {
+                            kind: "ReturnStatement",
+                            expression: { kind: "IntLiteral", value: 2 }
+                        }
+                    ]
+                }
+            }
         });
     });
 

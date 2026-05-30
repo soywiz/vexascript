@@ -253,12 +253,30 @@ export interface ReturnStatement extends Statement {
     expression?: Expr
 }
 
+export interface ThrowStatement extends Statement {
+    kind: "ThrowStatement"
+    expression: Expr
+}
+
 export interface ContinueStatement extends Statement {
     kind: "ContinueStatement"
 }
 
 export interface BreakStatement extends Statement {
     kind: "BreakStatement"
+}
+
+export interface CatchClause extends Node {
+    kind: "CatchClause"
+    parameter?: Identifier
+    body: BlockStatement
+}
+
+export interface TryStatement extends Statement {
+    kind: "TryStatement"
+    tryBlock: BlockStatement
+    catchClause?: CatchClause
+    finallyBlock?: BlockStatement
 }
 
 export interface Program extends Node {

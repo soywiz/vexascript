@@ -23,6 +23,8 @@ import type {
   ReturnStatement,
   Statement,
   SwitchStatement,
+  ThrowStatement,
+  TryStatement,
   UnaryExpression,
   UpdateExpression,
   VarStatement,
@@ -144,6 +146,14 @@ export class TypeChecker {
         }
         return;
       }
+      case "ThrowStatement": {
+        const throwStatement = statement as ThrowStatement;
+        this.visitExpression(throwStatement.expression, scope);
+        return;
+      }
+      case "TryStatement":
+        this.visitTryStatement(statement as TryStatement, scope, flow);
+        return;
       case "ContinueStatement":
         if (flow.loopDepth <= 0) {
           this.issues.push({
@@ -328,6 +338,27 @@ export class TypeChecker {
       }
       for (const consequent of switchCase.consequent) {
         this.visitStatement(consequent, caseScope, switchFlow);
+      }
+    }
+  }
+
+  private visitTryStatement(statement: TryStatement, scope: Scope, flow: FlowContext): void {
+    const tryScope = this.scopeFor(statement.tryBlock, scope);
+    for (const child of statement.tryBlock.body) {
+      this.visitStatement(child, tryScope, flow);
+    }
+
+    if (statement.catchClause) {
+      const catchScope = this.scopeFor(statement.catchClause, scope);
+      for (const child of statement.catchClause.body.body) {
+        this.visitStatement(child, catchScope, flow);
+      }
+    }
+
+    if (statement.finallyBlock) {
+      const finallyScope = this.scopeFor(statement.finallyBlock, scope);
+      for (const child of statement.finallyBlock.body) {
+        this.visitStatement(child, finallyScope, flow);
       }
     }
   }

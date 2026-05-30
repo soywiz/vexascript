@@ -1,5 +1,6 @@
 import type {
   BlockStatement,
+  CatchClause,
   ClassMethodMember,
   ClassStatement,
   DoWhileStatement,
@@ -10,6 +11,8 @@ import type {
   Program,
   Statement,
   SwitchStatement,
+  TryStatement,
+  ThrowStatement,
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
@@ -211,6 +214,11 @@ export class Binder {
       case "SwitchStatement":
         this.bindSwitchStatement(statement as SwitchStatement, scope);
         return;
+      case "TryStatement":
+        this.bindTryStatement(statement as TryStatement, scope);
+        return;
+      case "ThrowStatement":
+        return;
       default:
         return;
     }
@@ -358,6 +366,34 @@ export class Binder {
       const caseScope = this.createScope(switchScope, switchCase);
       this.bindStatements(switchCase.consequent, caseScope);
     }
+  }
+
+  private bindTryStatement(statement: TryStatement, scope: Scope): void {
+    const tryScope = this.createScope(scope, statement.tryBlock);
+    this.bindStatements(statement.tryBlock.body, tryScope);
+
+    if (statement.catchClause) {
+      this.bindCatchClause(statement.catchClause as CatchClause, scope);
+    }
+
+    if (statement.finallyBlock) {
+      const finallyScope = this.createScope(scope, statement.finallyBlock);
+      this.bindStatements(statement.finallyBlock.body, finallyScope);
+    }
+  }
+
+  private bindCatchClause(catchClause: CatchClause, scope: Scope): void {
+    const catchScope = this.createScope(scope, catchClause);
+    if (catchClause.parameter) {
+      this.declare(catchScope, {
+        name: catchClause.parameter.name,
+        kind: "variable",
+        node: catchClause.parameter,
+        type: UNKNOWN_TYPE,
+        valueType: typeToString(UNKNOWN_TYPE)
+      });
+    }
+    this.bindStatements(catchClause.body.body, catchScope);
   }
 
   private typeFromAnnotationLoose(typeAnnotation: { name: string } | undefined) {

@@ -50,6 +50,19 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let b = 20n;");
   });
 
+  it("emits throw and try/catch/finally statements", () => {
+    const program = parseFile(
+      tokenizeReader("try { throw err } catch (e) { throw e } finally { return 0 }")
+    );
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("try {");
+    expect(emitted).toContain("throw err;");
+    expect(emitted).toContain("catch (e) {");
+    expect(emitted).toContain("throw e;");
+    expect(emitted).toContain("finally {");
+    expect(emitted).toContain("return 0;");
+  });
+
   it("omits ambient declare class/var statements from emitted JavaScript", () => {
     const program = parseFile(
       tokenizeReader("declare class Console { log(a: number) }\ndeclare var console: Console\nconsole.log(42)")

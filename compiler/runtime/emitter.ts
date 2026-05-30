@@ -30,6 +30,8 @@ import type {
   Statement,
   StringLiteral,
   SwitchStatement,
+  ThrowStatement,
+  TryStatement,
   UnaryExpression,
   UpdateExpression,
   VarDeclarator,
@@ -474,6 +476,23 @@ export function emitStatement(statement: Statement): string {
         return `return ${emitExpression(returnStatement.expression)};`;
       }
       return "return;";
+    }
+    case "ThrowStatement": {
+      const throwStatement = statement as ThrowStatement;
+      return `throw ${emitExpression(throwStatement.expression)};`;
+    }
+    case "TryStatement": {
+      const tryStatement = statement as TryStatement;
+      const tryPart = `try ${emitBlock(tryStatement.tryBlock)}`;
+      const catchPart = tryStatement.catchClause
+        ? tryStatement.catchClause.parameter
+          ? ` catch (${tryStatement.catchClause.parameter.name}) ${emitBlock(tryStatement.catchClause.body)}`
+          : ` catch ${emitBlock(tryStatement.catchClause.body)}`
+        : "";
+      const finallyPart = tryStatement.finallyBlock
+        ? ` finally ${emitBlock(tryStatement.finallyBlock)}`
+        : "";
+      return `${tryPart}${catchPart}${finallyPart}`;
     }
     case "ContinueStatement":
       return "continue;";

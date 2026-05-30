@@ -105,7 +105,7 @@
         },
         {
           "name": "keyword.control.mylang",
-          "match": "\\b(if|else|return|while|for|switch|case|default|break|continue|do|new)\\b"
+          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new)\\b"
         },
         {
           "name": "storage.type.mylang",

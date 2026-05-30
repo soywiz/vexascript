@@ -8,6 +8,7 @@ import {
     BlockStatement,
     BreakStatement,
     CallExpression,
+    CatchClause,
     ClassFieldMember,
     ClassMember,
     ClassMethodMember,
@@ -40,6 +41,8 @@ import {
     StringLiteral,
     SwitchCase,
     SwitchStatement,
+    ThrowStatement,
+    TryStatement,
     UnaryExpression,
     UpdateExpression,
     VarDeclarator,
@@ -207,11 +210,17 @@ export class Parser {
         if (token?.type === "identifier" && token.value === "return") {
             return this.parseReturnStatement();
         }
+        if (token?.type === "identifier" && token.value === "throw") {
+            return this.parseThrowStatement();
+        }
         if (token?.type === "identifier" && token.value === "continue") {
             return this.parseContinueStatement();
         }
         if (token?.type === "identifier" && token.value === "break") {
             return this.parseBreakStatement();
+        }
+        if (token?.type === "identifier" && token.value === "try") {
+            return this.parseTryStatement();
         }
         if (token?.type === "symbol" && token.value === "{") {
             return this.parseBlockStatement();
@@ -402,7 +411,11 @@ export class Parser {
             token.value === "while" ||
             token.value === "do" ||
             token.value === "switch" ||
+            token.value === "try" ||
+            token.value === "catch" ||
+            token.value === "finally" ||
             token.value === "return" ||
+            token.value === "throw" ||
             token.value === "break" ||
             token.value === "continue" ||
             token.value === "case" ||
@@ -2232,6 +2245,87 @@ export class Parser {
             this.fail("Expected 'break' statement", this.tokenAt(breakKeyword));
         }
         return this.attachNodeBounds({ kind: "BreakStatement" } as BreakStatement, breakKeyword, breakKeyword);
+    }
+
+    private parseThrowStatement(): ThrowStatement {
+        const throwKeyword = this.tokens.read();
+        if (throwKeyword?.type !== "identifier" || throwKeyword.value !== "throw") {
+            this.fail("Expected 'throw' statement", this.tokenAt(throwKeyword));
+        }
+
+        const next = this.tokens.peek();
+        if (!next || this.isEofToken(next) || this.hasLineBreakBetween(throwKeyword, next)) {
+            this.fail("Expected expression after 'throw'", this.tokenAt(next));
+        }
+        if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
+            this.fail("Expected expression after 'throw'", this.tokenAt(next));
+        }
+
+        const expression = this.parseExpressionOrThrow();
+        return this.attachNodeBounds({
+            kind: "ThrowStatement",
+            expression
+        } as ThrowStatement, throwKeyword, this.getLastReadToken() ?? throwKeyword);
+    }
+
+    private parseTryStatement(): TryStatement {
+        const tryKeyword = this.tokens.read();
+        if (tryKeyword?.type !== "identifier" || tryKeyword.value !== "try") {
+            this.fail("Expected 'try' statement", this.tokenAt(tryKeyword));
+        }
+
+        const tryBlock = this.parseBlockStatement();
+
+        let catchClause: CatchClause | undefined;
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "catch") {
+            const catchKeyword = this.tokens.read();
+            let parameter: Identifier | undefined;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+                this.tokens.skip();
+                const parameterToken = this.tokens.read();
+                if (parameterToken?.type !== "identifier") {
+                    this.fail("Expected catch parameter identifier", this.tokenAt(parameterToken));
+                }
+                parameter = this.buildIdentifierFromToken(parameterToken);
+
+                const closeParen = this.tokens.read();
+                if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                    this.fail("Expected ')' after catch parameter", this.tokenAt(closeParen));
+                }
+            }
+
+            const catchBody = this.parseBlockStatement();
+            catchClause = {
+                kind: "CatchClause",
+                body: catchBody
+            } as CatchClause;
+            if (parameter) {
+                catchClause.parameter = parameter;
+            }
+            this.attachNodeBounds(catchClause, catchKeyword, catchBody.lastToken ?? this.getLastReadToken() ?? catchKeyword);
+        }
+
+        let finallyBlock: BlockStatement | undefined;
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "finally") {
+            this.tokens.skip();
+            finallyBlock = this.parseBlockStatement();
+        }
+
+        if (!catchClause && !finallyBlock) {
+            this.fail("Expected 'catch' or 'finally' after try block", this.tokenAt());
+        }
+
+        const statement: TryStatement = {
+            kind: "TryStatement",
+            tryBlock
+        };
+        if (catchClause) {
+            statement.catchClause = catchClause;
+        }
+        if (finallyBlock) {
+            statement.finallyBlock = finallyBlock;
+        }
+        return this.attachNodeBounds(statement, tryKeyword, this.getLastReadToken() ?? tryKeyword);
     }
 }
 

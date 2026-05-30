@@ -97,6 +97,21 @@ describe("formatSource", () => {
       );
   });
 
+  it("formats throw and try/catch/finally statements", () => {
+    expect(formatSource("try{throw err}catch(e){throw e}finally{return 0}"))
+      .toBe(
+        "try {\n" +
+        "  throw err\n" +
+        "}\n" +
+        "catch (e) {\n" +
+        "  throw e\n" +
+        "}\n" +
+        "finally {\n" +
+        "  return 0\n" +
+        "}"
+      );
+  });
+
   it("formats chained function calls", () => {
     expect(formatSource("hello.world[0].test(arg1,arg2)"))
       .toBe("hello.world[0].test(arg1, arg2)");

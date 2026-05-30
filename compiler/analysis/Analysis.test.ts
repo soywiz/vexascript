@@ -96,6 +96,26 @@ describe("Analysis", () => {
     expect(messages.filter((message) => message === "Illegal 'break' statement outside of a loop or switch")).toHaveLength(1);
   });
 
+  it("binds catch parameter in try/catch scope and validates throw expressions", () => {
+    const source =
+      "fun demo() {\n" +
+      "  try {\n" +
+      "    throw missing\n" +
+      "  } catch (err) {\n" +
+      "    throw err\n" +
+      "  } finally {\n" +
+      "    return 0\n" +
+      "  }\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Undefined variable 'missing'");
+    expect(messages.some((message) => message.includes("'err'"))).toBe(false);
+  });
+
   it("resolves class/function symbols declared later in the same scope", () => {
     const source =
       "fun demo() {\n" +

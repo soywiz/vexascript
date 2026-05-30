@@ -8,6 +8,7 @@ import {
   Program,
   Statement,
   SwitchStatement,
+  TryStatement,
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
@@ -117,6 +118,23 @@ function findVarStatementAtPosition(node: Statement, line: number, character: nu
           return match;
         }
       }
+    }
+  }
+
+  if (node.kind === "TryStatement") {
+    const tryStatement = node as TryStatement;
+    const tryMatch = findVarStatementAtPosition(tryStatement.tryBlock, line, character);
+    if (tryMatch) {
+      return tryMatch;
+    }
+    if (tryStatement.catchClause) {
+      const catchMatch = findVarStatementAtPosition(tryStatement.catchClause.body, line, character);
+      if (catchMatch) {
+        return catchMatch;
+      }
+    }
+    if (tryStatement.finallyBlock) {
+      return findVarStatementAtPosition(tryStatement.finallyBlock, line, character);
     }
   }
 

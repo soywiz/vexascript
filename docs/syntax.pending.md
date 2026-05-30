@@ -68,8 +68,6 @@ Scope notes:
 
 ## Statements and Control Flow
 
-- `try` / `catch` / `finally`.
-- `throw`.
 - `for...of`.
 - `for...in`.
 - `with`.
@@ -93,10 +91,9 @@ Scope notes:
 - Spread syntax in arrays/objects (`[...a]`, `{ ...x }`).
 - Template literals (`` `hello ${name}` ``).
 - RegExp literals (`/abc/`).
-- BigInt literals (`123n`).
 - `this` keyword handling.
 - `null`, `true`, `false`, `undefined` as dedicated literal nodes/keywords.
-- Numeric formats beyond decimal integers (hex, binary, octal, numeric separators, decimals/exponents).
+- Numeric formats beyond current support (hex, binary, octal, numeric separators, etc.).
 
 ## Object and Array Literals
 

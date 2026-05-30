@@ -383,8 +383,23 @@ Supported statements:
 
 - `return`
 - `return expression`
+- `throw expression`
 - `continue`
 - `break`
+
+### Try / catch / finally
+
+MyLang supports TypeScript-style exception handling:
+
+```mylang
+try {
+  riskyWork()
+} catch (err) {
+  throw err
+} finally {
+  cleanup()
+}
+```
 
 ## Program structure
 
@@ -422,7 +437,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports named imports (`import { ... } from "..."`), ambient declarations (`declare function`, `declare class`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, and `switch` / `case` / `default`.
+When the parser runs in `typescript` mode, it supports named imports (`import { ... } from "..."`), ambient declarations (`declare function`, `declare class`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
 
 Example:
 
@@ -447,6 +462,14 @@ switch (current) {
     break;
   default:
     break;
+}
+
+try {
+  risky(current);
+} catch (err) {
+  throw err;
+} finally {
+  cleanup();
 }
 ```
 
