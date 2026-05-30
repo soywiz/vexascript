@@ -1852,4 +1852,37 @@ describe("Parser (with recovery)", () => {
         });
         expect(parser.errors.length).toBeGreaterThan(0);
     });
+
+    it("recovers malformed statement separators by skipping to the next '}' or newline", () => {
+        const parser = new Parser(tokenizeReader(
+            "asdsa declare class Console {\n" +
+            "  log(a: number)\n" +
+            "}\n\n" +
+            "declare var console: Console\n"
+        ));
+        const ast = parser.parseFile();
+
+        expect(ast).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "ExprStatement",
+                    expression: {
+                        kind: "Identifier",
+                        name: "asdsa"
+                    }
+                },
+                {
+                    kind: "VarStatement",
+                    declared: true,
+                    declarationKind: "var",
+                    name: { kind: "Identifier", name: "console" },
+                    typeAnnotation: { kind: "Identifier", name: "Console" }
+                }
+            ]
+        });
+        expect(parser.errors.map((issue) => issue.message)).toContain(
+            "Expected ';', newline, or end of file between statements"
+        );
+    });
 });

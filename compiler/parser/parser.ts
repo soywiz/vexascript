@@ -61,7 +61,7 @@ export interface ParseIssue {
     token?: Token;
 }
 
-type RecoveryHint = "block" | "switch";
+type RecoveryHint = "block" | "switch" | "statement";
 
 export class ParseError extends Error {
     token?: Token;
@@ -258,6 +258,7 @@ export class Parser {
         const startToken = originToken ?? this.tokens.peek();
         const startLine = startToken?.range.start.line ?? -1;
         const allowSwitchCaseLabels = recoveryHint === "switch";
+        const localStatementRecovery = recoveryHint === "statement";
 
         if (originToken?.type === "symbol" && (originToken.value === ";" || originToken.value === "}")) {
             return;
@@ -269,7 +270,6 @@ export class Parser {
         ) {
             return;
         }
-
         let parenDepth = 0;
         let bracketDepth = 0;
         let braceDepth = 0;
@@ -281,6 +281,15 @@ export class Parser {
             }
 
             if (token?.type === "symbol") {
+                if (
+                    localStatementRecovery &&
+                    token.value === "}" &&
+                    parenDepth === 0 &&
+                    bracketDepth === 0 &&
+                    braceDepth === 0
+                ) {
+                    return;
+                }
                 if (token.value === "(") {
                     parenDepth += 1;
                     this.tokens.skip();
@@ -327,6 +336,16 @@ export class Parser {
             }
 
             if (
+                localStatementRecovery &&
+                startLine >= 0 &&
+                token?.range.start.line > startLine &&
+                parenDepth === 0 &&
+                bracketDepth === 0 &&
+                braceDepth === 0
+            ) {
+                return;
+            }
+            if (
                 allowSwitchCaseLabels &&
                 parenDepth === 0 &&
                 bracketDepth === 0 &&
@@ -367,6 +386,8 @@ export class Parser {
             token.value === "const" ||
             token.value === "fun" ||
             token.value === "function" ||
+            token.value === "declare" ||
+            token.value === "export" ||
             token.value === "class" ||
             token.value === "if" ||
             token.value === "for" ||
@@ -665,7 +686,7 @@ export class Parser {
         }
 
         const suffix = context === "block" ? "or '}'" : "or end of file";
-        this.fail(`Expected ';', newline, ${suffix} between statements`, next, context === "block" ? "block" : undefined);
+        this.fail(`Expected ';', newline, ${suffix} between statements`, next, "statement");
     }
 
     private consumeSwitchStatementSeparator(previousToken: Token | undefined): void {
