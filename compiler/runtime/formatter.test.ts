@@ -55,6 +55,13 @@ describe("formatSource", () => {
       .toBe("class Point(val x: number, val y: number) {\n}");
   });
 
+  it("formats class declarations without braces", () => {
+    expect(formatSource("class Point"))
+      .toBe("class Point {\n}");
+    expect(formatSource("class Point(val x:number,val y:number)"))
+      .toBe("class Point(val x: number, val y: number) {\n}");
+  });
+
   it("formats for statements with declaration initializer", () => {
     expect(formatSource("for(let i=0;i<3;i+=1){let x=i}"))
       .toBe("for (let i = 0; i < 3; i += 1) {\n  let x = i;\n}");

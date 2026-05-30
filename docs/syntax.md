@@ -106,6 +106,12 @@ class Demo {
 }
 ```
 
+In MyLang mode, class braces are optional for empty class declarations:
+
+```mylang
+class Point
+```
+
 ### Optional primary constructor
 
 Class declarations support an optional primary constructor parameter list after the class name.
@@ -122,6 +128,12 @@ Example:
 ```mylang
 class Point(val x: number, val y: number) {
 }
+```
+
+This form also allows omitting braces in MyLang mode:
+
+```mylang
+class Point(val x: number, val y: number)
 ```
 
 ### Class fields

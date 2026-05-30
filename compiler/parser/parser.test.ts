@@ -990,6 +990,34 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses class statement without braces in mylang mode", () => {
+        expect(parseStatement(tokenizeReader("class Point"))).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Point" },
+            members: []
+        });
+
+        expect(parseStatement(tokenizeReader("class Point(val x: number, val y: number)"))).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Point" },
+            primaryConstructorParameters: [
+                {
+                    kind: "ClassPrimaryConstructorParameter",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "x" },
+                    typeAnnotation: { kind: "Identifier", name: "number" }
+                },
+                {
+                    kind: "ClassPrimaryConstructorParameter",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "y" },
+                    typeAnnotation: { kind: "Identifier", name: "number" }
+                }
+            ],
+            members: []
+        });
+    });
+
     it("rejects class primary constructor syntax in typescript parser mode", () => {
         expect(() =>
             parseStatement(tokenizeReader("class Point(val x: number, val y: number) {}"), {
@@ -1437,6 +1465,25 @@ describe("parseProgram", () => {
                             body: { kind: "BlockStatement", body: [] }
                         }
                     ]
+                },
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "after" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                }
+            ]
+        });
+    });
+
+    it("parses class declarations without braces mixed with other statements", () => {
+        expect(parseProgram(tokenizeReader("class Point\nlet after = 1"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "ClassStatement",
+                    name: { kind: "Identifier", name: "Point" },
+                    members: []
                 },
                 {
                     kind: "VarStatement",

@@ -1358,10 +1358,23 @@ export class Parser {
             }
         }
 
-        const openBrace = this.tokens.read();
+        const openBrace = this.tokens.peek();
         if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            if (this.language === "mylang") {
+                const statement: ClassStatement = {
+                    kind: "ClassStatement",
+                    name: this.buildIdentifierFromToken(classNameToken),
+                    members: []
+                };
+                if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
+                    statement.primaryConstructorParameters = primaryConstructorParameters;
+                }
+                return this.attachNodeBounds(statement, classKeyword, this.getLastReadToken() ?? classKeyword);
+            }
+
             this.fail("Expected '{' to start class body", this.tokenAt(openBrace));
         }
+        this.tokens.skip();
 
         const members: ClassMember[] = [];
         while (this.tokens.hasMore) {
