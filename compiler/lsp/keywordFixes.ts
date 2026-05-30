@@ -7,6 +7,7 @@ import {
   IfStatement,
   Program,
   Statement,
+  SwitchStatement,
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
@@ -104,6 +105,18 @@ function findVarStatementAtPosition(node: Statement, line: number, character: nu
     }
     if (ifStatement.elseBranch) {
       return findVarStatementAtPosition(ifStatement.elseBranch, line, character);
+    }
+  }
+
+  if (node.kind === "SwitchStatement") {
+    const switchStatement = node as SwitchStatement;
+    for (const switchCase of switchStatement.cases) {
+      for (const consequentStatement of switchCase.consequent) {
+        const match = findVarStatementAtPosition(consequentStatement, line, character);
+        if (match) {
+          return match;
+        }
+      }
     }
   }
 

@@ -25,6 +25,8 @@ import {
   ReturnStatement,
   Statement,
   StringLiteral,
+  SwitchCase,
+  SwitchStatement,
   UnaryExpression,
   UpdateExpression,
   VarStatement,
@@ -57,6 +59,7 @@ type KnownStatement =
   | DoWhileStatement
   | ForStatement
   | IfStatement
+  | SwitchStatement
   | ReturnStatement
   | ContinueStatement
   | BreakStatement;
@@ -368,6 +371,28 @@ function formatIfStatement(statement: IfStatement, level: number): string {
   return `${thenFormatted} else\n${formatStatement(statement.elseBranch, level + 1)}`;
 }
 
+function formatSwitchCase(caseNode: SwitchCase, level: number): string {
+  const label = caseNode.test
+    ? `${indent(level)}case ${formatExpression(caseNode.test)}:`
+    : `${indent(level)}default:`;
+
+  if (caseNode.consequent.length === 0) {
+    return label;
+  }
+
+  const body = formatStatementList(caseNode.consequent, level + 1);
+  return `${label}\n${body}`;
+}
+
+function formatSwitchStatement(statement: SwitchStatement, level: number): string {
+  if (statement.cases.length === 0) {
+    return `${indent(level)}switch (${formatExpression(statement.discriminant)}) {\n${indent(level)}}`;
+  }
+
+  const cases = statement.cases.map((caseNode) => formatSwitchCase(caseNode, level + 1)).join("\n");
+  return `${indent(level)}switch (${formatExpression(statement.discriminant)}) {\n${cases}\n${indent(level)}}`;
+}
+
 function formatClassMethodMember(member: ClassMethodMember, level: number): string {
   const returnType = member.returnType ? `: ${formatIdentifier(member.returnType)}` : "";
   const header =
@@ -442,6 +467,9 @@ function formatStatement(statement: Statement, level: number): string {
   }
   if (node.kind === "IfStatement") {
     return formatIfStatement(node, level);
+  }
+  if (node.kind === "SwitchStatement") {
+    return formatSwitchStatement(node, level);
   }
   if (node.kind === "ReturnStatement") {
     return node.expression

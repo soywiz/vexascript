@@ -684,6 +684,51 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses a switch statement with case and default", () => {
+        expect(parseStatement(tokenizeReader("switch (value) { case 1: return 1; default: return 0 }"))).toEqual({
+            kind: "SwitchStatement",
+            discriminant: { kind: "Identifier", name: "value" },
+            cases: [
+                {
+                    kind: "SwitchCase",
+                    test: { kind: "IntLiteral", value: 1 },
+                    consequent: [
+                        {
+                            kind: "ReturnStatement",
+                            expression: { kind: "IntLiteral", value: 1 }
+                        }
+                    ]
+                },
+                {
+                    kind: "SwitchCase",
+                    consequent: [
+                        {
+                            kind: "ReturnStatement",
+                            expression: { kind: "IntLiteral", value: 0 }
+                        }
+                    ]
+                }
+            ]
+        });
+    });
+
+    it("parses switch default-only in typescript mode", () => {
+        expect(parseStatement(tokenizeReader("switch (value) { default: break }"), { language: "typescript" })).toEqual({
+            kind: "SwitchStatement",
+            discriminant: { kind: "Identifier", name: "value" },
+            cases: [
+                {
+                    kind: "SwitchCase",
+                    consequent: [
+                        {
+                            kind: "BreakStatement"
+                        }
+                    ]
+                }
+            ]
+        });
+    });
+
     it("parses an expression statement", () => {
         expect(parseStatement(tokenizeReader("a + 1"))).toEqual({
             kind: "ExprStatement",
@@ -1118,6 +1163,57 @@ describe("parseProgram", () => {
                             }
                         ]
                     }
+                },
+                {
+                    kind: "VarStatement",
+                    declarationKind: "let",
+                    name: { kind: "Identifier", name: "done" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                }
+            ]
+        });
+    });
+
+    it("parses switch statements with multiple cases and fallthrough", () => {
+        expect(parseProgram(tokenizeReader("switch (x) { case 1: case 2: let y = x; break; default: let z = 0 }; let done = 1;"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "SwitchStatement",
+                    discriminant: { kind: "Identifier", name: "x" },
+                    cases: [
+                        {
+                            kind: "SwitchCase",
+                            test: { kind: "IntLiteral", value: 1 },
+                            consequent: []
+                        },
+                        {
+                            kind: "SwitchCase",
+                            test: { kind: "IntLiteral", value: 2 },
+                            consequent: [
+                                {
+                                    kind: "VarStatement",
+                                    declarationKind: "let",
+                                    name: { kind: "Identifier", name: "y" },
+                                    initializer: { kind: "Identifier", name: "x" }
+                                },
+                                {
+                                    kind: "BreakStatement"
+                                }
+                            ]
+                        },
+                        {
+                            kind: "SwitchCase",
+                            consequent: [
+                                {
+                                    kind: "VarStatement",
+                                    declarationKind: "let",
+                                    name: { kind: "Identifier", name: "z" },
+                                    initializer: { kind: "IntLiteral", value: 0 }
+                                }
+                            ]
+                        }
+                    ]
                 },
                 {
                     kind: "VarStatement",

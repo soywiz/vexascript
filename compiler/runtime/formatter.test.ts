@@ -74,4 +74,17 @@ describe("formatSource", () => {
     expect(formatSource("a<<1\nb>>=2\nc===d\nx!=y"))
       .toBe("a << 1;\nb >>= 2;\nc === d;\nx != y;");
   });
+
+  it("formats switch with case and default", () => {
+    expect(formatSource("switch(x){case 1:let y=x;break;default:return 0}"))
+      .toBe(
+        "switch (x) {\n" +
+        "  case 1:\n" +
+        "    let y = x;\n" +
+        "    break;\n" +
+        "  default:\n" +
+        "    return 0;\n" +
+        "}"
+      );
+  });
 });

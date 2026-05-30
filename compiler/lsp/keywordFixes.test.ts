@@ -88,4 +88,16 @@ describe("findDeclarationKeywordReplacementAtPosition", () => {
       }
     });
   });
+
+  it("finds declaration inside switch cases", () => {
+    const ast = parseFile(tokenizeReader("switch (x) { case 1: let y = 2; default: let z = 3 }"));
+    expect(findDeclarationKeywordReplacementAtPosition(ast, 0, 23)).toEqual({
+      from: "let",
+      to: "const",
+      range: {
+        start: { line: 0, character: 21 },
+        end: { line: 0, character: 24 }
+      }
+    });
+  });
 });

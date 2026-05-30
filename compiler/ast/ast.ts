@@ -179,6 +179,18 @@ export interface IfStatement extends Statement {
     elseBranch?: Statement
 }
 
+export interface SwitchCase extends Node {
+    kind: "SwitchCase"
+    test?: Expr
+    consequent: Statement[]
+}
+
+export interface SwitchStatement extends Statement {
+    kind: "SwitchStatement"
+    discriminant: Expr
+    cases: SwitchCase[]
+}
+
 export interface ReturnStatement extends Statement {
     kind: "ReturnStatement"
     expression?: Expr

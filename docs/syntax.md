@@ -271,6 +271,19 @@ if (condition) {
 }
 ```
 
+### Switch / case / default
+
+MyLang supports TypeScript-style `switch` statements with `case` and optional `default`:
+
+```mylang
+switch (value) {
+  case 1:
+    return 1
+  default:
+    return 0
+}
+```
+
 ### Return, continue, break
 
 Supported statements:
@@ -316,7 +329,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function`, TypeScript-style `for` statements, and `if` / `else` statements.
+When the parser runs in `typescript` mode, it supports ambient function declarations with `declare function`, TypeScript-style `for` statements, `if` / `else` statements, and `switch` / `case` / `default`.
 
 Example:
 
@@ -329,5 +342,12 @@ for (let i = 0; i < 10; i += 1) {
 
 if (current > 0) {
   current--;
+}
+
+switch (current) {
+  case 1:
+    break;
+  default:
+    break;
 }
 ```

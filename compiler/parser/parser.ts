@@ -30,6 +30,8 @@ import {
     ReturnStatement,
     Statement,
     StringLiteral,
+    SwitchCase,
+    SwitchStatement,
     UnaryExpression,
     UpdateExpression,
     VariableDeclarationKind,
@@ -168,6 +170,9 @@ export class Parser {
         }
         if (token?.type === "identifier" && token.value === "if") {
             return this.parseIfStatement();
+        }
+        if (token?.type === "identifier" && token.value === "switch") {
+            return this.parseSwitchStatement();
         }
         if (token?.type === "identifier" && token.value === "while") {
             return this.parseWhileStatement();
@@ -510,6 +515,32 @@ export class Parser {
 
         const suffix = context === "block" ? "or '}'" : "or end of file";
         this.fail(`Expected ';', newline, ${suffix} between statements`, next, context === "block" ? "block" : undefined);
+    }
+
+    private consumeSwitchStatementSeparator(previousToken: Token | undefined): void {
+        if (!this.tokens.hasMore) {
+            return;
+        }
+
+        const next = this.tokens.peek();
+        if (next?.type === "symbol" && next.value === ";") {
+            this.tokens.skip();
+            return;
+        }
+
+        if (next?.type === "symbol" && next.value === "}") {
+            return;
+        }
+
+        if (next?.type === "identifier" && (next.value === "case" || next.value === "default")) {
+            return;
+        }
+
+        if (this.hasLineBreakBetween(previousToken, next)) {
+            return;
+        }
+
+        this.fail("Expected ';', newline, 'case', 'default', or '}' between switch statements", next, "block");
     }
 
     private buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
@@ -1511,6 +1542,93 @@ export class Parser {
             statement.elseBranch = elseBranch;
         }
         return this.attachNodeBounds(statement, ifKeyword, this.getLastReadToken() ?? ifKeyword);
+    }
+
+    private parseSwitchStatement(): SwitchStatement {
+        const switchKeyword = this.tokens.read();
+        if (switchKeyword?.type !== "identifier" || switchKeyword.value !== "switch") {
+            this.fail("Expected 'switch' statement", this.tokenAt(switchKeyword));
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after 'switch'", this.tokenAt(openParen));
+        }
+
+        const discriminant = this.parseExpressionOrThrow();
+
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after switch discriminant", this.tokenAt(closeParen));
+        }
+
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' to start switch body", this.tokenAt(openBrace));
+        }
+
+        const cases: SwitchCase[] = [];
+        let currentCase: SwitchCase | undefined;
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+
+            if (token?.type === "symbol" && token.value === "}") {
+                this.tokens.skip();
+                return this.attachNodeBounds({
+                    kind: "SwitchStatement",
+                    discriminant,
+                    cases
+                } as SwitchStatement, switchKeyword, this.getLastReadToken() ?? switchKeyword);
+            }
+
+            if (token?.type === "symbol" && token.value === ";") {
+                this.tokens.skip();
+                continue;
+            }
+
+            if (token?.type === "identifier" && token.value === "case") {
+                const caseKeyword = this.tokens.read();
+                const test = this.parseExpressionOrThrow();
+                const colon = this.tokens.read();
+                if (colon?.type !== "symbol" || colon.value !== ":") {
+                    this.fail("Expected ':' after switch case expression", this.tokenAt(colon));
+                }
+
+                currentCase = this.attachNodeBounds({
+                    kind: "SwitchCase",
+                    test,
+                    consequent: []
+                } as SwitchCase, caseKeyword, this.getLastReadToken() ?? caseKeyword);
+                cases.push(currentCase);
+                continue;
+            }
+
+            if (token?.type === "identifier" && token.value === "default") {
+                const defaultKeyword = this.tokens.read();
+                const colon = this.tokens.read();
+                if (colon?.type !== "symbol" || colon.value !== ":") {
+                    this.fail("Expected ':' after switch default", this.tokenAt(colon));
+                }
+
+                currentCase = this.attachNodeBounds({
+                    kind: "SwitchCase",
+                    consequent: []
+                } as SwitchCase, defaultKeyword, this.getLastReadToken() ?? defaultKeyword);
+                cases.push(currentCase);
+                continue;
+            }
+
+            if (!currentCase) {
+                this.fail("Expected 'case', 'default', or '}' in switch body", this.tokenAt(token), "block");
+            }
+
+            const statement = this.parseStatementOrThrow();
+            currentCase.consequent.push(statement);
+            this.consumeSwitchStatementSeparator(this.getLastReadToken());
+        }
+
+        this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "block");
     }
 
     private parseReturnStatement(): ReturnStatement {
