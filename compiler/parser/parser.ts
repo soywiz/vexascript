@@ -36,6 +36,7 @@ import {
     SwitchStatement,
     UnaryExpression,
     UpdateExpression,
+    VarDeclarator,
     VariableDeclarationKind,
     VarStatement,
     WhileStatement
@@ -962,9 +963,45 @@ export class Parser {
             this.fail("Expected variable declaration statement", this.tokenAt(declarationKeyword));
         }
 
+        const declarations: VarDeclarator[] = [];
+
+        while (this.tokens.hasMore) {
+            declarations.push(this.parseVarDeclarator());
+
+            const separator = this.tokens.peek();
+            if (!(separator?.type === "symbol" && separator.value === ",")) {
+                break;
+            }
+            this.tokens.skip();
+        }
+
+        if (declarations.length === 0) {
+            this.fail("Expected identifier after variable declaration keyword", this.tokenAt());
+        }
+
+        const firstDeclaration = declarations[0] as VarDeclarator;
+
+        const statement: VarStatement = {
+            kind: "VarStatement",
+            declarationKind: declarationKeyword.value as VariableDeclarationKind,
+            name: firstDeclaration.name
+        };
+        if (firstDeclaration.typeAnnotation) {
+            statement.typeAnnotation = firstDeclaration.typeAnnotation;
+        }
+        if (firstDeclaration.initializer) {
+            statement.initializer = firstDeclaration.initializer;
+        }
+        if (declarations.length > 1) {
+            statement.declarations = declarations;
+        }
+        return this.attachNodeBounds(statement, declarationKeyword, this.getLastReadToken() ?? declarationKeyword);
+    }
+
+    private parseVarDeclarator(): VarDeclarator {
         const nameToken = this.tokens.read();
         if (nameToken?.type !== "identifier") {
-            this.fail("Expected identifier after 'let'", this.tokenAt(nameToken));
+            this.fail("Expected identifier in variable declaration", this.tokenAt(nameToken));
         }
 
         let typeAnnotation: Identifier | undefined;
@@ -973,9 +1010,9 @@ export class Parser {
             this.tokens.skip();
             const typeToken = this.tokens.read();
             if (typeToken?.type !== "identifier") {
-                this.fail("Expected type identifier after ':' in let statement", this.tokenAt(typeToken));
+                this.fail("Expected type identifier after ':' in variable declaration", this.tokenAt(typeToken));
             }
-            typeAnnotation = { kind: "Identifier", name: typeToken.value } as Identifier;
+            typeAnnotation = this.buildIdentifierFromToken(typeToken);
         }
 
         let initializer: Expr | undefined;
@@ -985,18 +1022,18 @@ export class Parser {
             initializer = this.parseExpressionOrThrow();
         }
 
-        const statement: VarStatement = {
-            kind: "VarStatement",
-            declarationKind: declarationKeyword.value as VariableDeclarationKind,
+        const declarator: VarDeclarator = {
+            kind: "VarDeclarator",
             name: this.buildIdentifierFromToken(nameToken)
         };
         if (typeAnnotation) {
-            statement.typeAnnotation = typeAnnotation;
+            declarator.typeAnnotation = typeAnnotation;
         }
         if (initializer) {
-            statement.initializer = initializer;
+            declarator.initializer = initializer;
         }
-        return this.attachNodeBounds(statement, declarationKeyword, this.getLastReadToken() ?? declarationKeyword);
+
+        return this.attachNodeBounds(declarator, nameToken, this.getLastReadToken() ?? nameToken);
     }
 
     private parseFunctionStatement(): FunctionStatement {

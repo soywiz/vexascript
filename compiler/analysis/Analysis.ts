@@ -191,6 +191,20 @@ export class Analysis {
   }
 
   private visitVarStatement(statement: VarStatement, scope: Scope, flow: FlowContext): void {
+    if (statement.declarations && statement.declarations.length > 0) {
+      for (const declaration of statement.declarations) {
+        this.declare(scope, {
+          name: declaration.name.name,
+          kind: "variable",
+          node: declaration
+        });
+        if (declaration.initializer) {
+          this.visitExpression(declaration.initializer, scope);
+        }
+      }
+      return;
+    }
+
     this.declare(scope, {
       name: statement.name.name,
       kind: "variable",
@@ -459,11 +473,21 @@ export class Analysis {
     for (const statement of statements) {
       if (statement.kind === "VarStatement") {
         const variableStatement = statement as VarStatement;
-        this.declare(scope, {
-          name: variableStatement.name.name,
-          kind: "variable",
-          node: variableStatement
-        });
+        if (variableStatement.declarations && variableStatement.declarations.length > 0) {
+          for (const declaration of variableStatement.declarations) {
+            this.declare(scope, {
+              name: declaration.name.name,
+              kind: "variable",
+              node: declaration
+            });
+          }
+        } else {
+          this.declare(scope, {
+            name: variableStatement.name.name,
+            kind: "variable",
+            node: variableStatement
+          });
+        }
         continue;
       }
 

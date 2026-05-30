@@ -157,4 +157,18 @@ describe("Analysis", () => {
       "Invalid assignment target: left side must be an identifier or member access"
     );
   });
+
+  it("supports multiple declarations in a single var statement", () => {
+    const source =
+      "val a = 10 * 2, lol = true\n" +
+      "fun demo() {\n" +
+      "  return lol\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("'lol'"))).toBe(false);
+  });
 });

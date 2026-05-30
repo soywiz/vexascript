@@ -28,6 +28,7 @@ Variable declarations support:
 
 - optional type annotation (`: TypeName`)
 - optional initializer (`= expression`)
+- multiple declarators separated by commas
 
 Examples:
 
@@ -35,6 +36,7 @@ Examples:
 let name: UserName = currentUser
 let counter: Int
 let enabled
+val a = 10 * 2, lol = true
 ```
 
 ## Functions

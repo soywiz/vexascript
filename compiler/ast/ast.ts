@@ -110,6 +110,14 @@ export interface VarStatement extends Statement {
     name: Identifier
     typeAnnotation?: Identifier
     initializer?: Expr
+    declarations?: VarDeclarator[]
+}
+
+export interface VarDeclarator extends Node {
+    kind: "VarDeclarator"
+    name: Identifier
+    typeAnnotation?: Identifier
+    initializer?: Expr
 }
 
 export interface FunctionStatement extends Statement {

@@ -549,6 +549,37 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses multiple variable declarations separated by commas", () => {
+        expect(parseStatement(tokenizeReader("val a = 10 * 2, lol = true"))).toEqual({
+            kind: "VarStatement",
+            declarationKind: "val",
+            name: { kind: "Identifier", name: "a" },
+            initializer: {
+                kind: "BinaryExpression",
+                operator: "*",
+                left: { kind: "IntLiteral", value: 10 },
+                right: { kind: "IntLiteral", value: 2 }
+            },
+            declarations: [
+                {
+                    kind: "VarDeclarator",
+                    name: { kind: "Identifier", name: "a" },
+                    initializer: {
+                        kind: "BinaryExpression",
+                        operator: "*",
+                        left: { kind: "IntLiteral", value: 10 },
+                        right: { kind: "IntLiteral", value: 2 }
+                    }
+                },
+                {
+                    kind: "VarDeclarator",
+                    name: { kind: "Identifier", name: "lol" },
+                    initializer: { kind: "Identifier", name: "true" }
+                }
+            ]
+        });
+    });
+
     it("parses a block statement with nested statements", () => {
         expect(parseStatement(tokenizeReader("{ let a = 1; { let b = a + 2 }\nlet c = 3 }"))).toEqual({
             kind: "BlockStatement",
