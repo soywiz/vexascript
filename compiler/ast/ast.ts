@@ -103,12 +103,14 @@ export interface CallExpression extends Node {
     kind: "CallExpression"
     callee: Expr
     arguments: Expr[]
+    typeArguments?: Identifier[]
 }
 
 export interface NewExpression extends Node {
     kind: "NewExpression"
     callee: Expr
     arguments?: Expr[]
+    typeArguments?: Identifier[]
 }
 
 export interface UnaryExpression extends Node {

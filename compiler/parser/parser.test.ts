@@ -313,6 +313,18 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for generic call expressions", () => {
+        expect(parseExpression(tokenizeReader("factory<string, number>(arg1)"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "factory" },
+            arguments: [{ kind: "Identifier", name: "arg1" }],
+            typeArguments: [
+                { kind: "Identifier", name: "string" },
+                { kind: "Identifier", name: "number" }
+            ]
+        });
+    });
+
     it("builds an AST for new expression variants", () => {
         expect(parseExpression(tokenizeReader("new instance()"))).toEqual({
             kind: "NewExpression",
@@ -346,6 +358,16 @@ describe("parseExpression", () => {
             arguments: [
                 { kind: "Identifier", name: "arg1" },
                 { kind: "Identifier", name: "arg2" }
+            ]
+        });
+
+        expect(parseExpression(tokenizeReader("new Map<string, string>()"))).toEqual({
+            kind: "NewExpression",
+            callee: { kind: "Identifier", name: "Map" },
+            arguments: [],
+            typeArguments: [
+                { kind: "Identifier", name: "string" },
+                { kind: "Identifier", name: "string" }
             ]
         });
     });

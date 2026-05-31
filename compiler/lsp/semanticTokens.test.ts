@@ -150,4 +150,25 @@ describe("semantic tokens", () => {
       true
     );
   });
+
+  it("highlights soft class keywords extends/implements", () => {
+    const source =
+      "class Map<K, V> extends Base<K> implements Iterable<V> {\n" +
+      "  a: K\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "extends" && token.tokenType === "keyword")).toBe(
+      true
+    );
+    expect(
+      decoded.some((token) => token.lexeme === "implements" && token.tokenType === "keyword")
+    ).toBe(true);
+  });
 });

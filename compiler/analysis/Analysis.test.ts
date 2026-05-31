@@ -610,4 +610,43 @@ class Child<T> extends Base<T> implements Readable<T> {
 
     expect(messages).toEqual([]);
   });
+
+  it("does not treat generic type arguments in 'new' expressions as runtime identifiers", () => {
+    const source = `class Map<K, V> {
+  a: K
+  b: V
+}
+fun demo() {
+  const map: boolean = new Map<string, string>()
+  map
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("Undefined variable 'string'"))).toBe(false);
+    expect(messages).toContain("Type 'Map<string, string>' is not assignable to type 'boolean'");
+  });
+
+  it("resolves class member types from generic specifics", () => {
+    const source = `class Map<K, V> {
+  a: K
+  b: V
+}
+fun demo() {
+  const map: Map<string, int> = new Map<string, int>()
+  const ok: string = map.a
+  const fail: int = map.a
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("Property 'a' does not exist"))).toBe(false);
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+  });
 });

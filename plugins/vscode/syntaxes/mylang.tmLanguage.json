@@ -101,7 +101,7 @@
       "patterns": [
         {
           "name": "keyword.declaration.mylang",
-          "match": "\\b(import|from|let|var|val|const|function|fun|declare|class)\\b"
+          "match": "\\b(import|from|let|var|val|const|function|fun|declare|class|extends|implements)\\b"
         },
         {
           "name": "keyword.control.mylang",

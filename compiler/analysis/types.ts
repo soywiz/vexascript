@@ -20,6 +20,7 @@ export interface BuiltinType {
 export interface NamedType {
   kind: "named";
   name: string;
+  typeArguments?: AnalysisType[];
 }
 
 export interface FunctionType {
@@ -69,8 +70,12 @@ export function builtinType(name: BuiltinTypeName): BuiltinType {
   return BUILTIN_TYPES[name];
 }
 
-export function namedType(name: string): NamedType {
-  return { kind: "named", name };
+export function namedType(name: string, typeArguments?: AnalysisType[]): NamedType {
+  return {
+    kind: "named",
+    name,
+    ...(typeArguments && typeArguments.length > 0 ? { typeArguments } : {})
+  };
 }
 
 export function functionType(
@@ -113,7 +118,10 @@ export function typeToString(type: AnalysisType): string {
     case "builtin":
       return type.name;
     case "named":
-      return type.name;
+      if (!type.typeArguments || type.typeArguments.length === 0) {
+        return type.name;
+      }
+      return `${type.name}<${type.typeArguments.map((argument) => typeToString(argument)).join(", ")}>`;
     case "function":
       return `(${type.parameters
         .map((parameter) => `${parameter.name}: ${typeToString(parameter.type)}`)
@@ -148,7 +156,20 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
   }
 
   if (a.kind === "named" && b.kind === "named") {
-    return a.name === b.name;
+    if (a.name !== b.name) {
+      return false;
+    }
+    const aArgs = a.typeArguments ?? [];
+    const bArgs = b.typeArguments ?? [];
+    if (aArgs.length !== bArgs.length) {
+      return false;
+    }
+    for (let i = 0; i < aArgs.length; i += 1) {
+      if (!isSameType(aArgs[i]!, bArgs[i]!)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   if (a.kind === "unknown" && b.kind === "unknown") {

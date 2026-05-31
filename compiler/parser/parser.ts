@@ -1146,9 +1146,18 @@ export class Parser {
 
     private parsePostfix(): Expr {
         let expr = this.parsePrimary();
+        let pendingTypeArguments: Identifier[] | undefined;
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
+
+            if (token?.type === "symbol" && token.value === "<") {
+                const parsedTypeArguments = this.tryParseInvocationTypeArguments();
+                if (parsedTypeArguments) {
+                    pendingTypeArguments = parsedTypeArguments;
+                    continue;
+                }
+            }
 
             if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
                 this.tokens.skip();
@@ -1214,8 +1223,10 @@ export class Parser {
                 expr = this.attachNodeBounds({
                     kind: "CallExpression",
                     callee: expr,
-                    arguments: args
+                    arguments: args,
+                    ...(pendingTypeArguments ? { typeArguments: pendingTypeArguments } : {})
                 } as CallExpression, expr.firstToken, close);
+                pendingTypeArguments = undefined;
                 continue;
             }
 
@@ -1253,6 +1264,9 @@ export class Parser {
                 const callTarget = constructorTarget as CallExpression;
                 statement.callee = callTarget.callee;
                 statement.arguments = callTarget.arguments;
+                if (callTarget.typeArguments) {
+                    statement.typeArguments = callTarget.typeArguments;
+                }
             }
 
             return this.attachNodeBounds(statement, newKeyword, constructorTarget.lastToken ?? this.getLastReadToken() ?? newKeyword);
@@ -1299,6 +1313,49 @@ export class Parser {
         }
 
         return this.parsePostfix();
+    }
+
+    private tryParseInvocationTypeArguments(): Identifier[] | null {
+        const startOffset = this.tokens.offset;
+        const open = this.tokens.peek();
+        if (!(open?.type === "symbol" && open.value === "<")) {
+            return null;
+        }
+
+        this.tokens.skip();
+        const typeArguments: Identifier[] = [];
+
+        try {
+            while (this.tokens.hasMore) {
+                typeArguments.push(this.parseTypeAnnotationNode());
+
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && separator.value === ",") {
+                    this.tokens.skip();
+                    continue;
+                }
+                if (separator?.type === "symbol" && separator.value === ">") {
+                    this.tokens.skip();
+                    break;
+                }
+                this.tokens.offset = startOffset;
+                return null;
+            }
+        } catch (error) {
+            this.tokens.offset = startOffset;
+            if (error instanceof ParseError) {
+                return null;
+            }
+            throw error;
+        }
+
+        const next = this.tokens.peek();
+        if (!(next?.type === "symbol" && next.value === "(")) {
+            this.tokens.offset = startOffset;
+            return null;
+        }
+
+        return typeArguments;
     }
 
     private parseConditional(): Expr {

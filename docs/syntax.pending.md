@@ -34,7 +34,6 @@ Scope notes:
 - Function types (`(a: A) => B`).
 - Type literals (`{ a: string }` as type).
 - Generics (`<T>`) in functions and type aliases.
-- Type arguments in expressions (`fn<T>()`).
 - Mapped types and indexed access types (`{ [K in keyof T]: ... }`, `T[K]` in type position).
 - Conditional types (`T extends U ? X : Y`).
 - `keyof`, `typeof` (type query), `infer`.

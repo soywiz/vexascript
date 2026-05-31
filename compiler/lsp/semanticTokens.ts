@@ -81,6 +81,8 @@ const KEYWORDS = new Set([
   "as",
   "export",
   "class",
+  "extends",
+  "implements",
   "fun",
   "function",
   "let",
