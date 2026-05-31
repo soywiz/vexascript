@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
-import { transpile } from "./runtime/transpile";
+import { transpile, type TranspileTarget } from "./runtime/transpile";
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
 
 async function runLanguageServer(): Promise<void> {
@@ -25,13 +25,14 @@ export function ensureLspTransportArg(argv: string[]): string[] {
   return [...argv, "--stdio"];
 }
 
-async function buildFile(input: string, out?: string): Promise<void> {
+async function buildFile(input: string, out?: string, target: TranspileTarget = "optimized"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
   const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
   const result = transpile(source, {
     sourceFilePath: sourcePath,
-    outputFilePath: outputPath
+    outputFilePath: outputPath,
+    target
   });
   if (result.errors.length > 0) {
     for (const error of result.errors) {
@@ -57,13 +58,14 @@ async function buildFile(input: string, out?: string): Promise<void> {
   }
 }
 
-async function runFile(input: string): Promise<void> {
+async function runFile(input: string, target: TranspileTarget = "optimized"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
   const outputPath = resolve(process.cwd(), input.replace(/\.[^.]+$/, ".js"));
   const result = transpile(source, {
     sourceFilePath: sourcePath,
-    outputFilePath: outputPath
+    outputFilePath: outputPath,
+    target
   });
   if (result.errors.length > 0) {
     for (const error of result.errors) {
@@ -129,16 +131,20 @@ function createProgram(): Command {
     .description("Compile a MyLang file to JavaScript")
     .argument("<input>", "Input file")
     .option("-o, --out <file>", "Output file")
-    .action(async (input: string, opts: { out?: string }) => {
-      await buildFile(input, opts.out);
+    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
+    .action(async (input: string, opts: { out?: string; target?: string }) => {
+      const target = opts.target === "conservative" ? "conservative" : "optimized";
+      await buildFile(input, opts.out, target);
     });
 
   program
     .command("run")
     .description("Transpile and run a MyLang file with Node.js")
     .argument("<input>", "Input file")
-    .action(async (input: string) => {
-      await runFile(input);
+    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
+    .action(async (input: string, opts: { target?: string }) => {
+      const target = opts.target === "conservative" ? "conservative" : "optimized";
+      await runFile(input, target);
     });
 
   program

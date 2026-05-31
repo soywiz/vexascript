@@ -15,9 +15,12 @@ Scope:
 1. Compile source to shared artifacts (`ast`, parser issues, semantic issues, etc.).
 2. Return early if lexical/parser/fatal errors exist.
 3. Return early if semantic issues exist.
-4. Emit JavaScript from AST (+ expression type map for long arithmetic behavior).
-5. Normalize final output with `ensureTrailingSemicolon`.
-6. Produce a source map payload for successful output.
+4. Choose transpile target:
+   - `optimized` (default): run lowering pass before emission.
+   - `conservative`: emit directly from parsed AST.
+5. Emit JavaScript (+ expression type map for long arithmetic behavior).
+6. Normalize final output with `ensureTrailingSemicolon`.
+7. Produce a source map payload for successful output.
 
 Current contract:
 
@@ -55,8 +58,9 @@ This means emit phase never runs with known invalid compile artifacts.
 
 ### Range lowering behavior
 
-- `for (x of a ... b)` is optimized into a classic numeric loop (`for (let x = a; x < b; x++)`) when possible.
-- Standalone range expressions are lowered to generator-producing expressions.
+- In `optimized` target, `for (x of a ... b)` is lowered into a classic numeric loop (`for (let x = a; x < b; x++)`) when possible.
+- In `conservative` target, loop lowering is skipped and range iteration stays generator-based.
+- Standalone range expressions are emitted as generator-producing expressions.
 
 ### Long arithmetic behavior
 
@@ -92,14 +96,12 @@ This approach is intentionally simple and robust:
 
 ## Optimization Boundary (Current State)
 
-Current design intentionally mixes:
+The transpile pipeline now has an explicit lowering boundary:
 
-- direct code emission, and
-- targeted lowering/optimizations (range-for optimization, long wrapping)
+- `compiler/runtime/lowering.ts` performs non-trivial AST rewrites (for example, range-loop lowering).
+- `compiler/runtime/emitter.ts` focuses on JavaScript syntax emission.
 
-inside the emitter.
-
-This is functional but creates coupling between optimization policy and string emission. A future refactor can introduce an explicit lowering/optimization IR pass boundary before final JS emission.
+Target mode controls whether lowering runs (`optimized`) or is skipped (`conservative`).
 
 ## Extension Guidance
 

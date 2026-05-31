@@ -14,6 +14,8 @@ export interface TranspileResult {
   sourceMap?: string;
 }
 
+export type TranspileTarget = "conservative" | "optimized";
+
 function ensureTrailingSemicolon(code: string): string {
   const trimmed = code.trim();
   if (trimmed.length === 0) {
@@ -34,6 +36,7 @@ interface SourceMapV3 {
 export interface TranspileOptions {
   sourceFilePath?: string;
   outputFilePath?: string;
+  target?: TranspileTarget;
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -137,8 +140,9 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     };
   }
 
-  const loweredProgram = lowerProgram(artifacts.ast);
-  const emitted = emitProgram(loweredProgram, artifacts.analysis.getExpressionTypes());
+  const target = options.target ?? "optimized";
+  const programForEmission = target === "conservative" ? artifacts.ast : lowerProgram(artifacts.ast);
+  const emitted = emitProgram(programForEmission, artifacts.analysis.getExpressionTypes());
   const code = ensureTrailingSemicolon(emitted);
   return {
     code,

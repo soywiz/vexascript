@@ -15,7 +15,7 @@ MyLang currently uses these core type categories:
 - Builtin value-like names exposed by binder: `true`, `false`, `null`, `undefined`, `console`.
 - Named types: class names resolved as nominal named types.
 - Function types: parameter list + return type.
-- Structural helper types used by analysis internals: array/range/object/unknown.
+- Structural helper types: array/range/object-shape/unknown.
 
 Notes:
 
@@ -83,13 +83,13 @@ Two types are assignable when:
   - source return type is assignable to target return type.
 - Array/range element types are assignable recursively.
 - `range<T>` is assignable to `array<T>` when element assignability holds.
-
-No other widening/narrowing or structural compatibility is currently implemented.
+- Object-shape types are structurally assignable when required members are present and assignable.
+- Object-shape values are assignable to named class types when matching class members are present.
 
 Consequences:
 
 - `string` is not assignable to `number` or `int`.
-- Named types are nominally compared by exact name in current behavior.
+- Named types are still nominally compared by exact name, except object-shape to named-member structural checks.
 - `unknown` suppresses mismatch checks when either side is unknown.
 
 ## Expression and Statement Checks
@@ -100,6 +100,7 @@ Current semantic diagnostics include:
 - Unknown type annotation names.
 - Type mismatch in variable initialization against annotation.
 - Type mismatch in assignment expressions (`left` vs `right`).
+- Nested mismatch context diagnostics for complex expressions.
 - Function call arity issues:
   - too few arguments,
   - too many arguments,
@@ -108,7 +109,7 @@ Current semantic diagnostics include:
 - Invalid control-flow statements:
   - `continue` outside loops,
   - `break` outside loops/switch.
-- Missing class members in member-access checks.
+- Missing members in member-access checks for both named and inferred object-shape types.
 
 ## Cross-File Semantic Checks (LSP)
 
@@ -125,7 +126,5 @@ These checks are implemented in dedicated LSP diagnostics passes and merged with
 This semantic layer is intentionally conservative today:
 
 - Generic type parameters and instantiation are not supported.
-- Object shape/interface member typing is incomplete.
-- Array propagation and nested-expression mismatch explanations are still limited.
 
 Pending roadmap items are tracked in `docs/tasks.pending.md` and `docs/syntax.pending.md`.

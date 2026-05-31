@@ -34,12 +34,38 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Compiled:");
   });
 
+  it("build command supports conservative target mode", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
+    const input = join(dir, "input-target.my");
+    const output = join(dir, "output-target.js");
+    await writeFile(input, "for (a of 0 ... 3) console.log(a)", "utf8");
+
+    await runCli(["node", "mylang", "build", input, "--out", output, "--target", "conservative"]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain(
+      "for (const a of (function*(s, e) { for (let n = s; n < e; n++) yield n })(0, 3)) console.log(a);"
+    );
+  });
+
   it("run command executes testFixtures/sample.my", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runCli(["node", "mylang", "run", "testFixtures/sample.my"]);
 
     expect(logSpy.mock.calls).toEqual([[42], [1], [2], [3]]);
+  });
+
+  it("run command supports conservative target mode", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
+    const input = join(dir, "run-target.my");
+    await writeFile(input, "for (a of 0 ... 3) console.log(a)", "utf8");
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "run", input, "--target", "conservative"]);
+
+    expect(logSpy.mock.calls).toEqual([[0], [1], [2]]);
   });
 
   it("build command reports compilation errors to stderr and fails", async () => {

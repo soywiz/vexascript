@@ -49,6 +49,7 @@ import {
   isUnknownType,
   namedType,
   objectType,
+  objectTypeWithProperties,
   rangeType,
   typeToString
 } from "./types";
@@ -191,10 +192,7 @@ export class TypeChecker {
           !isUnknownType(initializerType) &&
           !this.isTypeAssignable(initializerType, explicitType)
         ) {
-          this.issues.push({
-            message: `Type '${typeToString(initializerType)}' is not assignable to type '${typeToString(explicitType)}'`,
-            node: declaration.name
-          });
+          this.reportTypeMismatch(initializerType, explicitType, declaration.name, declaration.initializer);
         }
         const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
         this.updateSymbolType(scope, declaration.name.name, inferredType);
@@ -213,10 +211,7 @@ export class TypeChecker {
       !isUnknownType(initializerType) &&
       !this.isTypeAssignable(initializerType, explicitType)
     ) {
-      this.issues.push({
-        message: `Type '${typeToString(initializerType)}' is not assignable to type '${typeToString(explicitType)}'`,
-        node: statement.name
-      });
+      this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer);
     }
     const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
     this.updateSymbolType(scope, statement.name.name, inferredType);
@@ -294,7 +289,9 @@ export class TypeChecker {
         this.visitExpression(statement.iterator as Expr, loopScope);
       }
 
-      this.visitExpression(statement.iterable, loopScope);
+      const iterableType = this.visitExpression(statement.iterable, loopScope);
+      const iteratorType = this.elementTypeFromIterable(iterableType);
+      this.propagateIteratorType(statement.iterator, iteratorType, loopScope);
       this.visitStatement(statement.body, loopScope, loopFlow);
       return;
     }
@@ -397,10 +394,11 @@ export class TypeChecker {
           !isUnknownType(rightType) &&
           !this.isTypeAssignable(rightType, leftType)
         ) {
-          this.issues.push({
-            message: `Type '${typeToString(rightType)}' is not assignable to type '${typeToString(leftType)}'`,
-            node: assignment.right
-          });
+          this.reportTypeMismatch(rightType, leftType, assignment.right, assignment.right);
+        }
+        if (assignment.left.kind === "Identifier" && isUnknownType(leftType) && !isUnknownType(rightType)) {
+          const identifier = assignment.left as Node & { kind: "Identifier"; name: string };
+          this.updateResolvedSymbolType(scope, identifier, rightType);
         }
         result = rightType;
         break;
@@ -425,12 +423,12 @@ export class TypeChecker {
         const member = expression as MemberExpression;
         const objectType = this.visitExpression(member.object, scope);
         if (member.computed) {
-          this.visitExpression(member.property, scope);
-          result = UNKNOWN_TYPE;
+          const propertyType = this.visitExpression(member.property, scope);
+          result = this.resolveComputedMemberType(objectType, propertyType);
           break;
         }
-        this.validateKnownClassMemberAccess(member, objectType);
-        result = this.resolveKnownClassMemberType(member, objectType, scope) ?? UNKNOWN_TYPE;
+        this.validateKnownMemberAccess(member, objectType);
+        result = this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE;
         break;
       }
       case "CallExpression": {
@@ -506,10 +504,7 @@ export class TypeChecker {
         result = this.inferArrayLiteralType(expression as ArrayLiteral, scope);
         break;
       case "ObjectLiteral":
-        for (const property of (expression as ObjectLiteral).properties) {
-          this.visitExpression(property.value, scope);
-        }
-        result = objectType();
+        result = this.inferObjectLiteralType(expression as ObjectLiteral, scope);
         break;
       case "Identifier":
         result = this.resolveIdentifierType(expression as Node & { kind: "Identifier"; name: string }, scope);
@@ -641,6 +636,36 @@ export class TypeChecker {
       return this.isTypeAssignable(sourceType.elementType, targetType.elementType);
     }
 
+    if (sourceType.kind === "object" && targetType.kind === "object") {
+      for (const [propertyName, targetPropertyType] of Object.entries(targetType.properties)) {
+        const sourcePropertyType = sourceType.properties[propertyName];
+        if (!sourcePropertyType) {
+          return false;
+        }
+        if (!this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    if (sourceType.kind === "object" && targetType.kind === "named") {
+      const namedMembers = this.resolveNamedTypeMembers(targetType.name);
+      if (!namedMembers) {
+        return false;
+      }
+      for (const [propertyName, targetPropertyType] of namedMembers) {
+        const sourcePropertyType = sourceType.properties[propertyName];
+        if (!sourcePropertyType) {
+          return false;
+        }
+        if (!this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     if (this.isIntType(sourceType) && this.isNumberType(targetType)) {
       return true;
     }
@@ -711,7 +736,60 @@ export class TypeChecker {
         message: `Argument ${index + 1} of type '${typeToString(argumentType)}' is not assignable to parameter '${parameter.name}' of type '${typeToString(parameter.type)}'`,
         node: call.arguments[index] ?? call
       });
+      const argumentExpression = call.arguments[index];
+      if (argumentExpression) {
+        this.reportNestedMismatchContext(argumentType, parameter.type, argumentExpression);
+      }
     }
+  }
+
+  private reportTypeMismatch(
+    sourceType: AnalysisType,
+    targetType: AnalysisType,
+    node: Node,
+    expressionForContext?: Expr
+  ): void {
+    this.issues.push({
+      message: `Type '${typeToString(sourceType)}' is not assignable to type '${typeToString(targetType)}'`,
+      node
+    });
+    if (!expressionForContext) {
+      return;
+    }
+    this.reportNestedMismatchContext(sourceType, targetType, expressionForContext);
+  }
+
+  private reportNestedMismatchContext(
+    sourceType: AnalysisType,
+    targetType: AnalysisType,
+    expression: Expr
+  ): void {
+    const snippet = this.expressionSnippet(expression);
+    if (!snippet) {
+      return;
+    }
+    this.issues.push({
+      message: `Nested type mismatch: expression '${snippet}' is '${typeToString(sourceType)}' but expected '${typeToString(targetType)}'`,
+      node: expression
+    });
+  }
+
+  private expressionSnippet(expression: Expr): string | null {
+    if (expression.kind === "Identifier") {
+      return null;
+    }
+    const first = expression.firstToken?.value;
+    const last = expression.lastToken?.value;
+    if (!first && !last) {
+      return expression.kind;
+    }
+    if (first && last && first !== last) {
+      return `${first} ... ${last}`;
+    }
+    if (first) {
+      return first;
+    }
+    return last ?? expression.kind;
   }
 
   private resolveTypeAnnotation(
@@ -791,6 +869,20 @@ export class TypeChecker {
     symbol.valueType = typeToString(type);
   }
 
+  private updateResolvedSymbolType(
+    scope: Scope,
+    identifier: Node & { kind: "Identifier"; name: string },
+    type: AnalysisType
+  ): void {
+    const usageOffset = identifier.firstToken?.range.start.offset;
+    const symbol = this.resolve(identifier.name, scope, usageOffset);
+    if (!symbol) {
+      return;
+    }
+    symbol.type = type;
+    symbol.valueType = typeToString(type);
+  }
+
   private isIntType(type: AnalysisType): boolean {
     return type.kind === "builtin" && type.name === "int";
   }
@@ -831,6 +923,61 @@ export class TypeChecker {
     return arrayType(inferredElementType ?? UNKNOWN_TYPE);
   }
 
+  private inferObjectLiteralType(objectLiteral: ObjectLiteral, scope: Scope): AnalysisType {
+    if (objectLiteral.properties.length === 0) {
+      return objectType();
+    }
+
+    const properties: Record<string, AnalysisType> = {};
+    for (const property of objectLiteral.properties) {
+      properties[property.key.name] = this.visitExpression(property.value, scope);
+    }
+    return objectTypeWithProperties(properties);
+  }
+
+  private elementTypeFromIterable(type: AnalysisType): AnalysisType {
+    if (type.kind === "array") {
+      return type.elementType;
+    }
+    if (type.kind === "range") {
+      return type.elementType;
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  private propagateIteratorType(
+    iterator: ForStatement["iterator"],
+    iteratorType: AnalysisType,
+    scope: Scope
+  ): void {
+    if (!iterator || isUnknownType(iteratorType)) {
+      return;
+    }
+
+    if (iterator.kind === "Identifier") {
+      this.updateResolvedSymbolType(
+        scope,
+        iterator as Node & { kind: "Identifier"; name: string },
+        iteratorType
+      );
+      return;
+    }
+
+    if (iterator.kind !== "VarStatement") {
+      return;
+    }
+
+    const varStatement = iterator as VarStatement;
+    if (varStatement.declarations && varStatement.declarations.length > 0) {
+      for (const declaration of varStatement.declarations) {
+        this.updateSymbolType(scope, declaration.name.name, iteratorType);
+      }
+      return;
+    }
+
+    this.updateSymbolType(scope, varStatement.name.name, iteratorType);
+  }
+
   private collectClassStatements(program: Program): void {
     for (const statement of program.body) {
       if (statement.kind !== "ClassStatement") {
@@ -841,105 +988,113 @@ export class TypeChecker {
     }
   }
 
-  private validateKnownClassMemberAccess(
-    member: MemberExpression,
-    objectType: AnalysisType
-  ): void {
+  private validateKnownMemberAccess(member: MemberExpression, objectType: AnalysisType): void {
     if (member.computed || member.property.kind !== "Identifier") {
       return;
     }
-    if (objectType.kind !== "named") {
-      return;
-    }
 
-    const classStatement = this.classStatementsByName.get(objectType.name);
-    if (!classStatement) {
+    const knownMembers = this.membersForType(objectType);
+    if (!knownMembers) {
       return;
     }
 
     const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-    if (this.classHasMember(classStatement, propertyName)) {
+    if (knownMembers.has(propertyName)) {
       return;
     }
 
+    const displayType = objectType.kind === "named" ? objectType.name : typeToString(objectType);
     this.issues.push({
-      message: `Property '${propertyName}' does not exist on type '${objectType.name}'`,
+      message: `Property '${propertyName}' does not exist on type '${displayType}'`,
       node: member.property
     });
   }
 
-  private resolveKnownClassMemberType(
-    member: MemberExpression,
-    objectType: AnalysisType,
-    scope: Scope
-  ): AnalysisType | null {
+  private resolveKnownMemberType(member: MemberExpression, objectType: AnalysisType): AnalysisType | null {
     if (member.computed || member.property.kind !== "Identifier") {
       return null;
+    }
+
+    const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+    if (objectType.kind === "object") {
+      return objectType.properties[memberName] ?? null;
     }
     if (objectType.kind !== "named") {
       return null;
     }
 
-    const classStatement = this.classStatementsByName.get(objectType.name);
+    const classMembers = this.resolveNamedTypeMembers(objectType.name);
+    if (!classMembers) {
+      return null;
+    }
+    return classMembers.get(memberName) ?? null;
+  }
+
+  private resolveComputedMemberType(objectType: AnalysisType, propertyType: AnalysisType): AnalysisType {
+    if (objectType.kind === "array" && this.isIntType(propertyType)) {
+      return objectType.elementType;
+    }
+    if (objectType.kind === "range" && this.isIntType(propertyType)) {
+      return objectType.elementType;
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  private membersForType(type: AnalysisType): Map<string, AnalysisType> | null {
+    if (type.kind === "object") {
+      return new Map(Object.entries(type.properties));
+    }
+    if (type.kind === "named") {
+      return this.resolveNamedTypeMembers(type.name);
+    }
+    return null;
+  }
+
+  private resolveNamedTypeMembers(typeName: string): Map<string, AnalysisType> | null {
+    const classStatement = this.classStatementsByName.get(typeName);
     if (!classStatement) {
       return null;
     }
 
-    const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-
+    const members = new Map<string, AnalysisType>();
     for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-      if (parameter.name.name !== memberName) {
-        continue;
-      }
-      if (parameter.typeAnnotation) {
-        return this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE;
-      }
-      if (parameter.defaultValue) {
-        return this.visitExpression(parameter.defaultValue, scope);
-      }
-      return UNKNOWN_TYPE;
+      members.set(parameter.name.name, this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE);
     }
 
     for (const classMember of classStatement.members) {
-      if (classMember.name.name !== memberName) {
+      if (classMember.kind === "ClassFieldMember") {
+        members.set(
+          classMember.name.name,
+          this.typeFromAnnotationLoose(classMember.typeAnnotation) ?? UNKNOWN_TYPE
+        );
         continue;
       }
-      if (classMember.kind === "ClassFieldMember") {
-        if (classMember.typeAnnotation) {
-          return this.resolveTypeAnnotation(classMember.typeAnnotation, scope) ?? UNKNOWN_TYPE;
-        }
-        if (classMember.initializer) {
-          return this.visitExpression(classMember.initializer, scope);
-        }
-        return UNKNOWN_TYPE;
-      }
 
-      return this.buildFunctionType(
-        classMember.parameters,
-        this.resolveTypeAnnotation(classMember.returnType, scope) ?? UNKNOWN_TYPE,
-        scope
+      members.set(
+        classMember.name.name,
+        functionType(
+          classMember.parameters.map((parameter) => ({
+            name: parameter.name.name,
+            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+            optional: parameter.optional === true || parameter.defaultValue !== undefined
+          })),
+          this.typeFromAnnotationLoose(classMember.returnType) ?? UNKNOWN_TYPE
+        )
       );
     }
 
-    return null;
+    return members;
   }
 
-  private classHasMember(
-    classStatement: ClassStatement,
-    memberName: string
-  ): boolean {
-    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-      if (parameter.name.name === memberName) {
-        return true;
-      }
+  private typeFromAnnotationLoose(typeAnnotation: Node & { kind: "Identifier"; name: string } | undefined): AnalysisType | undefined {
+    if (!typeAnnotation) {
+      return undefined;
     }
-
-    for (const member of classStatement.members) {
-      if (member.name.name === memberName) {
-        return true;
-      }
+    if (TypeChecker.BUILTIN_TYPE_NAMES.has(typeAnnotation.name)) {
+      return builtinType(
+        typeAnnotation.name as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+      );
     }
-
-    return false;
+    return namedType(typeAnnotation.name);
   }
 }

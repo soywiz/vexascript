@@ -482,4 +482,67 @@ fun demo() {
       "Type '(a: string) => int' is not assignable to type '(a: number) => int'"
     );
   });
+
+  it("infers object literal shapes and validates named-type members structurally", () => {
+    const source = `class Pair(val x: int, val y: int)
+fun sum(pair: Pair): int {
+  return pair.x + pair.y
+}
+fun demo() {
+  let pair: Pair = { x: 1, y: 2 }
+  return sum({ x: 3, y: 4 })
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("not assignable"))).toBe(false);
+    expect(messages.some((message) => message.includes("does not exist on type"))).toBe(false);
+  });
+
+  it("reports missing members for inferred object literal shapes", () => {
+    const source = `fun demo() {
+  let pair = { x: 1, y: 2 }
+  return pair.z
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Property 'z' does not exist on type '{ x: int, y: int }'");
+  });
+
+  it("propagates array element type through iterator and computed assignment", () => {
+    const source = `let nums = [1, 2, 3]
+for (value in nums) {
+  let s: string = value
+}
+nums[0] = "x"
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'int' is not assignable to type 'string'");
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+  });
+
+  it("adds nested-expression context for type mismatches", () => {
+    const source = `let value: int = 1 + "x"
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+    expect(
+      messages.some((message) => message.startsWith("Nested type mismatch: expression"))
+    ).toBe(true);
+  });
 });

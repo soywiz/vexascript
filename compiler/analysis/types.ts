@@ -35,6 +35,7 @@ export interface ArrayType {
 
 export interface ObjectType {
   kind: "object";
+  properties: Record<string, AnalysisType>;
 }
 
 export interface RangeType {
@@ -91,7 +92,11 @@ export function arrayType(elementType: AnalysisType = UNKNOWN_TYPE): ArrayType {
 }
 
 export function objectType(): ObjectType {
-  return { kind: "object" };
+  return { kind: "object", properties: {} };
+}
+
+export function objectTypeWithProperties(properties: Record<string, AnalysisType>): ObjectType {
+  return { kind: "object", properties };
 }
 
 export function rangeType(elementType: AnalysisType = builtinType("int")): RangeType {
@@ -116,7 +121,12 @@ export function typeToString(type: AnalysisType): string {
     case "array":
       return `${typeToString(type.elementType)}[]`;
     case "object":
-      return "object";
+      if (Object.keys(type.properties).length === 0) {
+        return "object";
+      }
+      return `{ ${Object.entries(type.properties)
+        .map(([name, propertyType]) => `${name}: ${typeToString(propertyType)}`)
+        .join(", ")} }`;
     case "range":
       return `range<${typeToString(type.elementType)}>`;
     default:
@@ -154,6 +164,22 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
   }
 
   if (a.kind === "object" && b.kind === "object") {
+    const aKeys = Object.keys(a.properties).sort();
+    const bKeys = Object.keys(b.properties).sort();
+    if (aKeys.length !== bKeys.length) {
+      return false;
+    }
+    for (let i = 0; i < aKeys.length; i += 1) {
+      if (aKeys[i] !== bKeys[i]) {
+        return false;
+      }
+      const key = aKeys[i]!;
+      const aProperty = a.properties[key];
+      const bProperty = b.properties[key];
+      if (!aProperty || !bProperty || !isSameType(aProperty, bProperty)) {
+        return false;
+      }
+    }
     return true;
   }
 
