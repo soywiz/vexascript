@@ -44,6 +44,15 @@ const documents = new TextDocuments(TextDocument);
 const analysisSessions = new AnalysisSessionCache();
 let sourceRoots: string[] = [];
 
+function candidateCharacters(character: number): number[] {
+  const candidates = [character];
+  if (character > 0) {
+    candidates.push(character - 1);
+  }
+  candidates.push(character + 1);
+  return candidates;
+}
+
 function uriToFilePath(uri: string | null | undefined): string | null {
   if (!uri || !uri.startsWith("file://")) {
     return null;
@@ -308,7 +317,14 @@ connection.onPrepareRename((params) => {
   if (!analysis) {
     return null;
   }
-  return createPrepareRename(analysis, params.position.line, params.position.character);
+
+  for (const character of candidateCharacters(params.position.character)) {
+    const result = createPrepareRename(analysis, params.position.line, character);
+    if (result) {
+      return result;
+    }
+  }
+  return null;
 });
 
 connection.onRenameRequest((params) => {
@@ -321,17 +337,24 @@ connection.onRenameRequest((params) => {
   if (!session.analysis || !session.ast) {
     return null;
   }
-  return resolveRenameAcrossFiles(
-    {
-      uri: params.textDocument.uri,
-      line: params.position.line,
-      character: params.position.character,
-      session,
-      sourceRoots,
-      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
-    },
-    params.newName
-  );
+
+  for (const character of candidateCharacters(params.position.character)) {
+    const edit = resolveRenameAcrossFiles(
+      {
+        uri: params.textDocument.uri,
+        line: params.position.line,
+        character,
+        session,
+        sourceRoots,
+        getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+      },
+      params.newName
+    );
+    if (edit) {
+      return edit;
+    }
+  }
+  return null;
 });
 
 connection.onReferences((params) => {
