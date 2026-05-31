@@ -205,6 +205,12 @@ Supported unary operators:
 
 - unary plus (`+x`)
 - unary minus (`-x`)
+- logical not (`!x`)
+- bitwise not (`~x`)
+- `typeof x`
+- `void x`
+- `delete x`
+- `await x`
 - prefix increment (`++x`)
 - prefix decrement (`--x`)
 - postfix increment (`x++`)
@@ -219,10 +225,10 @@ Supported binary operators:
 - multiplicative: `*`, `/`, `%`
 - additive: `+`, `-`
 - shift: `<<`, `>>`, `>>>`
-- relational: `<`, `>`, `<=`, `>=`
+- relational: `<`, `>`, `<=`, `>=`, `in`, `instanceof`
 - equality: `==`, `!=`, `===`, `!==`
 - bitwise: `&`, `^`, `|`
-- logical: `&&`, `||`
+- logical: `&&`, `||`, `??`
 
 ### Assignment operators
 
@@ -233,6 +239,15 @@ Supported assignment operators:
 - `<<=`, `>>=`, `>>>=`
 - `&=`, `|=`
 - `&&=`, `||=`
+- `??=`
+
+### Conditional operator
+
+MyLang supports ternary conditional expressions:
+
+```mylang
+condition ? whenTrue : whenFalse
+```
 
 ### Range expressions
 

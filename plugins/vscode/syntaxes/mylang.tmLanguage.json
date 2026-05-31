@@ -105,7 +105,7 @@
         },
         {
           "name": "keyword.control.mylang",
-          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new)\\b"
+          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new|in|instanceof|typeof|void|delete|await)\\b"
         },
         {
           "name": "storage.type.mylang",
@@ -129,7 +129,7 @@
       "patterns": [
         {
           "name": "keyword.operator.assignment.compound.mylang",
-          "match": "(\\+=|-=|%=|\\*=|/=|&=|\\|=|&&=|\\|\\|=)"
+          "match": "(\\+=|-=|%=|\\*=|/=|&=|\\|=|&&=|\\|\\|=|\\?\\?=)"
         },
         {
           "name": "keyword.operator.arithmetic.mylang",
@@ -141,7 +141,7 @@
         },
         {
           "name": "keyword.operator.equality.mylang",
-          "match": "(===|!==)"
+          "match": "(===|!==|==|!=)"
         },
         {
           "name": "keyword.operator.member.mylang",
@@ -149,7 +149,7 @@
         },
         {
           "name": "keyword.operator.logical.mylang",
-          "match": "(\\|\\||&&)"
+          "match": "(\\|\\||&&|\\?\\?)"
         },
         {
           "name": "keyword.operator.bitwise.mylang",

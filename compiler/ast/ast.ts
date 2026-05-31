@@ -47,7 +47,7 @@ export interface StringLiteral extends Node {
 
 export interface BinaryExpression extends Node {
     kind: "BinaryExpression"
-    operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&"
+    operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "in" | "instanceof" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&" | "??"
     left: Expr
     right: Expr
 }
@@ -60,9 +60,16 @@ export interface RangeExpression extends Node {
 
 export interface AssignmentExpression extends Node {
     kind: "AssignmentExpression"
-    operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||=" | "<<=" | ">>=" | ">>>="
+    operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||=" | "??=" | "<<=" | ">>=" | ">>>="
     left: Expr
     right: Expr
+}
+
+export interface ConditionalExpression extends Node {
+    kind: "ConditionalExpression"
+    test: Expr
+    consequent: Expr
+    alternate: Expr
 }
 
 export interface MemberExpression extends Node {
@@ -88,7 +95,7 @@ export interface NewExpression extends Node {
 
 export interface UnaryExpression extends Node {
     kind: "UnaryExpression"
-    operator: "+" | "-"
+    operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete" | "await"
     argument: Expr
 }
 

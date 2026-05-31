@@ -81,6 +81,14 @@ describe("formatSource", () => {
       .toBe("a << 1\nb >>= 2\nc === d\nx != y");
   });
 
+  it("formats nullish, unary word operators, and ternary", () => {
+    expect(
+      formatSource("a??b\nx??=y\ntypeof a\nvoid a\ndelete a.b\nawait x\na?b:c")
+    ).toBe(
+      "a ?? b\nx ??= y\ntypeof a\nvoid a\ndelete a.b\nawait x\na ? b : c"
+    );
+  });
+
   it("formats range operator with binary spacing", () => {
     expect(formatSource("for(a of 0...10)console.log(a)"))
       .toBe("for (a of 0 ... 10)console.log(a)");

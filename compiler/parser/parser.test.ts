@@ -92,6 +92,39 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for additional unary operators", () => {
+        expect(parseExpression(tokenizeReader("!a"))).toEqual({
+            kind: "UnaryExpression",
+            operator: "!",
+            argument: { kind: "Identifier", name: "a" }
+        });
+        expect(parseExpression(tokenizeReader("~a"))).toEqual({
+            kind: "UnaryExpression",
+            operator: "~",
+            argument: { kind: "Identifier", name: "a" }
+        });
+        expect(parseExpression(tokenizeReader("typeof a"))).toEqual({
+            kind: "UnaryExpression",
+            operator: "typeof",
+            argument: { kind: "Identifier", name: "a" }
+        });
+        expect(parseExpression(tokenizeReader("void a"))).toEqual({
+            kind: "UnaryExpression",
+            operator: "void",
+            argument: { kind: "Identifier", name: "a" }
+        });
+        expect(parseExpression(tokenizeReader("delete a.b"))).toEqual({
+            kind: "UnaryExpression",
+            operator: "delete",
+            argument: {
+                kind: "MemberExpression",
+                object: { kind: "Identifier", name: "a" },
+                property: { kind: "Identifier", name: "b" },
+                computed: false
+            }
+        });
+    });
+
     it("builds an AST for prefix increment and decrement", () => {
         expect(parseExpression(tokenizeReader("++a"))).toEqual({
             kind: "UpdateExpression",
@@ -355,6 +388,25 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses nullish coalescing with logical precedence", () => {
+        expect(parseExpression(tokenizeReader("a ?? b || c && d"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "||",
+            left: {
+                kind: "BinaryExpression",
+                operator: "??",
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "Identifier", name: "b" }
+            },
+            right: {
+                kind: "BinaryExpression",
+                operator: "&&",
+                left: { kind: "Identifier", name: "c" },
+                right: { kind: "Identifier", name: "d" }
+            }
+        });
+    });
+
     it("applies precedence for shift and relational operators", () => {
         expect(parseExpression(tokenizeReader("1 + 2 << 3 < 4"))).toEqual({
             kind: "BinaryExpression",
@@ -383,6 +435,18 @@ describe("parseExpression", () => {
                 right: { kind: "IntLiteral", value: 2 }
             },
             right: { kind: "IntLiteral", value: 3 }
+        });
+
+        expect(parseExpression(tokenizeReader("a in b instanceof c"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "instanceof",
+            left: {
+                kind: "BinaryExpression",
+                operator: "in",
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "Identifier", name: "b" }
+            },
+            right: { kind: "Identifier", name: "c" }
         });
     });
 
@@ -421,7 +485,7 @@ describe("parseExpression", () => {
     });
 
     it("parses all requested compound assignment operators", () => {
-        const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "<<=", ">>=", ">>>="] as const;
+        const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="] as const;
 
         for (const operator of operators) {
             expect(parseExpression(tokenizeReader(`a ${operator} 1`))).toEqual({
@@ -484,6 +548,20 @@ describe("parseExpression", () => {
                 operator: "&&",
                 left: { kind: "Identifier", name: "b" },
                 right: { kind: "Identifier", name: "c" }
+            }
+        });
+    });
+
+    it("parses ternary conditional expressions as right-associative", () => {
+        expect(parseExpression(tokenizeReader("a ? b : c ? d : e"))).toEqual({
+            kind: "ConditionalExpression",
+            test: { kind: "Identifier", name: "a" },
+            consequent: { kind: "Identifier", name: "b" },
+            alternate: {
+                kind: "ConditionalExpression",
+                test: { kind: "Identifier", name: "c" },
+                consequent: { kind: "Identifier", name: "d" },
+                alternate: { kind: "Identifier", name: "e" }
             }
         });
     });

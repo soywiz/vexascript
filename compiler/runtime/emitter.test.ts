@@ -31,6 +31,21 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toContain("let value = 1 - (2 - 3);");
   });
 
+  it("emits ternary, nullish coalescing, relational keywords, and unary word operators", () => {
+    const program = parseFile(
+      tokenizeReader("let a = cond ? left : right\nlet b = x ?? y\nlet c = item in obj\nlet d = v instanceof Point\nlet e = typeof a\nlet f = void a\nlet g = delete obj.key\nlet h = await promise")
+    );
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("let a = cond ? left : right;");
+    expect(emitted).toContain("let b = x ?? y;");
+    expect(emitted).toContain("let c = item in obj;");
+    expect(emitted).toContain("let d = v instanceof Point;");
+    expect(emitted).toContain("let e = typeof a;");
+    expect(emitted).toContain("let f = void a;");
+    expect(emitted).toContain("let g = delete obj.key;");
+    expect(emitted).toContain("let h = await promise;");
+  });
+
   it("emits named import statements", () => {
     const program = parseFile(tokenizeReader("import { Point } from \"./a\""));
     expect(emitProgram(program)).toBe("import { Point } from \"./a\";");

@@ -14,6 +14,7 @@ import {
     ClassMethodMember,
     ClassPrimaryConstructorParameter,
     ClassStatement,
+    ConditionalExpression,
     ContinueStatement,
     DoWhileStatement,
     Expr,
@@ -54,7 +55,7 @@ import {
 type BinaryOperator = BinaryExpression["operator"];
 type AssignmentOperator = AssignmentExpression["operator"];
 
-const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "<<=", ">>=", ">>>="];
+const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="];
 const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
 const FUNCTION_DECLARATION_KEYWORDS: readonly FunctionDeclarationKind[] = ["fun", "function"];
 
@@ -1075,6 +1076,27 @@ export class Parser {
                 argument
             } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
         }
+        if (token?.type === "symbol" && (token.value === "!" || token.value === "~")) {
+            this.tokens.skip();
+            const argument = this.parseUnary();
+            return this.attachNodeBounds({
+                kind: "UnaryExpression",
+                operator: token.value,
+                argument
+            } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
+        }
+        if (
+            token?.type === "identifier" &&
+            (token.value === "typeof" || token.value === "void" || token.value === "delete" || token.value === "await")
+        ) {
+            this.tokens.skip();
+            const argument = this.parseUnary();
+            return this.attachNodeBounds({
+                kind: "UnaryExpression",
+                operator: token.value,
+                argument
+            } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
+        }
 
         return this.parsePostfix();
     }
@@ -1118,7 +1140,25 @@ export class Parser {
     }
 
     private parseRelational(): Expr {
-        return this.parseLeftAssociative(["<", ">", "<=", ">="], () => this.parseShift());
+        let left = this.parseShift();
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+            if (
+                !(
+                    (token?.type === "symbol" && (token.value === "<" || token.value === ">" || token.value === "<=" || token.value === ">=")) ||
+                    (token?.type === "identifier" && (token.value === "in" || token.value === "instanceof"))
+                )
+            ) {
+                break;
+            }
+
+            this.tokens.skip();
+            const right = this.parseShift();
+            left = this.buildBinary(token.value as BinaryOperator, left, right);
+        }
+
+        return left;
     }
 
     private parseEquality(): Expr {
@@ -1142,11 +1182,34 @@ export class Parser {
     }
 
     private parseLogicalOr(): Expr {
-        return this.parseLeftAssociative(["||"], () => this.parseLogicalAnd());
+        return this.parseLeftAssociative(["||", "??"], () => this.parseLogicalAnd());
+    }
+
+    private parseConditional(): Expr {
+        const test = this.parseLogicalOr();
+        const maybeQuestion = this.tokens.peek();
+        if (!(maybeQuestion?.type === "symbol" && maybeQuestion.value === "?")) {
+            return test;
+        }
+
+        this.tokens.skip();
+        const consequent = this.parseAssignment();
+        const colon = this.tokens.read();
+        if (colon?.type !== "symbol" || colon.value !== ":") {
+            this.fail("Expected ':' in conditional expression", this.tokenAt(colon));
+        }
+        const alternate = this.parseAssignment();
+
+        return this.attachNodeBounds({
+            kind: "ConditionalExpression",
+            test,
+            consequent,
+            alternate
+        } as ConditionalExpression, test.firstToken, alternate.lastToken ?? this.getLastReadToken());
     }
 
     private parseAssignment(): Expr {
-        const left = this.parseLogicalOr();
+        const left = this.parseConditional();
         const token = this.tokens.peek();
 
         if (token?.type === "symbol" && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
@@ -1964,11 +2027,23 @@ export class Parser {
         let initializer: VarStatement | Expr | undefined;
         if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";")) {
             const initialToken = this.tokens.peek();
+            const secondToken = this.tokens.items[this.tokens.offset + 1];
             if (
                 initialToken?.type === "identifier" &&
                 this.isVariableDeclarationKeyword(initialToken.value)
             ) {
                 initializer = this.parseVarStatement();
+            } else if (
+                this.language === "mylang" &&
+                initialToken?.type === "identifier" &&
+                secondToken?.type === "identifier" &&
+                (secondToken.value === "in" || secondToken.value === "of")
+            ) {
+                const identifierToken = this.tokens.read();
+                if (identifierToken?.type !== "identifier") {
+                    this.fail("Expected identifier iterator in MyLang for-in/of statement", this.tokenAt(identifierToken));
+                }
+                initializer = this.buildIdentifierFromToken(identifierToken);
             } else {
                 initializer = this.parseExpressionOrThrow();
             }

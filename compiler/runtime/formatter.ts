@@ -17,6 +17,7 @@ const MULTI_CHAR_SYMBOLS = [
   "&&=",
   "||=",
   "??=",
+  "??",
   "++",
   "--",
   "**",
@@ -49,6 +50,8 @@ const BINARY_OPERATORS = new Set([
   "==", "!=", "===", "!==",
   "&", "|", "^", "&&", "||",
   "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=", "&=", "|=", "&&=", "||="
+  , "??="
+  , "??"
 ]);
 
 const CONTROL_KEYWORDS_WITH_PAREN = new Set(["if", "for", "while", "switch", "catch"]);
@@ -263,7 +266,8 @@ function shouldSpaceBefore(
   previous: FormatToken | undefined,
   current: FormatToken,
   previousSignificant: FormatToken | undefined,
-  significantBeforePrevious: FormatToken | undefined
+  significantBeforePrevious: FormatToken | undefined,
+  nextToken: FormatToken | undefined
 ): boolean {
   if (!previous) {
     return false;
@@ -282,7 +286,31 @@ function shouldSpaceBefore(
   }
 
   if (current.type === "symbol" && current.value === ":") {
+    if (previousSignificant?.type === "symbol" && previousSignificant.value === "?") {
+      return true;
+    }
+    if (significantBeforePrevious?.type === "symbol" && significantBeforePrevious.value === "?") {
+      return true;
+    }
+    if (previousSignificant?.type === "identifier" && (previousSignificant.value === "case" || previousSignificant.value === "default")) {
+      return false;
+    }
     return false;
+  }
+
+  if (current.type === "symbol" && current.value === "?") {
+    if (
+      previous?.type === "identifier" &&
+      nextToken?.type === "symbol" &&
+      (nextToken.value === "," || nextToken.value === ")" || nextToken.value === ":")
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  if (previous.type === "symbol" && previous.value === "?") {
+    return true;
   }
 
   if (current.type === "symbol" && current.value === "{") {
@@ -317,6 +345,19 @@ function shouldSpaceBefore(
   }
 
   return false;
+}
+
+function nextNonNewlineToken(tokens: FormatToken[], index: number): FormatToken | undefined {
+  for (let i = index + 1; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (!token) {
+      continue;
+    }
+    if (token.type !== "newline") {
+      return token;
+    }
+  }
+  return undefined;
 }
 
 export function formatSource(source: string): string {
@@ -411,7 +452,8 @@ export function formatSource(source: string): string {
     if (token.type === "commentLine") {
       beginLineIfNeeded(token);
       writeIndentIfNeeded();
-      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious)) {
+      const nextToken = nextNonNewlineToken(tokens, index);
+      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious, nextToken)) {
         result += " ";
       }
       result += token.value;
@@ -425,7 +467,8 @@ export function formatSource(source: string): string {
     if (token.type === "commentBlock") {
       beginLineIfNeeded(token);
       writeIndentIfNeeded();
-      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious)) {
+      const nextToken = nextNonNewlineToken(tokens, index);
+      if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious, nextToken)) {
         result += " ";
       }
       result += token.value;
@@ -461,7 +504,8 @@ export function formatSource(source: string): string {
     beginLineIfNeeded(token);
     writeIndentIfNeeded();
 
-    if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious)) {
+    const nextToken = nextNonNewlineToken(tokens, index);
+    if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious, nextToken)) {
       result += " ";
     }
 

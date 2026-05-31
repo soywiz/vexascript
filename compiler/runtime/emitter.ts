@@ -9,6 +9,7 @@ import type {
   ClassMethodMember,
   ClassPrimaryConstructorParameter,
   ClassStatement,
+  ConditionalExpression,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -44,21 +45,22 @@ import type { AnalysisType } from "compiler/analysis/types";
 type Assoc = "left" | "right";
 
 const PREC_ASSIGNMENT = 1;
-const PREC_LOGICAL_OR = 2;
-const PREC_LOGICAL_AND = 3;
-const PREC_BITWISE_OR = 4;
-const PREC_BITWISE_XOR = 5;
-const PREC_BITWISE_AND = 6;
-const PREC_EQUALITY = 7;
-const PREC_RELATIONAL = 8;
-const PREC_SHIFT = 9;
-const PREC_ADDITIVE = 10;
-const PREC_MULTIPLICATIVE = 11;
-const PREC_EXPONENT = 12;
-const PREC_UNARY = 13;
-const PREC_UPDATE = 14;
-const PREC_MEMBER = 15;
-const PREC_PRIMARY = 16;
+const PREC_CONDITIONAL = 2;
+const PREC_LOGICAL_OR = 3;
+const PREC_LOGICAL_AND = 4;
+const PREC_BITWISE_OR = 5;
+const PREC_BITWISE_XOR = 6;
+const PREC_BITWISE_AND = 7;
+const PREC_EQUALITY = 8;
+const PREC_RELATIONAL = 9;
+const PREC_SHIFT = 10;
+const PREC_ADDITIVE = 11;
+const PREC_MULTIPLICATIVE = 12;
+const PREC_EXPONENT = 13;
+const PREC_UNARY = 14;
+const PREC_UPDATE = 15;
+const PREC_MEMBER = 16;
+const PREC_PRIMARY = 17;
 let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
 
 function normalizeVarKind(kind: string): "let" | "var" | "const" {
@@ -73,6 +75,7 @@ function normalizeVarKind(kind: string): "let" | "var" | "const" {
 
 function binaryPrecedence(operator: BinaryExpression["operator"]): { precedence: number; assoc: Assoc } {
   switch (operator) {
+    case "??":
     case "||":
       return { precedence: PREC_LOGICAL_OR, assoc: "left" };
     case "&&":
@@ -92,6 +95,8 @@ function binaryPrecedence(operator: BinaryExpression["operator"]): { precedence:
     case ">":
     case "<=":
     case ">=":
+    case "in":
+    case "instanceof":
       return { precedence: PREC_RELATIONAL, assoc: "left" };
     case "<<":
     case ">>":
@@ -115,6 +120,8 @@ function expressionPrecedence(expression: Expr): number {
   switch (expression.kind) {
     case "AssignmentExpression":
       return PREC_ASSIGNMENT;
+    case "ConditionalExpression":
+      return PREC_CONDITIONAL;
     case "BinaryExpression":
       return binaryPrecedence((expression as BinaryExpression).operator).precedence;
     case "UnaryExpression":
@@ -196,6 +203,13 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
         return `${leftText} ${assignment.operator} ${rightText}`;
       }
+      case "ConditionalExpression": {
+        const conditional = expression as ConditionalExpression;
+        const test = emitExpression(conditional.test, PREC_CONDITIONAL, "left");
+        const consequent = emitExpression(conditional.consequent, PREC_ASSIGNMENT, "right");
+        const alternate = emitExpression(conditional.alternate, PREC_ASSIGNMENT, "right");
+        return `${test} ? ${consequent} : ${alternate}`;
+      }
       case "MemberExpression": {
         const member = expression as MemberExpression;
         const objectText = emitExpression(member.object, PREC_MEMBER, "left");
@@ -220,7 +234,14 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "UnaryExpression": {
         const unary = expression as UnaryExpression;
-        const unaryText = `${unary.operator}${emitExpression(unary.argument, PREC_UNARY, "right")}`;
+        const unaryOperator =
+          unary.operator === "typeof" ||
+          unary.operator === "void" ||
+          unary.operator === "delete" ||
+          unary.operator === "await"
+            ? `${unary.operator} `
+            : unary.operator;
+        const unaryText = `${unaryOperator}${emitExpression(unary.argument, PREC_UNARY, "right")}`;
         return wrapLongExpressionIfNeeded(expression, unaryText);
       }
       case "UpdateExpression": {

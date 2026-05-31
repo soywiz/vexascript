@@ -7,6 +7,7 @@ import type {
   ClassFieldMember,
   ClassMethodMember,
   ClassStatement,
+  ConditionalExpression,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -390,6 +391,22 @@ export class TypeChecker {
         result = this.visitExpression(assignment.right, scope);
         break;
       }
+      case "ConditionalExpression": {
+        const conditional = expression as ConditionalExpression;
+        this.visitExpression(conditional.test, scope);
+        const consequentType = this.visitExpression(conditional.consequent, scope);
+        const alternateType = this.visitExpression(conditional.alternate, scope);
+        if (this.isTypeAssignable(consequentType, alternateType)) {
+          result = alternateType;
+          break;
+        }
+        if (this.isTypeAssignable(alternateType, consequentType)) {
+          result = consequentType;
+          break;
+        }
+        result = UNKNOWN_TYPE;
+        break;
+      }
       case "MemberExpression": {
         const member = expression as MemberExpression;
         this.visitExpression(member.object, scope);
@@ -431,6 +448,26 @@ export class TypeChecker {
       case "UnaryExpression": {
         const unary = expression as UnaryExpression;
         const argumentType = this.visitExpression(unary.argument, scope);
+        if (unary.operator === "!") {
+          result = builtinType("boolean");
+          break;
+        }
+        if (unary.operator === "typeof") {
+          result = builtinType("string");
+          break;
+        }
+        if (unary.operator === "void") {
+          result = builtinType("undefined");
+          break;
+        }
+        if (unary.operator === "delete") {
+          result = builtinType("boolean");
+          break;
+        }
+        if (unary.operator === "await") {
+          result = argumentType;
+          break;
+        }
         if ((unary.operator === "+" || unary.operator === "-") && this.isIntType(argumentType)) {
           result = builtinType("int");
           break;
@@ -514,11 +551,20 @@ export class TypeChecker {
       return this.isIntType(leftType) && this.isIntType(rightType) ? builtinType("int") : UNKNOWN_TYPE;
     }
 
+    if (operator === "??") {
+      if (isUnknownType(leftType)) {
+        return rightType;
+      }
+      return leftType;
+    }
+
     if (
       operator === "<" ||
       operator === ">" ||
       operator === "<=" ||
       operator === ">=" ||
+      operator === "in" ||
+      operator === "instanceof" ||
       operator === "==" ||
       operator === "!=" ||
       operator === "===" ||

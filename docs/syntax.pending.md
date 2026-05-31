@@ -80,13 +80,8 @@ Scope notes:
 
 ## Expressions
 
-- Conditional/ternary operator (`cond ? a : b`).
-- Nullish coalescing (`??`) and `??=`.
 - Optional call (`fn?.()`).
 - Optional element access (`obj?.[k]`).
-- Logical not (`!expr`) and bitwise not (`~expr`).
-- `delete`, `void`, `typeof` (expression operator).
-- `instanceof`, `in`.
 - Comma operator.
 - Spread syntax in arrays/objects (`[...a]`, `{ ...x }`).
 - Template literals (`` `hello ${name}` ``).

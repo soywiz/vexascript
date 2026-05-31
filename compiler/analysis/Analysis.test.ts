@@ -341,4 +341,24 @@ describe("Analysis", () => {
     expect(symbols.get("x")?.valueType).toBe("long");
     expect(symbols.get("z")?.valueType).toBe("long");
   });
+
+  it("infers types for ternary, nullish coalescing, relational keywords, and unary word operators", () => {
+    const source =
+      "let a = true ? 1 : 2\n" +
+      "let b = maybe ?? 10\n" +
+      "let c = item in obj\n" +
+      "let d = item instanceof Point\n" +
+      "let e = typeof a\n" +
+      "let f = void a\n" +
+      "let g = delete obj.key\n";
+    const symbols = symbolsOfVisibleSymbolsAt(source, 6, 5);
+
+    expect(symbols.get("a")?.valueType).toBe("int");
+    expect(symbols.get("b")?.valueType).toBe("int");
+    expect(symbols.get("c")?.valueType).toBe("boolean");
+    expect(symbols.get("d")?.valueType).toBe("boolean");
+    expect(symbols.get("e")?.valueType).toBe("string");
+    expect(symbols.get("f")?.valueType).toBe("undefined");
+    expect(symbols.get("g")?.valueType).toBe("boolean");
+  });
 });

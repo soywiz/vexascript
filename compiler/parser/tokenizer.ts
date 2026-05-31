@@ -360,6 +360,14 @@ function readSymbol(reader: StrReader): string {
     advanceCode(reader);
     return "++";
   }
+  if (ch === CODE_QUESTION && next === CODE_QUESTION) {
+    advanceCode(reader);
+    if (reader.peekCode() === CODE_EQUALS) {
+      advanceCode(reader);
+      return "??=";
+    }
+    return "??";
+  }
   if (ch === CODE_QUESTION && next === CODE_DOT) {
     advanceCode(reader);
     return "?.";
