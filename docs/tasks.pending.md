@@ -30,7 +30,6 @@ This document tracks the current technical backlog for MyLang.
 ## LSP and DX
 
 - Add completion ranking by scope distance and type relevance.
-- Add semantic token support (LSP semantic highlighting) to complement TextMate grammar.
 - Add diagnostics codes/severity taxonomy and quick-fix hooks for common semantic errors.
 
 ## Documentation

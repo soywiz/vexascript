@@ -17,8 +17,8 @@ This document tracks common Language Server Protocol services and their status i
 - [ ] `textDocument/documentHighlight`
 - [x] `textDocument/documentSymbol`
 - [x] `workspace/symbol`
-- [ ] `textDocument/semanticTokens/full`
-- [ ] `textDocument/semanticTokens/range`
+- [x] `textDocument/semanticTokens/full`
+- [x] `textDocument/semanticTokens/range`
 - [ ] `textDocument/inlayHint`
 - [ ] `textDocument/codeLens`
 - [ ] `textDocument/foldingRange`
@@ -53,3 +53,4 @@ This document tracks common Language Server Protocol services and their status i
 - Workspace symbol search scans `.my` files in source roots.
 - Code actions include declaration keyword replacements and auto-import fixes.
 - Diagnostics include parser and semantic issues, and keep semantic checks enabled after parser recovery.
+- Semantic tokens provide semantic highlighting for keywords, operators, literals, and symbols (`full` + `range`).

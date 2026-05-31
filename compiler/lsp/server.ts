@@ -31,6 +31,10 @@ import {
 import { resolve as resolvePath } from "node:path";
 import { createSignatureHelp } from "./signatureHelp";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
+import {
+  createSemanticTokens,
+  MYLANG_SEMANTIC_TOKENS_LEGEND
+} from "./semanticTokens";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
@@ -101,6 +105,11 @@ connection.onInitialize((params) => {
       },
       documentSymbolProvider: true,
       workspaceSymbolProvider: true,
+      semanticTokensProvider: {
+        legend: MYLANG_SEMANTIC_TOKENS_LEGEND,
+        full: true,
+        range: true
+      },
       renameProvider: {
         prepareProvider: true
       }
@@ -353,6 +362,35 @@ connection.onWorkspaceSymbol((params) => {
   return createWorkspaceSymbols({
     sourceRoots,
     query: params.query ?? ""
+  });
+});
+
+connection.languages.semanticTokens.on((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return { data: [] };
+  }
+
+  const session = analysisSessions.getForDocument(doc);
+  return createSemanticTokens({
+    text: doc.getText(),
+    ast: session.ast,
+    analysis: session.analysis
+  });
+});
+
+connection.languages.semanticTokens.onRange((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return { data: [] };
+  }
+
+  const session = analysisSessions.getForDocument(doc);
+  return createSemanticTokens({
+    text: doc.getText(),
+    ast: session.ast,
+    analysis: session.analysis,
+    range: params.range
   });
 });
 
