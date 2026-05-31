@@ -20,12 +20,15 @@ import {
   createKeywordOnlyCompletionItems
 } from "./completion";
 import {
-  createDefinitionLocation,
+  resolveDefinitionAcrossFiles,
+  resolveReferencesAcrossFiles
+} from "./crossFileNavigation";
+import {
   createHover,
   createPrepareRename,
-  createReferences,
   createRenameWorkspaceEdit
 } from "./navigation";
+import { resolve as resolvePath } from "node:path";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
@@ -61,6 +64,20 @@ function resolveSourceRoots(params: InitializeParams): string[] {
   }
 
   return roots;
+}
+
+function getSessionForFilePathFromOpenDocuments(filePath: string) {
+  const target = resolvePath(filePath);
+  for (const document of documents.all()) {
+    const documentPath = uriToFilePath(document.uri);
+    if (!documentPath) {
+      continue;
+    }
+    if (resolvePath(documentPath) === target) {
+      return analysisSessions.getForDocument(document);
+    }
+  }
+  return null;
 }
 
 connection.onInitialize((params) => {
@@ -205,16 +222,18 @@ connection.onDefinition((params) => {
     return null;
   }
 
-  const analysis = analysisSessions.getForDocument(doc).analysis;
-  if (!analysis) {
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.analysis || !session.ast) {
     return null;
   }
-  return createDefinitionLocation(
-    analysis,
-    params.textDocument.uri,
-    params.position.line,
-    params.position.character
-  );
+  return resolveDefinitionAcrossFiles({
+    uri: params.textDocument.uri,
+    line: params.position.line,
+    character: params.position.character,
+    session,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
 });
 
 connection.onHover((params) => {
@@ -268,15 +287,19 @@ connection.onReferences((params) => {
     return [];
   }
 
-  const analysis = analysisSessions.getForDocument(doc).analysis;
-  if (!analysis) {
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.analysis || !session.ast) {
     return [];
   }
-  return createReferences(
-    analysis,
-    params.textDocument.uri,
-    params.position.line,
-    params.position.character,
+  return resolveReferencesAcrossFiles(
+    {
+      uri: params.textDocument.uri,
+      line: params.position.line,
+      character: params.position.character,
+      session,
+      sourceRoots,
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    },
     params.context.includeDeclaration
   );
 });
