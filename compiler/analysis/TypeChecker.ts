@@ -606,6 +606,41 @@ export class TypeChecker {
       return true;
     }
 
+    if (sourceType.kind === "function" && targetType.kind === "function") {
+      const targetRequiredCount = targetType.parameters.filter((parameter) => !parameter.optional).length;
+      if (sourceType.parameters.length < targetRequiredCount) {
+        return false;
+      }
+
+      for (let index = 0; index < targetType.parameters.length; index += 1) {
+        const targetParameter = targetType.parameters[index];
+        const sourceParameter = sourceType.parameters[index];
+        if (!targetParameter || !sourceParameter) {
+          return false;
+        }
+        if (!this.isTypeAssignable(sourceParameter.type, targetParameter.type)) {
+          return false;
+        }
+        if ((targetParameter.optional ?? false) === false && (sourceParameter.optional ?? false) === true) {
+          return false;
+        }
+      }
+
+      return this.isTypeAssignable(sourceType.returnType, targetType.returnType);
+    }
+
+    if (sourceType.kind === "array" && targetType.kind === "array") {
+      return this.isTypeAssignable(sourceType.elementType, targetType.elementType);
+    }
+
+    if (sourceType.kind === "range" && targetType.kind === "range") {
+      return this.isTypeAssignable(sourceType.elementType, targetType.elementType);
+    }
+
+    if (sourceType.kind === "range" && targetType.kind === "array") {
+      return this.isTypeAssignable(sourceType.elementType, targetType.elementType);
+    }
+
     if (this.isIntType(sourceType) && this.isNumberType(targetType)) {
       return true;
     }

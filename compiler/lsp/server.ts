@@ -43,11 +43,13 @@ import {
   createSemanticTokens,
   MYLANG_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
+import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
 const analysisSessions = new AnalysisSessionCache();
 let sourceRoots: string[] = [];
+let projectIndex: ProjectIndex = getProjectIndex([]);
 const REFRESH_DIAGNOSTICS_COMMAND = "mylang.refreshDiagnostics";
 
 function candidateCharacters(character: number): number[] {
@@ -91,21 +93,12 @@ function resolveSourceRoots(params: InitializeParams): string[] {
 }
 
 function getSessionForFilePathFromOpenDocuments(filePath: string) {
-  const target = resolvePath(filePath);
-  for (const document of documents.all()) {
-    const documentPath = uriToFilePath(document.uri);
-    if (!documentPath) {
-      continue;
-    }
-    if (resolvePath(documentPath) === target) {
-      return analysisSessions.getForDocument(document);
-    }
-  }
-  return null;
+  return projectIndex.getSessionForFilePath(resolvePath(filePath));
 }
 
 connection.onInitialize((params) => {
   sourceRoots = resolveSourceRoots(params);
+  projectIndex = getProjectIndex(sourceRoots);
   return {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -184,10 +177,27 @@ function completionPrefixAt(text: string, offset: number): string {
   return text.slice(i, offset);
 }
 
-documents.onDidOpen(() => validateAllOpenDocuments());
-documents.onDidChangeContent(() => validateAllOpenDocuments());
+documents.onDidOpen((event) => {
+  const filePath = uriToFilePath(event.document.uri);
+  if (filePath) {
+    projectIndex.upsertOpenDocument(filePath, event.document.getText());
+  }
+  validateAllOpenDocuments();
+});
+documents.onDidChangeContent((event) => {
+  const filePath = uriToFilePath(event.document.uri);
+  if (filePath) {
+    projectIndex.upsertOpenDocument(filePath, event.document.getText());
+  }
+  validateAllOpenDocuments();
+});
 documents.onDidClose((event) => {
   analysisSessions.delete(event.document.uri);
+  const filePath = uriToFilePath(event.document.uri);
+  if (filePath) {
+    projectIndex.clearOpenDocument(filePath);
+    projectIndex.invalidateFile(filePath);
+  }
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
   validateAllOpenDocuments();
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { emitProgram } from "./emitter";
+import { lowerProgram } from "./lowering";
 
 describe("emitProgram", () => {
   it("emits mylang for-in as for-of const", () => {
@@ -9,9 +10,16 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toContain("for (const n of [1, 2, 3]) console.log(n);");
   });
 
-  it("optimizes range-based for-of to classic for loop", () => {
+  it("keeps emitter focused on syntax emission without range-loop optimization", () => {
     const program = parseFile(tokenizeReader("for (a of 0 ... 10) console.log(a)"));
-    expect(emitProgram(program)).toContain("for (let a = 0; a < 10; a++) console.log(a);");
+    expect(emitProgram(program)).toContain(
+      "for (const a of (function*(s, e) { for (let n = s; n < e; n++) yield n })(0, 10)) console.log(a);"
+    );
+  });
+
+  it("emits classic for loop after lowering a range-based for-of", () => {
+    const program = parseFile(tokenizeReader("for (a of 0 ... 10) console.log(a)"));
+    expect(emitProgram(lowerProgram(program))).toContain("for (let a = 0; a < 10; a++) console.log(a);");
   });
 
   it("emits range expression outside for as generator", () => {

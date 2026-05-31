@@ -5,6 +5,7 @@ import {
 } from "compiler/pipeline/compile";
 import { basename } from "node:path";
 import { emitProgram } from "./emitter";
+import { lowerProgram } from "./lowering";
 
 export interface TranspileResult {
   code: string;
@@ -136,7 +137,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     };
   }
 
-  const emitted = emitProgram(artifacts.ast, artifacts.analysis.getExpressionTypes());
+  const loweredProgram = lowerProgram(artifacts.ast);
+  const emitted = emitProgram(loweredProgram, artifacts.analysis.getExpressionTypes());
   const code = ensureTrailingSemicolon(emitted);
   return {
     code,

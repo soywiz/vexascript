@@ -453,4 +453,33 @@ fun demo() {
     expect(messages).toContain("Expected at most 3 argument(s), but got 4");
     expect(messages).toContain("Unexpected argument 4; function expects at most 3 argument(s)");
   });
+
+  it("supports assignability between compatible function types beyond strict equality", () => {
+    const source = `fun target(a: number): int {
+  return 1
+}
+fun compatible(a: int, b?: int): int {
+  return a
+}
+fun incompatible(a: string): int {
+  return 1
+}
+fun demo() {
+  let fn = target
+  fn = compatible
+  fn = incompatible
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(
+      messages.some((message) => message.includes("compatible") && message.includes("not assignable"))
+    ).toBe(false);
+    expect(messages).toContain(
+      "Type '(a: string) => int' is not assignable to type '(a: number) => int'"
+    );
+  });
 });

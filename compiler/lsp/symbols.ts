@@ -1,7 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { extname, resolve } from "node:path";
 import type { ClassStatement, FunctionStatement, Program, VarStatement } from "compiler/ast/ast";
-import { compileSource } from "compiler/pipeline/compile";
 import type {
   DocumentSymbol,
   Location,
@@ -9,6 +6,7 @@ import type {
 } from "vscode-languageserver/node.js";
 import { SymbolKind } from "vscode-languageserver/node.js";
 import { pathToUri } from "./importFixes";
+import { getProjectIndex, getProjectSessionForFilePath } from "./projectAnalysis";
 
 interface NodeWithTokens {
   firstToken?: { range: { start: { line: number; column: number } } };
@@ -39,36 +37,6 @@ function symbolKindForTopLevel(kind: "class" | "function" | "variable"): SymbolK
     return SymbolKind.Function;
   }
   return SymbolKind.Variable;
-}
-
-function scanMyFiles(sourceRoots: string[]): string[] {
-  const files: string[] = [];
-  const stack = [...sourceRoots];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    if (!existsSync(current)) {
-      continue;
-    }
-
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) {
-        continue;
-      }
-
-      const fullPath = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && extname(entry.name) === ".my") {
-        files.push(fullPath);
-      }
-    }
-  }
-
-  return files;
 }
 
 function collectDocumentSymbols(program: Program): DocumentSymbol[] {
@@ -258,13 +226,13 @@ export function createWorkspaceSymbols(params: {
   }
 
   const symbols: SymbolInformation[] = [];
-  for (const filePath of scanMyFiles(sourceRoots)) {
-    const source = readFileSync(filePath, "utf8");
-    const artifacts = compileSource(source);
-    if (!artifacts.ast) {
+  const projectIndex = getProjectIndex(sourceRoots);
+  for (const filePath of projectIndex.scanMyFiles()) {
+    const session = getProjectSessionForFilePath(filePath, { sourceRoots });
+    if (!session?.ast) {
       continue;
     }
-    symbols.push(...collectTopLevelSymbolInformation(artifacts.ast, filePath, query));
+    symbols.push(...collectTopLevelSymbolInformation(session.ast, filePath, query));
   }
 
   return symbols;

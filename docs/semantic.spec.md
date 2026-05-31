@@ -77,6 +77,12 @@ Two types are assignable when:
 - They are exactly the same type, or
 - Source is `int` and target is `number`, or
 - Source is `long` and target is `bigint`.
+- Function-to-function compatibility holds when:
+  - source provides at least target required parameters,
+  - each source parameter type is assignable to corresponding target parameter type,
+  - source return type is assignable to target return type.
+- Array/range element types are assignable recursively.
+- `range<T>` is assignable to `array<T>` when element assignability holds.
 
 No other widening/narrowing or structural compatibility is currently implemented.
 
@@ -118,7 +124,6 @@ These checks are implemented in dedicated LSP diagnostics passes and merged with
 
 This semantic layer is intentionally conservative today:
 
-- Function type compatibility is stricter than TypeScript-style structural compatibility.
 - Generic type parameters and instantiation are not supported.
 - Object shape/interface member typing is incomplete.
 - Array propagation and nested-expression mismatch explanations are still limited.

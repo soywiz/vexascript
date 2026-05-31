@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type {
@@ -33,9 +33,13 @@ import type {
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
-import { compileSource } from "compiler/pipeline/compile";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
+import {
+  getProjectIndex,
+  getProjectSessionForFilePath,
+  scanProjectMyFiles
+} from "./projectAnalysis";
 
 interface SessionLike {
   ast: Program | null;
@@ -135,31 +139,6 @@ function nodeToRange(node: { firstToken?: { range: { start: { line: number; colu
   };
 }
 
-function scanMyFiles(sourceRoots: string[]): string[] {
-  const files: string[] = [];
-  const stack = [...sourceRoots];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) {
-        continue;
-      }
-
-      const fullPath = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && extname(entry.name) === ".my") {
-        files.push(fullPath);
-      }
-    }
-  }
-  return files;
-}
-
 function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
@@ -241,21 +220,12 @@ function declarationRangeForName(statement: Statement, name: string) {
 }
 
 function getSessionForFilePath(filePath: string, context: ResolveContext): SessionLike | null {
-  if (context.getSessionForFilePath) {
-    const provided = context.getSessionForFilePath(filePath);
-    if (provided) {
-      return provided;
-    }
-  }
-  if (!existsSync(filePath)) {
-    return null;
-  }
-  const source = readFileSync(filePath, "utf8");
-  const artifacts = compileSource(source);
-  return {
-    ast: artifacts.ast,
-    analysis: artifacts.analysis
-  };
+  return getProjectSessionForFilePath(filePath, {
+    sourceRoots: context.sourceRoots,
+    ...(context.getSessionForFilePath
+      ? { getSessionForFilePath: context.getSessionForFilePath }
+      : {})
+  });
 }
 
 function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null {
@@ -297,8 +267,9 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
     };
   }
 
-  const declaration = findTopLevelDeclarationByName(targetSession.ast, importBinding.name);
-  const targetRange = declaration ? declarationRangeForName(declaration, importBinding.name) : null;
+  const projectIndex = getProjectIndex(context.sourceRoots);
+  const indexedDeclaration = projectIndex.findTopLevelDeclaration(targetFilePath, importBinding.name);
+  const targetRange = indexedDeclaration?.range ?? null;
   if (!targetRange) {
     return {
       name: symbolAt.symbol.name,
@@ -510,7 +481,7 @@ function resolveClassDefinitionAcrossFiles(
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
-  for (const filePath of scanMyFiles(roots)) {
+  for (const filePath of scanProjectMyFiles(roots)) {
     const targetSession = getSessionForFilePath(filePath, context);
     if (!targetSession?.ast) {
       continue;
@@ -1055,7 +1026,7 @@ function resolveMemberReferencesAcrossFiles(
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(memberSymbol.filePath)];
-  const files = scanMyFiles(roots);
+  const files = scanProjectMyFiles(roots);
   const locations: Location[] = [];
   const seen = new Set<string>();
 
@@ -1196,7 +1167,8 @@ export function resolveReferencesAcrossFiles(
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(symbol.filePath)];
-  const files = scanMyFiles(roots);
+  const projectIndex = getProjectIndex(roots);
+  const files = scanProjectMyFiles(roots);
   const locations: Location[] = [];
   const seen = new Set<string>();
 
@@ -1208,6 +1180,16 @@ export function resolveReferencesAcrossFiles(
     seen.add(key);
     locations.push({ uri, range });
   };
+
+  const importerByPath = new Map<string, Array<{ line: number; character: number }>>();
+  for (const importer of projectIndex.findFilesImportingSymbol(symbol.filePath, symbol.name)) {
+    const existing = importerByPath.get(importer.importerFilePath);
+    if (existing) {
+      existing.push(importer.importRange.start);
+    } else {
+      importerByPath.set(importer.importerFilePath, [importer.importRange.start]);
+    }
+  }
 
   for (const filePath of files) {
     const session = getSessionForFilePath(filePath, context);
@@ -1237,7 +1219,9 @@ export function resolveReferencesAcrossFiles(
       continue;
     }
 
-    const importPositions = findMatchingImportSpecifierPositions(session.ast, filePath, symbol);
+    const importPositions =
+      importerByPath.get(filePath) ??
+      findMatchingImportSpecifierPositions(session.ast, filePath, symbol);
     for (const position of importPositions) {
       const references = session.analysis.getReferenceRangesAt(
         position.line,

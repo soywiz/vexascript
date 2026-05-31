@@ -321,27 +321,6 @@ ${statement.body.map((child) => emitStatement(child)).join("\n")}
 }`;
 }
 
-function emitForIterator(iterator: ForStatement["iterator"]): string | null {
-  if (!iterator) {
-    return null;
-  }
-
-  if (iterator.kind === "Identifier") {
-    return (iterator as Identifier).name;
-  }
-
-  if (iterator.kind !== "VarStatement") {
-    return null;
-  }
-
-  const varStatement = iterator as VarStatement;
-  const firstDeclaration = varStatement.declarations?.[0];
-  if (firstDeclaration) {
-    return firstDeclaration.name.name;
-  }
-  return varStatement.name.name;
-}
-
 function emitForIteratorHeader(iterator: ForStatement["iterator"]): string {
   if (!iterator) {
     return "";
@@ -399,14 +378,6 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 
 function emitForStatement(statement: ForStatement): string {
   if (statement.iterationKind && statement.iterator && statement.iterable) {
-    if (statement.iterationKind === "of" && statement.iterable.kind === "RangeExpression") {
-      const iteratorName = emitForIterator(statement.iterator);
-      if (iteratorName) {
-        const range = statement.iterable as RangeExpression;
-        return `for (let ${iteratorName} = ${emitExpression(range.start)}; ${iteratorName} < ${emitExpression(range.end)}; ${iteratorName}++) ${emitStatement(statement.body)}`;
-      }
-    }
-
     if (statement.iterator.kind === "Identifier") {
       const iteratorName = (statement.iterator as Identifier).name;
       return `for (const ${iteratorName} of ${emitExpression(statement.iterable)}) ${emitStatement(statement.body)}`;

@@ -1,17 +1,13 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, extname, relative, resolve } from "node:path";
+import { dirname, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
-  ClassStatement,
-  FunctionStatement,
   ImportStatement,
   Program,
-  Statement,
-  VarStatement
+  Statement
 } from "compiler/ast/ast";
-import { createAnalysisSession } from "./analysisSession";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "vscode-languageserver/node.js";
+import { getProjectIndex } from "./projectAnalysis";
 import {
   isUndefinedVariableDiagnostic,
   UNDEFINED_VARIABLE_PATTERN
@@ -23,81 +19,20 @@ export interface SymbolExport {
   kind: "class" | "function" | "variable";
 }
 
-function scanMyFiles(root: string): string[] {
-  const stack = [root];
-  const files: string[] = [];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) {
-        continue;
-      }
-
-      const fullPath = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-        continue;
-      }
-      if (entry.isFile() && extname(entry.name) === ".my") {
-        files.push(fullPath);
-      }
-    }
-  }
-
-  return files;
-}
-
-function topLevelDeclaredNames(program: Program): Array<{
-  name: string;
-  kind: "class" | "function" | "variable";
-}> {
-  const names: Array<{ name: string; kind: "class" | "function" | "variable" }> = [];
-  for (const statement of program.body) {
-    if (statement.kind === "ClassStatement") {
-      names.push({ name: (statement as ClassStatement).name.name, kind: "class" });
-      continue;
-    }
-    if (statement.kind === "FunctionStatement") {
-      names.push({ name: (statement as FunctionStatement).name.name, kind: "function" });
-      continue;
-    }
-    if (statement.kind === "VarStatement") {
-      const variableStatement = statement as VarStatement;
-      if (variableStatement.declarations && variableStatement.declarations.length > 0) {
-        for (const declaration of variableStatement.declarations) {
-          names.push({ name: declaration.name.name, kind: "variable" });
-        }
-      } else {
-        names.push({ name: variableStatement.name.name, kind: "variable" });
-      }
-    }
-  }
-  return names;
-}
-
 export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
   const exports: SymbolExport[] = [];
+  const projectIndex = getProjectIndex(sourceRoots);
 
-  for (const root of sourceRoots) {
-    for (const filePath of scanMyFiles(root)) {
-      try {
-        const source = readFileSync(filePath, "utf8");
-        const session = createAnalysisSession(source);
-        if (!session.ast) {
-          continue;
-        }
-        for (const symbol of topLevelDeclaredNames(session.ast)) {
-          exports.push({ ...symbol, filePath });
-        }
-      } catch {
-        // Ignore unreadable files for quick-fix discovery.
-      }
+  try {
+    for (const entry of projectIndex.collectWorkspaceTopLevelDeclarations("")) {
+      exports.push({
+        name: entry.declaration.name,
+        kind: entry.declaration.kind,
+        filePath: entry.filePath
+      });
     }
+  } catch {
+    // Ignore unreadable files for quick-fix discovery.
   }
 
   return exports;
