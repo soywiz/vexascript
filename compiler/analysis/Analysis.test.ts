@@ -185,6 +185,48 @@ describe("Analysis", () => {
     );
   });
 
+  it("reports incompatible assignment types", () => {
+    const source =
+      "var a = 10\n" +
+      "a = \"test\"\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+  });
+
+  it("reports incompatible assignment types for class members", () => {
+    const source = `class Point(val y: int)
+fun demo() {
+  const point = new Point(1)
+  point.y = "test"
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+  });
+
+  it("allows prefix and postfix update expressions on identifiers", () => {
+    const source = `var a: int = 10
+++a
+--a
+a++
+a--
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("supports multiple declarations in a single var statement", () => {
     const source =
       "val a = 10 * 2, lol = true\n" +

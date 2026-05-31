@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createAnalysisSession } from "./analysisSession";
 import { createSignatureHelp } from "./signatureHelp";
 
@@ -60,5 +64,55 @@ describe("signature help", () => {
     expect(session.analysis).toBeTruthy();
 
     expect(createSignatureHelp(session.ast!, session.analysis!, 1, 6)).toBeNull();
+  });
+
+  it("provides signature help and docs for imported class methods", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-signature-help-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    const worldSource =
+      "class Logger {\n" +
+      "  /**\n" +
+      "   * Writes a number in the output stream.\n" +
+      "   */\n" +
+      "  log(value: number): int { return 0 }\n" +
+      "}\n";
+    const helloSource =
+      "import { Logger } from \"./world\"\n" +
+      "fun demo() {\n" +
+      "  const logger = new Logger()\n" +
+      "  logger.log(1)\n" +
+      "}\n";
+
+    await writeFile(worldFile, worldSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = createSignatureHelp(
+      session.ast!,
+      session.analysis!,
+      3,
+      12,
+      {
+        uri: pathToFileURL(helloFile).toString(),
+        sourceRoots: [root]
+      }
+    );
+
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "log(value: number)",
+          parameters: [{ label: "value: number" }],
+          documentation: "Writes a number in the output stream."
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
   });
 });

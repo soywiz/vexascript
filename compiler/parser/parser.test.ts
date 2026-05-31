@@ -169,6 +169,39 @@ describe("parseExpression", () => {
         });
     });
 
+    it("does not treat prefix ++/-- on next line as postfix continuation", () => {
+        expect(parseProgram(tokenizeReader("var a: int = 10\n++a\n--a\n"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "VarStatement",
+                    declarationKind: "var",
+                    name: { kind: "Identifier", name: "a" },
+                    typeAnnotation: { kind: "Identifier", name: "int" },
+                    initializer: { kind: "IntLiteral", value: 10 }
+                },
+                {
+                    kind: "ExprStatement",
+                    expression: {
+                        kind: "UpdateExpression",
+                        operator: "++",
+                        argument: { kind: "Identifier", name: "a" },
+                        prefix: true
+                    }
+                },
+                {
+                    kind: "ExprStatement",
+                    expression: {
+                        kind: "UpdateExpression",
+                        operator: "--",
+                        argument: { kind: "Identifier", name: "a" },
+                        prefix: true
+                    }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for nested array literals", () => {
         expect(parseExpression(tokenizeReader("[1, 2, [3, 4]]"))).toEqual({
             kind: "ArrayLiteral",

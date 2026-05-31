@@ -30,6 +30,11 @@ import type {
   Statement
 } from "compiler/ast/ast";
 import type { SignatureHelp, SignatureInformation } from "vscode-languageserver/node.js";
+import {
+  resolveCallableSignature,
+  resolveClassStatementAcrossFiles,
+  type ClassResolverOptions
+} from "./classResolver";
 
 interface Position {
   line: number;
@@ -356,18 +361,6 @@ function symbolAtNode(analysis: Analysis, node: Node) {
   return analysis.getSymbolAt(node.firstToken.range.start.line, node.firstToken.range.start.column);
 }
 
-function classDeclarationByName(program: Program, name: string): ClassStatement | null {
-  for (const statement of program.body) {
-    if (statement.kind === "ClassStatement") {
-      const classStatement = statement as ClassStatement;
-      if (classStatement.name.name === name) {
-        return classStatement;
-      }
-    }
-  }
-  return null;
-}
-
 function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
   if (!type || type.kind !== "function") {
     return null;
@@ -378,8 +371,22 @@ function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
 function buildSignatureFromSymbol(
   context: InvocationContext,
   analysis: Analysis,
-  program: Program
+  program: Program,
+  options: ClassResolverOptions
 ): SignatureInformation | null {
+  const callable = resolveCallableSignature(context.callee, analysis, program, options);
+  if (callable) {
+    const parameters = callable.parameters.map((parameter) => ({
+      label: `${parameter.name}: ${parameter.typeName}`
+    }));
+    const label = `${callable.name}(${parameters.map((parameter) => parameter.label).join(", ")})`;
+    return {
+      label,
+      parameters,
+      ...(callable.documentation ? { documentation: callable.documentation } : {})
+    };
+  }
+
   const symbolMatch = symbolAtNode(analysis, context.callee);
   if (!symbolMatch) {
     return null;
@@ -398,7 +405,7 @@ function buildSignatureFromSymbol(
   }
 
   if (context.isNewExpression && symbolMatch.symbol.kind === "class") {
-    const declaration = classDeclarationByName(program, symbolMatch.symbol.name);
+    const declaration = resolveClassStatementAcrossFiles(program, symbolMatch.symbol.name, options)?.classStatement;
     const constructorParameters = declaration?.primaryConstructorParameters ?? [];
     const parameters = constructorParameters.map((parameter) => ({
       label: `${parameter.name.name}: ${parameter.typeAnnotation?.name ?? "unknown"}`
@@ -417,14 +424,15 @@ export function createSignatureHelp(
   program: Program,
   analysis: Analysis,
   line: number,
-  character: number
+  character: number,
+  options: ClassResolverOptions = {}
 ): SignatureHelp | null {
   const context = findInvocationContext(program, line, character);
   if (!context) {
     return null;
   }
 
-  const signature = buildSignatureFromSymbol(context, analysis, program);
+  const signature = buildSignatureFromSymbol(context, analysis, program, options);
   if (!signature) {
     return null;
   }

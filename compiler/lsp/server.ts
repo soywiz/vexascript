@@ -14,6 +14,7 @@ import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
+import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
 import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./importFixes";
 import { createCallFixCodeActions } from "./callFixes";
@@ -35,6 +36,7 @@ import {
 } from "./navigation";
 import { resolve as resolvePath } from "node:path";
 import { createSignatureHelp } from "./signatureHelp";
+import { createInlayHints } from "./inlayHints";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 import {
   createSemanticTokens,
@@ -127,6 +129,7 @@ connection.onInitialize((params) => {
         full: true,
         range: true
       },
+      inlayHintProvider: true,
       renameProvider: {
         prepareProvider: true
       }
@@ -146,7 +149,14 @@ function validateDocument(doc: TextDocument): void {
     sourceRoots,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments
   });
+  const crossFileTypeDiagnostics = collectCrossFileTypeDiagnostics({
+    uri: doc.uri,
+    session,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
   diagnostics.push(...crossFileDiagnostics);
+  diagnostics.push(...crossFileTypeDiagnostics);
 
   connection.sendDiagnostics({ uri: doc.uri, diagnostics });
 }
@@ -427,7 +437,12 @@ connection.onSignatureHelp((params) => {
     session.ast,
     session.analysis,
     params.position.line,
-    params.position.character
+    params.position.character,
+    {
+      uri: params.textDocument.uri,
+      sourceRoots,
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    }
   );
 });
 
@@ -450,6 +465,29 @@ connection.onWorkspaceSymbol((params) => {
     sourceRoots,
     query: params.query ?? ""
   });
+});
+
+connection.languages.inlayHint.on((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return [];
+  }
+
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.ast || !session.analysis) {
+    return [];
+  }
+
+  return createInlayHints(
+    session.ast,
+    session.analysis,
+    params.range,
+    {
+      uri: params.textDocument.uri,
+      sourceRoots,
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    }
+  );
 });
 
 connection.languages.semanticTokens.on((params) => {

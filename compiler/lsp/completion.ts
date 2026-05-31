@@ -1,7 +1,5 @@
 import { CompletionItemKind } from "vscode-languageserver/node.js";
 import type { CompletionItem } from "vscode-languageserver/node.js";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
 import type {
   BlockStatement,
   ClassStatement,
@@ -9,10 +7,7 @@ import type {
   Expr,
   ForStatement,
   FunctionStatement,
-  Identifier,
   IfStatement,
-  ImportStatement,
-  NewExpression,
   Program
   ,
   Statement,
@@ -24,8 +19,11 @@ import type {
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import type { AutoImportSuggestion } from "./importFixes";
-import { compileSource } from "compiler/pipeline/compile";
-import { uriToFilePath } from "./importFixes";
+import {
+  resolveClassMember,
+  resolveClassStatementAcrossFiles,
+  type ClassResolverOptions
+} from "./classResolver";
 
 const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
@@ -69,7 +67,7 @@ export interface CompletionRequestOptions {
 }
 
 interface MemberAccessTarget {
-  objectName: string;
+  objectPath: string;
   objectStartCharacter: number;
   prefix: string;
 }
@@ -89,144 +87,20 @@ function parseMemberAccessTarget(
   }
   const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
   const uptoCursor = lineText.slice(0, clampedCharacter);
-  const match = /([A-Za-z_][A-Za-z0-9_]*)\.\s*([A-Za-z_][A-Za-z0-9_]*)?$/.exec(uptoCursor);
+  const match = /([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*)\.\s*([A-Za-z_][A-Za-z0-9_]*)?$/.exec(uptoCursor);
   if (!match || !match[1]) {
     return null;
   }
   const fullMatch = match[0];
-  const objectName = match[1];
+  const objectPath = match[1];
   const typedPrefix = match[2] ?? "";
-  const objectInMatchIndex = fullMatch.indexOf(objectName);
+  const objectInMatchIndex = fullMatch.indexOf(objectPath);
   const objectStartCharacter = match.index + (objectInMatchIndex >= 0 ? objectInMatchIndex : 0);
   return {
-    objectName,
+    objectPath: objectPath.replace(/\s+/g, ""),
     objectStartCharacter,
     prefix: typedPrefix
   };
-}
-
-function findClassStatementInProgram(ast: Program, className: string): ClassStatement | null {
-  for (const statement of ast.body) {
-    if (statement.kind !== "ClassStatement") {
-      continue;
-    }
-    const classStatement = statement as ClassStatement;
-    if (classStatement.name.name === className) {
-      return classStatement;
-    }
-  }
-  return null;
-}
-
-function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
-  const baseDir = dirname(importerFilePath);
-  const direct = resolve(baseDir, importPath);
-  if (existsSync(direct)) {
-    return direct;
-  }
-  if (!extname(direct)) {
-    const withMyExt = `${direct}.my`;
-    if (existsSync(withMyExt)) {
-      return withMyExt;
-    }
-  }
-  return null;
-}
-
-function getSessionForFilePath(
-  filePath: string,
-  options: CompletionRequestOptions
-): CompletionSessionLike | null {
-  if (options.getSessionForFilePath) {
-    const fromProvider = options.getSessionForFilePath(filePath);
-    if (fromProvider) {
-      return fromProvider;
-    }
-  }
-  if (!existsSync(filePath)) {
-    return null;
-  }
-  const source = readFileSync(filePath, "utf8");
-  const compiled = compileSource(source);
-  return {
-    ast: compiled.ast,
-    analysis: compiled.analysis
-  };
-}
-
-function scanMyFiles(sourceRoots: string[]): string[] {
-  const files: string[] = [];
-  const stack = [...sourceRoots];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current || !existsSync(current)) {
-      continue;
-    }
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) {
-        continue;
-      }
-      const fullPath = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && extname(entry.name) === ".my") {
-        files.push(fullPath);
-      }
-    }
-  }
-  return files;
-}
-
-function resolveClassStatement(
-  ast: Program,
-  className: string,
-  options: CompletionRequestOptions
-): ClassStatement | null {
-  const local = findClassStatementInProgram(ast, className);
-  if (local) {
-    return local;
-  }
-
-  const currentFilePath = options.uri ? uriToFilePath(options.uri) : null;
-  if (currentFilePath) {
-    for (const statement of ast.body) {
-      if (statement.kind !== "ImportStatement") {
-        continue;
-      }
-      const importStatement = statement as ImportStatement;
-      if (!importStatement.specifiers.some((specifier) => specifier.imported.name === className)) {
-        continue;
-      }
-      const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
-      if (!targetFilePath) {
-        continue;
-      }
-      const session = getSessionForFilePath(targetFilePath, options);
-      if (!session?.ast) {
-        continue;
-      }
-      const targetClass = findClassStatementInProgram(session.ast, className);
-      if (targetClass) {
-        return targetClass;
-      }
-    }
-  }
-
-  const sourceRoots = options.sourceRoots ?? [];
-  if (sourceRoots.length > 0) {
-    for (const filePath of scanMyFiles(sourceRoots)) {
-      const session = getSessionForFilePath(filePath, options);
-      if (!session?.ast) {
-        continue;
-      }
-      const targetClass = findClassStatementInProgram(session.ast, className);
-      if (targetClass) {
-        return targetClass;
-      }
-    }
-  }
-
-  return null;
 }
 
 function buildClassMemberCompletionItems(
@@ -249,23 +123,21 @@ function buildClassMemberCompletionItems(
   };
 
   for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+    const resolved = resolveClassMember(classStatement, parameter.name.name);
     pushItem({
       label: parameter.name.name,
       kind: CompletionItemKind.Field,
-      detail: parameter.typeAnnotation
-        ? `Class property: ${parameter.typeAnnotation.name}`
-        : "Class property"
+      detail: `Class property: ${resolved?.typeName ?? "unknown"}`
     });
   }
 
   for (const member of classStatement.members) {
+    const resolved = resolveClassMember(classStatement, member.name.name);
     if (member.kind === "ClassFieldMember") {
       pushItem({
         label: member.name.name,
         kind: CompletionItemKind.Field,
-        detail: member.typeAnnotation
-          ? `Class property: ${member.typeAnnotation.name}`
-          : "Class property"
+        detail: `Class property: ${resolved?.typeName ?? "unknown"}`
       });
       continue;
     }
@@ -273,11 +145,23 @@ function buildClassMemberCompletionItems(
     pushItem({
       label: member.name.name,
       kind: CompletionItemKind.Method,
-      detail: "Class method"
+      detail: resolved?.signature
+        ? `Class method: (${resolved.signature.parameters.map((parameter) => `${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${resolved.signature.returnTypeName}`
+        : "Class method"
     });
   }
 
   return items;
+}
+
+function classResolverOptionsFromCompletionOptions(options: CompletionRequestOptions): ClassResolverOptions {
+  return {
+    ...(options.uri ? { uri: options.uri } : {}),
+    ...(options.sourceRoots ? { sourceRoots: options.sourceRoots } : {}),
+    ...(options.getSessionForFilePath
+      ? { getSessionForFilePath: options.getSessionForFilePath }
+      : {})
+  };
 }
 
 function inferClassNameFromAstVariableInitializer(
@@ -292,9 +176,9 @@ function inferClassNameFromAstVariableInitializer(
     if (!initializer || initializer.kind !== "NewExpression") {
       return null;
     }
-    const newExpression = initializer as NewExpression;
+    const newExpression = initializer as Expr & { kind: "NewExpression"; callee: Expr };
     if (newExpression.callee.kind === "Identifier") {
-      return (newExpression.callee as Identifier).name;
+      return (newExpression.callee as Expr & { kind: "Identifier"; name: string }).name;
     }
     return null;
   };
@@ -378,6 +262,72 @@ function inferClassNameFromAstVariableInitializer(
   return bestClassName;
 }
 
+function resolveTypeNameFromPath(
+  ast: Program,
+  analysis: Analysis,
+  pathSegments: string[],
+  line: number,
+  objectStartCharacter: number,
+  options: CompletionRequestOptions
+): string | null {
+  if (pathSegments.length === 0) {
+    return null;
+  }
+
+  const symbolMatch = analysis.getSymbolAt(line, Math.max(0, objectStartCharacter));
+  let currentTypeName: string | null = null;
+
+  const resolvedSymbolMatch = symbolMatch;
+  if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === pathSegments[0]) {
+    if (resolvedSymbolMatch.symbol.type?.kind === "named") {
+      currentTypeName = resolvedSymbolMatch.symbol.type.name;
+    } else if (resolvedSymbolMatch.symbol.type?.kind === "builtin") {
+      currentTypeName = resolvedSymbolMatch.symbol.type.name;
+    }
+  } else {
+    const visibleSymbols = analysis.getVisibleSymbolsAt(line, objectStartCharacter);
+    const symbol = visibleSymbols.find((candidate) => candidate.name === pathSegments[0]);
+    if (!symbol) {
+      return null;
+    }
+    if (symbol.type?.kind === "named") {
+      currentTypeName = symbol.type.name;
+    } else if (symbol.type?.kind === "builtin") {
+      currentTypeName = symbol.type.name;
+    }
+  }
+
+  if (!currentTypeName || currentTypeName === "unknown") {
+    const firstSegment = pathSegments[0];
+    if (firstSegment) {
+      currentTypeName = inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
+    }
+  }
+
+  const resolverOptions = classResolverOptionsFromCompletionOptions(options);
+  for (let index = 1; index < pathSegments.length; index += 1) {
+    const memberName = pathSegments[index];
+    if (!memberName || !currentTypeName) {
+      return null;
+    }
+    const classResolution = resolveClassStatementAcrossFiles(ast, currentTypeName, resolverOptions);
+    if (!classResolution) {
+      return null;
+    }
+    const member = resolveClassMember(classResolution.classStatement, memberName);
+    if (!member) {
+      return null;
+    }
+    if (member.kind === "method") {
+      currentTypeName = member.signature?.returnTypeName ?? null;
+    } else {
+      currentTypeName = member.typeName;
+    }
+  }
+
+  return currentTypeName;
+}
+
 function buildMemberAccessCompletions(
   ast: Program,
   analysis: Analysis,
@@ -390,42 +340,24 @@ function buildMemberAccessCompletions(
     return null;
   }
 
-  const symbolMatch = analysis.getSymbolAt(
+  const pathSegments = target.objectPath.split(".");
+  const className = resolveTypeNameFromPath(
+    ast,
+    analysis,
+    pathSegments,
     line,
-    target.objectStartCharacter + Math.floor(Math.max(0, target.objectName.length - 1) / 2)
+    target.objectStartCharacter,
+    options
   );
-  let symbol = symbolMatch?.symbol;
-  if (!symbol || symbol.name !== target.objectName) {
-    const visibleSymbols = analysis.getVisibleSymbolsAt(line, character);
-    symbol = visibleSymbols.find((candidate) => candidate.name === target.objectName);
-    if (!symbol) {
-      return null;
-    }
-  }
-
-  let className: string | null = null;
-  if (symbol.type?.kind === "named") {
-    className = symbol.type.name;
-  } else if (symbol.valueType) {
-    const valueType = symbol.valueType;
-    if (!["unknown", "int", "number", "string", "boolean", "bigint", "long"].includes(valueType)) {
-      className = valueType;
-    }
-  }
-
-  if (!className) {
-    className = inferClassNameFromAstVariableInitializer(
-      ast,
-      target.objectName,
-      line
-    );
-  }
-
   if (!className) {
     return null;
   }
 
-  const classStatement = resolveClassStatement(ast, className, options);
+  const classStatement = resolveClassStatementAcrossFiles(
+    ast,
+    className,
+    classResolverOptionsFromCompletionOptions(options)
+  )?.classStatement;
   if (!classStatement) {
     return null;
   }

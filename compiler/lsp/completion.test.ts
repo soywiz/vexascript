@@ -102,4 +102,31 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("demo");
     expect(labels).not.toContain("point");
   });
+
+  it("resolves member completions for chained member access", () => {
+    const source =
+      "class Point(val x: int, val y: int)\n" +
+      "class Holder(val point: Point)\n" +
+      "fun demo() {\n" +
+      "  const holder = new Holder(new Point(1, 2))\n" +
+      "  holder.point.x\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const items = createCompletionItemsForPosition(
+      session.ast!,
+      4,
+      15,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("x");
+    expect(labels).toContain("y");
+    expect(labels).not.toContain("holder");
+  });
 });

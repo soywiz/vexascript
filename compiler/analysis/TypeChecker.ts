@@ -390,8 +390,19 @@ export class TypeChecker {
             node: assignment.left
           });
         }
-        this.visitExpression(assignment.left, scope);
-        result = this.visitExpression(assignment.right, scope);
+        const leftType = this.visitExpression(assignment.left, scope);
+        const rightType = this.visitExpression(assignment.right, scope);
+        if (
+          !isUnknownType(leftType) &&
+          !isUnknownType(rightType) &&
+          !this.isTypeAssignable(rightType, leftType)
+        ) {
+          this.issues.push({
+            message: `Type '${typeToString(rightType)}' is not assignable to type '${typeToString(leftType)}'`,
+            node: assignment.right
+          });
+        }
+        result = rightType;
         break;
       }
       case "ConditionalExpression": {
@@ -419,7 +430,7 @@ export class TypeChecker {
           break;
         }
         this.validateKnownClassMemberAccess(member, objectType);
-        result = UNKNOWN_TYPE;
+        result = this.resolveKnownClassMemberType(member, objectType, scope) ?? UNKNOWN_TYPE;
         break;
       }
       case "CallExpression": {
@@ -820,6 +831,62 @@ export class TypeChecker {
       message: `Property '${propertyName}' does not exist on type '${objectType.name}'`,
       node: member.property
     });
+  }
+
+  private resolveKnownClassMemberType(
+    member: MemberExpression,
+    objectType: AnalysisType,
+    scope: Scope
+  ): AnalysisType | null {
+    if (member.computed || member.property.kind !== "Identifier") {
+      return null;
+    }
+    if (objectType.kind !== "named") {
+      return null;
+    }
+
+    const classStatement = this.classStatementsByName.get(objectType.name);
+    if (!classStatement) {
+      return null;
+    }
+
+    const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+
+    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+      if (parameter.name.name !== memberName) {
+        continue;
+      }
+      if (parameter.typeAnnotation) {
+        return this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE;
+      }
+      if (parameter.defaultValue) {
+        return this.visitExpression(parameter.defaultValue, scope);
+      }
+      return UNKNOWN_TYPE;
+    }
+
+    for (const classMember of classStatement.members) {
+      if (classMember.name.name !== memberName) {
+        continue;
+      }
+      if (classMember.kind === "ClassFieldMember") {
+        if (classMember.typeAnnotation) {
+          return this.resolveTypeAnnotation(classMember.typeAnnotation, scope) ?? UNKNOWN_TYPE;
+        }
+        if (classMember.initializer) {
+          return this.visitExpression(classMember.initializer, scope);
+        }
+        return UNKNOWN_TYPE;
+      }
+
+      return this.buildFunctionType(
+        classMember.parameters,
+        this.resolveTypeAnnotation(classMember.returnType, scope) ?? UNKNOWN_TYPE,
+        scope
+      );
+    }
+
+    return null;
   }
 
   private classHasMember(
