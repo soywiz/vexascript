@@ -1,0 +1,64 @@
+import { describe, expect, it } from "vitest";
+import { TextDocument } from "vscode-languageserver-textdocument";
+import { createAnalysisSession } from "./analysisSession";
+import { collectDiagnosticsFromSession } from "./diagnostics";
+import { createCallFixCodeActions } from "./callFixes";
+
+const URI = "file:///demo.my";
+
+function diagnosticsFor(source: string) {
+  const document = TextDocument.create(URI, "mylang", 1, source);
+  const session = createAnalysisSession(source);
+  const diagnostics = collectDiagnosticsFromSession(session, source, (offset) =>
+    document.positionAt(offset)
+  );
+  return { session, diagnostics };
+}
+
+describe("call quick fixes", () => {
+  it("adds missing declaration parameters for extra call arguments with inferred types", () => {
+    const source = `fun test2(a: number, b: string) {
+}
+fun demo() {
+  test2(1, "test", 3, 4)
+}
+`;
+
+    const { session, diagnostics } = diagnosticsFor(source);
+    const actions = createCallFixCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics
+    });
+
+    const action = actions.find((candidate) =>
+      candidate.title === "Add missing parameters to 'test2'"
+    );
+    expect(action).toBeDefined();
+    expect(action?.edit?.changes?.[URI]?.[0]?.newText).toBe(", arg3: int, arg4: int");
+  });
+
+  it("changes declaration parameter type from mismatched call argument inferred type", () => {
+    const source = `fun test2(a: number, b: string) {
+}
+fun demo() {
+  test2("hello", 10)
+}
+`;
+
+    const { session, diagnostics } = diagnosticsFor(source);
+    const actions = createCallFixCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics
+    });
+
+    const actionTitles = actions.map((action) => action.title);
+    expect(actionTitles).toContain("Change parameter 'a' type to 'string'");
+    expect(actionTitles).toContain("Change parameter 'b' type to 'int'");
+  });
+});

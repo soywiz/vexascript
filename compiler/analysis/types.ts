@@ -24,7 +24,7 @@ export interface NamedType {
 
 export interface FunctionType {
   kind: "function";
-  parameters: Array<{ name: string; type: AnalysisType }>;
+  parameters: Array<{ name: string; type: AnalysisType; optional?: boolean }>;
   returnType: AnalysisType;
 }
 
@@ -73,7 +73,7 @@ export function namedType(name: string): NamedType {
 }
 
 export function functionType(
-  parameters: Array<{ name: string; type: AnalysisType }>,
+  parameters: Array<{ name: string; type: AnalysisType; optional?: boolean }>,
   returnType: AnalysisType
 ): FunctionType {
   return {
@@ -162,6 +162,9 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
       return false;
     }
     for (let i = 0; i < a.parameters.length; i += 1) {
+      if ((a.parameters[i]!.optional ?? false) !== (b.parameters[i]!.optional ?? false)) {
+        return false;
+      }
       if (!isSameType(a.parameters[i]!.type, b.parameters[i]!.type)) {
         return false;
       }

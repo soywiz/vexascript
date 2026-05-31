@@ -15,6 +15,7 @@ import { createFullDocumentFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
 import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./importFixes";
+import { createCallFixCodeActions } from "./callFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -220,6 +221,15 @@ connection.onCodeAction((params) => {
     sourceRoots
   });
   actions.push(...autoImportActions);
+
+  const callFixActions = createCallFixCodeActions({
+    uri: params.textDocument.uri,
+    text: doc.getText(),
+    ast: session.ast,
+    analysis: session.analysis,
+    diagnostics: params.context.diagnostics
+  });
+  actions.push(...callFixActions);
 
   return actions;
 });

@@ -1275,6 +1275,28 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses class statement with kotlin-like primary constructor parameters without val/var", () => {
+        expect(parseStatement(tokenizeReader("class Point(x: number, y: number) {\n}"))).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Point" },
+            primaryConstructorParameters: [
+                {
+                    kind: "ClassPrimaryConstructorParameter",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "x" },
+                    typeAnnotation: { kind: "Identifier", name: "number" }
+                },
+                {
+                    kind: "ClassPrimaryConstructorParameter",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "y" },
+                    typeAnnotation: { kind: "Identifier", name: "number" }
+                }
+            ],
+            members: []
+        });
+    });
+
     it("parses class statement without braces in mylang mode", () => {
         expect(parseStatement(tokenizeReader("class Point"))).toEqual({
             kind: "ClassStatement",
@@ -1283,6 +1305,26 @@ describe("parseStatement", () => {
         });
 
         expect(parseStatement(tokenizeReader("class Point(val x: number, val y: number)"))).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Point" },
+            primaryConstructorParameters: [
+                {
+                    kind: "ClassPrimaryConstructorParameter",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "x" },
+                    typeAnnotation: { kind: "Identifier", name: "number" }
+                },
+                {
+                    kind: "ClassPrimaryConstructorParameter",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "y" },
+                    typeAnnotation: { kind: "Identifier", name: "number" }
+                }
+            ],
+            members: []
+        });
+
+        expect(parseStatement(tokenizeReader("class Point(x: number, y: number)"))).toEqual({
             kind: "ClassStatement",
             name: { kind: "Identifier", name: "Point" },
             primaryConstructorParameters: [

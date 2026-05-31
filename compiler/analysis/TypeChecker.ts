@@ -418,9 +418,15 @@ export class TypeChecker {
       }
       case "CallExpression": {
         const call = expression as CallExpression;
-        this.visitExpression(call.callee, scope);
+        const calleeType = this.visitExpression(call.callee, scope);
+        const argumentTypes: AnalysisType[] = [];
         for (const argument of call.arguments) {
-          this.visitExpression(argument, scope);
+          argumentTypes.push(this.visitExpression(argument, scope));
+        }
+        if (calleeType.kind === "function") {
+          this.validateCallArguments(call, calleeType, argumentTypes);
+          result = calleeType.returnType;
+          break;
         }
         result = UNKNOWN_TYPE;
         break;
@@ -587,6 +593,10 @@ export class TypeChecker {
       return true;
     }
 
+    if (this.isLongType(sourceType) && this.isBigIntType(targetType)) {
+      return true;
+    }
+
     return false;
   }
 
@@ -600,10 +610,56 @@ export class TypeChecker {
         name: parameter.name.name,
         type: parameter.typeAnnotation
           ? this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
-          : UNKNOWN_TYPE
+          : UNKNOWN_TYPE,
+        optional: parameter.optional === true || parameter.defaultValue !== undefined
       })),
       returnType
     );
+  }
+
+  private validateCallArguments(
+    call: CallExpression,
+    calleeType: AnalysisType & { kind: "function" },
+    argumentTypes: AnalysisType[]
+  ): void {
+    const requiredCount = calleeType.parameters.filter((parameter) => !parameter.optional).length;
+    const providedCount = argumentTypes.length;
+    const totalCount = calleeType.parameters.length;
+
+    if (providedCount < requiredCount) {
+      this.issues.push({
+        message: `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
+        node: call
+      });
+    } else if (providedCount > totalCount) {
+      this.issues.push({
+        message: `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
+        node: call
+      });
+      for (let index = totalCount; index < providedCount; index += 1) {
+        this.issues.push({
+          message: `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
+          node: call.arguments[index] ?? call
+        });
+      }
+    }
+
+    const comparableCount = Math.min(providedCount, totalCount);
+    for (let index = 0; index < comparableCount; index += 1) {
+      const parameter = calleeType.parameters[index]!;
+      const argumentType = argumentTypes[index]!;
+      if (isUnknownType(parameter.type) || isUnknownType(argumentType)) {
+        continue;
+      }
+      if (this.isTypeAssignable(argumentType, parameter.type)) {
+        continue;
+      }
+
+      this.issues.push({
+        message: `Argument ${index + 1} of type '${typeToString(argumentType)}' is not assignable to parameter '${parameter.name}' of type '${typeToString(parameter.type)}'`,
+        node: call.arguments[index] ?? call
+      });
+    }
   }
 
   private resolveTypeAnnotation(

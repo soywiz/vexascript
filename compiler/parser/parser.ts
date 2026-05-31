@@ -1742,15 +1742,20 @@ export class Parser {
         }
 
         while (this.tokens.hasMore) {
-            const declarationToken = this.tokens.read();
-            if (
-                declarationToken?.type !== "identifier" ||
-                !VARIABLE_DECLARATION_KEYWORDS.includes(declarationToken.value as VariableDeclarationKind)
-            ) {
-                this.fail("Expected declaration keyword in class primary constructor parameter", this.tokenAt(declarationToken));
+            const firstToken = this.tokens.read();
+            if (firstToken?.type !== "identifier") {
+                this.fail("Expected parameter name in class primary constructor", this.tokenAt(firstToken));
             }
 
-            const parameterNameToken = this.tokens.read();
+            let declarationKind: VariableDeclarationKind = "val";
+            let parameterNameToken: Token | undefined;
+            if (VARIABLE_DECLARATION_KEYWORDS.includes(firstToken.value as VariableDeclarationKind)) {
+                declarationKind = firstToken.value as VariableDeclarationKind;
+                parameterNameToken = this.tokens.read();
+            } else {
+                parameterNameToken = firstToken;
+            }
+
             if (parameterNameToken?.type !== "identifier") {
                 this.fail("Expected parameter name in class primary constructor", this.tokenAt(parameterNameToken));
             }
@@ -1773,7 +1778,7 @@ export class Parser {
 
             const parameter: ClassPrimaryConstructorParameter = {
                 kind: "ClassPrimaryConstructorParameter",
-                declarationKind: declarationToken.value as VariableDeclarationKind,
+                declarationKind,
                 name: this.buildIdentifierFromToken(parameterNameToken)
             };
             if (parameterTypeAnnotation) {
@@ -1782,7 +1787,7 @@ export class Parser {
             if (parameterDefaultValue) {
                 parameter.defaultValue = parameterDefaultValue;
             }
-            parameters.push(this.attachNodeBounds(parameter, declarationToken, this.getLastReadToken() ?? declarationToken));
+            parameters.push(this.attachNodeBounds(parameter, firstToken, this.getLastReadToken() ?? firstToken));
 
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {

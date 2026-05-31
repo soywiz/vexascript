@@ -361,4 +361,30 @@ describe("Analysis", () => {
     expect(symbols.get("f")?.valueType).toBe("undefined");
     expect(symbols.get("g")?.valueType).toBe("boolean");
   });
+
+  it("reports call argument type and arity mismatches, with int->number and long->bigint assignability", () => {
+    const source = `fun test2(a: number, b: bigint, c: string) {
+}
+fun demo() {
+  test2(1, 10L, "ok")
+  test2("hello", 10, "ok")
+  test2(1, 10L)
+  test2(1, 10L, "ok", 42)
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain(
+      "Argument 1 of type 'string' is not assignable to parameter 'a' of type 'number'"
+    );
+    expect(messages).toContain(
+      "Argument 2 of type 'int' is not assignable to parameter 'b' of type 'bigint'"
+    );
+    expect(messages).toContain("Expected at least 3 argument(s), but got 2");
+    expect(messages).toContain("Expected at most 3 argument(s), but got 4");
+    expect(messages).toContain("Unexpected argument 4; function expects at most 3 argument(s)");
+  });
 });

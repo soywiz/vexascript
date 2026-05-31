@@ -142,7 +142,8 @@ export class Binder {
         const symbolType = functionType(
           functionStatement.parameters.map((parameter) => ({
             name: parameter.name.name,
-            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE
+            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+            optional: parameter.optional === true || parameter.defaultValue !== undefined
           })),
           this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE
         );
@@ -253,7 +254,8 @@ export class Binder {
       const symbolType = functionType(
         statement.parameters.map((parameter) => ({
           name: parameter.name.name,
-          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE
+          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          optional: parameter.optional === true || parameter.defaultValue !== undefined
         })),
         this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE
       );
@@ -297,7 +299,8 @@ export class Binder {
         const methodType = functionType(
           method.parameters.map((parameter) => ({
             name: parameter.name.name,
-            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE
+            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+            optional: parameter.optional === true || parameter.defaultValue !== undefined
           })),
           this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE
         );
