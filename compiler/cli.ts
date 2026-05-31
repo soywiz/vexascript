@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { transpile } from "./runtime/transpile";
@@ -28,7 +28,11 @@ export function ensureLspTransportArg(argv: string[]): string[] {
 async function buildFile(input: string, out?: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
-  const result = transpile(source);
+  const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
+  const result = transpile(source, {
+    sourceFilePath: sourcePath,
+    outputFilePath: outputPath
+  });
   if (result.errors.length > 0) {
     for (const error of result.errors) {
       console.error(`error: ${error}`);
@@ -36,8 +40,14 @@ async function buildFile(input: string, out?: string): Promise<void> {
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
 
-  const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
-  await writeFile(outputPath, result.code, "utf8");
+  let outputCode = result.code;
+  if (result.sourceMap) {
+    const sourceMapPath = `${outputPath}.map`;
+    const sourceMapFileName = basename(sourceMapPath);
+    await writeFile(sourceMapPath, result.sourceMap, "utf8");
+    outputCode = `${outputCode}\n//# sourceMappingURL=${sourceMapFileName}`;
+  }
+  await writeFile(outputPath, outputCode, "utf8");
 
   console.log(`Compiled: ${sourcePath} -> ${outputPath}`);
   if (result.warnings.length > 0) {
@@ -50,14 +60,21 @@ async function buildFile(input: string, out?: string): Promise<void> {
 async function runFile(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
-  const result = transpile(source);
+  const outputPath = resolve(process.cwd(), input.replace(/\.[^.]+$/, ".js"));
+  const result = transpile(source, {
+    sourceFilePath: sourcePath,
+    outputFilePath: outputPath
+  });
   if (result.errors.length > 0) {
     for (const error of result.errors) {
       console.error(`error: ${error}`);
     }
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
-  const jsToExecute = `${result.code}\n//# sourceURL=${sourcePath}`;
+  const inlineSourceMap = result.sourceMap
+    ? `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(result.sourceMap, "utf8").toString("base64")}`
+    : "";
+  const jsToExecute = `${result.code}${inlineSourceMap}\n//# sourceURL=${sourcePath}`;
   const moduleUrl = `data:text/javascript;base64,${Buffer.from(jsToExecute, "utf8").toString("base64")}`;
   await import(moduleUrl);
 

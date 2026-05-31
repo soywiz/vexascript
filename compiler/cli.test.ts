@@ -19,7 +19,17 @@ describe("CLI", () => {
 
     await runCli(["node", "mylang", "build", input, "--out", output]);
 
-    expect(await readFile(output, "utf8")).toBe("let value = 1 + 2;");
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain("let value = 1 + 2;");
+    expect(outputCode).toContain("//# sourceMappingURL=output.js.map");
+    const sourceMap = JSON.parse(await readFile(`${output}.map`, "utf8")) as {
+      version: number;
+      file: string;
+      sources: string[];
+    };
+    expect(sourceMap.version).toBe(3);
+    expect(sourceMap.file).toBe("output.js");
+    expect(sourceMap.sources).toEqual(["input.my"]);
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Compiled:");
   });

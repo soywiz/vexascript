@@ -3,12 +3,14 @@ import {
   formatParseIssue,
   formatSemanticIssue
 } from "compiler/pipeline/compile";
+import { basename } from "node:path";
 import { emitProgram } from "./emitter";
 
 export interface TranspileResult {
   code: string;
   warnings: string[];
   errors: string[];
+  sourceMap?: string;
 }
 
 function ensureTrailingSemicolon(code: string): string {
@@ -19,7 +21,88 @@ function ensureTrailingSemicolon(code: string): string {
   return /[;{}]$/.test(trimmed) ? trimmed : `${trimmed};`;
 }
 
-export function transpile(source: string): TranspileResult {
+interface SourceMapV3 {
+  version: 3;
+  file: string;
+  sources: string[];
+  sourcesContent: string[];
+  names: string[];
+  mappings: string;
+}
+
+export interface TranspileOptions {
+  sourceFilePath?: string;
+  outputFilePath?: string;
+}
+
+const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function toVlqSigned(value: number): number {
+  if (value < 0) {
+    return ((-value) << 1) + 1;
+  }
+  return value << 1;
+}
+
+function encodeVlq(value: number): string {
+  let vlq = toVlqSigned(value);
+  let encoded = "";
+  do {
+    let digit = vlq & 31;
+    vlq >>>= 5;
+    if (vlq > 0) {
+      digit |= 32;
+    }
+    encoded += BASE64_DIGITS[digit] ?? "";
+  } while (vlq > 0);
+  return encoded;
+}
+
+function createLineStartMappings(generatedLineCount: number, sourceLineCount: number): string {
+  if (generatedLineCount <= 0) {
+    return "";
+  }
+
+  const safeSourceLineCount = Math.max(1, sourceLineCount);
+  let mappings = "";
+  let previousSourceLine = 0;
+
+  for (let generatedLine = 0; generatedLine < generatedLineCount; generatedLine += 1) {
+    if (generatedLine > 0) {
+      mappings += ";";
+    }
+    const sourceLine = Math.min(generatedLine, safeSourceLineCount - 1);
+    const sourceLineDelta = sourceLine - previousSourceLine;
+    mappings += `${encodeVlq(0)}${encodeVlq(0)}${encodeVlq(sourceLineDelta)}${encodeVlq(0)}`;
+    previousSourceLine = sourceLine;
+  }
+
+  return mappings;
+}
+
+function createSourceMap(
+  source: string,
+  emittedCode: string,
+  options: TranspileOptions
+): string {
+  const sourceFileName = basename(options.sourceFilePath ?? "input.my");
+  const outputFileName = basename(options.outputFilePath ?? "output.js");
+  const generatedLineCount = emittedCode.length === 0 ? 0 : emittedCode.split("\n").length;
+  const sourceLineCount = source.length === 0 ? 0 : source.split("\n").length;
+
+  const map: SourceMapV3 = {
+    version: 3,
+    file: outputFileName,
+    sources: [sourceFileName],
+    sourcesContent: [source],
+    names: [],
+    mappings: createLineStartMappings(generatedLineCount, sourceLineCount)
+  };
+
+  return JSON.stringify(map);
+}
+
+export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
   const artifacts = compileSource(source);
   const errors: string[] = [];
 
@@ -54,9 +137,11 @@ export function transpile(source: string): TranspileResult {
   }
 
   const emitted = emitProgram(artifacts.ast, artifacts.analysis.getExpressionTypes());
+  const code = ensureTrailingSemicolon(emitted);
   return {
-    code: ensureTrailingSemicolon(emitted),
+    code,
     warnings: [],
-    errors: []
+    errors: [],
+    sourceMap: createSourceMap(source, code, options)
   };
 }

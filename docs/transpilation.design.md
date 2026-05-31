@@ -17,6 +17,7 @@ Scope:
 3. Return early if semantic issues exist.
 4. Emit JavaScript from AST (+ expression type map for long arithmetic behavior).
 5. Normalize final output with `ensureTrailingSemicolon`.
+6. Produce a source map payload for successful output.
 
 Current contract:
 
@@ -28,6 +29,7 @@ Current contract:
   - `errors: []`
   - `warnings: []`
   - `code` with final trailing semicolon normalization.
+  - `sourceMap` (Source Map v3 JSON string, line-start mapping strategy).
 
 ## Error Propagation Invariants
 
@@ -74,6 +76,19 @@ This means emit phase never runs with known invalid compile artifacts.
 - Emission is structurally readable but not a full formatter pass.
 - Semicolons are emitted per statement; `transpile()` applies a final trailing-semicolon guard for non-empty output.
 - Import statements are emitted in standard ES module syntax for supported named imports.
+
+## Source Map Strategy (Current)
+
+Current source maps are generated in transpile step with a line-start mapping strategy:
+
+- One mapping segment per generated line.
+- Each generated line start (column 0) maps to a source line start (column 0).
+- Source content is embedded in `sourcesContent`.
+
+This approach is intentionally simple and robust:
+
+- It improves runtime stack-line attribution with low generation cost.
+- Column-level precision and transformation-aware remapping are future improvements.
 
 ## Optimization Boundary (Current State)
 

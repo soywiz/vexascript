@@ -2,6 +2,29 @@ import { describe, expect, it } from "vitest";
 import { transpile } from "./transpile";
 
 describe("transpile", () => {
+  it("returns a source map for successful transpilation", () => {
+    const source = "let value = 1\nlet doubled = value * 2";
+    const result = transpile(source, {
+      sourceFilePath: "/tmp/demo.my",
+      outputFilePath: "/tmp/demo.js"
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.sourceMap).toBeDefined();
+    const sourceMap = JSON.parse(result.sourceMap ?? "{}") as {
+      version: number;
+      file: string;
+      sources: string[];
+      sourcesContent: string[];
+      mappings: string;
+    };
+    expect(sourceMap.version).toBe(3);
+    expect(sourceMap.file).toBe("demo.js");
+    expect(sourceMap.sources).toEqual(["demo.my"]);
+    expect(sourceMap.sourcesContent).toEqual([source]);
+    expect(sourceMap.mappings.length).toBeGreaterThan(0);
+  });
+
   it("rewrites mylang for-in loops to JavaScript for-of with const iterator", () => {
     const source = [
       "declare class Console {",

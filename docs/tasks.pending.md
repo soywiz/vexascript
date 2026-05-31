@@ -4,7 +4,6 @@ This document tracks the current technical backlog for MyLang.
 
 ## High Priority
 
-- Add source maps to the transpile pipeline so JavaScript runtime errors map back to `.my` files.
 - Add cross-file/project symbol indexing for global go-to-definition and find-references.
 
 ## Semantic Analysis
