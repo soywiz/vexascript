@@ -65,12 +65,16 @@ function isDigit(ch: string): boolean {
   return /[0-9]/.test(ch);
 }
 
+function charAtOrEmpty(source: string, index: number): string {
+  return source[index] ?? "";
+}
+
 function tokenizeForFormatting(source: string): FormatToken[] {
   const tokens: FormatToken[] = [];
   let i = 0;
 
   while (i < source.length) {
-    const ch = source[i];
+    const ch = charAtOrEmpty(source, i);
 
     if (ch === "\r") {
       i += 1;
@@ -88,20 +92,20 @@ function tokenizeForFormatting(source: string): FormatToken[] {
       continue;
     }
 
-    if (ch === "/" && source[i + 1] === "/") {
+    if (ch === "/" && charAtOrEmpty(source, i + 1) === "/") {
       const start = i;
       i += 2;
-      while (i < source.length && source[i] !== "\n") {
+      while (i < source.length && charAtOrEmpty(source, i) !== "\n") {
         i += 1;
       }
       tokens.push({ type: "commentLine", value: source.slice(start, i) });
       continue;
     }
 
-    if (ch === "/" && source[i + 1] === "*") {
+    if (ch === "/" && charAtOrEmpty(source, i + 1) === "*") {
       const start = i;
       i += 2;
-      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) {
+      while (i < source.length && !(charAtOrEmpty(source, i) === "*" && charAtOrEmpty(source, i + 1) === "/")) {
         i += 1;
       }
       if (i < source.length) {
@@ -116,11 +120,11 @@ function tokenizeForFormatting(source: string): FormatToken[] {
       const start = i;
       i += 1;
       while (i < source.length) {
-        if (source[i] === "\\") {
+        if (charAtOrEmpty(source, i) === "\\") {
           i += 2;
           continue;
         }
-        if (source[i] === quote) {
+        if (charAtOrEmpty(source, i) === quote) {
           i += 1;
           break;
         }
@@ -133,7 +137,7 @@ function tokenizeForFormatting(source: string): FormatToken[] {
     if (isIdentifierStart(ch)) {
       const start = i;
       i += 1;
-      while (i < source.length && isIdentifierPart(source[i])) {
+      while (i < source.length && isIdentifierPart(charAtOrEmpty(source, i))) {
         i += 1;
       }
       tokens.push({ type: "identifier", value: source.slice(start, i) });
@@ -143,28 +147,28 @@ function tokenizeForFormatting(source: string): FormatToken[] {
     if (isDigit(ch)) {
       const start = i;
       i += 1;
-      while (i < source.length && /[0-9]/.test(source[i])) {
+      while (i < source.length && /[0-9]/.test(charAtOrEmpty(source, i))) {
         i += 1;
       }
-      if (i + 1 < source.length && source[i] === "." && /[0-9]/.test(source[i + 1])) {
+      if (i + 1 < source.length && charAtOrEmpty(source, i) === "." && /[0-9]/.test(charAtOrEmpty(source, i + 1))) {
         i += 1;
-        while (i < source.length && /[0-9]/.test(source[i])) {
+        while (i < source.length && /[0-9]/.test(charAtOrEmpty(source, i))) {
           i += 1;
         }
       }
-      if (i < source.length && (source[i] === "e" || source[i] === "E")) {
+      if (i < source.length && (charAtOrEmpty(source, i) === "e" || charAtOrEmpty(source, i) === "E")) {
         let exponentIndex = i + 1;
-        if (exponentIndex < source.length && (source[exponentIndex] === "+" || source[exponentIndex] === "-")) {
+        if (exponentIndex < source.length && (charAtOrEmpty(source, exponentIndex) === "+" || charAtOrEmpty(source, exponentIndex) === "-")) {
           exponentIndex += 1;
         }
-        if (exponentIndex < source.length && /[0-9]/.test(source[exponentIndex])) {
+        if (exponentIndex < source.length && /[0-9]/.test(charAtOrEmpty(source, exponentIndex))) {
           i = exponentIndex + 1;
-          while (i < source.length && /[0-9]/.test(source[i])) {
+          while (i < source.length && /[0-9]/.test(charAtOrEmpty(source, i))) {
             i += 1;
           }
         }
       }
-      if (i < source.length && (source[i] === "n" || source[i] === "N" || source[i] === "L")) {
+      if (i < source.length && (charAtOrEmpty(source, i) === "n" || charAtOrEmpty(source, i) === "N" || charAtOrEmpty(source, i) === "L")) {
         i += 1;
       }
       tokens.push({ type: "number", value: source.slice(start, i) });
@@ -185,7 +189,7 @@ function tokenizeForFormatting(source: string): FormatToken[] {
       continue;
     }
 
-    tokens.push({ type: "symbol", value: ch });
+    tokens.push({ type: "symbol", value: ch || "" });
     i += 1;
   }
 
@@ -376,6 +380,9 @@ export function formatSource(source: string): string {
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
+    if (!token) {
+      continue;
+    }
 
     if (token.type === "newline") {
       if (parenDepth === 0 && bracketDepth === 0) {

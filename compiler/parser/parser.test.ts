@@ -1820,8 +1820,8 @@ describe("parseFile", () => {
 
         expect(ast.firstToken?.value).toBe("let");
         expect(ast.lastToken?.value).toBe("1");
-        expect(statement.firstToken?.value).toBe("let");
-        expect(statement.lastToken?.value).toBe("1");
+        expect(statement?.firstToken?.value).toBe("let");
+        expect(statement?.lastToken?.value).toBe("1");
     });
 });
 
@@ -1845,7 +1845,7 @@ describe("Parser (with recovery)", () => {
             "Expected a number literal, string literal, identifier, '(', '[' or '{'",
             "Expected a number literal, string literal, identifier, '(', '[' or '{'"
         ]);
-        expect(parser.errors[0].token?.range.start).toEqual({
+        expect(parser.errors[0]?.token?.range.start).toEqual({
             offset: 0,
             line: 0,
             column: 0
@@ -1882,8 +1882,8 @@ describe("Parser (with recovery)", () => {
             "Expected a number literal, string literal, identifier, '(', '[' or '{'",
             "Expected a number literal, string literal, identifier, '(', '[' or '{'"
         ]);
-        expect(parser.errors[0].token?.value).toBe("=");
-        expect(parser.errors[1].token?.value).toBe("=");
+        expect(parser.errors[0]?.token?.value).toBe("=");
+        expect(parser.errors[1]?.token?.value).toBe("=");
     });
 
     it("recovers at newline statement boundaries without needing semicolons", () => {

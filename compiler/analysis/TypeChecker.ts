@@ -1,7 +1,6 @@
 import type {
   ArrayLiteral,
   AssignmentExpression,
-  BigIntLiteral,
   BinaryExpression,
   BlockStatement,
   CallExpression,
@@ -28,8 +27,7 @@ import type {
   UnaryExpression,
   UpdateExpression,
   VarStatement,
-  WhileStatement,
-  LongLiteral
+  WhileStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import type {

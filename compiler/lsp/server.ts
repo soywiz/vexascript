@@ -121,7 +121,7 @@ function validateDocument(doc: TextDocument): void {
 function completionPrefixAt(text: string, offset: number): string {
   let i = Math.max(0, Math.min(offset, text.length));
   while (i > 0) {
-    const ch = text[i - 1];
+    const ch = text[i - 1] ?? "";
     if (!/[A-Za-z0-9_]/.test(ch)) {
       break;
     }

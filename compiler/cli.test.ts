@@ -21,7 +21,7 @@ describe("CLI", () => {
 
     expect(await readFile(output, "utf8")).toBe("let value = 1 + 2;");
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(String(logSpy.mock.calls[0][0])).toContain("Compiled:");
+    expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Compiled:");
   });
 
   it("run command executes testFixtures/sample.my", async () => {
@@ -66,7 +66,7 @@ describe("CLI", () => {
     await runCli(["node", "mylang", "tokens", input]);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
-    const tokens = JSON.parse(String(logSpy.mock.calls[0][0])) as Array<{ type: string; value: string }>;
+    const tokens = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "[]")) as Array<{ type: string; value: string }>;
     expect(tokens.map(({ type, value }) => ({ type, value }))).toEqual([
       { type: "identifier", value: "a" },
       { type: "symbol", value: "+=" },
@@ -85,7 +85,7 @@ describe("CLI", () => {
     await runCli(["node", "mylang", "ast", input]);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(String(logSpy.mock.calls[0][0]))).toEqual({
+    expect(JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"))).toEqual({
       kind: "Program",
       body: [
         {
@@ -114,7 +114,7 @@ describe("CLI", () => {
 
     expect(await readFile(input, "utf8")).toBe("let a = 1\na += 2\n");
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(String(logSpy.mock.calls[0][0])).toContain("Formatted:");
+    expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Formatted:");
   });
 
   it("format command writes formatted source with --write", async () => {
@@ -128,7 +128,7 @@ describe("CLI", () => {
 
     expect(await readFile(input, "utf8")).toBe("let a = 1\na += 2\n");
     expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(String(logSpy.mock.calls[0][0])).toContain("Formatted:");
+    expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Formatted:");
   });
 
   it("adds --stdio when starting language server without transport arg", () => {

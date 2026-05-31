@@ -50,7 +50,6 @@ const CODE_DOT = 46; // .
 const CODE_SLASH = 47; // /
 const CODE_ZERO = 48; // 0
 const CODE_NINE = 57; // 9
-const CODE_COLON = 58; // :
 const CODE_LT = 60; // <
 const CODE_EQUALS = 61; // =
 const CODE_GT = 62; // >
@@ -498,7 +497,7 @@ export function tokenize(input: string): Token[] {
         start,
         end: snapshot(reader)
       },
-      leadingComments: pendingComments.length > 0 ? pendingComments : undefined
+      ...(pendingComments.length > 0 ? { leadingComments: pendingComments } : {})
     });
     pendingComments = [];
   }
@@ -512,7 +511,7 @@ export function tokenize(input: string): Token[] {
       start: eofPosition,
       end: eofPosition
     },
-    leadingComments: pendingComments.length > 0 ? pendingComments : undefined
+    ...(pendingComments.length > 0 ? { leadingComments: pendingComments } : {})
   });
 
   return tokens;

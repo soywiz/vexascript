@@ -111,7 +111,10 @@ function extractUndefinedSymbols(diagnostics: Diagnostic[]): string[] {
     if (!match) {
       continue;
     }
-    names.add(match[1]);
+    const symbolName = match[1];
+    if (symbolName) {
+      names.add(symbolName);
+    }
   }
   return Array.from(names.values());
 }

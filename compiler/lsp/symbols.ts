@@ -198,12 +198,15 @@ function collectTopLevelSymbolInformation(
       return;
     }
     const location: Location = { uri, range };
-    symbols.push({
+    const symbolInfo: SymbolInformation = {
       name,
       kind: symbolKindForTopLevel(kind),
-      location,
-      containerName
-    });
+      location
+    };
+    if (containerName) {
+      symbolInfo.containerName = containerName;
+    }
+    symbols.push(symbolInfo);
   };
 
   for (const statement of program.body) {

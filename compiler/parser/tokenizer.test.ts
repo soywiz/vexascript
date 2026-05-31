@@ -211,8 +211,8 @@ describe("tokenizer", () => {
     it("attaches trailing comments to the eof token", () => {
         const tokens = tokenize("let a = 1\n// trailing");
         const eof = tokens[tokens.length - 1];
-        expect(eof.type).toBe("eof");
-        expect(eof.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
+        expect(eof?.type).toBe("eof");
+        expect(eof?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
             { kind: "line", value: "// trailing" }
         ]);
     });
@@ -251,8 +251,8 @@ describe("tokenizer", () => {
     it("tracks eof token range at the end of input", () => {
         const tokens = tokenize("a\n+ 2");
         const eof = tokens[tokens.length - 1];
-        expect(eof.type).toBe("eof");
-        expect(eof.range).toEqual({
+        expect(eof?.type).toBe("eof");
+        expect(eof?.range).toEqual({
             start: { offset: 5, line: 1, column: 3 },
             end: { offset: 5, line: 1, column: 3 }
         });

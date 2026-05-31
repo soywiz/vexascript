@@ -72,8 +72,8 @@ export interface ParseIssue {
 type RecoveryHint = "block" | "switch" | "statement";
 
 export class ParseError extends Error {
-    token?: Token;
-    recoveryHint?: RecoveryHint;
+    token: Token | undefined;
+    recoveryHint: RecoveryHint | undefined;
 
     constructor(message: string, token?: Token, recoveryHint?: RecoveryHint) {
         super(message);
@@ -268,7 +268,11 @@ export class Parser {
     }
 
     emitError(message: string, token: Token | undefined = this.tokens.peek()): void {
-        this.errors.push({ message, token });
+        if (token) {
+            this.errors.push({ message, token });
+            return;
+        }
+        this.errors.push({ message });
     }
 
     recover(recoveryHint?: RecoveryHint, originToken?: Token): void {

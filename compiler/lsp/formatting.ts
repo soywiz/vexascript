@@ -24,7 +24,7 @@ function getDocumentEndPosition(text: string): LspPosition {
   const lastLineIndex = lines.length - 1;
   return {
     line: lastLineIndex,
-    character: lines[lastLineIndex].length
+    character: (lines[lastLineIndex] ?? "").length
   };
 }
 

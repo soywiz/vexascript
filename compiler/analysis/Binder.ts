@@ -12,7 +12,6 @@ import type {
   Statement,
   SwitchStatement,
   TryStatement,
-  ThrowStatement,
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
@@ -61,10 +60,10 @@ export class Binder {
 
   private createScope(parent: Scope | undefined, node: Node): Scope {
     const scope: Scope = {
-      parent,
       node,
       symbols: new Map<string, AnalysisSymbol>(),
-      children: []
+      children: [],
+      ...(parent ? { parent } : {})
     };
     if (parent) {
       parent.children.push(scope);

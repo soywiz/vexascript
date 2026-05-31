@@ -42,11 +42,11 @@ describe("VS Code extension syntax highlighting", () => {
       repository?: Record<string, { patterns?: Array<{ match?: string }> }>;
     };
 
-    const keywordPatterns = grammar.repository?.keywords?.patterns?.map((pattern) => pattern.match) ?? [];
-    const operatorPatterns = grammar.repository?.operators?.patterns?.map((pattern) => pattern.match) ?? [];
+    const keywordPatterns = grammar.repository?.["keywords"]?.patterns?.map((pattern) => pattern.match) ?? [];
+    const operatorPatterns = grammar.repository?.["operators"]?.patterns?.map((pattern) => pattern.match) ?? [];
     const stringEscapeMatch =
       (
-        grammar.repository?.strings as
+        grammar.repository?.["strings"] as
           | { patterns?: Array<{ patterns?: Array<{ match?: string }> }> }
           | undefined
       )?.patterns?.[0]?.patterns?.[0]?.match ?? "";
