@@ -103,6 +103,13 @@ export interface ParseIssue {
 
 type RecoveryHint = "block" | "switch" | "statement";
 
+export interface ParseRecoveryMarker {
+    token: Token;
+    recoveryHint?: RecoveryHint;
+}
+
+const RECOVERY_MARKERS_SYMBOL: unique symbol = Symbol("mylang.parseRecoveryMarkers");
+
 export class ParseError extends Error {
     token: Token | undefined;
     recoveryHint: RecoveryHint | undefined;
@@ -118,6 +125,7 @@ export class ParseError extends Error {
 export class Parser {
     public errors: ParseIssue[] = [];
     public readonly language: ParseLanguage;
+    private readonly recoveryMarkers: ParseRecoveryMarker[] = [];
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "mylang";
@@ -184,11 +192,18 @@ export class Parser {
             }
         }
 
-        return this.attachNodeBounds(
+        const program = this.attachNodeBounds(
             { kind: "Program", body } as Program,
             startToken,
             this.getLastNonEofReadToken() ?? startToken
         );
+        Object.defineProperty(program, RECOVERY_MARKERS_SYMBOL, {
+            value: [...this.recoveryMarkers],
+            enumerable: false,
+            writable: true,
+            configurable: true
+        });
+        return program;
     }
 
     parseExpressionOrThrow(): Expr {
@@ -309,6 +324,12 @@ export class Parser {
 
     recover(recoveryHint?: RecoveryHint, originToken?: Token): void {
         const startToken = originToken ?? this.tokens.peek();
+        if (startToken && !this.isEofToken(startToken)) {
+            this.recoveryMarkers.push({
+                token: startToken,
+                ...(recoveryHint ? { recoveryHint } : {})
+            });
+        }
         const startLine = startToken?.range.start.line ?? -1;
         const allowSwitchCaseLabels = recoveryHint === "switch";
         const localStatementRecovery = recoveryHint === "statement";
@@ -2395,6 +2416,14 @@ export class Parser {
         }
         return this.attachNodeBounds(statement, tryKeyword, this.getLastReadToken() ?? tryKeyword);
     }
+}
+
+export function getProgramRecoveryMarkers(program: Program): ParseRecoveryMarker[] {
+    const markers = (program as unknown as { [RECOVERY_MARKERS_SYMBOL]?: ParseRecoveryMarker[] })[RECOVERY_MARKERS_SYMBOL];
+    if (!markers) {
+        return [];
+    }
+    return [...markers];
 }
 
 export function parseExpression(r: ListReader<Token>, options: ParserOptions = {}): Expr {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ParseError, Parser, parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
+import { ParseError, Parser, getProgramRecoveryMarkers, parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
 describe("parseExpression", () => {
@@ -2320,5 +2320,15 @@ describe("Parser (with recovery)", () => {
         expect(parser.errors.map((issue) => issue.message)).toContain(
             "Expected ';', newline, or '}' between statements"
         );
+    });
+
+    it("attaches parse recovery markers to the returned AST", () => {
+        const parser = new Parser(tokenizeReader("{ let bad = ; let ok = 1 }"));
+        const ast = parser.parseFile();
+
+        const markers = getProgramRecoveryMarkers(ast);
+        expect(markers.length).toBeGreaterThan(0);
+        expect(markers[0]?.token.value).toBe(";");
+        expect(markers[0]?.token.range.start.line).toBe(0);
     });
 });

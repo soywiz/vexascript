@@ -14,10 +14,6 @@ This document tracks the current technical backlog for MyLang.
 - Add better diagnostics for type mismatches in nested expressions.
 - Add generic type parameters and instantiation flow (functions/classes/interfaces).
 
-## Parser and Recovery
-
-- Add token-level error nodes or recover markers in AST to improve downstream diagnostics quality.
-
 ## Transpilation and Runtime
 
 - Add optional transpile target modes (for example: conservative JS vs optimized JS).
