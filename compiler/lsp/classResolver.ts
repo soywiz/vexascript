@@ -1,19 +1,29 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type {
+  AssignmentExpression,
+  BinaryExpression,
   CallExpression,
   ClassStatement,
+  ConditionalExpression,
   Expr,
   Identifier,
   ImportStatement,
   MemberExpression,
   NewExpression,
+  UnaryExpression,
+  UpdateExpression,
   Program
 } from "compiler/ast/ast";
-import { compileSource } from "compiler/pipeline/compile";
 import { uriToFilePath } from "./importFixes";
+import {
+  getProjectSessionForFilePath,
+  scanProjectMyFiles,
+  type ProjectContext,
+  type ProjectSessionLike
+} from "./projectAnalysis";
 
 const BUILTIN_TYPE_NAMES = new Set([
   "int",
@@ -26,15 +36,10 @@ const BUILTIN_TYPE_NAMES = new Set([
   "undefined"
 ]);
 
-export interface ClassResolverSessionLike {
-  ast: Program | null;
-  analysis: Analysis | null;
-}
+export type ClassResolverSessionLike = ProjectSessionLike;
 
-export interface ClassResolverOptions {
+export interface ClassResolverOptions extends ProjectContext {
   uri?: string;
-  sourceRoots?: string[];
-  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
 }
 
 export interface ResolvedClassStatement {
@@ -64,6 +69,11 @@ export interface ResolvedClassMember {
   documentation?: string;
 }
 
+export interface ResolvedConstructorSignature {
+  className: string;
+  parameters: ResolvedParameter[];
+}
+
 function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
@@ -79,54 +89,11 @@ function resolveImportTargetFilePath(importerFilePath: string, importPath: strin
   return null;
 }
 
-function scanMyFiles(sourceRoots: string[]): string[] {
-  const files: string[] = [];
-  const stack = [...sourceRoots];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current || !existsSync(current)) {
-      continue;
-    }
-
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) {
-        continue;
-      }
-
-      const fullPath = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && extname(entry.name) === ".my") {
-        files.push(fullPath);
-      }
-    }
-  }
-
-  return files;
-}
-
 function getSessionForFilePath(
   filePath: string,
   options: ClassResolverOptions
 ): ClassResolverSessionLike | null {
-  if (options.getSessionForFilePath) {
-    const provided = options.getSessionForFilePath(filePath);
-    if (provided) {
-      return provided;
-    }
-  }
-
-  if (!existsSync(filePath)) {
-    return null;
-  }
-
-  const source = readFileSync(filePath, "utf8");
-  const compiled = compileSource(source);
-  return {
-    ast: compiled.ast,
-    analysis: compiled.analysis
-  };
+  return getProjectSessionForFilePath(filePath, options);
 }
 
 export function findClassStatementInProgram(ast: Program, className: string): ClassStatement | null {
@@ -184,7 +151,7 @@ export function resolveClassStatementAcrossFiles(
   }
 
   const sourceRoots = options.sourceRoots ?? [];
-  for (const filePath of scanMyFiles(sourceRoots)) {
+  for (const filePath of scanProjectMyFiles(sourceRoots)) {
     const targetSession = getSessionForFilePath(filePath, options);
     if (!targetSession?.ast) {
       continue;
@@ -354,6 +321,81 @@ export function resolveExpressionTypeName(
     return callable?.returnTypeName ?? null;
   }
 
+  if (expression.kind === "AssignmentExpression") {
+    return resolveExpressionTypeName((expression as AssignmentExpression).right, analysis, ast, options);
+  }
+
+  if (expression.kind === "UnaryExpression") {
+    const unary = expression as UnaryExpression;
+    if (unary.operator === "!") {
+      return "boolean";
+    }
+    if (unary.operator === "typeof") {
+      return "string";
+    }
+    if (unary.operator === "void") {
+      return "undefined";
+    }
+    if (unary.operator === "delete") {
+      return "boolean";
+    }
+    if (unary.operator === "await") {
+      return resolveExpressionTypeName(unary.argument, analysis, ast, options);
+    }
+    return resolveExpressionTypeName(unary.argument, analysis, ast, options);
+  }
+
+  if (expression.kind === "UpdateExpression") {
+    const argumentType = resolveExpressionTypeName(
+      (expression as UpdateExpression).argument,
+      analysis,
+      ast,
+      options
+    );
+    return argumentType ?? "int";
+  }
+
+  if (expression.kind === "ConditionalExpression") {
+    const conditional = expression as ConditionalExpression;
+    const consequentType = resolveExpressionTypeName(conditional.consequent, analysis, ast, options);
+    const alternateType = resolveExpressionTypeName(conditional.alternate, analysis, ast, options);
+    if (consequentType && consequentType === alternateType) {
+      return consequentType;
+    }
+    return consequentType ?? alternateType ?? null;
+  }
+
+  if (expression.kind === "RangeExpression") {
+    return "range<int>";
+  }
+
+  if (expression.kind === "BinaryExpression") {
+    const binary = expression as BinaryExpression;
+    const left = resolveExpressionTypeName(binary.left, analysis, ast, options);
+    const right = resolveExpressionTypeName(binary.right, analysis, ast, options);
+    if (binary.operator === "+" && (left === "string" || right === "string")) {
+      return "string";
+    }
+    if (
+      [
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "in",
+        "instanceof",
+        "==",
+        "!=",
+        "===",
+        "!==",
+        "||",
+        "&&"
+      ].includes(binary.operator)
+    ) {
+      return "boolean";
+    }
+  }
+
   if (expression.kind !== "MemberExpression") {
     return null;
   }
@@ -445,4 +487,42 @@ export function resolveCallableSignature(
   }
 
   return memberResolution.signature;
+}
+
+export function resolveConstructorSignature(
+  callee: Expr,
+  analysis: Analysis,
+  ast: Program,
+  options: ClassResolverOptions
+): ResolvedConstructorSignature | null {
+  if (callee.kind !== "Identifier") {
+    return null;
+  }
+
+  const identifier = callee as Identifier;
+  if (!identifier.firstToken) {
+    return null;
+  }
+
+  const symbol = analysis.getSymbolAt(
+    identifier.firstToken.range.start.line,
+    identifier.firstToken.range.start.column
+  )?.symbol;
+  if (!symbol || symbol.kind !== "class") {
+    return null;
+  }
+
+  const classResolution = resolveClassStatementAcrossFiles(ast, symbol.name, options);
+  if (!classResolution) {
+    return null;
+  }
+
+  return {
+    className: symbol.name,
+    parameters: (classResolution.classStatement.primaryConstructorParameters ?? []).map((parameter) => ({
+      name: parameter.name.name,
+      typeName: parameter.typeAnnotation?.name ?? "unknown",
+      optional: false
+    }))
+  };
 }

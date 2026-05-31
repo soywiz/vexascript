@@ -32,7 +32,7 @@ import type {
 import type { SignatureHelp, SignatureInformation } from "vscode-languageserver/node.js";
 import {
   resolveCallableSignature,
-  resolveClassStatementAcrossFiles,
+  resolveConstructorSignature,
   type ClassResolverOptions
 } from "./classResolver";
 
@@ -404,13 +404,15 @@ function buildSignatureFromSymbol(
     };
   }
 
-  if (context.isNewExpression && symbolMatch.symbol.kind === "class") {
-    const declaration = resolveClassStatementAcrossFiles(program, symbolMatch.symbol.name, options)?.classStatement;
-    const constructorParameters = declaration?.primaryConstructorParameters ?? [];
-    const parameters = constructorParameters.map((parameter) => ({
-      label: `${parameter.name.name}: ${parameter.typeAnnotation?.name ?? "unknown"}`
+  if (context.isNewExpression) {
+    const constructorSignature = resolveConstructorSignature(context.callee, analysis, program, options);
+    if (!constructorSignature) {
+      return null;
+    }
+    const parameters = constructorSignature.parameters.map((parameter) => ({
+      label: `${parameter.name}: ${parameter.typeName}`
     }));
-    const label = `new ${symbolMatch.symbol.name}(${parameters.map((parameter) => parameter.label).join(", ")})`;
+    const label = `new ${constructorSignature.className}(${parameters.map((parameter) => parameter.label).join(", ")})`;
     return {
       label,
       parameters

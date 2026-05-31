@@ -31,5 +31,29 @@ describe("inlay hints", () => {
     expect(labels).toContain("a: ");
     expect(labels).toContain("b: ");
   });
-});
 
+  it("provides constructor parameter name hints for new expressions", () => {
+    const source =
+      "class Point(val x: int, val y: int)\n" +
+      "fun demo() {\n" +
+      "  const point = new Point(1, 2)\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const hints = createInlayHints(
+      session.ast!,
+      session.analysis!,
+      {
+        start: { line: 0, character: 0 },
+        end: { line: 20, character: 0 }
+      }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain("x: ");
+    expect(labels).toContain("y: ");
+  });
+});

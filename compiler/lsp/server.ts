@@ -19,6 +19,7 @@ import { AnalysisSessionCache } from "./analysisSession";
 import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./importFixes";
 import { createCallFixCodeActions } from "./callFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
+import { createTypeFixCodeActions } from "./typeFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -273,11 +274,22 @@ connection.onCodeAction((params) => {
   const createMemberActions = createCreateMemberCodeActions({
     uri: params.textDocument.uri,
     ast: session.ast,
+    analysis: session.analysis,
     diagnostics: params.context.diagnostics,
     sourceRoots,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments
   });
   actions.push(...createMemberActions);
+
+  const typeFixActions = createTypeFixCodeActions({
+    uri: params.textDocument.uri,
+    ast: session.ast,
+    analysis: session.analysis,
+    diagnostics: params.context.diagnostics,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
+  actions.push(...typeFixActions);
 
   return deferCodeActions(actions);
 });

@@ -11,6 +11,7 @@ import type {
   Expr,
   ExprStatement,
   ForStatement,
+  FunctionParameter,
   FunctionStatement,
   IfStatement,
   MemberExpression,
@@ -32,6 +33,7 @@ import type { InlayHint, Range } from "vscode-languageserver/node.js";
 import { InlayHintKind } from "vscode-languageserver/node.js";
 import {
   resolveCallableSignature,
+  resolveConstructorSignature,
   resolveExpressionTypeName,
   type ClassResolverOptions
 } from "./classResolver";
@@ -51,6 +53,137 @@ function inRange(
     return false;
   }
   return true;
+}
+
+function pickFunctionReturnTypeFromBody(
+  body: Statement[],
+  analysis: Analysis,
+  ast: Program,
+  options: ClassResolverOptions
+): string | null {
+  let resolved: string | null = null;
+  let conflict = false;
+
+  const consider = (typeName: string | null): void => {
+    if (!typeName || typeName === "unknown") {
+      return;
+    }
+    if (!resolved) {
+      resolved = typeName;
+      return;
+    }
+    if (resolved !== typeName) {
+      conflict = true;
+    }
+  };
+
+  const visitStatement = (statement: Statement): void => {
+    switch (statement.kind) {
+      case "ReturnStatement":
+        consider(
+          (statement as ReturnStatement).expression
+            ? resolveExpressionTypeName((statement as ReturnStatement).expression!, analysis, ast, options)
+            : "undefined"
+        );
+        return;
+      case "BlockStatement":
+        for (const child of (statement as BlockStatement).body) {
+          visitStatement(child);
+        }
+        return;
+      case "IfStatement":
+        visitStatement((statement as IfStatement).thenBranch);
+        if ((statement as IfStatement).elseBranch) {
+          visitStatement((statement as IfStatement).elseBranch!);
+        }
+        return;
+      case "WhileStatement":
+      case "DoWhileStatement":
+      case "ForStatement":
+      case "SwitchStatement":
+      case "TryStatement":
+        return;
+      case "FunctionStatement":
+      case "ClassStatement":
+        return;
+      default:
+        return;
+    }
+  };
+
+  for (const statement of body) {
+    visitStatement(statement);
+  }
+
+  if (conflict) {
+    return null;
+  }
+  return resolved;
+}
+
+function pushParameterTypeHints(
+  parameters: FunctionParameter[],
+  analysis: Analysis,
+  ast: Program,
+  options: ClassResolverOptions,
+  range: Range,
+  hints: InlayHint[]
+): void {
+  for (const parameter of parameters) {
+    if (parameter.typeAnnotation || !parameter.name.lastToken) {
+      continue;
+    }
+    const inferred =
+      parameter.defaultValue
+        ? resolveExpressionTypeName(parameter.defaultValue, analysis, ast, options)
+        : null;
+    if (!inferred || inferred === "unknown") {
+      continue;
+    }
+    const position = {
+      line: parameter.name.lastToken.range.end.line,
+      character: parameter.name.lastToken.range.end.column
+    };
+    if (!inRange(position.line, position.character, range)) {
+      continue;
+    }
+    hints.push({
+      position,
+      kind: InlayHintKind.Type,
+      label: `: ${inferred}`
+    });
+  }
+}
+
+function pushReturnTypeHint(
+  nameNode: { lastToken?: { range: { end: { line: number; column: number } } } },
+  explicitReturnType: { name: string } | undefined,
+  body: Statement[],
+  analysis: Analysis,
+  ast: Program,
+  options: ClassResolverOptions,
+  range: Range,
+  hints: InlayHint[]
+): void {
+  if (explicitReturnType || !nameNode.lastToken) {
+    return;
+  }
+  const inferred = pickFunctionReturnTypeFromBody(body, analysis, ast, options);
+  if (!inferred || inferred === "unknown") {
+    return;
+  }
+  const position = {
+    line: nameNode.lastToken.range.end.line,
+    character: nameNode.lastToken.range.end.column
+  };
+  if (!inRange(position.line, position.character, range)) {
+    return;
+  }
+  hints.push({
+    position,
+    kind: InlayHintKind.Type,
+    label: `: ${inferred}`
+  });
 }
 
 function pushTypeHintForVarStatement(
@@ -142,6 +275,42 @@ function pushParameterHintsForCall(
   }
 }
 
+function pushParameterHintsForNewExpression(
+  expression: NewExpression,
+  analysis: Analysis,
+  ast: Program,
+  options: ClassResolverOptions,
+  range: Range,
+  hints: InlayHint[]
+): void {
+  const signature = resolveConstructorSignature(expression.callee, analysis, ast, options);
+  if (!signature) {
+    return;
+  }
+
+  const args = expression.arguments ?? [];
+  const comparableCount = Math.min(args.length, signature.parameters.length);
+  for (let index = 0; index < comparableCount; index += 1) {
+    const argument = args[index];
+    const parameter = signature.parameters[index];
+    if (!argument?.firstToken || !parameter) {
+      continue;
+    }
+    const position = {
+      line: argument.firstToken.range.start.line,
+      character: argument.firstToken.range.start.column
+    };
+    if (!inRange(position.line, position.character, range)) {
+      continue;
+    }
+    hints.push({
+      position,
+      kind: InlayHintKind.Parameter,
+      label: `${parameter.name}: `
+    });
+  }
+}
+
 export function createInlayHints(
   ast: Program,
   analysis: Analysis,
@@ -166,6 +335,14 @@ export function createInlayHints(
         for (const argument of (expression as NewExpression).arguments ?? []) {
           visitExpression(argument);
         }
+        pushParameterHintsForNewExpression(
+          expression as NewExpression,
+          analysis,
+          ast,
+          options,
+          range,
+          hints
+        );
         return;
       case "MemberExpression":
         visitExpression((expression as MemberExpression).object);
@@ -240,6 +417,24 @@ export function createInlayHints(
         }
         return;
       case "FunctionStatement":
+        pushParameterTypeHints(
+          (statement as FunctionStatement).parameters,
+          analysis,
+          ast,
+          options,
+          range,
+          hints
+        );
+        pushReturnTypeHint(
+          (statement as FunctionStatement).name,
+          (statement as FunctionStatement).returnType,
+          (statement as FunctionStatement).body.body,
+          analysis,
+          ast,
+          options,
+          range,
+          hints
+        );
         for (const child of (statement as FunctionStatement).body.body) {
           visitStatement(child);
         }
@@ -249,6 +444,24 @@ export function createInlayHints(
           if (member.kind === "ClassFieldMember" && member.initializer) {
             visitExpression(member.initializer);
           } else if (member.kind === "ClassMethodMember") {
+            pushParameterTypeHints(
+              member.parameters,
+              analysis,
+              ast,
+              options,
+              range,
+              hints
+            );
+            pushReturnTypeHint(
+              member.name,
+              member.returnType,
+              member.body.body,
+              analysis,
+              ast,
+              options,
+              range,
+              hints
+            );
             for (const child of member.body.body) {
               visitStatement(child);
             }

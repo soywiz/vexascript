@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
 import { createCreateMemberCodeActions } from "./memberFixes";
+import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 
 function missingMemberDiagnostic(message: string): Diagnostic {
   return {
@@ -77,5 +78,35 @@ fun demo() {
     expect(actions).toHaveLength(1);
     const uri = pathToFileURL(file).toString();
     expect(actions[0]?.edit?.changes?.[uri]?.[0]?.newText).toContain("zz: unknown");
+  });
+
+  it("infers missing member type from assignment usage", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-member-fix-"));
+    const file = join(root, "demo.my");
+    const source = `class MyPoint { }
+fun demo() {
+  const point = new MyPoint()
+  point.zz = 42
+}
+`;
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const diagnostics = collectCrossFileMemberDiagnostics({
+      uri: pathToFileURL(file).toString(),
+      session,
+      sourceRoots: [root]
+    });
+    const actions = createCreateMemberCodeActions({
+      uri: pathToFileURL(file).toString(),
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics,
+      sourceRoots: [root]
+    });
+
+    expect(actions).toHaveLength(1);
+    const uri = pathToFileURL(file).toString();
+    expect(actions[0]?.edit?.changes?.[uri]?.[0]?.newText).toContain("zz: int");
   });
 });
