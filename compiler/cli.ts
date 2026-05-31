@@ -58,14 +58,15 @@ async function buildFile(input: string, out?: string, target: TranspileTarget = 
   }
 }
 
-async function runFile(input: string, target: TranspileTarget = "optimized"): Promise<void> {
+async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
   const outputPath = resolve(process.cwd(), input.replace(/\.[^.]+$/, ".js"));
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
-    target
+    target,
+    preserveSourceLineOffsets: true
   });
   if (result.errors.length > 0) {
     for (const error of result.errors) {
@@ -141,7 +142,7 @@ function createProgram(): Command {
     .command("run")
     .description("Transpile and run a MyLang file with Node.js")
     .argument("<input>", "Input file")
-    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
+    .option("--target <mode>", "Transpile target mode: conservative|optimized", "conservative")
     .action(async (input: string, opts: { target?: string }) => {
       const target = opts.target === "conservative" ? "conservative" : "optimized";
       await runFile(input, target);

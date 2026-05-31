@@ -31,4 +31,15 @@ describe("lsp diagnostics", () => {
       diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE)
     ).toBe(true);
   });
+
+  it("assigns readonly-reassignment diagnostic code for const/val writes", () => {
+    const source =
+      "const point = 1\n" +
+      "point = 2\n";
+
+    const diagnostics = diagnosticsFor(source);
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.READONLY_REASSIGNMENT)
+    ).toBe(true);
+  });
 });

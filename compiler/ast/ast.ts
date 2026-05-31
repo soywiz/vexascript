@@ -40,6 +40,24 @@ export interface Identifier extends Node {
     name: string
 }
 
+export interface TypeReference extends Node {
+    kind: "TypeReference"
+    name: Identifier
+    typeArguments?: TypeAnnotation[]
+}
+
+export interface ArrayTypeAnnotation extends Node {
+    kind: "ArrayTypeAnnotation"
+    elementType: TypeAnnotation
+}
+
+export type TypeAnnotation = Identifier | TypeReference | ArrayTypeAnnotation;
+
+export interface TypeParameter extends Node {
+    kind: "TypeParameter"
+    name: Identifier
+}
+
 export interface StringLiteral extends Node {
     kind: "StringLiteral"
     value: string
@@ -199,8 +217,35 @@ export interface ClassStatement extends Statement {
     kind: "ClassStatement"
     declared?: boolean
     name: Identifier
+    typeParameters?: TypeParameter[]
+    extendsType?: Identifier
+    implementsTypes?: Identifier[]
     primaryConstructorParameters?: ClassPrimaryConstructorParameter[]
     members: ClassMember[]
+}
+
+export interface InterfacePropertyMember extends Node {
+    kind: "InterfacePropertyMember"
+    name: Identifier
+    typeAnnotation: Identifier
+}
+
+export interface InterfaceMethodMember extends Node {
+    kind: "InterfaceMethodMember"
+    name: Identifier
+    parameters: FunctionParameter[]
+    returnType?: Identifier
+}
+
+export type InterfaceMember = InterfacePropertyMember | InterfaceMethodMember;
+
+export interface InterfaceStatement extends Statement {
+    kind: "InterfaceStatement"
+    declared?: boolean
+    name: Identifier
+    typeParameters?: TypeParameter[]
+    extendsTypes?: Identifier[]
+    members: InterfaceMember[]
 }
 
 export interface ExprStatement extends Statement {

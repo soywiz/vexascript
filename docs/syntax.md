@@ -127,6 +127,22 @@ In MyLang mode, class braces are optional for empty class declarations:
 class Point
 ```
 
+Class declarations also support:
+
+- generic type parameters (`class Box<T>`)
+- `extends` clauses
+- `implements` clauses (type-only, omitted in emitted JavaScript)
+
+Examples:
+
+```mylang
+class Base<T> {
+}
+
+class Box<T> extends Base<T> {
+}
+```
+
 ### Optional primary constructor
 
 Class declarations support an optional primary constructor parameter list after the class name.
@@ -189,6 +205,28 @@ class Demo {
 ```
 
 Method signatures support the same parameter syntax as function declarations.
+
+### Interfaces
+
+MyLang supports interface declarations, including generic parameters and `extends`:
+
+```mylang
+interface PairStore<K, V> extends Iterable<K> {
+  keys: K[]
+  values: V[]
+  get(key: K): V
+}
+```
+
+`interface` declarations are type-only and are omitted from emitted JavaScript output.
+
+### Type annotation forms
+
+Supported type annotation forms in declarations/members:
+
+- plain type names (`Point`, `number`, `K`)
+- generic type references (`Map<K, V>`)
+- array suffixes (`K[]`, `Map<K, V>[]`)
 
 ## Expressions
 
@@ -458,7 +496,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports named imports (`import { ... } from "..."`), ambient declarations (`declare function`, `declare class`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
+When the parser runs in `typescript` mode, it supports named imports (`import { ... } from "..."`), ambient declarations (`declare function`, `declare class`, `declare interface`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
 
 Example:
 

@@ -146,6 +146,14 @@ function emitIdentifier(identifier: Identifier): string {
   return identifier.name;
 }
 
+function eraseTypeArguments(typeName: string): string {
+  const ltIndex = typeName.indexOf("<");
+  if (ltIndex < 0) {
+    return typeName;
+  }
+  return typeName.slice(0, ltIndex).trim();
+}
+
 function isLongExpression(expression: Expr): boolean {
   const type = activeExpressionTypes?.get(expression as unknown as Node);
   return type?.kind === "builtin" && type.name === "long";
@@ -426,8 +434,13 @@ export function emitStatement(statement: Statement): string {
         ...(syntheticConstructor ? [syntheticConstructor] : []),
         ...members.map((member) => emitClassMember(member))
       ];
-      return `class ${classStatement.name.name} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
+      const extendsClause = classStatement.extendsType
+        ? ` extends ${eraseTypeArguments(classStatement.extendsType.name)}`
+        : "";
+      return `class ${classStatement.name.name}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
     }
+    case "InterfaceStatement":
+      return "";
     case "ExprStatement":
       return `${emitExpression((statement as ExprStatement).expression)};`;
     case "BlockStatement":
@@ -499,13 +512,19 @@ export function emitProgram(
   program: Program,
   expressionTypes?: ReadonlyMap<Node, AnalysisType>
 ): string {
+  return emitProgramStatements(program, expressionTypes).join("\n");
+}
+
+export function emitProgramStatements(
+  program: Program,
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>
+): string[] {
   const previous = activeExpressionTypes;
   activeExpressionTypes = expressionTypes;
   try {
     return program.body
       .map((statement) => emitStatement(statement))
-      .filter((statement) => statement.trim().length > 0)
-      .join("\n");
+      .filter((statement) => statement.trim().length > 0);
   } finally {
     activeExpressionTypes = previous;
   }

@@ -197,6 +197,33 @@ describe("Analysis", () => {
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
   });
 
+  it("reports reassignment of const/val variables", () => {
+    const source =
+      "const point = 1\n" +
+      "point = 2\n" +
+      "val count = 1\n" +
+      "count += 1\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Cannot assign to 'point' because it is a constant");
+    expect(messages).toContain("Cannot assign to 'count' because it is a constant");
+  });
+
+  it("reports update expressions on const/val variables", () => {
+    const source =
+      "const n = 1\n" +
+      "n++\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Cannot assign to 'n' because it is a constant");
+  });
+
   it("reports incompatible assignment types for class members", () => {
     const source = `class Point(val y: int)
 fun demo() {
@@ -305,7 +332,7 @@ a--
 
     expect(messages.some((message) => message.includes("Unknown type 'Point'"))).toBe(false);
     expect(messages).toContain(
-      "Unknown type 'MissingType'. Expected builtin type (int, number, string, boolean, bigint, long) or declared class/interface"
+      "Unknown type 'MissingType'. Expected builtin type (int, number, string, boolean, bigint, long) or declared class/interface/type parameter"
     );
   });
 
@@ -544,5 +571,43 @@ nums[0] = "x"
     expect(
       messages.some((message) => message.startsWith("Nested type mismatch: expression"))
     ).toBe(true);
+  });
+
+  it("supports generic type annotations in classes and interfaces", () => {
+    const source = `interface PairStore<K, V> {
+  keys: K[]
+  values: V[]
+}
+
+class Map<K, V> implements PairStore<K, V> {
+  keys: K[]
+  values: V[]
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
+  it("accepts class extends/implements with generic type arguments", () => {
+    const source = `class Base<T> {
+  value: T
+}
+interface Readable<T> {
+  value: T
+}
+class Child<T> extends Base<T> implements Readable<T> {
+  value: T
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
   });
 });

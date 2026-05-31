@@ -1,6 +1,58 @@
 import { describe, expect, it } from "vitest";
 import { transpile } from "./transpile";
 
+const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function decodeVlqSegment(segment: string): number[] {
+  const values: number[] = [];
+  let index = 0;
+
+  while (index < segment.length) {
+    let result = 0;
+    let shift = 0;
+    let continuation = true;
+
+    while (continuation && index < segment.length) {
+      const char = segment[index] ?? "";
+      index += 1;
+      const digit = BASE64_DIGITS.indexOf(char);
+      if (digit < 0) {
+        throw new Error(`Invalid VLQ digit '${char}'`);
+      }
+      continuation = (digit & 32) !== 0;
+      const payload = digit & 31;
+      result += payload << shift;
+      shift += 5;
+    }
+
+    const isNegative = (result & 1) === 1;
+    const value = result >> 1;
+    values.push(isNegative ? -value : value);
+  }
+
+  return values;
+}
+
+function decodeSourceLinesFromMappings(mappings: string): number[] {
+  const lines = mappings.split(";");
+  const sourceLines: number[] = [];
+  let previousSourceLine = 0;
+
+  for (const line of lines) {
+    if (line.length === 0) {
+      sourceLines.push(previousSourceLine);
+      continue;
+    }
+    const firstSegment = line.split(",")[0] ?? "";
+    const decoded = decodeVlqSegment(firstSegment);
+    const sourceLineDelta = decoded[2] ?? 0;
+    previousSourceLine += sourceLineDelta;
+    sourceLines.push(previousSourceLine);
+  }
+
+  return sourceLines;
+}
+
 describe("transpile", () => {
   it("returns a source map for successful transpilation", () => {
     const source = "let value = 1\nlet doubled = value * 2";
@@ -95,5 +147,72 @@ describe("transpile", () => {
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("let msg = \"hello \" + name + \"\";");
+  });
+
+  it("maps emitted lines to original source lines when declarations are omitted", () => {
+    const source = [
+      "declare class Console {",
+      "  log(a: number)",
+      "}",
+      "",
+      "declare var console: Console",
+      "",
+      "console.log(42)",
+      "",
+      "declare class Error",
+      "",
+      "try {",
+      "  throw new Error();",
+      "} catch (e) {",
+      "  console.log(e);",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source, {
+      sourceFilePath: "/tmp/sample.my",
+      outputFilePath: "/tmp/sample.js",
+      target: "conservative"
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.sourceMap).toBeDefined();
+
+    const sourceMap = JSON.parse(result.sourceMap ?? "{}") as { mappings: string };
+    const mappedSourceLines = decodeSourceLinesFromMappings(sourceMap.mappings);
+    const emittedLines = result.code.split("\n");
+    const throwLine = emittedLines.findIndex((line) => line.includes("throw new Error()"));
+
+    expect(mappedSourceLines[0]).toBe(6); // console.log(42) source line (0-based)
+    expect(throwLine).toBeGreaterThanOrEqual(0);
+    expect(mappedSourceLines[throwLine]).toBe(11); // throw new Error() source line (0-based)
+  });
+
+  it("can preserve source line offsets in emitted runtime code", () => {
+    const source = [
+      "declare class Console {",
+      "  log(a: number)",
+      "}",
+      "",
+      "declare var console: Console",
+      "",
+      "declare class Error",
+      "",
+      "console.log(42)",
+      "",
+      "try {",
+      "  throw new Error();",
+      "} catch (e) {",
+      "  console.log(e)",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source, {
+      target: "conservative",
+      preserveSourceLineOffsets: true
+    });
+    expect(result.errors).toEqual([]);
+
+    const emittedLines = result.code.split("\n");
+    const throwLine = emittedLines.findIndex((line) => line.includes("throw new Error()"));
+    expect(throwLine).toBe(11); // 0-based line alignment with source
   });
 });

@@ -6,12 +6,15 @@ import type {
   DoWhileStatement,
   ForStatement,
   FunctionStatement,
+  InterfaceStatement,
   ImportStatement,
   IfStatement,
   Program,
   Statement,
   SwitchStatement,
+  TypeAnnotation,
   TryStatement,
+  VariableDeclarationKind,
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
@@ -38,6 +41,10 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
 
 function symbolOffset(node: Node): number {
   return node.firstToken?.range.start.offset ?? -1;
+}
+
+function isReadonlyVariable(kind: VariableDeclarationKind): boolean {
+  return kind === "const" || kind === "val";
 }
 
 export class Binder {
@@ -120,6 +127,7 @@ export class Binder {
               name: declaration.name.name,
               kind: "variable",
               node: declaration.name,
+              isReadonly: isReadonlyVariable(variableStatement.declarationKind),
               type: symbolType,
               valueType: typeToString(symbolType)
             });
@@ -130,6 +138,7 @@ export class Binder {
             name: variableStatement.name.name,
             kind: "variable",
             node: variableStatement.name,
+            isReadonly: isReadonlyVariable(variableStatement.declarationKind),
             type: symbolType,
             valueType: typeToString(symbolType)
           });
@@ -167,6 +176,19 @@ export class Binder {
           type: symbolType,
           valueType: typeToString(symbolType)
         });
+        continue;
+      }
+
+      if (statement.kind === "InterfaceStatement") {
+        const interfaceStatement = statement as InterfaceStatement;
+        const symbolType = namedType(interfaceStatement.name.name);
+        this.declare(scope, {
+          name: interfaceStatement.name.name,
+          kind: "class",
+          node: interfaceStatement.name,
+          type: symbolType,
+          valueType: typeToString(symbolType)
+        });
       }
     }
   }
@@ -189,6 +211,8 @@ export class Binder {
         return;
       case "ClassStatement":
         this.bindClassStatement(statement as ClassStatement, scope);
+        return;
+      case "InterfaceStatement":
         return;
       case "BlockStatement": {
         const blockScope = this.createScope(scope, statement);
@@ -232,6 +256,7 @@ export class Binder {
           name: declaration.name.name,
           kind: "variable",
           node: declaration.name,
+          isReadonly: isReadonlyVariable(statement.declarationKind),
           type: symbolType,
           valueType: typeToString(symbolType)
         });
@@ -244,6 +269,7 @@ export class Binder {
       name: statement.name.name,
       kind: "variable",
       node: statement.name,
+      isReadonly: isReadonlyVariable(statement.declarationKind),
       type: symbolType,
       valueType: typeToString(symbolType)
     });
@@ -399,15 +425,22 @@ export class Binder {
     this.bindStatements(catchClause.body.body, catchScope);
   }
 
-  private typeFromAnnotationLoose(typeAnnotation: { name: string } | undefined) {
+  private typeFromAnnotationLoose(typeAnnotation: TypeAnnotation | undefined) {
     if (!typeAnnotation) {
       return undefined;
     }
-    if (BUILTIN_TYPE_NAMES.has(typeAnnotation.name)) {
+    if (typeAnnotation.kind === "ArrayTypeAnnotation") {
+      return UNKNOWN_TYPE;
+    }
+
+    const typeName =
+      typeAnnotation.kind === "TypeReference" ? typeAnnotation.name.name : typeAnnotation.name;
+
+    if (BUILTIN_TYPE_NAMES.has(typeName)) {
       return builtinType(
-        typeAnnotation.name as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+        typeName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
       );
     }
-    return namedType(typeAnnotation.name);
+    return namedType(typeName);
   }
 }

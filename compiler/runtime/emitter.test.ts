@@ -92,4 +92,13 @@ describe("emitProgram", () => {
     );
     expect(emitProgram(program)).toBe("console.log(42);");
   });
+
+  it("emits class extends and omits interface statements", () => {
+    const program = parseFile(
+      tokenizeReader("interface Readable<T> { value: T }\nclass Box<T> extends Base<T> implements Readable<T> { value: T }")
+    );
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("class Box extends Base {");
+    expect(emitted.includes("interface Readable")).toBe(false);
+  });
 });

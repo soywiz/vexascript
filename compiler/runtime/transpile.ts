@@ -4,8 +4,11 @@ import {
   formatSemanticIssue
 } from "compiler/pipeline/compile";
 import { basename } from "node:path";
-import { emitProgram } from "./emitter";
+import { emitProgramStatements } from "./emitter";
 import { lowerProgram } from "./lowering";
+import type { Program, Statement } from "compiler/ast/ast";
+import type { Node } from "compiler/ast/ast";
+import type { AnalysisType } from "compiler/analysis/types";
 
 export interface TranspileResult {
   code: string;
@@ -24,6 +27,26 @@ function ensureTrailingSemicolon(code: string): string {
   return /[;{}]$/.test(trimmed) ? trimmed : `${trimmed};`;
 }
 
+function ensureTrailingSemicolonPreservingLines(code: string): string {
+  if (code.trim().length === 0) {
+    return "";
+  }
+
+  const lines = code.split("\n");
+  let lastNonEmpty = lines.length - 1;
+  while (lastNonEmpty >= 0 && (lines[lastNonEmpty] ?? "").trim().length === 0) {
+    lastNonEmpty -= 1;
+  }
+  if (lastNonEmpty < 0) {
+    return "";
+  }
+
+  const lastLine = lines[lastNonEmpty] ?? "";
+  const trimmedLastLine = lastLine.trimEnd();
+  lines[lastNonEmpty] = /[;{}]$/.test(trimmedLastLine) ? trimmedLastLine : `${trimmedLastLine};`;
+  return lines.join("\n");
+}
+
 interface SourceMapV3 {
   version: 3;
   file: string;
@@ -37,6 +60,7 @@ export interface TranspileOptions {
   sourceFilePath?: string;
   outputFilePath?: string;
   target?: TranspileTarget;
+  preserveSourceLineOffsets?: boolean;
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -62,20 +86,19 @@ function encodeVlq(value: number): string {
   return encoded;
 }
 
-function createLineStartMappings(generatedLineCount: number, sourceLineCount: number): string {
-  if (generatedLineCount <= 0) {
+function createLineStartMappingsForSourceLines(sourceLinesByGeneratedLine: number[]): string {
+  if (sourceLinesByGeneratedLine.length <= 0) {
     return "";
   }
 
-  const safeSourceLineCount = Math.max(1, sourceLineCount);
   let mappings = "";
   let previousSourceLine = 0;
 
-  for (let generatedLine = 0; generatedLine < generatedLineCount; generatedLine += 1) {
+  for (let generatedLine = 0; generatedLine < sourceLinesByGeneratedLine.length; generatedLine += 1) {
     if (generatedLine > 0) {
       mappings += ";";
     }
-    const sourceLine = Math.min(generatedLine, safeSourceLineCount - 1);
+    const sourceLine = Math.max(0, sourceLinesByGeneratedLine[generatedLine] ?? 0);
     const sourceLineDelta = sourceLine - previousSourceLine;
     mappings += `${encodeVlq(0)}${encodeVlq(0)}${encodeVlq(sourceLineDelta)}${encodeVlq(0)}`;
     previousSourceLine = sourceLine;
@@ -84,15 +107,89 @@ function createLineStartMappings(generatedLineCount: number, sourceLineCount: nu
   return mappings;
 }
 
+function sourceLineRangeForStatement(statement: Statement): { start: number; end: number } {
+  const start = statement.firstToken?.range.start.line ?? 0;
+  const end = statement.lastToken?.range.end.line ?? start;
+  return { start, end: Math.max(start, end) };
+}
+
+function sourceLinesForEmittedStatement(statement: Statement, emittedStatement: string): number[] {
+  const lineCount = emittedStatement.length === 0 ? 0 : emittedStatement.split("\n").length;
+  if (lineCount <= 0) {
+    return [];
+  }
+
+  const { start, end } = sourceLineRangeForStatement(statement);
+  const span = end - start;
+  const lines: number[] = [];
+  for (let i = 0; i < lineCount; i += 1) {
+    lines.push(start + Math.min(i, span));
+  }
+  return lines;
+}
+
+function emitProgramWithLineMap(
+  program: Program,
+  expressionTypes: ReadonlyMap<Node, AnalysisType>
+): { emitted: string; sourceLinesByGeneratedLine: number[] } {
+  const sourceLinesByGeneratedLine: number[] = [];
+  const emittedStatements = emitProgramStatements(program, expressionTypes);
+
+  let emittedIndex = 0;
+  for (const statement of program.body) {
+    const candidate = emittedStatements[emittedIndex];
+    if (!candidate) {
+      break;
+    }
+    const emittedRaw = emitProgramStatements({ ...program, body: [statement] }, expressionTypes);
+    const emittedStatement = emittedRaw.length > 0 ? emittedRaw[0]! : "";
+    if (emittedStatement.trim().length <= 0) {
+      continue;
+    }
+    sourceLinesByGeneratedLine.push(...sourceLinesForEmittedStatement(statement, emittedStatement));
+    emittedIndex += 1;
+  }
+
+  const emitted = emittedStatements.join("\n");
+  return { emitted, sourceLinesByGeneratedLine };
+}
+
+function emitProgramWithSourceLineOffsets(
+  program: Program,
+  expressionTypes: ReadonlyMap<Node, AnalysisType>
+): string {
+  const lines: string[] = [];
+  let generatedLine = 0;
+
+  for (const statement of program.body) {
+    const emittedSingle = emitProgramStatements({ ...program, body: [statement] }, expressionTypes);
+    if (emittedSingle.length <= 0) {
+      continue;
+    }
+
+    const sourceStartLine = statement.firstToken?.range.start.line ?? generatedLine;
+    while (generatedLine < sourceStartLine) {
+      lines.push("");
+      generatedLine += 1;
+    }
+
+    const emittedStatement = emittedSingle[0] ?? "";
+    const emittedLines = emittedStatement.split("\n");
+    lines.push(...emittedLines);
+    generatedLine += emittedLines.length;
+  }
+
+  return lines.join("\n");
+}
+
 function createSourceMap(
   source: string,
   emittedCode: string,
+  sourceLinesByGeneratedLine: number[],
   options: TranspileOptions
 ): string {
   const sourceFileName = basename(options.sourceFilePath ?? "input.my");
   const outputFileName = basename(options.outputFilePath ?? "output.js");
-  const generatedLineCount = emittedCode.length === 0 ? 0 : emittedCode.split("\n").length;
-  const sourceLineCount = source.length === 0 ? 0 : source.split("\n").length;
 
   const map: SourceMapV3 = {
     version: 3,
@@ -100,7 +197,9 @@ function createSourceMap(
     sources: [sourceFileName],
     sourcesContent: [source],
     names: [],
-    mappings: createLineStartMappings(generatedLineCount, sourceLineCount)
+    mappings: createLineStartMappingsForSourceLines(
+      emittedCode.length === 0 ? [] : sourceLinesByGeneratedLine
+    )
   };
 
   return JSON.stringify(map);
@@ -142,12 +241,21 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
 
   const target = options.target ?? "optimized";
   const programForEmission = target === "conservative" ? artifacts.ast : lowerProgram(artifacts.ast);
-  const emitted = emitProgram(programForEmission, artifacts.analysis.getExpressionTypes());
-  const code = ensureTrailingSemicolon(emitted);
+  const expressionTypes = artifacts.analysis.getExpressionTypes();
+  const { emitted, sourceLinesByGeneratedLine } = emitProgramWithLineMap(
+    programForEmission,
+    expressionTypes
+  );
+  const emittedWithOffsets = options.preserveSourceLineOffsets
+    ? emitProgramWithSourceLineOffsets(programForEmission, expressionTypes)
+    : emitted;
+  const code = options.preserveSourceLineOffsets
+    ? ensureTrailingSemicolonPreservingLines(emittedWithOffsets)
+    : ensureTrailingSemicolon(emittedWithOffsets);
   return {
     code,
     warnings: [],
     errors: [],
-    sourceMap: createSourceMap(source, code, options)
+    sourceMap: createSourceMap(source, code, sourceLinesByGeneratedLine, options)
   };
 }

@@ -14,6 +14,7 @@ MyLang currently uses these core type categories:
 - Builtin scalar types: `int`, `number`, `string`, `boolean`, `bigint`, `long`.
 - Builtin value-like names exposed by binder: `true`, `false`, `null`, `undefined`, `console`.
 - Named types: class names resolved as nominal named types.
+- Generic type parameter names are recognized in class/interface type-annotation contexts.
 - Function types: parameter list + return type.
 - Structural helper types: array/range/object-shape/unknown.
 
@@ -100,6 +101,7 @@ Current semantic diagnostics include:
 - Unknown type annotation names.
 - Type mismatch in variable initialization against annotation.
 - Type mismatch in assignment expressions (`left` vs `right`).
+- Reassignment/update attempts on `const`/`val` variables.
 - Nested mismatch context diagnostics for complex expressions.
 - Function call arity issues:
   - too few arguments,
@@ -125,6 +127,6 @@ These checks are implemented in dedicated LSP diagnostics passes and merged with
 
 This semantic layer is intentionally conservative today:
 
-- Generic type parameters and instantiation are not supported.
+- Full generic instantiation/constraints are still limited (functions/type aliases and deep inference remain pending).
 
 Pending roadmap items are tracked in `docs/tasks.pending.md` and `docs/syntax.pending.md`.

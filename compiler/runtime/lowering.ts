@@ -1,6 +1,7 @@
 import type {
   Expr,
   ForStatement,
+  Node,
   Program,
   Statement,
   UpdateExpression,
@@ -11,20 +12,40 @@ function cloneExpression<T extends Expr>(expression: T): T {
   return expression;
 }
 
+function copyNodeBounds<T extends object>(target: T, source: Node): T {
+  if (source.firstToken) {
+    Object.defineProperty(target, "firstToken", {
+      value: source.firstToken,
+      writable: true,
+      configurable: true,
+      enumerable: false
+    });
+  }
+  if (source.lastToken) {
+    Object.defineProperty(target, "lastToken", {
+      value: source.lastToken,
+      writable: true,
+      configurable: true,
+      enumerable: false
+    });
+  }
+  return target;
+}
+
 function cloneVarStatement(statement: VarStatement): VarStatement {
-  return {
+  return copyNodeBounds({
     ...statement,
     ...(statement.declarations
       ? {
           declarations: statement.declarations.map((declaration) => ({ ...declaration }))
         }
       : {})
-  };
+  }, statement);
 }
 
 function lowerForStatement(statement: ForStatement): ForStatement {
   if (!(statement.iterationKind && statement.iterator && statement.iterable)) {
-    return {
+    return copyNodeBounds({
       ...statement,
       ...(statement.initializer
         ? {
@@ -37,7 +58,7 @@ function lowerForStatement(statement: ForStatement): ForStatement {
       ...(statement.condition ? { condition: cloneExpression(statement.condition) } : {}),
       ...(statement.update ? { update: cloneExpression(statement.update) } : {}),
       body: lowerStatement(statement.body)
-    };
+    }, statement);
   }
 
   if (statement.iterationKind === "of" && statement.iterable.kind === "RangeExpression") {
@@ -70,17 +91,17 @@ function lowerForStatement(statement: ForStatement): ForStatement {
         prefix: false
       };
 
-      return {
+      return copyNodeBounds({
         kind: "ForStatement",
         initializer: loweredInitializer,
         condition: loweredCondition,
         update: loweredUpdate as unknown as Expr,
         body: lowerStatement(statement.body)
-      };
+      }, statement);
     }
   }
 
-  return {
+  return copyNodeBounds({
     ...statement,
     ...(statement.iterator
       ? {
@@ -94,7 +115,7 @@ function lowerForStatement(statement: ForStatement): ForStatement {
       : {}),
     ...(statement.iterable ? { iterable: cloneExpression(statement.iterable) } : {}),
     body: lowerStatement(statement.body)
-  };
+  }, statement);
 }
 
 function lowerStatement(statement: Statement): Statement {
@@ -102,20 +123,20 @@ function lowerStatement(statement: Statement): Statement {
     case "ForStatement":
       return lowerForStatement(statement as ForStatement);
     case "BlockStatement":
-      return {
+      return copyNodeBounds({
         ...(statement as any),
         body: (statement as any).body.map((child: Statement) => lowerStatement(child))
-      } as Statement;
+      } as Statement, statement);
     case "FunctionStatement":
-      return {
+      return copyNodeBounds({
         ...(statement as any),
         body: {
           ...(statement as any).body,
           body: (statement as any).body.body.map((child: Statement) => lowerStatement(child))
         }
-      } as Statement;
+      } as Statement, statement);
     case "ClassStatement":
-      return {
+      return copyNodeBounds({
         ...(statement as any),
         members: (statement as any).members.map((member: any) => {
           if (member.kind !== "ClassMethodMember") {
@@ -129,9 +150,9 @@ function lowerStatement(statement: Statement): Statement {
             }
           };
         })
-      } as Statement;
+      } as Statement, statement);
     case "IfStatement":
-      return {
+      return copyNodeBounds({
         ...(statement as any),
         thenBranch: lowerStatement((statement as any).thenBranch),
         ...((statement as any).elseBranch
@@ -139,23 +160,23 @@ function lowerStatement(statement: Statement): Statement {
               elseBranch: lowerStatement((statement as any).elseBranch)
             }
           : {})
-      } as Statement;
+      } as Statement, statement);
     case "WhileStatement":
     case "DoWhileStatement":
-      return {
+      return copyNodeBounds({
         ...(statement as any),
         body: lowerStatement((statement as any).body)
-      } as Statement;
+      } as Statement, statement);
     case "SwitchStatement":
-      return {
+      return copyNodeBounds({
         ...(statement as any),
         cases: (statement as any).cases.map((switchCase: any) => ({
           ...switchCase,
           consequent: switchCase.consequent.map((child: Statement) => lowerStatement(child))
         }))
-      } as Statement;
+      } as Statement, statement);
     case "TryStatement":
-      return {
+      return copyNodeBounds({
         ...(statement as any),
         tryBlock: {
           ...(statement as any).tryBlock,
@@ -184,11 +205,11 @@ function lowerStatement(statement: Statement): Statement {
               }
             }
           : {})
-      } as Statement;
+      } as Statement, statement);
     case "VarStatement":
       return cloneVarStatement(statement as VarStatement) as unknown as Statement;
     default:
-      return { ...(statement as any) } as Statement;
+      return copyNodeBounds({ ...(statement as any) } as Statement, statement);
   }
 }
 

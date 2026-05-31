@@ -13,6 +13,7 @@ export const MYLANG_DIAGNOSTIC_CODES = {
   CALL_TOO_MANY_ARGUMENTS: "MYL2006",
   CALL_UNEXPECTED_ARGUMENT: "MYL2007",
   CALL_ARGUMENT_TYPE_MISMATCH: "MYL2008",
+  READONLY_REASSIGNMENT: "MYL2009",
   STYLE_AVOID_ANY: "MYL3001"
 } as const;
 
@@ -32,7 +33,8 @@ export const CALL_TOO_FEW_ARGUMENTS_PATTERN = /^Expected at least [0-9]+ argumen
 export const CALL_TOO_MANY_ARGUMENTS_PATTERN = /^Expected at most [0-9]+ argument\(s\), but got [0-9]+$/;
 export const CALL_UNEXPECTED_ARGUMENT_PATTERN = /^Unexpected argument [0-9]+; function expects at most [0-9]+ argument\(s\)$/;
 export const CALL_ARGUMENT_TYPE_MISMATCH_PATTERN = /^Argument [0-9]+ of type '.+' is not assignable to parameter '.+' of type '.+'$/;
-export const UNKNOWN_TYPE_PATTERN = /^Unknown type '.+'. Expected builtin type \(int, number, string, boolean, bigint, long\) or declared class\/interface$/;
+export const UNKNOWN_TYPE_PATTERN = /^Unknown type '.+'. Expected builtin type \(int, number, string, boolean, bigint, long\) or declared class\/interface(?:\/type parameter)?$/;
+export const READONLY_REASSIGNMENT_PATTERN = /^Cannot assign to '([A-Za-z_][A-Za-z0-9_]*)' because it is a constant$/;
 
 function diagnosticCodeToString(diagnostic: Diagnostic): string | null {
   const value = diagnostic.code;
@@ -76,6 +78,9 @@ export function classifySemanticDiagnosticMessage(message: string): MyLangDiagno
   }
   if (CALL_ARGUMENT_TYPE_MISMATCH_PATTERN.test(message)) {
     return MYLANG_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH;
+  }
+  if (READONLY_REASSIGNMENT_PATTERN.test(message)) {
+    return MYLANG_DIAGNOSTIC_CODES.READONLY_REASSIGNMENT;
   }
   return null;
 }

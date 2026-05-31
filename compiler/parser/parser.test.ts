@@ -1322,6 +1322,67 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses class with type parameters, extends, and implements", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Map<K, V> extends BaseMap<K, V> implements Iterable<K>, Serializable {}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Map" },
+            typeParameters: [
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "K" } },
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "V" } }
+            ],
+            extendsType: { kind: "Identifier", name: "BaseMap<K, V>" },
+            implementsTypes: [
+                { kind: "Identifier", name: "Iterable<K>" },
+                { kind: "Identifier", name: "Serializable" }
+            ],
+            members: []
+        });
+    });
+
+    it("parses interface with extends and generic annotations", () => {
+        expect(
+            parseStatement(
+                tokenizeReader(
+                    "interface Dictionary<K, V> extends Iterable<K>, Serializable { get(key: K): V; keys: K[] }"
+                )
+            )
+        ).toEqual({
+            kind: "InterfaceStatement",
+            name: { kind: "Identifier", name: "Dictionary" },
+            typeParameters: [
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "K" } },
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "V" } }
+            ],
+            extendsTypes: [
+                { kind: "Identifier", name: "Iterable<K>" },
+                { kind: "Identifier", name: "Serializable" }
+            ],
+            members: [
+                {
+                    kind: "InterfaceMethodMember",
+                    name: { kind: "Identifier", name: "get" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "key" },
+                            typeAnnotation: { kind: "Identifier", name: "K" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "V" }
+                },
+                {
+                    kind: "InterfacePropertyMember",
+                    name: { kind: "Identifier", name: "keys" },
+                    typeAnnotation: { kind: "Identifier", name: "K[]" }
+                }
+            ]
+        });
+    });
+
     it("parses class statement with kotlin-like primary constructor parameters without val/var", () => {
         expect(parseStatement(tokenizeReader("class Point(x: number, y: number) {\n}"))).toEqual({
             kind: "ClassStatement",
@@ -1478,6 +1539,41 @@ describe("parseStatement", () => {
                         }
                     ],
                     body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
+    it("parses 'declare interface' with extends and members", () => {
+        expect(
+            parseStatement(
+                tokenizeReader(
+                    "declare interface Repo<T> extends Iterable<T> { find(id: int): T; items: T[] }"
+                )
+            )
+        ).toEqual({
+            kind: "InterfaceStatement",
+            declared: true,
+            name: { kind: "Identifier", name: "Repo" },
+            typeParameters: [{ kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }],
+            extendsTypes: [{ kind: "Identifier", name: "Iterable<T>" }],
+            members: [
+                {
+                    kind: "InterfaceMethodMember",
+                    name: { kind: "Identifier", name: "find" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "id" },
+                            typeAnnotation: { kind: "Identifier", name: "int" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "T" }
+                },
+                {
+                    kind: "InterfacePropertyMember",
+                    name: { kind: "Identifier", name: "items" },
+                    typeAnnotation: { kind: "Identifier", name: "T[]" }
                 }
             ]
         });

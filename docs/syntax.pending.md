@@ -19,7 +19,6 @@ Scope notes:
 ## Declarations
 
 - `type` aliases.
-- `interface` declarations.
 - `enum` declarations (`enum` and `const enum`).
 - `namespace` / `module` declarations with full body parsing (currently skipped as opaque block).
 - `declare` declarations beyond current support (`declare function`, `declare class`, `declare var/let/const/val`), including enums, namespaces/modules with typed members, and other ambient forms.
@@ -31,10 +30,10 @@ Scope notes:
 - Union and intersection types (`A | B`, `A & B`) in annotations.
 - Literal types (`"x"`, `123`, `true` as types).
 - `any`, `unknown`, `never`, `void`, `object`, `symbol`.
-- Array and tuple types (`T[]`, `[A, B]`).
+- Tuple types (`[A, B]`).
 - Function types (`(a: A) => B`).
 - Type literals (`{ a: string }` as type).
-- Generics (`<T>`) in functions, classes, interfaces, and type aliases.
+- Generics (`<T>`) in functions and type aliases.
 - Type arguments in expressions (`fn<T>()`).
 - Mapped types and indexed access types (`{ [K in keyof T]: ... }`, `T[K]` in type position).
 - Conditional types (`T extends U ? X : Y`).
@@ -45,7 +44,6 @@ Scope notes:
 
 ## Class Syntax
 
-- `extends` and `implements`.
 - Access modifiers (`public`, `private`, `protected`).
 - `readonly` members.
 - `static` members.

@@ -9,6 +9,7 @@ export interface AnalysisSymbol {
   kind: AnalysisSymbolKind;
   node: Node;
   declaredOffset: number;
+  isReadonly?: boolean;
   type?: AnalysisType;
   valueType?: AnalysisValueType;
 }

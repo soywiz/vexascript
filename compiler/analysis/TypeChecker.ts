@@ -14,6 +14,7 @@ import type {
   ForStatement,
   FunctionParameter,
   FunctionStatement,
+  InterfaceStatement,
   IfStatement,
   MemberExpression,
   NewExpression,
@@ -67,12 +68,15 @@ export class TypeChecker {
     "long"
   ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
+  private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
+  private readonly activeTypeParameterScopes: Array<Set<string>> = [];
 
   constructor(
     private readonly program: Program,
     private readonly bound: BoundAnalysis
   ) {
     this.collectClassStatements(program);
+    this.collectInterfaceStatements(program);
   }
 
   check(): CheckedAnalysis {
@@ -104,6 +108,8 @@ export class TypeChecker {
         return;
       case "ClassStatement":
         this.visitClassStatement(statement as ClassStatement, scope);
+        return;
+      case "InterfaceStatement":
         return;
       case "ExprStatement":
         this.visitExpression((statement as ExprStatement).expression, scope);
@@ -240,34 +246,46 @@ export class TypeChecker {
     this.updateSymbolType(scope, statement.name.name, classType);
 
     const classScope = this.scopeFor(statement, scope);
-    for (const member of statement.members) {
-      if (member.kind === "ClassFieldMember") {
-        const field = member as ClassFieldMember;
-        if (field.initializer) {
-          this.visitExpression(field.initializer, classScope);
+    this.withTypeParameters(statement.typeParameters?.map((parameter) => parameter.name.name) ?? [], () => {
+      if (statement.extendsType) {
+        this.resolveTypeAnnotation(statement.extendsType, classScope);
+      }
+      for (const implementedType of statement.implementsTypes ?? []) {
+        this.resolveTypeAnnotation(implementedType, classScope);
+      }
+
+      for (const member of statement.members) {
+        if (member.kind === "ClassFieldMember") {
+          const field = member as ClassFieldMember;
+          if (field.typeAnnotation) {
+            this.resolveTypeAnnotation(field.typeAnnotation, classScope);
+          }
+          if (field.initializer) {
+            this.visitExpression(field.initializer, classScope);
+          }
+          continue;
         }
-        continue;
-      }
 
-      const method = member as ClassMethodMember;
-      const methodType = this.buildFunctionType(
-        method.parameters,
-        this.resolveTypeAnnotation(method.returnType, classScope) ?? UNKNOWN_TYPE,
-        classScope
-      );
-      this.updateSymbolType(classScope, method.name.name, methodType);
+        const method = member as ClassMethodMember;
+        const methodType = this.buildFunctionType(
+          method.parameters,
+          this.resolveTypeAnnotation(method.returnType, classScope) ?? UNKNOWN_TYPE,
+          classScope
+        );
+        this.updateSymbolType(classScope, method.name.name, methodType);
 
-      const methodScope = this.scopeFor(method, classScope);
-      for (const parameter of method.parameters) {
-        const parameterType =
-          this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
-          (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
-        this.updateSymbolType(methodScope, parameter.name.name, parameterType);
+        const methodScope = this.scopeFor(method, classScope);
+        for (const parameter of method.parameters) {
+          const parameterType =
+            this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
+            (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
+          this.updateSymbolType(methodScope, parameter.name.name, parameterType);
+        }
+        for (const bodyStatement of method.body.body) {
+          this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0 });
+        }
       }
-      for (const bodyStatement of method.body.body) {
-        this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0 });
-      }
-    }
+    });
   }
 
   private visitBlockStatement(statement: BlockStatement, scope: Scope, flow: FlowContext): void {
@@ -387,6 +405,7 @@ export class TypeChecker {
             node: assignment.left
           });
         }
+        this.validateReadonlyAssignmentTarget(assignment.left, scope);
         const leftType = this.visitExpression(assignment.left, scope);
         const rightType = this.visitExpression(assignment.right, scope);
         if (
@@ -497,6 +516,7 @@ export class TypeChecker {
         break;
       }
       case "UpdateExpression":
+        this.validateReadonlyAssignmentTarget((expression as UpdateExpression).argument, scope);
         this.visitExpression((expression as UpdateExpression).argument, scope);
         result = builtinType("int");
         break;
@@ -793,33 +813,157 @@ export class TypeChecker {
   }
 
   private resolveTypeAnnotation(
-    typeAnnotation: Node & { kind: "Identifier"; name: string } | undefined,
+    typeAnnotation: (Node & { kind: "Identifier"; name: string }) | undefined,
     scope: Scope
   ): AnalysisType | undefined {
     if (!typeAnnotation) {
       return undefined;
     }
 
-    if (TypeChecker.BUILTIN_TYPE_NAMES.has(typeAnnotation.name)) {
-      return builtinType(
-        typeAnnotation.name as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+    return this.resolveTypeName(typeAnnotation, scope);
+  }
+
+  private resolveTypeName(
+    typeNameIdentifier: Node & { kind: "Identifier"; name: string },
+    scope: Scope
+  ): AnalysisType {
+    return this.resolveTypeNameText(typeNameIdentifier.name, typeNameIdentifier, scope);
+  }
+
+  private resolveTypeNameText(typeName: string, node: Node, scope: Scope): AnalysisType {
+    const parsed = this.parseTypeNameShape(typeName);
+    let resolvedBase: AnalysisType;
+
+    if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
+      resolvedBase = builtinType(
+        parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
       );
+    } else if (this.isActiveTypeParameter(parsed.baseName)) {
+      resolvedBase = namedType(parsed.baseName);
+    } else {
+      const symbol = this.resolve(parsed.baseName, scope, undefined);
+      if (symbol && symbol.kind === "class") {
+        resolvedBase = namedType(parsed.baseName);
+      } else {
+        this.issues.push({
+          message: `Unknown type '${typeName}'. Expected builtin type (int, number, string, boolean, bigint, long) or declared class/interface/type parameter`,
+          node
+        });
+        return UNKNOWN_TYPE;
+      }
     }
 
-    const symbol = this.resolve(typeAnnotation.name, scope, undefined);
-    if (symbol && symbol.kind === "class") {
-      return namedType(typeAnnotation.name);
+    for (const typeArgument of parsed.typeArguments) {
+      this.resolveTypeNameText(typeArgument, node, scope);
     }
 
-    this.issues.push({
-      message: `Unknown type '${typeAnnotation.name}'. Expected builtin type (int, number, string, boolean, bigint, long) or declared class/interface`,
-      node: typeAnnotation
-    });
-    return UNKNOWN_TYPE;
+    let resolved: AnalysisType = resolvedBase;
+    for (let i = 0; i < parsed.arrayDepth; i += 1) {
+      resolved = arrayType(resolved);
+    }
+    return resolved;
+  }
+
+  private parseTypeNameShape(typeName: string): {
+    baseName: string;
+    typeArguments: string[];
+    arrayDepth: number;
+  } {
+    let remaining = typeName.trim();
+    let arrayDepth = 0;
+    while (remaining.endsWith("[]")) {
+      arrayDepth += 1;
+      remaining = remaining.slice(0, -2).trim();
+    }
+
+    const genericStart = remaining.indexOf("<");
+    if (genericStart < 0 || !remaining.endsWith(">")) {
+      return { baseName: remaining, typeArguments: [], arrayDepth };
+    }
+
+    const baseName = remaining.slice(0, genericStart).trim();
+    const argumentBody = remaining.slice(genericStart + 1, -1).trim();
+    const typeArguments = this.splitTypeArgumentText(argumentBody);
+    return { baseName, typeArguments, arrayDepth };
+  }
+
+  private splitTypeArgumentText(argumentBody: string): string[] {
+    if (argumentBody.length === 0) {
+      return [];
+    }
+
+    const args: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const ch of argumentBody) {
+      if (ch === "<") {
+        depth += 1;
+        current += ch;
+        continue;
+      }
+      if (ch === ">") {
+        depth = Math.max(0, depth - 1);
+        current += ch;
+        continue;
+      }
+      if (ch === "," && depth === 0) {
+        if (current.trim().length > 0) {
+          args.push(current.trim());
+        }
+        current = "";
+        continue;
+      }
+      current += ch;
+    }
+    if (current.trim().length > 0) {
+      args.push(current.trim());
+    }
+    return args;
+  }
+
+  private withTypeParameters(typeParameters: string[], action: () => void): void {
+    if (typeParameters.length <= 0) {
+      action();
+      return;
+    }
+    this.activeTypeParameterScopes.push(new Set(typeParameters));
+    try {
+      action();
+    } finally {
+      this.activeTypeParameterScopes.pop();
+    }
+  }
+
+  private isActiveTypeParameter(name: string): boolean {
+    for (let i = this.activeTypeParameterScopes.length - 1; i >= 0; i -= 1) {
+      const scope = this.activeTypeParameterScopes[i];
+      if (scope?.has(name)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private isLValueExpression(expression: Expr): boolean {
     return expression.kind === "Identifier" || expression.kind === "MemberExpression";
+  }
+
+  private validateReadonlyAssignmentTarget(expression: Expr, scope: Scope): void {
+    if (expression.kind !== "Identifier") {
+      return;
+    }
+
+    const identifier = expression as Node & { kind: "Identifier"; name: string };
+    const usageOffset = identifier.firstToken?.range.start.offset;
+    const symbol = this.resolve(identifier.name, scope, usageOffset);
+    if (!symbol || symbol.kind !== "variable" || symbol.isReadonly !== true) {
+      return;
+    }
+
+    this.issues.push({
+      message: `Cannot assign to '${identifier.name}' because it is a constant`,
+      node: identifier
+    });
   }
 
   private resolve(
@@ -988,6 +1132,16 @@ export class TypeChecker {
     }
   }
 
+  private collectInterfaceStatements(program: Program): void {
+    for (const statement of program.body) {
+      if (statement.kind !== "InterfaceStatement") {
+        continue;
+      }
+      const interfaceStatement = statement as InterfaceStatement;
+      this.interfaceStatementsByName.set(interfaceStatement.name.name, interfaceStatement);
+    }
+  }
+
   private validateKnownMemberAccess(member: MemberExpression, objectType: AnalysisType): void {
     if (member.computed || member.property.kind !== "Identifier") {
       return;
@@ -1052,33 +1206,60 @@ export class TypeChecker {
 
   private resolveNamedTypeMembers(typeName: string): Map<string, AnalysisType> | null {
     const classStatement = this.classStatementsByName.get(typeName);
-    if (!classStatement) {
-      return null;
+    if (classStatement) {
+      const members = new Map<string, AnalysisType>();
+      for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+        members.set(parameter.name.name, this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE);
+      }
+
+      for (const classMember of classStatement.members) {
+        if (classMember.kind === "ClassFieldMember") {
+          members.set(
+            classMember.name.name,
+            this.typeFromAnnotationLoose(classMember.typeAnnotation) ?? UNKNOWN_TYPE
+          );
+          continue;
+        }
+
+        members.set(
+          classMember.name.name,
+          functionType(
+            classMember.parameters.map((parameter) => ({
+              name: parameter.name.name,
+              type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+              optional: parameter.optional === true || parameter.defaultValue !== undefined
+            })),
+            this.typeFromAnnotationLoose(classMember.returnType) ?? UNKNOWN_TYPE
+          )
+        );
+      }
+
+      return members;
     }
 
     const members = new Map<string, AnalysisType>();
-    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-      members.set(parameter.name.name, this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE);
+    const interfaceStatement = this.interfaceStatementsByName.get(typeName);
+    if (!interfaceStatement) {
+      return null;
     }
-
-    for (const classMember of classStatement.members) {
-      if (classMember.kind === "ClassFieldMember") {
+    for (const interfaceMember of interfaceStatement.members) {
+      if (interfaceMember.kind === "InterfacePropertyMember") {
         members.set(
-          classMember.name.name,
-          this.typeFromAnnotationLoose(classMember.typeAnnotation) ?? UNKNOWN_TYPE
+          interfaceMember.name.name,
+          this.typeFromAnnotationLoose(interfaceMember.typeAnnotation) ?? UNKNOWN_TYPE
         );
         continue;
       }
 
       members.set(
-        classMember.name.name,
+        interfaceMember.name.name,
         functionType(
-          classMember.parameters.map((parameter) => ({
+          interfaceMember.parameters.map((parameter) => ({
             name: parameter.name.name,
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined
           })),
-          this.typeFromAnnotationLoose(classMember.returnType) ?? UNKNOWN_TYPE
+          this.typeFromAnnotationLoose(interfaceMember.returnType) ?? UNKNOWN_TYPE
         )
       );
     }
@@ -1086,15 +1267,39 @@ export class TypeChecker {
     return members;
   }
 
-  private typeFromAnnotationLoose(typeAnnotation: Node & { kind: "Identifier"; name: string } | undefined): AnalysisType | undefined {
+  private typeFromAnnotationLoose(
+    typeAnnotation: (Node & { kind: "Identifier"; name: string }) | undefined
+  ): AnalysisType | undefined {
     if (!typeAnnotation) {
       return undefined;
     }
-    if (TypeChecker.BUILTIN_TYPE_NAMES.has(typeAnnotation.name)) {
+    const parsed = this.parseTypeNameShape(typeAnnotation.name);
+    let resolvedBase: AnalysisType;
+    if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
+      resolvedBase = builtinType(
+        parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+      );
+    } else {
+      resolvedBase = namedType(parsed.baseName);
+    }
+    for (const typeArgument of parsed.typeArguments) {
+      this.typeFromTypeNameLoose(typeArgument);
+    }
+
+    let resolved: AnalysisType = resolvedBase;
+    for (let i = 0; i < parsed.arrayDepth; i += 1) {
+      resolved = arrayType(resolved);
+    }
+    return resolved;
+  }
+
+  private typeFromTypeNameLoose(typeName: string): AnalysisType {
+    const parsed = this.parseTypeNameShape(typeName);
+    if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       return builtinType(
-        typeAnnotation.name as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+        parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
       );
     }
-    return namedType(typeAnnotation.name);
+    return namedType(parsed.baseName);
   }
 }
