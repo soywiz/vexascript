@@ -20,6 +20,7 @@ import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
 } from "./completion";
+import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import {
   resolveDefinitionAcrossFiles,
   resolveReferencesAcrossFiles,
@@ -95,7 +96,9 @@ connection.onInitialize((params) => {
       completionProvider: {
         resolveProvider: false
       },
-      codeActionProvider: true,
+      codeActionProvider: {
+        resolveProvider: true
+      },
       documentFormattingProvider: true,
       definitionProvider: true,
       hoverProvider: true,
@@ -231,7 +234,11 @@ connection.onCodeAction((params) => {
   });
   actions.push(...callFixActions);
 
-  return actions;
+  return deferCodeActions(actions);
+});
+
+connection.onCodeActionResolve((action) => {
+  return resolveDeferredCodeAction(action);
 });
 
 connection.onDocumentFormatting((params): TextEdit[] => {
