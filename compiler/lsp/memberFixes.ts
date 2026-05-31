@@ -11,8 +11,10 @@ import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
-
-const MISSING_MEMBER_PATTERN = /^Property '([A-Za-z_][A-Za-z0-9_]*)' does not exist on type '([A-Za-z_][A-Za-z0-9_]*)'$/;
+import {
+  isMissingMemberDiagnostic,
+  MISSING_MEMBER_PATTERN
+} from "./diagnosticCodes";
 
 interface SessionLike {
   ast: Program | null;
@@ -30,7 +32,7 @@ interface MissingMemberDiagnosticMatch {
 }
 
 function parseMissingMemberDiagnostic(diagnostic: Diagnostic): MissingMemberDiagnosticMatch | null {
-  if (diagnostic.source !== "mylang-sema") {
+  if (!isMissingMemberDiagnostic(diagnostic)) {
     return null;
   }
   const match = MISSING_MEMBER_PATTERN.exec(diagnostic.message);

@@ -33,6 +33,7 @@ import type {
 } from "compiler/ast/ast";
 import { tokenize } from "compiler/parser/tokenizer";
 import { CodeActionKind, type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
+import { getCallDiagnosticKind } from "./diagnosticCodes";
 
 interface Position {
   line: number;
@@ -403,15 +404,7 @@ function findFunctionDeclarationByNameNode(
 }
 
 function isFunctionCallDiagnostic(diagnostic: Diagnostic): boolean {
-  if (diagnostic.source !== "mylang-sema") {
-    return false;
-  }
-  return (
-    diagnostic.message.startsWith("Expected at least ") ||
-    diagnostic.message.startsWith("Expected at most ") ||
-    diagnostic.message.startsWith("Unexpected argument ") ||
-    diagnostic.message.startsWith("Argument ")
-  );
+  return getCallDiagnosticKind(diagnostic) !== null;
 }
 
 function resolveCallFixContext(
@@ -855,6 +848,11 @@ export function createCallFixCodeActions(params: {
     if (!shouldConsiderDiagnostic(diagnostic)) {
       continue;
     }
+    const diagnosticKind = getCallDiagnosticKind(diagnostic);
+    if (!diagnosticKind) {
+      continue;
+    }
+
     const position = {
       line: diagnostic.range.start.line,
       character: diagnostic.range.start.character
@@ -881,7 +879,7 @@ export function createCallFixCodeActions(params: {
       producedChangeSignatureKeys.add(signatureKey);
     }
 
-    if (diagnostic.message.startsWith("Unexpected argument ")) {
+    if (diagnosticKind === "unexpectedArgument") {
       const action = extraArgumentQuickFix({
         uri,
         text,
@@ -895,7 +893,7 @@ export function createCallFixCodeActions(params: {
       continue;
     }
 
-    if (diagnostic.message.startsWith("Argument ")) {
+    if (diagnosticKind === "argumentTypeMismatch") {
       const action = mismatchArgumentQuickFix({
         uri,
         text,

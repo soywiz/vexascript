@@ -12,8 +12,10 @@ import type {
 import { createAnalysisSession } from "./analysisSession";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "vscode-languageserver/node.js";
-
-const UNDEFINED_VARIABLE_PATTERN = /^Undefined variable '([A-Za-z_][A-Za-z0-9_]*)'$/;
+import {
+  isUndefinedVariableDiagnostic,
+  UNDEFINED_VARIABLE_PATTERN
+} from "./diagnosticCodes";
 
 export interface SymbolExport {
   name: string;
@@ -104,7 +106,7 @@ export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
 function extractUndefinedSymbols(diagnostics: Diagnostic[]): string[] {
   const names = new Set<string>();
   for (const diagnostic of diagnostics) {
-    if (diagnostic.source !== "mylang-sema") {
+    if (!isUndefinedVariableDiagnostic(diagnostic)) {
       continue;
     }
     const match = UNDEFINED_VARIABLE_PATTERN.exec(diagnostic.message);

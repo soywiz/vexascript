@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { collectDiagnostics } from "./diagnostics";
+import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
 function diagnosticsFor(source: string) {
   const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
@@ -23,5 +24,11 @@ describe("lsp diagnostics", () => {
 
     expect(parserMessages).toContain("Expected identifier in variable declaration");
     expect(semanticMessages).toContain("Undefined variable 'missing'");
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.PARSER_ERROR)
+    ).toBe(true);
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE)
+    ).toBe(true);
   });
 });

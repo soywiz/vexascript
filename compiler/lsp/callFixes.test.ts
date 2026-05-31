@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { createCallFixCodeActions } from "./callFixes";
+import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
 const URI = "file:///demo.my";
 
@@ -90,5 +92,41 @@ fun demo() {
     expect(edits.some((edit) => edit.newText === "string")).toBe(true);
     expect(edits.some((edit) => edit.newText === "int")).toBe(true);
     expect(edits.some((edit) => edit.newText.includes("arg3?: int"))).toBe(true);
+  });
+
+  it("accepts call quick-fix hook by diagnostic code even when message changes", () => {
+    const source = `fun test2(a: number, b: string) {
+}
+fun demo() {
+  test2(1, "test", 3)
+}
+`;
+    const session = createAnalysisSession(source);
+    const document = TextDocument.create(URI, "mylang", 1, source);
+    const argumentPosition = document.positionAt(source.lastIndexOf("3"));
+    const diagnostics: Diagnostic[] = [
+      {
+        severity: 1,
+        source: "mylang-sema",
+        code: MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT,
+        message: "custom message",
+        range: {
+          start: argumentPosition,
+          end: argumentPosition
+        }
+      }
+    ];
+
+    const actions = createCallFixCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics
+    });
+
+    expect(
+      actions.some((action) => action.title === "Add missing parameters to 'test2'")
+    ).toBe(true);
   });
 });

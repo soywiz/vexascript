@@ -31,6 +31,7 @@ import type {
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "vscode-languageserver/node.js";
 import type { AnalysisSession } from "./analysisSession";
+import { MYLANG_DIAGNOSTIC_CODES, type MyLangDiagnosticCode } from "./diagnosticCodes";
 import {
   isTypeAssignableByName,
   resolveClassMember,
@@ -48,12 +49,14 @@ export interface CollectCrossFileTypeDiagnosticsParams {
 
 function diagnosticForNode(
   node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } },
-  message: string
+  message: string,
+  code: MyLangDiagnosticCode
 ): Diagnostic | null {
   if (!node.firstToken || !node.lastToken) {
     return null;
   }
   return {
+    code,
     severity: DiagnosticSeverity.Error,
     range: {
       start: {
@@ -502,7 +505,8 @@ export function collectCrossFileTypeDiagnostics(
       pushDiagnostic(
         diagnosticForNode(
           callee.property,
-          `Property '${memberName}' of type '${objectTypeName}' is not callable`
+          `Property '${memberName}' of type '${objectTypeName}' is not callable`,
+          MYLANG_DIAGNOSTIC_CODES.TYPE_MISMATCH
         )
       );
       continue;
@@ -517,21 +521,24 @@ export function collectCrossFileTypeDiagnostics(
       pushDiagnostic(
         diagnosticForNode(
           call,
-          `Expected at least ${requiredCount} argument(s), but got ${providedCount}`
+          `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
+          MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
         )
       );
     } else if (providedCount > totalCount) {
       pushDiagnostic(
         diagnosticForNode(
           call,
-          `Expected at most ${totalCount} argument(s), but got ${providedCount}`
+          `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
+          MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
         )
       );
       for (let index = totalCount; index < providedCount; index += 1) {
         pushDiagnostic(
           diagnosticForNode(
             call.arguments[index] ?? call,
-            `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`
+            `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
+            MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
           )
         );
       }
@@ -554,7 +561,8 @@ export function collectCrossFileTypeDiagnostics(
       pushDiagnostic(
         diagnosticForNode(
           argument,
-          `Argument ${index + 1} of type '${argumentTypeName}' is not assignable to parameter '${parameter.name}' of type '${parameter.typeName}'`
+          `Argument ${index + 1} of type '${argumentTypeName}' is not assignable to parameter '${parameter.name}' of type '${parameter.typeName}'`,
+          MYLANG_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH
         )
       );
     }
@@ -601,7 +609,8 @@ export function collectCrossFileTypeDiagnostics(
     pushDiagnostic(
       diagnosticForNode(
         assignment.right,
-        `Type '${rightTypeName}' is not assignable to type '${leftTypeName}'`
+        `Type '${rightTypeName}' is not assignable to type '${leftTypeName}'`,
+        MYLANG_DIAGNOSTIC_CODES.TYPE_MISMATCH
       )
     );
   }

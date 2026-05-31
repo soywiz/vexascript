@@ -39,6 +39,7 @@ import { DiagnosticSeverity } from "vscode-languageserver/node.js";
 import type { AnalysisSession } from "./analysisSession";
 import { uriToFilePath } from "./importFixes";
 import { resolveExpressionTypeName as resolveCrossFileExpressionTypeName } from "./classResolver";
+import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
 interface SessionLike {
   ast: Program | null;
@@ -437,6 +438,7 @@ export function collectCrossFileMemberDiagnostics(
     seen.add(key);
 
     diagnostics.push({
+      code: MYLANG_DIAGNOSTIC_CODES.MISSING_MEMBER,
       severity: DiagnosticSeverity.Error,
       range: {
         start: {

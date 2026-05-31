@@ -5,6 +5,10 @@ import {
 } from "vscode-languageserver/node.js";
 import type { AnalysisSession } from "./analysisSession";
 import { createAnalysisSession } from "./analysisSession";
+import {
+  classifySemanticDiagnosticMessage,
+  MYLANG_DIAGNOSTIC_CODES
+} from "./diagnosticCodes";
 
 function fallbackRange() {
   return {
@@ -22,7 +26,8 @@ export function collectDiagnosticsFromSession(
 
   for (const issue of session.parserErrors) {
     const token = issue.token;
-    diagnostics.push({
+      diagnostics.push({
+      code: MYLANG_DIAGNOSTIC_CODES.PARSER_ERROR,
       severity: DiagnosticSeverity.Error,
       range: token
         ? {
@@ -43,6 +48,7 @@ export function collectDiagnosticsFromSession(
 
   if (session.tokenizeError) {
     diagnostics.push({
+      code: MYLANG_DIAGNOSTIC_CODES.TOKENIZE_ERROR,
       severity: DiagnosticSeverity.Error,
       range: {
         start: {
@@ -61,6 +67,7 @@ export function collectDiagnosticsFromSession(
 
   if (session.fatalError) {
     diagnostics.push({
+      code: MYLANG_DIAGNOSTIC_CODES.FATAL_ERROR,
       severity: DiagnosticSeverity.Error,
       range: fallbackRange(),
       message: session.fatalError,
@@ -75,6 +82,7 @@ export function collectDiagnosticsFromSession(
         continue;
       }
       diagnostics.push({
+        code: classifySemanticDiagnosticMessage(issue.message) ?? MYLANG_DIAGNOSTIC_CODES.SEMANTIC_ERROR,
         severity: DiagnosticSeverity.Error,
         range: {
           start: {
@@ -95,6 +103,7 @@ export function collectDiagnosticsFromSession(
   const anyIndex = text.indexOf("any");
   if (anyIndex >= 0) {
     diagnostics.push({
+      code: MYLANG_DIAGNOSTIC_CODES.STYLE_AVOID_ANY,
       severity: DiagnosticSeverity.Warning,
       range: {
         start: positionAt(anyIndex),

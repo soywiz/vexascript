@@ -33,8 +33,7 @@ import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.j
 import { CodeActionKind } from "vscode-languageserver/node.js";
 import { resolveClassStatementAcrossFiles, resolveExpressionTypeName } from "./classResolver";
 import { pathToUri } from "./importFixes";
-
-const TYPE_MISMATCH_PATTERN = /^Type '(.+)' is not assignable to type '(.+)'$/;
+import { isTypeMismatchDiagnostic, TYPE_MISMATCH_PATTERN } from "./diagnosticCodes";
 
 interface FindAssignmentResult {
   assignment: AssignmentExpression;
@@ -362,7 +361,7 @@ export function createTypeFixCodeActions(params: {
   const seen = new Set<string>();
 
   for (const diagnostic of params.diagnostics) {
-    if (diagnostic.source !== "mylang-sema") {
+    if (!isTypeMismatchDiagnostic(diagnostic)) {
       continue;
     }
     const mismatch = TYPE_MISMATCH_PATTERN.exec(diagnostic.message);
