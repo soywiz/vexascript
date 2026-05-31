@@ -13,10 +13,10 @@ This document tracks common Language Server Protocol services and their status i
 - [ ] `textDocument/declaration`
 - [ ] `textDocument/typeDefinition`
 - [ ] `textDocument/implementation`
-- [ ] `textDocument/signatureHelp`
+- [x] `textDocument/signatureHelp`
 - [ ] `textDocument/documentHighlight`
-- [ ] `textDocument/documentSymbol`
-- [ ] `workspace/symbol`
+- [x] `textDocument/documentSymbol`
+- [x] `workspace/symbol`
 - [ ] `textDocument/semanticTokens/full`
 - [ ] `textDocument/semanticTokens/range`
 - [ ] `textDocument/inlayHint`
@@ -48,5 +48,8 @@ This document tracks common Language Server Protocol services and their status i
 ## Notes on Implemented Features
 
 - Completion includes in-scope symbols, builtin types, and auto-import suggestions.
+- Signature help supports functions and constructor calls (`new Class(...)`).
+- Document symbols include top-level declarations and class members.
+- Workspace symbol search scans `.my` files in source roots.
 - Code actions include declaration keyword replacements and auto-import fixes.
 - Diagnostics include parser and semantic issues, and keep semantic checks enabled after parser recovery.

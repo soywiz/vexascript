@@ -61,7 +61,7 @@ export function createCompletionItemsForPosition(
     }
     seenLabels.add(suggestion.symbol.name);
 
-    let kind = CompletionItemKind.Variable;
+    let kind: CompletionItemKind = CompletionItemKind.Variable;
     if (suggestion.symbol.kind === "class") {
       kind = CompletionItemKind.Class;
     } else if (suggestion.symbol.kind === "function") {

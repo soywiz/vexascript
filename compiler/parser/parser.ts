@@ -355,7 +355,8 @@ export class Parser {
             if (
                 localStatementRecovery &&
                 startLine >= 0 &&
-                token?.range.start.line > startLine &&
+                token !== undefined &&
+                token.range.start.line > startLine &&
                 parenDepth === 0 &&
                 bracketDepth === 0 &&
                 braceDepth === 0
@@ -374,7 +375,8 @@ export class Parser {
             }
             if (
                 startLine >= 0 &&
-                token?.range.start.line > startLine &&
+                token !== undefined &&
+                token.range.start.line > startLine &&
                 parenDepth === 0 &&
                 bracketDepth === 0 &&
                 braceDepth === 0 &&

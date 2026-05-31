@@ -422,7 +422,8 @@ export class TypeChecker {
         }
 
         if (newExpression.callee.kind === "Identifier") {
-          result = namedType(newExpression.callee.name);
+          const calleeIdentifier = newExpression.callee as Node & { kind: "Identifier"; name: string };
+          result = namedType(calleeIdentifier.name);
           break;
         }
 

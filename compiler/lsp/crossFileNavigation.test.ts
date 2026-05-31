@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import { createAnalysisSession } from "./analysisSession";
 import {
   resolveDefinitionAcrossFiles,
-  resolveReferencesAcrossFiles
+  resolveReferencesAcrossFiles,
+  resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 
 describe("cross-file navigation", () => {
@@ -90,5 +91,57 @@ describe("cross-file navigation", () => {
         }
       ])
     );
+  });
+
+  it("renames symbol across declaration and importer usages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA = "class MyPoint {}\n";
+    const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  return new MyPoint()\n}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const edit = resolveRenameAcrossFiles(
+      {
+        uri: pathToFileURL(fileB).toString(),
+        line: 2,
+        character: 16,
+        session: sessionB,
+        sourceRoots: [root]
+      },
+      "Point2"
+    );
+
+    expect(edit?.changes).toEqual({
+      [pathToFileURL(fileA).toString()]: [
+        {
+          range: {
+            start: { line: 0, character: 6 },
+            end: { line: 0, character: 13 }
+          },
+          newText: "Point2"
+        }
+      ],
+      [pathToFileURL(fileB).toString()]: [
+        {
+          range: {
+            start: { line: 0, character: 9 },
+            end: { line: 0, character: 16 }
+          },
+          newText: "Point2"
+        },
+        {
+          range: {
+            start: { line: 2, character: 13 },
+            end: { line: 2, character: 20 }
+          },
+          newText: "Point2"
+        }
+      ]
+    });
   });
 });

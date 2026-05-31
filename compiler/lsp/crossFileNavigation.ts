@@ -1,9 +1,16 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { Program, Statement } from "compiler/ast/ast";
+import type {
+  ClassStatement,
+  FunctionStatement,
+  ImportStatement,
+  Program,
+  Statement,
+  VarStatement
+} from "compiler/ast/ast";
 import { compileSource } from "compiler/pipeline/compile";
-import type { Location } from "vscode-languageserver/node.js";
+import type { Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
 
 interface SessionLike {
@@ -90,9 +97,10 @@ function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: str
     if (statement.kind !== "ImportStatement") {
       continue;
     }
-    for (const specifier of statement.specifiers) {
+    const importStatement = statement as ImportStatement;
+    for (const specifier of importStatement.specifiers) {
       if (specifier.imported === symbolNode) {
-        return { from: statement.from.value, name: specifier.imported.name };
+        return { from: importStatement.from.value, name: specifier.imported.name };
       }
     }
   }
@@ -101,18 +109,28 @@ function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: str
 
 function findTopLevelDeclarationByName(ast: Program, name: string): Statement | null {
   for (const statement of ast.body) {
-    if (statement.kind === "ClassStatement" && statement.name.name === name) {
-      return statement;
+    if (statement.kind === "ClassStatement") {
+      const classStatement = statement as ClassStatement;
+      if (classStatement.name.name === name) {
+        return classStatement;
+      }
     }
-    if (statement.kind === "FunctionStatement" && statement.name.name === name) {
-      return statement;
+    if (statement.kind === "FunctionStatement") {
+      const functionStatement = statement as FunctionStatement;
+      if (functionStatement.name.name === name) {
+        return functionStatement;
+      }
     }
     if (statement.kind === "VarStatement") {
-      if (statement.declarations && statement.declarations.some((declaration) => declaration.name.name === name)) {
-        return statement;
+      const variableStatement = statement as VarStatement;
+      if (
+        variableStatement.declarations &&
+        variableStatement.declarations.some((declaration) => declaration.name.name === name)
+      ) {
+        return variableStatement;
       }
-      if (statement.name.name === name) {
-        return statement;
+      if (variableStatement.name.name === name) {
+        return variableStatement;
       }
     }
   }
@@ -120,20 +138,21 @@ function findTopLevelDeclarationByName(ast: Program, name: string): Statement | 
 }
 
 function declarationRangeForName(statement: Statement, name: string) {
-  if (statement.kind === "VarStatement" && statement.declarations && statement.declarations.length > 0) {
-    const declaration = statement.declarations.find((item) => item.name.name === name);
-    if (declaration) {
-      return nodeToRange(declaration.name);
-    }
-  }
   if (statement.kind === "VarStatement") {
-    return nodeToRange(statement.name);
+    const variableStatement = statement as VarStatement;
+    if (variableStatement.declarations && variableStatement.declarations.length > 0) {
+      const declaration = variableStatement.declarations.find((item) => item.name.name === name);
+      if (declaration) {
+        return nodeToRange(declaration.name);
+      }
+    }
+    return nodeToRange(variableStatement.name);
   }
   if (statement.kind === "ClassStatement") {
-    return nodeToRange(statement.name);
+    return nodeToRange((statement as ClassStatement).name);
   }
   if (statement.kind === "FunctionStatement") {
-    return nodeToRange(statement.name);
+    return nodeToRange((statement as FunctionStatement).name);
   }
   return nodeToRange(statement);
 }
@@ -234,11 +253,12 @@ function findMatchingImportSpecifierPositions(
     if (statement.kind !== "ImportStatement") {
       continue;
     }
-    const targetFilePath = resolveImportTargetFilePath(importerFilePath, statement.from.value);
+    const importStatement = statement as ImportStatement;
+    const targetFilePath = resolveImportTargetFilePath(importerFilePath, importStatement.from.value);
     if (!targetFilePath || resolve(targetFilePath) !== resolve(symbol.filePath)) {
       continue;
     }
-    for (const specifier of statement.specifiers) {
+    for (const specifier of importStatement.specifiers) {
       if (specifier.imported.name !== symbol.name || !specifier.imported.firstToken) {
         continue;
       }
@@ -330,4 +350,27 @@ export function resolveReferencesAcrossFiles(
   }
 
   return locations;
+}
+
+export function resolveRenameAcrossFiles(
+  context: ResolveContext,
+  newName: string
+): WorkspaceEdit | null {
+  const locations = resolveReferencesAcrossFiles(context, true);
+  if (locations.length === 0) {
+    return null;
+  }
+
+  const changes: Record<string, Array<{ range: Location["range"]; newText: string }>> = {};
+  for (const location of locations) {
+    if (!changes[location.uri]) {
+      changes[location.uri] = [];
+    }
+    changes[location.uri]?.push({
+      range: location.range,
+      newText: newName
+    });
+  }
+
+  return { changes };
 }

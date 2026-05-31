@@ -1,7 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, extname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Program, Statement } from "compiler/ast/ast";
+import type {
+  ClassStatement,
+  FunctionStatement,
+  ImportStatement,
+  Program,
+  Statement,
+  VarStatement
+} from "compiler/ast/ast";
 import { createAnalysisSession } from "./analysisSession";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "vscode-languageserver/node.js";
@@ -50,20 +57,21 @@ function topLevelDeclaredNames(program: Program): Array<{
   const names: Array<{ name: string; kind: "class" | "function" | "variable" }> = [];
   for (const statement of program.body) {
     if (statement.kind === "ClassStatement") {
-      names.push({ name: statement.name.name, kind: "class" });
+      names.push({ name: (statement as ClassStatement).name.name, kind: "class" });
       continue;
     }
     if (statement.kind === "FunctionStatement") {
-      names.push({ name: statement.name.name, kind: "function" });
+      names.push({ name: (statement as FunctionStatement).name.name, kind: "function" });
       continue;
     }
     if (statement.kind === "VarStatement") {
-      if (statement.declarations && statement.declarations.length > 0) {
-        for (const declaration of statement.declarations) {
+      const variableStatement = statement as VarStatement;
+      if (variableStatement.declarations && variableStatement.declarations.length > 0) {
+        for (const declaration of variableStatement.declarations) {
           names.push({ name: declaration.name.name, kind: "variable" });
         }
       } else {
-        names.push({ name: statement.name.name, kind: "variable" });
+        names.push({ name: variableStatement.name.name, kind: "variable" });
       }
     }
   }
@@ -113,7 +121,8 @@ export function hasImportedSymbol(ast: Program, symbolName: string): boolean {
     if (statement.kind !== "ImportStatement") {
       continue;
     }
-    if (statement.specifiers.some((specifier) => specifier.imported.name === symbolName)) {
+    const importStatement = statement as ImportStatement;
+    if (importStatement.specifiers.some((specifier) => specifier.imported.name === symbolName)) {
       return true;
     }
   }

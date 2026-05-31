@@ -21,14 +21,16 @@ import {
 } from "./completion";
 import {
   resolveDefinitionAcrossFiles,
-  resolveReferencesAcrossFiles
+  resolveReferencesAcrossFiles,
+  resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import {
   createHover,
-  createPrepareRename,
-  createRenameWorkspaceEdit
+  createPrepareRename
 } from "./navigation";
 import { resolve as resolvePath } from "node:path";
+import { createSignatureHelp } from "./signatureHelp";
+import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
@@ -93,6 +95,12 @@ connection.onInitialize((params) => {
       definitionProvider: true,
       hoverProvider: true,
       referencesProvider: true,
+      signatureHelpProvider: {
+        triggerCharacters: ["(", ","],
+        retriggerCharacters: [","]
+      },
+      documentSymbolProvider: true,
+      workspaceSymbolProvider: true,
       renameProvider: {
         prepareProvider: true
       }
@@ -268,15 +276,19 @@ connection.onRenameRequest((params) => {
     return null;
   }
 
-  const analysis = analysisSessions.getForDocument(doc).analysis;
-  if (!analysis) {
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.analysis || !session.ast) {
     return null;
   }
-  return createRenameWorkspaceEdit(
-    analysis,
-    params.textDocument.uri,
-    params.position.line,
-    params.position.character,
+  return resolveRenameAcrossFiles(
+    {
+      uri: params.textDocument.uri,
+      line: params.position.line,
+      character: params.position.character,
+      session,
+      sourceRoots,
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    },
     params.newName
   );
 });
@@ -302,6 +314,46 @@ connection.onReferences((params) => {
     },
     params.context.includeDeclaration
   );
+});
+
+connection.onSignatureHelp((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return null;
+  }
+
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.analysis || !session.ast) {
+    return null;
+  }
+
+  return createSignatureHelp(
+    session.ast,
+    session.analysis,
+    params.position.line,
+    params.position.character
+  );
+});
+
+connection.onDocumentSymbol((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return [];
+  }
+
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.ast) {
+    return [];
+  }
+
+  return createDocumentSymbols(session.ast);
+});
+
+connection.onWorkspaceSymbol((params) => {
+  return createWorkspaceSymbols({
+    sourceRoots,
+    query: params.query ?? ""
+  });
 });
 
 documents.listen(connection);
