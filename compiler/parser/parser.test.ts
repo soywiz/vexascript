@@ -2145,6 +2145,113 @@ describe("Parser (with recovery)", () => {
         expect(parser.errors.length).toBeGreaterThan(0);
     });
 
+    it("recovers from malformed nested if statements inside switch cases", () => {
+        const parser = new Parser(tokenizeReader(
+            "switch (x) {\n" +
+            "  case 1:\n" +
+            "    if (ok) { let bad = ; }\n" +
+            "    let keep = 1\n" +
+            "    break\n" +
+            "  default:\n" +
+            "    let fallback = 2\n" +
+            "}\n" +
+            "let after = 3\n"
+        ));
+        const ast = parser.parseFile();
+
+        expect(ast.body).toHaveLength(2);
+        expect(ast.body[0]).toMatchObject({
+            kind: "SwitchStatement",
+            cases: [
+                {
+                    kind: "SwitchCase",
+                    test: { kind: "IntLiteral", value: 1 },
+                    consequent: [
+                        {
+                            kind: "IfStatement",
+                            condition: { kind: "Identifier", name: "ok" },
+                            thenBranch: { kind: "BlockStatement", body: [] }
+                        },
+                        {
+                            kind: "VarStatement",
+                            declarationKind: "let",
+                            name: { kind: "Identifier", name: "keep" },
+                            initializer: { kind: "IntLiteral", value: 1 }
+                        },
+                        { kind: "BreakStatement" }
+                    ]
+                },
+                {
+                    kind: "SwitchCase",
+                    consequent: [
+                        {
+                            kind: "VarStatement",
+                            declarationKind: "let",
+                            name: { kind: "Identifier", name: "fallback" }
+                        }
+                    ]
+                }
+            ]
+        });
+        expect(ast.body[1]).toMatchObject({
+            kind: "VarStatement",
+            declarationKind: "let",
+            name: { kind: "Identifier", name: "after" }
+        });
+        expect(parser.errors.length).toBeGreaterThan(0);
+    });
+
+    it("recovers from broken for headers and keeps following statements", () => {
+        const parser = new Parser(tokenizeReader(
+            "{\n" +
+            "  for (let i = ; i < 2; i += 1) let bad = i\n" +
+            "  let ok = 1\n" +
+            "}\n" +
+            "let after = 2\n"
+        ));
+        const ast = parser.parseFile();
+
+        expect(ast.body).toHaveLength(2);
+        const block = ast.body[0];
+        expect(block?.kind).toBe("BlockStatement");
+        if (!block || block.kind !== "BlockStatement") {
+            throw new Error("Expected first statement to be a block");
+        }
+        const blockBody = (block as unknown as { body: Array<any> }).body;
+        expect(
+            blockBody.some((statement: any) =>
+                statement.kind === "VarStatement" &&
+                statement.name.name === "ok"
+            )
+        ).toBe(true);
+        expect(ast.body[1]).toMatchObject({
+            kind: "VarStatement",
+            declarationKind: "let",
+            name: { kind: "Identifier", name: "after" }
+        });
+        expect(parser.errors.length).toBeGreaterThan(0);
+    });
+
+    it("recovers from malformed chained calls and parses subsequent statements", () => {
+        const parser = new Parser(tokenizeReader(
+            "{\n" +
+            "  target.run(1, ).next(;\n" +
+            "  let ok = 1\n" +
+            "}\n" +
+            "let done = 2\n"
+        ));
+        const ast = parser.parseFile();
+
+        expect(ast.body).toHaveLength(2);
+        expect(ast.body[0]?.kind).toBe("BlockStatement");
+        expect(ast.body[1]).toMatchObject({
+            kind: "VarStatement",
+            declarationKind: "let",
+            name: { kind: "Identifier", name: "done" }
+        });
+        expect(parser.errors.length).toBeGreaterThan(0);
+    });
+
     it("recovers malformed statement separators by skipping to the next '}' or newline", () => {
         const parser = new Parser(tokenizeReader(
             "asdsa declare class Console {\n" +

@@ -17,7 +17,6 @@ This document tracks the current technical backlog for MyLang.
 
 ## Parser and Recovery
 
-- Add more recovery tests for nested malformed constructs (`if` inside `switch`, broken `for` headers, chained calls).
 - Improve recovery heuristics for ambiguous newline-heavy code.
 - Add token-level error nodes or recover markers in AST to improve downstream diagnostics quality.
 
