@@ -129,4 +129,64 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("y");
     expect(labels).not.toContain("holder");
   });
+
+  it("ranks in-scope symbols by nearest scope distance", () => {
+    const source =
+      "let top = 1\n" +
+      "fun demo() {\n" +
+      "  let outer = 2\n" +
+      "  {\n" +
+      "    let inner = 3\n" +
+      "    inn\n" +
+      "  }\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const items = createCompletionItemsForPosition(
+      session.ast!,
+      5,
+      7,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const symbolLabels = items
+      .filter((item) => item.detail?.startsWith("In-scope "))
+      .map((item) => item.label);
+
+    expect(symbolLabels.indexOf("inner")).toBeLessThan(symbolLabels.indexOf("outer"));
+    expect(symbolLabels.indexOf("outer")).toBeLessThan(symbolLabels.indexOf("top"));
+  });
+
+  it("ranks call-argument completions by expected parameter type relevance", () => {
+    const source =
+      "fun takesNumber(value: number) {\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  let exact: number = 2\n" +
+      "  let count: int = 1\n" +
+      "  let text: string = \"a\"\n" +
+      "  takesNumber(ex)\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const items = createCompletionItemsForPosition(
+      session.ast!,
+      6,
+      14,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const symbolLabels = items
+      .filter((item) => item.detail?.startsWith("In-scope "))
+      .map((item) => item.label);
+
+    expect(symbolLabels.indexOf("exact")).toBeLessThan(symbolLabels.indexOf("count"));
+    expect(symbolLabels.indexOf("count")).toBeLessThan(symbolLabels.indexOf("text"));
+  });
 });

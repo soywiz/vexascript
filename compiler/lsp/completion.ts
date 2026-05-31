@@ -1,18 +1,31 @@
 import { CompletionItemKind } from "vscode-languageserver/node.js";
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import type {
+  ArrayLiteral,
+  AssignmentExpression,
+  BinaryExpression,
   BlockStatement,
+  CallExpression,
+  ClassMethodMember,
   ClassStatement,
+  ConditionalExpression,
   DoWhileStatement,
   Expr,
   ForStatement,
   FunctionStatement,
   IfStatement,
-  Program
-  ,
+  MemberExpression,
+  NewExpression,
+  ObjectLiteral,
+  Program,
+  RangeExpression,
+  ReturnStatement,
   Statement,
   SwitchStatement,
+  ThrowStatement,
   TryStatement,
+  UnaryExpression,
+  UpdateExpression,
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
@@ -20,8 +33,10 @@ import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import type { AutoImportSuggestion } from "./importFixes";
 import {
+  resolveCallableSignature,
   resolveClassMember,
   resolveClassStatementAcrossFiles,
+  resolveConstructorSignature,
   type ClassResolverOptions
 } from "./classResolver";
 
@@ -162,6 +177,364 @@ function classResolverOptionsFromCompletionOptions(options: CompletionRequestOpt
       ? { getSessionForFilePath: options.getSessionForFilePath }
       : {})
   };
+}
+
+function nodeRange(node: {
+  firstToken?: { range: { start: { line: number; column: number } } };
+  lastToken?: { range: { end: { line: number; column: number } } };
+}): { start: { line: number; character: number }; end: { line: number; character: number } } | null {
+  if (!node.firstToken || !node.lastToken) {
+    return null;
+  }
+  return {
+    start: {
+      line: node.firstToken.range.start.line,
+      character: node.firstToken.range.start.column
+    },
+    end: {
+      line: node.lastToken.range.end.line,
+      character: node.lastToken.range.end.column
+    }
+  };
+}
+
+function comparePosition(
+  a: { line: number; character: number },
+  b: { line: number; character: number }
+): number {
+  if (a.line !== b.line) {
+    return a.line - b.line;
+  }
+  return a.character - b.character;
+}
+
+function rangeContainsPosition(
+  range: { start: { line: number; character: number }; end: { line: number; character: number } },
+  position: { line: number; character: number }
+): boolean {
+  return comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;
+}
+
+function rangeSize(range: { start: { line: number; character: number }; end: { line: number; character: number } }): number {
+  const lineSpan = range.end.line - range.start.line;
+  if (lineSpan > 0) {
+    return lineSpan * 100000 + (range.end.character - range.start.character);
+  }
+  return range.end.character - range.start.character;
+}
+
+interface ArgumentCompletionContext {
+  callee: Expr;
+  argumentIndex: number;
+  kind: "call" | "new";
+}
+
+function findArgumentCompletionContext(
+  ast: Program,
+  line: number,
+  character: number
+): ArgumentCompletionContext | null {
+  const position = { line, character };
+  let bestContext: ArgumentCompletionContext | null = null;
+  let bestSize: number | null = null;
+
+  const considerCallLike = (
+    kind: "call" | "new",
+    callee: Expr,
+    args: Expr[]
+  ): void => {
+    for (let index = 0; index < args.length; index += 1) {
+      const argument = args[index];
+      if (!argument) {
+        continue;
+      }
+      const argumentRange = nodeRange(argument);
+      if (!argumentRange || !rangeContainsPosition(argumentRange, position)) {
+        continue;
+      }
+      const size = rangeSize(argumentRange);
+      if (bestSize === null || size <= bestSize) {
+        bestContext = {
+          callee,
+          argumentIndex: index,
+          kind
+        };
+        bestSize = size;
+      }
+    }
+  };
+
+  const visitExpression = (expression: Expr): void => {
+    switch (expression.kind) {
+      case "CallExpression": {
+        const call = expression as CallExpression;
+        visitExpression(call.callee);
+        for (const argument of call.arguments) {
+          visitExpression(argument);
+        }
+        considerCallLike("call", call.callee, call.arguments);
+        return;
+      }
+      case "NewExpression": {
+        const call = expression as NewExpression;
+        visitExpression(call.callee);
+        for (const argument of call.arguments ?? []) {
+          visitExpression(argument);
+        }
+        considerCallLike("new", call.callee, call.arguments ?? []);
+        return;
+      }
+      case "MemberExpression":
+        visitExpression((expression as MemberExpression).object);
+        if ((expression as MemberExpression).computed) {
+          visitExpression((expression as MemberExpression).property);
+        }
+        return;
+      case "BinaryExpression":
+        visitExpression((expression as BinaryExpression).left);
+        visitExpression((expression as BinaryExpression).right);
+        return;
+      case "RangeExpression":
+        visitExpression((expression as RangeExpression).start);
+        visitExpression((expression as RangeExpression).end);
+        return;
+      case "AssignmentExpression":
+        visitExpression((expression as AssignmentExpression).left);
+        visitExpression((expression as AssignmentExpression).right);
+        return;
+      case "ConditionalExpression":
+        visitExpression((expression as ConditionalExpression).test);
+        visitExpression((expression as ConditionalExpression).consequent);
+        visitExpression((expression as ConditionalExpression).alternate);
+        return;
+      case "UnaryExpression":
+      case "UpdateExpression":
+        visitExpression((expression as UnaryExpression | UpdateExpression).argument);
+        return;
+      case "ArrayLiteral":
+        for (const element of (expression as ArrayLiteral).elements) {
+          visitExpression(element);
+        }
+        return;
+      case "ObjectLiteral":
+        for (const property of (expression as ObjectLiteral).properties) {
+          visitExpression(property.value);
+        }
+        return;
+      default:
+        return;
+    }
+  };
+
+  const visitStatement = (statement: Statement): void => {
+    switch (statement.kind) {
+      case "VarStatement": {
+        const variable = statement as VarStatement;
+        if (variable.declarations?.length) {
+          for (const declaration of variable.declarations) {
+            if (declaration.initializer) {
+              visitExpression(declaration.initializer);
+            }
+          }
+        } else if (variable.initializer) {
+          visitExpression(variable.initializer);
+        }
+        return;
+      }
+      case "ExprStatement":
+        visitExpression((statement as { kind: "ExprStatement"; expression: Expr }).expression);
+        return;
+      case "ReturnStatement":
+        if ((statement as ReturnStatement).expression) {
+          visitExpression((statement as ReturnStatement).expression!);
+        }
+        return;
+      case "ThrowStatement":
+        visitExpression((statement as ThrowStatement).expression);
+        return;
+      case "BlockStatement":
+        for (const child of (statement as BlockStatement).body) {
+          visitStatement(child);
+        }
+        return;
+      case "FunctionStatement":
+        for (const child of (statement as FunctionStatement).body.body) {
+          visitStatement(child);
+        }
+        return;
+      case "ClassStatement":
+        for (const member of (statement as ClassStatement).members) {
+          if (member.kind === "ClassFieldMember" && member.initializer) {
+            visitExpression(member.initializer);
+          } else if (member.kind === "ClassMethodMember") {
+            for (const child of (member as ClassMethodMember).body.body) {
+              visitStatement(child);
+            }
+          }
+        }
+        return;
+      case "IfStatement":
+        visitExpression((statement as IfStatement).condition);
+        visitStatement((statement as IfStatement).thenBranch);
+        if ((statement as IfStatement).elseBranch) {
+          visitStatement((statement as IfStatement).elseBranch!);
+        }
+        return;
+      case "WhileStatement":
+        visitExpression((statement as WhileStatement).condition);
+        visitStatement((statement as WhileStatement).body);
+        return;
+      case "DoWhileStatement":
+        visitStatement((statement as DoWhileStatement).body);
+        visitExpression((statement as DoWhileStatement).condition);
+        return;
+      case "ForStatement": {
+        const loop = statement as ForStatement;
+        if (loop.initializer?.kind === "VarStatement") {
+          visitStatement(loop.initializer as Statement);
+        } else if (loop.initializer) {
+          visitExpression(loop.initializer as Expr);
+        }
+        if (loop.iterator?.kind === "VarStatement") {
+          visitStatement(loop.iterator as Statement);
+        } else if (loop.iterator?.kind !== "Identifier" && loop.iterator) {
+          visitExpression(loop.iterator as Expr);
+        }
+        if (loop.iterable) {
+          visitExpression(loop.iterable);
+        }
+        if (loop.condition) {
+          visitExpression(loop.condition);
+        }
+        if (loop.update) {
+          visitExpression(loop.update);
+        }
+        visitStatement(loop.body);
+        return;
+      }
+      case "SwitchStatement":
+        visitExpression((statement as SwitchStatement).discriminant);
+        for (const switchCase of (statement as SwitchStatement).cases) {
+          if (switchCase.test) {
+            visitExpression(switchCase.test);
+          }
+          for (const child of switchCase.consequent) {
+            visitStatement(child);
+          }
+        }
+        return;
+      case "TryStatement":
+        for (const child of (statement as TryStatement).tryBlock.body) {
+          visitStatement(child);
+        }
+        if ((statement as TryStatement).catchClause) {
+          for (const child of (statement as TryStatement).catchClause!.body.body) {
+            visitStatement(child);
+          }
+        }
+        if ((statement as TryStatement).finallyBlock) {
+          for (const child of (statement as TryStatement).finallyBlock!.body) {
+            visitStatement(child);
+          }
+        }
+        return;
+      default:
+        return;
+    }
+  };
+
+  for (const statement of ast.body) {
+    visitStatement(statement);
+  }
+
+  return bestContext;
+}
+
+function inferExpectedTypeForPosition(
+  ast: Program,
+  analysis: Analysis,
+  line: number,
+  character: number,
+  options: CompletionRequestOptions
+): string | null {
+  const context = findArgumentCompletionContext(ast, line, character);
+  if (!context) {
+    return null;
+  }
+
+  if (context.kind === "call") {
+    const signature = resolveCallableSignature(
+      context.callee,
+      analysis,
+      ast,
+      classResolverOptionsFromCompletionOptions(options)
+    );
+    return signature?.parameters[context.argumentIndex]?.typeName ?? null;
+  }
+
+  const constructorSignature = resolveConstructorSignature(
+    context.callee,
+    analysis,
+    ast,
+    classResolverOptionsFromCompletionOptions(options)
+  );
+  return constructorSignature?.parameters[context.argumentIndex]?.typeName ?? null;
+}
+
+function symbolTypeName(symbol: AnalysisSymbol): string | null {
+  if (symbol.type?.kind === "builtin") {
+    return symbol.type.name;
+  }
+  if (symbol.type?.kind === "named") {
+    return symbol.type.name;
+  }
+  return null;
+}
+
+function isAssignableTypeName(sourceType: string, targetType: string): boolean {
+  if (sourceType === targetType) {
+    return true;
+  }
+  if (sourceType === "int" && targetType === "number") {
+    return true;
+  }
+  if (sourceType === "long" && targetType === "bigint") {
+    return true;
+  }
+  return false;
+}
+
+function symbolTypeRelevance(symbol: AnalysisSymbol, expectedTypeName: string | null): number {
+  if (!expectedTypeName || expectedTypeName === "unknown") {
+    return 0;
+  }
+  const candidateTypeName = symbolTypeName(symbol);
+  if (!candidateTypeName) {
+    return 0;
+  }
+  if (candidateTypeName === expectedTypeName) {
+    return 2;
+  }
+  if (isAssignableTypeName(candidateTypeName, expectedTypeName)) {
+    return 1;
+  }
+  return 0;
+}
+
+function symbolKindPriority(symbol: AnalysisSymbol): number {
+  if (symbol.kind === "parameter") {
+    return 0;
+  }
+  if (symbol.kind === "variable") {
+    return 1;
+  }
+  if (symbol.kind === "function" || symbol.kind === "method") {
+    return 2;
+  }
+  if (symbol.kind === "class") {
+    return 3;
+  }
+  return 4;
 }
 
 function inferClassNameFromAstVariableInitializer(
@@ -386,15 +759,48 @@ export function createCompletionItemsForPosition(
   }
 
   const visibleSymbols = resolvedAnalysis.getVisibleSymbolsAt(line, character);
+  const expectedTypeName = inferExpectedTypeForPosition(
+    ast,
+    resolvedAnalysis,
+    line,
+    character,
+    options
+  );
 
-  const items: CompletionItem[] = [...KEYWORD_COMPLETIONS];
+  const rankedSymbols = visibleSymbols
+    .map((symbol, scopeDistance) => ({
+      symbol,
+      scopeDistance,
+      typeRelevance: symbolTypeRelevance(symbol, expectedTypeName),
+      kindPriority: symbolKindPriority(symbol)
+    }))
+    .sort((left, right) => {
+      if (left.typeRelevance !== right.typeRelevance) {
+        return right.typeRelevance - left.typeRelevance;
+      }
+      if (left.scopeDistance !== right.scopeDistance) {
+        return left.scopeDistance - right.scopeDistance;
+      }
+      if (left.kindPriority !== right.kindPriority) {
+        return left.kindPriority - right.kindPriority;
+      }
+      return left.symbol.name.localeCompare(right.symbol.name);
+    });
+
+  const items: CompletionItem[] = KEYWORD_COMPLETIONS.map((item, index) => ({
+    ...item,
+    sortText: `9-${String(index).padStart(4, "0")}-${item.label}`
+  }));
   const seenLabels = new Set(items.map((item) => item.label));
-  for (const symbol of visibleSymbols) {
+  for (let index = 0; index < rankedSymbols.length; index += 1) {
+    const entry = rankedSymbols[index]!;
+    const symbol = entry.symbol;
     seenLabels.add(symbol.name);
     items.push({
       label: symbol.name,
       kind: symbolKindToCompletionKind(symbol),
-      detail: symbolDetail(symbol)
+      detail: symbolDetail(symbol),
+      sortText: `1-${entry.typeRelevance}-${String(entry.scopeDistance).padStart(4, "0")}-${String(index).padStart(4, "0")}-${symbol.name}`
     });
   }
 
@@ -415,6 +821,7 @@ export function createCompletionItemsForPosition(
       label: suggestion.symbol.name,
       kind,
       detail: `Auto import from ${suggestion.importPath}`,
+      sortText: `8-${suggestion.symbol.name}`,
       additionalTextEdits: [
         {
           range: suggestion.range,

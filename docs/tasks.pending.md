@@ -27,10 +27,6 @@ This document tracks the current technical backlog for MyLang.
 - Add integration tests for emitted JavaScript behavior on complex language features.
 - Add a lowering/optimization pass boundary before emission (instead of mixing optimizations directly in emitter).
 
-## LSP and DX
-
-- Add completion ranking by scope distance and type relevance.
-
 ## Documentation
 
 - Keep `docs/syntax.md` updated whenever syntax evolves.
