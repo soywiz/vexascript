@@ -362,6 +362,30 @@ describe("Analysis", () => {
     expect(symbols.get("g")?.valueType).toBe("boolean");
   });
 
+  it("reports semantic error for unknown class members", () => {
+    const source = `class MyPoint(val y: int) {
+  sum(): int {
+    return y
+  }
+}
+
+fun demo() {
+  const point = new MyPoint(1)
+  point.y
+  point.sum()
+  point.xx
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Property 'xx' does not exist on type 'MyPoint'");
+    expect(messages.some((message) => message.includes("'y' does not exist"))).toBe(false);
+    expect(messages.some((message) => message.includes("'sum' does not exist"))).toBe(false);
+  });
+
   it("reports call argument type and arity mismatches, with int->number and long->bigint assignability", () => {
     const source = `fun test2(a: number, b: bigint, c: string) {
 }

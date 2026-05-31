@@ -13,6 +13,7 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
+import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
 import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./importFixes";
 import { createCallFixCodeActions } from "./callFixes";
@@ -94,7 +95,8 @@ connection.onInitialize((params) => {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
       completionProvider: {
-        resolveProvider: false
+        resolveProvider: false,
+        triggerCharacters: ["."]
       },
       codeActionProvider: {
         resolveProvider: true
@@ -127,6 +129,13 @@ function validateDocument(doc: TextDocument): void {
   const diagnostics = collectDiagnosticsFromSession(session, text, (offset) =>
     doc.positionAt(offset)
   );
+  const crossFileDiagnostics = collectCrossFileMemberDiagnostics({
+    uri: doc.uri,
+    session,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
+  diagnostics.push(...crossFileDiagnostics);
 
   connection.sendDiagnostics({ uri: doc.uri, diagnostics });
 }
@@ -178,7 +187,13 @@ connection.onCompletion((params) => {
     params.position.line,
     params.position.character,
     session.analysis,
-    autoImportSuggestions
+    autoImportSuggestions,
+    {
+      text,
+      uri: doc.uri,
+      sourceRoots,
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    }
   );
 });
 

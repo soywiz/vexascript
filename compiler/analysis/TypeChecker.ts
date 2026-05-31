@@ -65,11 +65,14 @@ export class TypeChecker {
     "bigint",
     "long"
   ]);
+  private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
 
   constructor(
     private readonly program: Program,
     private readonly bound: BoundAnalysis
-  ) {}
+  ) {
+    this.collectClassStatements(program);
+  }
 
   check(): CheckedAnalysis {
     this.visitProgram(this.program, this.bound.rootScope, { loopDepth: 0, switchDepth: 0 });
@@ -409,10 +412,13 @@ export class TypeChecker {
       }
       case "MemberExpression": {
         const member = expression as MemberExpression;
-        this.visitExpression(member.object, scope);
+        const objectType = this.visitExpression(member.object, scope);
         if (member.computed) {
           this.visitExpression(member.property, scope);
+          result = UNKNOWN_TYPE;
+          break;
         }
+        this.validateKnownClassMemberAccess(member, objectType);
         result = UNKNOWN_TYPE;
         break;
       }
@@ -777,5 +783,61 @@ export class TypeChecker {
     }
 
     return arrayType(inferredElementType ?? UNKNOWN_TYPE);
+  }
+
+  private collectClassStatements(program: Program): void {
+    for (const statement of program.body) {
+      if (statement.kind !== "ClassStatement") {
+        continue;
+      }
+      const classStatement = statement as ClassStatement;
+      this.classStatementsByName.set(classStatement.name.name, classStatement);
+    }
+  }
+
+  private validateKnownClassMemberAccess(
+    member: MemberExpression,
+    objectType: AnalysisType
+  ): void {
+    if (member.computed || member.property.kind !== "Identifier") {
+      return;
+    }
+    if (objectType.kind !== "named") {
+      return;
+    }
+
+    const classStatement = this.classStatementsByName.get(objectType.name);
+    if (!classStatement) {
+      return;
+    }
+
+    const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+    if (this.classHasMember(classStatement, propertyName)) {
+      return;
+    }
+
+    this.issues.push({
+      message: `Property '${propertyName}' does not exist on type '${objectType.name}'`,
+      node: member.property
+    });
+  }
+
+  private classHasMember(
+    classStatement: ClassStatement,
+    memberName: string
+  ): boolean {
+    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+      if (parameter.name.name === memberName) {
+        return true;
+      }
+    }
+
+    for (const member of classStatement.members) {
+      if (member.name.name === memberName) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

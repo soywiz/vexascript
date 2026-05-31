@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
+import { createAnalysisSession } from "./analysisSession";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -69,5 +70,36 @@ describe("createCompletionItemsForPosition", () => {
     expect(point?.additionalTextEdits?.[0]?.newText).toBe(
       "import { Point } from \"./a\"\n"
     );
+  });
+
+  it("prioritizes class member completions for member access", () => {
+    const source =
+      "class Point(val x: int, val y: int) {\n" +
+      "  sum() {\n" +
+      "    return 0\n" +
+      "  }\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const point = new Point(1, 2)\n" +
+      "  point.x\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+    const items = createCompletionItemsForPosition(
+      session.ast!,
+      7,
+      8,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("x");
+    expect(labels).toContain("y");
+    expect(labels).toContain("sum");
+    expect(labels).not.toContain("demo");
+    expect(labels).not.toContain("point");
   });
 });
