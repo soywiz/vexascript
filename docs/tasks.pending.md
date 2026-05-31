@@ -28,5 +28,4 @@ This document tracks the current technical backlog for MyLang.
 ## Documentation
 
 - Keep `docs/syntax.md` updated whenever syntax evolves.
-- Add a dedicated semantic spec document describing assignability and inference rules.
 - Add a transpilation design note documenting emitter invariants and optimization rules.

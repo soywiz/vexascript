@@ -63,6 +63,7 @@ This section is the fast onboarding map for agents and contributors.
 - Pending syntax roadmap: `docs/syntax.pending.md`
 - Pending technical tasks/backlog: `docs/tasks.pending.md`
 - LSP services status: `docs/lsp.services.md`
+- Semantic analysis spec: `docs/semantic.spec.md`
 
 ### Test Fixtures and Auxiliary Utilities
 
