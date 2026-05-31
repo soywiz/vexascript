@@ -64,6 +64,7 @@ This section is the fast onboarding map for agents and contributors.
 - Pending technical tasks/backlog: `docs/tasks.pending.md`
 - LSP services status: `docs/lsp.services.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
+- Transpilation design note: `docs/transpilation.design.md`
 
 ### Test Fixtures and Auxiliary Utilities
 

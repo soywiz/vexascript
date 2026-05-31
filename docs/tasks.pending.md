@@ -28,4 +28,3 @@ This document tracks the current technical backlog for MyLang.
 ## Documentation
 
 - Keep `docs/syntax.md` updated whenever syntax evolves.
-- Add a transpilation design note documenting emitter invariants and optimization rules.
