@@ -352,6 +352,7 @@ export function createTypeFixCodeActions(params: {
   diagnostics: Diagnostic[];
   sourceRoots: string[];
   getSessionForFilePath?: (filePath: string) => { ast: Program | null; analysis: Analysis | null } | null;
+  commandName?: string;
 }): CodeAction[] {
   if (!params.ast || !params.analysis) {
     return [];
@@ -369,6 +370,7 @@ export function createTypeFixCodeActions(params: {
       continue;
     }
     const sourceType = mismatch[1];
+    const targetType = mismatch[2];
     if (!sourceType || sourceType === "unknown") {
       continue;
     }
@@ -423,7 +425,7 @@ export function createTypeFixCodeActions(params: {
     seen.add(key);
 
     actions.push({
-      title: `Change type of '${classResolution.classStatement.name.name}.${memberName}' to '${sourceType}'`,
+      title: `Change type of '${classResolution.classStatement.name.name}.${memberName}: ${targetType}' to '${sourceType}'`,
       kind: CodeActionKind.QuickFix,
       edit: {
         changes: {
@@ -434,7 +436,15 @@ export function createTypeFixCodeActions(params: {
             }
           ]
         }
-      }
+      },
+      ...(params.commandName
+        ? {
+            command: {
+              title: "Refresh diagnostics",
+              command: params.commandName
+            }
+          }
+        : {})
     });
   }
 

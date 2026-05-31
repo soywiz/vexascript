@@ -48,6 +48,7 @@ const connection = createConnection(ProposedFeatures.all, process.stdin, process
 const documents = new TextDocuments(TextDocument);
 const analysisSessions = new AnalysisSessionCache();
 let sourceRoots: string[] = [];
+const REFRESH_DIAGNOSTICS_COMMAND = "mylang.refreshDiagnostics";
 
 function candidateCharacters(character: number): number[] {
   const candidates = [character];
@@ -115,6 +116,9 @@ connection.onInitialize((params) => {
       codeActionProvider: {
         resolveProvider: true
       },
+      executeCommandProvider: {
+        commands: [REFRESH_DIAGNOSTICS_COMMAND]
+      },
       documentFormattingProvider: true,
       definitionProvider: true,
       hoverProvider: true,
@@ -162,6 +166,12 @@ function validateDocument(doc: TextDocument): void {
   connection.sendDiagnostics({ uri: doc.uri, diagnostics });
 }
 
+function validateAllOpenDocuments(): void {
+  for (const document of documents.all()) {
+    validateDocument(document);
+  }
+}
+
 function completionPrefixAt(text: string, offset: number): string {
   let i = Math.max(0, Math.min(offset, text.length));
   while (i > 0) {
@@ -174,10 +184,12 @@ function completionPrefixAt(text: string, offset: number): string {
   return text.slice(i, offset);
 }
 
-documents.onDidOpen((event) => validateDocument(event.document));
-documents.onDidChangeContent((event) => validateDocument(event.document));
+documents.onDidOpen(() => validateAllOpenDocuments());
+documents.onDidChangeContent(() => validateAllOpenDocuments());
 documents.onDidClose((event) => {
   analysisSessions.delete(event.document.uri);
+  connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+  validateAllOpenDocuments();
 });
 
 connection.onCompletion((params) => {
@@ -287,7 +299,8 @@ connection.onCodeAction((params) => {
     analysis: session.analysis,
     diagnostics: params.context.diagnostics,
     sourceRoots,
-    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
+    commandName: REFRESH_DIAGNOSTICS_COMMAND
   });
   actions.push(...typeFixActions);
 
@@ -296,6 +309,12 @@ connection.onCodeAction((params) => {
 
 connection.onCodeActionResolve((action) => {
   return resolveDeferredCodeAction(action);
+});
+
+connection.onExecuteCommand((params) => {
+  if (params.command === REFRESH_DIAGNOSTICS_COMMAND) {
+    validateAllOpenDocuments();
+  }
 });
 
 connection.onDocumentFormatting((params): TextEdit[] => {

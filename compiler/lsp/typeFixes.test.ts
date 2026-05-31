@@ -50,14 +50,15 @@ fun demo() {
       ast: session.ast,
       analysis: session.analysis,
       diagnostics,
-      sourceRoots: [root]
+      sourceRoots: [root],
+      commandName: "mylang.refreshDiagnostics"
     });
 
     expect(actions.length).toBeGreaterThan(0);
     const worldUri = pathToFileURL(worldFile).toString();
     const editText = actions[0]?.edit?.changes?.[worldUri]?.[0]?.newText;
     expect(editText).toBe("string");
-    expect(actions[0]?.title).toContain("Point.y");
+    expect(actions[0]?.title).toBe("Change type of 'Point.y: int' to 'string'");
+    expect(actions[0]?.command?.command).toBe("mylang.refreshDiagnostics");
   });
 });
-
