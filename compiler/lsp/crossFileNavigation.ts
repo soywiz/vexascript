@@ -36,6 +36,45 @@ interface CanonicalSymbol {
   };
 }
 
+function localReferencesFromContext(
+  context: ResolveContext,
+  includeDeclaration: boolean
+): Location[] {
+  if (!context.session.analysis) {
+    return [];
+  }
+  const ranges = context.session.analysis.getReferenceRangesAt(
+    context.line,
+    context.character,
+    includeDeclaration
+  );
+  return ranges.map((range) => ({
+    uri: context.uri,
+    range
+  }));
+}
+
+function localRenameWorkspaceEdit(context: ResolveContext, newName: string): WorkspaceEdit | null {
+  if (!context.session.analysis) {
+    return null;
+  }
+  const ranges = context.session.analysis.getRenameRangesAt(
+    context.line,
+    context.character
+  );
+  if (ranges.length === 0) {
+    return null;
+  }
+  return {
+    changes: {
+      [context.uri]: ranges.map((range) => ({
+        range,
+        newText: newName
+      }))
+    }
+  };
+}
+
 function nodeToRange(node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } }) {
   if (!node.firstToken || !node.lastToken) {
     return null;
@@ -286,9 +325,10 @@ export function resolveReferencesAcrossFiles(
   context: ResolveContext,
   includeDeclaration: boolean
 ): Location[] {
+  const localFallbackReferences = localReferencesFromContext(context, includeDeclaration);
   const symbol = resolveCanonicalSymbol(context);
   if (!symbol) {
-    return [];
+    return localFallbackReferences;
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(symbol.filePath)];
@@ -316,6 +356,9 @@ export function resolveReferencesAcrossFiles(
       const declaration = findTopLevelDeclarationByName(session.ast, symbol.name);
       const declarationRange = declaration ? declarationRangeForName(declaration, symbol.name) : null;
       if (!declarationRange) {
+        for (const location of localFallbackReferences) {
+          addLocation(location.uri, location.range);
+        }
         continue;
       }
 
@@ -358,7 +401,7 @@ export function resolveRenameAcrossFiles(
 ): WorkspaceEdit | null {
   const locations = resolveReferencesAcrossFiles(context, true);
   if (locations.length === 0) {
-    return null;
+    return localRenameWorkspaceEdit(context, newName);
   }
 
   const changes: Record<string, Array<{ range: Location["range"]; newText: string }>> = {};
@@ -372,5 +415,8 @@ export function resolveRenameAcrossFiles(
     });
   }
 
+  if (Object.keys(changes).length === 0) {
+    return localRenameWorkspaceEdit(context, newName);
+  }
   return { changes };
 }

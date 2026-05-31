@@ -144,4 +144,87 @@ describe("cross-file navigation", () => {
       ]
     });
   });
+
+  it("renames local function parameter symbols in the same file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const file = join(root, "local.my");
+    const source = `fun demo(arg: number) {
+  return arg + arg
+}
+`;
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const edit = resolveRenameAcrossFiles(
+      {
+        uri: pathToFileURL(file).toString(),
+        line: 1,
+        character: 10,
+        session,
+        sourceRoots: [root]
+      },
+      "value"
+    );
+
+    expect(edit?.changes).toEqual({
+      [pathToFileURL(file).toString()]: [
+        {
+          range: {
+            start: { line: 0, character: 9 },
+            end: { line: 0, character: 12 }
+          },
+          newText: "value"
+        },
+        {
+          range: {
+            start: { line: 1, character: 9 },
+            end: { line: 1, character: 12 }
+          },
+          newText: "value"
+        },
+        {
+          range: {
+            start: { line: 1, character: 15 },
+            end: { line: 1, character: 18 }
+          },
+          newText: "value"
+        }
+      ]
+    });
+  });
+
+  it("renames from the parameter declaration position even without extra files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const file = join(root, "decl.my");
+    const source = `fun test3(a: string, b: int, arg3: int, arg4: int) {
+}
+`;
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const edit = resolveRenameAcrossFiles(
+      {
+        uri: pathToFileURL(file).toString(),
+        line: 0,
+        character: 10,
+        session,
+        sourceRoots: [root]
+      },
+      "renamed"
+    );
+
+    expect(edit?.changes).toEqual({
+      [pathToFileURL(file).toString()]: [
+        {
+          range: {
+            start: { line: 0, character: 10 },
+            end: { line: 0, character: 11 }
+          },
+          newText: "renamed"
+        }
+      ]
+    });
+  });
 });
