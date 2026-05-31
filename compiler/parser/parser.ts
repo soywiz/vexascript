@@ -54,10 +54,41 @@ import {
 
 type BinaryOperator = BinaryExpression["operator"];
 type AssignmentOperator = AssignmentExpression["operator"];
+type BinaryAssoc = "left" | "right";
+type InfixOperator = BinaryOperator | "...";
 
 const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="];
 const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
 const FUNCTION_DECLARATION_KEYWORDS: readonly FunctionDeclarationKind[] = ["fun", "function"];
+
+const BINARY_OPERATOR_INFO: Record<InfixOperator, { precedence: number; assoc: BinaryAssoc }> = {
+    "||": { precedence: 1, assoc: "left" },
+    "??": { precedence: 1, assoc: "left" },
+    "&&": { precedence: 2, assoc: "left" },
+    "|": { precedence: 3, assoc: "left" },
+    "^": { precedence: 4, assoc: "left" },
+    "&": { precedence: 5, assoc: "left" },
+    "==": { precedence: 6, assoc: "left" },
+    "!=": { precedence: 6, assoc: "left" },
+    "===": { precedence: 6, assoc: "left" },
+    "!==": { precedence: 6, assoc: "left" },
+    "<": { precedence: 7, assoc: "left" },
+    ">": { precedence: 7, assoc: "left" },
+    "<=": { precedence: 7, assoc: "left" },
+    ">=": { precedence: 7, assoc: "left" },
+    "in": { precedence: 7, assoc: "left" },
+    "instanceof": { precedence: 7, assoc: "left" },
+    "<<": { precedence: 8, assoc: "left" },
+    ">>": { precedence: 8, assoc: "left" },
+    ">>>": { precedence: 8, assoc: "left" },
+    "...": { precedence: 9, assoc: "left" },
+    "+": { precedence: 10, assoc: "left" },
+    "-": { precedence: 10, assoc: "left" },
+    "*": { precedence: 11, assoc: "left" },
+    "/": { precedence: 11, assoc: "left" },
+    "%": { precedence: 11, assoc: "left" },
+    "**": { precedence: 12, assoc: "right" }
+};
 
 export type ParseLanguage = "mylang" | "typescript";
 
@@ -752,21 +783,52 @@ export class Parser {
         } as BinaryExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
     }
 
-    private parseLeftAssociative(
-        operators: readonly BinaryOperator[],
-        parseNext: () => Expr
-    ): Expr {
-        let left = parseNext();
+    private binaryOperatorFromToken(token: Token | undefined): InfixOperator | undefined {
+        if (!token) {
+            return undefined;
+        }
+
+        if (token.type === "symbol") {
+            const candidate = token.value as InfixOperator;
+            return candidate in BINARY_OPERATOR_INFO ? candidate : undefined;
+        }
+
+        if (token.type === "identifier" && (token.value === "in" || token.value === "instanceof")) {
+            return token.value as BinaryOperator;
+        }
+
+        return undefined;
+    }
+
+    private parseBinaryExpression(minPrecedence: number = 1): Expr {
+        let left = this.parseUnary();
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (token?.type !== "symbol" || !operators.includes(token.value as BinaryOperator)) {
+            const operator = this.binaryOperatorFromToken(token);
+            if (!operator) {
+                break;
+            }
+
+            const info = BINARY_OPERATOR_INFO[operator];
+            if (!info || info.precedence < minPrecedence) {
                 break;
             }
 
             this.tokens.skip();
-            const right = parseNext();
-            left = this.buildBinary(token.value as BinaryOperator, left, right);
+            const nextMinPrecedence = info.assoc === "left" ? info.precedence + 1 : info.precedence;
+            const right = this.parseBinaryExpression(nextMinPrecedence);
+
+            if (operator === "...") {
+                left = this.attachNodeBounds({
+                    kind: "RangeExpression",
+                    start: left,
+                    end: right
+                } as RangeExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
+                continue;
+            }
+
+            left = this.buildBinary(operator, left, right);
         }
 
         return left;
@@ -1101,92 +1163,8 @@ export class Parser {
         return this.parsePostfix();
     }
 
-    private parseExponentiation(): Expr {
-        const left = this.parseUnary();
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "**") {
-            this.tokens.skip();
-            const right = this.parseExponentiation();
-            return this.buildBinary("**", left, right);
-        }
-        return left;
-    }
-
-    private parseMultiplicative(): Expr {
-        return this.parseLeftAssociative(["*", "/", "%"], () => this.parseExponentiation());
-    }
-
-    private parseAdditive(): Expr {
-        return this.parseLeftAssociative(["+", "-"], () => this.parseMultiplicative());
-    }
-
-    private parseRange(): Expr {
-        let left = this.parseAdditive();
-
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "...") {
-            this.tokens.skip();
-            const right = this.parseAdditive();
-            left = this.attachNodeBounds({
-                kind: "RangeExpression",
-                start: left,
-                end: right
-            } as RangeExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
-        }
-
-        return left;
-    }
-
-    private parseShift(): Expr {
-        return this.parseLeftAssociative(["<<", ">>", ">>>"], () => this.parseRange());
-    }
-
-    private parseRelational(): Expr {
-        let left = this.parseShift();
-
-        while (this.tokens.hasMore) {
-            const token = this.tokens.peek();
-            if (
-                !(
-                    (token?.type === "symbol" && (token.value === "<" || token.value === ">" || token.value === "<=" || token.value === ">=")) ||
-                    (token?.type === "identifier" && (token.value === "in" || token.value === "instanceof"))
-                )
-            ) {
-                break;
-            }
-
-            this.tokens.skip();
-            const right = this.parseShift();
-            left = this.buildBinary(token.value as BinaryOperator, left, right);
-        }
-
-        return left;
-    }
-
-    private parseEquality(): Expr {
-        return this.parseLeftAssociative(["==", "!=", "===", "!=="], () => this.parseRelational());
-    }
-
-    private parseBitwiseAnd(): Expr {
-        return this.parseLeftAssociative(["&"], () => this.parseEquality());
-    }
-
-    private parseBitwiseXor(): Expr {
-        return this.parseLeftAssociative(["^"], () => this.parseBitwiseAnd());
-    }
-
-    private parseBitwiseOr(): Expr {
-        return this.parseLeftAssociative(["|"], () => this.parseBitwiseXor());
-    }
-
-    private parseLogicalAnd(): Expr {
-        return this.parseLeftAssociative(["&&"], () => this.parseBitwiseOr());
-    }
-
-    private parseLogicalOr(): Expr {
-        return this.parseLeftAssociative(["||", "??"], () => this.parseLogicalAnd());
-    }
-
     private parseConditional(): Expr {
-        const test = this.parseLogicalOr();
+        const test = this.parseBinaryExpression();
         const maybeQuestion = this.tokens.peek();
         if (!(maybeQuestion?.type === "symbol" && maybeQuestion.value === "?")) {
             return test;
