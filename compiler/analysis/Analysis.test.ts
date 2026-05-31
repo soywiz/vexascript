@@ -295,6 +295,18 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("'Point'"))).toBe(false);
   });
 
+  it("infers imported class instance type from new expressions", () => {
+    const source =
+      "import { MyPoint } from \"./world\"\n" +
+      "fun demo() {\n" +
+      "  const point = new MyPoint()\n" +
+      "  return point\n" +
+      "}\n";
+    const symbols = symbolsOfVisibleSymbolsAt(source, 3, 10);
+
+    expect(symbols.get("point")?.valueType).toBe("MyPoint");
+  });
+
   it("infers class type for new expressions", () => {
     const source =
       "class Point\n" +

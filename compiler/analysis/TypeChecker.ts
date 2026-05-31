@@ -416,6 +416,16 @@ export class TypeChecker {
         for (const argument of newExpression.arguments ?? []) {
           this.visitExpression(argument, scope);
         }
+        if (!isUnknownType(calleeType)) {
+          result = calleeType;
+          break;
+        }
+
+        if (newExpression.callee.kind === "Identifier") {
+          result = namedType(newExpression.callee.name);
+          break;
+        }
+
         result = calleeType;
         break;
       }
