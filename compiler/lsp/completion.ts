@@ -31,6 +31,7 @@ import type {
 } from "compiler/ast/ast";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
+import { typeToString } from "compiler/analysis/types";
 import type { AutoImportSuggestion } from "./importFixes";
 import {
   resolveCallableSignature,
@@ -120,6 +121,7 @@ function parseMemberAccessTarget(
 
 function buildClassMemberCompletionItems(
   classStatement: ClassStatement,
+  objectTypeName: string | undefined,
   prefix: string
 ): CompletionItem[] {
   const items: CompletionItem[] = [];
@@ -138,7 +140,7 @@ function buildClassMemberCompletionItems(
   };
 
   for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-    const resolved = resolveClassMember(classStatement, parameter.name.name);
+    const resolved = resolveClassMember(classStatement, parameter.name.name, objectTypeName);
     pushItem({
       label: parameter.name.name,
       kind: CompletionItemKind.Field,
@@ -147,7 +149,7 @@ function buildClassMemberCompletionItems(
   }
 
   for (const member of classStatement.members) {
-    const resolved = resolveClassMember(classStatement, member.name.name);
+    const resolved = resolveClassMember(classStatement, member.name.name, objectTypeName);
     if (member.kind === "ClassFieldMember") {
       pushItem({
         label: member.name.name,
@@ -482,11 +484,11 @@ function inferExpectedTypeForPosition(
 }
 
 function symbolTypeName(symbol: AnalysisSymbol): string | null {
-  if (symbol.type?.kind === "builtin") {
-    return symbol.type.name;
+  if (symbol.valueType && symbol.valueType !== "unknown") {
+    return symbol.valueType;
   }
-  if (symbol.type?.kind === "named") {
-    return symbol.type.name;
+  if (symbol.type) {
+    return typeToString(symbol.type);
   }
   return null;
 }
@@ -647,27 +649,37 @@ function resolveTypeNameFromPath(
     return null;
   }
 
+  const parseTypeNameShape = (typeName: string): { baseName: string } => {
+    const genericStart = typeName.indexOf("<");
+    if (genericStart < 0 || !typeName.endsWith(">")) {
+      return { baseName: typeName.trim() };
+    }
+    return { baseName: typeName.slice(0, genericStart).trim() };
+  };
+
+  const typeNameFromSymbol = (symbol: AnalysisSymbol): string | null => {
+    if (symbol.valueType && symbol.valueType !== "unknown") {
+      return symbol.valueType;
+    }
+    if (symbol.type) {
+      return typeToString(symbol.type);
+    }
+    return null;
+  };
+
   const symbolMatch = analysis.getSymbolAt(line, Math.max(0, objectStartCharacter));
   let currentTypeName: string | null = null;
 
   const resolvedSymbolMatch = symbolMatch;
   if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === pathSegments[0]) {
-    if (resolvedSymbolMatch.symbol.type?.kind === "named") {
-      currentTypeName = resolvedSymbolMatch.symbol.type.name;
-    } else if (resolvedSymbolMatch.symbol.type?.kind === "builtin") {
-      currentTypeName = resolvedSymbolMatch.symbol.type.name;
-    }
+    currentTypeName = typeNameFromSymbol(resolvedSymbolMatch.symbol);
   } else {
     const visibleSymbols = analysis.getVisibleSymbolsAt(line, objectStartCharacter);
     const symbol = visibleSymbols.find((candidate) => candidate.name === pathSegments[0]);
     if (!symbol) {
       return null;
     }
-    if (symbol.type?.kind === "named") {
-      currentTypeName = symbol.type.name;
-    } else if (symbol.type?.kind === "builtin") {
-      currentTypeName = symbol.type.name;
-    }
+    currentTypeName = typeNameFromSymbol(symbol);
   }
 
   if (!currentTypeName || currentTypeName === "unknown") {
@@ -683,11 +695,12 @@ function resolveTypeNameFromPath(
     if (!memberName || !currentTypeName) {
       return null;
     }
-    const classResolution = resolveClassStatementAcrossFiles(ast, currentTypeName, resolverOptions);
+    const parsedTypeName = parseTypeNameShape(currentTypeName);
+    const classResolution = resolveClassStatementAcrossFiles(ast, parsedTypeName.baseName, resolverOptions);
     if (!classResolution) {
       return null;
     }
-    const member = resolveClassMember(classResolution.classStatement, memberName);
+    const member = resolveClassMember(classResolution.classStatement, memberName, currentTypeName);
     if (!member) {
       return null;
     }
@@ -726,16 +739,21 @@ function buildMemberAccessCompletions(
     return null;
   }
 
+  const genericStart = className.indexOf("<");
+  const classBaseName =
+    genericStart < 0 || !className.endsWith(">")
+      ? className
+      : className.slice(0, genericStart).trim();
   const classStatement = resolveClassStatementAcrossFiles(
     ast,
-    className,
+    classBaseName,
     classResolverOptionsFromCompletionOptions(options)
   )?.classStatement;
   if (!classStatement) {
     return null;
   }
 
-  return buildClassMemberCompletionItems(classStatement, target.prefix);
+  return buildClassMemberCompletionItems(classStatement, className, target.prefix);
 }
 
 export function createCompletionItemsForPosition(

@@ -126,6 +126,40 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("provides specialized hover info for generic member access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const file = join(root, "generic.my");
+    const source =
+      "class Map<K, V> {\n" +
+      "  a: K\n" +
+      "  b: V\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const map = new Map<string, int>()\n" +
+      "  map.a\n" +
+      "}\n";
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const hover = resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 6,
+      character: 7,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "member Map<string, int>.a: string"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 6, character: 6 },
+      end: { line: 6, character: 7 }
+    });
+  });
+
   it("finds references across importer files", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const fileA = join(root, "a.my");

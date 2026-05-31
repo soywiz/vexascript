@@ -74,6 +74,104 @@ export interface ResolvedConstructorSignature {
   parameters: ResolvedParameter[];
 }
 
+function splitTypeArgumentText(argumentBody: string): string[] {
+  if (argumentBody.length === 0) {
+    return [];
+  }
+
+  const args: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of argumentBody) {
+    if (ch === "<") {
+      depth += 1;
+      current += ch;
+      continue;
+    }
+    if (ch === ">") {
+      depth = Math.max(0, depth - 1);
+      current += ch;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      if (current.trim().length > 0) {
+        args.push(current.trim());
+      }
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim().length > 0) {
+    args.push(current.trim());
+  }
+  return args;
+}
+
+function parseTypeNameShape(typeName: string): {
+  baseName: string;
+  typeArguments: string[];
+  arrayDepth: number;
+} {
+  let remaining = typeName.trim();
+  let arrayDepth = 0;
+  while (remaining.endsWith("[]")) {
+    arrayDepth += 1;
+    remaining = remaining.slice(0, -2).trim();
+  }
+
+  const genericStart = remaining.indexOf("<");
+  if (genericStart < 0 || !remaining.endsWith(">")) {
+    return { baseName: remaining, typeArguments: [], arrayDepth };
+  }
+
+  const baseName = remaining.slice(0, genericStart).trim();
+  const argumentBody = remaining.slice(genericStart + 1, -1).trim();
+  return {
+    baseName,
+    typeArguments: splitTypeArgumentText(argumentBody),
+    arrayDepth
+  };
+}
+
+function substituteTypeNameText(typeName: string, substitutions: Map<string, string>): string {
+  const parsed = parseTypeNameShape(typeName);
+  const substitutedBase = substitutions.get(parsed.baseName) ?? parsed.baseName;
+  const substitutedArgs = parsed.typeArguments.map((argument) =>
+    substituteTypeNameText(argument, substitutions)
+  );
+  let substituted =
+    substitutedArgs.length > 0
+      ? `${substitutedBase}<${substitutedArgs.join(", ")}>`
+      : substitutedBase;
+  for (let i = 0; i < parsed.arrayDepth; i += 1) {
+    substituted += "[]";
+  }
+  return substituted;
+}
+
+function typeParameterSubstitutions(
+  classStatement: ClassStatement,
+  objectTypeName: string | undefined
+): Map<string, string> {
+  const substitutions = new Map<string, string>();
+  if (!objectTypeName) {
+    return substitutions;
+  }
+
+  const parsedObjectType = parseTypeNameShape(objectTypeName);
+  const typeParameters = classStatement.typeParameters ?? [];
+  for (let i = 0; i < typeParameters.length; i += 1) {
+    const parameterName = typeParameters[i]?.name.name;
+    if (!parameterName) {
+      continue;
+    }
+    substitutions.set(parameterName, parsedObjectType.typeArguments[i] ?? parameterName);
+  }
+
+  return substitutions;
+}
+
 function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
@@ -176,7 +274,7 @@ function typeNameFromAnalysisType(type: AnalysisType | undefined): string | null
     return type.name;
   }
   if (type.kind === "named") {
-    return type.name;
+    return typeToString(type);
   }
   return typeToString(type);
 }
@@ -210,13 +308,16 @@ function readDocumentationFromIdentifier(identifier: Identifier): string | undef
 
 export function resolveClassMember(
   classStatement: ClassStatement,
-  memberName: string
+  memberName: string,
+  objectTypeName?: string
 ): ResolvedClassMember | null {
+  const substitutions = typeParameterSubstitutions(classStatement, objectTypeName);
+
   for (const parameter of classStatement.primaryConstructorParameters ?? []) {
     if (parameter.name.name !== memberName) {
       continue;
     }
-    const typeName = parameter.typeAnnotation?.name ?? "unknown";
+    const typeName = substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions);
     const documentation = readDocumentationFromIdentifier(parameter.name);
     const result: ResolvedClassMember = {
       className: classStatement.name.name,
@@ -240,7 +341,7 @@ export function resolveClassMember(
         className: classStatement.name.name,
         memberName,
         kind: "field",
-        typeName: member.typeAnnotation?.name ?? "unknown"
+        typeName: substituteTypeNameText(member.typeAnnotation?.name ?? "unknown", substitutions)
       };
       if (documentation) {
         result.documentation = documentation;
@@ -250,10 +351,10 @@ export function resolveClassMember(
 
     const parameters: ResolvedParameter[] = member.parameters.map((parameter) => ({
       name: parameter.name.name,
-      typeName: parameter.typeAnnotation?.name ?? "unknown",
+      typeName: substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions),
       optional: parameter.optional === true || parameter.defaultValue !== undefined
     }));
-    const returnTypeName = member.returnType?.name ?? "unknown";
+    const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "unknown", substitutions);
     const documentation = readDocumentationFromIdentifier(member.name);
     const signature: ResolvedFunctionSignature = {
       name: member.name.name,
@@ -310,7 +411,12 @@ export function resolveExpressionTypeName(
   if (expression.kind === "NewExpression") {
     const newExpression = expression as NewExpression;
     if (newExpression.callee.kind === "Identifier") {
-      return (newExpression.callee as Identifier).name;
+      const baseName = (newExpression.callee as Identifier).name;
+      const typeArguments = (newExpression.typeArguments ?? []).map((typeArgument) => typeArgument.name);
+      if (typeArguments.length > 0) {
+        return `${baseName}<${typeArguments.join(", ")}>`;
+      }
+      return baseName;
     }
     return null;
   }
@@ -406,17 +512,19 @@ export function resolveExpressionTypeName(
   }
 
   const objectTypeName = resolveExpressionTypeName(member.object, analysis, ast, options);
-  if (!objectTypeName || BUILTIN_TYPE_NAMES.has(objectTypeName)) {
+  const parsedObjectType = objectTypeName ? parseTypeNameShape(objectTypeName) : null;
+  if (!parsedObjectType || BUILTIN_TYPE_NAMES.has(parsedObjectType.baseName)) {
     return null;
   }
 
-  const classResolution = resolveClassStatementAcrossFiles(ast, objectTypeName, options);
+  const classResolution = resolveClassStatementAcrossFiles(ast, parsedObjectType.baseName, options);
   if (!classResolution) {
     return null;
   }
   const memberResolution = resolveClassMember(
     classResolution.classStatement,
-    (member.property as Identifier).name
+    (member.property as Identifier).name,
+    objectTypeName ?? undefined
   );
   if (!memberResolution) {
     return null;
@@ -469,18 +577,20 @@ export function resolveCallableSignature(
   }
 
   const objectTypeName = resolveExpressionTypeName(member.object, analysis, ast, options);
-  if (!objectTypeName || BUILTIN_TYPE_NAMES.has(objectTypeName)) {
+  const parsedObjectType = objectTypeName ? parseTypeNameShape(objectTypeName) : null;
+  if (!parsedObjectType || BUILTIN_TYPE_NAMES.has(parsedObjectType.baseName)) {
     return null;
   }
 
-  const classResolution = resolveClassStatementAcrossFiles(ast, objectTypeName, options);
+  const classResolution = resolveClassStatementAcrossFiles(ast, parsedObjectType.baseName, options);
   if (!classResolution) {
     return null;
   }
 
   const memberResolution = resolveClassMember(
     classResolution.classStatement,
-    (member.property as Identifier).name
+    (member.property as Identifier).name,
+    objectTypeName ?? undefined
   );
   if (!memberResolution || memberResolution.kind !== "method" || !memberResolution.signature) {
     return null;

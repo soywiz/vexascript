@@ -130,6 +130,33 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("holder");
   });
 
+  it("resolves specialized generic member types in completion details", () => {
+    const source =
+      "class Map<K, V> {\n" +
+      "  a: K\n" +
+      "  b: V\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const map = new Map<string, int>()\n" +
+      "  map.a\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const items = createCompletionItemsForPosition(
+      session.ast!,
+      6,
+      7,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("a")?.detail).toBe("Class property: string");
+  });
+
   it("ranks in-scope symbols by nearest scope distance", () => {
     const source =
       "let top = 1\n" +

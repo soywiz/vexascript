@@ -60,6 +60,17 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("provides specialized generic type hover for inferred variables", () => {
+    const source = "class Map<K, V> { a: K }\nfun demo() {\n  const map = new Map<string, int>()\n}\n";
+    const analysis = analysisOf(source);
+
+    const symbolHover = createHover(analysis, 2, 8);
+    expect(symbolHover?.contents).toEqual({
+      kind: "plaintext",
+      value: "variable map: Map<string, int>"
+    });
+  });
+
   it("supports prepare rename and rename workspace edits", () => {
     const source = "fun demo() {\n  let local = 1\n  return local\n}\n";
     const analysis = analysisOf(source);

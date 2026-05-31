@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
+import { typeToString } from "compiler/analysis/types";
 import type {
   ArrayLiteral,
   AssignmentExpression,
@@ -35,6 +36,7 @@ import type {
 } from "compiler/ast/ast";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
+import { resolveClassMember } from "./classResolver";
 import {
   getProjectIndex,
   getProjectSessionForFilePath,
@@ -1137,17 +1139,23 @@ export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | 
   }
 
   const memberName = (memberExpression.property as Identifier).name;
-  const memberInfo = classMemberInfoByName(classResolution.classStatement, memberName);
-  if (!memberInfo) {
+  const resolvedMember = resolveClassMember(
+    classResolution.classStatement,
+    memberName,
+    typeToString(objectType)
+  );
+  if (!resolvedMember) {
     return null;
   }
+  const prefix = resolvedMember.kind === "method" ? "method" : "member";
 
+  const memberRange = nodeToRange(memberExpression.property) ?? nodeToRange(memberExpression);
   return {
     contents: {
       kind: "plaintext",
-      value: createMemberHoverContents(objectType.name, memberInfo)
+      value: `${prefix} ${typeToString(objectType)}.${memberName}: ${resolvedMember.typeName}`
     },
-    range: nodeToRange(memberExpression.property) ?? memberInfo.range
+    ...(memberRange ? { range: memberRange } : {})
   };
 }
 
