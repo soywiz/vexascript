@@ -12,6 +12,7 @@ import type {
   Expr,
   ExprStatement,
   ForStatement,
+  FunctionParameter,
   FunctionStatement,
   Identifier,
   IfStatement,
@@ -46,6 +47,12 @@ interface NodeRange {
 interface CallArgumentMatch {
   call: CallExpression;
   argumentIndex: number;
+}
+
+interface CallFixContext {
+  call: CallExpression;
+  argumentIndex: number;
+  functionDeclaration: FunctionStatement;
 }
 
 function nodeRange(node: {
@@ -395,6 +402,52 @@ function findFunctionDeclarationByNameNode(
   return null;
 }
 
+function isFunctionCallDiagnostic(diagnostic: Diagnostic): boolean {
+  if (diagnostic.source !== "mylang-sema") {
+    return false;
+  }
+  return (
+    diagnostic.message.startsWith("Expected at least ") ||
+    diagnostic.message.startsWith("Expected at most ") ||
+    diagnostic.message.startsWith("Unexpected argument ") ||
+    diagnostic.message.startsWith("Argument ")
+  );
+}
+
+function resolveCallFixContext(
+  ast: Program,
+  analysis: Analysis,
+  position: Position
+): CallFixContext | null {
+  const callArgumentMatch = findCallArgumentAtPosition(ast, position);
+  if (!callArgumentMatch) {
+    return null;
+  }
+
+  const calleeToken = callArgumentMatch.call.callee.firstToken;
+  if (!calleeToken) {
+    return null;
+  }
+  const symbolMatch = analysis.getSymbolAt(calleeToken.range.start.line, calleeToken.range.start.column);
+  if (!symbolMatch || symbolMatch.symbol.kind !== "function" || symbolMatch.symbol.node.kind !== "Identifier") {
+    return null;
+  }
+
+  const functionDeclaration = findFunctionDeclarationByNameNode(
+    ast,
+    symbolMatch.symbol.node as Identifier
+  );
+  if (!functionDeclaration) {
+    return null;
+  }
+
+  return {
+    call: callArgumentMatch.call,
+    argumentIndex: callArgumentMatch.argumentIndex,
+    functionDeclaration
+  };
+}
+
 function toTypeAnnotation(type: AnalysisType | undefined): string | null {
   if (!type) {
     return null;
@@ -625,6 +678,144 @@ function mismatchArgumentQuickFix(params: {
   };
 }
 
+function typeInsertionOffsetForParameter(parameter: FunctionParameter, text: string): number | null {
+  const nameEnd = parameter.name.lastToken?.range.end.offset;
+  if (nameEnd === undefined) {
+    return null;
+  }
+  if (parameter.optional && text[nameEnd] === "?") {
+    return nameEnd + 1;
+  }
+  return nameEnd;
+}
+
+function changeSignatureQuickFix(params: {
+  uri: string;
+  text: string;
+  analysis: Analysis;
+  call: CallExpression;
+  functionDeclaration: FunctionStatement;
+}): CodeAction | null {
+  const { uri, text, analysis, call, functionDeclaration } = params;
+  const edits: Array<{ range: Range; newText: string }> = [];
+  const expressionTypes = analysis.getExpressionTypes();
+  const existing = functionDeclaration.parameters;
+  const provided = call.arguments;
+
+  for (let index = 0; index < existing.length; index += 1) {
+    const parameter = existing[index]!;
+    const argument = provided[index];
+    const hasArgument = argument !== undefined;
+
+    const shouldMakeOptional =
+      !hasArgument && !parameter.optional && parameter.defaultValue === undefined;
+
+    if (parameter.typeAnnotation) {
+      if (hasArgument) {
+        const inferred = toTypeAnnotation(expressionTypes.get(argument!));
+        if (inferred && parameter.typeAnnotation.name !== inferred) {
+          edits.push({
+            range: {
+              start: {
+                line: parameter.typeAnnotation.firstToken!.range.start.line,
+                character: parameter.typeAnnotation.firstToken!.range.start.column
+              },
+              end: {
+                line: parameter.typeAnnotation.lastToken!.range.end.line,
+                character: parameter.typeAnnotation.lastToken!.range.end.column
+              }
+            },
+            newText: inferred
+          });
+        }
+      }
+
+      if (shouldMakeOptional) {
+        const offset = parameter.name.lastToken?.range.end.offset;
+        if (offset !== undefined) {
+          edits.push({
+            range: rangeAtOffset(text, offset),
+            newText: "?"
+          });
+        }
+      }
+      continue;
+    }
+
+    const inferred = hasArgument ? toTypeAnnotation(expressionTypes.get(argument!)) : null;
+    if (!shouldMakeOptional && !inferred) {
+      continue;
+    }
+
+    const nameEnd = parameter.name.lastToken?.range.end.offset;
+    if (nameEnd === undefined) {
+      continue;
+    }
+
+    if (shouldMakeOptional && inferred) {
+      edits.push({
+        range: rangeAtOffset(text, nameEnd),
+        newText: `?: ${inferred}`
+      });
+      continue;
+    }
+
+    if (shouldMakeOptional) {
+      edits.push({
+        range: rangeAtOffset(text, nameEnd),
+        newText: "?"
+      });
+      continue;
+    }
+
+    if (inferred) {
+      const typeOffset = typeInsertionOffsetForParameter(parameter, text);
+      if (typeOffset !== null) {
+        edits.push({
+          range: rangeAtOffset(text, typeOffset),
+          newText: `: ${inferred}`
+        });
+      }
+    }
+  }
+
+  if (provided.length > existing.length) {
+    const parens = findFunctionParens(functionDeclaration, text);
+    if (parens) {
+      const usedNames = new Set(existing.map((parameter) => parameter.name.name));
+      const additions: string[] = [];
+      for (let index = existing.length; index < provided.length; index += 1) {
+        const argument = provided[index]!;
+        const rawName = argument.kind === "Identifier" ? (argument as Identifier).name : `arg${index + 1}`;
+        const parameterName = uniqueParameterName(rawName, usedNames);
+        const inferred = toTypeAnnotation(expressionTypes.get(argument));
+        additions.push(inferred ? `${parameterName}?: ${inferred}` : `${parameterName}?`);
+      }
+
+      if (additions.length > 0) {
+        edits.push({
+          range: rangeAtOffset(text, parens.closeOffset),
+          newText: `${existing.length > 0 ? ", " : ""}${additions.join(", ")}`
+        });
+      }
+    }
+  }
+
+  if (edits.length === 0) {
+    return null;
+  }
+
+  return {
+    title: `Change signature of '${functionDeclaration.name.name}' to match this call`,
+    kind: CodeActionKind.RefactorRewrite,
+    edit: {
+      changes: {
+        [uri]: edits
+      }
+    }
+  };
+}
+
 function dedupeActions(actions: CodeAction[]): CodeAction[] {
   const seen = new Set<string>();
   const deduped: CodeAction[] = [];
@@ -643,13 +834,7 @@ function dedupeActions(actions: CodeAction[]): CodeAction[] {
 }
 
 function shouldConsiderDiagnostic(diagnostic: Diagnostic): boolean {
-  if (diagnostic.source !== "mylang-sema") {
-    return false;
-  }
-  return (
-    diagnostic.message.startsWith("Unexpected argument ") ||
-    diagnostic.message.startsWith("Argument ")
-  );
+  return isFunctionCallDiagnostic(diagnostic);
 }
 
 export function createCallFixCodeActions(params: {
@@ -665,6 +850,7 @@ export function createCallFixCodeActions(params: {
   }
 
   const actions: CodeAction[] = [];
+  const producedChangeSignatureKeys = new Set<string>();
   for (const diagnostic of diagnostics) {
     if (!shouldConsiderDiagnostic(diagnostic)) {
       continue;
@@ -673,26 +859,26 @@ export function createCallFixCodeActions(params: {
       line: diagnostic.range.start.line,
       character: diagnostic.range.start.character
     };
-    const callArgumentMatch = findCallArgumentAtPosition(ast, position);
-    if (!callArgumentMatch) {
+    const context = resolveCallFixContext(ast, analysis, position);
+    if (!context) {
       continue;
     }
 
-    const calleeToken = callArgumentMatch.call.callee.firstToken;
-    if (!calleeToken) {
-      continue;
-    }
-    const symbolMatch = analysis.getSymbolAt(calleeToken.range.start.line, calleeToken.range.start.column);
-    if (!symbolMatch || symbolMatch.symbol.kind !== "function" || symbolMatch.symbol.node.kind !== "Identifier") {
-      continue;
-    }
-
-    const functionDeclaration = findFunctionDeclarationByNameNode(
-      ast,
-      symbolMatch.symbol.node as Identifier
-    );
-    if (!functionDeclaration) {
-      continue;
+    const callStartOffset = context.call.firstToken?.range.start.offset ?? -1;
+    const functionName = context.functionDeclaration.name.name;
+    const signatureKey = `${callStartOffset}:${functionName}`;
+    if (!producedChangeSignatureKeys.has(signatureKey)) {
+      const changeSignature = changeSignatureQuickFix({
+        uri,
+        text,
+        analysis,
+        call: context.call,
+        functionDeclaration: context.functionDeclaration
+      });
+      if (changeSignature) {
+        actions.push(changeSignature);
+      }
+      producedChangeSignatureKeys.add(signatureKey);
     }
 
     if (diagnostic.message.startsWith("Unexpected argument ")) {
@@ -700,8 +886,8 @@ export function createCallFixCodeActions(params: {
         uri,
         text,
         analysis,
-        call: callArgumentMatch.call,
-        functionDeclaration
+        call: context.call,
+        functionDeclaration: context.functionDeclaration
       });
       if (action) {
         actions.push(action);
@@ -714,9 +900,9 @@ export function createCallFixCodeActions(params: {
         uri,
         text,
         analysis,
-        call: callArgumentMatch.call,
-        argumentIndex: callArgumentMatch.argumentIndex,
-        functionDeclaration
+        call: context.call,
+        argumentIndex: context.argumentIndex,
+        functionDeclaration: context.functionDeclaration
       });
       if (action) {
         actions.push(action);

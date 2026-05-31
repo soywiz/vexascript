@@ -39,6 +39,7 @@ export class TokenizeError extends Error {
 const CODE_SPACE = 32; // " "
 const CODE_BANG = 33; // !
 const CODE_DOUBLE_QUOTE = 34; // "
+const CODE_DOLLAR = 36; // $
 const CODE_E_UPPER = 69; // E
 const CODE_PERCENT = 37; // %
 const CODE_AMPERSAND = 38; // &
@@ -61,6 +62,7 @@ const CODE_N_UPPER = 78; // N
 const CODE_Z_UPPER = 90; // Z
 const CODE_BACKSLASH = 92; // \
 const CODE_UNDERSCORE = 95; // _
+const CODE_BACKTICK = 96; // `
 const CODE_A_LOWER = 97; // a
 const CODE_E_LOWER = 101; // e
 const CODE_F_LOWER = 102; // f
@@ -322,6 +324,227 @@ function readEscapedString(reader: StrReader, quoteCode: number, start: SourcePo
   });
 }
 
+type TokenFragment = Omit<Token, "index">;
+
+function syntheticRangeAt(position: SourcePosition): SourceRange {
+  return {
+    start: position,
+    end: position
+  };
+}
+
+function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): TokenFragment[] {
+  const fragments: TokenFragment[] = [];
+  const pushFragment = (fragment: TokenFragment): void => {
+    fragments.push(fragment);
+  };
+  const pushSymbol = (value: string, position: SourcePosition): void => {
+    pushFragment({
+      type: "symbol",
+      value,
+      range: syntheticRangeAt(position)
+    });
+  };
+
+  const pushLiteralString = (
+    value: string,
+    literalStart: SourcePosition,
+    literalEnd: SourcePosition
+  ): void => {
+    pushFragment({
+      type: "string",
+      value,
+      range: {
+        start: literalStart,
+        end: literalEnd
+      }
+    });
+  };
+
+  const pushPlusIfNeeded = (position: SourcePosition): void => {
+    if (fragments.length > 0) {
+      pushSymbol("+", position);
+    }
+  };
+
+  advanceCode(reader);
+  let literalStart = snapshot(reader);
+  let literalValue = "";
+  let hadInterpolation = false;
+
+  while (reader.hasMore) {
+    const charStart = snapshot(reader);
+    const code = advanceCode(reader);
+
+    if (code === CODE_BACKTICK) {
+      if (hadInterpolation || literalValue.length > 0) {
+        pushPlusIfNeeded(charStart);
+        pushLiteralString(literalValue, literalStart, charStart);
+      } else {
+        pushLiteralString("", start, snapshot(reader));
+      }
+      return fragments;
+    }
+
+    if (code === CODE_BACKSLASH) {
+      if (!reader.hasMore) {
+        throw new TokenizeError("Unterminated escape sequence in template literal", {
+          start,
+          end: snapshot(reader)
+        });
+      }
+      const escStart = snapshot(reader);
+      const escCode = advanceCode(reader);
+      if (escCode === CODE_N_LOWER) {
+        literalValue += "\n";
+      } else if (escCode === CODE_R_LOWER) {
+        literalValue += "\r";
+      } else if (escCode === CODE_T_LOWER) {
+        literalValue += "\t";
+      } else if (
+        escCode === CODE_BACKSLASH ||
+        escCode === CODE_DOUBLE_QUOTE ||
+        escCode === CODE_SINGLE_QUOTE ||
+        escCode === CODE_BACKTICK
+      ) {
+        literalValue += String.fromCharCode(escCode);
+      } else {
+        throw new TokenizeError(
+          `Unsupported escape sequence \\${String.fromCharCode(escCode)} in template literal`,
+          { start: escStart, end: snapshot(reader) }
+        );
+      }
+      continue;
+    }
+
+    if (code === CODE_DOLLAR && reader.hasMore && reader.peekCode() === 123) {
+      hadInterpolation = true;
+      const interpolationStart = charStart;
+      if (literalValue.length > 0 || fragments.length === 0) {
+        pushPlusIfNeeded(interpolationStart);
+        pushLiteralString(literalValue, literalStart, interpolationStart);
+      }
+      literalValue = "";
+
+      const interpolationOpen = snapshot(reader);
+      advanceCode(reader);
+
+      pushPlusIfNeeded(interpolationOpen);
+      pushSymbol("(", interpolationOpen);
+
+      let interpolationPendingComments: TokenComment[] = [];
+      let depth = 1;
+      while (reader.hasMore) {
+        const interpolationCode = reader.peekCode();
+
+        if (isWhitespaceCode(interpolationCode)) {
+          advanceCode(reader);
+          continue;
+        }
+
+        const comment = readComment(reader);
+        if (comment) {
+          interpolationPendingComments.push(comment);
+          continue;
+        }
+
+        const tokenStart = snapshot(reader);
+        if (interpolationCode === 123) {
+          depth += 1;
+          advanceCode(reader);
+          pushFragment({
+            type: "symbol",
+            value: "{",
+            range: {
+              start: tokenStart,
+              end: snapshot(reader)
+            },
+            ...(interpolationPendingComments.length > 0
+              ? { leadingComments: interpolationPendingComments }
+              : {})
+          });
+          interpolationPendingComments = [];
+          continue;
+        }
+
+        if (interpolationCode === 125) {
+          depth -= 1;
+          if (depth === 0) {
+            advanceCode(reader);
+            break;
+          }
+          advanceCode(reader);
+          pushFragment({
+            type: "symbol",
+            value: "}",
+            range: {
+              start: tokenStart,
+              end: snapshot(reader)
+            },
+            ...(interpolationPendingComments.length > 0
+              ? { leadingComments: interpolationPendingComments }
+              : {})
+          });
+          interpolationPendingComments = [];
+          continue;
+        }
+
+        let type: Token["type"];
+        let value: string;
+        if (interpolationCode === CODE_DOUBLE_QUOTE || interpolationCode === CODE_SINGLE_QUOTE) {
+          type = "string";
+          value = readEscapedString(reader, interpolationCode, tokenStart);
+        } else if (interpolationCode === CODE_BACKTICK) {
+          throw new TokenizeError("Nested template literals are not supported yet", {
+            start: tokenStart,
+            end: snapshot(reader)
+          });
+        } else if (isIdentifierStartCode(interpolationCode)) {
+          type = "identifier";
+          value = readIdentifier(reader);
+        } else if (isDigitCode(interpolationCode)) {
+          type = "number";
+          value = readNumber(reader);
+        } else {
+          type = "symbol";
+          value = readSymbol(reader);
+        }
+
+        pushFragment({
+          type,
+          value,
+          range: {
+            start: tokenStart,
+            end: snapshot(reader)
+          },
+          ...(interpolationPendingComments.length > 0
+            ? { leadingComments: interpolationPendingComments }
+            : {})
+        });
+        interpolationPendingComments = [];
+      }
+
+      if (depth !== 0) {
+        throw new TokenizeError("Unterminated template interpolation", {
+          start,
+          end: snapshot(reader)
+        });
+      }
+
+      pushSymbol(")", snapshot(reader));
+      literalStart = snapshot(reader);
+      continue;
+    }
+
+    literalValue += String.fromCharCode(code);
+  }
+
+  throw new TokenizeError("Unterminated template literal", {
+    start,
+    end: snapshot(reader)
+  });
+}
+
 function readSymbol(reader: StrReader): string {
   const ch = advanceCode(reader);
   const next = reader.peekCode();
@@ -483,7 +706,25 @@ export function tokenize(input: string): Token[] {
     let type: Token["type"];
     let value: string;
 
-    if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
+    if (code === CODE_BACKTICK) {
+      const templateFragments = readTemplateAsConcatenation(reader, start);
+      if (templateFragments.length === 0) {
+        continue;
+      }
+      for (const [index, fragment] of templateFragments.entries()) {
+        const leadingComments =
+          index === 0 && pendingComments.length > 0
+            ? pendingComments
+            : fragment.leadingComments;
+        tokens.push({
+          ...fragment,
+          index: tokens.length,
+          ...(leadingComments && leadingComments.length > 0 ? { leadingComments } : {})
+        });
+      }
+      pendingComments = [];
+      continue;
+    } else if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
       type = "string";
       value = readEscapedString(reader, code, start);
     } else if (isIdentifierStartCode(code)) {

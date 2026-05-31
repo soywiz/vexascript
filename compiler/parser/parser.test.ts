@@ -45,6 +45,20 @@ describe("parseExpression", () => {
         );
     });
 
+    it("builds an AST for template literal interpolation via concatenation", () => {
+        expect(parseExpression(tokenizeReader("`hello ${name}`"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "+",
+            left: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "StringLiteral", value: "hello " },
+                right: { kind: "Identifier", name: "name" }
+            },
+            right: { kind: "StringLiteral", value: "" }
+        });
+    });
+
     it("builds an AST for addition expression", () => {
         expect(parseExpression(tokenizeReader("1+2"))).toEqual({
             kind: "BinaryExpression",

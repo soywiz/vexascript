@@ -61,4 +61,34 @@ fun demo() {
     expect(actionTitles).toContain("Change parameter 'a' type to 'string'");
     expect(actionTitles).toContain("Change parameter 'b' type to 'int'");
   });
+
+  it("offers a change-signature action that updates types and adds optional parameters", () => {
+    const source = `fun test2(a: number, b: string) {
+}
+fun demo() {
+  test2("hello", 10, 3)
+}
+`;
+
+    const { session, diagnostics } = diagnosticsFor(source);
+    const actions = createCallFixCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics
+    });
+
+    const action = actions.find(
+      (candidate) => candidate.title === "Change signature of 'test2' to match this call"
+    );
+    expect(action).toBeDefined();
+    expect(action?.kind).toBe("refactor.rewrite");
+
+    const edits = action?.edit?.changes?.[URI] ?? [];
+    expect(edits.length).toBeGreaterThanOrEqual(3);
+    expect(edits.some((edit) => edit.newText === "string")).toBe(true);
+    expect(edits.some((edit) => edit.newText === "int")).toBe(true);
+    expect(edits.some((edit) => edit.newText.includes("arg3?: int"))).toBe(true);
+  });
 });

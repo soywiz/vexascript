@@ -50,4 +50,13 @@ describe("transpile", () => {
     expect(result.code).toContain("let b = 20n;");
     expect(result.code).toContain("let c = BigInt.asIntN(64, a + b);");
   });
+
+  it("supports template literals with interpolation", () => {
+    const source = "let name = \"world\"\nlet msg = `hello ${name}`";
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("let msg = \"hello \" + name + \"\";");
+  });
 });

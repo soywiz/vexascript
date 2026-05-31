@@ -165,6 +165,24 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes template literals without interpolation", () => {
+        expect(simplifyTokens("`hello world`")).toStrictEqual([
+            { type: "string", value: "hello world" }
+        ])
+    })
+
+    it("tokenizes template literals with interpolation as concatenation", () => {
+        expect(simplifyTokens("`hello ${name}`")).toStrictEqual([
+            { type: "string", value: "hello " },
+            { type: "symbol", value: "+" },
+            { type: "symbol", value: "(" },
+            { type: "identifier", value: "name" },
+            { type: "symbol", value: ")" },
+            { type: "symbol", value: "+" },
+            { type: "string", value: "" }
+        ])
+    })
+
     it("ignores single-line comments", () => {
         expect(simplifyTokens("let a = 1 // trailing\nlet b = 2")).toStrictEqual([
             { type: "identifier", value: "let" },

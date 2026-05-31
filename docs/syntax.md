@@ -133,7 +133,7 @@ Class declarations support an optional primary constructor parameter list after 
 
 Each primary constructor parameter currently supports:
 
-- declaration kind (`let`, `var`, `val`, `const`)
+- optional declaration kind (`let`, `var`, `val`, `const`, defaults to `val` when omitted)
 - parameter name
 - optional type annotation (`: TypeName`)
 - optional default value (`= expression`)
@@ -142,6 +142,11 @@ Example:
 
 ```mylang
 class Point(val x: number, val y: number) {
+}
+```
+
+```mylang
+class Point(x: number, y: number) {
 }
 ```
 
@@ -196,6 +201,7 @@ Supported literals:
 - bigint literals (`10n`)
 - long literals (`10L`)
 - string literals (`"hello"`, `'hello'`)
+- template string literals with interpolation (`` `hello ${name}` ``)
 - array literals (`[1, 2, 3]`)
 - object literals (`{a: 1, b: 2}`)
 
