@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createAnalysisSession } from "./analysisSession";
 import {
   resolveDefinitionAcrossFiles,
+  resolveMemberHoverAcrossFiles,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
@@ -37,6 +38,91 @@ describe("cross-file navigation", () => {
         start: { line: 0, character: 6 },
         end: { line: 0, character: 11 }
       }
+    });
+  });
+
+  it("resolves go-to-definition from member access to class member declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
+    const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  const point = new MyPoint()\n  point.x\n}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const location = resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(fileB).toString(),
+      line: 3,
+      character: 8,
+      session: sessionB,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(fileA).toString(),
+      range: {
+        start: { line: 0, character: 20 },
+        end: { line: 0, character: 21 }
+      }
+    });
+  });
+
+  it("provides hover info for primary constructor members", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const file = join(root, "world.my");
+    const source = "class MyPoint(const x: number, const y: number) { }\n";
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const hover = resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 0,
+      character: 20,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "member MyPoint.x: number"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 0, character: 20 },
+      end: { line: 0, character: 21 }
+    });
+  });
+
+  it("provides hover info for imported class member access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
+    const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  const point = new MyPoint()\n  point.y\n}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const hover = resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(fileB).toString(),
+      line: 3,
+      character: 8,
+      session: sessionB,
+      sourceRoots: [root]
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "member MyPoint.y: number"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 3, character: 8 },
+      end: { line: 3, character: 9 }
     });
   });
 
@@ -87,6 +173,106 @@ describe("cross-file navigation", () => {
           range: {
             start: { line: 2, character: 13 },
             end: { line: 2, character: 18 }
+          }
+        }
+      ])
+    );
+  });
+
+  it("finds member references across files from usage", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
+    const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  const point = new MyPoint()\n  point.x\n  point.x\n  point.y\n}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const locations = resolveReferencesAcrossFiles(
+      {
+        uri: pathToFileURL(fileB).toString(),
+        line: 3,
+        character: 8,
+        session: sessionB,
+        sourceRoots: [root]
+      },
+      true
+    );
+
+    expect(locations).toEqual(
+      expect.arrayContaining([
+        {
+          uri: pathToFileURL(fileA).toString(),
+          range: {
+            start: { line: 0, character: 20 },
+            end: { line: 0, character: 21 }
+          }
+        },
+        {
+          uri: pathToFileURL(fileB).toString(),
+          range: {
+            start: { line: 3, character: 8 },
+            end: { line: 3, character: 9 }
+          }
+        },
+        {
+          uri: pathToFileURL(fileB).toString(),
+          range: {
+            start: { line: 4, character: 8 },
+            end: { line: 4, character: 9 }
+          }
+        }
+      ])
+    );
+    expect(
+      locations.some((location) =>
+        location.uri === pathToFileURL(fileB).toString() &&
+        location.range.start.line === 5 &&
+        location.range.start.character === 8
+      )
+    ).toBe(false);
+  });
+
+  it("finds member references across files from declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
+    const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  const point = new MyPoint()\n  point.x\n  point.x\n}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionA = createAnalysisSession(sourceA);
+    const locations = resolveReferencesAcrossFiles(
+      {
+        uri: pathToFileURL(fileA).toString(),
+        line: 0,
+        character: 20,
+        session: sessionA,
+        sourceRoots: [root]
+      },
+      false
+    );
+
+    expect(locations).toEqual(
+      expect.arrayContaining([
+        {
+          uri: pathToFileURL(fileB).toString(),
+          range: {
+            start: { line: 3, character: 8 },
+            end: { line: 3, character: 9 }
+          }
+        },
+        {
+          uri: pathToFileURL(fileB).toString(),
+          range: {
+            start: { line: 4, character: 8 },
+            end: { line: 4, character: 9 }
           }
         }
       ])

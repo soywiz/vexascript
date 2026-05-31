@@ -17,6 +17,7 @@ import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
 import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./importFixes";
 import { createCallFixCodeActions } from "./callFixes";
+import { createCreateMemberCodeActions } from "./memberFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -24,6 +25,7 @@ import {
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import {
   resolveDefinitionAcrossFiles,
+  resolveMemberHoverAcrossFiles,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
@@ -258,6 +260,15 @@ connection.onCodeAction((params) => {
   });
   actions.push(...callFixActions);
 
+  const createMemberActions = createCreateMemberCodeActions({
+    uri: params.textDocument.uri,
+    ast: session.ast,
+    diagnostics: params.context.diagnostics,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
+  actions.push(...createMemberActions);
+
   return deferCodeActions(actions);
 });
 
@@ -300,11 +311,32 @@ connection.onHover((params) => {
     return null;
   }
 
-  const analysis = analysisSessions.getForDocument(doc).analysis;
-  if (!analysis) {
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.analysis || !session.ast) {
     return null;
   }
-  return createHover(analysis, params.position.line, params.position.character);
+
+  for (const character of candidateCharacters(params.position.character)) {
+    const memberHover = resolveMemberHoverAcrossFiles({
+      uri: params.textDocument.uri,
+      line: params.position.line,
+      character,
+      session,
+      sourceRoots,
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    });
+    if (memberHover) {
+      return memberHover;
+    }
+  }
+
+  for (const character of candidateCharacters(params.position.character)) {
+    const hover = createHover(session.analysis, params.position.line, character);
+    if (hover) {
+      return hover;
+    }
+  }
+  return null;
 });
 
 connection.onPrepareRename((params) => {

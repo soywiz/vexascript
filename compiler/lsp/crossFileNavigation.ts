@@ -2,15 +2,39 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type {
+  ArrayLiteral,
+  AssignmentExpression,
+  BinaryExpression,
+  BlockStatement,
+  CallExpression,
+  Expr,
   ClassStatement,
+  ConditionalExpression,
+  DoWhileStatement,
+  ExprStatement,
+  ForStatement,
   FunctionStatement,
+  FunctionParameter,
+  Identifier,
+  IfStatement,
   ImportStatement,
+  MemberExpression,
+  NewExpression,
+  ObjectLiteral,
   Program,
+  RangeExpression,
+  ReturnStatement,
   Statement,
-  VarStatement
+  SwitchStatement,
+  ThrowStatement,
+  TryStatement,
+  UnaryExpression,
+  UpdateExpression,
+  VarStatement,
+  WhileStatement
 } from "compiler/ast/ast";
 import { compileSource } from "compiler/pipeline/compile";
-import type { Location, WorkspaceEdit } from "vscode-languageserver/node.js";
+import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
 
 interface SessionLike {
@@ -34,6 +58,26 @@ interface CanonicalSymbol {
     start: { line: number; character: number };
     end: { line: number; character: number };
   };
+}
+
+interface CanonicalMemberSymbol {
+  className: string;
+  memberName: string;
+  filePath: string;
+  range: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
+}
+
+interface ClassMemberInfo {
+  memberName: string;
+  range: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
+  typeLabel: string;
+  sourceKind: "primary-constructor" | "field" | "method";
 }
 
 function localReferencesFromContext(
@@ -310,14 +354,829 @@ function findMatchingImportSpecifierPositions(
   return positions;
 }
 
-export function resolveDefinitionAcrossFiles(context: ResolveContext): Location | null {
-  const symbol = resolveCanonicalSymbol(context);
-  if (!symbol) {
+function rangeContainsPosition(
+  range: { start: { line: number; character: number }; end: { line: number; character: number } },
+  line: number,
+  character: number
+): boolean {
+  if (line < range.start.line || line > range.end.line) {
+    return false;
+  }
+  if (line === range.start.line && character < range.start.character) {
+    return false;
+  }
+  if (line === range.end.line && character > range.end.character) {
+    return false;
+  }
+  return true;
+}
+
+function classMemberDeclarationRangeByName(
+  classStatement: ClassStatement,
+  memberName: string
+): { start: { line: number; character: number }; end: { line: number; character: number } } | null {
+  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+    if (parameter.name.name !== memberName) {
+      continue;
+    }
+    const range = nodeToRange(parameter.name);
+    if (range) {
+      return range;
+    }
+  }
+
+  for (const member of classStatement.members) {
+    if (member.name.name !== memberName) {
+      continue;
+    }
+    const range = nodeToRange(member.name);
+    if (range) {
+      return range;
+    }
+  }
+
+  return null;
+}
+
+function functionTypeLabelFromParameters(
+  parameters: FunctionParameter[],
+  returnTypeName?: string
+): string {
+  const parameterLabel = parameters
+    .map((parameter) => {
+      const typeName = parameter.typeAnnotation?.name ?? "unknown";
+      const optionalSuffix = parameter.optional ? "?" : "";
+      return `${parameter.name.name}${optionalSuffix}: ${typeName}`;
+    })
+    .join(", ");
+  return `(${parameterLabel}) => ${returnTypeName ?? "unknown"}`;
+}
+
+function classMemberInfoByName(
+  classStatement: ClassStatement,
+  memberName: string
+): ClassMemberInfo | null {
+  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+    if (parameter.name.name !== memberName) {
+      continue;
+    }
+    const range = nodeToRange(parameter.name);
+    if (!range) {
+      return null;
+    }
+    return {
+      memberName,
+      range,
+      typeLabel: parameter.typeAnnotation?.name ?? "unknown",
+      sourceKind: "primary-constructor"
+    };
+  }
+
+  for (const member of classStatement.members) {
+    if (member.name.name !== memberName) {
+      continue;
+    }
+    const range = nodeToRange(member.name);
+    if (!range) {
+      return null;
+    }
+    if (member.kind === "ClassFieldMember") {
+      return {
+        memberName,
+        range,
+        typeLabel: member.typeAnnotation?.name ?? "unknown",
+        sourceKind: "field"
+      };
+    }
+    return {
+      memberName,
+      range,
+      typeLabel: functionTypeLabelFromParameters(member.parameters, member.returnType?.name),
+      sourceKind: "method"
+    };
+  }
+
+  return null;
+}
+
+function classDeclarationByName(ast: Program, className: string): ClassStatement | null {
+  const declaration = findTopLevelDeclarationByName(ast, className);
+  if (!declaration || declaration.kind !== "ClassStatement") {
     return null;
   }
+  return declaration as ClassStatement;
+}
+
+function resolveClassDefinitionAcrossFiles(
+  context: ResolveContext,
+  className: string
+): { classStatement: ClassStatement; filePath: string } | null {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath || !context.session.ast) {
+    return null;
+  }
+
+  const localClass = classDeclarationByName(context.session.ast, className);
+  if (localClass) {
+    return {
+      classStatement: localClass,
+      filePath: currentFilePath
+    };
+  }
+
+  for (const statement of context.session.ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    if (!importStatement.specifiers.some((specifier) => specifier.imported.name === className)) {
+      continue;
+    }
+    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
+    if (!targetFilePath) {
+      continue;
+    }
+    const targetSession = getSessionForFilePath(targetFilePath, context);
+    if (!targetSession?.ast) {
+      continue;
+    }
+    const targetClass = classDeclarationByName(targetSession.ast, className);
+    if (targetClass) {
+      return {
+        classStatement: targetClass,
+        filePath: targetFilePath
+      };
+    }
+  }
+
+  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
+  for (const filePath of scanMyFiles(roots)) {
+    const targetSession = getSessionForFilePath(filePath, context);
+    if (!targetSession?.ast) {
+      continue;
+    }
+    const targetClass = classDeclarationByName(targetSession.ast, className);
+    if (targetClass) {
+      return {
+        classStatement: targetClass,
+        filePath
+      };
+    }
+  }
+
+  return null;
+}
+
+function findMemberExpressionAtPosition(
+  program: Program,
+  line: number,
+  character: number
+): MemberExpression | null {
+  let best: { member: MemberExpression; size: number } | null = null;
+
+  const consider = (member: MemberExpression): void => {
+    if (member.computed || member.property.kind !== "Identifier") {
+      return;
+    }
+    const propertyRange = nodeToRange(member.property);
+    if (!propertyRange || !rangeContainsPosition(propertyRange, line, character)) {
+      return;
+    }
+    const size =
+      (propertyRange.end.line - propertyRange.start.line) * 100_000 +
+      (propertyRange.end.character - propertyRange.start.character);
+    if (!best || size <= best.size) {
+      best = { member, size };
+    }
+  };
+
+  const visitExpression = (expression: Expr): void => {
+    switch (expression.kind) {
+      case "MemberExpression": {
+        const member = expression as MemberExpression;
+        consider(member);
+        visitExpression(member.object);
+        if (member.computed) {
+          visitExpression(member.property);
+        }
+        return;
+      }
+      case "CallExpression":
+        for (const argument of (expression as CallExpression).arguments) {
+          visitExpression(argument);
+        }
+        visitExpression((expression as CallExpression).callee);
+        return;
+      case "NewExpression":
+        visitExpression((expression as NewExpression).callee);
+        for (const argument of (expression as NewExpression).arguments ?? []) {
+          visitExpression(argument);
+        }
+        return;
+      case "BinaryExpression":
+        visitExpression((expression as BinaryExpression).left);
+        visitExpression((expression as BinaryExpression).right);
+        return;
+      case "RangeExpression":
+        visitExpression((expression as RangeExpression).start);
+        visitExpression((expression as RangeExpression).end);
+        return;
+      case "AssignmentExpression":
+        visitExpression((expression as AssignmentExpression).left);
+        visitExpression((expression as AssignmentExpression).right);
+        return;
+      case "ConditionalExpression":
+        visitExpression((expression as ConditionalExpression).test);
+        visitExpression((expression as ConditionalExpression).consequent);
+        visitExpression((expression as ConditionalExpression).alternate);
+        return;
+      case "UnaryExpression":
+        visitExpression((expression as UnaryExpression).argument);
+        return;
+      case "UpdateExpression":
+        visitExpression((expression as UpdateExpression).argument);
+        return;
+      case "ArrayLiteral":
+        for (const element of (expression as ArrayLiteral).elements) {
+          visitExpression(element);
+        }
+        return;
+      case "ObjectLiteral":
+        for (const property of (expression as ObjectLiteral).properties) {
+          visitExpression(property.value);
+        }
+        return;
+      default:
+        return;
+    }
+  };
+
+  const visitStatement = (statement: Statement): void => {
+    switch (statement.kind) {
+      case "VarStatement": {
+        const variableStatement = statement as VarStatement;
+        if (variableStatement.declarations && variableStatement.declarations.length > 0) {
+          for (const declaration of variableStatement.declarations) {
+            if (declaration.initializer) {
+              visitExpression(declaration.initializer);
+            }
+          }
+        } else if (variableStatement.initializer) {
+          visitExpression(variableStatement.initializer);
+        }
+        return;
+      }
+      case "ExprStatement":
+        visitExpression((statement as ExprStatement).expression);
+        return;
+      case "ReturnStatement":
+        if ((statement as ReturnStatement).expression) {
+          visitExpression((statement as ReturnStatement).expression!);
+        }
+        return;
+      case "ThrowStatement":
+        visitExpression((statement as ThrowStatement).expression);
+        return;
+      case "BlockStatement":
+        for (const child of (statement as BlockStatement).body) {
+          visitStatement(child);
+        }
+        return;
+      case "FunctionStatement":
+        for (const child of (statement as FunctionStatement).body.body) {
+          visitStatement(child);
+        }
+        return;
+      case "ClassStatement":
+        for (const member of (statement as ClassStatement).members) {
+          if (member.kind === "ClassFieldMember" && member.initializer) {
+            visitExpression(member.initializer);
+          } else if (member.kind === "ClassMethodMember") {
+            for (const child of member.body.body) {
+              visitStatement(child);
+            }
+          }
+        }
+        return;
+      case "IfStatement":
+        visitExpression((statement as IfStatement).condition);
+        visitStatement((statement as IfStatement).thenBranch);
+        if ((statement as IfStatement).elseBranch) {
+          visitStatement((statement as IfStatement).elseBranch!);
+        }
+        return;
+      case "WhileStatement":
+        visitExpression((statement as WhileStatement).condition);
+        visitStatement((statement as WhileStatement).body);
+        return;
+      case "DoWhileStatement":
+        visitStatement((statement as DoWhileStatement).body);
+        visitExpression((statement as DoWhileStatement).condition);
+        return;
+      case "ForStatement": {
+        const forStatement = statement as ForStatement;
+        if (forStatement.initializer && forStatement.initializer.kind === "VarStatement") {
+          visitStatement(forStatement.initializer);
+        } else if (forStatement.initializer) {
+          visitExpression(forStatement.initializer);
+        }
+        if (forStatement.iterator && forStatement.iterator.kind === "VarStatement") {
+          visitStatement(forStatement.iterator);
+        } else if (forStatement.iterator && forStatement.iterator.kind !== "Identifier") {
+          visitExpression(forStatement.iterator);
+        }
+        if (forStatement.iterable) {
+          visitExpression(forStatement.iterable);
+        }
+        if (forStatement.condition) {
+          visitExpression(forStatement.condition);
+        }
+        if (forStatement.update) {
+          visitExpression(forStatement.update);
+        }
+        visitStatement(forStatement.body);
+        return;
+      }
+      case "SwitchStatement":
+        visitExpression((statement as SwitchStatement).discriminant);
+        for (const switchCase of (statement as SwitchStatement).cases) {
+          if (switchCase.test) {
+            visitExpression(switchCase.test);
+          }
+          for (const child of switchCase.consequent) {
+            visitStatement(child);
+          }
+        }
+        return;
+      case "TryStatement":
+        for (const child of (statement as TryStatement).tryBlock.body) {
+          visitStatement(child);
+        }
+        if ((statement as TryStatement).catchClause) {
+          for (const child of (statement as TryStatement).catchClause!.body.body) {
+            visitStatement(child);
+          }
+        }
+        if ((statement as TryStatement).finallyBlock) {
+          for (const child of (statement as TryStatement).finallyBlock!.body) {
+            visitStatement(child);
+          }
+        }
+        return;
+      default:
+        return;
+    }
+  };
+
+  for (const statement of program.body) {
+    visitStatement(statement);
+  }
+
+  if (!best) {
+    return null;
+  }
+  return (best as { member: MemberExpression }).member;
+}
+
+function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location | null {
+  if (!context.session.ast || !context.session.analysis) {
+    return null;
+  }
+  const memberExpression = findMemberExpressionAtPosition(
+    context.session.ast,
+    context.line,
+    context.character
+  );
+  if (!memberExpression || memberExpression.property.kind !== "Identifier") {
+    return null;
+  }
+
+  const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
+  if (!objectType || objectType.kind !== "named") {
+    return null;
+  }
+
+  const classResolution = resolveClassDefinitionAcrossFiles(context, objectType.name);
+  if (!classResolution) {
+    return null;
+  }
+
+  const memberName = (memberExpression.property as Identifier).name;
+  const range = classMemberDeclarationRangeByName(classResolution.classStatement, memberName);
+  if (!range) {
+    return null;
+  }
+
   return {
-    uri: pathToUri(symbol.filePath),
-    range: symbol.range
+    uri: pathToUri(classResolution.filePath),
+    range
+  };
+}
+
+function findClassMemberDeclarationAtPosition(
+  program: Program,
+  line: number,
+  character: number
+): { className: string; member: ClassMemberInfo } | null {
+  for (const statement of program.body) {
+    if (statement.kind !== "ClassStatement") {
+      continue;
+    }
+    const classStatement = statement as ClassStatement;
+    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+      const member = classMemberInfoByName(classStatement, parameter.name.name);
+      if (!member || !rangeContainsPosition(member.range, line, character)) {
+        continue;
+      }
+      return {
+        className: classStatement.name.name,
+        member
+      };
+    }
+    for (const classMember of classStatement.members) {
+      const member = classMemberInfoByName(classStatement, classMember.name.name);
+      if (!member || !rangeContainsPosition(member.range, line, character)) {
+        continue;
+      }
+      return {
+        className: classStatement.name.name,
+        member
+      };
+    }
+  }
+
+  return null;
+}
+
+function resolveCanonicalMemberSymbol(context: ResolveContext): CanonicalMemberSymbol | null {
+  if (!context.session.ast || !context.session.analysis) {
+    return null;
+  }
+
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath) {
+    return null;
+  }
+
+  const declaration = findClassMemberDeclarationAtPosition(
+    context.session.ast,
+    context.line,
+    context.character
+  );
+  if (declaration) {
+    return {
+      className: declaration.className,
+      memberName: declaration.member.memberName,
+      filePath: currentFilePath,
+      range: declaration.member.range
+    };
+  }
+
+  const memberExpression = findMemberExpressionAtPosition(
+    context.session.ast,
+    context.line,
+    context.character
+  );
+  if (!memberExpression || memberExpression.property.kind !== "Identifier") {
+    return null;
+  }
+
+  const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
+  if (!objectType || objectType.kind !== "named") {
+    return null;
+  }
+
+  const classResolution = resolveClassDefinitionAcrossFiles(context, objectType.name);
+  if (!classResolution) {
+    return null;
+  }
+
+  const memberName = (memberExpression.property as Identifier).name;
+  const memberInfo = classMemberInfoByName(classResolution.classStatement, memberName);
+  if (!memberInfo) {
+    return null;
+  }
+
+  return {
+    className: objectType.name,
+    memberName,
+    filePath: classResolution.filePath,
+    range: memberInfo.range
+  };
+}
+
+function collectMemberExpressions(program: Program): MemberExpression[] {
+  const expressions: MemberExpression[] = [];
+
+  const visitExpression = (expression: Expr): void => {
+    switch (expression.kind) {
+      case "MemberExpression": {
+        const member = expression as MemberExpression;
+        expressions.push(member);
+        visitExpression(member.object);
+        if (member.computed) {
+          visitExpression(member.property);
+        }
+        return;
+      }
+      case "CallExpression":
+        visitExpression((expression as CallExpression).callee);
+        for (const argument of (expression as CallExpression).arguments) {
+          visitExpression(argument);
+        }
+        return;
+      case "NewExpression":
+        visitExpression((expression as NewExpression).callee);
+        for (const argument of (expression as NewExpression).arguments ?? []) {
+          visitExpression(argument);
+        }
+        return;
+      case "BinaryExpression":
+        visitExpression((expression as BinaryExpression).left);
+        visitExpression((expression as BinaryExpression).right);
+        return;
+      case "RangeExpression":
+        visitExpression((expression as RangeExpression).start);
+        visitExpression((expression as RangeExpression).end);
+        return;
+      case "AssignmentExpression":
+        visitExpression((expression as AssignmentExpression).left);
+        visitExpression((expression as AssignmentExpression).right);
+        return;
+      case "ConditionalExpression":
+        visitExpression((expression as ConditionalExpression).test);
+        visitExpression((expression as ConditionalExpression).consequent);
+        visitExpression((expression as ConditionalExpression).alternate);
+        return;
+      case "UnaryExpression":
+      case "UpdateExpression":
+        visitExpression((expression as UnaryExpression | UpdateExpression).argument);
+        return;
+      case "ArrayLiteral":
+        for (const element of (expression as ArrayLiteral).elements) {
+          visitExpression(element);
+        }
+        return;
+      case "ObjectLiteral":
+        for (const property of (expression as ObjectLiteral).properties) {
+          visitExpression(property.value);
+        }
+        return;
+      default:
+        return;
+    }
+  };
+
+  const visitStatement = (statement: Statement): void => {
+    switch (statement.kind) {
+      case "VarStatement":
+        if ((statement as VarStatement).declarations && (statement as VarStatement).declarations!.length > 0) {
+          for (const declaration of (statement as VarStatement).declarations!) {
+            if (declaration.initializer) {
+              visitExpression(declaration.initializer);
+            }
+          }
+        } else if ((statement as VarStatement).initializer) {
+          visitExpression((statement as VarStatement).initializer!);
+        }
+        return;
+      case "ExprStatement":
+        visitExpression((statement as ExprStatement).expression);
+        return;
+      case "ReturnStatement":
+        if ((statement as ReturnStatement).expression) {
+          visitExpression((statement as ReturnStatement).expression!);
+        }
+        return;
+      case "ThrowStatement":
+        visitExpression((statement as ThrowStatement).expression);
+        return;
+      case "BlockStatement":
+        for (const child of (statement as BlockStatement).body) {
+          visitStatement(child);
+        }
+        return;
+      case "FunctionStatement":
+        for (const child of (statement as FunctionStatement).body.body) {
+          visitStatement(child);
+        }
+        return;
+      case "ClassStatement":
+        for (const member of (statement as ClassStatement).members) {
+          if (member.kind === "ClassFieldMember" && member.initializer) {
+            visitExpression(member.initializer);
+          } else if (member.kind === "ClassMethodMember") {
+            for (const child of member.body.body) {
+              visitStatement(child);
+            }
+          }
+        }
+        return;
+      case "IfStatement":
+        visitExpression((statement as IfStatement).condition);
+        visitStatement((statement as IfStatement).thenBranch);
+        if ((statement as IfStatement).elseBranch) {
+          visitStatement((statement as IfStatement).elseBranch!);
+        }
+        return;
+      case "WhileStatement":
+        visitExpression((statement as WhileStatement).condition);
+        visitStatement((statement as WhileStatement).body);
+        return;
+      case "DoWhileStatement":
+        visitStatement((statement as DoWhileStatement).body);
+        visitExpression((statement as DoWhileStatement).condition);
+        return;
+      case "ForStatement":
+        if ((statement as ForStatement).initializer && (statement as ForStatement).initializer!.kind !== "VarStatement") {
+          visitExpression((statement as ForStatement).initializer as Expr);
+        } else if ((statement as ForStatement).initializer && (statement as ForStatement).initializer!.kind === "VarStatement") {
+          visitStatement((statement as ForStatement).initializer as Statement);
+        }
+        if ((statement as ForStatement).iterator && (statement as ForStatement).iterator!.kind !== "VarStatement" && (statement as ForStatement).iterator!.kind !== "Identifier") {
+          visitExpression((statement as ForStatement).iterator as Expr);
+        }
+        if ((statement as ForStatement).iterable) {
+          visitExpression((statement as ForStatement).iterable!);
+        }
+        if ((statement as ForStatement).condition) {
+          visitExpression((statement as ForStatement).condition!);
+        }
+        if ((statement as ForStatement).update) {
+          visitExpression((statement as ForStatement).update!);
+        }
+        visitStatement((statement as ForStatement).body);
+        return;
+      case "SwitchStatement":
+        visitExpression((statement as SwitchStatement).discriminant);
+        for (const switchCase of (statement as SwitchStatement).cases) {
+          if (switchCase.test) {
+            visitExpression(switchCase.test);
+          }
+          for (const child of switchCase.consequent) {
+            visitStatement(child);
+          }
+        }
+        return;
+      case "TryStatement":
+        for (const child of (statement as TryStatement).tryBlock.body) {
+          visitStatement(child);
+        }
+        if ((statement as TryStatement).catchClause) {
+          for (const child of (statement as TryStatement).catchClause!.body.body) {
+            visitStatement(child);
+          }
+        }
+        if ((statement as TryStatement).finallyBlock) {
+          for (const child of (statement as TryStatement).finallyBlock!.body) {
+            visitStatement(child);
+          }
+        }
+        return;
+      default:
+        return;
+    }
+  };
+
+  for (const statement of program.body) {
+    visitStatement(statement);
+  }
+
+  return expressions;
+}
+
+function resolveMemberReferencesAcrossFiles(
+  context: ResolveContext,
+  includeDeclaration: boolean
+): Location[] {
+  const memberSymbol = resolveCanonicalMemberSymbol(context);
+  if (!memberSymbol) {
+    return [];
+  }
+
+  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(memberSymbol.filePath)];
+  const files = scanMyFiles(roots);
+  const locations: Location[] = [];
+  const seen = new Set<string>();
+
+  const addLocation = (uri: string, range: { start: { line: number; character: number }; end: { line: number; character: number } }) => {
+    const key = `${uri}:${range.start.line}:${range.start.character}:${range.end.line}:${range.end.character}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    locations.push({ uri, range });
+  };
+
+  if (includeDeclaration) {
+    addLocation(pathToUri(memberSymbol.filePath), memberSymbol.range);
+  }
+
+  for (const filePath of files) {
+    const session = getSessionForFilePath(filePath, context);
+    if (!session?.ast || !session.analysis) {
+      continue;
+    }
+
+    const expressionTypes = session.analysis.getExpressionTypes();
+    for (const member of collectMemberExpressions(session.ast)) {
+      if (member.computed || member.property.kind !== "Identifier") {
+        continue;
+      }
+      const memberName = (member.property as Identifier).name;
+      if (memberName !== memberSymbol.memberName) {
+        continue;
+      }
+      const objectType = expressionTypes.get(member.object);
+      if (!objectType || objectType.kind !== "named" || objectType.name !== memberSymbol.className) {
+        continue;
+      }
+      const range = nodeToRange(member.property);
+      if (!range) {
+        continue;
+      }
+      addLocation(pathToUri(filePath), range);
+    }
+  }
+
+  return locations;
+}
+
+export function resolveDefinitionAcrossFiles(context: ResolveContext): Location | null {
+  const memberDefinition = resolveMemberDefinitionAcrossFiles(context);
+  if (memberDefinition) {
+    return memberDefinition;
+  }
+
+  const symbol = resolveCanonicalSymbol(context);
+  if (symbol) {
+    return {
+      uri: pathToUri(symbol.filePath),
+      range: symbol.range
+    };
+  }
+  return null;
+}
+
+function createMemberHoverContents(
+  className: string,
+  member: ClassMemberInfo
+): string {
+  const prefix = member.sourceKind === "method" ? "method" : "member";
+  return `${prefix} ${className}.${member.memberName}: ${member.typeLabel}`;
+}
+
+export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | null {
+  if (!context.session.ast || !context.session.analysis) {
+    return null;
+  }
+
+  const declaration = findClassMemberDeclarationAtPosition(
+    context.session.ast,
+    context.line,
+    context.character
+  );
+  if (declaration) {
+    return {
+      contents: {
+        kind: "plaintext",
+        value: createMemberHoverContents(declaration.className, declaration.member)
+      },
+      range: declaration.member.range
+    };
+  }
+
+  const memberExpression = findMemberExpressionAtPosition(
+    context.session.ast,
+    context.line,
+    context.character
+  );
+  if (!memberExpression || memberExpression.property.kind !== "Identifier") {
+    return null;
+  }
+
+  const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
+  if (!objectType || objectType.kind !== "named") {
+    return null;
+  }
+
+  const classResolution = resolveClassDefinitionAcrossFiles(context, objectType.name);
+  if (!classResolution) {
+    return null;
+  }
+
+  const memberName = (memberExpression.property as Identifier).name;
+  const memberInfo = classMemberInfoByName(classResolution.classStatement, memberName);
+  if (!memberInfo) {
+    return null;
+  }
+
+  return {
+    contents: {
+      kind: "plaintext",
+      value: createMemberHoverContents(objectType.name, memberInfo)
+    },
+    range: nodeToRange(memberExpression.property) ?? memberInfo.range
   };
 }
 
@@ -325,6 +1184,11 @@ export function resolveReferencesAcrossFiles(
   context: ResolveContext,
   includeDeclaration: boolean
 ): Location[] {
+  const memberLocations = resolveMemberReferencesAcrossFiles(context, includeDeclaration);
+  if (memberLocations.length > 0) {
+    return memberLocations;
+  }
+
   const localFallbackReferences = localReferencesFromContext(context, includeDeclaration);
   const symbol = resolveCanonicalSymbol(context);
   if (!symbol) {
