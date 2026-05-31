@@ -2284,4 +2284,41 @@ describe("Parser (with recovery)", () => {
             "Expected ';', newline, or end of file between statements"
         );
     });
+
+    it("recovers separator errors across newline-heavy continuations until a likely statement start", () => {
+        const parser = new Parser(tokenizeReader(
+            "{ let a = 1 let b =\n" +
+            "  +\n" +
+            "  2\n" +
+            "  let c = 3\n" +
+            "}\n"
+        ));
+        const ast = parser.parseFile();
+
+        expect(ast).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "BlockStatement",
+                    body: [
+                        {
+                            kind: "VarStatement",
+                            declarationKind: "let",
+                            name: { kind: "Identifier", name: "a" },
+                            initializer: { kind: "IntLiteral", value: 1 }
+                        },
+                        {
+                            kind: "VarStatement",
+                            declarationKind: "let",
+                            name: { kind: "Identifier", name: "c" },
+                            initializer: { kind: "IntLiteral", value: 3 }
+                        }
+                    ]
+                }
+            ]
+        });
+        expect(parser.errors.map((issue) => issue.message)).toContain(
+            "Expected ';', newline, or '}' between statements"
+        );
+    });
 });

@@ -17,7 +17,6 @@ This document tracks the current technical backlog for MyLang.
 
 ## Parser and Recovery
 
-- Improve recovery heuristics for ambiguous newline-heavy code.
 - Add token-level error nodes or recover markers in AST to improve downstream diagnostics quality.
 
 ## Transpilation and Runtime

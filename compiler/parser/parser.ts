@@ -395,7 +395,8 @@ export class Parser {
                 token.range.start.line > startLine &&
                 parenDepth === 0 &&
                 bracketDepth === 0 &&
-                braceDepth === 0
+                braceDepth === 0 &&
+                this.isLikelyStatementStart(token)
             ) {
                 return;
             }
