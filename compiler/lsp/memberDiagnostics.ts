@@ -38,6 +38,7 @@ import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "vscode-languageserver/node.js";
 import type { AnalysisSession } from "./analysisSession";
 import { uriToFilePath } from "./importFixes";
+import { resolveExpressionTypeName as resolveCrossFileExpressionTypeName } from "./classResolver";
 
 interface SessionLike {
   ast: Program | null;
@@ -383,20 +384,30 @@ export function collectCrossFileMemberDiagnostics(
 
   const diagnostics: Diagnostic[] = [];
   const seen = new Set<string>();
-  const expressionTypes = session.analysis.getExpressionTypes();
   const currentFilePath = uriToFilePath(uri);
 
   for (const member of collectMemberExpressions(session.ast)) {
     if (member.computed || member.property.kind !== "Identifier") {
       continue;
     }
-    const objectType = expressionTypes.get(member.object);
-    if (!objectType || objectType.kind !== "named") {
+    const objectTypeName = resolveCrossFileExpressionTypeName(
+      member.object,
+      session.analysis,
+      session.ast,
+      {
+        uri,
+        sourceRoots,
+        ...(params.getSessionForFilePath
+          ? { getSessionForFilePath: params.getSessionForFilePath }
+          : {})
+      }
+    );
+    if (!objectTypeName) {
       continue;
     }
 
     const classStatement = resolveClassStatementAcrossFiles({
-      className: objectType.name,
+      className: objectTypeName,
       currentAst: session.ast,
       currentFilePath,
       sourceRoots,
@@ -437,7 +448,7 @@ export function collectCrossFileMemberDiagnostics(
           character: lastToken.range.end.column
         }
       },
-      message: `Property '${memberName}' does not exist on type '${objectType.name}'`,
+      message: `Property '${memberName}' does not exist on type '${objectTypeName}'`,
       source: "mylang-sema"
     });
   }

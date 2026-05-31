@@ -19,7 +19,7 @@ This document tracks common Language Server Protocol services and their status i
 - [x] `workspace/symbol`
 - [x] `textDocument/semanticTokens/full`
 - [x] `textDocument/semanticTokens/range`
-- [ ] `textDocument/inlayHint`
+- [x] `textDocument/inlayHint`
 - [ ] `textDocument/codeLens`
 - [ ] `textDocument/foldingRange`
 - [ ] `textDocument/selectionRange`
@@ -49,6 +49,7 @@ This document tracks common Language Server Protocol services and their status i
 
 - Completion includes in-scope symbols, builtin types, and auto-import suggestions.
 - Signature help supports functions and constructor calls (`new Class(...)`).
+- Inlay hints provide inferred type hints and parameter name hints (including constructor calls).
 - Document symbols include top-level declarations and class members.
 - Workspace symbol search scans `.my` files in source roots.
 - Code actions include declaration keyword replacements and auto-import fixes.

@@ -44,4 +44,41 @@ fun demo() {
       )
     ).toBe(false);
   });
+
+  it("reports unknown members in chained imported member access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-member-diag-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    const worldSource = `class MyPoint(const x: number, const y: string) {
+  xx: MyOtherClass
+}
+class MyOtherClass {
+  a: MyPoint
+}
+`;
+    const helloSource = `import { MyPoint } from "./world"
+fun demo() {
+  const point = new MyPoint(1, "ok")
+  point.xx.b
+}
+`;
+
+    await writeFile(worldFile, worldSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    const diagnostics = collectCrossFileMemberDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(
+      diagnostics.some(
+        (diagnostic) =>
+          diagnostic.message === "Property 'b' does not exist on type 'MyOtherClass'"
+      )
+    ).toBe(true);
+  });
 });
