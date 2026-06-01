@@ -1,7 +1,11 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const architectureMap = readFileSync("AGENTS.md", "utf8");
+const architectureMapSection = architectureMap.slice(
+  architectureMap.indexOf("## Architecture Map"),
+  architectureMap.indexOf("### Maintenance Rule")
+);
 
 const trackedArchitectureFiles = [
   "compiler/parser/parser.ts",
@@ -56,14 +60,43 @@ const trackedArchitectureFiles = [
   "docs/lsp.services.md",
   "docs/semantic.spec.md",
   "docs/transpilation.design.md",
+  "compiler/architectureMap.test.ts",
   "testFixtures/sample.my",
   "testFixtures/typescript-supported.d.ts"
 ];
+
+function extractBacktickedPaths(markdown: string): string[] {
+  const paths = new Set<string>();
+  const pathPattern = /`([^`]+\.(?:ts|js|json|md|my|d\.ts))`/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pathPattern.exec(markdown))) {
+    const codeSpan = match[1] ?? "";
+    for (const part of codeSpan.split(",")) {
+      const path = part.trim();
+      if (path.includes("*") || path.startsWith("@")) {
+        continue;
+      }
+      paths.add(path);
+    }
+  }
+
+  return [...paths].sort();
+}
 
 describe("Architecture Map", () => {
   it("documents every tracked architecture entrypoint", () => {
     for (const filePath of trackedArchitectureFiles) {
       expect(architectureMap, `${filePath} should be listed in AGENTS.md`).toContain(filePath);
+    }
+  });
+
+  it("only documents architecture paths that exist", () => {
+    const documentedPaths = extractBacktickedPaths(architectureMapSection);
+
+    expect(documentedPaths).not.toEqual([]);
+    for (const filePath of documentedPaths) {
+      expect(existsSync(filePath), `${filePath} is documented in AGENTS.md but does not exist`).toBe(true);
     }
   });
 });

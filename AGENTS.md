@@ -83,6 +83,7 @@ This section is the fast onboarding map for agents and contributors.
 - LSP services status: `docs/lsp.services.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
 - Transpilation design note: `docs/transpilation.design.md`
+- Architecture map consistency guard: `compiler/architectureMap.test.ts`
 
 ### Test Fixtures and Auxiliary Utilities
 
