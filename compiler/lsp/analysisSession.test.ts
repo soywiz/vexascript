@@ -32,9 +32,8 @@ describe("lsp analysis session", () => {
     expect(session.ast).not.toBeNull();
     expect(session.parserErrors.length).toBeGreaterThan(0);
     expect(session.analysis).not.toBeNull();
-    expect(session.analysis?.getIssues().some((issue) => issue.message.includes("'missing'"))).toBe(
-      true
-    );
+    expect(session.semanticIssues.some((issue) => issue.message.includes("'missing'"))).toBe(true);
+    expect(session.analysis?.getIssues()).toEqual(session.semanticIssues);
     expect(session.tokenizeError).toBeNull();
   });
 

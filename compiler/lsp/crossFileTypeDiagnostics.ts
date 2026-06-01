@@ -446,7 +446,7 @@ export function collectCrossFileTypeDiagnostics(
   const diagnostics: Diagnostic[] = [];
   const seen = new Set<string>();
   const existing = new Set(
-    session.analysis.getIssues().map((issue) => {
+    session.semanticIssues.map((issue) => {
       const token = issue.node.firstToken;
       if (!token) {
         return issue.message;

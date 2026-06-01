@@ -1,4 +1,4 @@
-import type { Analysis } from "compiler/analysis/Analysis";
+import type { Analysis, AnalysisIssue } from "compiler/analysis/Analysis";
 import type { Program } from "compiler/ast/ast";
 import type { ParseIssue } from "compiler/parser/parser";
 import type { TokenizeError } from "compiler/parser/tokenizer";
@@ -8,6 +8,7 @@ import type { TextDocument } from "vscode-languageserver-textdocument";
 export interface AnalysisSession {
   ast: Program | null;
   parserErrors: ParseIssue[];
+  semanticIssues: AnalysisIssue[];
   analysis: Analysis | null;
   tokenizeError: TokenizeError | null;
   fatalError: string | null;
@@ -18,6 +19,7 @@ export function createAnalysisSession(source: string): AnalysisSession {
   return {
     ast: artifacts.ast,
     parserErrors: artifacts.parserIssues,
+    semanticIssues: artifacts.semanticIssues,
     analysis: artifacts.analysis,
     tokenizeError: artifacts.tokenizeError,
     fatalError: artifacts.fatalError
