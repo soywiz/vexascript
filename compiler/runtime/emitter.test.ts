@@ -54,6 +54,15 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let h = await promise;");
   });
 
+  it("emits boolean, null, and undefined literal nodes", () => {
+    const program = parseFile(tokenizeReader("let t = true\nlet f = false\nlet n = null\nlet u = undefined"));
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("let t = true;");
+    expect(emitted).toContain("let f = false;");
+    expect(emitted).toContain("let n = null;");
+    expect(emitted).toContain("let u = undefined;");
+  });
+
   it("erases type alias declarations", () => {
     const program = parseFile(tokenizeReader("type Name = string\nlet value: Name = \"Ada\""));
     expect(emitProgram(program)).toBe("let value = \"Ada\";");

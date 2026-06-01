@@ -6,6 +6,7 @@ import {
     AssignmentExpression,
     BigIntLiteral,
     BinaryExpression,
+    BooleanLiteral,
     BlockStatement,
     BreakStatement,
     CallExpression,
@@ -38,6 +39,7 @@ import {
     LongLiteral,
     MemberExpression,
     NewExpression,
+    NullLiteral,
     Node,
     ObjectLiteral,
     ObjectProperty,
@@ -52,6 +54,7 @@ import {
     TypeAliasStatement,
     TypeParameter,
     TryStatement,
+    UndefinedLiteral,
     UnaryExpression,
     UpdateExpression,
     VarDeclarator,
@@ -1467,6 +1470,19 @@ export class Parser {
         if (token?.type === "identifier") {
             if (token.value === "function") {
                 return this.parseFunctionExpression(token);
+            }
+            if (token.value === "true" || token.value === "false") {
+                return this.attachNodeBounds(
+                    { kind: "BooleanLiteral", value: token.value === "true" } as BooleanLiteral,
+                    token,
+                    token
+                );
+            }
+            if (token.value === "null") {
+                return this.attachNodeBounds({ kind: "NullLiteral" } as NullLiteral, token, token);
+            }
+            if (token.value === "undefined") {
+                return this.attachNodeBounds({ kind: "UndefinedLiteral" } as UndefinedLiteral, token, token);
             }
             return this.buildIdentifierFromToken(token);
         }

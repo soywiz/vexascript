@@ -4,6 +4,7 @@ import type {
   AssignmentExpression,
   BigIntLiteral,
   BinaryExpression,
+  BooleanLiteral,
   BlockStatement,
   CallExpression,
   ClassFieldMember,
@@ -186,6 +187,12 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         return `${(expression as LongLiteral).value}n`;
       case "StringLiteral":
         return JSON.stringify((expression as StringLiteral).value);
+      case "BooleanLiteral":
+        return (expression as BooleanLiteral).value ? "true" : "false";
+      case "NullLiteral":
+        return "null";
+      case "UndefinedLiteral":
+        return "undefined";
       case "Identifier":
         return emitIdentifier(expression as Identifier);
       case "BinaryExpression": {

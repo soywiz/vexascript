@@ -411,6 +411,37 @@ a--
     expect(symbols.get("z")?.valueType).toBe("long");
   });
 
+  it("infers dedicated primitive literal node types", () => {
+    const source =
+      "let t = true\n" +
+      "let f = false\n" +
+      "let n = null\n" +
+      "let u = undefined\n";
+    const symbols = symbolsOfVisibleSymbolsAt(source, 3, 5);
+
+    expect(symbols.get("t")?.valueType).toBe("boolean");
+    expect(symbols.get("f")?.valueType).toBe("boolean");
+    expect(symbols.get("n")?.valueType).toBe("null");
+    expect(symbols.get("u")?.valueType).toBe("undefined");
+  });
+
+  it("resolves pending TypeScript primitive type annotations with assignability semantics", () => {
+    const source =
+      "declare function makeSymbol(): symbol\n" +
+      "declare function fail(): never\n" +
+      "let flexible: any = \"Ada\"\n" +
+      "let strict: int = flexible\n" +
+      "let opaque: unknown = 1\n" +
+      "let record: object = { a: 1 }\n" +
+      "let token: symbol = makeSymbol()\n" +
+      "let recovered: number = fail()\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    expect(messages).toEqual([]);
+  });
+
   it("infers types for ternary, nullish coalescing, relational keywords, and unary word operators", () => {
     const source =
       "let a = true ? 1 : 2\n" +

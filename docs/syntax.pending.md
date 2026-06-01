@@ -28,7 +28,6 @@ Scope notes:
 
 - Union and intersection types (`A | B`, `A & B`) in annotations.
 - Literal types (`"x"`, `123`, `true` as types).
-- `any`, `unknown`, `never`, `void`, `object`, `symbol`.
 - Tuple types (`[A, B]`).
 - Function types (`(a: A) => B`).
 - Type literals (`{ a: string }` as type).
@@ -81,7 +80,6 @@ Scope notes:
 - Template literals (`` `hello ${name}` ``).
 - RegExp literals (`/abc/`).
 - `this` keyword handling.
-- `null`, `true`, `false`, `undefined` as dedicated literal nodes/keywords.
 - Numeric formats beyond current support (hex, binary, octal, numeric separators, etc.).
 
 ## Object and Array Literals

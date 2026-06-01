@@ -35,6 +35,19 @@ export interface LongLiteral extends Node {
     value: bigint
 }
 
+export interface BooleanLiteral extends Node {
+    kind: "BooleanLiteral"
+    value: boolean
+}
+
+export interface NullLiteral extends Node {
+    kind: "NullLiteral"
+}
+
+export interface UndefinedLiteral extends Node {
+    kind: "UndefinedLiteral"
+}
+
 export interface Identifier extends Node {
     kind: "Identifier"
     name: string

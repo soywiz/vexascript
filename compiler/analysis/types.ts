@@ -7,7 +7,12 @@ export type BuiltinTypeName =
   | "long"
   | "void"
   | "null"
-  | "undefined";
+  | "undefined"
+  | "any"
+  | "unknown"
+  | "never"
+  | "object"
+  | "symbol";
 
 export interface UnknownType {
   kind: "unknown";
@@ -67,7 +72,12 @@ export const BUILTIN_TYPES: Record<BuiltinTypeName, BuiltinType> = {
   long: { kind: "builtin", name: "long" },
   void: { kind: "builtin", name: "void" },
   null: { kind: "builtin", name: "null" },
-  undefined: { kind: "builtin", name: "undefined" }
+  undefined: { kind: "builtin", name: "undefined" },
+  any: { kind: "builtin", name: "any" },
+  unknown: { kind: "builtin", name: "unknown" },
+  never: { kind: "builtin", name: "never" },
+  object: { kind: "builtin", name: "object" },
+  symbol: { kind: "builtin", name: "symbol" }
 };
 
 export function builtinType(name: BuiltinTypeName): BuiltinType {
