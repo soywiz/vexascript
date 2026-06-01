@@ -5,6 +5,7 @@ export type BuiltinTypeName =
   | "boolean"
   | "bigint"
   | "long"
+  | "void"
   | "null"
   | "undefined";
 
@@ -62,6 +63,7 @@ export const BUILTIN_TYPES: Record<BuiltinTypeName, BuiltinType> = {
   boolean: { kind: "builtin", name: "boolean" },
   bigint: { kind: "builtin", name: "bigint" },
   long: { kind: "builtin", name: "long" },
+  void: { kind: "builtin", name: "void" },
   null: { kind: "builtin", name: "null" },
   undefined: { kind: "builtin", name: "undefined" }
 };

@@ -67,7 +67,8 @@ export class TypeChecker {
     "string",
     "boolean",
     "bigint",
-    "long"
+    "long",
+    "void"
   ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
@@ -864,7 +865,7 @@ export class TypeChecker {
 
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolvedBase = builtinType(
-        parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+        parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long" | "void"
       );
     } else if (this.isActiveTypeParameter(parsed.baseName)) {
       resolvedBase = namedType(parsed.baseName);
@@ -880,7 +881,7 @@ export class TypeChecker {
         resolvedBase = namedType(parsed.baseName, resolvedTypeArguments);
       } else {
         this.issues.push({
-          message: `Unknown type '${typeName}'. Expected builtin type (int, number, string, boolean, bigint, long) or declared class/interface/type parameter`,
+          message: `Unknown type '${typeName}'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter`,
           node
         });
         return UNKNOWN_TYPE;
@@ -1267,7 +1268,7 @@ export class TypeChecker {
         continue;
       }
 
-      const returnType = this.typeFromAnnotationLoose(interfaceMember.returnType) ?? UNKNOWN_TYPE;
+      const returnType = this.typeFromAnnotationLoose(interfaceMember.returnType) ?? builtinType("void");
       members.set(
         interfaceMember.name.name,
         this.substituteTypeParameters(functionType(

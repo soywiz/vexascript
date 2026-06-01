@@ -48,7 +48,7 @@ class Map implements MyInterface {
     expect(actions).toHaveLength(1);
     const edit = actions[0]?.edit?.changes?.[uri]?.[0];
     expect(actions[0]?.title).toBe("Implement missing member 'say' in class 'Map'");
-    expect(edit?.newText).toContain("say(a: number): unknown {");
+    expect(edit?.newText).toContain("say(a: number): void {");
     expect(edit?.newText).toContain("throw new Error(\"Not implemented\")");
   });
 
@@ -73,7 +73,7 @@ class Map implements MyInterface {
       ast: session.ast,
       diagnostics: [
         semaDiagnostic(
-          "Class 'Map' incorrectly implements interface 'MyInterface'. Property 'say' is of type '() => unknown' but expected '(a: number) => unknown'"
+          "Class 'Map' incorrectly implements interface 'MyInterface'. Property 'say' is of type '() => unknown' but expected '(a: number) => void'"
         )
       ],
       sourceRoots: [root]
@@ -82,6 +82,6 @@ class Map implements MyInterface {
     expect(actions).toHaveLength(1);
     const edit = actions[0]?.edit?.changes?.[uri]?.[0];
     expect(actions[0]?.title).toBe("Fix signature of 'say' to match interface 'MyInterface'");
-    expect(edit?.newText).toBe("(a: number): unknown ");
+    expect(edit?.newText).toBe("(a: number): void ");
   });
 });

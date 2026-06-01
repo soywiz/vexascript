@@ -332,7 +332,7 @@ a--
 
     expect(messages.some((message) => message.includes("Unknown type 'Point'"))).toBe(false);
     expect(messages).toContain(
-      "Unknown type 'MissingType'. Expected builtin type (int, number, string, boolean, bigint, long) or declared class/interface/type parameter"
+      "Unknown type 'MissingType'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter"
     );
   });
 
@@ -771,6 +771,25 @@ class BadRunner implements Runner {
 
     expect(messages).toContain(
       "Class 'BadRunner' incorrectly implements interface 'Runner'. Property 'run' is of type '(step?: int) => int' but expected '(step: int) => int'"
+    );
+  });
+
+  it("assumes void return type for interface methods without explicit return annotation", () => {
+    const source = `interface Runner {
+  run(step: int)
+}
+class BadRunner implements Runner {
+  run(step: int): int {
+  }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain(
+      "Class 'BadRunner' incorrectly implements interface 'Runner'. Property 'run' is of type '(step: int) => int' but expected '(step: int) => void'"
     );
   });
 
