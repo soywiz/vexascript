@@ -6,7 +6,7 @@ This document tracks the current technical backlog for MyLang.
 
 ## Semantic Analysis
 
-- Complete generic constraints and deeper nested contextual inference beyond direct return targets.
+- Complete generic constraints and call-argument contextual inference beyond direct return and literal-property/element targets.
 
 ## Transpilation and Runtime
 

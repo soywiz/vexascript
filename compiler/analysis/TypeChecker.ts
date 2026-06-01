@@ -565,10 +565,10 @@ export class TypeChecker {
         result = builtinType("int");
         break;
       case "ArrayLiteral":
-        result = this.inferArrayLiteralType(expression as ArrayLiteral, scope);
+        result = this.inferArrayLiteralType(expression as ArrayLiteral, scope, expectedType);
         break;
       case "ObjectLiteral":
-        result = this.inferObjectLiteralType(expression as ObjectLiteral, scope);
+        result = this.inferObjectLiteralType(expression as ObjectLiteral, scope, expectedType);
         break;
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
@@ -1303,11 +1303,16 @@ export class TypeChecker {
     return type.kind === "builtin" && (type.name === "int" || type.name === "number");
   }
 
-  private inferArrayLiteralType(arrayLiteral: ArrayLiteral, scope: Scope): AnalysisType {
+  private inferArrayLiteralType(
+    arrayLiteral: ArrayLiteral,
+    scope: Scope,
+    expectedType?: AnalysisType
+  ): AnalysisType {
     let inferredElementType: AnalysisType | undefined;
+    const expectedElementType = this.expectedArrayElementType(expectedType);
 
     for (const element of arrayLiteral.elements) {
-      const currentType = this.visitExpression(element, scope);
+      const currentType = this.visitExpression(element, scope, expectedElementType);
       if (!inferredElementType) {
         inferredElementType = currentType;
         continue;
@@ -1327,16 +1332,53 @@ export class TypeChecker {
     return arrayType(inferredElementType ?? UNKNOWN_TYPE);
   }
 
-  private inferObjectLiteralType(objectLiteral: ObjectLiteral, scope: Scope): AnalysisType {
+  private inferObjectLiteralType(
+    objectLiteral: ObjectLiteral,
+    scope: Scope,
+    expectedType?: AnalysisType
+  ): AnalysisType {
     if (objectLiteral.properties.length === 0) {
       return objectType();
     }
 
+    const expectedProperties = this.expectedObjectProperties(expectedType);
     const properties: Record<string, AnalysisType> = {};
     for (const property of objectLiteral.properties) {
-      properties[property.key.name] = this.visitExpression(property.value, scope);
+      properties[property.key.name] = this.visitExpression(
+        property.value,
+        scope,
+        expectedProperties?.get(property.key.name)
+      );
     }
     return objectTypeWithProperties(properties);
+  }
+
+  private expectedArrayElementType(expectedType: AnalysisType | undefined): AnalysisType | undefined {
+    if (!expectedType || isUnknownType(expectedType)) {
+      return undefined;
+    }
+    if (expectedType.kind === "array") {
+      return expectedType.elementType;
+    }
+    if (expectedType.kind === "range") {
+      return expectedType.elementType;
+    }
+    return undefined;
+  }
+
+  private expectedObjectProperties(
+    expectedType: AnalysisType | undefined
+  ): Map<string, AnalysisType> | undefined {
+    if (!expectedType || isUnknownType(expectedType)) {
+      return undefined;
+    }
+    if (expectedType.kind === "object") {
+      return new Map(Object.entries(expectedType.properties));
+    }
+    if (expectedType.kind === "named") {
+      return this.resolveNamedTypeMembers(expectedType) ?? undefined;
+    }
+    return undefined;
   }
 
   private elementTypeFromIterable(type: AnalysisType): AnalysisType {
