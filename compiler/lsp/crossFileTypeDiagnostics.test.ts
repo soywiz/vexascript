@@ -103,4 +103,38 @@ describe("cross-file type diagnostics", () => {
 
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
   });
+
+  it("specializes generic method arguments and return diagnostics across files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    const worldSource =
+      "class Map<K, V> {\n" +
+      "  get(key: K): V { }\n" +
+      "}\n";
+    const helloSource =
+      "import { Map } from \"./world\"\n" +
+      "fun demo() {\n" +
+      "  const map = new Map<string, int>()\n" +
+      "  const ok: int = map.get(\"id\")\n" +
+      "  const badArg: int = map.get(1)\n" +
+      "  const badReturn: string = map.get(\"id\")\n" +
+      "}\n";
+
+    await writeFile(worldFile, worldSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    const diagnostics = collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+    const messages = diagnostics.map((diagnostic) => diagnostic.message);
+
+    expect(messages).toContain(
+      "Argument 1 of type 'int' is not assignable to parameter 'key' of type 'string'"
+    );
+  });
 });

@@ -47,6 +47,15 @@ export interface CollectCrossFileTypeDiagnosticsParams {
   getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
 }
 
+function baseTypeName(typeName: string): string {
+  const trimmed = typeName.trim();
+  const genericStart = trimmed.indexOf("<");
+  if (genericStart < 0 || !trimmed.endsWith(">")) {
+    return trimmed;
+  }
+  return trimmed.slice(0, genericStart).trim();
+}
+
 function diagnosticForNode(
   node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } },
   message: string,
@@ -490,13 +499,17 @@ export function collectCrossFileTypeDiagnostics(
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(session.ast, objectTypeName, options);
+    const classResolution = resolveClassStatementAcrossFiles(
+      session.ast,
+      baseTypeName(objectTypeName),
+      options
+    );
     if (!classResolution) {
       continue;
     }
 
     const memberName = (callee.property as Identifier).name;
-    const member = resolveClassMember(classResolution.classStatement, memberName);
+    const member = resolveClassMember(classResolution.classStatement, memberName, objectTypeName);
     if (!member) {
       continue;
     }
@@ -582,13 +595,17 @@ export function collectCrossFileTypeDiagnostics(
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(session.ast, objectTypeName, options);
+    const classResolution = resolveClassStatementAcrossFiles(
+      session.ast,
+      baseTypeName(objectTypeName),
+      options
+    );
     if (!classResolution) {
       continue;
     }
 
     const memberName = (leftMember.property as Identifier).name;
-    const member = resolveClassMember(classResolution.classStatement, memberName);
+    const member = resolveClassMember(classResolution.classStatement, memberName, objectTypeName);
     if (!member) {
       continue;
     }

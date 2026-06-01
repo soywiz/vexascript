@@ -115,4 +115,31 @@ describe("signature help", () => {
       activeParameter: 0
     });
   });
+
+  it("specializes generic method signature help from instantiated type", () => {
+    const source =
+      "class Map<K, V> {\n" +
+      "  get(key: K): V { }\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const map = new Map<string, int>()\n" +
+      "  map.get(\"id\")\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = createSignatureHelp(session.ast!, session.analysis!, 5, 12);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "get(key: string)",
+          parameters: [{ label: "key: string" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
 });

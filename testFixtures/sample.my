@@ -9,3 +9,17 @@ console.log(42)
 for (n in 1...4) {
     console.log(n)
 }
+
+class Map<K, V> {
+    a: K
+    b: V
+
+    get(key: K): V {
+    }
+}
+
+fun demoGenerics() {
+    const map = new Map<string, int>()
+    map.a
+    map.get("id")
+}

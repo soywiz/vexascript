@@ -135,6 +135,7 @@ describe("createCompletionItemsForPosition", () => {
       "class Map<K, V> {\n" +
       "  a: K\n" +
       "  b: V\n" +
+      "  get(key: K): V { }\n" +
       "}\n" +
       "fun demo() {\n" +
       "  const map = new Map<string, int>()\n" +
@@ -146,7 +147,7 @@ describe("createCompletionItemsForPosition", () => {
 
     const items = createCompletionItemsForPosition(
       session.ast!,
-      6,
+      7,
       7,
       session.analysis!,
       [],

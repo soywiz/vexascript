@@ -313,6 +313,74 @@ describe("cross-file navigation", () => {
     );
   });
 
+  it("finds member references for instantiated generic classes across files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA =
+      "class Map<K, V> {\n" +
+      "  a: K\n" +
+      "  b: V\n" +
+      "}\n";
+    const sourceB =
+      "import { Map } from \"./world\"\n" +
+      "fun demo() {\n" +
+      "  const map = new Map<string, int>()\n" +
+      "  map.a\n" +
+      "  map.a\n" +
+      "  map.b\n" +
+      "}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const locations = resolveReferencesAcrossFiles(
+      {
+        uri: pathToFileURL(fileB).toString(),
+        line: 3,
+        character: 7,
+        session: sessionB,
+        sourceRoots: [root]
+      },
+      true
+    );
+
+    expect(locations).toEqual(
+      expect.arrayContaining([
+        {
+          uri: pathToFileURL(fileA).toString(),
+          range: {
+            start: { line: 1, character: 2 },
+            end: { line: 1, character: 3 }
+          }
+        },
+        {
+          uri: pathToFileURL(fileB).toString(),
+          range: {
+            start: { line: 3, character: 6 },
+            end: { line: 3, character: 7 }
+          }
+        },
+        {
+          uri: pathToFileURL(fileB).toString(),
+          range: {
+            start: { line: 4, character: 6 },
+            end: { line: 4, character: 7 }
+          }
+        }
+      ])
+    );
+    expect(
+      locations.some((location) =>
+        location.uri === pathToFileURL(fileB).toString() &&
+        location.range.start.line === 5 &&
+        location.range.start.character === 6
+      )
+    ).toBe(false);
+  });
+
   it("renames symbol across declaration and importer usages", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const fileA = join(root, "world.my");

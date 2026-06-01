@@ -649,4 +649,27 @@ fun demo() {
     expect(messages.some((message) => message.includes("Property 'a' does not exist"))).toBe(false);
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
   });
+
+  it("resolves generic class method signatures from specifics", () => {
+    const source = `class Map<K, V> {
+  get(key: K): V {
+  }
+}
+fun demo() {
+  const map: Map<string, int> = new Map<string, int>()
+  const ok: int = map.get("id")
+  const badArg: int = map.get(1)
+  const badReturn: string = map.get("id")
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(
+      messages.some((message) => message.includes("Argument 1 of type 'int' is not assignable to parameter 'key' of type 'string'"))
+    ).toBe(true);
+    expect(messages).toContain("Type 'int' is not assignable to type 'string'");
+  });
 });
