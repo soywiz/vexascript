@@ -8,9 +8,12 @@ import {
   resolveClassStatementAcrossFiles,
   type ClassResolverSessionLike
 } from "./classResolver";
-
-const IMPLEMENTS_MISSING_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is missing$/;
-const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is of type '(.+)' but expected '(.+)'$/;
+import {
+  diagnosticHasCode,
+  IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN,
+  IMPLEMENTS_MISSING_MEMBER_PATTERN,
+  MYLANG_DIAGNOSTIC_CODES
+} from "./diagnosticCodes";
 
 interface MissingImplementsDiagnostic {
   kind: "missing";
@@ -29,6 +32,21 @@ interface IncompatibleImplementsDiagnostic {
 
 type ImplementsDiagnostic = MissingImplementsDiagnostic | IncompatibleImplementsDiagnostic;
 
+interface ImplementsIssueDataBase {
+  className?: unknown;
+  interfaceName?: unknown;
+  memberName?: unknown;
+}
+
+interface ImplementsIncompatibleIssueData extends ImplementsIssueDataBase {
+  expectedType?: unknown;
+}
+
+function readStringProperty(data: Record<string, unknown>, key: string): string | null {
+  const value = data[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 interface ParsedFunctionParameter {
   name: string;
   typeName: string;
@@ -43,6 +61,44 @@ interface ParsedFunctionType {
 function parseImplementsDiagnostic(diagnostic: Diagnostic): ImplementsDiagnostic | null {
   if (diagnostic.source !== "mylang-sema") {
     return null;
+  }
+
+  if (diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER)) {
+    const data = diagnostic.data;
+    if (data && typeof data === "object") {
+      const record = data as ImplementsIssueDataBase & Record<string, unknown>;
+      const className = readStringProperty(record, "className");
+      const interfaceName = readStringProperty(record, "interfaceName");
+      const memberName = readStringProperty(record, "memberName");
+      if (className && interfaceName && memberName) {
+        return {
+          kind: "missing",
+          className,
+          interfaceName,
+          memberName
+        };
+      }
+    }
+  }
+
+  if (diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER)) {
+    const data = diagnostic.data;
+    if (data && typeof data === "object") {
+      const record = data as ImplementsIncompatibleIssueData & Record<string, unknown>;
+      const className = readStringProperty(record, "className");
+      const interfaceName = readStringProperty(record, "interfaceName");
+      const memberName = readStringProperty(record, "memberName");
+      const expectedType = readStringProperty(record, "expectedType");
+      if (className && interfaceName && memberName && expectedType) {
+        return {
+          kind: "incompatible",
+          className,
+          interfaceName,
+          memberName,
+          expectedType
+        };
+      }
+    }
   }
 
   const missingMatch = IMPLEMENTS_MISSING_MEMBER_PATTERN.exec(diagnostic.message);

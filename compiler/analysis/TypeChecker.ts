@@ -56,6 +56,7 @@ import {
   typeToString
 } from "./types";
 import { parseTypeNameShape } from "./typeNames";
+import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
@@ -1335,7 +1336,13 @@ export class TypeChecker {
         if (!classMemberType) {
           this.issues.push({
             message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is missing`,
-            node: classStatement.name
+            node: classStatement.name,
+            code: ANALYSIS_ISSUE_CODES.IMPLEMENTS_MISSING_MEMBER,
+            data: {
+              className: classStatement.name.name,
+              interfaceName: resolvedImplementedType.name,
+              memberName
+            }
           });
           continue;
         }
@@ -1345,9 +1352,19 @@ export class TypeChecker {
         }
 
         const memberNode = this.findOwnClassMemberNameNode(classStatement, memberName);
+        const actualType = this.typeToDiagnosticLabel(classMemberType);
+        const expected = this.typeToDiagnosticLabel(expectedType);
         this.issues.push({
-          message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is of type '${this.typeToDiagnosticLabel(classMemberType)}' but expected '${this.typeToDiagnosticLabel(expectedType)}'`,
-          node: memberNode ?? classStatement.name
+          message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is of type '${actualType}' but expected '${expected}'`,
+          node: memberNode ?? classStatement.name,
+          code: ANALYSIS_ISSUE_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER,
+          data: {
+            className: classStatement.name.name,
+            interfaceName: resolvedImplementedType.name,
+            memberName,
+            actualType,
+            expectedType: expected
+          }
         });
       }
     }

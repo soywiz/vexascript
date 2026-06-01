@@ -1,4 +1,5 @@
 import type { Diagnostic } from "vscode-languageserver/node.js";
+import { ANALYSIS_ISSUE_CODES, type AnalysisIssueCode } from "compiler/analysis/issueCodes";
 
 export const MYLANG_DIAGNOSTIC_CODES = {
   PARSER_ERROR: "MYL1000",
@@ -14,6 +15,8 @@ export const MYLANG_DIAGNOSTIC_CODES = {
   CALL_UNEXPECTED_ARGUMENT: "MYL2007",
   CALL_ARGUMENT_TYPE_MISMATCH: "MYL2008",
   READONLY_REASSIGNMENT: "MYL2009",
+  IMPLEMENTS_MISSING_MEMBER: "MYL2010",
+  IMPLEMENTS_INCOMPATIBLE_MEMBER: "MYL2011",
   STYLE_AVOID_ANY: "MYL3001"
 } as const;
 
@@ -35,6 +38,8 @@ export const CALL_UNEXPECTED_ARGUMENT_PATTERN = /^Unexpected argument [0-9]+; fu
 export const CALL_ARGUMENT_TYPE_MISMATCH_PATTERN = /^Argument [0-9]+ of type '.+' is not assignable to parameter '.+' of type '.+'$/;
 export const UNKNOWN_TYPE_PATTERN = /^Unknown type '.+'. Expected builtin type \(int, number, string, boolean, bigint, long, void\) or declared class\/interface(?:\/type parameter)?$/;
 export const READONLY_REASSIGNMENT_PATTERN = /^Cannot assign to '([A-Za-z_][A-Za-z0-9_]*)' because it is a constant$/;
+export const IMPLEMENTS_MISSING_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is missing$/;
+export const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is of type '(.+)' but expected '(.+)'$/;
 
 function diagnosticCodeToString(diagnostic: Diagnostic): string | null {
   const value = diagnostic.code;
@@ -82,7 +87,29 @@ export function classifySemanticDiagnosticMessage(message: string): MyLangDiagno
   if (READONLY_REASSIGNMENT_PATTERN.test(message)) {
     return MYLANG_DIAGNOSTIC_CODES.READONLY_REASSIGNMENT;
   }
+  if (IMPLEMENTS_MISSING_MEMBER_PATTERN.test(message)) {
+    return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER;
+  }
+  if (IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN.test(message)) {
+    return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
+  }
   return null;
+}
+
+export function mapAnalysisIssueCodeToDiagnosticCode(
+  issueCode: AnalysisIssueCode | undefined
+): MyLangDiagnosticCode | null {
+  if (!issueCode) {
+    return null;
+  }
+  switch (issueCode) {
+    case ANALYSIS_ISSUE_CODES.IMPLEMENTS_MISSING_MEMBER:
+      return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER;
+    case ANALYSIS_ISSUE_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER:
+      return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
+    default:
+      return null;
+  }
 }
 
 export function isUndefinedVariableDiagnostic(diagnostic: Diagnostic): boolean {

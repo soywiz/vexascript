@@ -1,5 +1,6 @@
 import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "./types";
+import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
 
 export type AnalysisSymbolKind = "variable" | "parameter" | "function" | "class" | "method";
 export type AnalysisValueType = string;
@@ -17,6 +18,8 @@ export interface AnalysisSymbol {
 export interface AnalysisIssue {
   message: string;
   node: Node;
+  code?: AnalysisIssueCode;
+  data?: AnalysisIssueData;
 }
 
 export interface Scope {

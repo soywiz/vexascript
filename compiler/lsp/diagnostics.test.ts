@@ -42,4 +42,28 @@ describe("lsp diagnostics", () => {
       diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.READONLY_REASSIGNMENT)
     ).toBe(true);
   });
+
+  it("assigns typed implements diagnostic codes and metadata", () => {
+    const source =
+      "interface Reader {\n" +
+      "  say(a: number)\n" +
+      "}\n" +
+      "class Map implements Reader {\n" +
+      "  say() {\n" +
+      "  }\n" +
+      "}\n";
+
+    const diagnostics = diagnosticsFor(source);
+    const incompatible = diagnostics.find(
+      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER
+    );
+    expect(incompatible).toBeDefined();
+    expect(incompatible?.data).toEqual({
+      className: "Map",
+      interfaceName: "Reader",
+      memberName: "say",
+      actualType: "() => unknown",
+      expectedType: "(a: number) => void"
+    });
+  });
 });

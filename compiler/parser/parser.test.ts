@@ -2019,6 +2019,50 @@ describe("parseProgram", () => {
         });
     });
 
+    it("treats leading '[' on a new line as a new expression statement", () => {
+        expect(
+            parseProgram(
+                tokenizeReader("var res = map.b\n\n[1,2,3,4].map(10)")
+            )
+        ).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "VarStatement",
+                    declarationKind: "var",
+                    name: { kind: "Identifier", name: "res" },
+                    initializer: {
+                        kind: "MemberExpression",
+                        object: { kind: "Identifier", name: "map" },
+                        property: { kind: "Identifier", name: "b" },
+                        computed: false
+                    }
+                },
+                {
+                    kind: "ExprStatement",
+                    expression: {
+                        kind: "CallExpression",
+                        callee: {
+                            kind: "MemberExpression",
+                            object: {
+                                kind: "ArrayLiteral",
+                                elements: [
+                                    { kind: "IntLiteral", value: 1 },
+                                    { kind: "IntLiteral", value: 2 },
+                                    { kind: "IntLiteral", value: 3 },
+                                    { kind: "IntLiteral", value: 4 }
+                                ]
+                            },
+                            property: { kind: "Identifier", name: "map" },
+                            computed: false
+                        },
+                        arguments: [{ kind: "IntLiteral", value: 10 }]
+                    }
+                }
+            ]
+        });
+    });
+
     it("parses function bodies with return/continue/break statements", () => {
         expect(
             parseProgram(

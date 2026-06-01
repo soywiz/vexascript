@@ -1182,6 +1182,9 @@ export class Parser {
             }
 
             if (token?.type === "symbol" && token.value === "[") {
+                if (this.hasLineBreakBetween(expr.lastToken, token)) {
+                    break;
+                }
                 this.tokens.skip();
                 const property = this.parseExpressionOrThrow();
                 const close = this.tokens.read();

@@ -7,6 +7,7 @@ import type { AnalysisSession } from "./analysisSession";
 import { createAnalysisSession } from "./analysisSession";
 import {
   classifySemanticDiagnosticMessage,
+  mapAnalysisIssueCodeToDiagnosticCode,
   MYLANG_DIAGNOSTIC_CODES
 } from "./diagnosticCodes";
 
@@ -82,7 +83,10 @@ export function collectDiagnosticsFromSession(
         continue;
       }
       diagnostics.push({
-        code: classifySemanticDiagnosticMessage(issue.message) ?? MYLANG_DIAGNOSTIC_CODES.SEMANTIC_ERROR,
+        code:
+          mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
+          classifySemanticDiagnosticMessage(issue.message) ??
+          MYLANG_DIAGNOSTIC_CODES.SEMANTIC_ERROR,
         severity: DiagnosticSeverity.Error,
         range: {
           start: {
@@ -95,7 +99,8 @@ export function collectDiagnosticsFromSession(
           }
         },
         message: issue.message,
-        source: "mylang-sema"
+        source: "mylang-sema",
+        ...(issue.data ? { data: issue.data } : {})
       });
     }
   }
