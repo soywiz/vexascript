@@ -573,6 +573,24 @@ nums[0] = "x"
     ).toBe(true);
   });
 
+  it("specializes explicit generic function calls", () => {
+    const source = `fun identity<T>(value: T): T {
+  return value
+}
+let ok: string = identity<string>("hello")
+let wrongReturn: number = identity<string>("hello")
+let wrongArgument = identity<number>("hello")
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string' is not assignable to type 'number'");
+    expect(messages).toContain("Argument 1 of type 'string' is not assignable to parameter 'value' of type 'number'");
+    expect(messages.some((message) => message.includes("Unknown type 'T'"))).toBe(false);
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = `interface PairStore<K, V> {
   keys: K[]

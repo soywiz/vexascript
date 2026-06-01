@@ -26,6 +26,7 @@ export interface NamedType {
 
 export interface FunctionType {
   kind: "function";
+  typeParameters?: string[];
   parameters: Array<{ name: string; type: AnalysisType; optional?: boolean }>;
   returnType: AnalysisType;
 }
@@ -82,10 +83,12 @@ export function namedType(name: string, typeArguments?: AnalysisType[]): NamedTy
 
 export function functionType(
   parameters: Array<{ name: string; type: AnalysisType; optional?: boolean }>,
-  returnType: AnalysisType
+  returnType: AnalysisType,
+  typeParameters?: string[]
 ): FunctionType {
   return {
     kind: "function",
+    ...(typeParameters && typeParameters.length > 0 ? { typeParameters } : {}),
     parameters,
     returnType
   };
@@ -124,10 +127,14 @@ export function typeToString(type: AnalysisType): string {
         return type.name;
       }
       return `${type.name}<${type.typeArguments.map((argument) => typeToString(argument)).join(", ")}>`;
-    case "function":
-      return `(${type.parameters
+    case "function": {
+      const typeParameterPrefix = type.typeParameters && type.typeParameters.length > 0
+        ? `<${type.typeParameters.join(", ")}>`
+        : "";
+      return `${typeParameterPrefix}(${type.parameters
         .map((parameter) => `${parameter.name}: ${typeToString(parameter.type)}`)
         .join(", ")}) => ${typeToString(type.returnType)}`;
+    }
     case "array":
       return `${typeToString(type.elementType)}[]`;
     case "object":

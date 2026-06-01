@@ -6,7 +6,7 @@ This document tracks the current technical backlog for MyLang.
 
 ## Semantic Analysis
 
-- Complete generic type parameter and instantiation flow (especially functions/type aliases and full constraint checking).
+- Complete generic type parameter and instantiation flow for type aliases, constraints, and inference beyond explicit function call type arguments.
 
 ## Transpilation and Runtime
 

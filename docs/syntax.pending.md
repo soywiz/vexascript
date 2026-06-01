@@ -33,7 +33,7 @@ Scope notes:
 - Tuple types (`[A, B]`).
 - Function types (`(a: A) => B`).
 - Type literals (`{ a: string }` as type).
-- Generics (`<T>`) in functions and type aliases.
+- Generics (`<T>`) in type aliases, plus deeper function generic inference/constraints beyond explicit call type arguments.
 - Mapped types and indexed access types (`{ [K in keyof T]: ... }`, `T[K]` in type position).
 - Conditional types (`T extends U ? X : Y`).
 - `keyof`, `typeof` (type query), `infer`.
