@@ -1737,6 +1737,46 @@ describe("parseStatement", () => {
         });
     });
 
+
+    it("parses TypeScript-style class modifiers and optional fields", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("abstract class Demo {\npublic readonly id?: string\nprivate static count: int = 0\nprotected abstract run(): void\n}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            abstract: true,
+            name: { kind: "Identifier", name: "Demo" },
+            members: [
+                {
+                    kind: "ClassFieldMember",
+                    accessModifier: "public",
+                    readonly: true,
+                    optional: true,
+                    name: { kind: "Identifier", name: "id" },
+                    typeAnnotation: { kind: "Identifier", name: "string" }
+                },
+                {
+                    kind: "ClassFieldMember",
+                    accessModifier: "private",
+                    static: true,
+                    name: { kind: "Identifier", name: "count" },
+                    typeAnnotation: { kind: "Identifier", name: "int" },
+                    initializer: { kind: "IntLiteral", value: 0 }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    accessModifier: "protected",
+                    abstract: true,
+                    name: { kind: "Identifier", name: "run" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "void" },
+                    body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
     it("parses class method signatures without body as semantic-level missing body", () => {
         expect(
             parseStatement(

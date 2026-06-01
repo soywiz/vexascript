@@ -402,16 +402,17 @@ function emitClassPrimaryConstructor(
 }
 
 function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
+  const staticPrefix = member.static === true ? "static " : "";
   if (member.kind === "ClassFieldMember") {
     const field = member as ClassFieldMember;
     if (field.initializer) {
-      return `${field.name.name} = ${emitExpression(field.initializer)};`;
+      return `${staticPrefix}${field.name.name} = ${emitExpression(field.initializer)};`;
     }
-    return `${field.name.name};`;
+    return `${staticPrefix}${field.name.name};`;
   }
 
   const method = member as ClassMethodMember;
-  return `${method.name.name}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
+  return `${staticPrefix}${method.name.name}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
 }
 
 function emitForStatement(statement: ForStatement): string {

@@ -219,15 +219,25 @@ export interface FunctionStatement extends Statement {
     body: BlockStatement
 }
 
-export interface ClassFieldMember extends Node {
+export type ClassMemberAccessModifier = "public" | "private" | "protected";
+
+export interface ClassMemberModifiers {
+    accessModifier?: ClassMemberAccessModifier
+    readonly?: boolean
+    static?: boolean
+    abstract?: boolean
+}
+
+export interface ClassFieldMember extends Node, ClassMemberModifiers {
     kind: "ClassFieldMember"
     name: Identifier
     override?: boolean
+    optional?: boolean
     typeAnnotation?: Identifier
     initializer?: Expr
 }
 
-export interface ClassMethodMember extends Node {
+export interface ClassMethodMember extends Node, ClassMemberModifiers {
     kind: "ClassMethodMember"
     name: Identifier
     override?: boolean
@@ -251,6 +261,7 @@ export interface ClassPrimaryConstructorParameter extends Node {
 export interface ClassStatement extends Statement {
     kind: "ClassStatement"
     declared?: boolean
+    abstract?: boolean
     name: Identifier
     typeParameters?: TypeParameter[]
     extendsType?: Identifier

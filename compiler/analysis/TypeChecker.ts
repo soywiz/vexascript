@@ -291,7 +291,13 @@ export class TypeChecker {
         }
 
         const method = member as ClassMethodMember;
-        if (method.missingBody === true && statement.declared !== true) {
+        if (method.abstract === true && statement.abstract !== true && statement.declared !== true) {
+          this.issues.push({
+            message: `Abstract member '${method.name.name}' can only appear within an abstract class`,
+            node: method.name
+          });
+        }
+        if (method.missingBody === true && statement.declared !== true && method.abstract !== true) {
           this.issues.push({
             message: `Class method '${method.name.name}' must have a body`,
             node: method.name
@@ -483,7 +489,7 @@ export class TypeChecker {
           result = this.resolveComputedMemberType(objectType, propertyType);
           break;
         }
-        this.validateKnownMemberAccess(member, objectType);
+        this.validateKnownMemberAccess(member, objectType, scope);
         result = this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE;
         break;
       }
@@ -1462,21 +1468,73 @@ export class TypeChecker {
   }
 
   private validateReadonlyAssignmentTarget(expression: Expr, scope: Scope): void {
-    if (expression.kind !== "Identifier") {
+    if (expression.kind === "Identifier") {
+      const identifier = expression as Node & { kind: "Identifier"; name: string };
+      const usageOffset = identifier.firstToken?.range.start.offset;
+      const symbol = this.resolve(identifier.name, scope, usageOffset);
+      if (!symbol || symbol.kind !== "variable" || symbol.isReadonly !== true) {
+        return;
+      }
+
+      this.issues.push({
+        message: `Cannot assign to '${identifier.name}' because it is a constant`,
+        node: identifier
+      });
       return;
     }
 
-    const identifier = expression as Node & { kind: "Identifier"; name: string };
-    const usageOffset = identifier.firstToken?.range.start.offset;
-    const symbol = this.resolve(identifier.name, scope, usageOffset);
-    if (!symbol || symbol.kind !== "variable" || symbol.isReadonly !== true) {
+    if (expression.kind !== "MemberExpression") {
+      return;
+    }
+
+    const member = expression as MemberExpression;
+    if (member.computed || member.property.kind !== "Identifier") {
+      return;
+    }
+
+    const objectType = this.inferSimpleObjectType(member.object, scope);
+    if (!objectType || objectType.kind !== "named") {
+      return;
+    }
+
+    const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+    const classStatement = this.classStatementsByName.get(objectType.name);
+    const classField = classStatement?.members.find(
+      (candidate): candidate is ClassFieldMember =>
+        candidate.kind === "ClassFieldMember" && candidate.name.name === propertyName
+    );
+    if (!classField || classField.readonly !== true) {
+      return;
+    }
+    if (member.object.kind === "Identifier" && (member.object as Identifier).name === "this" && this.enclosingMethodName(scope) === "constructor") {
       return;
     }
 
     this.issues.push({
-      message: `Cannot assign to '${identifier.name}' because it is a constant`,
-      node: identifier
+      message: `Cannot assign to readonly member '${propertyName}'`,
+      node: member.property
     });
+  }
+
+  private inferSimpleObjectType(expression: Expr, scope: Scope): AnalysisType | null {
+    if (expression.kind !== "Identifier") {
+      return null;
+    }
+
+    const identifier = expression as Identifier;
+    const symbol = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset);
+    return symbol?.type ?? null;
+  }
+
+  private enclosingMethodName(scope: Scope): string | null {
+    let current: Scope | undefined = scope;
+    while (current) {
+      if (current.node.kind === "ClassMethodMember") {
+        return (current.node as ClassMethodMember).name.name;
+      }
+      current = current.parent;
+    }
+    return null;
   }
 
   private resolve(
@@ -1738,7 +1796,7 @@ export class TypeChecker {
     }
   }
 
-  private validateKnownMemberAccess(member: MemberExpression, objectType: AnalysisType): void {
+  private validateKnownMemberAccess(member: MemberExpression, objectType: AnalysisType, scope: Scope): void {
     if (member.computed || member.property.kind !== "Identifier") {
       return;
     }
@@ -1750,6 +1808,7 @@ export class TypeChecker {
 
     const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
     if (knownMembers.has(propertyName)) {
+      this.validateMemberVisibility(member, objectType, propertyName, scope);
       return;
     }
 
@@ -1758,6 +1817,89 @@ export class TypeChecker {
       message: `Property '${propertyName}' does not exist on type '${displayType}'`,
       node: member.property
     });
+  }
+
+  private validateMemberVisibility(member: MemberExpression, objectType: AnalysisType, propertyName: string, scope: Scope): void {
+    if (objectType.kind !== "named") {
+      return;
+    }
+
+    const classMember = this.findClassMember(objectType.name, propertyName);
+    if (!classMember?.member.accessModifier || classMember.member.accessModifier === "public") {
+      return;
+    }
+
+    const currentClassName = this.enclosingClassName(scope);
+    if (classMember.member.accessModifier === "private") {
+      if (currentClassName === classMember.declaringClassName) {
+        return;
+      }
+      this.issues.push({
+        message: `Member '${propertyName}' is private and can only be accessed within class '${classMember.declaringClassName}'`,
+        node: member.property
+      });
+      return;
+    }
+
+    if (
+      currentClassName === classMember.declaringClassName ||
+      (currentClassName !== null && this.isClassDerivedFrom(currentClassName, classMember.declaringClassName))
+    ) {
+      return;
+    }
+
+    this.issues.push({
+      message: `Member '${propertyName}' is protected and can only be accessed within class '${classMember.declaringClassName}' or its subclasses`,
+      node: member.property
+    });
+  }
+
+  private findClassMember(className: string, memberName: string): { member: ClassFieldMember | ClassMethodMember; declaringClassName: string } | null {
+    const classStatement = this.classStatementsByName.get(className);
+    if (!classStatement) {
+      return null;
+    }
+    for (const member of classStatement.members) {
+      if (member.name.name === memberName) {
+        return { member, declaringClassName: className };
+      }
+    }
+    if (!classStatement.extendsType) {
+      return null;
+    }
+    const extendsType = this.typeFromTypeNameLoose(classStatement.extendsType.name);
+    if (extendsType.kind !== "named") {
+      return null;
+    }
+    return this.findClassMember(extendsType.name, memberName);
+  }
+
+  private enclosingClassName(scope: Scope): string | null {
+    let current: Scope | undefined = scope;
+    while (current) {
+      if (current.node.kind === "ClassStatement") {
+        return (current.node as ClassStatement).name.name;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  private isClassDerivedFrom(className: string, baseClassName: string): boolean {
+    let current = this.classStatementsByName.get(className);
+    const visited = new Set<string>();
+    while (current?.extendsType) {
+      const extendsType = this.typeFromTypeNameLoose(current.extendsType.name);
+      if (extendsType.kind !== "named" || visited.has(extendsType.name)) {
+        return false;
+      }
+      if (extendsType.name === baseClassName) {
+        return true;
+      }
+      visited.add(extendsType.name);
+      current = this.classStatementsByName.get(extendsType.name);
+    }
+    return false;
   }
 
   private resolveKnownMemberType(member: MemberExpression, objectType: AnalysisType): AnalysisType | null {

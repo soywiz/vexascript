@@ -107,6 +107,19 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toBe("console.log(42);");
   });
 
+
+  it("emits static class members while omitting type-only class modifiers", () => {
+    const emitted = emitProgram(parseFile(tokenizeReader(`class Demo {
+  private static count: int = 0
+  public readonly name: string
+}`)));
+
+    expect(emitted).toContain("static count = 0;");
+    expect(emitted).toContain("name;");
+    expect(emitted).not.toContain("private");
+    expect(emitted).not.toContain("readonly");
+  });
+
   it("emits class extends and omits interface statements", () => {
     const program = parseFile(
       tokenizeReader("interface Readable<T> { value: T }\nclass Box<T> extends Base<T> implements Readable<T> { value: T }")
