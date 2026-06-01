@@ -169,6 +169,7 @@ Class declarations also support:
 - generic type parameters and constraints (`class Box<T extends Entity>`)
 - `extends` clauses
 - `implements` clauses (type-only, omitted in emitted JavaScript)
+- `abstract` classes for abstract member declarations
 
 Examples:
 
@@ -218,8 +219,12 @@ class Point(val x: number, val y: number)
 Class fields support:
 
 - field name
+- optional marker (`field?: TypeName`)
 - optional type annotation (`: TypeName`)
 - optional initializer (`= expression`)
+- access modifiers (`public`, `private`, `protected`)
+- `readonly` fields (assignable from constructors, diagnosed on later writes)
+- `static` fields
 
 Examples:
 
@@ -228,12 +233,14 @@ class Demo {
   a = 10
   b: Int = 20
   c: Int
+  public readonly id?: string
+  private static count: Int = 0
 }
 ```
 
 ### Class methods and constructor
 
-Class members can be methods, including `constructor`:
+Class members can be methods, including `constructor`. Methods support access modifiers (`public`, `private`, `protected`), `static`, and `abstract` signatures inside abstract classes:
 
 ```mylang
 class Demo {

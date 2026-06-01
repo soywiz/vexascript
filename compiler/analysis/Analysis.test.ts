@@ -1052,6 +1052,62 @@ fun demo() {
     expect(messages.some((message) => message === "Undefined variable 'it'")).toBe(false);
   });
 
+
+
+  it("validates private and protected class member access", () => {
+    const source = `class Base {
+  private secret: string
+  protected token: string
+  read() {
+    return this.secret
+  }
+}
+class Child extends Base {
+  readToken() {
+    return this.token
+  }
+}
+let base: Base
+let child: Child
+base.secret
+base.token
+child.token
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Member 'secret' is private and can only be accessed within class 'Base'");
+    expect(messages).toContain("Member 'token' is protected and can only be accessed within class 'Base' or its subclasses");
+    expect(messages.filter((message) => message.includes("Member 'token' is protected"))).toHaveLength(2);
+  });
+
+  it("validates readonly and abstract class member semantics", () => {
+    const source = `abstract class Base {
+  public readonly id: string
+  abstract run(): void
+  constructor() {
+    this.id = "init"
+  }
+  rename() {
+    this.id = "next"
+  }
+}
+class Bad {
+  abstract missing(): void
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Cannot assign to readonly member 'id'");
+    expect(messages).toContain("Abstract member 'missing' can only appear within an abstract class");
+    expect(messages).not.toContain("Class method 'run' must have a body");
+  });
+
   it("validates override usage and compatibility against base members", () => {
     const source = `class Base {
   value: string

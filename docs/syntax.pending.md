@@ -41,12 +41,7 @@ Scope notes:
 
 ## Class Syntax
 
-- Access modifiers (`public`, `private`, `protected`).
-- `readonly` members.
-- `static` members.
-- Abstract classes and abstract members.
 - `get` / `set` accessors.
-- Optional class fields (`field?: T`).
 - Parameter properties in TypeScript classes (`constructor(public x: number)`).
 - `super` calls and `super.member`.
 

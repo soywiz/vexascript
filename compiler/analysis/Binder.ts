@@ -365,6 +365,13 @@ export class Binder {
           valueType: typeToString(methodType)
         });
         const methodScope = this.createScope(classScope, method);
+        this.declare(methodScope, {
+          name: "this",
+          kind: "variable",
+          node: statement.name,
+          type: namedType(statement.name.name),
+          valueType: statement.name.name
+        }, -1);
         for (const parameter of method.parameters) {
           const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
           this.declare(methodScope, {

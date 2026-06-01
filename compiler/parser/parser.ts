@@ -253,7 +253,7 @@ export class Parser {
         if (this.isTypeScriptExportAssignmentStart()) {
             return this.parseTypeScriptExportAssignmentStatement();
         }
-        if (token?.type === "identifier" && token.value === "class") {
+        if (token?.type === "identifier" && (token.value === "class" || this.isAbstractClassStart())) {
             return this.parseClassStatement();
         }
         if (token?.type === "identifier" && token.value === "interface") {
@@ -750,6 +750,17 @@ export class Parser {
             first.value === "declare" &&
             second?.type === "identifier" &&
             (second.value === "namespace" || second.value === "module")
+        );
+    }
+
+    private isAbstractClassStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "abstract" &&
+            second?.type === "identifier" &&
+            second.value === "class"
         );
     }
 
@@ -2280,13 +2291,31 @@ export class Parser {
     }
 
     private parseClassMember(allowSignatureOnly: boolean = false): ClassMember {
-        let memberStartToken = this.tokens.read();
+        const firstToken = this.tokens.peek();
+        let memberStartToken = firstToken;
         let isOverrideMember = false;
-        if (memberStartToken?.type === "identifier" && memberStartToken.value === "override") {
-            isOverrideMember = true;
-            memberStartToken = this.tokens.read();
+        let accessModifier: ClassMember["accessModifier"] | undefined;
+        let isReadonlyMember = false;
+        let isStaticMember = false;
+        let isAbstractMember = false;
+
+        while (this.tokens.peek()?.type === "identifier" && this.isClassMemberModifier(this.tokens.peek()!.value)) {
+            const modifierToken = this.tokens.read()!;
+            memberStartToken ??= modifierToken;
+            if (modifierToken.value === "override") {
+                isOverrideMember = true;
+            } else if (modifierToken.value === "public" || modifierToken.value === "private" || modifierToken.value === "protected") {
+                accessModifier = modifierToken.value;
+            } else if (modifierToken.value === "readonly") {
+                isReadonlyMember = true;
+            } else if (modifierToken.value === "static") {
+                isStaticMember = true;
+            } else if (modifierToken.value === "abstract") {
+                isAbstractMember = true;
+            }
         }
-        const memberNameToken = memberStartToken;
+
+        const memberNameToken = this.tokens.read();
         if (memberNameToken?.type !== "identifier") {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
         }
@@ -2323,10 +2352,14 @@ export class Parser {
                     parameters,
                     body: signatureOnlyBody
                 };
-                if (isOverrideMember) {
-                    signatureOnlyMethod.override = true;
-                }
-                if (!allowSignatureOnly) {
+                this.applyClassMemberModifiers(signatureOnlyMethod, {
+                    override: isOverrideMember,
+                    accessModifier,
+                    readonly: isReadonlyMember,
+                    static: isStaticMember,
+                    abstract: isAbstractMember
+                });
+                if (!allowSignatureOnly && !isAbstractMember) {
                     signatureOnlyMethod.missingBody = true;
                 }
                 if (methodTypeParameters.length > 0) {
@@ -2345,9 +2378,13 @@ export class Parser {
                 parameters,
                 body: this.parseBlockStatement()
             };
-            if (isOverrideMember) {
-                methodMember.override = true;
-            }
+            this.applyClassMemberModifiers(methodMember, {
+                override: isOverrideMember,
+                accessModifier,
+                readonly: isReadonlyMember,
+                static: isStaticMember,
+                abstract: isAbstractMember
+            });
             if (methodTypeParameters.length > 0) {
                 methodMember.typeParameters = methodTypeParameters;
             }
@@ -2356,6 +2393,12 @@ export class Parser {
             }
 
             return this.attachNodeBounds(methodMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
+        }
+
+        let optional = false;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+            this.tokens.skip();
+            optional = true;
         }
 
         let typeAnnotation: Identifier | undefined;
@@ -2374,8 +2417,15 @@ export class Parser {
             kind: "ClassFieldMember",
             name: this.buildIdentifierFromToken(memberNameToken)
         };
-        if (isOverrideMember) {
-            fieldMember.override = true;
+        this.applyClassMemberModifiers(fieldMember, {
+            override: isOverrideMember,
+            accessModifier,
+            readonly: isReadonlyMember,
+            static: isStaticMember,
+            abstract: isAbstractMember
+        });
+        if (optional) {
+            fieldMember.optional = true;
         }
         if (typeAnnotation) {
             fieldMember.typeAnnotation = typeAnnotation;
@@ -2384,6 +2434,37 @@ export class Parser {
             fieldMember.initializer = initializer;
         }
         return this.attachNodeBounds(fieldMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
+    }
+
+    private isClassMemberModifier(value: string): boolean {
+        return value === "override" || value === "public" || value === "private" || value === "protected" || value === "readonly" || value === "static" || value === "abstract";
+    }
+
+    private applyClassMemberModifiers(
+        member: ClassMember,
+        modifiers: {
+            override: boolean;
+            accessModifier?: ClassMember["accessModifier"];
+            readonly: boolean;
+            static: boolean;
+            abstract: boolean;
+        }
+    ): void {
+        if (modifiers.override) {
+            member.override = true;
+        }
+        if (modifiers.accessModifier) {
+            member.accessModifier = modifiers.accessModifier;
+        }
+        if (modifiers.readonly) {
+            member.readonly = true;
+        }
+        if (modifiers.static) {
+            member.static = true;
+        }
+        if (modifiers.abstract) {
+            member.abstract = true;
+        }
     }
 
     private parseClassPrimaryConstructorParameters(): ClassPrimaryConstructorParameter[] {
@@ -2451,7 +2532,13 @@ export class Parser {
     }
 
     private parseClassStatement(declared: boolean = false): ClassStatement {
-        const classKeyword = this.tokens.read();
+        let classKeyword = this.tokens.read();
+        let isAbstractClass = false;
+        const startToken = classKeyword;
+        if (classKeyword?.type === "identifier" && classKeyword.value === "abstract") {
+            isAbstractClass = true;
+            classKeyword = this.tokens.read();
+        }
         if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
             this.fail("Expected class declaration statement", this.tokenAt(classKeyword));
         }
@@ -2511,6 +2598,9 @@ export class Parser {
                 if (declared) {
                     statement.declared = true;
                 }
+                if (isAbstractClass) {
+                    statement.abstract = true;
+                }
                 if (typeParameters.length > 0) {
                     statement.typeParameters = typeParameters;
                 }
@@ -2523,7 +2613,7 @@ export class Parser {
                 if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
                     statement.primaryConstructorParameters = primaryConstructorParameters;
                 }
-                return this.attachNodeBounds(statement, classKeyword, this.getLastReadToken() ?? classKeyword);
+                return this.attachNodeBounds(statement, startToken, this.getLastReadToken() ?? classKeyword);
             }
 
             this.fail("Expected '{' to start class body", this.tokenAt(openBrace));
@@ -2546,6 +2636,9 @@ export class Parser {
                 if (declared) {
                     statement.declared = true;
                 }
+                if (isAbstractClass) {
+                    statement.abstract = true;
+                }
                 if (typeParameters.length > 0) {
                     statement.typeParameters = typeParameters;
                 }
@@ -2558,7 +2651,7 @@ export class Parser {
                 if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
                     statement.primaryConstructorParameters = primaryConstructorParameters;
                 }
-                return this.attachNodeBounds(statement, classKeyword, this.getLastReadToken() ?? classKeyword);
+                return this.attachNodeBounds(statement, startToken, this.getLastReadToken() ?? classKeyword);
             }
 
             if (token?.type === "symbol" && token.value === ";") {
