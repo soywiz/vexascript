@@ -613,6 +613,28 @@ let wrongArray: string = first([1, 2, 3])
     expect(messages.some((message) => message.includes("Unknown type 'T'"))).toBe(false);
   });
 
+  it("infers generic function type arguments from contextual return types", () => {
+    const source = `fun make<T>(): T {
+}
+fun empty<T>(): T[] {
+}
+let text: string = make()
+let numbers: int[] = empty()
+let badExplicit: string = make<number>()
+let badArray: int[] = empty<string>()
+let assigned: string
+assigned = make()
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.filter((message) => message === "Type 'number' is not assignable to type 'string'")).toHaveLength(1);
+    expect(messages.filter((message) => message === "Type 'string[]' is not assignable to type 'int[]'")).toHaveLength(1);
+    expect(messages.some((message) => message.includes("Type 'T' is not assignable"))).toBe(false);
+  });
+
   it("keeps explicit generic function type arguments authoritative over inference", () => {
     const source = `fun identity<T>(value: T): T {
   return value

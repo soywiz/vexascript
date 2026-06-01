@@ -196,7 +196,7 @@ export class TypeChecker {
       for (const declaration of statement.declarations) {
         const explicitType = this.resolveTypeAnnotation(declaration.typeAnnotation, scope);
         const initializerType = declaration.initializer
-          ? this.visitExpression(declaration.initializer, scope)
+          ? this.visitExpression(declaration.initializer, scope, explicitType)
           : undefined;
         if (
           explicitType &&
@@ -215,7 +215,7 @@ export class TypeChecker {
 
     const explicitType = this.resolveTypeAnnotation(statement.typeAnnotation, scope);
     const initializerType = statement.initializer
-      ? this.visitExpression(statement.initializer, scope)
+      ? this.visitExpression(statement.initializer, scope, explicitType)
       : undefined;
     if (
       explicitType &&
@@ -403,7 +403,7 @@ export class TypeChecker {
     }
   }
 
-  private visitExpression(expression: Expr, scope: Scope): AnalysisType {
+  private visitExpression(expression: Expr, scope: Scope, expectedType?: AnalysisType): AnalysisType {
     let result: AnalysisType;
     switch (expression.kind) {
       case "BinaryExpression": {
@@ -430,7 +430,7 @@ export class TypeChecker {
         }
         this.validateReadonlyAssignmentTarget(assignment.left, scope);
         const leftType = this.visitExpression(assignment.left, scope);
-        const rightType = this.visitExpression(assignment.right, scope);
+        const rightType = this.visitExpression(assignment.right, scope, leftType);
         if (
           !isUnknownType(leftType) &&
           !isUnknownType(rightType) &&
@@ -448,8 +448,8 @@ export class TypeChecker {
       case "ConditionalExpression": {
         const conditional = expression as ConditionalExpression;
         this.visitExpression(conditional.test, scope);
-        const consequentType = this.visitExpression(conditional.consequent, scope);
-        const alternateType = this.visitExpression(conditional.alternate, scope);
+        const consequentType = this.visitExpression(conditional.consequent, scope, expectedType);
+        const alternateType = this.visitExpression(conditional.alternate, scope, expectedType);
         if (this.isTypeAssignable(consequentType, alternateType)) {
           result = alternateType;
           break;
@@ -487,7 +487,8 @@ export class TypeChecker {
           const instantiatedCalleeType = this.instantiateFunctionType(
             calleeType,
             explicitTypeArguments,
-            argumentTypes
+            argumentTypes,
+            expectedType
           );
           this.validateCallArguments(call, instantiatedCalleeType, argumentTypes);
           result = instantiatedCalleeType.returnType;
@@ -782,7 +783,8 @@ export class TypeChecker {
   private instantiateFunctionType(
     calleeType: AnalysisType & { kind: "function" },
     explicitTypeArguments: AnalysisType[],
-    argumentTypes: AnalysisType[]
+    argumentTypes: AnalysisType[],
+    expectedReturnType?: AnalysisType
   ): AnalysisType & { kind: "function" } {
     const typeParameters = calleeType.typeParameters ?? [];
     if (typeParameters.length === 0) {
@@ -801,11 +803,22 @@ export class TypeChecker {
       explicitlyProvidedTypeParameters.add(parameterName);
     }
 
+    const typeParameterSet = new Set(typeParameters);
     for (let index = 0; index < calleeType.parameters.length && index < argumentTypes.length; index += 1) {
       this.inferTypeParameterSubstitutions(
         calleeType.parameters[index]!.type,
         argumentTypes[index]!,
-        new Set(typeParameters),
+        typeParameterSet,
+        explicitlyProvidedTypeParameters,
+        substitutions
+      );
+    }
+
+    if (expectedReturnType && !isUnknownType(expectedReturnType)) {
+      this.inferTypeParameterSubstitutions(
+        calleeType.returnType,
+        expectedReturnType,
+        typeParameterSet,
         explicitlyProvidedTypeParameters,
         substitutions
       );
