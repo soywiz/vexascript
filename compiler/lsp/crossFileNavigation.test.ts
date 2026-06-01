@@ -555,4 +555,120 @@ describe("cross-file navigation", () => {
       ]
     });
   });
+
+  it("finds references for imported type names used in implements clauses", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "a.my");
+    const fileB = join(root, "b.my");
+
+    const sourceA = "class Base\n";
+    const sourceB =
+      "import { Base } from \"./a\"\n" +
+      "class Child implements Base {\n" +
+      "}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionA = createAnalysisSession(sourceA);
+    const locations = resolveReferencesAcrossFiles(
+      {
+        uri: pathToFileURL(fileA).toString(),
+        line: 0,
+        character: 7,
+        session: sessionA,
+        sourceRoots: [root]
+      },
+      true
+    );
+
+    expect(locations).toEqual(
+      expect.arrayContaining([
+        {
+          uri: pathToFileURL(fileA).toString(),
+          range: {
+            start: { line: 0, character: 6 },
+            end: { line: 0, character: 10 }
+          }
+        },
+        {
+          uri: pathToFileURL(fileB).toString(),
+          range: {
+            start: { line: 0, character: 9 },
+            end: { line: 0, character: 13 }
+          }
+        },
+        {
+          uri: pathToFileURL(fileB).toString(),
+          range: {
+            start: { line: 1, character: 23 },
+            end: { line: 1, character: 27 }
+          }
+        }
+      ])
+    );
+  });
+
+  it("renames interface declarations across imports and implements clauses", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA =
+      "interface Readable {\n" +
+      "  say(): int\n" +
+      "}\n";
+    const sourceB =
+      "import { Readable } from \"./world\"\n" +
+      "class Map implements Readable {\n" +
+      "  say(): int {\n" +
+      "    return 1\n" +
+      "  }\n" +
+      "}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionA = createAnalysisSession(sourceA);
+    const edit = resolveRenameAcrossFiles(
+      {
+        uri: pathToFileURL(fileA).toString(),
+        line: 0,
+        character: 12,
+        session: sessionA,
+        sourceRoots: [root]
+      },
+      "Speakable"
+    );
+
+    expect(edit?.changes?.[pathToFileURL(fileA).toString()]).toEqual(
+      expect.arrayContaining([
+        {
+          range: {
+            start: { line: 0, character: 10 },
+            end: { line: 0, character: 18 }
+          },
+          newText: "Speakable"
+        }
+      ])
+    );
+    expect(edit?.changes?.[pathToFileURL(fileB).toString()]).toEqual(
+      expect.arrayContaining([
+        {
+          range: {
+            start: { line: 0, character: 9 },
+            end: { line: 0, character: 17 }
+          },
+          newText: "Speakable"
+        },
+        {
+          range: {
+            start: { line: 1, character: 21 },
+            end: { line: 1, character: 29 }
+          },
+          newText: "Speakable"
+        }
+      ])
+    );
+  });
 });

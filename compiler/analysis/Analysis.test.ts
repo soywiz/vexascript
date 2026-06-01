@@ -825,7 +825,26 @@ class Wrong extends Base {
     expect(messages.some((message) => message.includes("Expected '{' to start class method body"))).toBe(false);
   });
 
-  it("attaches implements contract errors to class name node", () => {
+  it("attaches missing implements contract errors to class name node", () => {
+    const source = `interface Readable {
+  say(): number
+}
+class Map implements Readable {
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const issue = analysis
+      .getIssues()
+      .find((candidate) => candidate.message.includes("Property 'say' is missing"));
+
+    expect(issue).toBeDefined();
+    expect(issue?.node.kind).toBe("Identifier");
+    expect((issue?.node as { kind: string; name?: string }).name).toBe("Map");
+  });
+
+  it("attaches incompatible implements contract errors to member name node", () => {
     const source = `interface Readable {
   say(): number
 }
@@ -843,6 +862,6 @@ class Map implements Readable {
 
     expect(issue).toBeDefined();
     expect(issue?.node.kind).toBe("Identifier");
-    expect((issue?.node as { kind: string; name?: string }).name).toBe("Map");
+    expect((issue?.node as { kind: string; name?: string }).name).toBe("say");
   });
 });

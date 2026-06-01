@@ -4,6 +4,7 @@ import type { Analysis } from "./Analysis";
 import type {
   ClassStatement,
   FunctionStatement,
+  InterfaceStatement,
   ImportStatement,
   Program,
   VarStatement
@@ -104,6 +105,20 @@ function indexFileData(ast: Program | null, filePath: string): IndexedFileData {
       if (range) {
         declarations.push({
           name: classStatement.name.name,
+          kind: "class",
+          range
+        });
+      }
+      continue;
+    }
+
+    if (statement.kind === "InterfaceStatement") {
+      const interfaceStatement = statement as InterfaceStatement;
+      const range = nodeRange(interfaceStatement.name);
+      if (range) {
+        // Keep interface declarations discoverable through the same top-level class channel.
+        declarations.push({
+          name: interfaceStatement.name.name,
           kind: "class",
           range
         });

@@ -10,6 +10,7 @@ import type {
   CallExpression,
   Expr,
   ClassStatement,
+  InterfaceStatement,
   ConditionalExpression,
   DoWhileStatement,
   ExprStatement,
@@ -179,6 +180,12 @@ function findTopLevelDeclarationByName(ast: Program, name: string): Statement | 
         return classStatement;
       }
     }
+    if (statement.kind === "InterfaceStatement") {
+      const interfaceStatement = statement as InterfaceStatement;
+      if (interfaceStatement.name.name === name) {
+        return interfaceStatement;
+      }
+    }
     if (statement.kind === "FunctionStatement") {
       const functionStatement = statement as FunctionStatement;
       if (functionStatement.name.name === name) {
@@ -214,6 +221,9 @@ function declarationRangeForName(statement: Statement, name: string) {
   }
   if (statement.kind === "ClassStatement") {
     return nodeToRange((statement as ClassStatement).name);
+  }
+  if (statement.kind === "InterfaceStatement") {
+    return nodeToRange((statement as InterfaceStatement).name);
   }
   if (statement.kind === "FunctionStatement") {
     return nodeToRange((statement as FunctionStatement).name);

@@ -1,0 +1,405 @@
+import type { Program, ClassMethodMember, ClassStatement } from "compiler/ast/ast";
+import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "vscode-languageserver/node.js";
+import { pathToUri } from "./importFixes";
+import {
+  createClassResolverCache,
+  resolveClassMember,
+  resolveClassStatementAcrossFiles,
+  type ClassResolverSessionLike
+} from "./classResolver";
+
+const IMPLEMENTS_MISSING_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is missing$/;
+const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is of type '(.+)' but expected '(.+)'$/;
+
+interface MissingImplementsDiagnostic {
+  kind: "missing";
+  className: string;
+  interfaceName: string;
+  memberName: string;
+}
+
+interface IncompatibleImplementsDiagnostic {
+  kind: "incompatible";
+  className: string;
+  interfaceName: string;
+  memberName: string;
+  expectedType: string;
+}
+
+type ImplementsDiagnostic = MissingImplementsDiagnostic | IncompatibleImplementsDiagnostic;
+
+interface ParsedFunctionParameter {
+  name: string;
+  typeName: string;
+  optional: boolean;
+}
+
+interface ParsedFunctionType {
+  parameters: ParsedFunctionParameter[];
+  returnTypeName: string;
+}
+
+function parseImplementsDiagnostic(diagnostic: Diagnostic): ImplementsDiagnostic | null {
+  if (diagnostic.source !== "mylang-sema") {
+    return null;
+  }
+
+  const missingMatch = IMPLEMENTS_MISSING_MEMBER_PATTERN.exec(diagnostic.message);
+  if (missingMatch) {
+    const className = missingMatch[1];
+    const interfaceName = missingMatch[2];
+    const memberName = missingMatch[3];
+    if (!className || !interfaceName || !memberName) {
+      return null;
+    }
+    return {
+      kind: "missing",
+      className,
+      interfaceName,
+      memberName
+    };
+  }
+
+  const incompatibleMatch = IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN.exec(diagnostic.message);
+  if (incompatibleMatch) {
+    const className = incompatibleMatch[1];
+    const interfaceName = incompatibleMatch[2];
+    const memberName = incompatibleMatch[3];
+    const expectedType = incompatibleMatch[5];
+    if (!className || !interfaceName || !memberName || !expectedType) {
+      return null;
+    }
+    return {
+      kind: "incompatible",
+      className,
+      interfaceName,
+      memberName,
+      expectedType
+    };
+  }
+
+  return null;
+}
+
+function classObjectTypeName(classStatement: ClassStatement): string {
+  const typeParameters = classStatement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
+  if (typeParameters.length === 0) {
+    return classStatement.name.name;
+  }
+  return `${classStatement.name.name}<${typeParameters.join(", ")}>`;
+}
+
+function classEndInsertRange(classStatement: ClassStatement): Range | null {
+  const last = classStatement.lastToken;
+  if (!last) {
+    return null;
+  }
+
+  if (last.type === "symbol" && last.value === "}") {
+    return {
+      start: {
+        line: last.range.start.line,
+        character: last.range.start.column
+      },
+      end: {
+        line: last.range.start.line,
+        character: last.range.start.column
+      }
+    };
+  }
+
+  return {
+    start: {
+      line: last.range.end.line,
+      character: last.range.end.column
+    },
+    end: {
+      line: last.range.end.line,
+      character: last.range.end.column
+    }
+  };
+}
+
+function splitTopLevel(value: string, separator: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let angleDepth = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+
+  for (const ch of value) {
+    if (ch === "<") {
+      angleDepth += 1;
+    } else if (ch === ">" && angleDepth > 0) {
+      angleDepth -= 1;
+    } else if (ch === "(") {
+      parenDepth += 1;
+    } else if (ch === ")" && parenDepth > 0) {
+      parenDepth -= 1;
+    } else if (ch === "[") {
+      bracketDepth += 1;
+    } else if (ch === "]" && bracketDepth > 0) {
+      bracketDepth -= 1;
+    } else if (ch === "{") {
+      braceDepth += 1;
+    } else if (ch === "}" && braceDepth > 0) {
+      braceDepth -= 1;
+    }
+
+    if (
+      ch === separator &&
+      angleDepth === 0 &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0
+    ) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail.length > 0) {
+    result.push(tail);
+  }
+
+  return result;
+}
+
+function parseFunctionTypeLabel(typeLabel: string): ParsedFunctionType | null {
+  const trimmed = typeLabel.trim();
+  const arrowIndex = trimmed.lastIndexOf("=>");
+  if (!trimmed.startsWith("(") || arrowIndex <= 0) {
+    return null;
+  }
+  const paramsPart = trimmed.slice(1, arrowIndex).replace(/\)\s*$/, "").trim();
+  const returnTypeName = trimmed.slice(arrowIndex + 2).trim();
+  if (returnTypeName.length === 0) {
+    return null;
+  }
+
+  const parameters: ParsedFunctionParameter[] = [];
+  if (paramsPart.length > 0) {
+    for (const rawParameter of splitTopLevel(paramsPart, ",")) {
+      const match = /^([A-Za-z_][A-Za-z0-9_]*)(\?)?:\s*(.+)$/.exec(rawParameter);
+      if (!match) {
+        return null;
+      }
+      const name = match[1];
+      const optionalMarker = match[2];
+      const typeName = match[3]?.trim() ?? "";
+      if (!name || typeName.length === 0) {
+        return null;
+      }
+      parameters.push({
+        name,
+        typeName,
+        optional: optionalMarker === "?"
+      });
+    }
+  }
+
+  return {
+    parameters,
+    returnTypeName
+  };
+}
+
+function signatureToMethodHead(signature: ParsedFunctionType, methodName: string): string {
+  const parameters = signature.parameters
+    .map((parameter) => `${parameter.name}${parameter.optional ? "?" : ""}: ${parameter.typeName}`)
+    .join(", ");
+  return `${methodName}(${parameters}): ${signature.returnTypeName}`;
+}
+
+function createMissingMemberText(classStatement: ClassStatement, memberName: string, typeName: string): string {
+  const hasAnyMember =
+    (classStatement.primaryConstructorParameters?.length ?? 0) > 0 || classStatement.members.length > 0;
+  const prefix = hasAnyMember ? "" : "\n";
+  return `${prefix}  ${memberName}: ${typeName}\n`;
+}
+
+function createMissingMethodText(classStatement: ClassStatement, methodHead: string): string {
+  const hasAnyMember =
+    (classStatement.primaryConstructorParameters?.length ?? 0) > 0 || classStatement.members.length > 0;
+  const prefix = hasAnyMember ? "" : "\n";
+  return `${prefix}  ${methodHead} {\n    throw new Error("Not implemented")\n  }\n`;
+}
+
+function findOwnMethod(classStatement: ClassStatement, memberName: string): ClassMethodMember | null {
+  for (const member of classStatement.members) {
+    if (member.kind !== "ClassMethodMember") {
+      continue;
+    }
+    if (member.name.name === memberName) {
+      return member;
+    }
+  }
+  return null;
+}
+
+function methodSignatureRange(method: ClassMethodMember): Range | null {
+  const methodNameToken = method.name.lastToken;
+  const methodBodyToken = method.body.firstToken;
+  if (!methodNameToken || !methodBodyToken) {
+    return null;
+  }
+  return {
+    start: {
+      line: methodNameToken.range.end.line,
+      character: methodNameToken.range.end.column
+    },
+    end: {
+      line: methodBodyToken.range.start.line,
+      character: methodBodyToken.range.start.column
+    }
+  };
+}
+
+export function createInterfaceImplementationCodeActions(params: {
+  uri: string;
+  ast: Program | null;
+  diagnostics: Diagnostic[];
+  sourceRoots: string[];
+  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
+}): CodeAction[] {
+  const { uri, ast, diagnostics, sourceRoots } = params;
+  if (!ast || diagnostics.length === 0) {
+    return [];
+  }
+
+  const actions: CodeAction[] = [];
+  const seen = new Set<string>();
+  const cache = createClassResolverCache();
+  const options = {
+    uri,
+    sourceRoots,
+    ...(params.getSessionForFilePath
+      ? { getSessionForFilePath: params.getSessionForFilePath }
+      : {})
+  };
+
+  for (const diagnostic of diagnostics) {
+    const parsed = parseImplementsDiagnostic(diagnostic);
+    if (!parsed) {
+      continue;
+    }
+
+    const classResolution = resolveClassStatementAcrossFiles(ast, parsed.className, options, cache);
+    if (!classResolution) {
+      continue;
+    }
+
+    if (parsed.kind === "missing") {
+      const range = classEndInsertRange(classResolution.classStatement);
+      if (!range) {
+        continue;
+      }
+
+      const expectedMember = resolveClassMember(
+        classResolution.classStatement,
+        parsed.memberName,
+        classObjectTypeName(classResolution.classStatement),
+        {
+          ast,
+          options,
+          cache
+        }
+      );
+      if (!expectedMember) {
+        continue;
+      }
+
+      let newText = "";
+      if (expectedMember.kind === "method" && expectedMember.signature) {
+        const signature: ParsedFunctionType = {
+          parameters: expectedMember.signature.parameters.map((parameter) => ({
+            name: parameter.name,
+            typeName: parameter.typeName,
+            optional: parameter.optional
+          })),
+          returnTypeName: expectedMember.signature.returnTypeName
+        };
+        newText = createMissingMethodText(
+          classResolution.classStatement,
+          signatureToMethodHead(signature, parsed.memberName)
+        );
+      } else {
+        newText = createMissingMemberText(
+          classResolution.classStatement,
+          parsed.memberName,
+          expectedMember.typeName
+        );
+      }
+
+      const targetUri = pathToUri(classResolution.filePath);
+      const key = `${targetUri}:missing:${parsed.className}:${parsed.memberName}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+
+      actions.push({
+        title: `Implement missing member '${parsed.memberName}' in class '${parsed.className}'`,
+        kind: CodeActionKind.QuickFix,
+        edit: {
+          changes: {
+            [targetUri]: [
+              {
+                range,
+                newText
+              }
+            ]
+          }
+        }
+      });
+      continue;
+    }
+
+    const method = findOwnMethod(classResolution.classStatement, parsed.memberName);
+    if (!method) {
+      continue;
+    }
+
+    const expectedSignature = parseFunctionTypeLabel(parsed.expectedType);
+    if (!expectedSignature) {
+      continue;
+    }
+
+    const range = methodSignatureRange(method);
+    if (!range) {
+      continue;
+    }
+
+    const targetUri = pathToUri(classResolution.filePath);
+    const key = `${targetUri}:signature:${parsed.className}:${parsed.memberName}:${parsed.interfaceName}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    actions.push({
+      title: `Fix signature of '${parsed.memberName}' to match interface '${parsed.interfaceName}'`,
+      kind: CodeActionKind.QuickFix,
+      edit: {
+        changes: {
+          [targetUri]: [
+            {
+              range,
+              newText: `(${expectedSignature.parameters
+                .map((parameter) => `${parameter.name}${parameter.optional ? "?" : ""}: ${parameter.typeName}`)
+                .join(", ")}): ${expectedSignature.returnTypeName} `
+            }
+          ]
+        }
+      }
+    });
+  }
+
+  return actions;
+}

@@ -16,6 +16,7 @@ import type {
   FunctionStatement,
   InterfaceStatement,
   IfStatement,
+  Identifier,
   MemberExpression,
   NewExpression,
   ObjectLiteral,
@@ -845,15 +846,20 @@ export class TypeChecker {
     typeNameIdentifier: Node & { kind: "Identifier"; name: string },
     scope: Scope
   ): AnalysisType {
-    return this.resolveTypeNameText(typeNameIdentifier.name, typeNameIdentifier, scope);
+    return this.resolveTypeNameText(typeNameIdentifier.name, typeNameIdentifier, scope, true);
   }
 
-  private resolveTypeNameText(typeName: string, node: Node, scope: Scope): AnalysisType {
+  private resolveTypeNameText(
+    typeName: string,
+    node: Node,
+    scope: Scope,
+    captureResolution: boolean
+  ): AnalysisType {
     const parsed = parseTypeNameShape(typeName);
     let resolvedBase: AnalysisType;
 
     const resolvedTypeArguments = parsed.typeArguments.map((typeArgument) =>
-      this.resolveTypeNameText(typeArgument, node, scope)
+      this.resolveTypeNameText(typeArgument, node, scope, false)
     );
 
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
@@ -864,7 +870,13 @@ export class TypeChecker {
       resolvedBase = namedType(parsed.baseName);
     } else {
       const symbol = this.resolve(parsed.baseName, scope, undefined);
-      if (symbol && symbol.kind === "class") {
+      if (symbol && (symbol.kind === "class" || symbol.kind === "variable")) {
+        if (captureResolution && node.kind === "Identifier") {
+          this.identifierResolutions.push({
+            identifier: node as Node & { kind: "Identifier"; name: string },
+            symbol
+          });
+        }
         resolvedBase = namedType(parsed.baseName, resolvedTypeArguments);
       } else {
         this.issues.push({
@@ -1331,12 +1343,30 @@ export class TypeChecker {
           continue;
         }
 
+        const memberNode = this.findOwnClassMemberNameNode(classStatement, memberName);
         this.issues.push({
           message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is of type '${this.typeToDiagnosticLabel(classMemberType)}' but expected '${this.typeToDiagnosticLabel(expectedType)}'`,
-          node: classStatement.name
+          node: memberNode ?? classStatement.name
         });
       }
     }
+  }
+
+  private findOwnClassMemberNameNode(
+    classStatement: ClassStatement,
+    memberName: string
+  ): Identifier | null {
+    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+      if (parameter.name.name === memberName) {
+        return parameter.name;
+      }
+    }
+    for (const member of classStatement.members) {
+      if (member.name.name === memberName) {
+        return member.name;
+      }
+    }
+    return null;
   }
 
   private declaredClassMemberType(

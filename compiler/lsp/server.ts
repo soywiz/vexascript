@@ -20,6 +20,7 @@ import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./impor
 import { createCallFixCodeActions } from "./callFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
+import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -313,6 +314,15 @@ connection.onCodeAction((params) => {
     commandName: REFRESH_DIAGNOSTICS_COMMAND
   });
   actions.push(...typeFixActions);
+
+  const interfaceImplementationFixActions = createInterfaceImplementationCodeActions({
+    uri: params.textDocument.uri,
+    ast: session.ast,
+    diagnostics: params.context.diagnostics,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
+  actions.push(...interfaceImplementationFixActions);
 
   return deferCodeActions(actions);
 });

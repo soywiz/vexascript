@@ -10,12 +10,18 @@ describe("ProjectIndex", () => {
     const fileA = join(root, "a.my");
     const fileB = join(root, "b.my");
 
-    await writeFile(fileA, "class Point\nfun make(): Point { return new Point() }\n", "utf8");
+    await writeFile(
+      fileA,
+      "class Point\ninterface Readable {}\nfun make(): Point { return new Point() }\n",
+      "utf8"
+    );
     await writeFile(fileB, "import { Point } from \"./a\"\nfun demo() { return new Point() }\n", "utf8");
 
     const index = getProjectIndex([root]);
     const declaration = index.findTopLevelDeclaration(fileA, "Point");
     expect(declaration?.kind).toBe("class");
+    const interfaceDeclaration = index.findTopLevelDeclaration(fileA, "Readable");
+    expect(interfaceDeclaration?.kind).toBe("class");
 
     const importers = index.findFilesImportingSymbol(fileA, "Point");
     expect(importers).toHaveLength(1);
