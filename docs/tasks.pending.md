@@ -6,7 +6,7 @@ This document tracks the current technical backlog for MyLang.
 
 ## Semantic Analysis
 
-- Complete generic constraints for type parameters.
+All current high-priority semantic analysis backlog items are implemented.
 
 ## Transpilation and Runtime
 

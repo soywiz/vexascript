@@ -557,15 +557,19 @@ export class Parser {
             if (token?.type !== "identifier") {
                 this.fail("Expected type parameter name", this.tokenAt(token));
             }
-            const parameter = this.attachNodeBounds(
-                {
-                    kind: "TypeParameter",
-                    name: this.buildIdentifierFromToken(token)
-                } as TypeParameter,
+            const parameter: TypeParameter = {
+                kind: "TypeParameter",
+                name: this.buildIdentifierFromToken(token)
+            };
+            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
+                this.tokens.skip();
+                parameter.constraint = this.parseTypeAnnotationNode();
+            }
+            parameters.push(this.attachNodeBounds(
+                parameter,
                 token,
-                token
-            );
-            parameters.push(parameter);
+                parameter.constraint?.lastToken ?? token
+            ));
 
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {

@@ -166,7 +166,7 @@ class Point
 
 Class declarations also support:
 
-- generic type parameters (`class Box<T>`)
+- generic type parameters and constraints (`class Box<T extends Entity>`)
 - `extends` clauses
 - `implements` clauses (type-only, omitted in emitted JavaScript)
 
@@ -176,7 +176,11 @@ Examples:
 class Base<T> {
 }
 
-class Box<T> extends Base<T> {
+interface Entity {
+  id: string
+}
+
+class Box<T extends Entity> extends Base<T> {
 }
 ```
 

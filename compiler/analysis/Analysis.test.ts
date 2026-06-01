@@ -865,6 +865,36 @@ fun demo() {
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
   });
 
+  it("validates constrained generic type arguments on declarations and calls", () => {
+    const source = `interface Entity {
+  id: string
+}
+class User implements Entity {
+  id: string
+}
+class Box<T extends Entity> {
+  value: T
+}
+fun readId<T extends Entity>(value: T): string {
+}
+fun demo() {
+  const okBox: Box<User> = new Box<User>()
+  const badBox: Box<string> = new Box<string>()
+  const ok = readId(new User())
+  const bad = readId("nope")
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain(
+      "Type argument 'string' does not satisfy constraint 'Entity' for type parameter 'T'"
+    );
+    expect(messages.some((message) => message.includes("Type argument 'User' does not satisfy"))).toBe(false);
+  });
+
   it("reports missing properties when class does not satisfy implemented interface", () => {
     const source = `interface Readable {
   value: string
