@@ -199,6 +199,7 @@ export interface FunctionStatement extends Statement {
     declarationKind: FunctionDeclarationKind
     declared?: boolean
     name: Identifier
+    typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     returnType?: Identifier
     body: BlockStatement
@@ -217,6 +218,7 @@ export interface ClassMethodMember extends Node {
     name: Identifier
     override?: boolean
     missingBody?: boolean
+    typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     returnType?: Identifier
     body: BlockStatement

@@ -1929,6 +1929,8 @@ export class Parser {
             this.fail("Expected function name after declaration keyword", this.tokenAt(nameToken));
         }
 
+        const typeParameters = this.parseTypeParameterList();
+
         const openParen = this.tokens.read();
         if (openParen?.type !== "symbol" || openParen.value !== "(") {
             this.fail("Expected '(' after function name", this.tokenAt(openParen));
@@ -1960,6 +1962,9 @@ export class Parser {
             parameters,
             body
         };
+        if (typeParameters.length > 0) {
+            statement.typeParameters = typeParameters;
+        }
         if (returnType) {
             statement.returnType = returnType;
         }
@@ -1982,6 +1987,8 @@ export class Parser {
         if (nameToken?.type !== "identifier") {
             this.fail("Expected function name after declaration keyword", this.tokenAt(nameToken));
         }
+
+        const typeParameters = this.parseTypeParameterList();
 
         const openParen = this.tokens.read();
         if (openParen?.type !== "symbol" || openParen.value !== "(") {
@@ -2014,6 +2021,9 @@ export class Parser {
             parameters: [],
             body: emptyBody
         };
+        if (typeParameters.length > 0) {
+            statement.typeParameters = typeParameters;
+        }
 
         return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
     }
@@ -2261,6 +2271,9 @@ export class Parser {
                 if (!allowSignatureOnly) {
                     signatureOnlyMethod.missingBody = true;
                 }
+                if (methodTypeParameters.length > 0) {
+                    signatureOnlyMethod.typeParameters = methodTypeParameters;
+                }
                 if (returnType) {
                     signatureOnlyMethod.returnType = returnType;
                 }
@@ -2276,6 +2289,9 @@ export class Parser {
             };
             if (isOverrideMember) {
                 methodMember.override = true;
+            }
+            if (methodTypeParameters.length > 0) {
+                methodMember.typeParameters = methodTypeParameters;
             }
             if (returnType) {
                 methodMember.returnType = returnType;

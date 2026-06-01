@@ -101,6 +101,18 @@ fun demo(a, b): Int {
 }
 ```
 
+### Generic function declarations
+
+Function declarations support generic type parameters, and explicit generic type arguments on calls specialize parameter and return types:
+
+```mylang
+fun identity<T>(value: T): T {
+  return value
+}
+
+let name: string = identity<string>("Ada")
+```
+
 ### Function expressions and arrow functions
 
 MyLang parser supports TypeScript-style function expressions and arrow functions in expression position.

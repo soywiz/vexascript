@@ -231,21 +231,24 @@ export class TypeChecker {
   }
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
-    const returnType = this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE;
-    const fnType = this.buildFunctionType(statement.parameters, returnType, scope);
-    this.updateSymbolType(scope, statement.name.name, fnType);
+    const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
+    this.withTypeParameters(typeParameterNames, () => {
+      const returnType = this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE;
+      const fnType = this.buildFunctionType(statement.parameters, returnType, scope, typeParameterNames);
+      this.updateSymbolType(scope, statement.name.name, fnType);
 
-    const functionScope = this.scopeFor(statement, scope);
-    for (const parameter of statement.parameters) {
-      const parameterType =
-        this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
-        (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
-      this.updateSymbolType(functionScope, parameter.name.name, parameterType);
-    }
+      const functionScope = this.scopeFor(statement, scope);
+      for (const parameter of statement.parameters) {
+        const parameterType =
+          this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
+          (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
+        this.updateSymbolType(functionScope, parameter.name.name, parameterType);
+      }
 
-    for (const bodyStatement of statement.body.body) {
-      this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0 });
-    }
+      for (const bodyStatement of statement.body.body) {
+        this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0 });
+      }
+    });
   }
 
   private visitClassStatement(statement: ClassStatement, scope: Scope): void {
@@ -280,23 +283,27 @@ export class TypeChecker {
             node: method.name
           });
         }
-        const methodType = this.buildFunctionType(
-          method.parameters,
-          this.resolveTypeAnnotation(method.returnType, classScope) ?? builtinType("void"),
-          classScope
-        );
-        this.updateSymbolType(classScope, method.name.name, methodType);
+        const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
+        this.withTypeParameters(methodTypeParameterNames, () => {
+          const methodType = this.buildFunctionType(
+            method.parameters,
+            this.resolveTypeAnnotation(method.returnType, classScope) ?? builtinType("void"),
+            classScope,
+            methodTypeParameterNames
+          );
+          this.updateSymbolType(classScope, method.name.name, methodType);
 
-        const methodScope = this.scopeFor(method, classScope);
-        for (const parameter of method.parameters) {
-          const parameterType =
-            this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
-            (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
-          this.updateSymbolType(methodScope, parameter.name.name, parameterType);
-        }
-        for (const bodyStatement of method.body.body) {
-          this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0 });
-        }
+          const methodScope = this.scopeFor(method, classScope);
+          for (const parameter of method.parameters) {
+            const parameterType =
+              this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
+              (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
+            this.updateSymbolType(methodScope, parameter.name.name, parameterType);
+          }
+          for (const bodyStatement of method.body.body) {
+            this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0 });
+          }
+        });
       }
 
       this.validateOverrideMembers(statement);
@@ -474,8 +481,12 @@ export class TypeChecker {
           argumentTypes.push(this.visitExpression(argument, scope));
         }
         if (calleeType.kind === "function") {
-          this.validateCallArguments(call, calleeType, argumentTypes);
-          result = calleeType.returnType;
+          const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
+            this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
+          );
+          const instantiatedCalleeType = this.instantiateFunctionType(calleeType, explicitTypeArguments);
+          this.validateCallArguments(call, instantiatedCalleeType, argumentTypes);
+          result = instantiatedCalleeType.returnType;
           break;
         }
         result = UNKNOWN_TYPE;
@@ -748,7 +759,8 @@ export class TypeChecker {
   private buildFunctionType(
     parameters: FunctionParameter[],
     returnType: AnalysisType,
-    scope: Scope
+    scope: Scope,
+    typeParameters: string[] = []
   ): AnalysisType {
     return functionType(
       parameters.map((parameter) => ({
@@ -758,8 +770,26 @@ export class TypeChecker {
           : UNKNOWN_TYPE,
         optional: parameter.optional === true || parameter.defaultValue !== undefined
       })),
-      returnType
+      returnType,
+      typeParameters
     );
+  }
+
+  private instantiateFunctionType(
+    calleeType: AnalysisType & { kind: "function" },
+    explicitTypeArguments: AnalysisType[]
+  ): AnalysisType & { kind: "function" } {
+    const typeParameters = calleeType.typeParameters ?? [];
+    if (typeParameters.length === 0 || explicitTypeArguments.length === 0) {
+      return calleeType;
+    }
+
+    const substitutions = new Map<string, AnalysisType>();
+    for (let index = 0; index < typeParameters.length; index += 1) {
+      substitutions.set(typeParameters[index]!, explicitTypeArguments[index] ?? namedType(typeParameters[index]!));
+    }
+
+    return this.substituteTypeParameters(calleeType, substitutions) as AnalysisType & { kind: "function" };
   }
 
   private validateCallArguments(
@@ -1303,7 +1333,8 @@ export class TypeChecker {
               type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
               optional: parameter.optional === true || parameter.defaultValue !== undefined
             })),
-            returnType
+            returnType,
+            classMember.typeParameters?.map((parameter) => parameter.name.name)
           ), substitutions)
         );
       }
@@ -1484,7 +1515,8 @@ export class TypeChecker {
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined
         })),
-        returnType
+        returnType,
+        classMember.typeParameters?.map((parameter) => parameter.name.name)
       ), substitutions);
     }
 
@@ -1661,7 +1693,8 @@ export class TypeChecker {
           type: this.substituteTypeParameters(parameter.type, substitutions),
           ...(parameter.optional !== undefined ? { optional: parameter.optional } : {})
         })),
-        this.substituteTypeParameters(sourceType.returnType, substitutions)
+        this.substituteTypeParameters(sourceType.returnType, substitutions),
+        sourceType.typeParameters
       );
     }
 

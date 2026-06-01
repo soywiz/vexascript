@@ -155,7 +155,8 @@ export class Binder {
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined
           })),
-          this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE
+          this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE,
+          functionStatement.typeParameters?.map((parameter) => parameter.name.name)
         );
         this.declare(scope, {
           name: functionStatement.name.name,
@@ -284,7 +285,8 @@ export class Binder {
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined
         })),
-        this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE
+        this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE,
+        statement.typeParameters?.map((parameter) => parameter.name.name)
       );
       this.declare(scope, {
         name: statement.name.name,
@@ -329,7 +331,8 @@ export class Binder {
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined
           })),
-          this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE
+          this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE,
+          method.typeParameters?.map((parameter) => parameter.name.name)
         );
         this.declare(classScope, {
           name: method.name.name,

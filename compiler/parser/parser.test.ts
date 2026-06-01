@@ -1460,6 +1460,34 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses a generic function statement", () => {
+        expect(parseStatement(tokenizeReader("fun identity<T>(value: T): T { return value }"))).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            name: { kind: "Identifier", name: "identity" },
+            typeParameters: [
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+            ],
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "value" },
+                    typeAnnotation: { kind: "Identifier", name: "T" }
+                }
+            ],
+            returnType: { kind: "Identifier", name: "T" },
+            body: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "Identifier", name: "value" }
+                    }
+                ]
+            }
+        });
+    });
+
     it("parses a function statement using function keyword", () => {
         expect(parseStatement(tokenizeReader("function demo(a, b, c: optType): optType { return c }"))).toEqual({
             kind: "FunctionStatement",
@@ -1780,6 +1808,9 @@ describe("parseStatement", () => {
                 {
                     kind: "ClassMethodMember",
                     name: { kind: "Identifier", name: "map" },
+                    typeParameters: [
+                        { kind: "TypeParameter", name: { kind: "Identifier", name: "R" } }
+                    ],
                     parameters: [
                         {
                             kind: "FunctionParameter",
@@ -1947,6 +1978,25 @@ describe("parseStatement", () => {
             declarationKind: "function",
             declared: true,
             name: { kind: "Identifier", name: "moment" },
+            parameters: [],
+            body: { kind: "BlockStatement", body: [] }
+        });
+    });
+
+    it("parses generic 'declare function' type parameters", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("declare function identity<T>(value: T): T;"),
+                { language: "typescript" }
+            )
+        ).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "function",
+            declared: true,
+            name: { kind: "Identifier", name: "identity" },
+            typeParameters: [
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+            ],
             parameters: [],
             body: { kind: "BlockStatement", body: [] }
         });
