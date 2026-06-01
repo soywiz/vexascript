@@ -22,6 +22,7 @@ This section is the fast onboarding map for agents and contributors.
   - Public analysis API: `compiler/analysis/Analysis.ts`
   - Scope/symbol binding: `compiler/analysis/Binder.ts`
   - Type checking and semantic diagnostics: `compiler/analysis/TypeChecker.ts`
+  - Generic type-name parsing/substitution helpers: `compiler/analysis/typeNames.ts`
   - Project semantic index/cache: `compiler/analysis/projectIndex.ts`
   - Analysis model/types: `compiler/analysis/model.ts`, `compiler/analysis/types.ts`
   - Analysis tests: `compiler/analysis/Analysis.test.ts`

@@ -36,7 +36,7 @@ import type {
 } from "compiler/ast/ast";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
-import { resolveClassMember } from "./classResolver";
+import { createClassResolverCache, resolveClassMember } from "./classResolver";
 import {
   getProjectIndex,
   getProjectSessionForFilePath,
@@ -1142,7 +1142,18 @@ export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | 
   const resolvedMember = resolveClassMember(
     classResolution.classStatement,
     memberName,
-    typeToString(objectType)
+    typeToString(objectType),
+    {
+      ast: context.session.ast,
+      options: {
+        uri: context.uri,
+        sourceRoots: context.sourceRoots,
+        ...(context.getSessionForFilePath
+          ? { getSessionForFilePath: context.getSessionForFilePath }
+          : {})
+      },
+      cache: createClassResolverCache()
+    }
   );
   if (!resolvedMember) {
     return null;

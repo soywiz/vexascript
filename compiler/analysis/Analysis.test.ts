@@ -672,4 +672,50 @@ fun demo() {
     ).toBe(true);
     expect(messages).toContain("Type 'int' is not assignable to type 'string'");
   });
+
+  it("resolves inherited members from generic extends specifics", () => {
+    const source = `class Base<T> {
+  value: T
+}
+class Child extends Base<string> {
+}
+fun demo() {
+  const child = new Child()
+  const ok: string = child.value
+  const bad: int = child.value
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("Property 'value' does not exist"))).toBe(false);
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+  });
+
+  it("resolves members from generic interfaces through extends and implements", () => {
+    const source = `interface Readable<T> {
+  read(): T
+}
+interface NamedReadable<T> extends Readable<T> {
+}
+class Reader implements NamedReadable<string> {
+  read(): string {
+  }
+}
+fun demo() {
+  const reader = new Reader()
+  const ok: string = reader.read()
+  const bad: int = reader.read()
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("Property 'read' does not exist"))).toBe(false);
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+  });
 });

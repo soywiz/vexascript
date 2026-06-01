@@ -1,4 +1,5 @@
 import type { Analysis } from "compiler/analysis/Analysis";
+import { baseTypeName } from "compiler/analysis/typeNames";
 import type {
   ArrayLiteral,
   AssignmentExpression,
@@ -399,7 +400,7 @@ export function createTypeFixCodeActions(params: {
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(params.ast, objectType, {
+    const classResolution = resolveClassStatementAcrossFiles(params.ast, baseTypeName(objectType), {
       uri: params.uri,
       sourceRoots: params.sourceRoots,
       ...(params.getSessionForFilePath

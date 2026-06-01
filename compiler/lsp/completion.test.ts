@@ -158,6 +158,47 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("a")?.detail).toBe("Class property: string");
   });
 
+  it("includes inherited generic members in completion details", () => {
+    const source =
+      "class Base<T> {\n" +
+      "  value: T\n" +
+      "  getValue(): T { }\n" +
+      "}\n" +
+      "class Child extends Base<string> {\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const child = new Child()\n" +
+      "  child.v\n" +
+      "  child.g\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const valueItems = createCompletionItemsForPosition(
+      session.ast!,
+      8,
+      9,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const valueByLabel = new Map(valueItems.map((item) => [item.label, item]));
+    expect(valueByLabel.get("value")?.detail).toBe("Class property: string");
+
+    const methodItems = createCompletionItemsForPosition(
+      session.ast!,
+      9,
+      9,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const methodByLabel = new Map(methodItems.map((item) => [item.label, item]));
+
+    expect(methodByLabel.get("getValue")?.detail).toBe("Class method: () => string");
+  });
+
   it("ranks in-scope symbols by nearest scope distance", () => {
     const source =
       "let top = 1\n" +

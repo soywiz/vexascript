@@ -28,11 +28,13 @@ import type {
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
+import { baseTypeName } from "compiler/analysis/typeNames";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "vscode-languageserver/node.js";
 import type { AnalysisSession } from "./analysisSession";
 import { MYLANG_DIAGNOSTIC_CODES, type MyLangDiagnosticCode } from "./diagnosticCodes";
 import {
+  createClassResolverCache,
   isTypeAssignableByName,
   resolveClassMember,
   resolveClassStatementAcrossFiles,
@@ -45,15 +47,6 @@ export interface CollectCrossFileTypeDiagnosticsParams {
   session: AnalysisSession;
   sourceRoots: string[];
   getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
-}
-
-function baseTypeName(typeName: string): string {
-  const trimmed = typeName.trim();
-  const genericStart = trimmed.indexOf("<");
-  if (genericStart < 0 || !trimmed.endsWith(">")) {
-    return trimmed;
-  }
-  return trimmed.slice(0, genericStart).trim();
 }
 
 function diagnosticForNode(
@@ -468,6 +461,7 @@ export function collectCrossFileTypeDiagnostics(
       ? { getSessionForFilePath: params.getSessionForFilePath }
       : {})
   };
+  const resolverCache = createClassResolverCache();
 
   const pushDiagnostic = (diagnostic: Diagnostic | null): void => {
     if (!diagnostic) {
@@ -502,14 +496,19 @@ export function collectCrossFileTypeDiagnostics(
     const classResolution = resolveClassStatementAcrossFiles(
       session.ast,
       baseTypeName(objectTypeName),
-      options
+      options,
+      resolverCache
     );
     if (!classResolution) {
       continue;
     }
 
     const memberName = (callee.property as Identifier).name;
-    const member = resolveClassMember(classResolution.classStatement, memberName, objectTypeName);
+    const member = resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
+      ast: session.ast,
+      options,
+      cache: resolverCache
+    });
     if (!member) {
       continue;
     }
@@ -598,14 +597,19 @@ export function collectCrossFileTypeDiagnostics(
     const classResolution = resolveClassStatementAcrossFiles(
       session.ast,
       baseTypeName(objectTypeName),
-      options
+      options,
+      resolverCache
     );
     if (!classResolution) {
       continue;
     }
 
     const memberName = (leftMember.property as Identifier).name;
-    const member = resolveClassMember(classResolution.classStatement, memberName, objectTypeName);
+    const member = resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
+      ast: session.ast,
+      options,
+      cache: resolverCache
+    });
     if (!member) {
       continue;
     }

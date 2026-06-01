@@ -142,4 +142,33 @@ describe("signature help", () => {
       activeParameter: 0
     });
   });
+
+  it("specializes signature help for inherited generic methods", () => {
+    const source =
+      "class Base<T> {\n" +
+      "  get(key: T): T { }\n" +
+      "}\n" +
+      "class Child extends Base<string> {\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const child = new Child()\n" +
+      "  child.get(\"id\")\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = createSignatureHelp(session.ast!, session.analysis!, 7, 13);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "get(key: string)",
+          parameters: [{ label: "key: string" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
 });

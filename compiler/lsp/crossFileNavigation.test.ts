@@ -160,6 +160,46 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("provides hover info for inherited generic member access across files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA =
+      "class Base<T> {\n" +
+      "  value: T\n" +
+      "}\n" +
+      "class Child extends Base<string> {\n" +
+      "}\n";
+    const sourceB =
+      "import { Child } from \"./world\"\n" +
+      "fun demo() {\n" +
+      "  const child = new Child()\n" +
+      "  child.value\n" +
+      "}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const hover = resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(fileB).toString(),
+      line: 3,
+      character: 8,
+      session: sessionB,
+      sourceRoots: [root]
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "member Child.value: string"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 3, character: 8 },
+      end: { line: 3, character: 13 }
+    });
+  });
+
   it("finds references across importer files", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const fileA = join(root, "a.my");

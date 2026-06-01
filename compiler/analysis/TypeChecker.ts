@@ -54,6 +54,7 @@ import {
   rangeType,
   typeToString
 } from "./types";
+import { parseTypeNameShape } from "./typeNames";
 
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
@@ -70,6 +71,7 @@ export class TypeChecker {
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
+  private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
 
   constructor(
     private readonly program: Program,
@@ -838,7 +840,7 @@ export class TypeChecker {
   }
 
   private resolveTypeNameText(typeName: string, node: Node, scope: Scope): AnalysisType {
-    const parsed = this.parseTypeNameShape(typeName);
+    const parsed = parseTypeNameShape(typeName);
     let resolvedBase: AnalysisType;
 
     const resolvedTypeArguments = parsed.typeArguments.map((typeArgument) =>
@@ -869,63 +871,6 @@ export class TypeChecker {
       resolved = arrayType(resolved);
     }
     return resolved;
-  }
-
-  private parseTypeNameShape(typeName: string): {
-    baseName: string;
-    typeArguments: string[];
-    arrayDepth: number;
-  } {
-    let remaining = typeName.trim();
-    let arrayDepth = 0;
-    while (remaining.endsWith("[]")) {
-      arrayDepth += 1;
-      remaining = remaining.slice(0, -2).trim();
-    }
-
-    const genericStart = remaining.indexOf("<");
-    if (genericStart < 0 || !remaining.endsWith(">")) {
-      return { baseName: remaining, typeArguments: [], arrayDepth };
-    }
-
-    const baseName = remaining.slice(0, genericStart).trim();
-    const argumentBody = remaining.slice(genericStart + 1, -1).trim();
-    const typeArguments = this.splitTypeArgumentText(argumentBody);
-    return { baseName, typeArguments, arrayDepth };
-  }
-
-  private splitTypeArgumentText(argumentBody: string): string[] {
-    if (argumentBody.length === 0) {
-      return [];
-    }
-
-    const args: string[] = [];
-    let depth = 0;
-    let current = "";
-    for (const ch of argumentBody) {
-      if (ch === "<") {
-        depth += 1;
-        current += ch;
-        continue;
-      }
-      if (ch === ">") {
-        depth = Math.max(0, depth - 1);
-        current += ch;
-        continue;
-      }
-      if (ch === "," && depth === 0) {
-        if (current.trim().length > 0) {
-          args.push(current.trim());
-        }
-        current = "";
-        continue;
-      }
-      current += ch;
-    }
-    if (current.trim().length > 0) {
-      args.push(current.trim());
-    }
-    return args;
   }
 
   private withTypeParameters(typeParameters: string[], action: () => void): void {
@@ -1212,6 +1157,26 @@ export class TypeChecker {
   }
 
   private resolveNamedTypeMembers(type: AnalysisType & { kind: "named" }): Map<string, AnalysisType> | null {
+    const cacheKey = typeToString(type);
+    if (this.namedTypeMembersCache.has(cacheKey)) {
+      return this.namedTypeMembersCache.get(cacheKey) ?? null;
+    }
+
+    const resolved = this.resolveNamedTypeMembersInternal(type, new Set<string>());
+    this.namedTypeMembersCache.set(cacheKey, resolved);
+    return resolved;
+  }
+
+  private resolveNamedTypeMembersInternal(
+    type: AnalysisType & { kind: "named" },
+    visited: Set<string>
+  ): Map<string, AnalysisType> | null {
+    const visitKey = typeToString(type);
+    if (visited.has(visitKey)) {
+      return null;
+    }
+    visited.add(visitKey);
+
     const classStatement = this.classStatementsByName.get(type.name);
     if (classStatement) {
       const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], type);
@@ -1243,6 +1208,42 @@ export class TypeChecker {
             returnType
           ), substitutions)
         );
+      }
+
+      if (classStatement.extendsType) {
+        const resolvedExtendsType = this.substituteTypeParameters(
+          this.typeFromTypeNameLoose(classStatement.extendsType.name),
+          substitutions
+        );
+        if (resolvedExtendsType.kind === "named") {
+          const inheritedMembers = this.resolveNamedTypeMembersInternal(resolvedExtendsType, visited);
+          if (inheritedMembers) {
+            for (const [memberName, memberType] of inheritedMembers.entries()) {
+              if (!members.has(memberName)) {
+                members.set(memberName, memberType);
+              }
+            }
+          }
+        }
+      }
+
+      for (const implementedType of classStatement.implementsTypes ?? []) {
+        const resolvedImplementedType = this.substituteTypeParameters(
+          this.typeFromTypeNameLoose(implementedType.name),
+          substitutions
+        );
+        if (resolvedImplementedType.kind !== "named") {
+          continue;
+        }
+        const implementedMembers = this.resolveNamedTypeMembersInternal(resolvedImplementedType, visited);
+        if (!implementedMembers) {
+          continue;
+        }
+        for (const [memberName, memberType] of implementedMembers.entries()) {
+          if (!members.has(memberName)) {
+            members.set(memberName, memberType);
+          }
+        }
       }
 
       return members;
@@ -1278,6 +1279,25 @@ export class TypeChecker {
       );
     }
 
+    for (const parentType of interfaceStatement.extendsTypes ?? []) {
+      const resolvedParentType = this.substituteTypeParameters(
+        this.typeFromTypeNameLoose(parentType.name),
+        substitutions
+      );
+      if (resolvedParentType.kind !== "named") {
+        continue;
+      }
+      const parentMembers = this.resolveNamedTypeMembersInternal(resolvedParentType, visited);
+      if (!parentMembers) {
+        continue;
+      }
+      for (const [memberName, memberType] of parentMembers.entries()) {
+        if (!members.has(memberName)) {
+          members.set(memberName, memberType);
+        }
+      }
+    }
+
     return members;
   }
 
@@ -1287,7 +1307,7 @@ export class TypeChecker {
     if (!typeAnnotation) {
       return undefined;
     }
-    const parsed = this.parseTypeNameShape(typeAnnotation.name);
+    const parsed = parseTypeNameShape(typeAnnotation.name);
     let resolvedBase: AnalysisType;
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolvedBase = builtinType(
@@ -1308,7 +1328,7 @@ export class TypeChecker {
   }
 
   private typeFromTypeNameLoose(typeName: string): AnalysisType {
-    const parsed = this.parseTypeNameShape(typeName);
+    const parsed = parseTypeNameShape(typeName);
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       return builtinType(
         parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long"

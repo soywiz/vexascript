@@ -31,13 +31,17 @@ import type {
 } from "compiler/ast/ast";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
+import { baseTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type { AutoImportSuggestion } from "./importFixes";
 import {
+  createClassResolverCache,
   resolveCallableSignature,
   resolveClassMember,
+  resolveClassMemberNames,
   resolveClassStatementAcrossFiles,
   resolveConstructorSignature,
+  type ClassResolverCache,
   type ClassResolverOptions
 } from "./classResolver";
 
@@ -122,7 +126,12 @@ function parseMemberAccessTarget(
 function buildClassMemberCompletionItems(
   classStatement: ClassStatement,
   objectTypeName: string | undefined,
-  prefix: string
+  prefix: string,
+  resolverContext: {
+    ast: Program;
+    options: ClassResolverOptions;
+    cache: ClassResolverCache;
+  }
 ): CompletionItem[] {
   const items: CompletionItem[] = [];
   const seen = new Set<string>();
@@ -139,30 +148,33 @@ function buildClassMemberCompletionItems(
     items.push(item);
   };
 
-  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-    const resolved = resolveClassMember(classStatement, parameter.name.name, objectTypeName);
-    pushItem({
-      label: parameter.name.name,
-      kind: CompletionItemKind.Field,
-      detail: `Class property: ${resolved?.typeName ?? "unknown"}`
+  const memberNames = resolveClassMemberNames(classStatement, objectTypeName, {
+    ast: resolverContext.ast,
+    options: resolverContext.options,
+    cache: resolverContext.cache
+  });
+  for (const memberName of memberNames) {
+    const resolved = resolveClassMember(classStatement, memberName, objectTypeName, {
+      ast: resolverContext.ast,
+      options: resolverContext.options,
+      cache: resolverContext.cache
     });
-  }
-
-  for (const member of classStatement.members) {
-    const resolved = resolveClassMember(classStatement, member.name.name, objectTypeName);
-    if (member.kind === "ClassFieldMember") {
+    if (!resolved) {
+      continue;
+    }
+    if (resolved.kind === "field") {
       pushItem({
-        label: member.name.name,
+        label: memberName,
         kind: CompletionItemKind.Field,
-        detail: `Class property: ${resolved?.typeName ?? "unknown"}`
+        detail: `Class property: ${resolved.typeName}`
       });
       continue;
     }
 
     pushItem({
-      label: member.name.name,
+      label: memberName,
       kind: CompletionItemKind.Method,
-      detail: resolved?.signature
+      detail: resolved.signature
         ? `Class method: (${resolved.signature.parameters.map((parameter) => `${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${resolved.signature.returnTypeName}`
         : "Class method"
     });
@@ -643,19 +655,12 @@ function resolveTypeNameFromPath(
   pathSegments: string[],
   line: number,
   objectStartCharacter: number,
-  options: CompletionRequestOptions
+  resolverOptions: ClassResolverOptions,
+  resolverCache: ClassResolverCache
 ): string | null {
   if (pathSegments.length === 0) {
     return null;
   }
-
-  const parseTypeNameShape = (typeName: string): { baseName: string } => {
-    const genericStart = typeName.indexOf("<");
-    if (genericStart < 0 || !typeName.endsWith(">")) {
-      return { baseName: typeName.trim() };
-    }
-    return { baseName: typeName.slice(0, genericStart).trim() };
-  };
 
   const typeNameFromSymbol = (symbol: AnalysisSymbol): string | null => {
     if (symbol.valueType && symbol.valueType !== "unknown") {
@@ -689,18 +694,25 @@ function resolveTypeNameFromPath(
     }
   }
 
-  const resolverOptions = classResolverOptionsFromCompletionOptions(options);
   for (let index = 1; index < pathSegments.length; index += 1) {
     const memberName = pathSegments[index];
     if (!memberName || !currentTypeName) {
       return null;
     }
-    const parsedTypeName = parseTypeNameShape(currentTypeName);
-    const classResolution = resolveClassStatementAcrossFiles(ast, parsedTypeName.baseName, resolverOptions);
+    const classResolution = resolveClassStatementAcrossFiles(
+      ast,
+      baseTypeName(currentTypeName),
+      resolverOptions,
+      resolverCache
+    );
     if (!classResolution) {
       return null;
     }
-    const member = resolveClassMember(classResolution.classStatement, memberName, currentTypeName);
+    const member = resolveClassMember(classResolution.classStatement, memberName, currentTypeName, {
+      ast,
+      options: resolverOptions,
+      cache: resolverCache
+    });
     if (!member) {
       return null;
     }
@@ -726,6 +738,8 @@ function buildMemberAccessCompletions(
     return null;
   }
 
+  const resolverOptions = classResolverOptionsFromCompletionOptions(options);
+  const resolverCache = createClassResolverCache();
   const pathSegments = target.objectPath.split(".");
   const className = resolveTypeNameFromPath(
     ast,
@@ -733,27 +747,28 @@ function buildMemberAccessCompletions(
     pathSegments,
     line,
     target.objectStartCharacter,
-    options
+    resolverOptions,
+    resolverCache
   );
   if (!className) {
     return null;
   }
 
-  const genericStart = className.indexOf("<");
-  const classBaseName =
-    genericStart < 0 || !className.endsWith(">")
-      ? className
-      : className.slice(0, genericStart).trim();
   const classStatement = resolveClassStatementAcrossFiles(
     ast,
-    classBaseName,
-    classResolverOptionsFromCompletionOptions(options)
+    baseTypeName(className),
+    resolverOptions,
+    resolverCache
   )?.classStatement;
   if (!classStatement) {
     return null;
   }
 
-  return buildClassMemberCompletionItems(classStatement, className, target.prefix);
+  return buildClassMemberCompletionItems(classStatement, className, target.prefix, {
+    ast,
+    options: resolverOptions,
+    cache: resolverCache
+  });
 }
 
 export function createCompletionItemsForPosition(
