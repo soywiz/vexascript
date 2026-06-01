@@ -489,13 +489,22 @@ export class TypeChecker {
           const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
             this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
           );
-          const instantiatedCalleeType = this.instantiateFunctionType(
+          const firstPassCalleeType = this.instantiateFunctionType(
             calleeType,
             explicitTypeArguments,
             argumentTypes,
             expectedType
           );
-          this.validateCallArguments(call, instantiatedCalleeType, argumentTypes);
+          const contextualArgumentTypes = this.applyCallArgumentContext(
+            call,
+            scope,
+            firstPassCalleeType,
+            argumentTypes
+          );
+          const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
+            ? firstPassCalleeType
+            : this.instantiateFunctionType(calleeType, explicitTypeArguments, contextualArgumentTypes, expectedType);
+          this.validateCallArguments(call, instantiatedCalleeType, contextualArgumentTypes);
           result = instantiatedCalleeType.returnType;
           break;
         }
@@ -572,7 +581,8 @@ export class TypeChecker {
         break;
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
-        const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters);
+        const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
+        const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters, expectedFunctionType);
         let returnType: AnalysisType;
         if (arrow.body.kind === "BlockStatement") {
           for (const bodyStatement of (arrow.body as BlockStatement).body) {
@@ -580,18 +590,19 @@ export class TypeChecker {
           }
           returnType = builtinType("void");
         } else {
-          returnType = this.visitExpression(arrow.body as Expr, arrowScope);
+          returnType = this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType);
         }
         result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
         break;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
-        const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters);
+        const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
+        const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
         for (const bodyStatement of fn.body.body) {
           this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0 });
         }
-        const returnType = this.resolveTypeAnnotation(fn.returnType, functionScope) ?? builtinType("void");
+        const returnType = this.resolveTypeAnnotation(fn.returnType, functionScope) ?? expectedFunctionType?.returnType ?? builtinType("void");
         result = this.buildFunctionType(fn.parameters, returnType, functionScope);
         break;
       }
@@ -777,12 +788,60 @@ export class TypeChecker {
         name: parameter.name.name,
         type: parameter.typeAnnotation
           ? this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
-          : UNKNOWN_TYPE,
+          : scope.symbols.get(parameter.name.name)?.type ?? UNKNOWN_TYPE,
         optional: parameter.optional === true || parameter.defaultValue !== undefined
       })),
       returnType,
       typeParameters
     );
+  }
+
+  private applyCallArgumentContext(
+    call: CallExpression,
+    scope: Scope,
+    calleeType: AnalysisType & { kind: "function" },
+    argumentTypes: AnalysisType[]
+  ): AnalysisType[] {
+    let contextualArgumentTypes: AnalysisType[] | undefined;
+
+    for (let index = 0; index < call.arguments.length && index < calleeType.parameters.length; index += 1) {
+      const argument = call.arguments[index]!;
+      const expectedParameterType = calleeType.parameters[index]?.type;
+      const contextualExpectedType = expectedParameterType
+        ? this.contextualTypeForExpressionArgument(argument, expectedParameterType)
+        : null;
+      if (!contextualExpectedType) {
+        continue;
+      }
+
+      const contextualArgumentType = this.visitExpression(argument, scope, contextualExpectedType);
+      if (!contextualArgumentTypes) {
+        contextualArgumentTypes = [...argumentTypes];
+      }
+      contextualArgumentTypes[index] = contextualArgumentType;
+    }
+
+    return contextualArgumentTypes ?? argumentTypes;
+  }
+
+  private isFunctionLikeExpression(expression: Expr): boolean {
+    return expression.kind === "ArrowFunctionExpression" || expression.kind === "FunctionExpression";
+  }
+
+  private contextualTypeForExpressionArgument(
+    argument: Expr,
+    expectedType: AnalysisType
+  ): AnalysisType | null {
+    if (this.isFunctionLikeExpression(argument)) {
+      return expectedType.kind === "function" ? expectedType : null;
+    }
+    if (argument.kind === "ObjectLiteral") {
+      return expectedType.kind === "object" || expectedType.kind === "named" ? expectedType : null;
+    }
+    if (argument.kind === "ArrayLiteral") {
+      return expectedType.kind === "array" || expectedType.kind === "range" ? expectedType : null;
+    }
+    return null;
   }
 
   private instantiateFunctionType(
@@ -1263,7 +1322,8 @@ export class TypeChecker {
   private createFunctionLikeExpressionScope(
     parentScope: Scope,
     node: Node,
-    parameters: FunctionParameter[]
+    parameters: FunctionParameter[],
+    expectedFunctionType?: AnalysisType & { kind: "function" }
   ): Scope {
     const functionScope: Scope = {
       parent: parentScope,
@@ -1271,9 +1331,12 @@ export class TypeChecker {
       symbols: new Map<string, AnalysisSymbol>(),
       children: []
     };
-    for (const parameter of parameters) {
+    for (let index = 0; index < parameters.length; index += 1) {
+      const parameter = parameters[index]!;
+      const expectedParameterType = expectedFunctionType?.parameters[index]?.type;
       const parameterType =
         this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
+        expectedParameterType ??
         (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
       functionScope.symbols.set(parameter.name.name, {
         name: parameter.name.name,
@@ -1848,6 +1911,10 @@ export class TypeChecker {
     if (!typeAnnotation) {
       return undefined;
     }
+    const functionType = this.functionTypeFromAnnotationText(typeAnnotation.name);
+    if (functionType) {
+      return functionType;
+    }
     if (this.looksLikeFunctionTypeAnnotation(typeAnnotation.name)) {
       return UNKNOWN_TYPE;
     }
@@ -1872,6 +1939,10 @@ export class TypeChecker {
   }
 
   private typeFromTypeNameLoose(typeName: string): AnalysisType {
+    const functionType = this.functionTypeFromAnnotationText(typeName);
+    if (functionType) {
+      return functionType;
+    }
     if (this.looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
     }
@@ -2004,6 +2075,14 @@ export class TypeChecker {
     }
 
     return sourceType;
+  }
+
+  private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {
+    const match = /^\(\.\.\.\)\s*=>\s*(.+)$/.exec(typeName.trim());
+    if (!match) {
+      return null;
+    }
+    return functionType([{ name: "arg", type: UNKNOWN_TYPE }], this.typeFromTypeNameLoose(match[1]!.trim()));
   }
 
   private looksLikeFunctionTypeAnnotation(typeName: string): boolean {

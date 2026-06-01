@@ -656,6 +656,31 @@ let badBox: Box = { value: make<number>() }
     expect(messages.some((message) => message.includes("Type 'T' is not assignable"))).toBe(false);
   });
 
+  it("contextually types function arguments before generic call inference", () => {
+    const source = `interface Mapper<T, U> {
+  map(item: T): U
+}
+fun mapValue<T, U>(value: T, mapper: Mapper<T, U>): U {
+}
+let okNumber: number = mapValue(1, { map: item => 1 })
+let okText: string = mapValue("hello", { map: item => "ok" })
+let wrongArgument = mapValue(1, { map: item => item.missing })
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 4, 3);
+
+    expect(symbols.get("okNumber")?.valueType).toBe("number");
+    expect(symbols.get("okText")?.valueType).toBe("string");
+    expect(messages).toContain(
+      "Argument 2 of type '{ map: (item: int) => unknown }' is not assignable to parameter 'mapper' of type 'Mapper<int, U>'"
+    );
+    expect(messages.some((message) => message.includes("Undefined variable 'item'"))).toBe(false);
+    expect(messages.some((message) => message.includes("Type 'T' is not assignable"))).toBe(false);
+  });
+
   it("keeps explicit generic function type arguments authoritative over inference", () => {
     const source = `fun identity<T>(value: T): T {
   return value
