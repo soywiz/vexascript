@@ -812,6 +812,39 @@ class GoodRunner implements Runner {
     ).toBe(false);
   });
 
+  it("resolves lambda parameters inside lambda scope", () => {
+    const source = `declare function apply(fn): int
+let x = apply((a, b, c) => a + b + c)
+let y = apply(function(a: int, b: int, c: int) { return a + b + c })
+let z = apply(callable { a, b, c -> a + b + c })
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message === "Undefined variable 'a'")).toBe(false);
+    expect(messages.some((message) => message === "Undefined variable 'b'")).toBe(false);
+    expect(messages.some((message) => message === "Undefined variable 'c'")).toBe(false);
+  });
+
+  it("uses declared Array<T> members for T[] alias member resolution", () => {
+    const source = `declare class Array<T> {
+  map<R>(mapper: (item: T) => T): Array<R>
+}
+fun demo() {
+  [1,2,3,4].map { it * 2 }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("Property 'map' does not exist"))).toBe(false);
+    expect(messages.some((message) => message === "Undefined variable 'it'")).toBe(false);
+  });
+
   it("validates override usage and compatibility against base members", () => {
     const source = `class Base {
   value: string

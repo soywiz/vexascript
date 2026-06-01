@@ -1765,6 +1765,35 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses generic class methods with function-type parameter annotations", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Array<T> { map<R>(mapper: (item: T) => T): Array<R> {} }")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Array" },
+            typeParameters: [
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+            ],
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "map" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "mapper" },
+                            typeAnnotation: { kind: "Identifier", name: "(...) => T" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "Array<R>" },
+                    body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
     it("parses interface with extends and generic annotations", () => {
         expect(
             parseStatement(

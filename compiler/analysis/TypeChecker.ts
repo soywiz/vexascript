@@ -551,17 +551,27 @@ export class TypeChecker {
         break;
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
-        const returnType =
-          arrow.body.kind === "BlockStatement"
-            ? builtinType("void")
-            : this.visitExpression(arrow.body as Expr, scope);
-        result = this.buildFunctionType(arrow.parameters, returnType, scope);
+        const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters);
+        let returnType: AnalysisType;
+        if (arrow.body.kind === "BlockStatement") {
+          for (const bodyStatement of (arrow.body as BlockStatement).body) {
+            this.visitStatement(bodyStatement, arrowScope, { loopDepth: 0, switchDepth: 0 });
+          }
+          returnType = builtinType("void");
+        } else {
+          returnType = this.visitExpression(arrow.body as Expr, arrowScope);
+        }
+        result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
         break;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
-        const returnType = this.resolveTypeAnnotation(fn.returnType, scope) ?? builtinType("void");
-        result = this.buildFunctionType(fn.parameters, returnType, scope);
+        const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters);
+        for (const bodyStatement of fn.body.body) {
+          this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0 });
+        }
+        const returnType = this.resolveTypeAnnotation(fn.returnType, functionScope) ?? builtinType("void");
+        result = this.buildFunctionType(fn.parameters, returnType, functionScope);
         break;
       }
       case "Identifier":
@@ -874,6 +884,10 @@ export class TypeChecker {
     scope: Scope,
     captureResolution: boolean
   ): AnalysisType {
+    if (this.looksLikeFunctionTypeAnnotation(typeName)) {
+      return UNKNOWN_TYPE;
+    }
+
     const parsed = parseTypeNameShape(typeName);
     let resolvedBase: AnalysisType;
 
@@ -1017,6 +1031,33 @@ export class TypeChecker {
     }
     symbol.type = type;
     symbol.valueType = typeToString(type);
+  }
+
+  private createFunctionLikeExpressionScope(
+    parentScope: Scope,
+    node: Node,
+    parameters: FunctionParameter[]
+  ): Scope {
+    const functionScope: Scope = {
+      parent: parentScope,
+      node,
+      symbols: new Map<string, AnalysisSymbol>(),
+      children: []
+    };
+    for (const parameter of parameters) {
+      const parameterType =
+        this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
+        (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
+      functionScope.symbols.set(parameter.name.name, {
+        name: parameter.name.name,
+        kind: "parameter",
+        node: parameter.name,
+        declaredOffset: parameter.name.firstToken?.range.start.offset ?? -1,
+        type: parameterType,
+        valueType: typeToString(parameterType)
+      });
+    }
+    return functionScope;
   }
 
   private isIntType(type: AnalysisType): boolean {
@@ -1165,6 +1206,13 @@ export class TypeChecker {
     if (objectType.kind === "object") {
       return objectType.properties[memberName] ?? null;
     }
+    if (objectType.kind === "array") {
+      const arrayMembers = this.membersForArrayAlias(objectType);
+      if (!arrayMembers) {
+        return null;
+      }
+      return arrayMembers.get(memberName) ?? null;
+    }
     if (objectType.kind !== "named") {
       return null;
     }
@@ -1190,10 +1238,20 @@ export class TypeChecker {
     if (type.kind === "object") {
       return new Map(Object.entries(type.properties));
     }
+    if (type.kind === "array") {
+      return this.membersForArrayAlias(type);
+    }
     if (type.kind === "named") {
       return this.resolveNamedTypeMembers(type);
     }
     return null;
+  }
+
+  private membersForArrayAlias(type: AnalysisType & { kind: "array" }): Map<string, AnalysisType> | null {
+    if (!this.classStatementsByName.has("Array") && !this.interfaceStatementsByName.has("Array")) {
+      return null;
+    }
+    return this.resolveNamedTypeMembers(namedType("Array", [type.elementType]));
   }
 
   private resolveNamedTypeMembers(type: AnalysisType & { kind: "named" }): Map<string, AnalysisType> | null {
@@ -1509,6 +1567,9 @@ export class TypeChecker {
     if (!typeAnnotation) {
       return undefined;
     }
+    if (this.looksLikeFunctionTypeAnnotation(typeAnnotation.name)) {
+      return UNKNOWN_TYPE;
+    }
     const parsed = parseTypeNameShape(typeAnnotation.name);
     let resolvedBase: AnalysisType;
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
@@ -1530,6 +1591,9 @@ export class TypeChecker {
   }
 
   private typeFromTypeNameLoose(typeName: string): AnalysisType {
+    if (this.looksLikeFunctionTypeAnnotation(typeName)) {
+      return UNKNOWN_TYPE;
+    }
     const parsed = parseTypeNameShape(typeName);
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       return builtinType(
@@ -1602,5 +1666,9 @@ export class TypeChecker {
     }
 
     return sourceType;
+  }
+
+  private looksLikeFunctionTypeAnnotation(typeName: string): boolean {
+    return typeName.includes("=>");
   }
 }

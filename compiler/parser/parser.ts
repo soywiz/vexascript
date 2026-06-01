@@ -579,6 +579,36 @@ export class Parser {
     }
 
     private parseTypeAnnotationNode(): Identifier {
+        const functionTypeStart = this.tokens.peek();
+        if (functionTypeStart?.type === "symbol" && functionTypeStart.value === "(") {
+            const openParen = this.tokens.read()!;
+            let depth = 1;
+            while (this.tokens.hasMore && depth > 0) {
+                const token = this.tokens.read();
+                if (!token) {
+                    break;
+                }
+                if (token.type === "symbol" && token.value === "(") {
+                    depth += 1;
+                } else if (token.type === "symbol" && token.value === ")") {
+                    depth -= 1;
+                }
+            }
+            if (depth !== 0) {
+                this.fail("Expected ')' to close function type annotation", this.tokenAt(openParen));
+            }
+            const arrow = this.tokens.read();
+            if (arrow?.type !== "symbol" || arrow.value !== "=>") {
+                this.fail("Expected '=>' in function type annotation", this.tokenAt(arrow));
+            }
+            const returnType = this.parseTypeAnnotationNode();
+            return this.attachNodeBounds(
+                { kind: "Identifier", name: `(...) => ${returnType.name}` } as Identifier,
+                openParen,
+                returnType.lastToken ?? this.getLastReadToken() ?? openParen
+            );
+        }
+
         const baseToken = this.tokens.read();
         if (baseToken?.type !== "identifier") {
             this.fail("Expected type identifier", this.tokenAt(baseToken));
@@ -2193,7 +2223,11 @@ export class Parser {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
         }
 
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+        const methodTypeParameters = this.parseTypeParameterList();
+        if ((methodTypeParameters.length > 0) || (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(")) {
+            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(")) {
+                this.fail("Expected '(' after method type parameters", this.tokenAt(this.tokens.peek()));
+            }
             this.tokens.skip();
             const parameters = this.parseFunctionParameters();
 
@@ -2560,6 +2594,36 @@ export class Parser {
                 members.push(this.attachNodeBounds(member, memberNameToken, this.getLastReadToken() ?? memberNameToken));
                 this.consumeStatementSeparator("block", this.getLastReadToken());
                 continue;
+            }
+
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+                this.parseTypeParameterList();
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+                    this.tokens.skip();
+                    const parameters = this.parseFunctionParameters();
+                    const closeParen = this.tokens.read();
+                    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                        this.fail("Expected ')' after interface method parameters", this.tokenAt(closeParen));
+                    }
+
+                    let returnType: Identifier | undefined;
+                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                        this.tokens.skip();
+                        returnType = this.parseTypeAnnotationNode();
+                    }
+
+                    const member: InterfaceMethodMember = {
+                        kind: "InterfaceMethodMember",
+                        name: this.buildIdentifierFromToken(memberNameToken),
+                        parameters
+                    };
+                    if (returnType) {
+                        member.returnType = returnType;
+                    }
+                    members.push(this.attachNodeBounds(member, memberNameToken, this.getLastReadToken() ?? memberNameToken));
+                    this.consumeStatementSeparator("block", this.getLastReadToken());
+                    continue;
+                }
             }
 
             if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":")) {
