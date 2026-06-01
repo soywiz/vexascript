@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { collectDiagnostics } from "./diagnostics";
+import { createAnalysisSession } from "./analysisSession";
+import { collectDiagnostics, collectDiagnosticsFromSession } from "./diagnostics";
 import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
 function diagnosticsFor(source: string) {
@@ -30,6 +31,29 @@ describe("lsp diagnostics", () => {
     expect(
       diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE)
     ).toBe(true);
+  });
+
+  it("uses precomputed semantic issues from the analysis session", () => {
+    const source = "let ok = missing\n";
+    const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+    const session = createAnalysisSession(source);
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toContain(
+      "Undefined variable 'missing'"
+    );
+    if (session.analysis) {
+      session.analysis.getIssues = () => {
+        throw new Error("diagnostics should not recompute analysis issues");
+      };
+    }
+
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) =>
+      doc.positionAt(offset)
+    );
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      "Undefined variable 'missing'"
+    );
   });
 
   it("assigns readonly-reassignment diagnostic code for const/val writes", () => {

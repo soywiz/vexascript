@@ -27,7 +27,7 @@ export function collectDiagnosticsFromSession(
 
   for (const issue of session.parserErrors) {
     const token = issue.token;
-      diagnostics.push({
+    diagnostics.push({
       code: MYLANG_DIAGNOSTIC_CODES.PARSER_ERROR,
       severity: DiagnosticSeverity.Error,
       range: token
@@ -76,8 +76,8 @@ export function collectDiagnosticsFromSession(
     });
   }
 
-  if (session.analysis) {
-    for (const issue of session.analysis.getIssues()) {
+  if (session.semanticIssues.length > 0) {
+    for (const issue of session.semanticIssues) {
       const token = issue.node.firstToken;
       if (!token) {
         continue;
