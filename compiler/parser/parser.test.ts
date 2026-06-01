@@ -1772,6 +1772,28 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses constrained type parameters", () => {
+        const ast = new Parser(
+            tokenizeReader("class Repository<T extends Entity, K extends string> {}")
+        ).parseFile();
+
+        expect(ast.body[0]).toMatchObject({
+            kind: "ClassStatement",
+            typeParameters: [
+                {
+                    kind: "TypeParameter",
+                    name: { kind: "Identifier", name: "T" },
+                    constraint: { kind: "Identifier", name: "Entity" }
+                },
+                {
+                    kind: "TypeParameter",
+                    name: { kind: "Identifier", name: "K" },
+                    constraint: { kind: "Identifier", name: "string" }
+                }
+            ]
+        });
+    });
+
     it("parses class with type parameters, extends, and implements", () => {
         expect(
             parseStatement(

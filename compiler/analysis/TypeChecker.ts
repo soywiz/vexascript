@@ -15,6 +15,7 @@ import type {
   ForStatement,
   FunctionParameter,
   FunctionExpression,
+  TypeParameter,
   FunctionStatement,
   InterfaceStatement,
   IfStatement,
@@ -239,7 +240,7 @@ export class TypeChecker {
     const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
     this.withTypeParameters(typeParameterNames, () => {
       const returnType = this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE;
-      const fnType = this.buildFunctionType(statement.parameters, returnType, scope, typeParameterNames);
+      const fnType = this.buildFunctionType(statement.parameters, returnType, scope, statement.typeParameters ?? []);
       this.updateSymbolType(scope, statement.name.name, fnType);
 
       const functionScope = this.scopeFor(statement, scope);
@@ -294,7 +295,7 @@ export class TypeChecker {
             method.parameters,
             this.resolveTypeAnnotation(method.returnType, classScope) ?? builtinType("void"),
             classScope,
-            methodTypeParameterNames
+            method.typeParameters ?? []
           );
           this.updateSymbolType(classScope, method.name.name, methodType);
 
@@ -504,6 +505,7 @@ export class TypeChecker {
           const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
             ? firstPassCalleeType
             : this.instantiateFunctionType(calleeType, explicitTypeArguments, contextualArgumentTypes, expectedType);
+          this.validateFunctionTypeArgumentConstraints(calleeType, instantiatedCalleeType, call);
           this.validateCallArguments(call, instantiatedCalleeType, contextualArgumentTypes);
           result = instantiatedCalleeType.returnType;
           break;
@@ -522,6 +524,12 @@ export class TypeChecker {
         );
         if (!isUnknownType(calleeType)) {
           if (calleeType.kind === "named" && explicitTypeArguments.length > 0) {
+            this.validateNamedTypeArgumentConstraints(
+              calleeType.name,
+              explicitTypeArguments,
+              newExpression.callee,
+              scope
+            );
             result = namedType(calleeType.name, explicitTypeArguments);
             break;
           }
@@ -531,6 +539,12 @@ export class TypeChecker {
 
         if (newExpression.callee.kind === "Identifier") {
           const calleeIdentifier = newExpression.callee as Node & { kind: "Identifier"; name: string };
+          this.validateNamedTypeArgumentConstraints(
+            calleeIdentifier.name,
+            explicitTypeArguments,
+            calleeIdentifier,
+            scope
+          );
           result = namedType(calleeIdentifier.name, explicitTypeArguments);
           break;
         }
@@ -766,6 +780,10 @@ export class TypeChecker {
       return true;
     }
 
+    if (sourceType.kind === "named" && targetType.kind === "named") {
+      return this.isNamedTypeStructurallyAssignable(sourceType, targetType);
+    }
+
     if (this.isIntType(sourceType) && this.isNumberType(targetType)) {
       return true;
     }
@@ -777,11 +795,35 @@ export class TypeChecker {
     return false;
   }
 
+  private isNamedTypeStructurallyAssignable(
+    sourceType: AnalysisType & { kind: "named" },
+    targetType: AnalysisType & { kind: "named" }
+  ): boolean {
+    const targetMembers = this.resolveNamedTypeMembers(targetType);
+    if (!targetMembers) {
+      return false;
+    }
+    const sourceMembers = this.resolveNamedTypeMembers(sourceType);
+    if (!sourceMembers) {
+      return false;
+    }
+    for (const [propertyName, targetPropertyType] of targetMembers.entries()) {
+      const sourcePropertyType = sourceMembers.get(propertyName);
+      if (!sourcePropertyType) {
+        return false;
+      }
+      if (!this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private buildFunctionType(
     parameters: FunctionParameter[],
     returnType: AnalysisType,
     scope: Scope,
-    typeParameters: string[] = []
+    typeParameters: TypeParameter[] = []
   ): AnalysisType {
     return functionType(
       parameters.map((parameter) => ({
@@ -792,8 +834,23 @@ export class TypeChecker {
         optional: parameter.optional === true || parameter.defaultValue !== undefined
       })),
       returnType,
-      typeParameters
+      typeParameters.map((parameter) => parameter.name.name),
+      this.typeParameterConstraintMap(typeParameters, scope)
     );
+  }
+
+  private typeParameterConstraintMap(
+    typeParameters: TypeParameter[],
+    scope: Scope
+  ): Record<string, AnalysisType> | undefined {
+    const constraints: Record<string, AnalysisType> = {};
+    for (const typeParameter of typeParameters) {
+      if (!typeParameter.constraint) {
+        continue;
+      }
+      constraints[typeParameter.name.name] = this.resolveTypeAnnotation(typeParameter.constraint, scope) ?? UNKNOWN_TYPE;
+    }
+    return Object.keys(constraints).length > 0 ? constraints : undefined;
   }
 
   private applyCallArgumentContext(
@@ -1013,6 +1070,42 @@ export class TypeChecker {
     }
   }
 
+  private validateFunctionTypeArgumentConstraints(
+    genericType: AnalysisType & { kind: "function" },
+    instantiatedType: AnalysisType & { kind: "function" },
+    node: Node
+  ): void {
+    const typeParameters = genericType.typeParameters ?? [];
+    const constraints = genericType.typeParameterConstraints;
+    if (!constraints || typeParameters.length === 0) {
+      return;
+    }
+    const substitutions = new Map<string, AnalysisType>();
+    for (const typeParameter of typeParameters) {
+      substitutions.set(typeParameter, namedType(typeParameter));
+    }
+    this.inferTypeParameterSubstitutions(
+      genericType,
+      instantiatedType,
+      new Set(typeParameters),
+      new Set(),
+      substitutions
+    );
+    for (const typeParameter of typeParameters) {
+      const constraint = constraints[typeParameter];
+      const typeArgument = substitutions.get(typeParameter);
+      if (!constraint || !typeArgument) {
+        continue;
+      }
+      this.validateTypeArgumentConstraint(
+        typeParameter,
+        typeArgument,
+        this.substituteTypeParameters(constraint, substitutions),
+        node
+      );
+    }
+  }
+
   private validateCallArguments(
     call: CallExpression,
     calleeType: AnalysisType & { kind: "function" },
@@ -1162,6 +1255,12 @@ export class TypeChecker {
             symbol
           });
         }
+        this.validateNamedTypeArgumentConstraints(
+          parsed.baseName,
+          resolvedTypeArguments,
+          node,
+          scope
+        );
         if (typeAlias) {
           resolvedBase = this.resolveTypeAliasTarget(typeAlias, resolvedTypeArguments, scope);
         } else {
@@ -1183,6 +1282,82 @@ export class TypeChecker {
     return resolved;
   }
 
+
+  private validateNamedTypeArgumentConstraints(
+    typeName: string,
+    typeArguments: AnalysisType[],
+    node: Node,
+    scope: Scope
+  ): void {
+    if (typeArguments.length === 0) {
+      return;
+    }
+    const typeParameters = this.typeParametersForNamedType(typeName);
+    if (!typeParameters || typeParameters.length === 0) {
+      return;
+    }
+    this.validateTypeParameterConstraints(typeParameters, typeArguments, node, scope);
+  }
+
+  private typeParametersForNamedType(typeName: string): TypeParameter[] | null {
+    return this.classStatementsByName.get(typeName)?.typeParameters
+      ?? this.interfaceStatementsByName.get(typeName)?.typeParameters
+      ?? this.typeAliasStatementsByName.get(typeName)?.typeParameters
+      ?? null;
+  }
+
+  private validateTypeParameterConstraints(
+    typeParameters: TypeParameter[],
+    typeArguments: AnalysisType[],
+    node: Node,
+    scope: Scope
+  ): void {
+    const typeParameterNames = typeParameters.map((typeParameter) => typeParameter.name.name);
+    const substitutions = new Map<string, AnalysisType>();
+    for (let index = 0; index < typeParameters.length; index += 1) {
+      const typeParameterName = typeParameters[index]?.name.name;
+      if (!typeParameterName) {
+        continue;
+      }
+      substitutions.set(typeParameterName, typeArguments[index] ?? namedType(typeParameterName));
+    }
+
+    this.withTypeParameters(typeParameterNames, () => {
+      for (let index = 0; index < typeParameters.length && index < typeArguments.length; index += 1) {
+        const typeParameter = typeParameters[index]!;
+        if (!typeParameter.constraint) {
+          continue;
+        }
+        const typeArgument = typeArguments[index]!;
+        const rawConstraint = this.resolveTypeAnnotation(typeParameter.constraint, scope) ?? UNKNOWN_TYPE;
+        const constraint = this.substituteTypeParameters(rawConstraint, substitutions);
+        this.validateTypeArgumentConstraint(
+          typeParameter.name.name,
+          typeArgument,
+          constraint,
+          node
+        );
+      }
+    });
+  }
+
+  private validateTypeArgumentConstraint(
+    typeParameterName: string,
+    typeArgument: AnalysisType,
+    constraint: AnalysisType,
+    node: Node
+  ): void {
+    if (isUnknownType(typeArgument) || isUnknownType(constraint)) {
+      return;
+    }
+    if (this.isTypeAssignable(typeArgument, constraint)) {
+      return;
+    }
+    this.issues.push({
+      message: `Type argument '${typeToString(typeArgument)}' does not satisfy constraint '${typeToString(constraint)}' for type parameter '${typeParameterName}'`,
+      node
+    });
+  }
 
   private resolveTypeAliasTarget(
     typeAlias: TypeAliasStatement,
@@ -1999,7 +2174,8 @@ export class TypeChecker {
           ...(parameter.optional !== undefined ? { optional: parameter.optional } : {})
         })),
         this.expandTypeAliases(type.returnType),
-        type.typeParameters
+        type.typeParameters,
+        type.typeParameterConstraints
       );
     }
 
@@ -2070,7 +2246,8 @@ export class TypeChecker {
           ...(parameter.optional !== undefined ? { optional: parameter.optional } : {})
         })),
         this.substituteTypeParameters(sourceType.returnType, substitutions),
-        sourceType.typeParameters
+        sourceType.typeParameters,
+        sourceType.typeParameterConstraints
       );
     }
 

@@ -56,6 +56,7 @@ export type TypeAnnotation = Identifier | TypeReference | ArrayTypeAnnotation;
 export interface TypeParameter extends Node {
     kind: "TypeParameter"
     name: Identifier
+    constraint?: Identifier
 }
 
 export interface StringLiteral extends Node {
