@@ -27,11 +27,13 @@ This section is the fast onboarding map for agents and contributors.
   - Type checking and semantic diagnostics: `compiler/analysis/TypeChecker.ts`
   - Generic type-name parsing/substitution helpers: `compiler/analysis/typeNames.ts`
   - Project semantic index/cache: `compiler/analysis/projectIndex.ts`
+  - Project index tests: `compiler/analysis/projectIndex.test.ts`
   - Analysis model/types: `compiler/analysis/model.ts`, `compiler/analysis/types.ts`
   - Analysis issue codes/contracts: `compiler/analysis/issueCodes.ts`
   - Analysis tests: `compiler/analysis/Analysis.test.ts`
 - Emitter / transpilation:
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
+  - Lowering tests: `compiler/runtime/lowering.test.ts`
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
