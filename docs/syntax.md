@@ -113,6 +113,17 @@ Examples:
 [1, 2, 3, 4].map(function(it: number) { return 10 })
 ```
 
+### Tail lambdas
+
+MyLang also supports Kotlin/Swift-style tail lambdas after call expressions.
+
+Examples:
+
+```mylang
+[1, 2, 3, 4].map { it }
+[1, 2, 3, 4].map() { it }
+```
+
 ## Imports
 
 MyLang supports named imports at top level:

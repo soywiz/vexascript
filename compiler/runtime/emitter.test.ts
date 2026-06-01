@@ -107,7 +107,9 @@ describe("emitProgram", () => {
       tokenizeReader(
         "let a = [1,2,3,4].map(x => 10)\n" +
         "let b = [1,2,3,4].map((it) => 10)\n" +
-        "let c = [1,2,3,4].map(function(it: number) { return 10 })"
+        "let c = [1,2,3,4].map(function(it: number) { return 10 })\n" +
+        "let d = [1,2,3,4].map { it }\n" +
+        "let e = [1,2,3,4].map() { it }"
       )
     );
     const emitted = emitProgram(program);
@@ -115,5 +117,7 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let b = [1, 2, 3, 4].map((it) => 10);");
     expect(emitted).toContain("let c = [1, 2, 3, 4].map(function(it) {");
     expect(emitted).toContain("return 10;");
+    expect(emitted).toContain("let d = [1, 2, 3, 4].map((it) => it);");
+    expect(emitted).toContain("let e = [1, 2, 3, 4].map((it) => it);");
   });
 });

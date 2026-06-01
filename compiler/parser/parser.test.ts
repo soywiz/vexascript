@@ -428,6 +428,68 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for Kotlin/Swift-style tail lambdas", () => {
+        expect(parseExpression(tokenizeReader("[1,2,3,4].map { it }"))).toEqual({
+            kind: "CallExpression",
+            callee: {
+                kind: "MemberExpression",
+                object: {
+                    kind: "ArrayLiteral",
+                    elements: [
+                        { kind: "IntLiteral", value: 1 },
+                        { kind: "IntLiteral", value: 2 },
+                        { kind: "IntLiteral", value: 3 },
+                        { kind: "IntLiteral", value: 4 }
+                    ]
+                },
+                property: { kind: "Identifier", name: "map" },
+                computed: false
+            },
+            arguments: [
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "it" }
+                        }
+                    ],
+                    body: { kind: "Identifier", name: "it" }
+                }
+            ]
+        });
+
+        expect(parseExpression(tokenizeReader("[1,2,3,4].map() { it }"))).toEqual({
+            kind: "CallExpression",
+            callee: {
+                kind: "MemberExpression",
+                object: {
+                    kind: "ArrayLiteral",
+                    elements: [
+                        { kind: "IntLiteral", value: 1 },
+                        { kind: "IntLiteral", value: 2 },
+                        { kind: "IntLiteral", value: 3 },
+                        { kind: "IntLiteral", value: 4 }
+                    ]
+                },
+                property: { kind: "Identifier", name: "map" },
+                computed: false
+            },
+            arguments: [
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "it" }
+                        }
+                    ],
+                    body: { kind: "Identifier", name: "it" }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for new expression variants", () => {
         expect(parseExpression(tokenizeReader("new instance()"))).toEqual({
             kind: "NewExpression",

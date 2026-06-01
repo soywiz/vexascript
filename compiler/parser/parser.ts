@@ -1124,6 +1124,47 @@ export class Parser {
         return this.parseAssignment();
     }
 
+    private parseTailLambdaArgument(): ArrowFunctionExpression {
+        const openBrace = this.tokens.peek();
+        if (!(openBrace?.type === "symbol" && openBrace.value === "{")) {
+            this.fail("Expected '{' to start tail lambda", this.tokenAt(openBrace));
+        }
+        const block = this.parseBlockStatement();
+        const implicitParameter = this.attachNodeBounds(
+            {
+                kind: "FunctionParameter",
+                name: this.attachNodeBounds(
+                    { kind: "Identifier", name: "it" } as Identifier,
+                    openBrace,
+                    openBrace
+                )
+            } as FunctionParameter,
+            openBrace,
+            openBrace
+        );
+        if (block.body.length === 1 && block.body[0]?.kind === "ExprStatement") {
+            const expressionBody = (block.body[0] as ExprStatement).expression;
+            return this.attachNodeBounds(
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters: [implicitParameter],
+                    body: expressionBody
+                } as ArrowFunctionExpression,
+                openBrace,
+                block.lastToken ?? this.getLastReadToken() ?? openBrace
+            );
+        }
+        return this.attachNodeBounds(
+            {
+                kind: "ArrowFunctionExpression",
+                parameters: [implicitParameter],
+                body: block
+            } as ArrowFunctionExpression,
+            openBrace,
+            block.lastToken ?? this.getLastReadToken() ?? openBrace
+        );
+    }
+
     private tryParseArrowFunctionExpression(): ArrowFunctionExpression | null {
         const startOffset = this.tokens.offset;
         const first = this.tokens.peek();
@@ -1364,6 +1405,38 @@ export class Parser {
                     ...(pendingTypeArguments ? { typeArguments: pendingTypeArguments } : {})
                 } as CallExpression, expr.firstToken, close);
                 pendingTypeArguments = undefined;
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "{") {
+                if (this.hasLineBreakBetween(expr.lastToken, token)) {
+                    break;
+                }
+                const tailLambda = this.parseTailLambdaArgument();
+                if (expr.kind === "CallExpression") {
+                    const call = expr as CallExpression;
+                    const newCall = this.attachNodeBounds(
+                        {
+                            kind: "CallExpression",
+                            callee: call.callee,
+                            arguments: [...call.arguments, tailLambda],
+                            ...(call.typeArguments ? { typeArguments: call.typeArguments } : {})
+                        } as CallExpression,
+                        call.firstToken,
+                        tailLambda.lastToken ?? this.getLastReadToken()
+                    );
+                    expr = newCall;
+                    continue;
+                }
+                expr = this.attachNodeBounds(
+                    {
+                        kind: "CallExpression",
+                        callee: expr,
+                        arguments: [tailLambda]
+                    } as CallExpression,
+                    expr.firstToken,
+                    tailLambda.lastToken ?? this.getLastReadToken()
+                );
                 continue;
             }
 
