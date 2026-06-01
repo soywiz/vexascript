@@ -4,6 +4,7 @@ import {
   formatSemanticIssue
 } from "compiler/pipeline/compile";
 import { basename } from "node:path";
+import { formatMessageAtSourceRange } from "compiler/sourceLocations";
 import { emitProgramStatements } from "./emitter";
 import { lowerProgram } from "./lowering";
 import type { Program, Statement } from "compiler/ast/ast";
@@ -211,7 +212,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
 
   if (artifacts.tokenizeError) {
     errors.push(
-      `${artifacts.tokenizeError.message} at ${artifacts.tokenizeError.range.start.line + 1}:${artifacts.tokenizeError.range.start.column + 1}`
+      formatMessageAtSourceRange(artifacts.tokenizeError.message, artifacts.tokenizeError.range)
     );
   }
   if (artifacts.fatalError) {
