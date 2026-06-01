@@ -433,7 +433,7 @@ function resolveClassOwnMember(
       typeName: substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions),
       optional: parameter.optional === true || parameter.defaultValue !== undefined
     }));
-    const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "unknown", substitutions);
+    const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "void", substitutions);
     const documentation = readDocumentationFromIdentifier(member.name);
     const signature: ResolvedFunctionSignature = {
       name: member.name.name,

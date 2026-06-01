@@ -101,4 +101,19 @@ describe("emitProgram", () => {
     expect(emitted).toContain("class Box extends Base {");
     expect(emitted.includes("interface Readable")).toBe(false);
   });
+
+  it("emits TypeScript-style lambda and function expressions", () => {
+    const program = parseFile(
+      tokenizeReader(
+        "let a = [1,2,3,4].map(x => 10)\n" +
+        "let b = [1,2,3,4].map((it) => 10)\n" +
+        "let c = [1,2,3,4].map(function(it: number) { return 10 })"
+      )
+    );
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("let a = [1, 2, 3, 4].map((x) => 10);");
+    expect(emitted).toContain("let b = [1, 2, 3, 4].map((it) => 10);");
+    expect(emitted).toContain("let c = [1, 2, 3, 4].map(function(it) {");
+    expect(emitted).toContain("return 10;");
+  });
 });

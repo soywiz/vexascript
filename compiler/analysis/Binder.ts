@@ -28,7 +28,8 @@ const BUILTIN_TYPE_NAMES = new Set([
   "string",
   "boolean",
   "bigint",
-  "long"
+  "long",
+  "void"
 ]);
 
 const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typeof UNKNOWN_TYPE>([
@@ -438,7 +439,7 @@ export class Binder {
 
     if (BUILTIN_TYPE_NAMES.has(typeName)) {
       return builtinType(
-        typeName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+        typeName as "int" | "number" | "string" | "boolean" | "bigint" | "long" | "void"
       );
     }
     return namedType(typeName);

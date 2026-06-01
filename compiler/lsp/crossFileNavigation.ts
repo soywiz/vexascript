@@ -392,7 +392,7 @@ function functionTypeLabelFromParameters(
       return `${parameter.name.name}${optionalSuffix}: ${typeName}`;
     })
     .join(", ");
-  return `(${parameterLabel}) => ${returnTypeName ?? "unknown"}`;
+  return `(${parameterLabel}) => ${returnTypeName ?? "void"}`;
 }
 
 function classMemberInfoByName(

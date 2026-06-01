@@ -616,6 +616,10 @@ function readSymbol(reader: StrReader): string {
     }
     return "==";
   }
+  if (ch === CODE_EQUALS && next === CODE_GT) {
+    advanceCode(reader);
+    return "=>";
+  }
   if (ch === CODE_BANG && next === CODE_EQUALS) {
     advanceCode(reader);
     if (reader.peekCode() === CODE_EQUALS) {

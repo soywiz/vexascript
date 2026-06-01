@@ -106,6 +106,20 @@ export interface CallExpression extends Node {
     typeArguments?: Identifier[]
 }
 
+export interface ArrowFunctionExpression extends Node {
+    kind: "ArrowFunctionExpression"
+    parameters: FunctionParameter[]
+    body: Expr | BlockStatement
+}
+
+export interface FunctionExpression extends Node {
+    kind: "FunctionExpression"
+    name?: Identifier
+    parameters: FunctionParameter[]
+    returnType?: Identifier
+    body: BlockStatement
+}
+
 export interface NewExpression extends Node {
     kind: "NewExpression"
     callee: Expr

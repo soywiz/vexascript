@@ -1,4 +1,5 @@
 import type {
+  ArrowFunctionExpression,
   ArrayLiteral,
   AssignmentExpression,
   BigIntLiteral,
@@ -16,6 +17,7 @@ import type {
   ForStatement,
   FloatLiteral,
   FunctionParameter,
+  FunctionExpression,
   FunctionStatement,
   Identifier,
   IfStatement,
@@ -133,6 +135,9 @@ function expressionPrecedence(expression: Expr): number {
     case "NewExpression":
     case "RangeExpression":
       return PREC_MEMBER;
+    case "ArrowFunctionExpression":
+    case "FunctionExpression":
+      return PREC_ASSIGNMENT;
     default:
       return PREC_PRIMARY;
   }
@@ -266,6 +271,24 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         return `{${objectLiteral.properties
           .map((property) => `${property.key.name}: ${emitExpression(property.value)}`)
           .join(", ")}}`;
+      }
+      case "ArrowFunctionExpression": {
+        const arrow = expression as ArrowFunctionExpression;
+        const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
+        if (arrow.body.kind === "BlockStatement") {
+          return `${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
+        }
+        const bodyExpression = arrow.body as Expr;
+        const bodyText = emitExpression(bodyExpression);
+        if (bodyExpression.kind === "ObjectLiteral") {
+          return `${parameters} => (${bodyText})`;
+        }
+        return `${parameters} => ${bodyText}`;
+      }
+      case "FunctionExpression": {
+        const fn = expression as FunctionExpression;
+        const name = fn.name ? ` ${fn.name.name}` : "";
+        return `function${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
       }
       default:
         return "undefined";

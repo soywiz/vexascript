@@ -325,6 +325,109 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for TypeScript-style arrow functions in call arguments", () => {
+        expect(parseExpression(tokenizeReader("[1,2,3,4].map(a => 10)"))).toEqual({
+            kind: "CallExpression",
+            callee: {
+                kind: "MemberExpression",
+                object: {
+                    kind: "ArrayLiteral",
+                    elements: [
+                        { kind: "IntLiteral", value: 1 },
+                        { kind: "IntLiteral", value: 2 },
+                        { kind: "IntLiteral", value: 3 },
+                        { kind: "IntLiteral", value: 4 }
+                    ]
+                },
+                property: { kind: "Identifier", name: "map" },
+                computed: false
+            },
+            arguments: [
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "a" }
+                        }
+                    ],
+                    body: { kind: "IntLiteral", value: 10 }
+                }
+            ]
+        });
+
+        expect(parseExpression(tokenizeReader("[1,2,3,4].map((it) => 10)"))).toEqual({
+            kind: "CallExpression",
+            callee: {
+                kind: "MemberExpression",
+                object: {
+                    kind: "ArrayLiteral",
+                    elements: [
+                        { kind: "IntLiteral", value: 1 },
+                        { kind: "IntLiteral", value: 2 },
+                        { kind: "IntLiteral", value: 3 },
+                        { kind: "IntLiteral", value: 4 }
+                    ]
+                },
+                property: { kind: "Identifier", name: "map" },
+                computed: false
+            },
+            arguments: [
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "it" }
+                        }
+                    ],
+                    body: { kind: "IntLiteral", value: 10 }
+                }
+            ]
+        });
+    });
+
+    it("builds an AST for TypeScript-style function expressions in call arguments", () => {
+        expect(parseExpression(tokenizeReader("[1,2,3,4].map(function(it: number) { return 10 })"))).toEqual({
+            kind: "CallExpression",
+            callee: {
+                kind: "MemberExpression",
+                object: {
+                    kind: "ArrayLiteral",
+                    elements: [
+                        { kind: "IntLiteral", value: 1 },
+                        { kind: "IntLiteral", value: 2 },
+                        { kind: "IntLiteral", value: 3 },
+                        { kind: "IntLiteral", value: 4 }
+                    ]
+                },
+                property: { kind: "Identifier", name: "map" },
+                computed: false
+            },
+            arguments: [
+                {
+                    kind: "FunctionExpression",
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "it" },
+                            typeAnnotation: { kind: "Identifier", name: "number" }
+                        }
+                    ],
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ReturnStatement",
+                                expression: { kind: "IntLiteral", value: 10 }
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for new expression variants", () => {
         expect(parseExpression(tokenizeReader("new instance()"))).toEqual({
             kind: "NewExpression",

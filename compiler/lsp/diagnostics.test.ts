@@ -62,7 +62,7 @@ describe("lsp diagnostics", () => {
       className: "Map",
       interfaceName: "Reader",
       memberName: "say",
-      actualType: "() => unknown",
+      actualType: "() => void",
       expectedType: "(a: number) => void"
     });
   });

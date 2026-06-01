@@ -793,6 +793,25 @@ class BadRunner implements Runner {
     );
   });
 
+  it("accepts class methods without explicit return type when interface method implies void", () => {
+    const source = `interface Runner {
+  run(step: int)
+}
+class GoodRunner implements Runner {
+  run(step: int) {
+  }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(
+      messages.some((message) => message.includes("incorrectly implements interface"))
+    ).toBe(false);
+  });
+
   it("validates override usage and compatibility against base members", () => {
     const source = `class Base {
   value: string

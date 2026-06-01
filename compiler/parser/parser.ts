@@ -1,6 +1,7 @@
 import { ListReader } from "compiler/utils/ListReader";
 import { Token } from "./tokenizer";
 import {
+    ArrowFunctionExpression,
     ArrayLiteral,
     AssignmentExpression,
     BigIntLiteral,
@@ -22,6 +23,7 @@ import {
     ForStatement,
     FloatLiteral,
     FunctionDeclarationKind,
+    FunctionExpression,
     FunctionParameter,
     FunctionStatement,
     Identifier,
@@ -1068,6 +1070,135 @@ export class Parser {
         this.fail("Expected ',' or '}' in object literal", this.tokenAt());
     }
 
+    private parseFunctionExpression(functionKeyword: Token): FunctionExpression {
+        let name: Identifier | undefined;
+        const maybeName = this.tokens.peek();
+        if (
+            maybeName?.type === "identifier" &&
+            this.peekToken(1)?.type === "symbol" &&
+            this.peekToken(1)?.value === "("
+        ) {
+            this.tokens.skip();
+            name = this.buildIdentifierFromToken(maybeName);
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after function keyword", this.tokenAt(openParen));
+        }
+        const parameters = this.parseFunctionParameters();
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after function parameters", this.tokenAt(closeParen));
+        }
+        let returnType: Identifier | undefined;
+        const maybeColon = this.tokens.peek();
+        if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
+            this.tokens.skip();
+            returnType = this.parseTypeAnnotationNode();
+        }
+        const body = this.parseBlockStatement();
+        const expression: FunctionExpression = {
+            kind: "FunctionExpression",
+            parameters,
+            body
+        };
+        if (name) {
+            expression.name = name;
+        }
+        if (returnType) {
+            expression.returnType = returnType;
+        }
+        return this.attachNodeBounds(
+            expression,
+            functionKeyword,
+            body.lastToken ?? this.getLastReadToken() ?? functionKeyword
+        );
+    }
+
+    private parseArrowFunctionBody(): Expr | BlockStatement {
+        const maybeBlock = this.tokens.peek();
+        if (maybeBlock?.type === "symbol" && maybeBlock.value === "{") {
+            return this.parseBlockStatement();
+        }
+        return this.parseAssignment();
+    }
+
+    private tryParseArrowFunctionExpression(): ArrowFunctionExpression | null {
+        const startOffset = this.tokens.offset;
+        const first = this.tokens.peek();
+        if (!first) {
+            return null;
+        }
+
+        if (
+            first.type === "identifier" &&
+            this.peekToken(1)?.type === "symbol" &&
+            this.peekToken(1)?.value === "=>"
+        ) {
+            this.tokens.skip();
+            const parameter = this.attachNodeBounds(
+                {
+                    kind: "FunctionParameter",
+                    name: this.buildIdentifierFromToken(first)
+                } as FunctionParameter,
+                first,
+                first
+            );
+            this.tokens.skip();
+            const body = this.parseArrowFunctionBody();
+            return this.attachNodeBounds(
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters: [parameter],
+                    body
+                } as ArrowFunctionExpression,
+                first,
+                body.lastToken ?? this.getLastReadToken() ?? first
+            );
+        }
+
+        if (!(first.type === "symbol" && first.value === "(")) {
+            return null;
+        }
+
+        try {
+            const openParen = this.tokens.read();
+            if (openParen?.type !== "symbol" || openParen.value !== "(") {
+                this.tokens.offset = startOffset;
+                return null;
+            }
+            const parameters = this.parseFunctionParameters();
+            const closeParen = this.tokens.read();
+            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                this.tokens.offset = startOffset;
+                return null;
+            }
+            const arrow = this.tokens.peek();
+            if (!(arrow?.type === "symbol" && arrow.value === "=>")) {
+                this.tokens.offset = startOffset;
+                return null;
+            }
+            this.tokens.skip();
+            const body = this.parseArrowFunctionBody();
+            return this.attachNodeBounds(
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters,
+                    body
+                } as ArrowFunctionExpression,
+                first,
+                body.lastToken ?? this.getLastReadToken() ?? first
+            );
+        } catch (error) {
+            this.tokens.offset = startOffset;
+            if (error instanceof ParseError) {
+                return null;
+            }
+            throw error;
+        }
+    }
+
     private parsePrimary(): Expr {
         const token = this.tokens.read();
 
@@ -1138,6 +1269,9 @@ export class Parser {
         }
 
         if (token?.type === "identifier") {
+            if (token.value === "function") {
+                return this.parseFunctionExpression(token);
+            }
             return this.buildIdentifierFromToken(token);
         }
 
@@ -1385,6 +1519,11 @@ export class Parser {
     }
 
     private parseAssignment(): Expr {
+        const arrowFunction = this.tryParseArrowFunctionExpression();
+        if (arrowFunction) {
+            return arrowFunction;
+        }
+
         const left = this.parseConditional();
         const token = this.tokens.peek();
 

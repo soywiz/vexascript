@@ -61,6 +61,14 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes arrow function operator", () => {
+        expect(simplifyTokens("a => 10")).toStrictEqual([
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "=>" },
+            { type: "number", value: "10" }
+        ])
+    })
+
     it("tokenizes relational and equality operators", () => {
         expect(simplifyTokens("a < b <= c > d >= e == f != g === h !== i = j")).toStrictEqual([
             { type: "identifier", value: "a" },

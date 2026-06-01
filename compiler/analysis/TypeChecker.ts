@@ -1,4 +1,5 @@
 import type {
+  ArrowFunctionExpression,
   ArrayLiteral,
   AssignmentExpression,
   BinaryExpression,
@@ -13,6 +14,7 @@ import type {
   ExprStatement,
   ForStatement,
   FunctionParameter,
+  FunctionExpression,
   FunctionStatement,
   InterfaceStatement,
   IfStatement,
@@ -280,7 +282,7 @@ export class TypeChecker {
         }
         const methodType = this.buildFunctionType(
           method.parameters,
-          this.resolveTypeAnnotation(method.returnType, classScope) ?? UNKNOWN_TYPE,
+          this.resolveTypeAnnotation(method.returnType, classScope) ?? builtinType("void"),
           classScope
         );
         this.updateSymbolType(classScope, method.name.name, methodType);
@@ -547,6 +549,21 @@ export class TypeChecker {
       case "ObjectLiteral":
         result = this.inferObjectLiteralType(expression as ObjectLiteral, scope);
         break;
+      case "ArrowFunctionExpression": {
+        const arrow = expression as ArrowFunctionExpression;
+        const returnType =
+          arrow.body.kind === "BlockStatement"
+            ? builtinType("void")
+            : this.visitExpression(arrow.body as Expr, scope);
+        result = this.buildFunctionType(arrow.parameters, returnType, scope);
+        break;
+      }
+      case "FunctionExpression": {
+        const fn = expression as FunctionExpression;
+        const returnType = this.resolveTypeAnnotation(fn.returnType, scope) ?? builtinType("void");
+        result = this.buildFunctionType(fn.parameters, returnType, scope);
+        break;
+      }
       case "Identifier":
         result = this.resolveIdentifierType(expression as Node & { kind: "Identifier"; name: string }, scope);
         break;
@@ -1219,7 +1236,7 @@ export class TypeChecker {
           continue;
         }
 
-        const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? UNKNOWN_TYPE;
+        const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
         members.set(
           classMember.name.name,
           this.substituteTypeParameters(functionType(
@@ -1402,7 +1419,7 @@ export class TypeChecker {
         return this.substituteTypeParameters(fieldType, substitutions);
       }
 
-      const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? UNKNOWN_TYPE;
+      const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
       return this.substituteTypeParameters(functionType(
         classMember.parameters.map((parameter) => ({
           name: parameter.name.name,

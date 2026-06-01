@@ -58,8 +58,6 @@ Scope notes:
 - Destructured parameters.
 - `this` parameters (`function f(this: X, ...)`).
 - Overload signatures.
-- Arrow functions (`(a) => a + 1`).
-- Function expressions (`const f = function () {}`).
 - Async functions (`async function`, `await`).
 - Generator functions (`function*`) and `yield`.
 

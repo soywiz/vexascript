@@ -101,6 +101,18 @@ fun demo(a, b): Int {
 }
 ```
 
+### Function expressions and arrow functions
+
+MyLang parser supports TypeScript-style function expressions and arrow functions in expression position.
+
+Examples:
+
+```mylang
+[1, 2, 3, 4].map(a => 10)
+[1, 2, 3, 4].map((it) => 10)
+[1, 2, 3, 4].map(function(it: number) { return 10 })
+```
+
 ## Imports
 
 MyLang supports named imports at top level:
