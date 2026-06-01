@@ -27,6 +27,14 @@ describe("parseExpression", () => {
         );
     });
 
+
+    it("builds an AST for boolean, null, and undefined literals", () => {
+        expect(parseExpression(tokenizeReader("true"))).toEqual({ kind: "BooleanLiteral", value: true });
+        expect(parseExpression(tokenizeReader("false"))).toEqual({ kind: "BooleanLiteral", value: false });
+        expect(parseExpression(tokenizeReader("null"))).toEqual({ kind: "NullLiteral" });
+        expect(parseExpression(tokenizeReader("undefined"))).toEqual({ kind: "UndefinedLiteral" });
+    });
+
     it("builds an AST for escaped string literal", () => {
         expect(parseExpression(tokenizeReader("\"hello\\n\\r\\t...world\""))).toEqual(
             { kind: "StringLiteral", value: "hello\n\r\t...world" }
@@ -1092,7 +1100,7 @@ describe("parseStatement", () => {
                 {
                     kind: "VarDeclarator",
                     name: { kind: "Identifier", name: "lol" },
-                    initializer: { kind: "Identifier", name: "true" }
+                    initializer: { kind: "BooleanLiteral", value: true }
                 }
             ]
         });

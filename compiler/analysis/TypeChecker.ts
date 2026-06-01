@@ -47,6 +47,7 @@ import type {
 } from "./model";
 import {
   type AnalysisType,
+  type BuiltinTypeName,
   UNKNOWN_TYPE,
   arrayType,
   builtinType,
@@ -73,7 +74,14 @@ export class TypeChecker {
     "boolean",
     "bigint",
     "long",
-    "void"
+    "void",
+    "null",
+    "undefined",
+    "any",
+    "unknown",
+    "never",
+    "object",
+    "symbol"
   ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
@@ -638,6 +646,15 @@ export class TypeChecker {
       case "StringLiteral":
         result = builtinType("string");
         break;
+      case "BooleanLiteral":
+        result = builtinType("boolean");
+        break;
+      case "NullLiteral":
+        result = builtinType("null");
+        break;
+      case "UndefinedLiteral":
+        result = builtinType("undefined");
+        break;
       default:
         result = UNKNOWN_TYPE;
         break;
@@ -712,6 +729,35 @@ export class TypeChecker {
 
   private isTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {
     if (isSameType(sourceType, targetType)) {
+      return true;
+    }
+
+    if (targetType.kind === "builtin" && targetType.name === "any") {
+      return true;
+    }
+
+    if (sourceType.kind === "builtin" && sourceType.name === "any") {
+      return true;
+    }
+
+    if (sourceType.kind === "builtin" && sourceType.name === "never") {
+      return true;
+    }
+
+    if (targetType.kind === "builtin" && targetType.name === "unknown") {
+      return true;
+    }
+
+    if (
+      targetType.kind === "builtin" &&
+      targetType.name === "object" &&
+      (
+        sourceType.kind === "object" ||
+        sourceType.kind === "named" ||
+        sourceType.kind === "array" ||
+        sourceType.kind === "function"
+      )
+    ) {
       return true;
     }
 
@@ -1241,7 +1287,7 @@ export class TypeChecker {
 
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolvedBase = builtinType(
-        parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long" | "void"
+        parsed.baseName as BuiltinTypeName
       );
     } else if (this.isActiveTypeParameter(parsed.baseName)) {
       resolvedBase = namedType(parsed.baseName);
@@ -2097,7 +2143,7 @@ export class TypeChecker {
     let resolvedBase: AnalysisType;
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolvedBase = builtinType(
-        parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+        parsed.baseName as BuiltinTypeName
       );
     } else {
       resolvedBase = namedType(
@@ -2125,7 +2171,7 @@ export class TypeChecker {
     let resolved: AnalysisType;
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolved = builtinType(
-        parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
+        parsed.baseName as BuiltinTypeName
       );
     } else {
       resolved = namedType(

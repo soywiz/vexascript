@@ -21,6 +21,7 @@ import type {
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE } from "./types";
+import type { BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 
 const BUILTIN_TYPE_NAMES = new Set([
@@ -30,7 +31,14 @@ const BUILTIN_TYPE_NAMES = new Set([
   "boolean",
   "bigint",
   "long",
-  "void"
+  "void",
+  "null",
+  "undefined",
+  "any",
+  "unknown",
+  "never",
+  "object",
+  "symbol"
 ]);
 
 const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typeof UNKNOWN_TYPE>([
@@ -456,9 +464,7 @@ export class Binder {
       typeAnnotation.kind === "TypeReference" ? typeAnnotation.name.name : typeAnnotation.name;
 
     if (BUILTIN_TYPE_NAMES.has(typeName)) {
-      return builtinType(
-        typeName as "int" | "number" | "string" | "boolean" | "bigint" | "long" | "void"
-      );
+      return builtinType(typeName as BuiltinTypeName);
     }
     return namedType(typeName);
   }

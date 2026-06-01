@@ -291,6 +291,7 @@ let boxed: Boxed<Text> = new Box<string>()
 Supported type annotation forms in declarations/members:
 
 - plain type names (`Point`, `number`, `K`)
+- primitive/builtin type names (`int`, `number`, `string`, `boolean`, `bigint`, `long`, `void`, `null`, `undefined`, `any`, `unknown`, `never`, `object`, `symbol`)
 - generic type references (`Map<K, V>`)
 - array suffixes (`K[]`, `Map<K, V>[]`)
 
@@ -306,6 +307,8 @@ Supported literals:
 - long literals (`10L`)
 - string literals (`"hello"`, `'hello'`)
 - template string literals with interpolation (`` `hello ${name}` ``)
+- boolean literals (`true`, `false`)
+- nullish literals (`null`, `undefined`)
 - array literals (`[1, 2, 3]`)
 - object literals (`{a: 1, b: 2}`)
 
@@ -609,8 +612,13 @@ try {
 
 ### Builtin types and assignability
 
-- Builtin types: `int`, `number`, `string`, `boolean`, `bigint`, `long`.
+- Builtin types: `int`, `number`, `string`, `boolean`, `bigint`, `long`, `void`, `null`, `undefined`, `any`, `unknown`, `never`, `object`, `symbol`.
 - `int` is assignable to `number`.
+- `long` is assignable to `bigint`.
+- `any` is assignable to and from all types.
+- `never` is assignable to all types.
+- All types are assignable to `unknown`.
+- Object literals, named/class/interface shapes, arrays, and functions are assignable to `object`.
 - Other assignability checks are strict by type identity in the current version.
 
 ### Expression typing
@@ -619,16 +627,19 @@ try {
 - Decimal/scientific numeric literals have type `number`.
 - BigInt literals have type `bigint`.
 - Long literals have type `long`.
+- String literals have type `string`.
+- Boolean literals have type `boolean`.
+- `null` has type `null`.
+- `undefined` has type `undefined`.
+- `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
+- `+` with at least one `string` operand infers `string`.
+- Comparisons/equality/logical operators infer `boolean`.
+- `start ... end` infers `range<int>` and is end-exclusive.
 
 ### Long runtime lowering
 
 - `long` literals are lowered to JavaScript `bigint` literals (`10L` -> `10n`).
 - Long arithmetic/bitwise expression results are wrapped as `BigInt.asIntN(64, expression)` to keep 64-bit signed behavior.
-- String literals have type `string`.
-- `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
-- `+` with at least one `string` operand infers `string`.
-- Comparisons/equality/logical operators infer `boolean`.
-- `start ... end` infers `range<int>` and is end-exclusive.
 
 ### Collection typing
 
