@@ -32,7 +32,13 @@ import type {
 } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "vscode-languageserver/node.js";
-import { resolveClassStatementAcrossFiles, resolveExpressionTypeName } from "./classResolver";
+import {
+  createClassResolverCache,
+  resolveClassMember,
+  resolveClassMemberDeclaration,
+  resolveClassStatementAcrossFiles,
+  resolveExpressionTypeName
+} from "./classResolver";
 import { pathToUri } from "./importFixes";
 import { isTypeMismatchDiagnostic, TYPE_MISMATCH_PATTERN } from "./diagnosticCodes";
 
@@ -360,6 +366,14 @@ export function createTypeFixCodeActions(params: {
 
   const actions: CodeAction[] = [];
   const seen = new Set<string>();
+  const resolverOptions = {
+    uri: params.uri,
+    sourceRoots: params.sourceRoots,
+    ...(params.getSessionForFilePath
+      ? { getSessionForFilePath: params.getSessionForFilePath }
+      : {})
+  };
+  const resolverCache = createClassResolverCache();
 
   for (const diagnostic of params.diagnostics) {
     if (!isTypeMismatchDiagnostic(diagnostic)) {
@@ -370,7 +384,6 @@ export function createTypeFixCodeActions(params: {
       continue;
     }
     const sourceType = mismatch[1];
-    const targetType = mismatch[2];
     if (!sourceType || sourceType === "unknown") {
       continue;
     }
@@ -388,36 +401,57 @@ export function createTypeFixCodeActions(params: {
       leftMember.object,
       params.analysis,
       params.ast,
-      {
-        uri: params.uri,
-        sourceRoots: params.sourceRoots,
-        ...(params.getSessionForFilePath
-          ? { getSessionForFilePath: params.getSessionForFilePath }
-          : {})
-      }
+      resolverOptions
     );
     if (!objectType) {
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(params.ast, baseTypeName(objectType), {
-      uri: params.uri,
-      sourceRoots: params.sourceRoots,
-      ...(params.getSessionForFilePath
-        ? { getSessionForFilePath: params.getSessionForFilePath }
-        : {})
-    });
+    const classResolution = resolveClassStatementAcrossFiles(
+      params.ast,
+      baseTypeName(objectType),
+      resolverOptions,
+      resolverCache
+    );
     if (!classResolution) {
       continue;
     }
 
     const memberName = (leftMember.property as Identifier).name;
-    const edit = buildMemberTypeEdit(classResolution.classStatement, memberName, sourceType);
+    const resolvedMember = resolveClassMember(
+      classResolution.classStatement,
+      memberName,
+      objectType,
+      {
+        ast: params.ast,
+        options: resolverOptions,
+        cache: resolverCache
+      }
+    );
+    if (!resolvedMember || resolvedMember.kind !== "field") {
+      continue;
+    }
+
+    const declaration = resolveClassMemberDeclaration(
+      classResolution,
+      memberName,
+      objectType,
+      {
+        ast: params.ast,
+        options: resolverOptions,
+        cache: resolverCache
+      }
+    );
+    if (!declaration || declaration.kind !== "field") {
+      continue;
+    }
+
+    const edit = buildMemberTypeEdit(declaration.classStatement, memberName, sourceType);
     if (!edit) {
       continue;
     }
 
-    const targetUri = pathToUri(classResolution.filePath);
+    const targetUri = pathToUri(declaration.filePath);
     const key = `${targetUri}:${memberName}:${sourceType}:${edit.range.start.line}:${edit.range.start.character}`;
     if (seen.has(key)) {
       continue;
@@ -425,7 +459,7 @@ export function createTypeFixCodeActions(params: {
     seen.add(key);
 
     actions.push({
-      title: `Change type of '${classResolution.classStatement.name.name}.${memberName}: ${targetType}' to '${sourceType}'`,
+      title: `Change type of '${declaration.classStatement.name.name}.${memberName}: ${resolvedMember.typeName}' to '${sourceType}'`,
       kind: CodeActionKind.QuickFix,
       edit: {
         changes: {

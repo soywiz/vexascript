@@ -287,6 +287,8 @@ export class TypeChecker {
           this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0 });
         }
       }
+
+      this.validateImplementedInterfaces(statement);
     });
   }
 
@@ -1227,25 +1229,6 @@ export class TypeChecker {
         }
       }
 
-      for (const implementedType of classStatement.implementsTypes ?? []) {
-        const resolvedImplementedType = this.substituteTypeParameters(
-          this.typeFromTypeNameLoose(implementedType.name),
-          substitutions
-        );
-        if (resolvedImplementedType.kind !== "named") {
-          continue;
-        }
-        const implementedMembers = this.resolveNamedTypeMembersInternal(resolvedImplementedType, visited);
-        if (!implementedMembers) {
-          continue;
-        }
-        for (const [memberName, memberType] of implementedMembers.entries()) {
-          if (!members.has(memberName)) {
-            members.set(memberName, memberType);
-          }
-        }
-      }
-
       return members;
     }
 
@@ -1299,6 +1282,54 @@ export class TypeChecker {
     }
 
     return members;
+  }
+
+  private validateImplementedInterfaces(classStatement: ClassStatement): void {
+    const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
+      namedType(typeParameter.name.name)
+    );
+    const classType = namedType(classStatement.name.name, classTypeArguments);
+    const classMembers = this.resolveNamedTypeMembers(classType);
+    if (!classMembers) {
+      return;
+    }
+
+    for (const implementedType of classStatement.implementsTypes ?? []) {
+      const resolvedImplementedType = this.typeFromTypeNameLoose(implementedType.name);
+      if (resolvedImplementedType.kind !== "named") {
+        continue;
+      }
+
+      const interfaceStatement = this.interfaceStatementsByName.get(resolvedImplementedType.name);
+      if (!interfaceStatement) {
+        continue;
+      }
+
+      const interfaceMembers = this.resolveNamedTypeMembers(resolvedImplementedType);
+      if (!interfaceMembers) {
+        continue;
+      }
+
+      for (const [memberName, expectedType] of interfaceMembers.entries()) {
+        const classMemberType = classMembers.get(memberName);
+        if (!classMemberType) {
+          this.issues.push({
+            message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is missing`,
+            node: implementedType
+          });
+          continue;
+        }
+
+        if (this.isTypeAssignable(classMemberType, expectedType)) {
+          continue;
+        }
+
+        this.issues.push({
+          message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is of type '${typeToString(classMemberType)}' but expected '${typeToString(expectedType)}'`,
+          node: implementedType
+        });
+      }
+    }
   }
 
   private typeFromAnnotationLoose(

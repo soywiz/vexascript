@@ -1,6 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
-import type { Analysis } from "compiler/analysis/Analysis";
+import { baseTypeName } from "compiler/analysis/typeNames";
 import type {
   ArrayLiteral,
   AssignmentExpression,
@@ -15,7 +13,6 @@ import type {
   ForStatement,
   FunctionStatement,
   Identifier,
-  ImportStatement,
   IfStatement,
   NewExpression,
   MemberExpression,
@@ -33,166 +30,24 @@ import type {
   VarStatement,
   WhileStatement
 } from "compiler/ast/ast";
-import { compileSource } from "compiler/pipeline/compile";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "vscode-languageserver/node.js";
 import type { AnalysisSession } from "./analysisSession";
-import { uriToFilePath } from "./importFixes";
-import { resolveExpressionTypeName as resolveCrossFileExpressionTypeName } from "./classResolver";
+import {
+  createClassResolverCache,
+  resolveClassMember,
+  resolveClassStatementAcrossFiles,
+  resolveExpressionTypeName as resolveCrossFileExpressionTypeName
+} from "./classResolver";
 import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
-
-interface SessionLike {
-  ast: Program | null;
-  analysis: Analysis | null;
-}
 
 interface CollectMemberDiagnosticsParams {
   uri: string;
   session: AnalysisSession;
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => SessionLike | null;
-}
-
-function findClassStatementInProgram(ast: Program, className: string): ClassStatement | null {
-  for (const statement of ast.body) {
-    if (statement.kind !== "ClassStatement") {
-      continue;
-    }
-    const classStatement = statement as ClassStatement;
-    if (classStatement.name.name === className) {
-      return classStatement;
-    }
-  }
-  return null;
-}
-
-function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
-  const baseDir = dirname(importerFilePath);
-  const direct = resolve(baseDir, importPath);
-  if (existsSync(direct)) {
-    return direct;
-  }
-  if (!extname(direct)) {
-    const withMyExt = `${direct}.my`;
-    if (existsSync(withMyExt)) {
-      return withMyExt;
-    }
-  }
-  return null;
-}
-
-function scanMyFiles(sourceRoots: string[]): string[] {
-  const files: string[] = [];
-  const stack = [...sourceRoots];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current || !existsSync(current)) {
-      continue;
-    }
-
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) {
-        continue;
-      }
-      const fullPath = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else if (entry.isFile() && extname(entry.name) === ".my") {
-        files.push(fullPath);
-      }
-    }
-  }
-  return files;
-}
-
-function readSessionForFilePath(
-  filePath: string,
-  getSessionForFilePath?: (filePath: string) => SessionLike | null
-): SessionLike | null {
-  if (getSessionForFilePath) {
-    const fromProvider = getSessionForFilePath(filePath);
-    if (fromProvider) {
-      return fromProvider;
-    }
-  }
-
-  if (!existsSync(filePath)) {
-    return null;
-  }
-  const source = readFileSync(filePath, "utf8");
-  const compiled = compileSource(source);
-  return {
-    ast: compiled.ast,
-    analysis: compiled.analysis
-  };
-}
-
-function resolveClassStatementAcrossFiles(params: {
-  className: string;
-  currentAst: Program;
-  currentFilePath: string | null;
-  sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => SessionLike | null;
-}): ClassStatement | null {
-  const local = findClassStatementInProgram(params.currentAst, params.className);
-  if (local) {
-    return local;
-  }
-
-  if (params.currentFilePath) {
-    for (const statement of params.currentAst.body) {
-      if (statement.kind !== "ImportStatement") {
-        continue;
-      }
-      const importStatement = statement as ImportStatement;
-      if (!importStatement.specifiers.some((specifier) => specifier.imported.name === params.className)) {
-        continue;
-      }
-
-      const targetFilePath = resolveImportTargetFilePath(
-        params.currentFilePath,
-        importStatement.from.value
-      );
-      if (!targetFilePath) {
-        continue;
-      }
-      const session = readSessionForFilePath(targetFilePath, params.getSessionForFilePath);
-      if (!session?.ast) {
-        continue;
-      }
-      const classStatement = findClassStatementInProgram(session.ast, params.className);
-      if (classStatement) {
-        return classStatement;
-      }
-    }
-  }
-
-  for (const filePath of scanMyFiles(params.sourceRoots)) {
-    const session = readSessionForFilePath(filePath, params.getSessionForFilePath);
-    if (!session?.ast) {
-      continue;
-    }
-    const classStatement = findClassStatementInProgram(session.ast, params.className);
-    if (classStatement) {
-      return classStatement;
-    }
-  }
-
-  return null;
-}
-
-function classHasMember(classStatement: ClassStatement, memberName: string): boolean {
-  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-    if (parameter.name.name === memberName) {
-      return true;
-    }
-  }
-  for (const member of classStatement.members) {
-    if (member.name.name === memberName) {
-      return true;
-    }
-  }
-  return false;
+  getSessionForFilePath?: (
+    filePath: string
+  ) => { ast: Program | null; analysis: AnalysisSession["analysis"] } | null;
 }
 
 function collectMemberExpressions(program: Program): MemberExpression[] {
@@ -385,7 +240,14 @@ export function collectCrossFileMemberDiagnostics(
 
   const diagnostics: Diagnostic[] = [];
   const seen = new Set<string>();
-  const currentFilePath = uriToFilePath(uri);
+  const options = {
+    uri,
+    sourceRoots,
+    ...(params.getSessionForFilePath
+      ? { getSessionForFilePath: params.getSessionForFilePath }
+      : {})
+  };
+  const resolverCache = createClassResolverCache();
 
   for (const member of collectMemberExpressions(session.ast)) {
     if (member.computed || member.property.kind !== "Identifier") {
@@ -395,33 +257,34 @@ export function collectCrossFileMemberDiagnostics(
       member.object,
       session.analysis,
       session.ast,
-      {
-        uri,
-        sourceRoots,
-        ...(params.getSessionForFilePath
-          ? { getSessionForFilePath: params.getSessionForFilePath }
-          : {})
-      }
+      options
     );
     if (!objectTypeName) {
       continue;
     }
 
-    const classStatement = resolveClassStatementAcrossFiles({
-      className: objectTypeName,
-      currentAst: session.ast,
-      currentFilePath,
-      sourceRoots,
-      ...(params.getSessionForFilePath
-        ? { getSessionForFilePath: params.getSessionForFilePath }
-        : {})
-    });
-    if (!classStatement) {
+    const classResolution = resolveClassStatementAcrossFiles(
+      session.ast,
+      baseTypeName(objectTypeName),
+      options,
+      resolverCache
+    );
+    if (!classResolution) {
       continue;
     }
 
     const memberName = (member.property as Identifier).name;
-    if (classHasMember(classStatement, memberName)) {
+    const resolvedMember = resolveClassMember(
+      classResolution.classStatement,
+      memberName,
+      objectTypeName,
+      {
+        ast: session.ast,
+        options,
+        cache: resolverCache
+      }
+    );
+    if (resolvedMember) {
       continue;
     }
 

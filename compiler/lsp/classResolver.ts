@@ -76,6 +76,13 @@ export interface ResolvedClassMember {
   documentation?: string;
 }
 
+export interface ResolvedClassMemberDeclaration {
+  classStatement: ClassStatement;
+  filePath: string;
+  memberName: string;
+  kind: "field" | "method";
+}
+
 export interface ResolvedConstructorSignature {
   className: string;
   parameters: ResolvedParameter[];
@@ -447,6 +454,24 @@ function resolveClassOwnMember(
   return null;
 }
 
+function classOwnMemberKind(
+  classStatement: ClassStatement,
+  memberName: string
+): "field" | "method" | null {
+  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+    if (parameter.name.name === memberName) {
+      return "field";
+    }
+  }
+  for (const member of classStatement.members) {
+    if (member.name.name !== memberName) {
+      continue;
+    }
+    return member.kind === "ClassFieldMember" ? "field" : "method";
+  }
+  return null;
+}
+
 function resolveInterfaceOwnMember(
   interfaceStatement: InterfaceStatement,
   memberName: string,
@@ -660,6 +685,73 @@ export function resolveClassMember(
       cache: context.cache ?? createClassResolverCache()
     },
     new Set<string>(),
+    new Set<string>()
+  );
+}
+
+function resolveClassMemberDeclarationRecursive(
+  classResolution: ResolvedClassStatement,
+  memberName: string,
+  objectTypeName: string | undefined,
+  context: ResolutionContext,
+  visitedClasses: Set<string>
+): ResolvedClassMemberDeclaration | null {
+  const classStatement = classResolution.classStatement;
+  const visitKey = `${classStatement.name.name}|${objectTypeName ?? "<none>"}`;
+  if (visitedClasses.has(visitKey)) {
+    return null;
+  }
+  visitedClasses.add(visitKey);
+
+  const ownMemberKind = classOwnMemberKind(classStatement, memberName);
+  if (ownMemberKind) {
+    return {
+      classStatement,
+      filePath: classResolution.filePath,
+      memberName,
+      kind: ownMemberKind
+    };
+  }
+
+  const substitutions = typeParameterSubstitutions(classStatement.typeParameters ?? [], objectTypeName);
+  if (!classStatement.extendsType) {
+    return null;
+  }
+  const specializedParentType = substituteTypeNameText(classStatement.extendsType.name, substitutions);
+  const parentResolution = resolveClassStatementAcrossFiles(
+    context.ast,
+    baseTypeName(specializedParentType),
+    context.options,
+    context.cache
+  );
+  if (!parentResolution) {
+    return null;
+  }
+
+  return resolveClassMemberDeclarationRecursive(
+    parentResolution,
+    memberName,
+    specializedParentType,
+    context,
+    visitedClasses
+  );
+}
+
+export function resolveClassMemberDeclaration(
+  classResolution: ResolvedClassStatement,
+  memberName: string,
+  objectTypeName: string | undefined,
+  context: ResolveClassMemberContext
+): ResolvedClassMemberDeclaration | null {
+  return resolveClassMemberDeclarationRecursive(
+    classResolution,
+    memberName,
+    objectTypeName,
+    {
+      ast: context.ast,
+      options: context.options,
+      cache: context.cache ?? createClassResolverCache()
+    },
     new Set<string>()
   );
 }

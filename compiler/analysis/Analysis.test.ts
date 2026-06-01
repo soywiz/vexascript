@@ -718,4 +718,40 @@ fun demo() {
     expect(messages.some((message) => message.includes("Property 'read' does not exist"))).toBe(false);
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
   });
+
+  it("reports missing properties when class does not satisfy implemented interface", () => {
+    const source = `interface Readable {
+  value: string
+}
+class Reader implements Readable {
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain(
+      "Class 'Reader' incorrectly implements interface 'Readable'. Property 'value' is missing"
+    );
+  });
+
+  it("reports incompatible property types in implemented interface contracts", () => {
+    const source = `interface Store {
+  save(value: string): string
+}
+class NumberStore implements Store {
+  save(value: int): int {
+  }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain(
+      "Class 'NumberStore' incorrectly implements interface 'Store'. Property 'save' is of type '(value: int) => int' but expected '(value: string) => string'"
+    );
+  });
 });
