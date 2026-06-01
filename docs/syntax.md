@@ -269,6 +269,19 @@ interface PairStore<K, V> extends Iterable<K> {
 
 `interface` declarations are type-only and are omitted from emitted JavaScript output.
 
+### Type aliases
+
+MyLang supports type aliases for naming another supported type annotation form. Aliases may be generic and can be used anywhere a type annotation is accepted:
+
+```mylang
+type Text = string
+type Boxed<T> = Box<T>
+let name: Text = "Ada"
+let boxed: Boxed<Text> = new Box<string>()
+```
+
+`type` declarations are type-only and are omitted from emitted JavaScript output.
+
 ### Type annotation forms
 
 Supported type annotation forms in declarations/members:

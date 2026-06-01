@@ -49,6 +49,7 @@ import {
     SwitchCase,
     SwitchStatement,
     ThrowStatement,
+    TypeAliasStatement,
     TypeParameter,
     TryStatement,
     UnaryExpression,
@@ -227,6 +228,9 @@ export class Parser {
         }
         if (token?.type === "identifier" && this.isFunctionDeclarationKeyword(token.value)) {
             return this.parseFunctionStatement();
+        }
+        if (token?.type === "identifier" && token.value === "type") {
+            return this.parseTypeAliasStatement();
         }
         if (this.isDeclareFunctionStart()) {
             return this.parseDeclareFunctionStatement();
@@ -1913,6 +1917,40 @@ export class Parser {
             )
         };
         return this.attachNodeBounds(statement, importKeyword, this.getLastReadToken() ?? importKeyword);
+    }
+
+
+    private parseTypeAliasStatement(declared: boolean = false): TypeAliasStatement {
+        const typeKeyword = this.tokens.read();
+        if (typeKeyword?.type !== "identifier" || typeKeyword.value !== "type") {
+            this.fail("Expected type alias declaration", this.tokenAt(typeKeyword));
+        }
+
+        const nameToken = this.tokens.read();
+        if (nameToken?.type !== "identifier") {
+            this.fail("Expected type alias name after 'type'", this.tokenAt(nameToken));
+        }
+
+        const typeParameters = this.parseTypeParameterList();
+
+        const equalsToken = this.tokens.read();
+        if (equalsToken?.type !== "symbol" || equalsToken.value !== "=") {
+            this.fail("Expected '=' in type alias declaration", this.tokenAt(equalsToken));
+        }
+
+        const targetType = this.parseTypeAnnotationNode();
+        const statement: TypeAliasStatement = {
+            kind: "TypeAliasStatement",
+            name: this.buildIdentifierFromToken(nameToken),
+            targetType
+        };
+        if (declared) {
+            statement.declared = true;
+        }
+        if (typeParameters.length > 0) {
+            statement.typeParameters = typeParameters;
+        }
+        return this.attachNodeBounds(statement, typeKeyword, targetType.lastToken ?? this.getLastReadToken() ?? typeKeyword);
     }
 
     private parseFunctionStatement(): FunctionStatement {

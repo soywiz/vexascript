@@ -269,6 +269,14 @@ export interface InterfaceStatement extends Statement {
     members: InterfaceMember[]
 }
 
+export interface TypeAliasStatement extends Statement {
+    kind: "TypeAliasStatement"
+    declared?: boolean
+    name: Identifier
+    typeParameters?: TypeParameter[]
+    targetType: Identifier
+}
+
 export interface ExprStatement extends Statement {
     kind: "ExprStatement"
     expression: Expr

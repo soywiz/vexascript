@@ -7,6 +7,7 @@ import type {
   InterfaceStatement,
   ImportStatement,
   Program,
+  TypeAliasStatement,
   VarStatement
 } from "compiler/ast/ast";
 import { compileSource } from "compiler/pipeline/compile";
@@ -119,6 +120,20 @@ function indexFileData(ast: Program | null, filePath: string): IndexedFileData {
         // Keep interface declarations discoverable through the same top-level class channel.
         declarations.push({
           name: interfaceStatement.name.name,
+          kind: "class",
+          range
+        });
+      }
+      continue;
+    }
+
+    if (statement.kind === "TypeAliasStatement") {
+      const typeAliasStatement = statement as TypeAliasStatement;
+      const range = nodeRange(typeAliasStatement.name);
+      if (range) {
+        // Keep type-only declarations discoverable through the same top-level class channel.
+        declarations.push({
+          name: typeAliasStatement.name.name,
           kind: "class",
           range
         });

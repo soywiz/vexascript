@@ -649,6 +649,30 @@ let wrongArgument = identity<number>("hello")
     expect(messages).toContain("Argument 1 of type 'string' is not assignable to parameter 'value' of type 'number'");
   });
 
+  it("resolves generic type aliases in annotations and member access", () => {
+    const source = `class Box<T> {
+  value: T
+}
+type Text = string
+type TextBox = Box<Text>
+type Boxed<T> = Box<T>
+let ok: Text = "hello"
+let bad: Text = 1
+let box: Boxed<Text> = new Box<string>()
+let value: string = box.value
+let wrongValue: int = box.value
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.filter((message) => message === "Type 'int' is not assignable to type 'string'")).toHaveLength(1);
+    expect(messages.filter((message) => message === "Type 'string' is not assignable to type 'int'")).toHaveLength(1);
+    expect(messages.some((message) => message.includes("Unknown type 'Text'"))).toBe(false);
+    expect(messages.some((message) => message.includes("Unknown type 'Boxed'"))).toBe(false);
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = `interface PairStore<K, V> {
   keys: K[]
