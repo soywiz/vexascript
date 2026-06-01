@@ -151,9 +151,10 @@ describe("semantic tokens", () => {
     );
   });
 
-  it("highlights soft class keywords extends/implements", () => {
+  it("highlights soft class keywords extends/implements/override", () => {
     const source =
       "class Map<K, V> extends Base<K> implements Iterable<V> {\n" +
+      "  override a: K\n" +
       "  a: K\n" +
       "}\n";
     const session = createAnalysisSession(source);
@@ -169,6 +170,27 @@ describe("semantic tokens", () => {
     );
     expect(
       decoded.some((token) => token.lexeme === "implements" && token.tokenType === "keyword")
+    ).toBe(true);
+    expect(
+      decoded.some((token) => token.lexeme === "override" && token.tokenType === "keyword")
+    ).toBe(true);
+  });
+
+  it("highlights interface as keyword", () => {
+    const source =
+      "interface Readable {\n" +
+      "  say(): number\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(
+      decoded.some((token) => token.lexeme === "interface" && token.tokenType === "keyword")
     ).toBe(true);
   });
 });

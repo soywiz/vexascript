@@ -754,4 +754,95 @@ class NumberStore implements Store {
       "Class 'NumberStore' incorrectly implements interface 'Store'. Property 'save' is of type '(value: int) => int' but expected '(value: string) => string'"
     );
   });
+
+  it("reports optionality mismatch in implemented interface method parameters", () => {
+    const source = `interface Runner {
+  run(step: int): int
+}
+class BadRunner implements Runner {
+  run(step?: int): int {
+  }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain(
+      "Class 'BadRunner' incorrectly implements interface 'Runner'. Property 'run' is of type '(step?: int) => int' but expected '(step: int) => int'"
+    );
+  });
+
+  it("validates override usage and compatibility against base members", () => {
+    const source = `class Base {
+  value: string
+  read(v: int): string {
+  }
+}
+class Child extends Base {
+  override value: string
+  override read(v: int): string {
+  }
+}
+class NoBase {
+  override name: string
+}
+class Wrong extends Base {
+  override missing: int
+  override read(v: string): string {
+  }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("Child"))).toBe(false);
+    expect(messages).toContain(
+      "Member 'name' cannot use 'override' because class 'NoBase' does not extend another class"
+    );
+    expect(messages).toContain(
+      "Member 'missing' cannot override because no member with that name exists in base type 'Base'"
+    );
+    expect(messages).toContain(
+      "Member 'read' override type '(v: string) => string' does not match base type '(v: int) => string'"
+    );
+  });
+
+  it("reports class method signatures without body as semantic errors", () => {
+    const source = `class Demo {
+  say(): number
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Class method 'say' must have a body");
+    expect(messages.some((message) => message.includes("Expected '{' to start class method body"))).toBe(false);
+  });
+
+  it("attaches implements contract errors to class name node", () => {
+    const source = `interface Readable {
+  say(): number
+}
+class Map implements Readable {
+  say(): string {
+  }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const issue = analysis
+      .getIssues()
+      .find((candidate) => candidate.message.includes("incorrectly implements interface"));
+
+    expect(issue).toBeDefined();
+    expect(issue?.node.kind).toBe("Identifier");
+    expect((issue?.node as { kind: string; name?: string }).name).toBe("Map");
+  });
 });

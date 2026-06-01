@@ -206,6 +206,18 @@ class Demo {
 
 Method signatures support the same parameter syntax as function declarations.
 
+Class fields and methods also support the `override` modifier when redefining members from a base class:
+
+```mylang
+class Base {
+  value: string
+}
+
+class Child extends Base {
+  override value: string
+}
+```
+
 ### Interfaces
 
 MyLang supports interface declarations, including generic parameters and `extends`:

@@ -1322,6 +1322,61 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses class members with override modifier", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Child extends Base {\noverride value: string\noverride getValue(a: int): string { }\n}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Child" },
+            extendsType: { kind: "Identifier", name: "Base" },
+            members: [
+                {
+                    kind: "ClassFieldMember",
+                    override: true,
+                    name: { kind: "Identifier", name: "value" },
+                    typeAnnotation: { kind: "Identifier", name: "string" }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    override: true,
+                    name: { kind: "Identifier", name: "getValue" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "a" },
+                            typeAnnotation: { kind: "Identifier", name: "int" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "string" },
+                    body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
+    it("parses class method signatures without body as semantic-level missing body", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Demo {\n  say(): number\n}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Demo" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "say" },
+                    missingBody: true,
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "number" },
+                    body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
     it("parses class statement with primary constructor parameters", () => {
         expect(parseStatement(tokenizeReader("class Point(val x: number, val y: number) {\n}"))).toEqual({
             kind: "ClassStatement",

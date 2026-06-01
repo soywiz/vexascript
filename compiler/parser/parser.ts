@@ -1850,7 +1850,13 @@ export class Parser {
     }
 
     private parseClassMember(allowSignatureOnly: boolean = false): ClassMember {
-        const memberNameToken = this.tokens.read();
+        let memberStartToken = this.tokens.read();
+        let isOverrideMember = false;
+        if (memberStartToken?.type === "identifier" && memberStartToken.value === "override") {
+            isOverrideMember = true;
+            memberStartToken = this.tokens.read();
+        }
+        const memberNameToken = memberStartToken;
         if (memberNameToken?.type !== "identifier") {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
         }
@@ -1871,10 +1877,6 @@ export class Parser {
             }
 
             if (this.tokens.peek()?.type !== "symbol" || this.tokens.peek()?.value !== "{") {
-                if (!allowSignatureOnly) {
-                    this.fail("Expected '{' to start class method body", this.tokenAt());
-                }
-
                 const signatureOnlyBody = this.attachNodeBounds(
                     { kind: "BlockStatement", body: [] } as BlockStatement,
                     memberNameToken,
@@ -1887,11 +1889,17 @@ export class Parser {
                     parameters,
                     body: signatureOnlyBody
                 };
+                if (isOverrideMember) {
+                    signatureOnlyMethod.override = true;
+                }
+                if (!allowSignatureOnly) {
+                    signatureOnlyMethod.missingBody = true;
+                }
                 if (returnType) {
                     signatureOnlyMethod.returnType = returnType;
                 }
 
-                return this.attachNodeBounds(signatureOnlyMethod, memberNameToken, this.getLastReadToken() ?? memberNameToken);
+                return this.attachNodeBounds(signatureOnlyMethod, memberStartToken, this.getLastReadToken() ?? memberNameToken);
             }
 
             const methodMember: ClassMethodMember = {
@@ -1900,11 +1908,14 @@ export class Parser {
                 parameters,
                 body: this.parseBlockStatement()
             };
+            if (isOverrideMember) {
+                methodMember.override = true;
+            }
             if (returnType) {
                 methodMember.returnType = returnType;
             }
 
-            return this.attachNodeBounds(methodMember, memberNameToken, this.getLastReadToken() ?? memberNameToken);
+            return this.attachNodeBounds(methodMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
         }
 
         let typeAnnotation: Identifier | undefined;
@@ -1923,13 +1934,16 @@ export class Parser {
             kind: "ClassFieldMember",
             name: this.buildIdentifierFromToken(memberNameToken)
         };
+        if (isOverrideMember) {
+            fieldMember.override = true;
+        }
         if (typeAnnotation) {
             fieldMember.typeAnnotation = typeAnnotation;
         }
         if (initializer) {
             fieldMember.initializer = initializer;
         }
-        return this.attachNodeBounds(fieldMember, memberNameToken, this.getLastReadToken() ?? memberNameToken);
+        return this.attachNodeBounds(fieldMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
     }
 
     private parseClassPrimaryConstructorParameters(): ClassPrimaryConstructorParameter[] {

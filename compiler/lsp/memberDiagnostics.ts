@@ -34,6 +34,7 @@ import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "vscode-languageserver/node.js";
 import type { AnalysisSession } from "./analysisSession";
 import {
+  type ClassResolverSessionLike,
   createClassResolverCache,
   resolveClassMember,
   resolveClassStatementAcrossFiles,
@@ -45,9 +46,7 @@ interface CollectMemberDiagnosticsParams {
   uri: string;
   session: AnalysisSession;
   sourceRoots: string[];
-  getSessionForFilePath?: (
-    filePath: string
-  ) => { ast: Program | null; analysis: AnalysisSession["analysis"] } | null;
+  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
 }
 
 function collectMemberExpressions(program: Program): MemberExpression[] {

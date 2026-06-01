@@ -269,6 +269,12 @@ export class TypeChecker {
         }
 
         const method = member as ClassMethodMember;
+        if (method.missingBody === true && statement.declared !== true) {
+          this.issues.push({
+            message: `Class method '${method.name.name}' must have a body`,
+            node: method.name
+          });
+        }
         const methodType = this.buildFunctionType(
           method.parameters,
           this.resolveTypeAnnotation(method.returnType, classScope) ?? UNKNOWN_TYPE,
@@ -288,6 +294,7 @@ export class TypeChecker {
         }
       }
 
+      this.validateOverrideMembers(statement);
       this.validateImplementedInterfaces(statement);
     });
   }
@@ -1315,7 +1322,7 @@ export class TypeChecker {
         if (!classMemberType) {
           this.issues.push({
             message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is missing`,
-            node: implementedType
+            node: classStatement.name
           });
           continue;
         }
@@ -1325,11 +1332,110 @@ export class TypeChecker {
         }
 
         this.issues.push({
-          message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is of type '${typeToString(classMemberType)}' but expected '${typeToString(expectedType)}'`,
-          node: implementedType
+          message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is of type '${this.typeToDiagnosticLabel(classMemberType)}' but expected '${this.typeToDiagnosticLabel(expectedType)}'`,
+          node: classStatement.name
         });
       }
     }
+  }
+
+  private declaredClassMemberType(
+    classStatement: ClassStatement,
+    memberName: string,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType | null {
+    for (const classMember of classStatement.members) {
+      if (classMember.name.name !== memberName) {
+        continue;
+      }
+
+      if (classMember.kind === "ClassFieldMember") {
+        const fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation) ?? UNKNOWN_TYPE;
+        return this.substituteTypeParameters(fieldType, substitutions);
+      }
+
+      const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? UNKNOWN_TYPE;
+      return this.substituteTypeParameters(functionType(
+        classMember.parameters.map((parameter) => ({
+          name: parameter.name.name,
+          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          optional: parameter.optional === true || parameter.defaultValue !== undefined
+        })),
+        returnType
+      ), substitutions);
+    }
+
+    return null;
+  }
+
+  private validateOverrideMembers(classStatement: ClassStatement): void {
+    const overrideMembers = classStatement.members.filter((member) => member.override === true);
+    if (overrideMembers.length === 0) {
+      return;
+    }
+
+    if (!classStatement.extendsType) {
+      for (const member of overrideMembers) {
+        this.issues.push({
+          message: `Member '${member.name.name}' cannot use 'override' because class '${classStatement.name.name}' does not extend another class`,
+          node: member.name
+        });
+      }
+      return;
+    }
+
+    const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
+      namedType(typeParameter.name.name)
+    );
+    const classType = namedType(classStatement.name.name, classTypeArguments);
+    const classSubstitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], classType);
+    const extendsType = this.substituteTypeParameters(
+      this.typeFromTypeNameLoose(classStatement.extendsType.name),
+      classSubstitutions
+    );
+    if (extendsType.kind !== "named") {
+      return;
+    }
+
+    const baseMembers = this.resolveNamedTypeMembers(extendsType);
+    if (!baseMembers) {
+      return;
+    }
+
+    for (const member of overrideMembers) {
+      const ownType = this.declaredClassMemberType(classStatement, member.name.name, classSubstitutions);
+      if (!ownType) {
+        continue;
+      }
+      const baseType = baseMembers.get(member.name.name);
+      if (!baseType) {
+        this.issues.push({
+          message: `Member '${member.name.name}' cannot override because no member with that name exists in base type '${typeToString(extendsType)}'`,
+          node: member.name
+        });
+        continue;
+      }
+      if (isSameType(ownType, baseType)) {
+        continue;
+      }
+      this.issues.push({
+        message: `Member '${member.name.name}' override type '${this.typeToDiagnosticLabel(ownType)}' does not match base type '${this.typeToDiagnosticLabel(baseType)}'`,
+        node: member.name
+      });
+    }
+  }
+
+  private typeToDiagnosticLabel(type: AnalysisType): string {
+    if (type.kind !== "function") {
+      return typeToString(type);
+    }
+
+    const parameters = type.parameters
+      .map((parameter) =>
+        `${parameter.name}${parameter.optional === true ? "?" : ""}: ${this.typeToDiagnosticLabel(parameter.type)}`
+      )
+      .join(", ");
+    return `(${parameters}) => ${this.typeToDiagnosticLabel(type.returnType)}`;
   }
 
   private typeFromAnnotationLoose(

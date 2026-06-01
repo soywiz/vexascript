@@ -109,4 +109,38 @@ fun demo() {
     const uri = pathToFileURL(file).toString();
     expect(actions[0]?.edit?.changes?.[uri]?.[0]?.newText).toContain("zz: int");
   });
+
+  it("resolves class target from generic missing-member diagnostics", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-member-fix-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    const worldSource = `class Map<K, V> {
+}
+`;
+    const helloSource = `import { Map } from "./world"
+fun demo() {
+  const map = new Map<string, int>()
+  map.extra = 1
+}
+`;
+
+    await writeFile(worldFile, worldSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    const actions = createCreateMemberCodeActions({
+      uri: pathToFileURL(helloFile).toString(),
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics: [
+        missingMemberDiagnostic("Property 'extra' does not exist on type 'Map<string, int>'")
+      ],
+      sourceRoots: [root]
+    });
+
+    expect(actions).toHaveLength(1);
+    const worldUri = pathToFileURL(worldFile).toString();
+    expect(actions[0]?.edit?.changes?.[worldUri]?.[0]?.newText).toContain("extra: unknown");
+  });
 });

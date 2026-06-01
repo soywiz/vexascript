@@ -193,6 +193,7 @@ export interface FunctionStatement extends Statement {
 export interface ClassFieldMember extends Node {
     kind: "ClassFieldMember"
     name: Identifier
+    override?: boolean
     typeAnnotation?: Identifier
     initializer?: Expr
 }
@@ -200,6 +201,8 @@ export interface ClassFieldMember extends Node {
 export interface ClassMethodMember extends Node {
     kind: "ClassMethodMember"
     name: Identifier
+    override?: boolean
+    missingBody?: boolean
     parameters: FunctionParameter[]
     returnType?: Identifier
     body: BlockStatement

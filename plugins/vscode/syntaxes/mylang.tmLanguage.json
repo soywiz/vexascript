@@ -101,7 +101,7 @@
       "patterns": [
         {
           "name": "keyword.declaration.mylang",
-          "match": "\\b(import|from|let|var|val|const|function|fun|declare|class|extends|implements)\\b"
+          "match": "\\b(import|from|let|var|val|const|function|fun|declare|class|interface|extends|implements|override)\\b"
         },
         {
           "name": "keyword.control.mylang",
@@ -109,7 +109,7 @@
         },
         {
           "name": "storage.type.mylang",
-          "match": "\\b(interface|type|fn)\\b"
+          "match": "\\b(type|fn)\\b"
         },
         {
           "name": "constant.language.mylang",
