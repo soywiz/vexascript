@@ -117,7 +117,7 @@ Current semantic diagnostics include:
   - too many arguments,
   - unexpected extra arguments.
 - Function call argument type mismatches.
-- Contextual generic function return inference from variable annotations and assignment targets.
+- Contextual generic function return inference from variable annotations and assignment targets, including nested calls inside array literals and object-literal properties.
 - Invalid control-flow statements:
   - `continue` outside loops,
   - `break` outside loops/switch.
@@ -137,6 +137,6 @@ These checks are implemented in dedicated LSP diagnostics passes and merged with
 
 This semantic layer is intentionally conservative today:
 
-- Full generic constraints and deeper nested contextual inference remain pending.
+- Full generic constraints and call-argument contextual inference remain pending.
 
 Pending roadmap items are tracked in `docs/tasks.pending.md` and `docs/syntax.pending.md`.

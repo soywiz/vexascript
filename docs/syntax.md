@@ -629,5 +629,7 @@ try {
 ### Collection typing
 
 - Array literals infer an element type from their items.
+- When an array literal is checked against an expected array type, that element type is used as context for nested generic calls.
 - Homogeneous arrays infer typed arrays, for example `int[]`.
 - Mixed incompatible arrays fall back to `unknown[]`.
+- Object literals checked against an expected object, class, or interface type use matching property types as context for nested generic calls.
