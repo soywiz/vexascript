@@ -1129,7 +1129,124 @@ export class Parser {
         if (!(openBrace?.type === "symbol" && openBrace.value === "{")) {
             this.fail("Expected '{' to start tail lambda", this.tokenAt(openBrace));
         }
-        const block = this.parseBlockStatement();
+        this.tokens.skip();
+
+        const explicitParametersStart = this.tokens.offset;
+        const explicitParameters: FunctionParameter[] = [];
+        let hasExplicitParameterArrow = false;
+        if (this.tokens.peek()?.type === "identifier") {
+            while (this.tokens.hasMore) {
+                const parameterToken = this.tokens.peek();
+                if (parameterToken?.type !== "identifier") {
+                    break;
+                }
+                this.tokens.skip();
+                let parameterOptional = false;
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+                    this.tokens.skip();
+                    parameterOptional = true;
+                }
+                let parameterTypeAnnotation: Identifier | undefined;
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                    this.tokens.skip();
+                    parameterTypeAnnotation = this.parseTypeAnnotationNode();
+                }
+
+                const parameter: FunctionParameter = {
+                    kind: "FunctionParameter",
+                    name: this.buildIdentifierFromToken(parameterToken)
+                };
+                if (parameterOptional) {
+                    parameter.optional = true;
+                }
+                if (parameterTypeAnnotation) {
+                    parameter.typeAnnotation = parameterTypeAnnotation;
+                }
+                explicitParameters.push(
+                    this.attachNodeBounds(
+                        parameter,
+                        parameterToken,
+                        this.getLastReadToken() ?? parameterToken
+                    )
+                );
+                const separator = this.tokens.peek();
+                if (!(separator?.type === "symbol" && separator.value === ",")) {
+                    break;
+                }
+                this.tokens.skip();
+            }
+
+            const maybeArrow = this.tokens.peek();
+            if (maybeArrow?.type === "symbol" && maybeArrow.value === "->" && explicitParameters.length > 0) {
+                hasExplicitParameterArrow = true;
+                this.tokens.skip();
+            } else {
+                this.tokens.offset = explicitParametersStart;
+            }
+        }
+
+        if (hasExplicitParameterArrow) {
+            const bodyExpression = this.parseAssignment();
+            const closeBrace = this.tokens.read();
+            if (closeBrace?.type !== "symbol" || closeBrace.value !== "}") {
+                this.fail("Expected '}' to close tail lambda", this.tokenAt(closeBrace));
+            }
+            return this.attachNodeBounds(
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters: explicitParameters,
+                    body: bodyExpression
+                } as ArrowFunctionExpression,
+                openBrace,
+                closeBrace
+            );
+        }
+
+        const statements: Statement[] = [];
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+            if (this.isEofToken(token)) {
+                this.fail("Expected '}' to close tail lambda", this.tokenAt(openBrace), "block");
+            }
+
+            if (token?.type === "symbol" && token.value === "}") {
+                this.tokens.skip();
+                break;
+            }
+
+            if (token?.type === "symbol" && token.value === ";") {
+                this.tokens.skip();
+                continue;
+            }
+
+            const statementStartOffset = this.tokens.offset;
+            const statement = this.parseStatement();
+            if (!statement) {
+                continue;
+            }
+            statements.push(statement);
+
+            try {
+                const previousToken =
+                    this.tokens.offset > statementStartOffset
+                        ? this.tokens.items[this.tokens.offset - 1]
+                        : undefined;
+                this.consumeStatementSeparator("block", previousToken);
+            } catch (error) {
+                this.emitErrorFrom(error);
+                if (error instanceof ParseError) {
+                    this.recover(error.recoveryHint, error.token);
+                } else {
+                    this.recover();
+                }
+            }
+        }
+
+        const block = this.attachNodeBounds(
+            { kind: "BlockStatement", body: statements } as BlockStatement,
+            openBrace,
+            this.getLastReadToken() ?? openBrace
+        );
         const implicitParameter = this.attachNodeBounds(
             {
                 kind: "FunctionParameter",

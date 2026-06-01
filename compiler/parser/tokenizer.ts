@@ -632,6 +632,10 @@ function readSymbol(reader: StrReader): string {
     advanceCode(reader);
     return "-=";
   }
+  if (ch === CODE_MINUS && next === CODE_GT) {
+    advanceCode(reader);
+    return "->";
+  }
   if (ch === CODE_MINUS && next === CODE_MINUS) {
     advanceCode(reader);
     return "--";

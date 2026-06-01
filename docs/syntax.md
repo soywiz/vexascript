@@ -122,6 +122,8 @@ Examples:
 ```mylang
 [1, 2, 3, 4].map { it }
 [1, 2, 3, 4].map() { it }
+[1, 2, 3, 4].map { a, b, c -> a + b + c }
+[1, 2, 3, 4].map { a: number, b: number, c: number -> a + b + c }
 ```
 
 ## Imports

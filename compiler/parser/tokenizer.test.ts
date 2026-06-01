@@ -69,6 +69,24 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes tail-lambda parameter arrow operator", () => {
+        expect(simplifyTokens("{ a, b, c -> a + b + c }")).toStrictEqual([
+            { type: "symbol", value: "{" },
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "," },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: "," },
+            { type: "identifier", value: "c" },
+            { type: "symbol", value: "->" },
+            { type: "identifier", value: "a" },
+            { type: "symbol", value: "+" },
+            { type: "identifier", value: "b" },
+            { type: "symbol", value: "+" },
+            { type: "identifier", value: "c" },
+            { type: "symbol", value: "}" }
+        ])
+    })
+
     it("tokenizes relational and equality operators", () => {
         expect(simplifyTokens("a < b <= c > d >= e == f != g === h !== i = j")).toStrictEqual([
             { type: "identifier", value: "a" },
