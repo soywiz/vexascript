@@ -35,7 +35,9 @@ This section is the fast onboarding map for agents and contributors.
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
+  - Runtime tooling helpers: `compiler/runtime/tooling.ts`
   - Transpile tests: `compiler/runtime/transpile.test.ts`
+  - Runtime integration tests: `compiler/runtime/runtime.integration.test.ts`
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`
@@ -51,15 +53,24 @@ This section is the fast onboarding map for agents and contributors.
   - CLI tests: `compiler/cli.test.ts`
 - LSP server and features:
   - Server entrypoint: `compiler/lsp/server.ts`
+  - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
+  - Session cache: `compiler/lsp/analysisSession.ts`
   - Completion: `compiler/lsp/completion.ts`
   - Diagnostics: `compiler/lsp/diagnostics.ts`
+  - Cross-file type diagnostics: `compiler/lsp/crossFileTypeDiagnostics.ts`
+  - Member diagnostics: `compiler/lsp/memberDiagnostics.ts`
+  - Diagnostic code mapping: `compiler/lsp/diagnosticCodes.ts`
   - Navigation/rename/references: `compiler/lsp/navigation.ts`, `compiler/lsp/crossFileNavigation.ts`
   - Signature help: `compiler/lsp/signatureHelp.ts`
   - Document/workspace symbols: `compiler/lsp/symbols.ts`
-  - Auto-import fixes: `compiler/lsp/importFixes.ts`
-  - Session cache: `compiler/lsp/analysisSession.ts`
+  - Semantic tokens: `compiler/lsp/semanticTokens.ts`
+  - Inlay hints: `compiler/lsp/inlayHints.ts`
+  - Code action orchestration: `compiler/lsp/codeActions.ts`
+  - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`
+  - Class/interface resolution helpers: `compiler/lsp/classResolver.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
-- VS Code syntax highlighting:
+- VS Code extension and syntax highlighting:
+  - Extension entrypoint: `plugins/vscode/extension.js`
   - TextMate grammar: `plugins/vscode/syntaxes/mylang.tmLanguage.json`
   - VS Code extension manifest/config: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `compiler/vscodeext-syntax.test.ts`
@@ -76,6 +87,7 @@ This section is the fast onboarding map for agents and contributors.
 ### Test Fixtures and Auxiliary Utilities
 
 - Runtime sample fixture: `testFixtures/sample.my`
+- TypeScript compatibility fixture: `testFixtures/typescript-supported.d.ts`
 - Fixture tests: `testFixtures/@test.test.ts`
 - Reader utilities used by parser/tokenizer:
   - `compiler/utils/ListReader.ts`, tests: `compiler/utils/ListReader.test.ts`
