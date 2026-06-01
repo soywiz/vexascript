@@ -3,6 +3,7 @@ import type { Program } from "compiler/ast/ast";
 import { Parser, type ParseIssue } from "compiler/parser/parser";
 import { TokenizeError, tokenize } from "compiler/parser/tokenizer";
 import { ListReader } from "compiler/utils/ListReader";
+import { formatMessageAtSourceRange } from "compiler/sourceLocations";
 
 export interface CompilationArtifacts {
   ast: Program | null;
@@ -67,7 +68,7 @@ export function formatParseIssue(issue: ParseIssue): string {
   if (!issue.token) {
     return issue.message;
   }
-  return `${issue.message} at ${issue.token.range.start.line + 1}:${issue.token.range.start.column + 1}`;
+  return formatMessageAtSourceRange(issue.message, issue.token.range);
 }
 
 export function formatSemanticIssue(issue: AnalysisIssue): string {
@@ -75,5 +76,5 @@ export function formatSemanticIssue(issue: AnalysisIssue): string {
   if (!token) {
     return issue.message;
   }
-  return `${issue.message} at ${token.range.start.line + 1}:${token.range.start.column + 1}`;
+  return formatMessageAtSourceRange(issue.message, token.range);
 }
