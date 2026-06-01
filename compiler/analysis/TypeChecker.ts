@@ -484,7 +484,11 @@ export class TypeChecker {
           const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
             this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
           );
-          const instantiatedCalleeType = this.instantiateFunctionType(calleeType, explicitTypeArguments);
+          const instantiatedCalleeType = this.instantiateFunctionType(
+            calleeType,
+            explicitTypeArguments,
+            argumentTypes
+          );
           this.validateCallArguments(call, instantiatedCalleeType, argumentTypes);
           result = instantiatedCalleeType.returnType;
           break;
@@ -777,19 +781,159 @@ export class TypeChecker {
 
   private instantiateFunctionType(
     calleeType: AnalysisType & { kind: "function" },
-    explicitTypeArguments: AnalysisType[]
+    explicitTypeArguments: AnalysisType[],
+    argumentTypes: AnalysisType[]
   ): AnalysisType & { kind: "function" } {
     const typeParameters = calleeType.typeParameters ?? [];
-    if (typeParameters.length === 0 || explicitTypeArguments.length === 0) {
+    if (typeParameters.length === 0) {
       return calleeType;
     }
 
     const substitutions = new Map<string, AnalysisType>();
+    const explicitlyProvidedTypeParameters = new Set<string>();
     for (let index = 0; index < typeParameters.length; index += 1) {
-      substitutions.set(typeParameters[index]!, explicitTypeArguments[index] ?? namedType(typeParameters[index]!));
+      const parameterName = typeParameters[index]!;
+      const explicitTypeArgument = explicitTypeArguments[index];
+      if (!explicitTypeArgument) {
+        continue;
+      }
+      substitutions.set(parameterName, explicitTypeArgument);
+      explicitlyProvidedTypeParameters.add(parameterName);
+    }
+
+    for (let index = 0; index < calleeType.parameters.length && index < argumentTypes.length; index += 1) {
+      this.inferTypeParameterSubstitutions(
+        calleeType.parameters[index]!.type,
+        argumentTypes[index]!,
+        new Set(typeParameters),
+        explicitlyProvidedTypeParameters,
+        substitutions
+      );
+    }
+
+    for (const typeParameter of typeParameters) {
+      if (!substitutions.has(typeParameter)) {
+        substitutions.set(typeParameter, namedType(typeParameter));
+      }
     }
 
     return this.substituteTypeParameters(calleeType, substitutions) as AnalysisType & { kind: "function" };
+  }
+
+  private inferTypeParameterSubstitutions(
+    parameterType: AnalysisType,
+    argumentType: AnalysisType,
+    typeParameters: Set<string>,
+    explicitlyProvidedTypeParameters: Set<string>,
+    substitutions: Map<string, AnalysisType>
+  ): void {
+    if (isUnknownType(parameterType) || isUnknownType(argumentType)) {
+      return;
+    }
+
+    if (parameterType.kind === "named" && typeParameters.has(parameterType.name)) {
+      if (explicitlyProvidedTypeParameters.has(parameterType.name)) {
+        return;
+      }
+      this.mergeInferredTypeParameterSubstitution(parameterType.name, argumentType, substitutions);
+      return;
+    }
+
+    if (parameterType.kind === "array" && argumentType.kind === "array") {
+      this.inferTypeParameterSubstitutions(
+        parameterType.elementType,
+        argumentType.elementType,
+        typeParameters,
+        explicitlyProvidedTypeParameters,
+        substitutions
+      );
+      return;
+    }
+
+    if (parameterType.kind === "range" && argumentType.kind === "range") {
+      this.inferTypeParameterSubstitutions(
+        parameterType.elementType,
+        argumentType.elementType,
+        typeParameters,
+        explicitlyProvidedTypeParameters,
+        substitutions
+      );
+      return;
+    }
+
+    if (parameterType.kind === "named" && argumentType.kind === "named") {
+      const parameterTypeArguments = parameterType.typeArguments ?? [];
+      const argumentTypeArguments = argumentType.typeArguments ?? [];
+      if (parameterType.name !== argumentType.name || parameterTypeArguments.length !== argumentTypeArguments.length) {
+        return;
+      }
+      for (let index = 0; index < parameterTypeArguments.length; index += 1) {
+        this.inferTypeParameterSubstitutions(
+          parameterTypeArguments[index]!,
+          argumentTypeArguments[index]!,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      return;
+    }
+
+    if (parameterType.kind === "function" && argumentType.kind === "function") {
+      for (let index = 0; index < parameterType.parameters.length && index < argumentType.parameters.length; index += 1) {
+        this.inferTypeParameterSubstitutions(
+          parameterType.parameters[index]!.type,
+          argumentType.parameters[index]!.type,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      this.inferTypeParameterSubstitutions(
+        parameterType.returnType,
+        argumentType.returnType,
+        typeParameters,
+        explicitlyProvidedTypeParameters,
+        substitutions
+      );
+      return;
+    }
+
+    if (parameterType.kind === "object" && argumentType.kind === "object") {
+      for (const [propertyName, nestedParameterType] of Object.entries(parameterType.properties)) {
+        const nestedArgumentType = argumentType.properties[propertyName];
+        if (!nestedArgumentType) {
+          continue;
+        }
+        this.inferTypeParameterSubstitutions(
+          nestedParameterType,
+          nestedArgumentType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+    }
+  }
+
+  private mergeInferredTypeParameterSubstitution(
+    typeParameter: string,
+    inferredType: AnalysisType,
+    substitutions: Map<string, AnalysisType>
+  ): void {
+    const previousType = substitutions.get(typeParameter);
+    if (!previousType) {
+      substitutions.set(typeParameter, inferredType);
+      return;
+    }
+
+    if (this.isTypeAssignable(inferredType, previousType)) {
+      return;
+    }
+
+    if (this.isTypeAssignable(previousType, inferredType)) {
+      substitutions.set(typeParameter, inferredType);
+    }
   }
 
   private validateCallArguments(

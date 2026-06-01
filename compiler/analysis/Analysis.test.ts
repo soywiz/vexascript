@@ -591,6 +591,42 @@ let wrongArgument = identity<number>("hello")
     expect(messages.some((message) => message.includes("Unknown type 'T'"))).toBe(false);
   });
 
+  it("infers generic function type arguments from call arguments", () => {
+    const source = `fun identity<T>(value: T): T {
+  return value
+}
+fun first<T>(items: T[]): T {
+  return items[0]
+}
+let okString: string = identity("hello")
+let wrongString: int = identity("hello")
+let okArray: int = first([1, 2, 3])
+let wrongArray: string = first([1, 2, 3])
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.filter((message) => message === "Type 'string' is not assignable to type 'int'")).toHaveLength(1);
+    expect(messages.filter((message) => message === "Type 'int' is not assignable to type 'string'")).toHaveLength(1);
+    expect(messages.some((message) => message.includes("Unknown type 'T'"))).toBe(false);
+  });
+
+  it("keeps explicit generic function type arguments authoritative over inference", () => {
+    const source = `fun identity<T>(value: T): T {
+  return value
+}
+let wrongArgument = identity<number>("hello")
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Argument 1 of type 'string' is not assignable to parameter 'value' of type 'number'");
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = `interface PairStore<K, V> {
   keys: K[]
