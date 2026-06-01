@@ -12,7 +12,7 @@ describe("ProjectIndex", () => {
 
     await writeFile(
       fileA,
-      "class Point\ninterface Readable {}\nfun make(): Point { return new Point() }\n",
+      "class Point\ninterface Readable {}\ntype PointList = Point[]\nfun make(): Point { return new Point() }\n",
       "utf8"
     );
     await writeFile(fileB, "import { Point } from \"./a\"\nfun demo() { return new Point() }\n", "utf8");
@@ -22,6 +22,9 @@ describe("ProjectIndex", () => {
     expect(declaration?.kind).toBe("class");
     const interfaceDeclaration = index.findTopLevelDeclaration(fileA, "Readable");
     expect(interfaceDeclaration?.kind).toBe("class");
+
+    const typeAliasDeclaration = index.findTopLevelDeclaration(fileA, "PointList");
+    expect(typeAliasDeclaration?.kind).toBe("class");
 
     const importers = index.findFilesImportingSymbol(fileA, "Point");
     expect(importers).toHaveLength(1);

@@ -28,6 +28,7 @@ import type {
   Statement,
   SwitchStatement,
   ThrowStatement,
+  TypeAliasStatement,
   TryStatement,
   UnaryExpression,
   UpdateExpression,
@@ -75,8 +76,10 @@ export class TypeChecker {
   ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
+  private readonly typeAliasStatementsByName: Map<string, TypeAliasStatement> = new Map();
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
+  private readonly activeTypeAliasNames: Set<string> = new Set();
 
   constructor(
     private readonly program: Program,
@@ -84,6 +87,7 @@ export class TypeChecker {
   ) {
     this.collectClassStatements(program);
     this.collectInterfaceStatements(program);
+    this.collectTypeAliasStatements(program);
   }
 
   check(): CheckedAnalysis {
@@ -117,6 +121,7 @@ export class TypeChecker {
         this.visitClassStatement(statement as ClassStatement, scope);
         return;
       case "InterfaceStatement":
+      case "TypeAliasStatement":
         return;
       case "ExprStatement":
         this.visitExpression((statement as ExprStatement).expression, scope);
@@ -1090,6 +1095,7 @@ export class TypeChecker {
       resolvedBase = namedType(parsed.baseName);
     } else {
       const symbol = this.resolve(parsed.baseName, scope, undefined);
+      const typeAlias = this.typeAliasStatementsByName.get(parsed.baseName);
       if (symbol && (symbol.kind === "class" || symbol.kind === "variable")) {
         if (captureResolution && node.kind === "Identifier") {
           this.identifierResolutions.push({
@@ -1097,7 +1103,11 @@ export class TypeChecker {
             symbol
           });
         }
-        resolvedBase = namedType(parsed.baseName, resolvedTypeArguments);
+        if (typeAlias) {
+          resolvedBase = this.resolveTypeAliasTarget(typeAlias, resolvedTypeArguments, scope);
+        } else {
+          resolvedBase = namedType(parsed.baseName, resolvedTypeArguments);
+        }
       } else {
         this.issues.push({
           message: `Unknown type '${typeName}'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter`,
@@ -1112,6 +1122,36 @@ export class TypeChecker {
       resolved = arrayType(resolved);
     }
     return resolved;
+  }
+
+
+  private resolveTypeAliasTarget(
+    typeAlias: TypeAliasStatement,
+    typeArguments: AnalysisType[],
+    scope: Scope
+  ): AnalysisType {
+    if (this.activeTypeAliasNames.has(typeAlias.name.name)) {
+      return namedType(typeAlias.name.name, typeArguments);
+    }
+
+    const substitutions = new Map<string, AnalysisType>();
+    const typeParameters = typeAlias.typeParameters ?? [];
+    for (let index = 0; index < typeParameters.length; index += 1) {
+      const parameterName = typeParameters[index]?.name.name;
+      if (!parameterName) {
+        continue;
+      }
+      substitutions.set(parameterName, typeArguments[index] ?? namedType(parameterName));
+    }
+
+    this.activeTypeAliasNames.add(typeAlias.name.name);
+    let targetType: AnalysisType = UNKNOWN_TYPE;
+    this.withTypeParameters(typeParameters.map((parameter) => parameter.name.name), () => {
+      targetType = this.resolveTypeNameText(typeAlias.targetType.name, typeAlias.targetType, scope, false);
+    });
+    this.activeTypeAliasNames.delete(typeAlias.name.name);
+
+    return this.substituteTypeParameters(targetType, substitutions);
   }
 
   private withTypeParameters(typeParameters: string[], action: () => void): void {
@@ -1359,6 +1399,16 @@ export class TypeChecker {
       }
       const interfaceStatement = statement as InterfaceStatement;
       this.interfaceStatementsByName.set(interfaceStatement.name.name, interfaceStatement);
+    }
+  }
+
+  private collectTypeAliasStatements(program: Program): void {
+    for (const statement of program.body) {
+      if (statement.kind !== "TypeAliasStatement") {
+        continue;
+      }
+      const typeAliasStatement = statement as TypeAliasStatement;
+      this.typeAliasStatementsByName.set(typeAliasStatement.name.name, typeAliasStatement);
     }
   }
 
@@ -1776,7 +1826,7 @@ export class TypeChecker {
     for (let i = 0; i < parsed.arrayDepth; i += 1) {
       resolved = arrayType(resolved);
     }
-    return resolved;
+    return this.expandTypeAliases(resolved);
   }
 
   private typeFromTypeNameLoose(typeName: string): AnalysisType {
@@ -1784,15 +1834,71 @@ export class TypeChecker {
       return UNKNOWN_TYPE;
     }
     const parsed = parseTypeNameShape(typeName);
+    let resolved: AnalysisType;
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
-      return builtinType(
+      resolved = builtinType(
         parsed.baseName as "int" | "number" | "string" | "boolean" | "bigint" | "long"
       );
+    } else {
+      resolved = namedType(
+        parsed.baseName,
+        parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
+      );
     }
-    return namedType(
-      parsed.baseName,
-      parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
-    );
+    for (let i = 0; i < parsed.arrayDepth; i += 1) {
+      resolved = arrayType(resolved);
+    }
+    return this.expandTypeAliases(resolved);
+  }
+
+  private expandTypeAliases(type: AnalysisType): AnalysisType {
+    if (type.kind === "named") {
+      const typeAlias = this.typeAliasStatementsByName.get(type.name);
+      if (!typeAlias || this.activeTypeAliasNames.has(type.name)) {
+        if (!type.typeArguments || type.typeArguments.length === 0) {
+          return type;
+        }
+        return namedType(
+          type.name,
+          type.typeArguments.map((typeArgument) => this.expandTypeAliases(typeArgument))
+        );
+      }
+      const substitutions = this.typeParameterSubstitutions(typeAlias.typeParameters ?? [], type);
+      this.activeTypeAliasNames.add(type.name);
+      const targetType = this.typeFromTypeNameLoose(typeAlias.targetType.name);
+      this.activeTypeAliasNames.delete(type.name);
+      return this.expandTypeAliases(this.substituteTypeParameters(targetType, substitutions));
+    }
+
+    if (type.kind === "array") {
+      return arrayType(this.expandTypeAliases(type.elementType));
+    }
+
+    if (type.kind === "range") {
+      return rangeType(this.expandTypeAliases(type.elementType));
+    }
+
+    if (type.kind === "function") {
+      return functionType(
+        type.parameters.map((parameter) => ({
+          name: parameter.name,
+          type: this.expandTypeAliases(parameter.type),
+          ...(parameter.optional !== undefined ? { optional: parameter.optional } : {})
+        })),
+        this.expandTypeAliases(type.returnType),
+        type.typeParameters
+      );
+    }
+
+    if (type.kind === "object") {
+      const properties: Record<string, AnalysisType> = {};
+      for (const [name, propertyType] of Object.entries(type.properties)) {
+        properties[name] = this.expandTypeAliases(propertyType);
+      }
+      return objectTypeWithProperties(properties);
+    }
+
+    return type;
   }
 
   private typeParameterSubstitutions(

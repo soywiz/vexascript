@@ -18,7 +18,6 @@ Scope notes:
 
 ## Declarations
 
-- `type` aliases.
 - `enum` declarations (`enum` and `const enum`).
 - `namespace` / `module` declarations with full body parsing (currently skipped as opaque block).
 - `declare` declarations beyond current support (`declare function`, `declare class`, `declare var/let/const/val`), including enums, namespaces/modules with typed members, and other ambient forms.
@@ -33,7 +32,7 @@ Scope notes:
 - Tuple types (`[A, B]`).
 - Function types (`(a: A) => B`).
 - Type literals (`{ a: string }` as type).
-- Generics (`<T>`) in type aliases, plus deeper function generic inference/constraints beyond explicit call type arguments.
+- Deeper function generic inference/constraints beyond explicit call type arguments.
 - Mapped types and indexed access types (`{ [K in keyof T]: ... }`, `T[K]` in type position).
 - Conditional types (`T extends U ? X : Y`).
 - `keyof`, `typeof` (type query), `infer`.

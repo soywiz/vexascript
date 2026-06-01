@@ -12,6 +12,7 @@ import type {
   Program,
   Statement,
   SwitchStatement,
+  TypeAliasStatement,
   TypeAnnotation,
   TryStatement,
   VariableDeclarationKind,
@@ -191,6 +192,19 @@ export class Binder {
           type: symbolType,
           valueType: typeToString(symbolType)
         });
+        continue;
+      }
+
+      if (statement.kind === "TypeAliasStatement") {
+        const typeAliasStatement = statement as TypeAliasStatement;
+        const symbolType = this.typeFromAnnotationLoose(typeAliasStatement.targetType) ?? namedType(typeAliasStatement.name.name);
+        this.declare(scope, {
+          name: typeAliasStatement.name.name,
+          kind: "class",
+          node: typeAliasStatement.name,
+          type: symbolType,
+          valueType: typeToString(symbolType)
+        });
       }
     }
   }
@@ -215,6 +229,7 @@ export class Binder {
         this.bindClassStatement(statement as ClassStatement, scope);
         return;
       case "InterfaceStatement":
+      case "TypeAliasStatement":
         return;
       case "BlockStatement": {
         const blockScope = this.createScope(scope, statement);

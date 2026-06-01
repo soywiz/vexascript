@@ -13,15 +13,16 @@ MyLang currently uses these core type categories:
 
 - Builtin scalar types: `int`, `number`, `string`, `boolean`, `bigint`, `long`.
 - Builtin value-like names exposed by binder: `true`, `false`, `null`, `undefined`, `console`.
-- Named types: class names resolved as nominal named types.
-- Generic type parameter names are recognized in class/interface type-annotation contexts.
+- Named types: class and interface names resolved as nominal named types.
+- Type aliases resolve to their target type, including generic alias substitution.
+- Generic type parameter names are recognized in class/interface/type-alias type-annotation contexts.
 - Function types: parameter list + return type.
 - Structural helper types: array/range/object-shape/unknown.
 
 Notes:
 
 - `unknown` is used as fallback whenever type information is missing or cannot be resolved.
-- Class declarations introduce a named type equal to the class identifier.
+- Class and interface declarations introduce a named type equal to the declaration identifier; type aliases introduce a type-only name that expands to its aliased target.
 
 ## Symbol Binding and Visibility
 
@@ -36,6 +37,8 @@ Current top-level declaration kinds:
 - Variables (`let`, `var`, `val`, `const`).
 - Functions.
 - Classes.
+- Interfaces.
+- Type aliases.
 - Imports (imported names are treated as symbols with initially unknown type).
 
 ## Type Inference Rules
@@ -70,6 +73,12 @@ If both explicit and initializer types are known and incompatible, a type mismat
 - Method symbols are function-typed using method parameter and return annotations (with the same parameter inference rule as functions).
 - Field initializer expressions are analyzed for diagnostics, but field type is primarily annotation-driven in current behavior.
 - Primary constructor parameters are treated as class properties for member resolution in LSP/class utilities.
+
+### Type aliases
+
+- Type aliases are type-only declarations and do not emit JavaScript.
+- Alias annotations are expanded before compatibility checks, so `type Text = string` behaves like `string`.
+- Generic aliases substitute provided type arguments into the target type before member lookup and assignability checks.
 
 ## Assignability Rules
 
@@ -128,6 +137,6 @@ These checks are implemented in dedicated LSP diagnostics passes and merged with
 
 This semantic layer is intentionally conservative today:
 
-- Full generic instantiation/constraints are still limited (type aliases, constraints, and deeper nested contextual inference remain pending).
+- Full generic constraints and deeper nested contextual inference remain pending.
 
 Pending roadmap items are tracked in `docs/tasks.pending.md` and `docs/syntax.pending.md`.

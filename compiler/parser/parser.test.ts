@@ -1825,6 +1825,17 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses generic type aliases", () => {
+        expect(parseStatement(tokenizeReader("type Boxed<T> = Box<T>[]"))).toEqual({
+            kind: "TypeAliasStatement",
+            name: { kind: "Identifier", name: "Boxed" },
+            typeParameters: [
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+            ],
+            targetType: { kind: "Identifier", name: "Box<T>[]" }
+        });
+    });
+
     it("parses interface with extends and generic annotations", () => {
         expect(
             parseStatement(

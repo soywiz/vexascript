@@ -54,6 +54,11 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let h = await promise;");
   });
 
+  it("erases type alias declarations", () => {
+    const program = parseFile(tokenizeReader("type Name = string\nlet value: Name = \"Ada\""));
+    expect(emitProgram(program)).toBe("let value = \"Ada\";");
+  });
+
   it("emits named import statements", () => {
     const program = parseFile(tokenizeReader("import { Point } from \"./a\""));
     expect(emitProgram(program)).toBe("import { Point } from \"./a\";");
