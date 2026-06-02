@@ -1262,6 +1262,50 @@ export class Parser {
                             key.lastToken
                         )
                     );
+                } else if (separator?.type === "symbol" && separator.value === "(") {
+                    const openParen = this.tokens.read();
+                    const parameters = this.parseFunctionParameters();
+                    const closeParen = this.tokens.read();
+                    if (openParen?.type !== "symbol" || openParen.value !== "(") {
+                        this.fail("Expected '(' before object method parameters", this.tokenAt(openParen));
+                    }
+                    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                        this.fail("Expected ')' after object method parameters", this.tokenAt(closeParen));
+                    }
+                    let returnType: Identifier | undefined;
+                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                        this.tokens.skip();
+                        returnType = this.parseTypeAnnotationNode();
+                    }
+                    const body = this.parseBlockStatement();
+                    const value: FunctionExpression = {
+                        kind: "FunctionExpression",
+                        parameters,
+                        body
+                    };
+                    if (!computed && key.kind === "Identifier") {
+                        value.name = this.attachNodeBounds(
+                            { kind: "Identifier", name: (key as Identifier).name } as Identifier,
+                            key.firstToken,
+                            key.lastToken
+                        );
+                    }
+                    if (returnType) {
+                        value.returnType = returnType;
+                    }
+                    properties.push(
+                        this.attachNodeBounds(
+                            {
+                                kind: "ObjectProperty",
+                                key,
+                                value: this.attachNodeBounds(value, key.firstToken, body.lastToken ?? this.getLastReadToken() ?? key.lastToken ?? key.firstToken),
+                                method: true,
+                                ...(computed ? { computed: true } : {})
+                            } as ObjectProperty,
+                            key.firstToken,
+                            body.lastToken ?? this.getLastReadToken() ?? key.lastToken ?? key.firstToken
+                        )
+                    );
                 } else {
                     const colon = this.tokens.read();
                     if (colon?.type !== "symbol" || colon.value !== ":") {
@@ -1330,11 +1374,12 @@ export class Parser {
         }
 
         if (token?.type === "number") {
-            const numericValue = Number(token.value);
-            if (!Number.isFinite(numericValue) || token.value.endsWith("n") || token.value.endsWith("N") || token.value.endsWith("L")) {
+            const normalizedNumberText = token.value.replace(/_/g, "");
+            const numericValue = Number(normalizedNumberText);
+            if (!Number.isFinite(numericValue) || normalizedNumberText.endsWith("n") || normalizedNumberText.endsWith("N") || normalizedNumberText.endsWith("L")) {
                 this.fail("Expected identifier, string, number, or computed key in object literal", this.tokenAt(token));
             }
-            const key = token.value.includes(".") || token.value.includes("e") || token.value.includes("E")
+            const key = normalizedNumberText.includes(".") || normalizedNumberText.includes("e") || normalizedNumberText.includes("E")
                 ? this.attachNodeBounds({ kind: "FloatLiteral", value: numericValue } as FloatLiteral, token, token)
                 : this.attachNodeBounds({ kind: "IntLiteral", value: numericValue } as IntLiteral, token, token);
             return { key, computed: false };
@@ -1654,33 +1699,36 @@ export class Parser {
         }
 
         if (token?.type === "number") {
-            if (token.value.endsWith("n") || token.value.endsWith("N")) {
-                const raw = token.value.slice(0, -1);
-                if (!/^\d+$/.test(raw)) {
+            const normalizedNumberText = token.value.replace(/_/g, "");
+            if (normalizedNumberText.endsWith("n") || normalizedNumberText.endsWith("N")) {
+                const raw = normalizedNumberText.slice(0, -1);
+                try {
+                    return this.attachNodeBounds(
+                        { kind: "BigIntLiteral", value: BigInt(raw) } as BigIntLiteral,
+                        token,
+                        token
+                    );
+                } catch {
                     this.fail("Invalid bigint literal", this.tokenAt(token));
                 }
-                return this.attachNodeBounds(
-                    { kind: "BigIntLiteral", value: BigInt(raw) } as BigIntLiteral,
-                    token,
-                    token
-                );
             }
-            if (token.value.endsWith("L")) {
-                const raw = token.value.slice(0, -1);
-                if (!/^\d+$/.test(raw)) {
+            if (normalizedNumberText.endsWith("L")) {
+                const raw = normalizedNumberText.slice(0, -1);
+                try {
+                    return this.attachNodeBounds(
+                        { kind: "LongLiteral", value: BigInt(raw) } as LongLiteral,
+                        token,
+                        token
+                    );
+                } catch {
                     this.fail("Invalid long literal", this.tokenAt(token));
                 }
-                return this.attachNodeBounds(
-                    { kind: "LongLiteral", value: BigInt(raw) } as LongLiteral,
-                    token,
-                    token
-                );
             }
-            const numericValue = Number(token.value);
+            const numericValue = Number(normalizedNumberText);
             if (!Number.isFinite(numericValue)) {
                 this.fail("Invalid numeric literal", this.tokenAt(token));
             }
-            if (token.value.includes(".") || token.value.includes("e") || token.value.includes("E")) {
+            if (normalizedNumberText.includes(".") || normalizedNumberText.includes("e") || normalizedNumberText.includes("E")) {
                 return this.attachNodeBounds(
                     { kind: "FloatLiteral", value: numericValue } as FloatLiteral,
                     token,

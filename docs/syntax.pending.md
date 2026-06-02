@@ -56,11 +56,9 @@ Scope notes:
 ## Expressions
 
 - RegExp literals (`/abc/`).
-- Numeric formats beyond current support (hex, binary, octal, numeric separators, etc.).
 
 ## Object and Array Literals
 
-- Methods in object literals (`{ f() {} }`).
 - Sparse arrays behavior.
 
 ## Error Recovery and Diagnostics (TypeScript-oriented)

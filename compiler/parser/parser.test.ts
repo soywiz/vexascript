@@ -27,6 +27,23 @@ describe("parseExpression", () => {
         );
     });
 
+    it("builds an AST for numeric separators and non-decimal literals", () => {
+        expect(parseExpression(tokenizeReader("1_000"))).toEqual(
+            { kind: "IntLiteral", value: 1000 }
+        );
+        expect(parseExpression(tokenizeReader("0xff"))).toEqual(
+            { kind: "IntLiteral", value: 255 }
+        );
+        expect(parseExpression(tokenizeReader("0b1010"))).toEqual(
+            { kind: "IntLiteral", value: 10 }
+        );
+        expect(parseExpression(tokenizeReader("0o755"))).toEqual(
+            { kind: "IntLiteral", value: 493 }
+        );
+        expect(parseExpression(tokenizeReader("0xfn"))).toEqual(
+            { kind: "BigIntLiteral", value: 15n }
+        );
+    });
 
     it("builds an AST for boolean, null, and undefined literals", () => {
         expect(parseExpression(tokenizeReader("true"))).toEqual({ kind: "BooleanLiteral", value: true });
@@ -327,6 +344,36 @@ describe("parseExpression", () => {
                     kind: "ObjectProperty",
                     key: { kind: "Identifier", name: "b" },
                     value: { kind: "IntLiteral", value: 2 }
+                }
+            ]
+        });
+    });
+
+    it("builds an AST for object method literals", () => {
+        const expr = parseExpression(tokenizeReader("{add(a: number, b: number): number { return a + b }, [name]() { return 1 }}"));
+        expect(expr).toMatchObject({
+            kind: "ObjectLiteral",
+            properties: [
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "Identifier", name: "add" },
+                    method: true,
+                    value: {
+                        kind: "FunctionExpression",
+                        name: { kind: "Identifier", name: "add" },
+                        parameters: [
+                            { kind: "FunctionParameter", name: { kind: "Identifier", name: "a" }, typeAnnotation: { kind: "Identifier", name: "number" } },
+                            { kind: "FunctionParameter", name: { kind: "Identifier", name: "b" }, typeAnnotation: { kind: "Identifier", name: "number" } }
+                        ],
+                        returnType: { kind: "Identifier", name: "number" }
+                    }
+                },
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "Identifier", name: "name" },
+                    computed: true,
+                    method: true,
+                    value: { kind: "FunctionExpression" }
                 }
             ]
         });

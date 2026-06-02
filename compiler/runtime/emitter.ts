@@ -323,6 +323,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
               return (objectProperty.key as Identifier).name;
             }
             const key = emitObjectPropertyKey(objectProperty);
+            if (objectProperty.method && objectProperty.value.kind === "FunctionExpression") {
+              const fn = objectProperty.value as FunctionExpression;
+              return `${key}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+            }
             return `${key}: ${emitListElement(objectProperty.value)}`;
           })
           .join(", ")}}`;

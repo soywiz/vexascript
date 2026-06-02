@@ -445,6 +445,18 @@ a--
     expect(symbols.get("b")?.valueType).toBe("number");
   });
 
+  it("infers numeric separator and non-decimal literal types", () => {
+    const source =
+      "let a = 1_000\n" +
+      "let b = 0xff\n" +
+      "let c = 0xfn\n";
+    const symbols = symbolsOfVisibleSymbolsAt(source, 2, 5);
+
+    expect(symbols.get("a")?.valueType).toBe("int");
+    expect(symbols.get("b")?.valueType).toBe("int");
+    expect(symbols.get("c")?.valueType).toBe("bigint");
+  });
+
   it("infers bigint and long literal and arithmetic types", () => {
     const source =
       "let a = 10n\n" +
@@ -608,6 +620,22 @@ fun demo() {
 
     expect(messages.some((message) => message.includes("not assignable"))).toBe(false);
     expect(messages.some((message) => message.includes("does not exist on type"))).toBe(false);
+  });
+
+  it("infers object method types and checks method bodies", () => {
+    const source = `fun demo() {
+  let calc = { add(a: int, b: int): int { return a + b } }
+  let value: int = calc.add(1, 2)
+  let bad: string = calc.add(1, 2)
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'int' is not assignable to type 'string'");
+    expect(messages.some((message) => message.includes("Property 'add' does not exist"))).toBe(false);
   });
 
   it("reports missing members for inferred object literal shapes", () => {

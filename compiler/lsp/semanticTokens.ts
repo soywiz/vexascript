@@ -1,5 +1,6 @@
 import type {
   ArrayLiteral,
+  ArrowFunctionExpression,
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
@@ -14,6 +15,7 @@ import type {
   Expr,
   ExprStatement,
   ForStatement,
+  FunctionExpression,
   FunctionParameter,
   FunctionStatement,
   Identifier,
@@ -423,9 +425,18 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
 
   const visitObjectProperty = (property: ObjectProperty): void => {
     if (!property.computed && property.key.kind === "Identifier") {
-      markIdentifier(kinds, property.key as Identifier, "property");
+      markIdentifier(kinds, property.key as Identifier, property.method ? "method" : "property");
     } else {
       visitExpression(property.key);
+    }
+    if (property.method && property.value.kind === "FunctionExpression") {
+      const fn = property.value as FunctionExpression;
+      for (const parameter of fn.parameters) {
+        visitParameter(parameter);
+      }
+      markTypeAnnotation(kinds, fn.returnType);
+      visitBlock(fn.body);
+      return;
     }
     visitExpression(property.value);
   };
@@ -517,6 +528,30 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
           }
         }
         return;
+      case "FunctionExpression": {
+        const fn = expression as FunctionExpression;
+        if (fn.name) {
+          markIdentifier(kinds, fn.name, "function");
+        }
+        for (const parameter of fn.parameters) {
+          visitParameter(parameter);
+        }
+        markTypeAnnotation(kinds, fn.returnType);
+        visitBlock(fn.body);
+        return;
+      }
+      case "ArrowFunctionExpression": {
+        const arrow = expression as ArrowFunctionExpression;
+        for (const parameter of arrow.parameters) {
+          visitParameter(parameter);
+        }
+        if (arrow.body.kind === "BlockStatement") {
+          visitBlock(arrow.body as BlockStatement);
+        } else {
+          visitExpression(arrow.body as Expr);
+        }
+        return;
+      }
       default:
         return;
     }
