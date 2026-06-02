@@ -63,6 +63,11 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let u = undefined;");
   });
 
+  it("emits object shorthand, spread, computed, and literal keys", () => {
+    const program = parseFile(tokenizeReader("let obj = {a, ...base, [key]: value, \"display name\": name, 1: one}"));
+    expect(emitProgram(program)).toContain('let obj = {a, ...base, [key]: value, "display name": name, 1: one};');
+  });
+
   it("erases type alias declarations", () => {
     const program = parseFile(tokenizeReader("type Name = string\nlet value: Name = \"Ada\""));
     expect(emitProgram(program)).toBe("let value = \"Ada\";");

@@ -28,6 +28,8 @@ import type {
   MemberExpression,
   NewExpression,
   ObjectLiteral,
+  ObjectProperty,
+  ObjectSpreadProperty,
   Program,
   RangeExpression,
   ReturnStatement,
@@ -173,6 +175,19 @@ function wrapLongExpressionIfNeeded(expression: Expr, text: string): string {
   return `BigInt.asIntN(64, ${text})`;
 }
 
+function emitObjectPropertyKey(property: ObjectProperty): string {
+  if (property.computed) {
+    return `[${emitExpression(property.key)}]`;
+  }
+  if (property.key.kind === "Identifier") {
+    return (property.key as Identifier).name;
+  }
+  if (property.key.kind === "StringLiteral") {
+    return JSON.stringify((property.key as StringLiteral).value);
+  }
+  return emitExpression(property.key);
+}
+
 function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "left" | "right" = "left"): string {
   const currentPrecedence = expressionPrecedence(expression);
 
@@ -281,7 +296,17 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       case "ObjectLiteral": {
         const objectLiteral = expression as ObjectLiteral;
         return `{${objectLiteral.properties
-          .map((property) => `${property.key.name}: ${emitExpression(property.value)}`)
+          .map((property) => {
+            if (property.kind === "ObjectSpreadProperty") {
+              return `...${emitExpression((property as ObjectSpreadProperty).argument)}`;
+            }
+            const objectProperty = property as ObjectProperty;
+            if (objectProperty.shorthand && objectProperty.key.kind === "Identifier") {
+              return (objectProperty.key as Identifier).name;
+            }
+            const key = emitObjectPropertyKey(objectProperty);
+            return `${key}: ${emitExpression(objectProperty.value)}`;
+          })
           .join(", ")}}`;
       }
       case "ArrowFunctionExpression": {

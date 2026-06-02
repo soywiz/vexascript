@@ -273,7 +273,11 @@ function inferMissingMemberTypeFromDiagnostic(
         return;
       case "ObjectLiteral":
         for (const property of (expression as import("compiler/ast/ast").ObjectLiteral).properties) {
-          visitExpression(property.value);
+          if (property.kind === "ObjectSpreadProperty") {
+            visitExpression(property.argument);
+          } else {
+            visitExpression(property.value);
+          }
         }
         return;
       default:

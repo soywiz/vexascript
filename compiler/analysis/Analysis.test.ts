@@ -599,6 +599,25 @@ fun demo() {
     expect(messages).toContain("Property 'z' does not exist on type '{ x: int, y: int }'");
   });
 
+  it("infers shorthand and spread object literal shapes and checks spread operands", () => {
+    const source = `fun demo() {
+  let a = 1
+  let base = { name: "Ada" }
+  let merged = { a, ...base, name: "Grace" }
+  let age: int = merged.name
+  let invalid = { ...a }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+    expect(messages).toContain("Spread types may only be created from object types; got 'int'");
+    expect(messages.some((message) => message.includes("Undefined variable 'a'"))).toBe(false);
+  });
+
   it("propagates array element type through iterator and computed assignment", () => {
     const source = `let nums = [1, 2, 3]
 for (value in nums) {

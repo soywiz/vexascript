@@ -167,13 +167,22 @@ export interface ArrayLiteral extends Node {
 
 export interface ObjectProperty extends Node {
     kind: "ObjectProperty"
-    key: Identifier
+    key: Expr
     value: Expr
+    computed?: boolean
+    shorthand?: boolean
 }
+
+export interface ObjectSpreadProperty extends Node {
+    kind: "ObjectSpreadProperty"
+    argument: Expr
+}
+
+export type ObjectLiteralProperty = ObjectProperty | ObjectSpreadProperty;
 
 export interface ObjectLiteral extends Node {
     kind: "ObjectLiteral"
-    properties: ObjectProperty[]
+    properties: ObjectLiteralProperty[]
 }
 
 export interface ImportSpecifier extends Node {
