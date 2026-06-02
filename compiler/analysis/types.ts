@@ -33,7 +33,7 @@ export interface FunctionType {
   kind: "function";
   typeParameters?: string[];
   typeParameterConstraints?: Record<string, AnalysisType>;
-  parameters: Array<{ name: string; type: AnalysisType; optional?: boolean }>;
+  parameters: Array<{ name: string; type: AnalysisType; optional?: boolean; rest?: boolean }>;
   returnType: AnalysisType;
 }
 
@@ -118,7 +118,7 @@ export function namedType(name: string, typeArguments?: AnalysisType[]): NamedTy
 }
 
 export function functionType(
-  parameters: Array<{ name: string; type: AnalysisType; optional?: boolean }>,
+  parameters: Array<{ name: string; type: AnalysisType; optional?: boolean; rest?: boolean }>,
   returnType: AnalysisType,
   typeParameters?: string[],
   typeParameterConstraints?: Record<string, AnalysisType>
@@ -191,7 +191,7 @@ export function typeToString(type: AnalysisType): string {
           }).join(", ")}>`
         : "";
       return `${typeParameterPrefix}(${type.parameters
-        .map((parameter) => `${parameter.name}: ${typeToString(parameter.type)}`)
+        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${typeToString(parameter.type)}`)
         .join(", ")}) => ${typeToString(type.returnType)}`;
     }
     case "array":
@@ -311,6 +311,9 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
     }
     for (let i = 0; i < a.parameters.length; i += 1) {
       if ((a.parameters[i]!.optional ?? false) !== (b.parameters[i]!.optional ?? false)) {
+        return false;
+      }
+      if ((a.parameters[i]!.rest ?? false) !== (b.parameters[i]!.rest ?? false)) {
         return false;
       }
       if (!isSameType(a.parameters[i]!.type, b.parameters[i]!.type)) {

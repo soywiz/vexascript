@@ -1223,4 +1223,33 @@ class Map implements Readable {
     expect(issue?.node.kind).toBe("Identifier");
     expect((issue?.node as { kind: string; name?: string }).name).toBe("say");
   });
+  it("checks rest parameters, spread arguments, and optional access types", () => {
+    const source = `fun collect(label: string, ...values: int[]): int {
+  return values[0]
+}
+let numbers: int[] = [1, 2, 3]
+let moreNumbers = [0, ...numbers]
+let ok: int = collect("ok", 1, 2, ...numbers)
+let bad = collect("bad", "wrong")
+interface MaybeRunner {
+  run(): int
+}
+let maybe: MaybeRunner | undefined
+let optionalCall = maybe?.run()
+let optionalElement = numbers?.[0]
+let badOptional: int = optionalCall
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 12, 3);
+
+    expect(symbols.get("moreNumbers")?.valueType).toBe("int[]");
+    expect(symbols.get("optionalCall")?.valueType).toBe("int | undefined");
+    expect(symbols.get("optionalElement")?.valueType).toBe("int | undefined");
+    expect(messages).toContain("Argument 2 of type 'string' is not assignable to parameter 'values' of type 'int'");
+    expect(messages).toContain("Type 'int | undefined' is not assignable to type 'int'");
+  });
+
 });

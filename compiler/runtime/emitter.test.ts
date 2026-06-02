@@ -149,4 +149,17 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let e = [1, 2, 3, 4].map((it) => it);");
     expect(emitted).toContain("let f = [1, 2, 3, 4].map((a, b, c) => a + b + c);");
   });
+  it("emits optional call, optional element access, spread expressions, and rest parameters", () => {
+    const program = parseFile(tokenizeReader(
+      "fun collect(...values: int[]) { return values }\n" +
+      "let result = fn?.(...values)\n" +
+      "let item = result?.[0]"
+    ));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("function collect(...values) {");
+    expect(emitted).toContain("let result = fn?.(...values);");
+    expect(emitted).toContain("let item = result?.[0];");
+  });
+
 });

@@ -67,6 +67,37 @@ describe("parseExpression", () => {
         });
     });
 
+
+    it("builds an AST for optional call, optional element access, spread expressions, and rest parameters", () => {
+        expect(parseExpression(tokenizeReader("fn?.(...args)"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "fn" },
+            arguments: [
+                {
+                    kind: "SpreadExpression",
+                    argument: { kind: "Identifier", name: "args" }
+                }
+            ],
+            optional: true
+        });
+        expect(parseExpression(tokenizeReader("obj?.[key]"))).toEqual({
+            kind: "MemberExpression",
+            object: { kind: "Identifier", name: "obj" },
+            property: { kind: "Identifier", name: "key" },
+            computed: true,
+            optional: true
+        });
+
+        const program = parseFile(tokenizeReader("fun collect(first: int, ...rest: int[]) { return rest }"));
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            parameters: [
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "first" } },
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "rest" }, rest: true }
+            ]
+        });
+    });
+
     it("builds an AST for addition expression", () => {
         expect(parseExpression(tokenizeReader("1+2"))).toEqual({
             kind: "BinaryExpression",

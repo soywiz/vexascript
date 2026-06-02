@@ -44,7 +44,6 @@ Scope notes:
 
 ## Function and Parameter Syntax
 
-- Rest parameters (`...args`).
 - Destructured parameters.
 - `this` parameters (`function f(this: X, ...)`).
 - Overload signatures.
@@ -65,10 +64,8 @@ Scope notes:
 
 ## Expressions
 
-- Optional call (`fn?.()`).
-- Optional element access (`obj?.[k]`).
 - Comma operator.
-- Spread syntax in arrays/objects (`[...a]`, `{ ...x }`).
+- Object spread syntax (`{ ...x }`).
 - Template literals (`` `hello ${name}` ``).
 - RegExp literals (`/abc/`).
 - `this` keyword handling.

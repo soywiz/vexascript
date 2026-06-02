@@ -162,7 +162,8 @@ export class Binder {
           functionStatement.parameters.map((parameter) => ({
             name: parameter.name.name,
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined
+            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
           })),
           this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE,
           functionStatement.typeParameters?.map((parameter) => parameter.name.name)
@@ -306,7 +307,8 @@ export class Binder {
         statement.parameters.map((parameter) => ({
           name: parameter.name.name,
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined
+          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
         })),
         this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE,
         statement.typeParameters?.map((parameter) => parameter.name.name)
@@ -352,7 +354,8 @@ export class Binder {
           method.parameters.map((parameter) => ({
             name: parameter.name.name,
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined
+            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
           })),
           this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE,
           method.typeParameters?.map((parameter) => parameter.name.name)

@@ -277,6 +277,15 @@ function shouldSpaceBefore(
     return false;
   }
 
+  if (
+    previous.type === "symbol" &&
+    previous.value === "..." &&
+    significantBeforePrevious?.type === "symbol" &&
+    (significantBeforePrevious.value === "(" || significantBeforePrevious.value === "[" || significantBeforePrevious.value === ",")
+  ) {
+    return false;
+  }
+
   if (current.type === "symbol" && (current.value === ")" || current.value === "]" || current.value === "}" || current.value === "," || current.value === ";")) {
     return false;
   }

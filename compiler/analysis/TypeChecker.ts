@@ -25,6 +25,7 @@ import type {
   NewExpression,
   ObjectLiteral,
   StringLiteral,
+  SpreadExpression,
   BooleanLiteral,
   FloatLiteral,
   Program,
@@ -494,11 +495,11 @@ export class TypeChecker {
         const objectType = this.visitExpression(member.object, scope);
         if (member.computed) {
           const propertyType = this.visitExpression(member.property, scope);
-          result = this.resolveComputedMemberType(objectType, propertyType);
+          result = this.resolveOptionalAccessType(this.resolveComputedMemberType(objectType, propertyType), member.optional === true);
           break;
         }
         this.validateKnownMemberAccess(member, objectType, scope);
-        result = this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE;
+        result = this.resolveOptionalAccessType(this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE, member.optional === true);
         break;
       }
       case "CallExpression": {
@@ -508,12 +509,13 @@ export class TypeChecker {
         for (const argument of call.arguments) {
           argumentTypes.push(this.visitExpression(argument, scope));
         }
-        if (calleeType.kind === "function") {
+        const callableType = this.callableTypeFrom(calleeType);
+        if (callableType) {
           const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
             this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
           );
           const firstPassCalleeType = this.instantiateFunctionType(
-            calleeType,
+            callableType,
             explicitTypeArguments,
             argumentTypes,
             expectedType
@@ -526,10 +528,13 @@ export class TypeChecker {
           );
           const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
             ? firstPassCalleeType
-            : this.instantiateFunctionType(calleeType, explicitTypeArguments, contextualArgumentTypes, expectedType);
-          this.validateFunctionTypeArgumentConstraints(calleeType, instantiatedCalleeType, call);
+            : this.instantiateFunctionType(callableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
+          this.validateFunctionTypeArgumentConstraints(callableType, instantiatedCalleeType, call);
           this.validateCallArguments(call, instantiatedCalleeType, contextualArgumentTypes);
-          result = instantiatedCalleeType.returnType;
+          result = this.resolveOptionalAccessType(
+            instantiatedCalleeType.returnType,
+            call.optional === true || this.hasNullishUnionMember(calleeType)
+          );
           break;
         }
         result = UNKNOWN_TYPE;
@@ -602,6 +607,11 @@ export class TypeChecker {
           break;
         }
         result = UNKNOWN_TYPE;
+        break;
+      }
+      case "SpreadExpression": {
+        const spread = expression as SpreadExpression;
+        result = this.visitExpression(spread.argument, scope);
         break;
       }
       case "UpdateExpression":
@@ -945,7 +955,8 @@ export class TypeChecker {
         type: parameter.typeAnnotation
           ? this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
           : scope.symbols.get(parameter.name.name)?.type ?? UNKNOWN_TYPE,
-        optional: parameter.optional === true || parameter.defaultValue !== undefined
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
       })),
       returnType,
       typeParameters.map((parameter) => parameter.name.name),
@@ -1220,21 +1231,40 @@ export class TypeChecker {
     }
   }
 
+
+  private callableTypeFrom(type: AnalysisType): (AnalysisType & { kind: "function" }) | null {
+    if (type.kind === "function") {
+      return type;
+    }
+    if (type.kind !== "union") {
+      return null;
+    }
+    const callableMembers = type.types.filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function");
+    return callableMembers[0] ?? null;
+  }
+
+  private hasNullishUnionMember(type: AnalysisType): boolean {
+    return type.kind === "union" && type.types.some((member) => this.isNullishType(member));
+  }
+
   private validateCallArguments(
     call: CallExpression,
     calleeType: AnalysisType & { kind: "function" },
     argumentTypes: AnalysisType[]
   ): void {
-    const requiredCount = calleeType.parameters.filter((parameter) => !parameter.optional).length;
+    const lastParameter = calleeType.parameters[calleeType.parameters.length - 1];
+    const restParameter = lastParameter?.rest ? lastParameter : undefined;
+    const fixedParameters = restParameter ? calleeType.parameters.slice(0, -1) : calleeType.parameters;
+    const requiredCount = fixedParameters.filter((parameter) => !parameter.optional).length;
     const providedCount = argumentTypes.length;
-    const totalCount = calleeType.parameters.length;
+    const totalCount = fixedParameters.length;
 
     if (providedCount < requiredCount) {
       this.issues.push({
         message: `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
         node: call
       });
-    } else if (providedCount > totalCount) {
+    } else if (!restParameter && providedCount > totalCount) {
       this.issues.push({
         message: `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
         node: call
@@ -1247,26 +1277,58 @@ export class TypeChecker {
       }
     }
 
-    const comparableCount = Math.min(providedCount, totalCount);
+    const comparableCount = restParameter ? providedCount : Math.min(providedCount, totalCount);
     for (let index = 0; index < comparableCount; index += 1) {
-      const parameter = calleeType.parameters[index]!;
-      const argumentType = argumentTypes[index]!;
-      if (isUnknownType(parameter.type) || isUnknownType(argumentType)) {
+      const argumentExpression = call.arguments[index];
+      const parameter = fixedParameters[index] ?? restParameter;
+      if (!parameter) {
         continue;
       }
-      if (this.isTypeAssignable(argumentType, parameter.type)) {
+      const argumentType = argumentTypes[index]!;
+      const expectedType = restParameter && index >= fixedParameters.length
+        ? this.restParameterElementType(restParameter.type)
+        : parameter.type;
+      const comparableArgumentType = argumentExpression?.kind === "SpreadExpression"
+        ? this.spreadArgumentElementType(argumentType)
+        : argumentType;
+      if (isUnknownType(expectedType) || isUnknownType(comparableArgumentType)) {
+        continue;
+      }
+      if (this.isTypeAssignable(comparableArgumentType, expectedType)) {
         continue;
       }
 
       this.issues.push({
-        message: `Argument ${index + 1} of type '${typeToString(argumentType)}' is not assignable to parameter '${parameter.name}' of type '${typeToString(parameter.type)}'`,
-        node: call.arguments[index] ?? call
+        message: `Argument ${index + 1} of type '${typeToString(comparableArgumentType)}' is not assignable to parameter '${parameter.name}' of type '${typeToString(expectedType)}'`,
+        node: argumentExpression ?? call
       });
-      const argumentExpression = call.arguments[index];
       if (argumentExpression) {
-        this.reportNestedMismatchContext(argumentType, parameter.type, argumentExpression);
+        this.reportNestedMismatchContext(comparableArgumentType, expectedType, argumentExpression);
       }
     }
+  }
+
+  private restParameterElementType(restParameterType: AnalysisType): AnalysisType {
+    if (restParameterType.kind === "array") {
+      return restParameterType.elementType;
+    }
+    if (restParameterType.kind === "named" && restParameterType.name === "Array" && restParameterType.typeArguments?.[0]) {
+      return restParameterType.typeArguments[0];
+    }
+    return restParameterType;
+  }
+
+  private spreadArgumentElementType(argumentType: AnalysisType): AnalysisType {
+    if (argumentType.kind === "array") {
+      return argumentType.elementType;
+    }
+    if (argumentType.kind === "tuple") {
+      return argumentType.elements.length === 1 ? argumentType.elements[0]! : unionType(argumentType.elements);
+    }
+    if (argumentType.kind === "named" && argumentType.name === "Array" && argumentType.typeArguments?.[0]) {
+      return argumentType.typeArguments[0];
+    }
+    return UNKNOWN_TYPE;
   }
 
   private reportTypeMismatch(
@@ -1791,7 +1853,10 @@ export class TypeChecker {
     const expectedElementType = this.expectedArrayElementType(expectedType);
 
     for (const element of arrayLiteral.elements) {
-      const currentType = this.visitExpression(element, scope, expectedElementType);
+      const visitedType = this.visitExpression(element, scope, expectedElementType);
+      const currentType = element.kind === "SpreadExpression"
+        ? this.spreadArgumentElementType(visitedType)
+        : visitedType;
       if (!inferredElementType) {
         inferredElementType = currentType;
         continue;
@@ -1933,6 +1998,17 @@ export class TypeChecker {
     }
   }
 
+
+  private resolveOptionalAccessType(type: AnalysisType, optional: boolean): AnalysisType {
+    if (!optional || isUnknownType(type)) {
+      return type;
+    }
+    if (type.kind === "union" && type.types.some((member) => member.kind === "builtin" && member.name === "undefined")) {
+      return type;
+    }
+    return unionType([type, builtinType("undefined")]);
+  }
+
   private validateKnownMemberAccess(member: MemberExpression, objectType: AnalysisType, scope: Scope): void {
     if (member.computed || member.property.kind !== "Identifier") {
       return;
@@ -2045,6 +2121,16 @@ export class TypeChecker {
     }
 
     const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+    if (objectType.kind === "union") {
+      const memberTypes = objectType.types
+        .filter((type) => !this.isNullishType(type))
+        .map((type) => this.resolveKnownMemberType(member, type))
+        .filter((type): type is AnalysisType => type !== null);
+      if (memberTypes.length === 0) {
+        return null;
+      }
+      return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
+    }
     if (objectType.kind === "object") {
       return objectType.properties[memberName] ?? null;
     }
@@ -2067,6 +2153,16 @@ export class TypeChecker {
   }
 
   private resolveComputedMemberType(objectType: AnalysisType, propertyType: AnalysisType): AnalysisType {
+    if (objectType.kind === "union") {
+      const memberTypes = objectType.types
+        .filter((type) => !this.isNullishType(type))
+        .map((type) => this.resolveComputedMemberType(type, propertyType))
+        .filter((type) => !isUnknownType(type));
+      if (memberTypes.length === 0) {
+        return UNKNOWN_TYPE;
+      }
+      return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
+    }
     if (objectType.kind === "array" && this.isIntType(propertyType)) {
       return objectType.elementType;
     }
@@ -2076,7 +2172,24 @@ export class TypeChecker {
     return UNKNOWN_TYPE;
   }
 
+  private isNullishType(type: AnalysisType): boolean {
+    return type.kind === "builtin" && (type.name === "null" || type.name === "undefined");
+  }
+
   private membersForType(type: AnalysisType): Map<string, AnalysisType> | null {
+    if (type.kind === "union") {
+      const merged = new Map<string, AnalysisType>();
+      for (const memberType of type.types.filter((member) => !this.isNullishType(member))) {
+        const members = this.membersForType(memberType);
+        if (!members) {
+          return null;
+        }
+        for (const [memberName, memberValueType] of members.entries()) {
+          merged.set(memberName, memberValueType);
+        }
+      }
+      return merged.size > 0 ? merged : null;
+    }
     if (type.kind === "object") {
       return new Map(Object.entries(type.properties));
     }
@@ -2143,7 +2256,8 @@ export class TypeChecker {
             classMember.parameters.map((parameter) => ({
               name: parameter.name.name,
               type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-              optional: parameter.optional === true || parameter.defaultValue !== undefined
+              optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+              rest: parameter.rest === true
             })),
             returnType,
             classMember.typeParameters?.map((parameter) => parameter.name.name)
@@ -2194,7 +2308,8 @@ export class TypeChecker {
           interfaceMember.parameters.map((parameter) => ({
             name: parameter.name.name,
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined
+            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            rest: parameter.rest === true
           })),
           returnType
         ), substitutions)
@@ -2325,7 +2440,8 @@ export class TypeChecker {
         classMember.parameters.map((parameter) => ({
           name: parameter.name.name,
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined
+          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
         })),
         returnType,
         classMember.typeParameters?.map((parameter) => parameter.name.name)
