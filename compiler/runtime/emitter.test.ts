@@ -110,6 +110,19 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toBe("import { Point } from \"./a\";");
   });
 
+  it("emits expanded import forms and erases type-only imports", () => {
+    expect(emitProgram(parseFile(tokenizeReader("import React from \"react\""))))
+      .toBe("import React from \"react\";");
+    expect(emitProgram(parseFile(tokenizeReader("import React, { useState as useLocalState } from \"react\""))))
+      .toBe("import React, { useState as useLocalState } from \"react\";");
+    expect(emitProgram(parseFile(tokenizeReader("import * as fs from \"fs\""))))
+      .toBe("import * as fs from \"fs\";");
+    expect(emitProgram(parseFile(tokenizeReader("import \"./setup\""))))
+      .toBe("import \"./setup\";");
+    expect(emitProgram(parseFile(tokenizeReader("import type { Point } from \"./a\""))))
+      .toBe("");
+  });
+
   it("emits decimal and scientific numeric literals", () => {
     const program = parseFile(tokenizeReader("let a = 10.573\nlet b = 10e-3"));
     const emitted = emitProgram(program);

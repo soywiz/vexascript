@@ -128,6 +128,24 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "a" && token.tokenType === "parameter")).toBe(true);
   });
 
+  it("highlights expanded import bindings", () => {
+    const source =
+      "import React, { useState as useLocalState } from \"react\"\n" +
+      "import * as fs from \"fs\"\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "React" && token.tokenType === "variable")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "useState" && token.tokenType === "variable")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "useLocalState" && token.tokenType === "variable")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "fs" && token.tokenType === "namespace")).toBe(true);
+  });
+
   it("supports range requests", () => {
     const source =
       "switch (a) {\n" +

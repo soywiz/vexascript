@@ -2493,6 +2493,55 @@ describe("parseStatement", () => {
             from: { kind: "StringLiteral", value: "./a" }
         });
     });
+
+    it("parses default, namespace, side-effect, type-only, and aliased import forms", () => {
+        expect(parseStatement(tokenizeReader("import React from \"react\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [],
+            defaultImport: { kind: "Identifier", name: "React" },
+            from: { kind: "StringLiteral", value: "react" }
+        });
+
+        expect(parseStatement(tokenizeReader("import * as fs from \"fs\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [],
+            namespaceImport: { kind: "Identifier", name: "fs" },
+            from: { kind: "StringLiteral", value: "fs" }
+        });
+
+        expect(parseStatement(tokenizeReader("import \"./setup\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [],
+            sideEffectOnly: true,
+            from: { kind: "StringLiteral", value: "./setup" }
+        });
+
+        expect(parseStatement(tokenizeReader("import type { Point as LocalPoint } from \"./a\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "Point" },
+                    local: { kind: "Identifier", name: "LocalPoint" }
+                }
+            ],
+            typeOnly: true,
+            from: { kind: "StringLiteral", value: "./a" }
+        });
+
+        expect(parseStatement(tokenizeReader("import React, { useState as useLocalState } from \"react\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "useState" },
+                    local: { kind: "Identifier", name: "useLocalState" }
+                }
+            ],
+            defaultImport: { kind: "Identifier", name: "React" },
+            from: { kind: "StringLiteral", value: "react" }
+        });
+    });
 });
 
 describe("parseProgram", () => {

@@ -145,12 +145,19 @@ Examples:
 
 ## Imports
 
-MyLang supports named imports at top level:
+MyLang supports ES module imports at top level, including named imports, aliases, default imports, namespace imports, side-effect imports, and type-only imports:
 
 ```mylang
 import { Point } from "./a"
-import { Point, Vector } from "./geometry/types"
+import { Point, Vector as Vec } from "./geometry/types"
+import React from "react"
+import React, { useState as useLocalState } from "react"
+import * as fs from "fs"
+import "./setup"
+import type { Shape } from "./types"
 ```
+
+Type-only imports participate in semantic analysis as bindings but are omitted from emitted JavaScript output.
 
 ## Classes
 
@@ -675,7 +682,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports named imports (`import { ... } from "..."`), ambient declarations (`declare function`, `declare class`, `declare interface`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
+When the parser runs in `typescript` mode, it supports ES module imports (`import { ... } from "..."`, default imports, namespace imports, side-effect imports, and `import type`), ambient declarations (`declare function`, `declare class`, `declare interface`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
 
 Example:
 

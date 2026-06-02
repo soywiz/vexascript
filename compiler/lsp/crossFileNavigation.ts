@@ -167,7 +167,7 @@ function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: str
     }
     const importStatement = statement as ImportStatement;
     for (const specifier of importStatement.specifiers) {
-      if (specifier.imported === symbolNode) {
+      if (specifier.imported === symbolNode || specifier.local === symbolNode) {
         return { from: importStatement.from.value, name: specifier.imported.name };
       }
     }

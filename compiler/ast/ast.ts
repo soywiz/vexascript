@@ -200,12 +200,17 @@ export interface ObjectLiteral extends Node {
 export interface ImportSpecifier extends Node {
     kind: "ImportSpecifier"
     imported: Identifier
+    local?: Identifier
 }
 
 export interface ImportStatement extends Statement {
     kind: "ImportStatement"
     specifiers: ImportSpecifier[]
     from: StringLiteral
+    defaultImport?: Identifier
+    namespaceImport?: Identifier
+    typeOnly?: boolean
+    sideEffectOnly?: boolean
 }
 
 export type FunctionDeclarationKind = "fun" | "function";

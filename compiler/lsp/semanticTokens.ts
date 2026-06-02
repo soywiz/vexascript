@@ -57,6 +57,7 @@ const TOKEN_TYPES = [
   "method",
   "class",
   "property",
+  "namespace",
   "type",
   "number",
   "string",
@@ -283,8 +284,17 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
     switch (statement.kind) {
       case "ImportStatement": {
         const importStatement = statement as ImportStatement;
+        if (importStatement.defaultImport) {
+          markIdentifier(kinds, importStatement.defaultImport, "variable");
+        }
+        if (importStatement.namespaceImport) {
+          markIdentifier(kinds, importStatement.namespaceImport, "namespace");
+        }
         for (const specifier of importStatement.specifiers) {
           markIdentifier(kinds, specifier.imported, "variable");
+          if (specifier.local) {
+            markIdentifier(kinds, specifier.local, "variable");
+          }
         }
         return;
       }

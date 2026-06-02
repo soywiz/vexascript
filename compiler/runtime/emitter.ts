@@ -496,10 +496,28 @@ export function emitStatement(statement: Statement): string {
   switch (statement.kind) {
     case "ImportStatement": {
       const importStatement = statement as ImportStatement;
-      const names = importStatement.specifiers
-        .map((specifier) => specifier.imported.name)
-        .join(", ");
-      return `import { ${names} } from ${JSON.stringify(importStatement.from.value)};`;
+      if (importStatement.typeOnly) {
+        return "";
+      }
+      const source = JSON.stringify(importStatement.from.value);
+      if (importStatement.sideEffectOnly) {
+        return `import ${source};`;
+      }
+      const clauses: string[] = [];
+      if (importStatement.defaultImport) {
+        clauses.push(importStatement.defaultImport.name);
+      }
+      if (importStatement.namespaceImport) {
+        clauses.push(`* as ${importStatement.namespaceImport.name}`);
+      } else if (importStatement.specifiers.length > 0) {
+        const names = importStatement.specifiers
+          .map((specifier) => specifier.local
+            ? `${specifier.imported.name} as ${specifier.local.name}`
+            : specifier.imported.name)
+          .join(", ");
+        clauses.push(`{ ${names} }`);
+      }
+      return `import ${clauses.join(", ")} from ${source};`;
     }
     case "VarStatement":
       return emitVarStatement(statement as VarStatement);

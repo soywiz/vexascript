@@ -10,10 +10,9 @@ Scope notes:
 
 ## Program and Modules
 
-- `import` forms beyond named imports (`import x from`, namespace imports, side-effect imports, mixed/default+named combinations).
 - `export` declarations (`export const`, `export function`, `export class`, `export default`, `export { ... }`, `export * from`).
 - `export as namespace`.
-- `import type` / `export type`.
+- `export type`.
 - ES module string specifiers (`from "..."`) as part of real module syntax handling.
 
 ## Declarations
