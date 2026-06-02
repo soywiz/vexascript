@@ -940,6 +940,34 @@ fun demo() {
     expect(messages).toContain("Type 'Map<string, string>' is not assignable to type 'boolean'");
   });
 
+  it("treats class accessors as typed properties and validates accessor parameters", () => {
+    const source = `class Box {
+  get value(): string {
+    return "ok"
+  }
+  set value(next: string) {
+  }
+  get bad(value: string): string {
+    return value
+  }
+  set missing() {
+  }
+}
+let box: Box
+const ok: string = box.value
+const fail: int = box.value
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+    expect(messages).toContain("Getter 'bad' cannot declare parameters");
+    expect(messages).toContain("Setter 'missing' must declare exactly one parameter");
+    expect(messages.some((message) => message.includes("Property 'value' does not exist"))).toBe(false);
+  });
+
   it("resolves class member types from generic specifics", () => {
     const source = `class Map<K, V> {
   a: K

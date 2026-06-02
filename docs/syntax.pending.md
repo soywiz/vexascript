@@ -34,7 +34,6 @@ Scope notes:
 
 ## Class Syntax
 
-- `get` / `set` accessors.
 - Parameter properties in TypeScript classes (`constructor(public x: number)`).
 
 ## Function and Parameter Syntax
