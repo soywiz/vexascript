@@ -467,7 +467,8 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   }
 
   const method = member as ClassMethodMember;
-  return `${staticPrefix}${method.name.name}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
+  const accessorPrefix = method.accessorKind ? `${method.accessorKind} ` : "";
+  return `${staticPrefix}${accessorPrefix}${method.name.name}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
 }
 
 function emitForStatement(statement: ForStatement): string {

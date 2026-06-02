@@ -268,6 +268,7 @@ export interface ClassFieldMember extends Node, ClassMemberModifiers {
 
 export interface ClassMethodMember extends Node, ClassMemberModifiers {
     kind: "ClassMethodMember"
+    accessorKind?: "get" | "set"
     name: Identifier
     override?: boolean
     missingBody?: boolean

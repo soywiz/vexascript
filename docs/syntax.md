@@ -190,6 +190,24 @@ class Box<T extends Entity> extends Base<T> {
 }
 ```
 
+### Get and set accessors
+
+Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types.
+
+Example:
+
+```mylang
+class Box {
+  get value(): string {
+    return this.raw
+  }
+
+  set value(next: string) {
+    this.raw = next
+  }
+}
+```
+
 ### Optional primary constructor
 
 Class declarations support an optional primary constructor parameter list after the class name.

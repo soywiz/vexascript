@@ -2693,6 +2693,15 @@ export class Parser {
             }
         }
 
+        let accessorKind: ClassMethodMember["accessorKind"] | undefined;
+        if (
+            this.tokens.peek()?.type === "identifier" &&
+            (this.tokens.peek()?.value === "get" || this.tokens.peek()?.value === "set") &&
+            this.tokens.items[this.tokens.offset + 1]?.type === "identifier"
+        ) {
+            accessorKind = this.tokens.read()!.value as ClassMethodMember["accessorKind"];
+        }
+
         const memberNameToken = this.tokens.read();
         if (memberNameToken?.type !== "identifier") {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
@@ -2730,6 +2739,9 @@ export class Parser {
                     parameters,
                     body: signatureOnlyBody
                 };
+                if (accessorKind) {
+                    signatureOnlyMethod.accessorKind = accessorKind;
+                }
                 this.applyClassMemberModifiers(signatureOnlyMethod, {
                     override: isOverrideMember,
                     accessModifier,
@@ -2756,6 +2768,9 @@ export class Parser {
                 parameters,
                 body: this.parseBlockStatement()
             };
+            if (accessorKind) {
+                methodMember.accessorKind = accessorKind;
+            }
             this.applyClassMemberModifiers(methodMember, {
                 override: isOverrideMember,
                 accessModifier,
@@ -2771,6 +2786,10 @@ export class Parser {
             }
 
             return this.attachNodeBounds(methodMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
+        }
+
+        if (accessorKind) {
+            this.fail("Expected '(' after accessor name", this.tokenAt(this.tokens.peek()));
         }
 
         let optional = false;

@@ -15,6 +15,9 @@ describe("lsp symbols", () => {
       "  move(dx: int, dy: int) {\n" +
       "    return dx + dy\n" +
       "  }\n" +
+      "  get label(): string {\n" +
+      "    return \"point\"\n" +
+      "  }\n" +
       "}\n" +
       "fun demo() {}\n" +
       "let a = 1\n" +
@@ -24,8 +27,9 @@ describe("lsp symbols", () => {
     const symbols = createDocumentSymbols(ast);
     expect(symbols.map((symbol) => symbol.name)).toEqual(["Point", "demo", "a", "b", "c"]);
     expect(symbols[0]?.kind).toBe(SymbolKind.Class);
-    expect(symbols[0]?.children?.map((child) => child.name)).toEqual(["move"]);
+    expect(symbols[0]?.children?.map((child) => child.name)).toEqual(["move", "label"]);
     expect(symbols[0]?.children?.[0]?.kind).toBe(SymbolKind.Method);
+    expect(symbols[0]?.children?.[1]?.kind).toBe(SymbolKind.Property);
   });
 
   it("finds workspace symbols across source roots", async () => {

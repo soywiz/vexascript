@@ -381,6 +381,18 @@ export class TypeChecker {
             node: method.name
           });
         }
+        if (method.accessorKind === "get" && method.parameters.length !== 0) {
+          this.issues.push({
+            message: `Getter '${method.name.name}' cannot declare parameters`,
+            node: method.name
+          });
+        }
+        if (method.accessorKind === "set" && method.parameters.length !== 1) {
+          this.issues.push({
+            message: `Setter '${method.name.name}' must declare exactly one parameter`,
+            node: method.name
+          });
+        }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
         this.withTypeParameters(methodTypeParameterNames, () => {
           const methodType = this.buildFunctionType(
@@ -2408,6 +2420,15 @@ export class TypeChecker {
         }
 
         const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
+        if (classMember.accessorKind === "get") {
+          members.set(classMember.name.name, this.substituteTypeParameters(returnType, substitutions));
+          continue;
+        }
+        if (classMember.accessorKind === "set") {
+          const parameterType = this.typeFromAnnotationLoose(classMember.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+          members.set(classMember.name.name, this.substituteTypeParameters(parameterType, substitutions));
+          continue;
+        }
         members.set(
           classMember.name.name,
           this.substituteTypeParameters(functionType(
@@ -2594,6 +2615,13 @@ export class TypeChecker {
       }
 
       const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
+      if (classMember.accessorKind === "get") {
+        return this.substituteTypeParameters(returnType, substitutions);
+      }
+      if (classMember.accessorKind === "set") {
+        const parameterType = this.typeFromAnnotationLoose(classMember.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+        return this.substituteTypeParameters(parameterType, substitutions);
+      }
       return this.substituteTypeParameters(functionType(
         classMember.parameters.map((parameter) => ({
           name: parameter.name.name,

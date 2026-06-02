@@ -75,7 +75,7 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
         }
         children.push({
           name: member.name.name,
-          kind: SymbolKind.Method,
+          kind: member.accessorKind ? SymbolKind.Property : SymbolKind.Method,
           range: methodRange,
           selectionRange: methodNameRange
         });
@@ -185,7 +185,7 @@ function collectTopLevelSymbolInformation(
         if (member.kind === "ClassFieldMember") {
           push(member.name.name, "variable", member.name, classStatement.name.name);
         } else {
-          push(member.name.name, "function", member.name, classStatement.name.name);
+          push(member.name.name, member.accessorKind ? "variable" : "function", member.name, classStatement.name.name);
         }
       }
       continue;

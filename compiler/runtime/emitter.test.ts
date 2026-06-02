@@ -98,6 +98,13 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toBe("let name = value;");
   });
 
+  it("emits class get and set accessors", () => {
+    const program = parseFile(tokenizeReader("class Box {\nget value(): string { return this.raw }\nset value(next: string) { this.raw = next }\n}"));
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("get value() {");
+    expect(emitted).toContain("set value(next) {");
+  });
+
   it("emits named import statements", () => {
     const program = parseFile(tokenizeReader("import { Point } from \"./a\""));
     expect(emitProgram(program)).toBe("import { Point } from \"./a\";");

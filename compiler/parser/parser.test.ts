@@ -1881,6 +1881,71 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses class get and set accessors", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Box {\nget value(): string { return this.raw }\nset value(next: string) { this.raw = next }\n}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Box" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "get",
+                    name: { kind: "Identifier", name: "value" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "string" },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ReturnStatement",
+                                expression: {
+                                    kind: "MemberExpression",
+                                    object: { kind: "Identifier", name: "this" },
+                                    property: { kind: "Identifier", name: "raw" },
+                                    computed: false
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "set",
+                    name: { kind: "Identifier", name: "value" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "next" },
+                            typeAnnotation: { kind: "Identifier", name: "string" }
+                        }
+                    ],
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ExprStatement",
+                                expression: {
+                                    kind: "AssignmentExpression",
+                                    operator: "=",
+                                    left: {
+                                        kind: "MemberExpression",
+                                        object: { kind: "Identifier", name: "this" },
+                                        property: { kind: "Identifier", name: "raw" },
+                                        computed: false
+                                    },
+                                    right: { kind: "Identifier", name: "next" }
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+    });
+
     it("parses class members with override modifier", () => {
         expect(
             parseStatement(
