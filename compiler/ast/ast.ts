@@ -104,6 +104,12 @@ export interface ConditionalExpression extends Node {
     alternate: Expr
 }
 
+export interface AsExpression extends Node {
+    kind: "AsExpression"
+    expression: Expr
+    typeAnnotation: Identifier
+}
+
 export interface MemberExpression extends Node {
     kind: "MemberExpression"
     object: Expr
@@ -249,6 +255,7 @@ export interface ClassFieldMember extends Node, ClassMemberModifiers {
     name: Identifier
     override?: boolean
     optional?: boolean
+    definiteAssignment?: boolean
     typeAnnotation?: Identifier
     initializer?: Expr
 }

@@ -1,6 +1,7 @@
 import type {
   ArrowFunctionExpression,
   ArrayLiteral,
+  AsExpression,
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
@@ -474,6 +475,24 @@ export class TypeChecker {
           this.updateResolvedSymbolType(scope, identifier, rightType);
         }
         result = rightType;
+        break;
+      }
+      case "AsExpression": {
+        const assertion = expression as AsExpression;
+        const expressionType = this.visitExpression(assertion.expression, scope);
+        const assertedType = this.resolveTypeAnnotation(assertion.typeAnnotation, scope) ?? UNKNOWN_TYPE;
+        if (
+          !isUnknownType(expressionType) &&
+          !isUnknownType(assertedType) &&
+          !this.isTypeAssignable(expressionType, assertedType) &&
+          !this.isTypeAssignable(assertedType, expressionType)
+        ) {
+          this.issues.push({
+            message: `Type assertion from '${this.typeToDiagnosticLabel(expressionType)}' to '${this.typeToDiagnosticLabel(assertedType)}' may be unsafe because neither type is assignable to the other`,
+            node: assertion.typeAnnotation
+          });
+        }
+        result = assertedType;
         break;
       }
       case "ConditionalExpression": {

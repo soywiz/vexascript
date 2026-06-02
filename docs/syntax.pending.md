@@ -31,14 +31,12 @@ Scope notes:
 - Conditional types (`T extends U ? X : Y`).
 - `keyof`, `typeof` (type query), `infer`.
 - Utility for `as const` and const assertions.
-- Type assertions (`value as T`, `<T>value`).
-- Definite assignment assertion on declarations (`field!: Type`).
+- Angle-bracket type assertions (`<T>value`). TypeScript-style `value as T` assertions are supported.
 
 ## Class Syntax
 
 - `get` / `set` accessors.
 - Parameter properties in TypeScript classes (`constructor(public x: number)`).
-- `super` calls and `super.member`.
 
 ## Function and Parameter Syntax
 
@@ -65,7 +63,6 @@ Scope notes:
 - Comma operator.
 - Template literals (`` `hello ${name}` ``).
 - RegExp literals (`/abc/`).
-- `this` keyword handling.
 - Numeric formats beyond current support (hex, binary, octal, numeric separators, etc.).
 
 ## Object and Array Literals

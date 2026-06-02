@@ -375,6 +375,16 @@ export class Binder {
           type: namedType(statement.name.name),
           valueType: statement.name.name
         }, -1);
+        if (statement.extendsType) {
+          const superType = this.typeFromAnnotationLoose(statement.extendsType) ?? namedType(statement.extendsType.name);
+          this.declare(methodScope, {
+            name: "super",
+            kind: "variable",
+            node: statement.extendsType,
+            type: superType,
+            valueType: typeToString(superType)
+          }, -1);
+        }
         for (const parameter of method.parameters) {
           const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
           this.declare(methodScope, {

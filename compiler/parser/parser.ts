@@ -3,6 +3,7 @@ import { Token } from "./tokenizer";
 import {
     ArrowFunctionExpression,
     ArrayLiteral,
+    AsExpression,
     AssignmentExpression,
     BigIntLiteral,
     BinaryExpression,
@@ -2019,8 +2020,22 @@ export class Parser {
         return typeArguments;
     }
 
+    private parseAsExpression(): Expr {
+        let expression = this.parseBinaryExpression();
+        while (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+            this.tokens.skip();
+            const typeAnnotation = this.parseTypeAnnotationNode();
+            expression = this.attachNodeBounds({
+                kind: "AsExpression",
+                expression,
+                typeAnnotation
+            } as AsExpression, expression.firstToken, typeAnnotation.lastToken ?? this.getLastReadToken());
+        }
+        return expression;
+    }
+
     private parseConditional(): Expr {
-        const test = this.parseBinaryExpression();
+        const test = this.parseAsExpression();
         const maybeQuestion = this.tokens.peek();
         if (!(maybeQuestion?.type === "symbol" && maybeQuestion.value === "?")) {
             return test;
@@ -2681,9 +2696,13 @@ export class Parser {
         }
 
         let optional = false;
+        let definiteAssignment = false;
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
             this.tokens.skip();
             optional = true;
+        } else if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "!") {
+            this.tokens.skip();
+            definiteAssignment = true;
         }
 
         let typeAnnotation: Identifier | undefined;
@@ -2711,6 +2730,9 @@ export class Parser {
         });
         if (optional) {
             fieldMember.optional = true;
+        }
+        if (definiteAssignment) {
+            fieldMember.definiteAssignment = true;
         }
         if (typeAnnotation) {
             fieldMember.typeAnnotation = typeAnnotation;
