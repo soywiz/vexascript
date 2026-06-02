@@ -287,6 +287,8 @@ MyLang supports type aliases for naming another supported type annotation form. 
 ```mylang
 type Text = string
 type Boxed<T> = Box<T>
+type Status = "ready" | "done"
+type Pair = [string, int]
 let name: Text = "Ada"
 let boxed: Boxed<Text> = new Box<string>()
 ```
@@ -301,6 +303,10 @@ Supported type annotation forms in declarations/members:
 - primitive/builtin type names (`int`, `number`, `string`, `boolean`, `bigint`, `long`, `void`, `null`, `undefined`, `any`, `unknown`, `never`, `object`, `symbol`)
 - generic type references (`Map<K, V>`)
 - array suffixes (`K[]`, `Map<K, V>[]`)
+- union types (`string | number`)
+- intersection types (`Named & Serializable`)
+- literal types (`"ready"`, `404`, `true`)
+- tuple types (`[string, int]`)
 
 ## Expressions
 
@@ -626,6 +632,10 @@ try {
 - `never` is assignable to all types.
 - All types are assignable to `unknown`.
 - Object literals, named/class/interface shapes, arrays, and functions are assignable to `object`.
+- Literal types are assignable to their matching primitive type, but primitive values are not assignable to a specific literal type unless contextual checking proves the literal value matches.
+- A value is assignable to a union if it is assignable to at least one union member.
+- A value is assignable to an intersection if it satisfies every intersection member.
+- Tuple values are assignable to tuple targets with the same length and compatible element types, and tuple values are assignable to arrays when each tuple element is assignable to the array element type.
 - Other assignability checks are strict by type identity in the current version.
 
 ### Expression typing
@@ -652,6 +662,7 @@ try {
 
 - Array literals infer an element type from their items.
 - When an array literal is checked against an expected array type, that element type is used as context for nested generic calls.
+- When an array literal is checked against an expected tuple type, each tuple element type is used as context for the corresponding array element.
 - Homogeneous arrays infer typed arrays, for example `int[]`.
 - Mixed incompatible arrays fall back to `unknown[]`.
 - Object literals checked against an expected object, class, or interface type use matching property types as context for nested generic calls.

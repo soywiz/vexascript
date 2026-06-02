@@ -20,9 +20,13 @@ import type {
   InterfaceStatement,
   IfStatement,
   Identifier,
+  IntLiteral,
   MemberExpression,
   NewExpression,
   ObjectLiteral,
+  StringLiteral,
+  BooleanLiteral,
+  FloatLiteral,
   Program,
   RangeExpression,
   ReturnStatement,
@@ -52,15 +56,19 @@ import {
   arrayType,
   builtinType,
   functionType,
+  intersectionType,
   isSameType,
   isUnknownType,
+  literalType,
   namedType,
   objectType,
   objectTypeWithProperties,
   rangeType,
-  typeToString
+  tupleType,
+  typeToString,
+  unionType
 } from "./types";
-import { parseTypeNameShape } from "./typeNames";
+import { parseTypeNameShape, splitTopLevelTypeText, stripEnclosingTypeParens } from "./typeNames";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 
 export class TypeChecker {
@@ -638,10 +646,16 @@ export class TypeChecker {
         result = this.resolveIdentifierType(expression as Node & { kind: "Identifier"; name: string }, scope);
         break;
       case "IntLiteral":
-        result = builtinType("int");
+        result = this.contextualLiteralType(
+          literalType("number", (expression as IntLiteral).value),
+          expectedType
+        ) ?? builtinType("int");
         break;
       case "FloatLiteral":
-        result = builtinType("number");
+        result = this.contextualLiteralType(
+          literalType("number", (expression as FloatLiteral).value),
+          expectedType
+        ) ?? builtinType("number");
         break;
       case "BigIntLiteral":
         result = builtinType("bigint");
@@ -650,10 +664,16 @@ export class TypeChecker {
         result = builtinType("long");
         break;
       case "StringLiteral":
-        result = builtinType("string");
+        result = this.contextualLiteralType(
+          literalType("string", (expression as StringLiteral).value),
+          expectedType
+        ) ?? builtinType("string");
         break;
       case "BooleanLiteral":
-        result = builtinType("boolean");
+        result = this.contextualLiteralType(
+          literalType("boolean", (expression as BooleanLiteral).value),
+          expectedType
+        ) ?? builtinType("boolean");
         break;
       case "NullLiteral":
         result = builtinType("null");
@@ -677,8 +697,7 @@ export class TypeChecker {
   ): AnalysisType {
     if (
       operator === "+" &&
-      ((leftType.kind === "builtin" && leftType.name === "string") ||
-        (rightType.kind === "builtin" && rightType.name === "string"))
+      (this.isStringLikeType(leftType) || this.isStringLikeType(rightType))
     ) {
       return builtinType("string");
     }
@@ -736,6 +755,49 @@ export class TypeChecker {
   private isTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {
     if (isSameType(sourceType, targetType)) {
       return true;
+    }
+
+    if (targetType.kind === "union") {
+      return targetType.types.some((member) => this.isTypeAssignable(sourceType, member));
+    }
+
+    if (sourceType.kind === "union") {
+      return sourceType.types.every((member) => this.isTypeAssignable(member, targetType));
+    }
+
+    if (targetType.kind === "intersection") {
+      return targetType.types.every((member) => this.isTypeAssignable(sourceType, member));
+    }
+
+    if (sourceType.kind === "intersection") {
+      return sourceType.types.some((member) => this.isTypeAssignable(member, targetType));
+    }
+
+    if (sourceType.kind === "literal") {
+      if (targetType.kind === "builtin" && targetType.name === sourceType.base) {
+        return true;
+      }
+      if (
+        targetType.kind === "builtin" &&
+        targetType.name === "int" &&
+        sourceType.base === "number" &&
+        Number.isInteger(sourceType.value)
+      ) {
+        return true;
+      }
+    }
+
+    if (sourceType.kind === "tuple" && targetType.kind === "array") {
+      return sourceType.elements.every((element) => this.isTypeAssignable(element, targetType.elementType));
+    }
+
+    if (sourceType.kind === "tuple" && targetType.kind === "tuple") {
+      if (sourceType.elements.length !== targetType.elements.length) {
+        return false;
+      }
+      return sourceType.elements.every((element, index) =>
+        this.isTypeAssignable(element, targetType.elements[index]!)
+      );
     }
 
     if (targetType.kind === "builtin" && targetType.name === "any") {
@@ -1280,11 +1342,42 @@ export class TypeChecker {
     scope: Scope,
     captureResolution: boolean
   ): AnalysisType {
-    if (this.looksLikeFunctionTypeAnnotation(typeName)) {
+    const normalizedTypeName = stripEnclosingTypeParens(typeName);
+    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
+    if (unionParts.length > 1) {
+      return unionType(unionParts.map((part) =>
+        this.resolveTypeNameText(part, node, scope, false)
+      ));
+    }
+
+    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
+    if (intersectionParts.length > 1) {
+      return intersectionType(intersectionParts.map((part) =>
+        this.resolveTypeNameText(part, node, scope, false)
+      ));
+    }
+
+    const tupleTypeMatch = /^\[(.*)\]$/.exec(normalizedTypeName);
+    if (tupleTypeMatch) {
+      const tupleBody = tupleTypeMatch[1] ?? "";
+      const elements = tupleBody.trim().length === 0
+        ? []
+        : splitTopLevelTypeText(tupleBody, ",").map((part) =>
+            this.resolveTypeNameText(part, node, scope, false)
+          );
+      return tupleType(elements);
+    }
+
+    const literal = this.resolveLiteralTypeName(normalizedTypeName);
+    if (literal) {
+      return literal;
+    }
+
+    if (this.looksLikeFunctionTypeAnnotation(normalizedTypeName)) {
       return UNKNOWN_TYPE;
     }
 
-    const parsed = parseTypeNameShape(typeName);
+    const parsed = parseTypeNameShape(normalizedTypeName);
     let resolvedBase: AnalysisType;
 
     const resolvedTypeArguments = parsed.typeArguments.map((typeArgument) =>
@@ -1320,7 +1413,7 @@ export class TypeChecker {
         }
       } else {
         this.issues.push({
-          message: `Unknown type '${typeName}'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter`,
+          message: `Unknown type '${normalizedTypeName}'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter`,
           node
         });
         return UNKNOWN_TYPE;
@@ -1332,6 +1425,23 @@ export class TypeChecker {
       resolved = arrayType(resolved);
     }
     return resolved;
+  }
+
+
+  private resolveLiteralTypeName(typeName: string): AnalysisType | null {
+    if ((typeName.startsWith("\"") && typeName.endsWith("\"")) || (typeName.startsWith("'") && typeName.endsWith("'"))) {
+      return literalType("string", typeName.slice(1, -1));
+    }
+    if (typeName === "true") {
+      return literalType("boolean", true);
+    }
+    if (typeName === "false") {
+      return literalType("boolean", false);
+    }
+    if (/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(typeName)) {
+      return literalType("number", Number(typeName));
+    }
+    return null;
   }
 
 
@@ -1630,7 +1740,13 @@ export class TypeChecker {
   }
 
   private isIntType(type: AnalysisType): boolean {
-    return type.kind === "builtin" && type.name === "int";
+    return (type.kind === "builtin" && type.name === "int") ||
+      (type.kind === "literal" && type.base === "number" && Number.isInteger(type.value));
+  }
+
+  private isStringLikeType(type: AnalysisType): boolean {
+    return (type.kind === "builtin" && type.name === "string") ||
+      (type.kind === "literal" && type.base === "string");
   }
 
   private isBigIntType(type: AnalysisType): boolean {
@@ -1642,14 +1758,35 @@ export class TypeChecker {
   }
 
   private isNumberType(type: AnalysisType): boolean {
-    return type.kind === "builtin" && (type.name === "int" || type.name === "number");
+    return (type.kind === "builtin" && (type.name === "int" || type.name === "number")) ||
+      (type.kind === "literal" && type.base === "number");
   }
+
+  private contextualLiteralType(literal: AnalysisType, expectedType?: AnalysisType): AnalysisType | null {
+    if (!expectedType || literal.kind !== "literal") {
+      return null;
+    }
+    if (expectedType.kind === "literal" && this.isTypeAssignable(literal, expectedType)) {
+      return expectedType;
+    }
+    if (expectedType.kind === "union") {
+      return expectedType.types.find((member) => member.kind === "literal" && this.isTypeAssignable(literal, member)) ?? null;
+    }
+    return null;
+  }
+
 
   private inferArrayLiteralType(
     arrayLiteral: ArrayLiteral,
     scope: Scope,
     expectedType?: AnalysisType
   ): AnalysisType {
+    if (expectedType?.kind === "tuple") {
+      return tupleType(arrayLiteral.elements.map((element, index) =>
+        this.visitExpression(element, scope, expectedType.elements[index])
+      ));
+    }
+
     let inferredElementType: AnalysisType | undefined;
     const expectedElementType = this.expectedArrayElementType(expectedType);
 

@@ -590,47 +590,119 @@ export class Parser {
     }
 
     private parseTypeAnnotationNode(): Identifier {
-        const functionTypeStart = this.tokens.peek();
-        if (functionTypeStart?.type === "symbol" && functionTypeStart.value === "(") {
+        const firstToken = this.tokens.peek();
+        const typeName = this.parseUnionTypeAnnotationText();
+        const lastToken = this.getLastReadToken() ?? firstToken;
+        if (!firstToken || !lastToken) {
+            this.fail("Expected type identifier", this.tokenAt(firstToken));
+        }
+        return this.attachNodeBounds(
+            { kind: "Identifier", name: typeName } as Identifier,
+            firstToken,
+            lastToken
+        );
+    }
+
+    private parseUnionTypeAnnotationText(): string {
+        let typeName = this.parseIntersectionTypeAnnotationText();
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "|") {
+            this.tokens.skip();
+            typeName += ` | ${this.parseIntersectionTypeAnnotationText()}`;
+        }
+        return typeName;
+    }
+
+    private parseIntersectionTypeAnnotationText(): string {
+        let typeName = this.parsePrimaryTypeAnnotationText();
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "&") {
+            this.tokens.skip();
+            typeName += ` & ${this.parsePrimaryTypeAnnotationText()}`;
+        }
+        return typeName;
+    }
+
+    private parsePrimaryTypeAnnotationText(): string {
+        const start = this.tokens.peek();
+
+        if (start?.type === "symbol" && start.value === "(") {
             const openParen = this.tokens.read()!;
-            let depth = 1;
-            while (this.tokens.hasMore && depth > 0) {
-                const token = this.tokens.read();
-                if (!token) {
+            if (this.isFunctionTypeAnnotationStart()) {
+                let parameterText = "";
+                let depth = 1;
+                while (this.tokens.hasMore && depth > 0) {
+                    const token = this.tokens.read();
+                    if (!token) {
+                        break;
+                    }
+                    if (token.type === "symbol" && token.value === "(") {
+                        depth += 1;
+                    } else if (token.type === "symbol" && token.value === ")") {
+                        depth -= 1;
+                        if (depth === 0) {
+                            break;
+                        }
+                    }
+                    parameterText += this.typeTokenText(token);
+                }
+                if (depth !== 0) {
+                    this.fail("Expected ')' to close function type annotation", this.tokenAt(openParen));
+                }
+                const arrow = this.tokens.read();
+                if (arrow?.type !== "symbol" || arrow.value !== "=>") {
+                    this.fail("Expected '=>' in function type annotation", this.tokenAt(arrow));
+                }
+                const returnType = this.parseUnionTypeAnnotationText();
+                return `(${parameterText}) => ${returnType}`;
+            }
+
+            const innerType = this.parseUnionTypeAnnotationText();
+            const closeParen = this.tokens.read();
+            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                this.fail("Expected ')' to close type annotation", this.tokenAt(closeParen));
+            }
+            return `(${innerType})${this.parseArrayTypeAnnotationSuffixText()}`;
+        }
+
+        if (start?.type === "symbol" && start.value === "[") {
+            this.tokens.skip();
+            const elements: string[] = [];
+            while (this.tokens.hasMore) {
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
+                    this.tokens.skip();
                     break;
                 }
-                if (token.type === "symbol" && token.value === "(") {
-                    depth += 1;
-                } else if (token.type === "symbol" && token.value === ")") {
-                    depth -= 1;
+                elements.push(this.parseUnionTypeAnnotationText());
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && separator.value === ",") {
+                    this.tokens.skip();
+                    continue;
                 }
+                if (separator?.type === "symbol" && separator.value === "]") {
+                    this.tokens.skip();
+                    break;
+                }
+                this.fail("Expected ',' or ']' in tuple type annotation", this.tokenAt(separator));
             }
-            if (depth !== 0) {
-                this.fail("Expected ')' to close function type annotation", this.tokenAt(openParen));
-            }
-            const arrow = this.tokens.read();
-            if (arrow?.type !== "symbol" || arrow.value !== "=>") {
-                this.fail("Expected '=>' in function type annotation", this.tokenAt(arrow));
-            }
-            const returnType = this.parseTypeAnnotationNode();
-            return this.attachNodeBounds(
-                { kind: "Identifier", name: `(...) => ${returnType.name}` } as Identifier,
-                openParen,
-                returnType.lastToken ?? this.getLastReadToken() ?? openParen
-            );
+            return `[${elements.join(", ")}]${this.parseArrayTypeAnnotationSuffixText()}`;
         }
 
-        const baseToken = this.tokens.read();
-        if (baseToken?.type !== "identifier") {
-            this.fail("Expected type identifier", this.tokenAt(baseToken));
+        const token = this.tokens.read();
+        if (!token || !["identifier", "string", "number"].includes(token.type)) {
+            this.fail("Expected type identifier", this.tokenAt(token));
         }
 
-        let typeName = baseToken.value;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+        let typeName = this.typeTokenText(token);
+        if (token.type === "identifier" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
             const argumentsText = this.parseTypeArgumentListText();
             typeName += `<${argumentsText.join(", ")}>`;
         }
 
+        typeName += this.parseArrayTypeAnnotationSuffixText();
+        return typeName;
+    }
+
+    private parseArrayTypeAnnotationSuffixText(): string {
+        let suffix = "";
         while (
             this.tokens.peek()?.type === "symbol" &&
             this.tokens.peek()?.value === "[" &&
@@ -639,14 +711,35 @@ export class Parser {
         ) {
             this.tokens.skip();
             this.tokens.skip();
-            typeName += "[]";
+            suffix += "[]";
         }
+        return suffix;
+    }
 
-        return this.attachNodeBounds(
-            { kind: "Identifier", name: typeName } as Identifier,
-            baseToken,
-            this.getLastReadToken() ?? baseToken
-        );
+    private isFunctionTypeAnnotationStart(): boolean {
+        let depth = 1;
+        for (let offset = 0; this.peekToken(offset); offset += 1) {
+            const token = this.peekToken(offset);
+            if (!token) {
+                return false;
+            }
+            if (token.type === "symbol" && token.value === "(") {
+                depth += 1;
+            } else if (token.type === "symbol" && token.value === ")") {
+                depth -= 1;
+                if (depth === 0) {
+                    return this.peekToken(offset + 1)?.type === "symbol" && this.peekToken(offset + 1)?.value === "=>";
+                }
+            }
+        }
+        return false;
+    }
+
+    private typeTokenText(token: Token): string {
+        if (token.type === "string") {
+            return JSON.stringify(token.value);
+        }
+        return token.value;
     }
 
     private parseTypeArgumentListText(): string[] {
@@ -657,7 +750,7 @@ export class Parser {
 
         const args: string[] = [];
         while (this.tokens.hasMore) {
-            args.push(this.parseTypeAnnotationNode().name);
+            args.push(this.parseUnionTypeAnnotationText());
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
                 this.tokens.skip();

@@ -15,9 +15,10 @@ MyLang currently uses these core type categories:
 - Builtin value-like names exposed by binder: `true`, `false`, `null`, `undefined`, `console`.
 - Named types: class and interface names resolved as nominal named types.
 - Type aliases resolve to their target type, including generic alias substitution.
+- Union, intersection, literal, and tuple type annotations resolve to dedicated semantic types.
 - Generic type parameter names are recognized in class/interface/type-alias type-annotation contexts.
 - Function types: parameter list + return type.
-- Structural helper types: array/range/object-shape/unknown.
+- Structural helper types: array/range/object-shape/tuple/union/intersection/literal/unknown.
 
 Notes:
 
@@ -95,6 +96,10 @@ Two types are assignable when:
 - `range<T>` is assignable to `array<T>` when element assignability holds.
 - Object-shape types are structurally assignable when required members are present and assignable.
 - Object-shape values are assignable to named class types when matching class members are present.
+- Literal values are assignable to their matching primitive builtin type, and contextual literal checking accepts matching literal annotations.
+- A source is assignable to a union target when it is assignable to any member; a union source must have every member assignable to the target.
+- A source is assignable to an intersection target when it is assignable to every member.
+- Tuple values require compatible element counts and element types for tuple targets, and tuple values can be assigned to arrays when every element is compatible with the array element type.
 
 Consequences:
 
