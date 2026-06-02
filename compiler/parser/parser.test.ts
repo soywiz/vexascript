@@ -1977,6 +1977,10 @@ describe("parseStatement", () => {
             kind: "VarStatement",
             typeAnnotation: { kind: "Identifier", name: "[string, int]" }
         });
+        expect(parseStatement(tokenizeReader("let point: { x: int; y?: string }"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "{ x: int, y?: string }" }
+        });
     });
 
     it("parses generic type aliases", () => {

@@ -689,6 +689,46 @@ export class Parser {
             return `[${elements.join(", ")}]${this.parseArrayTypeAnnotationSuffixText()}`;
         }
 
+        if (start?.type === "symbol" && start.value === "{") {
+            this.tokens.skip();
+            const properties: string[] = [];
+            while (this.tokens.hasMore) {
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
+                    this.tokens.skip();
+                    break;
+                }
+
+                const propertyName = this.tokens.read();
+                if (!propertyName || !["identifier", "string", "number"].includes(propertyName.type)) {
+                    this.fail("Expected property name in type literal", this.tokenAt(propertyName));
+                }
+
+                let nameText = this.typeTokenText(propertyName);
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+                    this.tokens.skip();
+                    nameText += "?";
+                }
+
+                const colon = this.tokens.read();
+                if (colon?.type !== "symbol" || colon.value !== ":") {
+                    this.fail("Expected ':' after type literal property name", this.tokenAt(colon));
+                }
+
+                properties.push(`${nameText}: ${this.parseUnionTypeAnnotationText()}`);
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
+                    this.tokens.skip();
+                    continue;
+                }
+                if (separator?.type === "symbol" && separator.value === "}") {
+                    this.tokens.skip();
+                    break;
+                }
+                this.fail("Expected ',', ';', or '}' in type literal", this.tokenAt(separator));
+            }
+            return `{ ${properties.join(", ")} }${this.parseArrayTypeAnnotationSuffixText()}`;
+        }
+
         const token = this.tokens.read();
         if (!token || !["identifier", "string", "number"].includes(token.type)) {
             this.fail("Expected type identifier", this.tokenAt(token));

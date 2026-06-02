@@ -310,6 +310,8 @@ Supported type annotation forms in declarations/members:
 - array suffixes (`K[]`, `Map<K, V>[]`)
 - union types (`string | number`)
 - intersection types (`Named & Serializable`)
+- function types (`(value: int) => string`, including optional and rest parameters)
+- object type literals (`{ x: int; label?: string }`)
 - literal types (`"ready"`, `404`, `true`)
 - tuple types (`[string, int]`)
 
@@ -658,6 +660,8 @@ try {
 - A value is assignable to a union if it is assignable to at least one union member.
 - A value is assignable to an intersection if it satisfies every intersection member.
 - Tuple values are assignable to tuple targets with the same length and compatible element types, and tuple values are assignable to arrays when each tuple element is assignable to the array element type.
+- Function type annotations are checked structurally by parameter and return types.
+- Object type literal annotations are checked structurally by their property names and types; optional properties include `undefined` in their semantic type.
 - Other assignability checks are strict by type identity in the current version.
 
 ### Expression typing
