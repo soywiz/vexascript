@@ -73,6 +73,11 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toBe("let value = \"Ada\";");
   });
 
+  it("erases TypeScript as assertions during emission", () => {
+    const program = parseFile(tokenizeReader("let name = value as string"));
+    expect(emitProgram(program)).toBe("let name = value;");
+  });
+
   it("emits named import statements", () => {
     const program = parseFile(tokenizeReader("import { Point } from \"./a\""));
     expect(emitProgram(program)).toBe("import { Point } from \"./a\";");

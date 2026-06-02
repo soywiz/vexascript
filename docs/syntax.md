@@ -225,6 +225,7 @@ Class fields support:
 
 - field name
 - optional marker (`field?: TypeName`)
+- definite assignment assertion marker (`field!: TypeName`)
 - optional type annotation (`: TypeName`)
 - optional initializer (`= expression`)
 - access modifiers (`public`, `private`, `protected`)
@@ -240,12 +241,13 @@ class Demo {
   c: Int
   public readonly id?: string
   private static count: Int = 0
+  service!: Service
 }
 ```
 
 ### Class methods and constructor
 
-Class members can be methods, including `constructor`. Methods support access modifiers (`public`, `private`, `protected`), `static`, and `abstract` signatures inside abstract classes:
+Class members can be methods, including `constructor`. Methods support access modifiers (`public`, `private`, `protected`), `static`, and `abstract` signatures inside abstract classes. Derived class methods can use `super` calls and `super.member` access to reference inherited base-class behavior:
 
 ```mylang
 class Demo {
@@ -380,6 +382,15 @@ MyLang supports ternary conditional expressions:
 
 ```mylang
 condition ? whenTrue : whenFalse
+```
+
+### Type assertions
+
+MyLang supports TypeScript-style `as` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
+
+```mylang
+let value: unknown = readValue()
+let name: string = value as string
 ```
 
 ### Range expressions

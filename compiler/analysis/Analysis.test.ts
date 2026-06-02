@@ -1117,6 +1117,43 @@ fun demo() {
 
 
 
+  it("uses TypeScript as assertions as semantic target types", () => {
+    const source = `let unknownValue: unknown = "Ada"
+let name: string = unknownValue as string
+let unsafe = true as string
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("Cannot assign value of type 'unknown' to 'string'"))).toBe(false);
+    expect(messages).toContain("Type assertion from 'boolean' to 'string' may be unsafe because neither type is assignable to the other");
+  });
+
+  it("binds super in derived class methods for inherited member semantics", () => {
+    const source = `class Base {
+  label(): string { return "base" }
+}
+class Child extends Base {
+  label(): string {
+    return super.label()
+  }
+  mismatch(): number {
+    let value: number = super.label()
+    return value
+  }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).not.toContain("Undefined variable 'super'");
+    expect(messages).toContain("Type 'string' is not assignable to type 'number'");
+  });
+
   it("validates private and protected class member access", () => {
     const source = `class Base {
   private secret: string

@@ -1,6 +1,7 @@
 import type {
   ArrowFunctionExpression,
   ArrayLiteral,
+  AsExpression,
   AssignmentExpression,
   BigIntLiteral,
   BinaryExpression,
@@ -126,6 +127,8 @@ function expressionPrecedence(expression: Expr): number {
   switch (expression.kind) {
     case "AssignmentExpression":
       return PREC_ASSIGNMENT;
+    case "AsExpression":
+      return PREC_RELATIONAL;
     case "ConditionalExpression":
       return PREC_CONDITIONAL;
     case "BinaryExpression":
@@ -239,6 +242,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
         return `${leftText} ${assignment.operator} ${rightText}`;
       }
+      case "AsExpression":
+        return emitExpression((expression as AsExpression).expression, parentPrecedence, side);
       case "ConditionalExpression": {
         const conditional = expression as ConditionalExpression;
         const test = emitExpression(conditional.test, PREC_CONDITIONAL, "left");

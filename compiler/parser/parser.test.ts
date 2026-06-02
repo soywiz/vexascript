@@ -124,6 +124,24 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for TypeScript as assertions", () => {
+        expect(parseExpression(tokenizeReader("value as string"))).toEqual({
+            kind: "AsExpression",
+            expression: { kind: "Identifier", name: "value" },
+            typeAnnotation: { kind: "Identifier", name: "string" }
+        });
+        expect(parseExpression(tokenizeReader("a + b as number"))).toEqual({
+            kind: "AsExpression",
+            expression: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "Identifier", name: "b" }
+            },
+            typeAnnotation: { kind: "Identifier", name: "number" }
+        });
+    });
+
     it("builds an AST for unary plus", () => {
         expect(parseExpression(tokenizeReader("+1"))).toEqual({
             kind: "UnaryExpression",
@@ -1797,6 +1815,22 @@ describe("parseStatement", () => {
                     ],
                     returnType: { kind: "Identifier", name: "string" },
                     body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
+
+    it("parses definite assignment assertions on class fields", () => {
+        expect(parseStatement(tokenizeReader("class User { id!: string }"))).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "User" },
+            members: [
+                {
+                    kind: "ClassFieldMember",
+                    name: { kind: "Identifier", name: "id" },
+                    definiteAssignment: true,
+                    typeAnnotation: { kind: "Identifier", name: "string" }
                 }
             ]
         });
