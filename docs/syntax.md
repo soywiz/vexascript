@@ -328,7 +328,7 @@ Supported literals:
 - boolean literals (`true`, `false`)
 - nullish literals (`null`, `undefined`)
 - array literals (`[1, 2, 3]`) with spread elements (`[0, ...values]`)
-- object literals (`{a: 1, b: 2}`)
+- object literals (`{a: 1, b: 2}`), including shorthand properties, spread properties, computed keys, and string/number literal keys
 
 ### Unary operators
 
@@ -401,6 +401,18 @@ Supported member access forms:
 - optional computed access: `obj?.[index]`
 
 Optional member and computed access include `undefined` in their inferred result type.
+
+### Object literals
+
+Object literals support explicit properties, shorthand properties, spread properties, computed keys, string literal keys, number literal keys, optional trailing commas, and later properties override earlier spread properties during semantic shape inference:
+
+```mylang
+let name = "Ada"
+let base = { id: 1, name: "Base" }
+let user = { name, ...base, name: "Grace", [dynamicKey]: value, "display name": name, 1: value, }
+```
+
+Object spread operands are semantically checked as object-compatible values. Known object, class, and interface member types are merged into the inferred object shape.
 
 ### Function calls
 

@@ -24,6 +24,8 @@ import type {
   MemberExpression,
   NewExpression,
   ObjectLiteral,
+  ObjectProperty,
+  ObjectSpreadProperty,
   StringLiteral,
   SpreadExpression,
   BooleanLiteral,
@@ -1888,13 +1890,64 @@ export class TypeChecker {
     const expectedProperties = this.expectedObjectProperties(expectedType);
     const properties: Record<string, AnalysisType> = {};
     for (const property of objectLiteral.properties) {
-      properties[property.key.name] = this.visitExpression(
-        property.value,
+      if (property.kind === "ObjectSpreadProperty") {
+        const spreadType = this.visitExpression((property as ObjectSpreadProperty).argument, scope);
+        if (spreadType.kind === "object") {
+          Object.assign(properties, spreadType.properties);
+          continue;
+        }
+        if (spreadType.kind === "named") {
+          const namedProperties = this.resolveNamedTypeMembers(spreadType);
+          if (namedProperties) {
+            for (const [name, type] of namedProperties) {
+              properties[name] = type;
+            }
+          }
+          continue;
+        }
+        if (!isUnknownType(spreadType) && !(spreadType.kind === "builtin" && spreadType.name === "object")) {
+          this.issues.push({
+            message: `Spread types may only be created from object types; got '${typeToString(spreadType)}'`,
+            node: property
+          });
+        }
+        continue;
+      }
+
+      const objectProperty = property as ObjectProperty;
+      if (objectProperty.computed) {
+        this.visitExpression(objectProperty.key, scope);
+      }
+      const propertyName = this.staticObjectPropertyName(objectProperty);
+      const propertyType = this.visitExpression(
+        objectProperty.value,
         scope,
-        expectedProperties?.get(property.key.name)
+        propertyName ? expectedProperties?.get(propertyName) : undefined
       );
+      if (propertyName) {
+        properties[propertyName] = propertyType;
+      }
     }
     return objectTypeWithProperties(properties);
+  }
+
+  private staticObjectPropertyName(property: ObjectProperty): string | undefined {
+    if (property.computed) {
+      return undefined;
+    }
+    if (property.key.kind === "Identifier") {
+      return (property.key as Identifier).name;
+    }
+    if (property.key.kind === "StringLiteral") {
+      return (property.key as StringLiteral).value;
+    }
+    if (property.key.kind === "IntLiteral") {
+      return String((property.key as IntLiteral | FloatLiteral).value);
+    }
+    if (property.key.kind === "FloatLiteral") {
+      return String((property.key as IntLiteral | FloatLiteral).value);
+    }
+    return undefined;
   }
 
   private expectedArrayElementType(expectedType: AnalysisType | undefined): AnalysisType | undefined {

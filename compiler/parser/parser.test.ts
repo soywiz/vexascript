@@ -276,6 +276,40 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for shorthand, spread, computed, and trailing-comma object literals", () => {
+        expect(parseExpression(tokenizeReader('{a, ...base, [key]: value, "display name": name, 1: one,}'))).toEqual({
+            kind: "ObjectLiteral",
+            properties: [
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "Identifier", name: "a" },
+                    value: { kind: "Identifier", name: "a" },
+                    shorthand: true
+                },
+                {
+                    kind: "ObjectSpreadProperty",
+                    argument: { kind: "Identifier", name: "base" }
+                },
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "Identifier", name: "key" },
+                    value: { kind: "Identifier", name: "value" },
+                    computed: true
+                },
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "StringLiteral", value: "display name" },
+                    value: { kind: "Identifier", name: "name" }
+                },
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "IntLiteral", value: 1 },
+                    value: { kind: "Identifier", name: "one" }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for chained member/index access", () => {
         expect(parseExpression(tokenizeReader("a.b[1].c"))).toEqual({
             kind: "MemberExpression",

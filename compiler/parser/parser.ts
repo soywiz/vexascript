@@ -42,7 +42,9 @@ import {
     NullLiteral,
     Node,
     ObjectLiteral,
+    ObjectLiteralProperty,
     ObjectProperty,
+    ObjectSpreadProperty,
     Program,
     RangeExpression,
     ReturnStatement,
@@ -1158,7 +1160,7 @@ export class Parser {
 
     private parseObjectLiteral(): ObjectLiteral {
         const startToken = this.getLastReadToken();
-        const properties: ObjectProperty[] = [];
+        const properties: ObjectLiteralProperty[] = [];
 
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
             this.tokens.skip();
@@ -1171,28 +1173,74 @@ export class Parser {
         }
 
         while (this.tokens.hasMore) {
-            const key = this.tokens.read();
-            if (key?.type !== "identifier") {
-                this.fail("Expected identifier key in object literal", key);
+            const next = this.tokens.peek();
+            if (next?.type === "symbol" && next.value === "}") {
+                this.tokens.skip();
+                return this.withNodeBounds(startToken, () => {
+                    return {
+                        kind: "ObjectLiteral",
+                        properties
+                    } as ObjectLiteral;
+                });
             }
 
-            const colon = this.tokens.read();
-            if (colon?.type !== "symbol" || colon.value !== ":") {
-                this.fail("Expected ':' after object key", colon);
-            }
+            if (next?.type === "symbol" && next.value === "...") {
+                const spreadToken = this.tokens.read()!;
+                const argument = this.parseExpressionOrThrow();
+                properties.push(
+                    this.attachNodeBounds(
+                        {
+                            kind: "ObjectSpreadProperty",
+                            argument
+                        } as ObjectSpreadProperty,
+                        spreadToken,
+                        argument.lastToken ?? this.getLastReadToken() ?? spreadToken
+                    )
+                );
+            } else {
+                const { key, computed } = this.parseObjectLiteralKey();
+                const separator = this.tokens.peek();
 
-            const value = this.parseExpressionOrThrow();
-            properties.push(
-                this.attachNodeBounds(
-                    {
-                        kind: "ObjectProperty",
-                        key: this.buildIdentifierFromToken(key),
-                        value
-                    } as ObjectProperty,
-                    key,
-                    this.getLastReadToken() ?? key
-                )
-            );
+                if (!computed && key.kind === "Identifier" && (
+                    separator?.type === "symbol" && (separator.value === "," || separator.value === "}")
+                )) {
+                    properties.push(
+                        this.attachNodeBounds(
+                            {
+                                kind: "ObjectProperty",
+                                key,
+                                value: this.attachNodeBounds(
+                                    { kind: "Identifier", name: (key as Identifier).name } as Identifier,
+                                    key.firstToken,
+                                    key.lastToken
+                                ),
+                                shorthand: true
+                            } as ObjectProperty,
+                            key.firstToken,
+                            key.lastToken
+                        )
+                    );
+                } else {
+                    const colon = this.tokens.read();
+                    if (colon?.type !== "symbol" || colon.value !== ":") {
+                        this.fail("Expected ':' after object key", colon);
+                    }
+
+                    const value = this.parseExpressionOrThrow();
+                    properties.push(
+                        this.attachNodeBounds(
+                            {
+                                kind: "ObjectProperty",
+                                key,
+                                value,
+                                ...(computed ? { computed: true } : {})
+                            } as ObjectProperty,
+                            key.firstToken,
+                            this.getLastReadToken() ?? key.lastToken ?? key.firstToken
+                        )
+                    );
+                }
+            }
 
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
@@ -1214,6 +1262,43 @@ export class Parser {
         }
 
         this.fail("Expected ',' or '}' in object literal", this.tokenAt());
+    }
+
+    private parseObjectLiteralKey(): { key: Expr; computed: boolean } {
+        const token = this.tokens.read();
+
+        if (token?.type === "symbol" && token.value === "[") {
+            const key = this.parseExpressionOrThrow();
+            const close = this.tokens.read();
+            if (close?.type !== "symbol" || close.value !== "]") {
+                this.fail("Expected ']' after computed object key", this.tokenAt(close));
+            }
+            return { key, computed: true };
+        }
+
+        if (token?.type === "identifier") {
+            return { key: this.buildIdentifierFromToken(token), computed: false };
+        }
+
+        if (token?.type === "string") {
+            return {
+                key: this.attachNodeBounds({ kind: "StringLiteral", value: token.value } as StringLiteral, token, token),
+                computed: false
+            };
+        }
+
+        if (token?.type === "number") {
+            const numericValue = Number(token.value);
+            if (!Number.isFinite(numericValue) || token.value.endsWith("n") || token.value.endsWith("N") || token.value.endsWith("L")) {
+                this.fail("Expected identifier, string, number, or computed key in object literal", this.tokenAt(token));
+            }
+            const key = token.value.includes(".") || token.value.includes("e") || token.value.includes("E")
+                ? this.attachNodeBounds({ kind: "FloatLiteral", value: numericValue } as FloatLiteral, token, token)
+                : this.attachNodeBounds({ kind: "IntLiteral", value: numericValue } as IntLiteral, token, token);
+            return { key, computed: false };
+        }
+
+        this.fail("Expected identifier, string, number, or computed key in object literal", this.tokenAt(token));
     }
 
     private parseFunctionExpression(functionKeyword: Token): FunctionExpression {

@@ -420,7 +420,11 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   };
 
   const visitObjectProperty = (property: ObjectProperty): void => {
-    markIdentifier(kinds, property.key, "property");
+    if (!property.computed && property.key.kind === "Identifier") {
+      markIdentifier(kinds, property.key as Identifier, "property");
+    } else {
+      visitExpression(property.key);
+    }
     visitExpression(property.value);
   };
 
@@ -499,7 +503,11 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         return;
       case "ObjectLiteral":
         for (const property of (expression as ObjectLiteral).properties) {
-          visitObjectProperty(property);
+          if (property.kind === "ObjectSpreadProperty") {
+            visitExpression(property.argument);
+          } else {
+            visitObjectProperty(property);
+          }
         }
         return;
       default:

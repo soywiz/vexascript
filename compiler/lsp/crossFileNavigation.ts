@@ -586,7 +586,11 @@ function findMemberExpressionAtPosition(
         return;
       case "ObjectLiteral":
         for (const property of (expression as ObjectLiteral).properties) {
-          visitExpression(property.value);
+          if (property.kind === "ObjectSpreadProperty") {
+            visitExpression(property.argument);
+          } else {
+            visitExpression(property.value);
+          }
         }
         return;
       default:
@@ -902,7 +906,11 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
         return;
       case "ObjectLiteral":
         for (const property of (expression as ObjectLiteral).properties) {
-          visitExpression(property.value);
+          if (property.kind === "ObjectSpreadProperty") {
+            visitExpression(property.argument);
+          } else {
+            visitExpression(property.value);
+          }
         }
         return;
       default:

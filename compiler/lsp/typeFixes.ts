@@ -153,7 +153,11 @@ function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range):
         return;
       case "ObjectLiteral":
         for (const property of (expression as ObjectLiteral).properties) {
-          visitExpression(property.value);
+          if (property.kind === "ObjectSpreadProperty") {
+            visitExpression(property.argument);
+          } else {
+            visitExpression(property.value);
+          }
         }
         return;
       default:

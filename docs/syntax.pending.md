@@ -65,7 +65,6 @@ Scope notes:
 ## Expressions
 
 - Comma operator.
-- Object spread syntax (`{ ...x }`).
 - Template literals (`` `hello ${name}` ``).
 - RegExp literals (`/abc/`).
 - `this` keyword handling.
@@ -73,10 +72,8 @@ Scope notes:
 
 ## Object and Array Literals
 
-- Shorthand object properties (`{ a }`).
 - Methods in object literals (`{ f() {} }`).
-- Computed object keys (`{ [k]: v }`).
-- Optional trailing commas and sparse arrays behavior.
+- Sparse arrays behavior.
 
 ## Error Recovery and Diagnostics (TypeScript-oriented)
 
