@@ -20,6 +20,7 @@ import type {
   FunctionParameter,
   Identifier,
   IfStatement,
+  LabeledStatement,
   ImportStatement,
   MemberExpression,
   NewExpression,
@@ -34,7 +35,8 @@ import type {
   UnaryExpression,
   UpdateExpression,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
@@ -662,6 +664,13 @@ function findMemberExpressionAtPosition(
         visitExpression((statement as WhileStatement).condition);
         visitStatement((statement as WhileStatement).body);
         return;
+      case "WithStatement":
+        visitExpression((statement as WithStatement).object);
+        visitStatement((statement as WithStatement).body);
+        return;
+      case "LabeledStatement":
+        visitStatement((statement as LabeledStatement).body);
+        return;
       case "DoWhileStatement":
         visitStatement((statement as DoWhileStatement).body);
         visitExpression((statement as DoWhileStatement).condition);
@@ -984,6 +993,13 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
       case "WhileStatement":
         visitExpression((statement as WhileStatement).condition);
         visitStatement((statement as WhileStatement).body);
+        return;
+      case "WithStatement":
+        visitExpression((statement as WithStatement).object);
+        visitStatement((statement as WithStatement).body);
+        return;
+      case "LabeledStatement":
+        visitStatement((statement as LabeledStatement).body);
         return;
       case "DoWhileStatement":
         visitStatement((statement as DoWhileStatement).body);

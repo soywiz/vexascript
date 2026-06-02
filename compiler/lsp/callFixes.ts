@@ -17,6 +17,7 @@ import type {
   FunctionStatement,
   Identifier,
   IfStatement,
+  LabeledStatement,
   MemberExpression,
   NewExpression,
   ObjectLiteral,
@@ -30,7 +31,8 @@ import type {
   UnaryExpression,
   UpdateExpression,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import { tokenize } from "compiler/parser/tokenizer";
 import { CodeActionKind, type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
@@ -230,6 +232,13 @@ function findCallArgumentAtPosition(program: Program, position: Position): CallA
         visitExpression((statement as WhileStatement).condition);
         visitStatement((statement as WhileStatement).body);
         return;
+      case "WithStatement":
+        visitExpression((statement as WithStatement).object);
+        visitStatement((statement as WithStatement).body);
+        return;
+      case "LabeledStatement":
+        visitStatement((statement as LabeledStatement).body);
+        return;
       case "DoWhileStatement":
         visitStatement((statement as DoWhileStatement).body);
         visitExpression((statement as DoWhileStatement).condition);
@@ -337,6 +346,14 @@ function findFunctionDeclarationByNameNode(
 
     if (statement.kind === "WhileStatement") {
       return visitStatement((statement as WhileStatement).body);
+    }
+
+    if (statement.kind === "WithStatement") {
+      return visitStatement((statement as WithStatement).body);
+    }
+
+    if (statement.kind === "LabeledStatement") {
+      return visitStatement((statement as LabeledStatement).body);
     }
 
     if (statement.kind === "DoWhileStatement") {

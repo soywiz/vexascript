@@ -102,6 +102,42 @@ describe("Analysis", () => {
     expect(messages.filter((message) => message === "Illegal 'break' statement outside of a loop or switch")).toHaveLength(1);
   });
 
+  it("validates labeled break and continue targets", () => {
+    const source =
+      "outer: while (ok) {\n" +
+      "  continue outer\n" +
+      "  break outer\n" +
+      "}\n" +
+      "blockLabel: {\n" +
+      "  break blockLabel\n" +
+      "  continue blockLabel\n" +
+      "}\n" +
+      "break missingLabel\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Illegal 'continue' target 'blockLabel' because the label does not reference a loop");
+    expect(messages).toContain("Undefined statement label 'missingLabel'");
+    expect(messages.some((message) => message.includes("'outer'"))).toBe(false);
+    expect(messages.some((message) => message.includes("'blockLabel'") && message.startsWith("Undefined"))).toBe(false);
+  });
+
+  it("checks with statement object expressions and bodies", () => {
+    const source =
+      "let scope = { value: 1 }\n" +
+      "with (scope) {\n" +
+      "  let inner: int = \"bad\"\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string' is not assignable to type 'int'");
+  });
+
   it("binds catch parameter in try/catch scope and validates throw expressions", () => {
     const source =
       "fun demo() {\n" +

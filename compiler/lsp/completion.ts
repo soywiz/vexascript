@@ -15,6 +15,7 @@ import type {
   ForStatement,
   FunctionStatement,
   IfStatement,
+  LabeledStatement,
   MemberExpression,
   NewExpression,
   ObjectLiteral,
@@ -28,7 +29,8 @@ import type {
   UnaryExpression,
   UpdateExpression,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
@@ -409,6 +411,13 @@ function findArgumentCompletionContext(
         visitExpression((statement as WhileStatement).condition);
         visitStatement((statement as WhileStatement).body);
         return;
+      case "WithStatement":
+        visitExpression((statement as WithStatement).object);
+        visitStatement((statement as WithStatement).body);
+        return;
+      case "LabeledStatement":
+        visitStatement((statement as LabeledStatement).body);
+        return;
       case "DoWhileStatement":
         visitStatement((statement as DoWhileStatement).body);
         visitExpression((statement as DoWhileStatement).condition);
@@ -627,6 +636,10 @@ function inferClassNameFromAstVariableInitializer(
       } else if (statement.kind === "WhileStatement" || statement.kind === "DoWhileStatement") {
         const loopStatement = statement as WhileStatement | DoWhileStatement;
         visitStatements([loopStatement.body]);
+      } else if (statement.kind === "WithStatement") {
+        visitStatements([(statement as WithStatement).body]);
+      } else if (statement.kind === "LabeledStatement") {
+        visitStatements([(statement as LabeledStatement).body]);
       } else if (statement.kind === "ForStatement") {
         const forStatement = statement as ForStatement;
         if (forStatement.initializer && forStatement.initializer.kind === "VarStatement") {

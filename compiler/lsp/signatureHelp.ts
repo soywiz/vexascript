@@ -11,6 +11,7 @@ import type {
   ForStatement,
   FunctionStatement,
   IfStatement,
+  LabeledStatement,
   MemberExpression,
   ObjectLiteral,
   RangeExpression,
@@ -22,6 +23,7 @@ import type {
   UpdateExpression,
   VarStatement,
   WhileStatement,
+  WithStatement,
   DoWhileStatement,
   BlockStatement,
   ExprStatement,
@@ -291,6 +293,13 @@ function findBestInvocationContext(
       case "WhileStatement":
         visitExpression((node as WhileStatement).condition);
         visitStatement((node as WhileStatement).body);
+        return;
+      case "WithStatement":
+        visitExpression((node as WithStatement).object);
+        visitStatement((node as WithStatement).body);
+        return;
+      case "LabeledStatement":
+        visitStatement((node as LabeledStatement).body);
         return;
       case "DoWhileStatement":
         visitStatement((node as DoWhileStatement).body);

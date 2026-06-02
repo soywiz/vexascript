@@ -22,6 +22,7 @@ import type {
   InterfaceStatement,
   IfStatement,
   Identifier,
+  LabeledStatement,
   IntLiteral,
   MemberExpression,
   NewExpression,
@@ -43,7 +44,8 @@ import type {
   UnaryExpression,
   UpdateExpression,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import type {
@@ -113,7 +115,7 @@ export class TypeChecker {
   }
 
   check(): CheckedAnalysis {
-    this.visitProgram(this.program, this.bound.rootScope, { loopDepth: 0, switchDepth: 0 });
+    this.visitProgram(this.program, this.bound.rootScope, { loopDepth: 0, switchDepth: 0, labels: [] });
     return {
       issues: [...this.issues],
       identifierResolutions: [...this.identifierResolutions],
@@ -155,6 +157,7 @@ export class TypeChecker {
         const whileStatement = statement as WhileStatement;
         this.visitExpression(whileStatement.condition, scope);
         const loopFlow: FlowContext = {
+          ...flow,
           loopDepth: flow.loopDepth + 1,
           switchDepth: flow.switchDepth
         };
@@ -165,6 +168,7 @@ export class TypeChecker {
       case "DoWhileStatement": {
         const doWhileStatement = statement as DoWhileStatement;
         const loopFlow: FlowContext = {
+          ...flow,
           loopDepth: flow.loopDepth + 1,
           switchDepth: flow.switchDepth
         };
@@ -182,6 +186,28 @@ export class TypeChecker {
       case "SwitchStatement":
         this.visitSwitchStatement(statement as SwitchStatement, scope, flow);
         return;
+      case "WithStatement": {
+        const withStatement = statement as WithStatement;
+        this.visitExpression(withStatement.object, scope);
+        const withScope = this.scopeFor(withStatement, scope);
+        this.visitStatement(withStatement.body, withScope, flow);
+        return;
+      }
+      case "LabeledStatement": {
+        const labeled = statement as LabeledStatement;
+        if (flow.labels?.some((label) => label.name === labeled.label.name)) {
+          this.issues.push({
+            message: `Duplicate active statement label '${labeled.label.name}'`,
+            node: labeled.label
+          });
+        }
+        const labels = [
+          ...(flow.labels ?? []),
+          { name: labeled.label.name, allowsContinue: this.statementAllowsLabeledContinue(labeled.body) }
+        ];
+        this.visitStatement(labeled.body, scope, { ...flow, labels });
+        return;
+      }
       case "ReturnStatement": {
         const returnStatement = statement as ReturnStatement;
         if (returnStatement.expression) {
@@ -197,7 +223,23 @@ export class TypeChecker {
       case "TryStatement":
         this.visitTryStatement(statement as TryStatement, scope, flow);
         return;
-      case "ContinueStatement":
+      case "ContinueStatement": {
+        const continueStatement = statement as import("compiler/ast/ast").ContinueStatement;
+        if (continueStatement.label) {
+          const target = flow.labels?.find((label) => label.name === continueStatement.label!.name);
+          if (!target) {
+            this.issues.push({
+              message: `Undefined statement label '${continueStatement.label.name}'`,
+              node: continueStatement.label
+            });
+          } else if (!target.allowsContinue) {
+            this.issues.push({
+              message: `Illegal 'continue' target '${continueStatement.label.name}' because the label does not reference a loop`,
+              node: continueStatement.label
+            });
+          }
+          return;
+        }
         if (flow.loopDepth <= 0) {
           this.issues.push({
             message: "Illegal 'continue' statement outside of a loop",
@@ -205,7 +247,19 @@ export class TypeChecker {
           });
         }
         return;
-      case "BreakStatement":
+      }
+      case "BreakStatement": {
+        const breakStatement = statement as import("compiler/ast/ast").BreakStatement;
+        if (breakStatement.label) {
+          const target = flow.labels?.find((label) => label.name === breakStatement.label!.name);
+          if (!target) {
+            this.issues.push({
+              message: `Undefined statement label '${breakStatement.label.name}'`,
+              node: breakStatement.label
+            });
+          }
+          return;
+        }
         if (flow.loopDepth <= 0 && flow.switchDepth <= 0) {
           this.issues.push({
             message: "Illegal 'break' statement outside of a loop or switch",
@@ -213,9 +267,20 @@ export class TypeChecker {
           });
         }
         return;
+      }
       default:
         return;
     }
+  }
+
+  private statementAllowsLabeledContinue(statement: Statement): boolean {
+    if (statement.kind === "WhileStatement" || statement.kind === "DoWhileStatement" || statement.kind === "ForStatement") {
+      return true;
+    }
+    if (statement.kind === "LabeledStatement") {
+      return this.statementAllowsLabeledContinue((statement as LabeledStatement).body);
+    }
+    return false;
   }
 
   private visitVarStatement(statement: VarStatement, scope: Scope): void {
@@ -273,7 +338,7 @@ export class TypeChecker {
       }
 
       for (const bodyStatement of statement.body.body) {
-        this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0 });
+        this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0, labels: [] });
       }
     });
   }
@@ -334,7 +399,7 @@ export class TypeChecker {
             this.updateSymbolType(methodScope, parameter.name.name, parameterType);
           }
           for (const bodyStatement of method.body.body) {
-            this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0 });
+            this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0, labels: [] });
           }
         });
       }
@@ -354,6 +419,7 @@ export class TypeChecker {
   private visitForStatement(statement: ForStatement, scope: Scope, flow: FlowContext): void {
     const loopScope = this.scopeFor(statement, scope);
     const loopFlow: FlowContext = {
+      ...flow,
       loopDepth: flow.loopDepth + 1,
       switchDepth: flow.switchDepth
     };
@@ -400,6 +466,7 @@ export class TypeChecker {
     this.visitExpression(statement.discriminant, scope);
     const switchScope = this.scopeFor(statement, scope);
     const switchFlow: FlowContext = {
+      ...flow,
       loopDepth: flow.loopDepth,
       switchDepth: flow.switchDepth + 1
     };
@@ -663,7 +730,7 @@ export class TypeChecker {
         let returnType: AnalysisType;
         if (arrow.body.kind === "BlockStatement") {
           for (const bodyStatement of (arrow.body as BlockStatement).body) {
-            this.visitStatement(bodyStatement, arrowScope, { loopDepth: 0, switchDepth: 0 });
+            this.visitStatement(bodyStatement, arrowScope, { loopDepth: 0, switchDepth: 0, labels: [] });
           }
           returnType = builtinType("void");
         } else {
@@ -677,7 +744,7 @@ export class TypeChecker {
         const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
         const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
         for (const bodyStatement of fn.body.body) {
-          this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0 });
+          this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0, labels: [] });
         }
         const returnType = this.resolveTypeAnnotation(fn.returnType, functionScope) ?? expectedFunctionType?.returnType ?? builtinType("void");
         result = this.buildFunctionType(fn.parameters, returnType, functionScope);

@@ -483,6 +483,16 @@ while (condition) {
 }
 ```
 
+### With
+
+MyLang supports TypeScript-style `with` statements. The object expression and body are visited during semantic analysis, and the statement is preserved during JavaScript emission.
+
+```mylang
+with (scope) {
+  use(value)
+}
+```
+
 ### Do-while
 
 ```mylang
@@ -576,9 +586,26 @@ Supported statements:
 - `return expression`
 - `throw expression`
 - `continue`
+- `continue label` for labeled loop targets
 - `break`
+- `break label` for active statement labels
 - `debugger`
 - empty statements (`;`), including as loop bodies such as `while (condition);`
+
+### Statement labels
+
+Statements can be labeled. Labeled `break` targets may reference any active label, while labeled `continue` targets must reference a label whose statement is a loop.
+
+```mylang
+outer: while (running) {
+  if (done) break outer
+  continue outer
+}
+
+blockLabel: {
+  break blockLabel
+}
+```
 
 ### Try / catch / finally
 

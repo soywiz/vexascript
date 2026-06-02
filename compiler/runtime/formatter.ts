@@ -54,7 +54,7 @@ const BINARY_OPERATORS = new Set([
   , "??"
 ]);
 
-const CONTROL_KEYWORDS_WITH_PAREN = new Set(["if", "for", "while", "switch", "catch"]);
+const CONTROL_KEYWORDS_WITH_PAREN = new Set(["if", "for", "while", "with", "switch", "catch"]);
 
 function isIdentifierStart(ch: string): boolean {
   return /[A-Za-z_]/.test(ch);

@@ -355,6 +355,18 @@ export interface WhileStatement extends Statement {
     body: Statement
 }
 
+export interface WithStatement extends Statement {
+    kind: "WithStatement"
+    object: Expr
+    body: Statement
+}
+
+export interface LabeledStatement extends Statement {
+    kind: "LabeledStatement"
+    label: Identifier
+    body: Statement
+}
+
 export interface DoWhileStatement extends Statement {
     kind: "DoWhileStatement"
     body: Statement
@@ -403,10 +415,12 @@ export interface ThrowStatement extends Statement {
 
 export interface ContinueStatement extends Statement {
     kind: "ContinueStatement"
+    label?: Identifier
 }
 
 export interface BreakStatement extends Statement {
     kind: "BreakStatement"
+    label?: Identifier
 }
 
 export interface CatchClause extends Node {

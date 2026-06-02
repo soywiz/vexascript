@@ -24,6 +24,7 @@ import type {
   FunctionStatement,
   Identifier,
   IfStatement,
+  LabeledStatement,
   ImportStatement,
   IntLiteral,
   LongLiteral,
@@ -45,7 +46,8 @@ import type {
   UpdateExpression,
   VarDeclarator,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
@@ -538,6 +540,14 @@ export function emitStatement(statement: Statement): string {
       const whileStatement = statement as WhileStatement;
       return `while (${emitExpression(whileStatement.condition)}) ${emitStatement(whileStatement.body)}`;
     }
+    case "WithStatement": {
+      const withStatement = statement as WithStatement;
+      return `with (${emitExpression(withStatement.object)}) ${emitStatement(withStatement.body)}`;
+    }
+    case "LabeledStatement": {
+      const labeled = statement as LabeledStatement;
+      return `${labeled.label.name}: ${emitStatement(labeled.body)}`;
+    }
     case "DoWhileStatement": {
       const doWhileStatement = statement as DoWhileStatement;
       return `do ${emitStatement(doWhileStatement.body)} while (${emitExpression(doWhileStatement.condition)});`;
@@ -588,10 +598,14 @@ export function emitStatement(statement: Statement): string {
         : "";
       return `${tryPart}${catchPart}${finallyPart}`;
     }
-    case "ContinueStatement":
-      return "continue;";
-    case "BreakStatement":
-      return "break;";
+    case "ContinueStatement": {
+      const label = (statement as import("compiler/ast/ast").ContinueStatement).label;
+      return label ? `continue ${label.name};` : "continue;";
+    }
+    case "BreakStatement": {
+      const label = (statement as import("compiler/ast/ast").BreakStatement).label;
+      return label ? `break ${label.name};` : "break;";
+    }
     default:
       return "";
   }
