@@ -325,14 +325,16 @@ Supported literals:
 
 - integer literals (`10`)
 - decimal/scientific number literals (`10.573`, `10e-3`)
-- bigint literals (`10n`)
-- long literals (`10L`)
+- numeric separators (`1_000`, `10.5_25`, `1e1_0`)
+- non-decimal integer literals (`0xff`, `0b1010`, `0o755`)
+- bigint literals (`10n`, `0xfn`)
+- long literals (`10L`, `0xffL`)
 - string literals (`"hello"`, `'hello'`)
 - template string literals with interpolation (`` `hello ${name}` ``)
 - boolean literals (`true`, `false`)
 - nullish literals (`null`, `undefined`)
 - array literals (`[1, 2, 3]`) with spread elements (`[0, ...values]`)
-- object literals (`{a: 1, b: 2}`), including shorthand properties, spread properties, computed keys, and string/number literal keys
+- object literals (`{a: 1, b: 2}`), including shorthand properties, spread properties, computed keys, string/number literal keys, and method properties (`{ add(a, b) { return a + b } }`)
 
 ### Unary operators
 

@@ -114,6 +114,20 @@ describe("semantic tokens", () => {
     );
   });
 
+  it("highlights object methods and their parameters", () => {
+    const source = "let obj = { add(a: number): number { return a } }\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "add" && token.tokenType === "method")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "a" && token.tokenType === "parameter")).toBe(true);
+  });
+
   it("supports range requests", () => {
     const source =
       "switch (a) {\n" +

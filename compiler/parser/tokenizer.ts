@@ -56,20 +56,26 @@ const CODE_EQUALS = 61; // =
 const CODE_GT = 62; // >
 const CODE_QUESTION = 63; // ?
 const CODE_A_UPPER = 65; // A
+const CODE_B_UPPER = 66; // B
 const CODE_F_UPPER = 70; // F
 const CODE_L_UPPER = 76; // L
 const CODE_N_UPPER = 78; // N
+const CODE_O_UPPER = 79; // O
+const CODE_X_UPPER = 88; // X
 const CODE_Z_UPPER = 90; // Z
 const CODE_BACKSLASH = 92; // \
 const CODE_UNDERSCORE = 95; // _
 const CODE_BACKTICK = 96; // `
 const CODE_A_LOWER = 97; // a
+const CODE_B_LOWER = 98; // b
 const CODE_E_LOWER = 101; // e
 const CODE_F_LOWER = 102; // f
 const CODE_N_LOWER = 110; // n
+const CODE_O_LOWER = 111; // o
 const CODE_R_LOWER = 114; // r
 const CODE_T_LOWER = 116; // t
 const CODE_U_LOWER = 117; // u
+const CODE_X_LOWER = 120; // x
 const CODE_Z_LOWER = 122; // z
 const CODE_PIPE = 124; // |
 
@@ -195,12 +201,83 @@ function readIdentifier(reader: StrReader): string {
   return reader.str.slice(start, reader.offset);
 }
 
+function isBinaryDigitCode(code: number): boolean {
+  return code === CODE_ZERO || code === 49;
+}
+
+function isOctalDigitCode(code: number): boolean {
+  return code >= CODE_ZERO && code <= 55;
+}
+
+function readDigitRun(
+  reader: StrReader,
+  startPosition: SourcePosition,
+  isValidDigit: (code: number) => boolean,
+  message: string,
+  requireDigit: boolean = false,
+  initialSawDigit: boolean = false
+): void {
+  let sawDigit = initialSawDigit;
+  let previousWasSeparator = false;
+
+  while (reader.hasMore) {
+    const code = reader.peekCode();
+    if (isValidDigit(code)) {
+      sawDigit = true;
+      previousWasSeparator = false;
+      advanceCode(reader);
+      continue;
+    }
+    if (code === CODE_UNDERSCORE) {
+      if (!sawDigit || previousWasSeparator) {
+        throw new TokenizeError(message, { start: startPosition, end: snapshot(reader) });
+      }
+      previousWasSeparator = true;
+      advanceCode(reader);
+      continue;
+    }
+    break;
+  }
+
+  if ((requireDigit && !sawDigit) || previousWasSeparator) {
+    throw new TokenizeError(message, { start: startPosition, end: snapshot(reader) });
+  }
+}
+
+function isNumericLiteralSuffixCode(code: number): boolean {
+  return code === CODE_N_LOWER || code === CODE_N_UPPER || code === CODE_L_UPPER;
+}
+
 function readNumber(reader: StrReader): string {
   const startPosition = snapshot(reader);
   const startOffset = reader.offset;
-  advanceCode(reader);
-  while (reader.hasMore && isDigitCode(reader.peekCode())) {
-    advanceCode(reader);
+  const first = advanceCode(reader);
+
+  if (first === CODE_ZERO && reader.hasMore) {
+    const baseMarker = reader.peekCode();
+    if (baseMarker === CODE_X_LOWER || baseMarker === CODE_X_UPPER) {
+      advanceCode(reader);
+      readDigitRun(reader, startPosition, isHexDigitCode, "Invalid hex number literal", true);
+      if (reader.hasMore && isIdentifierPartCode(reader.peekCode()) && !isNumericLiteralSuffixCode(reader.peekCode())) {
+        throw new TokenizeError("Invalid hex number literal", { start: startPosition, end: snapshot(reader) });
+      }
+    } else if (baseMarker === CODE_B_LOWER || baseMarker === CODE_B_UPPER) {
+      advanceCode(reader);
+      readDigitRun(reader, startPosition, isBinaryDigitCode, "Invalid binary number literal", true);
+      if (reader.hasMore && isIdentifierPartCode(reader.peekCode()) && !isNumericLiteralSuffixCode(reader.peekCode())) {
+        throw new TokenizeError("Invalid binary number literal", { start: startPosition, end: snapshot(reader) });
+      }
+    } else if (baseMarker === CODE_O_LOWER || baseMarker === CODE_O_UPPER) {
+      advanceCode(reader);
+      readDigitRun(reader, startPosition, isOctalDigitCode, "Invalid octal number literal", true);
+      if (reader.hasMore && isIdentifierPartCode(reader.peekCode()) && !isNumericLiteralSuffixCode(reader.peekCode())) {
+        throw new TokenizeError("Invalid octal number literal", { start: startPosition, end: snapshot(reader) });
+      }
+    } else {
+      readDigitRun(reader, startPosition, isDigitCode, "Invalid number literal", false, true);
+    }
+  } else {
+    readDigitRun(reader, startPosition, isDigitCode, "Invalid number literal", false, true);
   }
 
   if (
@@ -209,9 +286,7 @@ function readNumber(reader: StrReader): string {
     isDigitCode(reader.str.charCodeAt(reader.offset + 1))
   ) {
     advanceCode(reader);
-    while (reader.hasMore && isDigitCode(reader.peekCode())) {
-      advanceCode(reader);
-    }
+    readDigitRun(reader, startPosition, isDigitCode, "Invalid number literal", true);
   }
 
   if (reader.hasMore && (reader.peekCode() === CODE_E_LOWER || reader.peekCode() === CODE_E_UPPER)) {
@@ -219,15 +294,7 @@ function readNumber(reader: StrReader): string {
     if (reader.hasMore && (reader.peekCode() === CODE_PLUS || reader.peekCode() === CODE_MINUS)) {
       advanceCode(reader);
     }
-    if (!reader.hasMore || !isDigitCode(reader.peekCode())) {
-      throw new TokenizeError("Invalid exponent in number literal", {
-        start: startPosition,
-        end: snapshot(reader)
-      });
-    }
-    while (reader.hasMore && isDigitCode(reader.peekCode())) {
-      advanceCode(reader);
-    }
+    readDigitRun(reader, startPosition, isDigitCode, "Invalid exponent in number literal", true);
   }
 
   if (reader.hasMore) {

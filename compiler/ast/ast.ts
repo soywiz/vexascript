@@ -182,6 +182,7 @@ export interface ObjectProperty extends Node {
     value: Expr
     computed?: boolean
     shorthand?: boolean
+    method?: boolean
 }
 
 export interface ObjectSpreadProperty extends Node {

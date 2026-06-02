@@ -73,6 +73,16 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toContain('let obj = {a, ...base, [key]: value, "display name": name, 1: one};');
   });
 
+  it("emits object method syntax and normalized numeric literals", () => {
+    const program = parseFile(tokenizeReader("let obj = {add(a: number, b: number): number { return a + b }, [name]() { return 0xff }}\nlet count = 1_000"));
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("let obj = {add(a, b) {");
+    expect(emitted).toContain("return a + b;");
+    expect(emitted).toContain("[name]() {");
+    expect(emitted).toContain("return 255;");
+    expect(emitted).toContain("let count = 1000;");
+  });
+
   it("erases type alias declarations", () => {
     const program = parseFile(tokenizeReader("type Name = string\nlet value: Name = \"Ada\""));
     expect(emitProgram(program)).toBe("let value = \"Ada\";");

@@ -41,6 +41,20 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes TypeScript numeric separators and non-decimal literals", () => {
+        expect(simplifyTokens("1_000 + 0xff + 0b1010 + 0o755 + 0xfn")).toStrictEqual([
+            { type: "number", value: "1_000" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: "0xff" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: "0b1010" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: "0o755" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: "0xfn" }
+        ])
+    })
+
     it("tokenizes multi-character operators", () => {
         expect(simplifyTokens("2**3 || 4 && 5")).toStrictEqual([
             { type: "number", value: "2" },
