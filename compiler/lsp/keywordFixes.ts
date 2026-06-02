@@ -5,12 +5,14 @@ import {
   ForStatement,
   FunctionStatement,
   IfStatement,
+  LabeledStatement,
   Program,
   Statement,
   SwitchStatement,
   TryStatement,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 
 export interface KeywordReplacement {
@@ -81,6 +83,14 @@ function findVarStatementAtPosition(node: Statement, line: number, character: nu
 
   if (node.kind === "WhileStatement") {
     return findVarStatementAtPosition((node as WhileStatement).body, line, character);
+  }
+
+  if (node.kind === "WithStatement") {
+    return findVarStatementAtPosition((node as WithStatement).body, line, character);
+  }
+
+  if (node.kind === "LabeledStatement") {
+    return findVarStatementAtPosition((node as LabeledStatement).body, line, character);
   }
 
   if (node.kind === "DoWhileStatement") {

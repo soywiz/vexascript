@@ -20,6 +20,7 @@ import type {
   FunctionStatement,
   Identifier,
   IfStatement,
+  LabeledStatement,
   ImportStatement,
   MemberExpression,
   NewExpression,
@@ -36,7 +37,8 @@ import type {
   UpdateExpression,
   VarDeclarator,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { SourceRange, Token } from "compiler/parser/tokenizer";
@@ -336,6 +338,18 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         const whileStatement = statement as WhileStatement;
         visitExpression(whileStatement.condition);
         visitStatement(whileStatement.body);
+        return;
+      }
+      case "WithStatement": {
+        const withStatement = statement as WithStatement;
+        visitExpression(withStatement.object);
+        visitStatement(withStatement.body);
+        return;
+      }
+      case "LabeledStatement": {
+        const labeled = statement as LabeledStatement;
+        markIdentifier(kinds, labeled.label, "variable");
+        visitStatement(labeled.body);
         return;
       }
       case "DoWhileStatement": {

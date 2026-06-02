@@ -9,6 +9,7 @@ import type {
   InterfaceStatement,
   ImportStatement,
   IfStatement,
+  LabeledStatement,
   Program,
   Statement,
   SwitchStatement,
@@ -17,7 +18,8 @@ import type {
   TryStatement,
   VariableDeclarationKind,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE } from "./types";
@@ -263,6 +265,14 @@ export class Binder {
         return;
       case "SwitchStatement":
         this.bindSwitchStatement(statement as SwitchStatement, scope);
+        return;
+      case "WithStatement": {
+        const withScope = this.createScope(scope, statement);
+        this.bindStatement((statement as WithStatement).body, withScope);
+        return;
+      }
+      case "LabeledStatement":
+        this.bindStatement((statement as LabeledStatement).body, scope);
         return;
       case "TryStatement":
         this.bindTryStatement(statement as TryStatement, scope);

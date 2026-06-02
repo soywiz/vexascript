@@ -32,6 +32,7 @@ export interface Scope {
 export interface FlowContext {
   loopDepth: number;
   switchDepth: number;
+  labels?: Array<{ name: string; allowsContinue: boolean }>;
 }
 
 export interface BoundAnalysis {

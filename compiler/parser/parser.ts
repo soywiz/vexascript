@@ -41,6 +41,7 @@ import {
     ImportStatement,
     IntLiteral,
     LongLiteral,
+    LabeledStatement,
     MemberExpression,
     NewExpression,
     NullLiteral,
@@ -67,7 +68,8 @@ import {
     VarDeclarator,
     VariableDeclarationKind,
     VarStatement,
-    WhileStatement
+    WhileStatement,
+    WithStatement
 } from "compiler/ast/ast";
 
 type BinaryOperator = BinaryExpression["operator"];
@@ -276,6 +278,9 @@ export class Parser {
         if (token?.type === "identifier" && token.value === "while") {
             return this.parseWhileStatement();
         }
+        if (token?.type === "identifier" && token.value === "with") {
+            return this.parseWithStatement();
+        }
         if (token?.type === "identifier" && token.value === "return") {
             return this.parseReturnStatement();
         }
@@ -300,6 +305,9 @@ export class Parser {
         }
         if (token?.type === "symbol" && token.value === "{") {
             return this.parseBlockStatement();
+        }
+        if (this.isLabeledStatementStart()) {
+            return this.parseLabeledStatement();
         }
 
         const expression = this.parseExpressionOrThrow();
@@ -493,6 +501,7 @@ export class Parser {
             token.value === "if" ||
             token.value === "for" ||
             token.value === "while" ||
+            token.value === "with" ||
             token.value === "do" ||
             token.value === "switch" ||
             token.value === "try" ||
@@ -900,6 +909,12 @@ export class Parser {
             second?.type === "identifier" &&
             second.value === "class"
         );
+    }
+
+    private isLabeledStatementStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return first?.type === "identifier" && second?.type === "symbol" && second.value === ":";
     }
 
     private isTypeScriptExportAssignmentStart(): boolean {
@@ -3254,6 +3269,32 @@ export class Parser {
         } as WhileStatement, whileKeyword, this.getLastReadToken() ?? whileKeyword);
     }
 
+    private parseWithStatement(): WithStatement {
+        const withKeyword = this.tokens.read();
+        if (withKeyword?.type !== "identifier" || withKeyword.value !== "with") {
+            this.fail("Expected 'with' statement", this.tokenAt(withKeyword));
+        }
+
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after 'with'", this.tokenAt(openParen));
+        }
+
+        const object = this.parseExpressionOrThrow();
+
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after with object expression", this.tokenAt(closeParen));
+        }
+
+        const body = this.parseStatementOrThrow();
+        return this.attachNodeBounds({
+            kind: "WithStatement",
+            object,
+            body
+        } as WithStatement, withKeyword, this.getLastReadToken() ?? withKeyword);
+    }
+
     private parseDoWhileStatement(): DoWhileStatement {
         const doKeyword = this.tokens.read();
         if (doKeyword?.type !== "identifier" || doKeyword.value !== "do") {
@@ -3559,6 +3600,25 @@ export class Parser {
         this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "switch");
     }
 
+    private parseLabeledStatement(): LabeledStatement {
+        const labelToken = this.tokens.read();
+        if (labelToken?.type !== "identifier") {
+            this.fail("Expected label identifier", this.tokenAt(labelToken));
+        }
+
+        const colon = this.tokens.read();
+        if (colon?.type !== "symbol" || colon.value !== ":") {
+            this.fail("Expected ':' after statement label", this.tokenAt(colon));
+        }
+
+        const body = this.parseStatementOrThrow();
+        return this.attachNodeBounds({
+            kind: "LabeledStatement",
+            label: this.buildIdentifierFromToken(labelToken),
+            body
+        } as LabeledStatement, labelToken, this.getLastReadToken() ?? labelToken);
+    }
+
     private parseReturnStatement(): ReturnStatement {
         const returnKeyword = this.tokens.read();
         if (returnKeyword?.type !== "identifier" || returnKeyword.value !== "return") {
@@ -3590,6 +3650,14 @@ export class Parser {
         if (continueKeyword?.type !== "identifier" || continueKeyword.value !== "continue") {
             this.fail("Expected 'continue' statement", this.tokenAt(continueKeyword));
         }
+        const next = this.tokens.peek();
+        if (next?.type === "identifier" && !this.hasLineBreakBetween(continueKeyword, next)) {
+            const labelToken = this.tokens.read()!;
+            return this.attachNodeBounds({
+                kind: "ContinueStatement",
+                label: this.buildIdentifierFromToken(labelToken)
+            } as ContinueStatement, continueKeyword, labelToken);
+        }
         return this.attachNodeBounds({ kind: "ContinueStatement" } as ContinueStatement, continueKeyword, continueKeyword);
     }
 
@@ -3597,6 +3665,14 @@ export class Parser {
         const breakKeyword = this.tokens.read();
         if (breakKeyword?.type !== "identifier" || breakKeyword.value !== "break") {
             this.fail("Expected 'break' statement", this.tokenAt(breakKeyword));
+        }
+        const next = this.tokens.peek();
+        if (next?.type === "identifier" && !this.hasLineBreakBetween(breakKeyword, next)) {
+            const labelToken = this.tokens.read()!;
+            return this.attachNodeBounds({
+                kind: "BreakStatement",
+                label: this.buildIdentifierFromToken(labelToken)
+            } as BreakStatement, breakKeyword, labelToken);
         }
         return this.attachNodeBounds({ kind: "BreakStatement" } as BreakStatement, breakKeyword, breakKeyword);
     }

@@ -15,6 +15,7 @@ import type {
   FunctionStatement,
   Identifier,
   IfStatement,
+  LabeledStatement,
   NewExpression,
   MemberExpression,
   ObjectLiteral,
@@ -29,7 +30,8 @@ import type {
   UnaryExpression,
   UpdateExpression,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "vscode-languageserver/node.js";
@@ -176,6 +178,13 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
       case "WhileStatement":
         visitExpression((statement as WhileStatement).condition);
         visitStatement((statement as WhileStatement).body);
+        return;
+      case "WithStatement":
+        visitExpression((statement as WithStatement).object);
+        visitStatement((statement as WithStatement).body);
+        return;
+      case "LabeledStatement":
+        visitStatement((statement as LabeledStatement).body);
         return;
       case "DoWhileStatement":
         visitStatement((statement as DoWhileStatement).body);

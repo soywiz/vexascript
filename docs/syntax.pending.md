@@ -47,8 +47,6 @@ Scope notes:
 
 ## Statements and Control Flow
 
-- `with`.
-- Labels and labeled `break` / `continue`.
 - `switch` features still missing:
 - multiple `default` validation and diagnostics.
 - stricter fallthrough diagnostics behavior (if desired by project rules).

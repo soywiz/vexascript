@@ -2663,6 +2663,45 @@ describe("parseProgram", () => {
         });
     });
 
+    it("parses with statements, statement labels, and labeled break/continue", () => {
+        expect(parseProgram(tokenizeReader("outer: while (ok) { with (scope) { break outer }; continue outer }; done"))).toEqual({
+            kind: "Program",
+            body: [
+                {
+                    kind: "LabeledStatement",
+                    label: { kind: "Identifier", name: "outer" },
+                    body: {
+                        kind: "WhileStatement",
+                        condition: { kind: "Identifier", name: "ok" },
+                        body: {
+                            kind: "BlockStatement",
+                            body: [
+                                {
+                                    kind: "WithStatement",
+                                    object: { kind: "Identifier", name: "scope" },
+                                    body: {
+                                        kind: "BlockStatement",
+                                        body: [
+                                            {
+                                                kind: "BreakStatement",
+                                                label: { kind: "Identifier", name: "outer" }
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    kind: "ContinueStatement",
+                                    label: { kind: "Identifier", name: "outer" }
+                                }
+                            ]
+                        }
+                    }
+                },
+                { kind: "ExprStatement", expression: { kind: "Identifier", name: "done" } }
+            ]
+        });
+    });
+
     it("parses for statements with block bodies", () => {
         expect(parseProgram(tokenizeReader("for (let i = 0; i < 2; i += 1) { let x = i }; let done = 1;"))).toEqual({
             kind: "Program",

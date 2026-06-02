@@ -13,6 +13,7 @@ import type {
   ForStatement,
   FunctionStatement,
   IfStatement,
+  LabeledStatement,
   MemberExpression,
   NewExpression,
   ObjectLiteral,
@@ -27,7 +28,8 @@ import type {
   UpdateExpression,
   Identifier,
   VarStatement,
-  WhileStatement
+  WhileStatement,
+  WithStatement
 } from "compiler/ast/ast";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import type { Diagnostic } from "vscode-languageserver/node.js";
@@ -202,6 +204,13 @@ function collectCallExpressions(program: Program): CallExpression[] {
       case "WhileStatement":
         visitExpression((statement as WhileStatement).condition);
         visitStatement((statement as WhileStatement).body);
+        return;
+      case "WithStatement":
+        visitExpression((statement as WithStatement).object);
+        visitStatement((statement as WithStatement).body);
+        return;
+      case "LabeledStatement":
+        visitStatement((statement as LabeledStatement).body);
         return;
       case "DoWhileStatement":
         visitStatement((statement as DoWhileStatement).body);
@@ -391,6 +400,13 @@ function collectAssignmentExpressions(program: Program): AssignmentExpression[] 
       case "WhileStatement":
         visitExpression((statement as WhileStatement).condition);
         visitStatement((statement as WhileStatement).body);
+        return;
+      case "WithStatement":
+        visitExpression((statement as WithStatement).object);
+        visitStatement((statement as WithStatement).body);
+        return;
+      case "LabeledStatement":
+        visitStatement((statement as LabeledStatement).body);
         return;
       case "DoWhileStatement":
         visitStatement((statement as DoWhileStatement).body);
