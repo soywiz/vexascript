@@ -198,4 +198,10 @@ describe("formatSource", () => {
     expect(formatSource("let a=10n+20n\nlet b=10L+20L"))
       .toBe("let a = 10n + 20n\nlet b = 10L + 20L");
   });
+
+  it("formats regular expression literals without treating slashes as division", () => {
+    expect(formatSource("let re=/a\\/b+/gi\nlet quotient=total/count")).toBe(
+      "let re = /a\\/b+/gi\nlet quotient = total / count"
+    );
+  });
 });

@@ -30,6 +30,7 @@ Notes:
 Binding is lexical and scope-based:
 
 - The binder creates nested scopes for blocks, functions, loops, conditionals, switch/try branches, classes, and methods.
+- Semantic analysis validates switch structure, including reporting duplicate `default` clauses.
 - Visible symbols at a position are gathered from innermost scope to outermost scope.
 - Declarations in the same lexical scope update existing symbols when type information becomes more precise.
 
@@ -99,7 +100,7 @@ Two types are assignable when:
 - Literal values are assignable to their matching primitive builtin type, and contextual literal checking accepts matching literal annotations.
 - A source is assignable to a union target when it is assignable to any member; a union source must have every member assignable to the target.
 - A source is assignable to an intersection target when it is assignable to every member.
-- Tuple values require compatible element counts and element types for tuple targets, and tuple values can be assigned to arrays when every element is compatible with the array element type.
+- Tuple values require compatible element counts and element types for tuple targets, and tuple values can be assigned to arrays when every element is compatible with the array element type. Sparse array holes contribute `undefined` to array element compatibility.
 
 Consequences:
 

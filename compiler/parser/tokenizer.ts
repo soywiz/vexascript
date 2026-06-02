@@ -13,7 +13,7 @@ export interface SourceRange {
 }
 
 export interface Token {
-  type: "identifier" | "number" | "string" | "symbol" | "eof";
+  type: "identifier" | "number" | "string" | "regexp" | "symbol" | "eof";
   value: string;
   index: number;
   range: SourceRange;
@@ -190,6 +190,101 @@ function readComment(reader: StrReader): TokenComment | null {
   }
 
   return null;
+}
+
+function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
+  if (!previousToken) {
+    return true;
+  }
+  if (previousToken.type === "eof") {
+    return true;
+  }
+  if (previousToken.type === "identifier") {
+    return [
+      "return",
+      "throw",
+      "case",
+      "delete",
+      "void",
+      "typeof",
+      "await",
+      "in",
+      "instanceof",
+      "new",
+      "else",
+      "do"
+    ].includes(previousToken.value);
+  }
+  if (previousToken.type === "symbol") {
+    return new Set([
+      "(", "{", "[", ",", ";", ":", "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=",
+      "&=", "|=", "&&=", "||=", "??=", "?", "=>", "->", "||", "&&", "??", "|", "^", "&",
+      "==", "!=", "===", "!==", "<", ">", "<=", ">=", "+", "-", "*", "/", "%", "**", "!", "~", "..."
+    ]).has(previousToken.value);
+  }
+  return false;
+}
+
+function readRegExpLiteral(reader: StrReader, start: SourcePosition): string {
+  const startOffset = reader.offset;
+  advanceCode(reader);
+  let inCharacterClass = false;
+  let escaped = false;
+  let bodyLength = 0;
+
+  while (reader.hasMore) {
+    const code = advanceCode(reader);
+    if (code === 10 || code === 13) {
+      throw new TokenizeError("Unterminated regular expression literal", {
+        start,
+        end: snapshot(reader)
+      });
+    }
+
+    if (escaped) {
+      escaped = false;
+      bodyLength += 1;
+      continue;
+    }
+
+    if (code === CODE_BACKSLASH) {
+      escaped = true;
+      bodyLength += 1;
+      continue;
+    }
+
+    if (code === 91) {
+      inCharacterClass = true;
+      bodyLength += 1;
+      continue;
+    }
+
+    if (code === 93) {
+      inCharacterClass = false;
+      bodyLength += 1;
+      continue;
+    }
+
+    if (code === CODE_SLASH && !inCharacterClass) {
+      if (bodyLength === 0) {
+        throw new TokenizeError("Empty regular expression literal", {
+          start,
+          end: snapshot(reader)
+        });
+      }
+      while (reader.hasMore && isIdentifierPartCode(reader.peekCode())) {
+        advanceCode(reader);
+      }
+      return reader.str.slice(startOffset, reader.offset);
+    }
+
+    bodyLength += 1;
+  }
+
+  throw new TokenizeError("Unterminated regular expression literal", {
+    start,
+    end: snapshot(reader)
+  });
 }
 
 function readIdentifier(reader: StrReader): string {
@@ -763,6 +858,7 @@ export function tokenize(input: string): Token[] {
   const reader = new StrReader(input);
   const tokens: Token[] = [];
   let pendingComments: TokenComment[] = [];
+  let previousSignificantToken: Token | undefined;
 
   while (reader.hasMore) {
     const code = reader.peekCode();
@@ -791,14 +887,25 @@ export function tokenize(input: string): Token[] {
           index === 0 && pendingComments.length > 0
             ? pendingComments
             : fragment.leadingComments;
-        tokens.push({
+        const token: Token = {
           ...fragment,
           index: tokens.length,
           ...(leadingComments && leadingComments.length > 0 ? { leadingComments } : {})
-        });
+        };
+        tokens.push(token);
+        previousSignificantToken = token;
       }
       pendingComments = [];
       continue;
+    } else if (
+      code === CODE_SLASH &&
+      peekNextCode(reader) !== CODE_SLASH &&
+      peekNextCode(reader) !== CODE_STAR &&
+      peekNextCode(reader) !== CODE_EQUALS &&
+      tokenAllowsRegExpLiteral(previousSignificantToken)
+    ) {
+      type = "regexp";
+      value = readRegExpLiteral(reader, start);
     } else if (code === CODE_DOUBLE_QUOTE || code === CODE_SINGLE_QUOTE) {
       type = "string";
       value = readEscapedString(reader, code, start);
@@ -813,7 +920,7 @@ export function tokenize(input: string): Token[] {
       value = readSymbol(reader);
     }
 
-    tokens.push({
+    const token: Token = {
       type,
       value,
       index: tokens.length,
@@ -822,7 +929,9 @@ export function tokenize(input: string): Token[] {
         end: snapshot(reader)
       },
       ...(pendingComments.length > 0 ? { leadingComments: pendingComments } : {})
-    });
+    };
+    tokens.push(token);
+    previousSignificantToken = token;
     pendingComments = [];
   }
 

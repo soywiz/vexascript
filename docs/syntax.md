@@ -356,9 +356,10 @@ Supported literals:
 - long literals (`10L`, `0xffL`)
 - string literals (`"hello"`, `'hello'`)
 - template string literals with interpolation (`` `hello ${name}` ``)
+- regular expression literals (`/abc+/gi`)
 - boolean literals (`true`, `false`)
 - nullish literals (`null`, `undefined`)
-- array literals (`[1, 2, 3]`) with spread elements (`[0, ...values]`)
+- array literals (`[1, 2, 3]`) with spread elements (`[0, ...values]`) and sparse holes (`[1, , 3]`)
 - object literals (`{a: 1, b: 2}`), including shorthand properties, spread properties, computed keys, string/number literal keys, and method properties (`{ add(a, b) { return a + b } }`)
 
 ### Unary operators
@@ -422,6 +423,15 @@ for (let i = 0; i < 10; i++, total += i) {
 
 Comma-delimited lists such as call arguments and array elements remain separate syntax, so `fn(a, b)` is parsed as two arguments. Use parentheses for a comma expression argument, for example `fn((a, b))`.
 
+### Regular expression literals
+
+MyLang supports JavaScript-style regular expression literals in expression positions. They are emitted unchanged and are inferred semantically as `RegExp` named values, which can be supplied by ambient declarations or host TypeScript definitions.
+
+```mylang
+declare class RegExp {}
+let matcher: RegExp = /a[0-9]+/gi
+```
+
 ### Type assertions
 
 MyLang supports TypeScript-style `as` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
@@ -452,6 +462,14 @@ Supported member access forms:
 - optional computed access: `obj?.[index]`
 
 Optional member and computed access include `undefined` in their inferred result type.
+
+### Array literals
+
+Array literals preserve TypeScript/JavaScript sparse holes during emission and runtime execution. A hole contributes `undefined` to semantic element inference, so `[1, , 3]` is compatible with an `(int | undefined)[]` expectation and emits as a sparse JavaScript array.
+
+```mylang
+let values: (int | undefined)[] = [1, , 3]
+```
 
 ### Object literals
 
@@ -515,6 +533,19 @@ MyLang supports TypeScript-style `with` statements. The object expression and bo
 ```mylang
 with (scope) {
   use(value)
+}
+```
+
+### Switch statements
+
+MyLang supports `switch` statements with `case` and `default` clauses. Semantic analysis reports an error when a switch body contains more than one `default` clause, and LSP diagnostics expose a dedicated duplicate-default diagnostic code.
+
+```mylang
+switch (value) {
+  case 1:
+    break
+  default:
+    break
 }
 ```
 
@@ -752,6 +783,7 @@ try {
 - Boolean literals have type `boolean`.
 - `null` has type `null`.
 - `undefined` has type `undefined`.
+- Regular expression literals have the named type `RegExp`.
 - `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
 - `+` with at least one `string` operand infers `string`.
 - Comparisons/equality/logical operators infer `boolean`.
@@ -764,7 +796,7 @@ try {
 
 ### Collection typing
 
-- Array literals infer an element type from their items.
+- Array literals infer an element type from their items. Sparse holes contribute `undefined` to element inference.
 - When an array literal is checked against an expected array type, that element type is used as context for nested generic calls.
 - When an array literal is checked against an expected tuple type, each tuple element type is used as context for the corresponding array element.
 - Homogeneous arrays infer typed arrays, for example `int[]`.

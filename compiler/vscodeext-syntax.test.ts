@@ -44,6 +44,7 @@ describe("VS Code extension syntax highlighting", () => {
 
     const keywordPatterns = grammar.repository?.["keywords"]?.patterns?.map((pattern) => pattern.match) ?? [];
     const operatorPatterns = grammar.repository?.["operators"]?.patterns?.map((pattern) => pattern.match) ?? [];
+    const regexpPatterns = grammar.repository?.["regexps"]?.patterns?.map((pattern) => pattern.match) ?? [];
     const stringEscapeMatch =
       (
         grammar.repository?.["strings"] as
@@ -84,6 +85,7 @@ describe("VS Code extension syntax highlighting", () => {
     expect(operatorPatterns.join(" ")).toContain("\\*\\*");
     expect(operatorPatterns.join(" ")).toContain("\\?\\?=");
     expect(operatorPatterns.join(" ")).toContain("\\?\\?");
+    expect(regexpPatterns.join(" ")).toContain("/[");
     expect(stringEscapeMatch).toBe("\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})");
   });
 });

@@ -62,6 +62,11 @@ This means emit phase never runs with known invalid compile artifacts.
 - In `conservative` target, loop lowering is skipped and range iteration stays generator-based.
 - Standalone range expressions are emitted as generator-producing expressions.
 
+### Literal preservation
+
+- Regular expression literals are emitted unchanged as JavaScript regular expressions.
+- Sparse array holes are preserved in emitted array literals so runtime length and `in` behavior match JavaScript/TypeScript.
+
 ### Long arithmetic behavior
 
 - Long-typed arithmetic expressions are wrapped with `BigInt.asIntN(64, ...)` to preserve 64-bit semantics.
