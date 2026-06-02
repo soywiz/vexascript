@@ -231,7 +231,10 @@ export function resolveClassStatementAcrossFiles(
         continue;
       }
       const importStatement = statement as ImportStatement;
-      if (!importStatement.specifiers.some((specifier) => specifier.imported.name === className)) {
+      const matchingSpecifier = importStatement.specifiers.find((specifier) =>
+        (specifier.local ?? specifier.imported).name === className
+      );
+      if (!matchingSpecifier) {
         continue;
       }
       const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
@@ -242,7 +245,7 @@ export function resolveClassStatementAcrossFiles(
       if (!targetSession?.ast) {
         continue;
       }
-      const targetClass = findClassStatementInProgram(targetSession.ast, className);
+      const targetClass = findClassStatementInProgram(targetSession.ast, matchingSpecifier.imported.name);
       if (targetClass) {
         const resolved = {
           classStatement: targetClass,
@@ -303,7 +306,10 @@ function resolveInterfaceStatementAcrossFiles(
         continue;
       }
       const importStatement = statement as ImportStatement;
-      if (!importStatement.specifiers.some((specifier) => specifier.imported.name === interfaceName)) {
+      const matchingSpecifier = importStatement.specifiers.find((specifier) =>
+        (specifier.local ?? specifier.imported).name === interfaceName
+      );
+      if (!matchingSpecifier) {
         continue;
       }
       const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
@@ -314,7 +320,7 @@ function resolveInterfaceStatementAcrossFiles(
       if (!targetSession?.ast) {
         continue;
       }
-      const targetInterface = findInterfaceStatementInProgram(targetSession.ast, interfaceName);
+      const targetInterface = findInterfaceStatementInProgram(targetSession.ast, matchingSpecifier.imported.name);
       if (targetInterface) {
         const resolved = {
           interfaceStatement: targetInterface,

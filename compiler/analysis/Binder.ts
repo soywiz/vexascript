@@ -118,11 +118,30 @@ export class Binder {
     for (const statement of statements) {
       if (statement.kind === "ImportStatement") {
         const importStatement = statement as ImportStatement;
-        for (const specifier of importStatement.specifiers) {
+        if (importStatement.defaultImport) {
           this.declare(scope, {
-            name: specifier.imported.name,
+            name: importStatement.defaultImport.name,
             kind: "variable",
-            node: specifier.imported,
+            node: importStatement.defaultImport,
+            type: UNKNOWN_TYPE,
+            valueType: typeToString(UNKNOWN_TYPE)
+          });
+        }
+        if (importStatement.namespaceImport) {
+          this.declare(scope, {
+            name: importStatement.namespaceImport.name,
+            kind: "variable",
+            node: importStatement.namespaceImport,
+            type: UNKNOWN_TYPE,
+            valueType: typeToString(UNKNOWN_TYPE)
+          });
+        }
+        for (const specifier of importStatement.specifiers) {
+          const local = specifier.local ?? specifier.imported;
+          this.declare(scope, {
+            name: local.name,
+            kind: "variable",
+            node: local,
             type: UNKNOWN_TYPE,
             valueType: typeToString(UNKNOWN_TYPE)
           });

@@ -2242,54 +2242,71 @@ export class Parser {
             this.fail("Expected 'import' statement", this.tokenAt(importKeyword));
         }
 
-        const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
-            this.fail("Expected '{' after 'import'", this.tokenAt(openBrace));
+        let typeOnly = false;
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "type") {
+            this.tokens.skip();
+            typeOnly = true;
         }
 
-        const specifiers: ImportSpecifier[] = [];
-        while (this.tokens.hasMore) {
-            const maybeCloseBrace = this.tokens.peek();
-            if (maybeCloseBrace?.type === "symbol" && maybeCloseBrace.value === "}") {
-                this.tokens.skip();
-                break;
+        const firstImportToken = this.tokens.peek();
+        if (firstImportToken?.type === "string") {
+            if (typeOnly) {
+                this.fail("Expected imported bindings after 'import type'", this.tokenAt(firstImportToken));
             }
-
-            const nameToken = this.tokens.read();
-            if (nameToken?.type !== "identifier") {
-                this.fail("Expected imported symbol name", this.tokenAt(nameToken));
-            }
-            const imported = this.buildIdentifierFromToken(nameToken);
-            specifiers.push(
-                this.attachNodeBounds(
+            const sourceToken = this.tokens.read()!;
+            const statement: ImportStatement = {
+                kind: "ImportStatement",
+                specifiers: [],
+                from: this.attachNodeBounds(
                     {
-                        kind: "ImportSpecifier",
-                        imported
-                    } as ImportSpecifier,
-                    nameToken,
-                    nameToken
-                )
-            );
-
-            const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
-                this.tokens.skip();
-                continue;
-            }
-            if (separator?.type === "symbol" && separator.value === "}") {
-                this.tokens.skip();
-                break;
-            }
-            this.fail("Expected ',' or '}' in import specifier list", this.tokenAt(separator));
+                        kind: "StringLiteral",
+                        value: sourceToken.value
+                    } as StringLiteral,
+                    sourceToken,
+                    sourceToken
+                ),
+                sideEffectOnly: true
+            };
+            return this.attachNodeBounds(statement, importKeyword, sourceToken);
         }
 
-        if (specifiers.length === 0) {
-            this.fail("Expected at least one imported symbol", this.tokenAt());
+        let defaultImport: Identifier | undefined;
+        let namespaceImport: Identifier | undefined;
+        let specifiers: ImportSpecifier[] = [];
+
+        let hasMoreBindingsAfterDefault = false;
+        if (firstImportToken?.type === "identifier") {
+            const defaultToken = this.tokens.read()!;
+            defaultImport = this.buildIdentifierFromToken(defaultToken);
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",") {
+                this.tokens.skip();
+                hasMoreBindingsAfterDefault = true;
+            }
+        } else {
+            hasMoreBindingsAfterDefault = true;
+        }
+
+        const nextToken = this.tokens.peek();
+        if (hasMoreBindingsAfterDefault && nextToken?.type === "symbol" && nextToken.value === "{") {
+            specifiers = this.parseImportSpecifierList();
+        } else if (hasMoreBindingsAfterDefault && nextToken?.type === "symbol" && nextToken.value === "*") {
+            this.tokens.skip();
+            const asToken = this.tokens.read();
+            if (asToken?.type !== "identifier" || asToken.value !== "as") {
+                this.fail("Expected 'as' after '*' in namespace import", this.tokenAt(asToken));
+            }
+            const namespaceToken = this.tokens.read();
+            if (namespaceToken?.type !== "identifier") {
+                this.fail("Expected namespace import name", this.tokenAt(namespaceToken));
+            }
+            namespaceImport = this.buildIdentifierFromToken(namespaceToken);
+        } else if (hasMoreBindingsAfterDefault) {
+            this.fail("Expected import bindings or module string after 'import'", this.tokenAt(nextToken));
         }
 
         const fromKeyword = this.tokens.read();
         if (fromKeyword?.type !== "identifier" || fromKeyword.value !== "from") {
-            this.fail("Expected 'from' after import specifiers", this.tokenAt(fromKeyword));
+            this.fail("Expected 'from' after import bindings", this.tokenAt(fromKeyword));
         }
 
         const sourceToken = this.tokens.read();
@@ -2309,7 +2326,78 @@ export class Parser {
                 sourceToken
             )
         };
-        return this.attachNodeBounds(statement, importKeyword, this.getLastReadToken() ?? importKeyword);
+        if (defaultImport) {
+            statement.defaultImport = defaultImport;
+        }
+        if (namespaceImport) {
+            statement.namespaceImport = namespaceImport;
+        }
+        if (typeOnly) {
+            statement.typeOnly = true;
+        }
+        return this.attachNodeBounds(statement, importKeyword, sourceToken);
+    }
+
+    private parseImportSpecifierList(): ImportSpecifier[] {
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' after 'import'", this.tokenAt(openBrace));
+        }
+
+        const specifiers: ImportSpecifier[] = [];
+        while (this.tokens.hasMore) {
+            const maybeCloseBrace = this.tokens.peek();
+            if (maybeCloseBrace?.type === "symbol" && maybeCloseBrace.value === "}") {
+                this.tokens.skip();
+                break;
+            }
+
+            const nameToken = this.tokens.read();
+            if (nameToken?.type !== "identifier") {
+                this.fail("Expected imported symbol name", this.tokenAt(nameToken));
+            }
+            const imported = this.buildIdentifierFromToken(nameToken);
+            let local: Identifier | undefined;
+            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+                this.tokens.skip();
+                const localToken = this.tokens.read();
+                if (localToken?.type !== "identifier") {
+                    this.fail("Expected local import name after 'as'", this.tokenAt(localToken));
+                }
+                local = this.buildIdentifierFromToken(localToken);
+            }
+            const specifier: ImportSpecifier = {
+                kind: "ImportSpecifier",
+                imported
+            };
+            if (local) {
+                specifier.local = local;
+            }
+            specifiers.push(
+                this.attachNodeBounds(
+                    specifier,
+                    nameToken,
+                    local?.lastToken ?? nameToken
+                )
+            );
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                continue;
+            }
+            if (separator?.type === "symbol" && separator.value === "}") {
+                this.tokens.skip();
+                break;
+            }
+            this.fail("Expected ',' or '}' in import specifier list", this.tokenAt(separator));
+        }
+
+        if (specifiers.length === 0) {
+            this.fail("Expected at least one imported symbol", this.tokenAt());
+        }
+
+        return specifiers;
     }
 
 

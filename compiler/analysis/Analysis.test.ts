@@ -450,6 +450,25 @@ a--
     expect(messages.some((message) => message.includes("'Point'"))).toBe(false);
   });
 
+  it("resolves symbols introduced by default, namespace, and aliased imports", () => {
+    const source =
+      "import React from \"react\"\n" +
+      "import * as fs from \"fs\"\n" +
+      "import { Point as LocalPoint } from \"./a\"\n" +
+      "fun demo() {\n" +
+      "  React\n" +
+      "  fs\n" +
+      "  return new LocalPoint()\n" +
+      "}\n";
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("'React'"))).toBe(false);
+    expect(messages.some((message) => message.includes("'fs'"))).toBe(false);
+    expect(messages.some((message) => message.includes("'LocalPoint'"))).toBe(false);
+  });
+
   it("infers imported class instance type from new expressions", () => {
     const source =
       "import { MyPoint } from \"./world\"\n" +
