@@ -26,8 +26,6 @@ Scope notes:
 
 ## Type System Syntax
 
-- Function types (`(a: A) => B`).
-- Type literals (`{ a: string }` as type).
 - Deeper function generic inference beyond current constrained type-parameter support.
 - Mapped types and indexed access types (`{ [K in keyof T]: ... }`, `T[K]` in type position).
 - Conditional types (`T extends U ? X : Y`).

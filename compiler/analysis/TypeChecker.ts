@@ -1437,8 +1437,17 @@ export class TypeChecker {
       return literal;
     }
 
+    const functionAnnotation = this.resolveFunctionTypeAnnotation(normalizedTypeName, node, scope);
+    if (functionAnnotation) {
+      return functionAnnotation;
+    }
     if (this.looksLikeFunctionTypeAnnotation(normalizedTypeName)) {
       return UNKNOWN_TYPE;
+    }
+
+    const objectAnnotation = this.resolveObjectTypeAnnotation(normalizedTypeName, node, scope);
+    if (objectAnnotation) {
+      return objectAnnotation;
     }
 
     const parsed = parseTypeNameShape(normalizedTypeName);
@@ -2587,6 +2596,10 @@ export class TypeChecker {
     if (this.looksLikeFunctionTypeAnnotation(typeAnnotation.name)) {
       return UNKNOWN_TYPE;
     }
+    const objectType = this.objectTypeFromAnnotationText(typeAnnotation.name);
+    if (objectType) {
+      return objectType;
+    }
     const parsed = parseTypeNameShape(typeAnnotation.name);
     let resolvedBase: AnalysisType;
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
@@ -2614,6 +2627,10 @@ export class TypeChecker {
     }
     if (this.looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
+    }
+    const objectType = this.objectTypeFromAnnotationText(typeName);
+    if (objectType) {
+      return objectType;
     }
     const parsed = parseTypeNameShape(typeName);
     let resolved: AnalysisType;
@@ -2748,12 +2765,271 @@ export class TypeChecker {
     return sourceType;
   }
 
-  private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {
-    const match = /^\(\.\.\.\)\s*=>\s*(.+)$/.exec(typeName.trim());
-    if (!match) {
+  private resolveFunctionTypeAnnotation(typeName: string, node: Node, scope: Scope): AnalysisType | null {
+    const parsed = this.parseFunctionTypeAnnotation(typeName);
+    if (!parsed) {
       return null;
     }
-    return functionType([{ name: "arg", type: UNKNOWN_TYPE }], this.typeFromTypeNameLoose(match[1]!.trim()));
+    return functionType(
+      parsed.parameters.map((parameter) => ({
+        name: parameter.name,
+        type: this.resolveTypeNameText(parameter.typeName, node, scope, false),
+        ...(parameter.optional ? { optional: true } : {}),
+        ...(parameter.rest ? { rest: true } : {})
+      })),
+      this.resolveTypeNameText(parsed.returnTypeName, node, scope, false)
+    );
+  }
+
+  private resolveObjectTypeAnnotation(typeName: string, node: Node, scope: Scope): AnalysisType | null {
+    const members = this.parseObjectTypeAnnotation(typeName);
+    if (!members) {
+      return null;
+    }
+    const properties: Record<string, AnalysisType> = {};
+    for (const member of members) {
+      const propertyType = this.resolveTypeNameText(member.typeName, node, scope, false);
+      properties[member.name] = member.optional
+        ? unionType([propertyType, builtinType("undefined")])
+        : propertyType;
+    }
+    return objectTypeWithProperties(properties);
+  }
+
+  private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {
+    const parsed = this.parseFunctionTypeAnnotation(typeName);
+    if (!parsed) {
+      return null;
+    }
+    return functionType(
+      parsed.parameters.map((parameter) => ({
+        name: parameter.name,
+        type: this.typeFromTypeNameLoose(parameter.typeName),
+        ...(parameter.optional ? { optional: true } : {}),
+        ...(parameter.rest ? { rest: true } : {})
+      })),
+      this.typeFromTypeNameLoose(parsed.returnTypeName)
+    );
+  }
+
+  private objectTypeFromAnnotationText(typeName: string): AnalysisType | null {
+    const members = this.parseObjectTypeAnnotation(typeName);
+    if (!members) {
+      return null;
+    }
+    const properties: Record<string, AnalysisType> = {};
+    for (const member of members) {
+      const propertyType = this.typeFromTypeNameLoose(member.typeName);
+      properties[member.name] = member.optional
+        ? unionType([propertyType, builtinType("undefined")])
+        : propertyType;
+    }
+    return objectTypeWithProperties(properties);
+  }
+
+  private parseFunctionTypeAnnotation(typeName: string): {
+    parameters: Array<{ name: string; typeName: string; optional?: boolean; rest?: boolean }>;
+    returnTypeName: string;
+  } | null {
+    const trimmed = typeName.trim();
+    if (!trimmed.startsWith("(")) {
+      return null;
+    }
+
+    const closeParenIndex = this.findMatchingDelimiter(trimmed, 0, "(", ")");
+    if (closeParenIndex < 0) {
+      return null;
+    }
+    const afterParameters = trimmed.slice(closeParenIndex + 1).trimStart();
+    if (!afterParameters.startsWith("=>")) {
+      return null;
+    }
+
+    const parameterBody = trimmed.slice(1, closeParenIndex).trim();
+    const parameters = parameterBody.length === 0
+      ? []
+      : this.splitTopLevelDelimitedText(parameterBody).map((part, index) => {
+          let text = part.trim();
+          let rest = false;
+          if (text.startsWith("...")) {
+            rest = true;
+            text = text.slice(3).trim();
+          }
+
+          const colonIndex = this.findTopLevelCharacter(text, ":");
+          if (colonIndex < 0) {
+            return {
+              name: `arg${index + 1}`,
+              typeName: text.length > 0 ? text : "unknown",
+              ...(rest ? { rest: true } : {})
+            };
+          }
+
+          let name = text.slice(0, colonIndex).trim();
+          const typeName = text.slice(colonIndex + 1).trim();
+          let optional = false;
+          if (name.endsWith("?")) {
+            optional = true;
+            name = name.slice(0, -1).trim();
+          }
+          return {
+            name: name.length > 0 ? name : `arg${index + 1}`,
+            typeName: typeName.length > 0 ? typeName : "unknown",
+            ...(optional ? { optional: true } : {}),
+            ...(rest ? { rest: true } : {})
+          };
+        });
+
+    return {
+      parameters,
+      returnTypeName: afterParameters.slice(2).trim()
+    };
+  }
+
+  private parseObjectTypeAnnotation(typeName: string): Array<{ name: string; typeName: string; optional?: boolean }> | null {
+    const trimmed = typeName.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+      return null;
+    }
+
+    const body = trimmed.slice(1, -1).trim();
+    if (body.length === 0) {
+      return [];
+    }
+
+    return this.splitTopLevelDelimitedText(body, new Set([",", ";"])).map((part) => {
+      const colonIndex = this.findTopLevelCharacter(part, ":");
+      if (colonIndex < 0) {
+        return { name: part.trim(), typeName: "unknown" };
+      }
+      let name = part.slice(0, colonIndex).trim();
+      const typeName = part.slice(colonIndex + 1).trim();
+      let optional = false;
+      if (name.endsWith("?")) {
+        optional = true;
+        name = name.slice(0, -1).trim();
+      }
+      if ((name.startsWith('"') && name.endsWith('"')) || (name.startsWith("'") && name.endsWith("'"))) {
+        name = name.slice(1, -1);
+      }
+      return {
+        name,
+        typeName: typeName.length > 0 ? typeName : "unknown",
+        ...(optional ? { optional: true } : {})
+      };
+    });
+  }
+
+  private splitTopLevelDelimitedText(text: string, delimiters: Set<string> = new Set([","])): string[] {
+    const parts: string[] = [];
+    let current = "";
+    let angleDepth = 0;
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let bracketDepth = 0;
+    let quote: string | null = null;
+
+    for (let index = 0; index < text.length; index += 1) {
+      const ch = text[index]!;
+      const previous = index > 0 ? text[index - 1] : "";
+      if (quote) {
+        current += ch;
+        if (ch === quote && previous !== "\\") {
+          quote = null;
+        }
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        current += ch;
+        continue;
+      }
+      if (ch === "<") angleDepth += 1;
+      else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
+      else if (ch === "(") parenDepth += 1;
+      else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+      else if (ch === "{") braceDepth += 1;
+      else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
+      else if (ch === "[") bracketDepth += 1;
+      else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+
+      if (
+        delimiters.has(ch) &&
+        angleDepth === 0 &&
+        parenDepth === 0 &&
+        braceDepth === 0 &&
+        bracketDepth === 0
+      ) {
+        if (current.trim().length > 0) {
+          parts.push(current.trim());
+        }
+        current = "";
+        continue;
+      }
+      current += ch;
+    }
+
+    if (current.trim().length > 0) {
+      parts.push(current.trim());
+    }
+    return parts;
+  }
+
+  private findTopLevelCharacter(text: string, target: string): number {
+    let angleDepth = 0;
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let bracketDepth = 0;
+    let quote: string | null = null;
+    for (let index = 0; index < text.length; index += 1) {
+      const ch = text[index]!;
+      const previous = index > 0 ? text[index - 1] : "";
+      if (quote) {
+        if (ch === quote && previous !== "\\") quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch === "<") angleDepth += 1;
+      else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
+      else if (ch === "(") parenDepth += 1;
+      else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+      else if (ch === "{") braceDepth += 1;
+      else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
+      else if (ch === "[") bracketDepth += 1;
+      else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+      if (ch === target && angleDepth === 0 && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  private findMatchingDelimiter(text: string, openIndex: number, open: string, close: string): number {
+    let depth = 0;
+    let quote: string | null = null;
+    for (let index = openIndex; index < text.length; index += 1) {
+      const ch = text[index]!;
+      const previous = index > 0 ? text[index - 1] : "";
+      if (quote) {
+        if (ch === quote && previous !== "\\") quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch === open) depth += 1;
+      if (ch === close) {
+        depth -= 1;
+        if (depth === 0) {
+          return index;
+        }
+      }
+    }
+    return -1;
   }
 
   private looksLikeFunctionTypeAnnotation(typeName: string): boolean {

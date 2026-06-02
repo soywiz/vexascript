@@ -222,6 +222,25 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("'ready'"))).toBe(false);
   });
 
+
+  it("checks function and object type literal annotations", () => {
+    const source = `let mapper: (value: int) => string = (value: int) => "ok"
+let badMapper: (value: int) => string = (value: int) => value
+let point: { x: int; label?: string } = { x: 1 }
+let badPoint: { x: int; label: string } = { x: 1, label: 2 }
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(3, 5).map((symbol) => [symbol.name, symbol]));
+
+    expect(symbols.get("mapper")?.valueType).toBe("(value: int) => string");
+    expect(symbols.get("point")?.valueType).toBe("{ x: int, label: string | undefined }");
+    expect(messages).toContain("Type '(value: int) => int' is not assignable to type '(value: int) => string'");
+    expect(messages).toContain("Type '{ x: int, label: int }' is not assignable to type '{ x: int, label: string }'");
+  });
+
   it("reports reassignment of const/val variables", () => {
     const source =
       "const point = 1\n" +
