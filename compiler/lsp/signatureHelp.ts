@@ -6,6 +6,7 @@ import type {
   BinaryExpression,
   CallExpression,
   ClassStatement,
+  CommaExpression,
   Expr,
   ForStatement,
   FunctionStatement,
@@ -189,6 +190,11 @@ function findBestInvocationContext(
         takeBest(invocationContextForNode(position, node.callee, node.arguments ?? [], node, true));
         return;
       }
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
+        }
+        return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);
         visitExpression((expression as BinaryExpression).right);

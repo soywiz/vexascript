@@ -18,10 +18,13 @@ import {
     ClassPrimaryConstructorParameter,
     ClassStatement,
     ConditionalExpression,
+    CommaExpression,
     ContinueStatement,
+    DebuggerStatement,
     DoWhileStatement,
     Expr,
     ExprStatement,
+    EmptyStatement,
     ForStatement,
     FloatLiteral,
     FunctionDeclarationKind,
@@ -179,11 +182,6 @@ export class Parser {
                 break;
             }
 
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
-                this.tokens.skip();
-                continue;
-            }
-
             const statementStartOffset = this.tokens.offset;
             const statement = this.parseStatement();
             if (!statement) {
@@ -222,7 +220,7 @@ export class Parser {
     }
 
     parseExpressionOrThrow(): Expr {
-        return this.parseAssignment();
+        return this.parseCommaExpression();
     }
 
     parseStatementOrThrow(): Statement {
@@ -290,6 +288,13 @@ export class Parser {
         if (token?.type === "identifier" && token.value === "break") {
             return this.parseBreakStatement();
         }
+        if (token?.type === "identifier" && token.value === "debugger") {
+            return this.parseDebuggerStatement();
+        }
+        if (token?.type === "symbol" && token.value === ";") {
+            const semicolon = this.tokens.read();
+            return this.attachNodeBounds({ kind: "EmptyStatement" } as EmptyStatement, semicolon, semicolon);
+        }
         if (token?.type === "identifier" && token.value === "try") {
             return this.parseTryStatement();
         }
@@ -316,11 +321,6 @@ export class Parser {
             if (this.isEofToken(this.tokens.peek())) {
                 this.tokens.skip();
                 break;
-            }
-
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
-                this.tokens.skip();
-                continue;
             }
 
             const statement = this.parseStatementOrThrow();
@@ -502,6 +502,7 @@ export class Parser {
             token.value === "throw" ||
             token.value === "break" ||
             token.value === "continue" ||
+            token.value === "debugger" ||
             token.value === "case" ||
             token.value === "default"
         );
@@ -1175,7 +1176,7 @@ export class Parser {
         }
 
         while (this.tokens.hasMore) {
-            elements.push(this.parseExpressionOrThrow());
+            elements.push(this.parseAssignment());
 
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
@@ -1227,7 +1228,7 @@ export class Parser {
 
             if (next?.type === "symbol" && next.value === "...") {
                 const spreadToken = this.tokens.read()!;
-                const argument = this.parseExpressionOrThrow();
+                const argument = this.parseAssignment();
                 properties.push(
                     this.attachNodeBounds(
                         {
@@ -1267,7 +1268,7 @@ export class Parser {
                         this.fail("Expected ':' after object key", colon);
                     }
 
-                    const value = this.parseExpressionOrThrow();
+                    const value = this.parseAssignment();
                     properties.push(
                         this.attachNodeBounds(
                             {
@@ -1484,11 +1485,6 @@ export class Parser {
             if (token?.type === "symbol" && token.value === "}") {
                 this.tokens.skip();
                 break;
-            }
-
-            if (token?.type === "symbol" && token.value === ";") {
-                this.tokens.skip();
-                continue;
             }
 
             const statementStartOffset = this.tokens.offset;
@@ -1894,7 +1890,7 @@ export class Parser {
 
         if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
             while (this.tokens.hasMore) {
-                args.push(this.parseExpressionOrThrow());
+                args.push(this.parseAssignment());
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
                     this.tokens.skip();
@@ -2057,6 +2053,25 @@ export class Parser {
         } as ConditionalExpression, test.firstToken, alternate.lastToken ?? this.getLastReadToken());
     }
 
+    private parseCommaExpression(): Expr {
+        const first = this.parseAssignment();
+        const expressions: Expr[] = [first];
+
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",") {
+            this.tokens.skip();
+            expressions.push(this.parseAssignment());
+        }
+
+        if (expressions.length === 1) {
+            return first;
+        }
+
+        return this.attachNodeBounds({
+            kind: "CommaExpression",
+            expressions
+        } as CommaExpression, first.firstToken, expressions[expressions.length - 1]?.lastToken ?? this.getLastReadToken());
+    }
+
     private parseAssignment(): Expr {
         const arrowFunction = this.tryParseArrowFunctionExpression();
         if (arrowFunction) {
@@ -2141,7 +2156,7 @@ export class Parser {
         const maybeEquals = this.tokens.peek();
         if (maybeEquals?.type === "symbol" && maybeEquals.value === "=") {
             this.tokens.skip();
-            initializer = this.parseExpressionOrThrow();
+            initializer = this.parseAssignment();
         }
 
         const declarator: VarDeclarator = {
@@ -2714,7 +2729,7 @@ export class Parser {
         let initializer: Expr | undefined;
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
             this.tokens.skip();
-            initializer = this.parseExpressionOrThrow();
+            initializer = this.parseAssignment();
         }
 
         const fieldMember: ClassFieldMember = {
@@ -3139,11 +3154,6 @@ export class Parser {
                 } as BlockStatement, openBrace, this.getLastReadToken() ?? openBrace);
             }
 
-            if (token?.type === "symbol" && token.value === ";") {
-                this.tokens.skip();
-                continue;
-            }
-
             const statementStartOffset = this.tokens.offset;
             const statement = this.parseStatement();
             if (!statement) {
@@ -3260,7 +3270,7 @@ export class Parser {
                 }
                 initializer = this.buildIdentifierFromToken(identifierToken);
             } else {
-                initializer = this.parseExpressionOrThrow();
+                initializer = this.parseAssignment();
             }
         }
 
@@ -3562,6 +3572,17 @@ export class Parser {
             kind: "ThrowStatement",
             expression
         } as ThrowStatement, throwKeyword, this.getLastReadToken() ?? throwKeyword);
+    }
+
+
+    private parseDebuggerStatement(): DebuggerStatement {
+        const debuggerKeyword = this.tokens.read();
+        if (debuggerKeyword?.type !== "identifier" || debuggerKeyword.value !== "debugger") {
+            this.fail("Expected 'debugger' statement", this.tokenAt(debuggerKeyword));
+        }
+        return this.attachNodeBounds({
+            kind: "DebuggerStatement"
+        } as DebuggerStatement, debuggerKeyword, debuggerKeyword);
     }
 
     private parseTryStatement(): TryStatement {

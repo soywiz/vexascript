@@ -9,6 +9,7 @@ import type {
   ClassMethodMember,
   ClassStatement,
   ConditionalExpression,
+  CommaExpression,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -105,6 +106,7 @@ const KEYWORDS = new Set([
   "default",
   "break",
   "continue",
+  "debugger",
   "try",
   "catch",
   "finally",
@@ -436,6 +438,11 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
       case "BigIntLiteral":
       case "LongLiteral":
       case "StringLiteral":
+        return;
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
+        }
         return;
       case "BinaryExpression": {
         const binary = expression as BinaryExpression;

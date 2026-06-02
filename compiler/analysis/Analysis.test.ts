@@ -54,6 +54,12 @@ describe("Analysis", () => {
     expect(visible).not.toContain("inner");
   });
 
+  it("uses the final comma expression operand as the expression type", () => {
+    const ast = parseFile(tokenizeReader("let value: string = (1, \"ok\")"));
+    const analysis = new Analysis(ast);
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("reports semantic errors for unresolved variables in scope", () => {
     const source =
       "let top = 1\n" +

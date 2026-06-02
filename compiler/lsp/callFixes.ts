@@ -8,6 +8,7 @@ import type {
   CallExpression,
   ClassStatement,
   ConditionalExpression,
+  CommaExpression,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -122,6 +123,11 @@ function findCallArgumentAtPosition(program: Program, position: Position): CallA
         }
         return;
       }
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
+        }
+        return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);
         visitExpression((expression as BinaryExpression).right);

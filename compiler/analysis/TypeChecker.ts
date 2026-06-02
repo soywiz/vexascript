@@ -10,6 +10,7 @@ import type {
   ClassMethodMember,
   ClassStatement,
   ConditionalExpression,
+  CommaExpression,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -438,6 +439,15 @@ export class TypeChecker {
   private visitExpression(expression: Expr, scope: Scope, expectedType?: AnalysisType): AnalysisType {
     let result: AnalysisType;
     switch (expression.kind) {
+      case "CommaExpression": {
+        const comma = expression as CommaExpression;
+        result = UNKNOWN_TYPE;
+        for (let index = 0; index < comma.expressions.length; index += 1) {
+          const childExpectedType = index === comma.expressions.length - 1 ? expectedType : undefined;
+          result = this.visitExpression(comma.expressions[index]!, scope, childExpectedType);
+        }
+        break;
+      }
       case "BinaryExpression": {
         const binary = expression as BinaryExpression;
         const leftType = this.visitExpression(binary.left, scope);

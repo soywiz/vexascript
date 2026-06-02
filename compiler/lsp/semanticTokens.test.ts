@@ -42,6 +42,19 @@ function decodeTokens(source: string, data: number[]): DecodedToken[] {
 }
 
 describe("semantic tokens", () => {
+  it("highlights debugger as a keyword", () => {
+    const source = "debugger\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+
+    const decoded = decodeTokens(source, semantic.data);
+    expect(decoded.some((token) => token.lexeme === "debugger" && token.tokenType === "keyword")).toBe(true);
+  });
+
   it("highlights keywords like switch/case/default/new/declare", () => {
     const source =
       "declare class Console {\n" +

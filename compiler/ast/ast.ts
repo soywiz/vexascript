@@ -77,6 +77,11 @@ export interface StringLiteral extends Node {
     value: string
 }
 
+export interface CommaExpression extends Node {
+    kind: "CommaExpression"
+    expressions: Expr[]
+}
+
 export interface BinaryExpression extends Node {
     kind: "BinaryExpression"
     operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "in" | "instanceof" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&" | "??"
@@ -328,6 +333,14 @@ export interface TypeAliasStatement extends Statement {
 export interface ExprStatement extends Statement {
     kind: "ExprStatement"
     expression: Expr
+}
+
+export interface EmptyStatement extends Statement {
+    kind: "EmptyStatement"
+}
+
+export interface DebuggerStatement extends Statement {
+    kind: "DebuggerStatement"
 }
 
 export interface BlockStatement extends Statement {

@@ -22,6 +22,11 @@ describe("emitProgram", () => {
     expect(emitProgram(lowerProgram(program))).toContain("for (let a = 0; a < 10; a++) console.log(a);");
   });
 
+  it("emits comma expressions, debugger statements, and empty statements", () => {
+    const program = parseFile(tokenizeReader("let value = (setA(), setB())\ndebugger\nwhile (value);"));
+    expect(emitProgram(program)).toBe("let value = (setA(), setB());\ndebugger;\nwhile (value) ;");
+  });
+
   it("emits range expression outside for as generator", () => {
     const program = parseFile(tokenizeReader("let values = 0 ... 3"));
     expect(emitProgram(program)).toContain(

@@ -9,6 +9,7 @@ import type {
   ClassMethodMember,
   ClassStatement,
   ConditionalExpression,
+  CommaExpression,
   DoWhileStatement,
   Expr,
   ForStatement,
@@ -49,6 +50,7 @@ const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "type", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "interface", kind: CompletionItemKind.Keyword, detail: "Keyword" },
+  { label: "debugger", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "int", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "number", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "bigint", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
@@ -302,6 +304,11 @@ function findArgumentCompletionContext(
         visitExpression((expression as MemberExpression).object);
         if ((expression as MemberExpression).computed) {
           visitExpression((expression as MemberExpression).property);
+        }
+        return;
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
         }
         return;
       case "BinaryExpression":
