@@ -52,6 +52,7 @@ import {
     ObjectSpreadProperty,
     Program,
     RangeExpression,
+    RegExpLiteral,
     ReturnStatement,
     Statement,
     StringLiteral,
@@ -1178,28 +1179,11 @@ export class Parser {
 
     private parseArrayLiteral(): ArrayLiteral {
         const startToken = this.getLastReadToken();
-        const elements: Expr[] = [];
-
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
-            this.tokens.skip();
-            return this.withNodeBounds(startToken, () => {
-                return {
-                    kind: "ArrayLiteral",
-                    elements
-                } as ArrayLiteral;
-            });
-        }
+        const elements: ArrayLiteral["elements"] = [];
 
         while (this.tokens.hasMore) {
-            elements.push(this.parseAssignment());
-
-            const separator = this.tokens.peek();
-            if (separator?.type === "symbol" && separator.value === ",") {
-                this.tokens.skip();
-                continue;
-            }
-
-            if (separator?.type === "symbol" && separator.value === "]") {
+            const token = this.tokens.peek();
+            if (token?.type === "symbol" && token.value === "]") {
                 this.tokens.skip();
                 return this.withNodeBounds(startToken, () => {
                     return {
@@ -1207,6 +1191,27 @@ export class Parser {
                         elements
                     } as ArrayLiteral;
                 });
+            }
+
+            if (token?.type === "symbol" && token.value === ",") {
+                const comma = this.tokens.read();
+                elements.push(this.attachNodeBounds({ kind: "ArrayHole" }, comma, comma));
+                continue;
+            }
+
+            elements.push(this.parseAssignment());
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
+                    continue;
+                }
+                continue;
+            }
+
+            if (separator?.type === "symbol" && separator.value === "]") {
+                continue;
             }
 
             break;
@@ -1760,6 +1765,17 @@ export class Parser {
         if (token?.type === "string") {
             return this.attachNodeBounds(
                 { kind: "StringLiteral", value: token.value } as StringLiteral,
+                token,
+                token
+            );
+        }
+
+        if (token?.type === "regexp") {
+            const lastSlashIndex = token.value.lastIndexOf("/");
+            const pattern = token.value.slice(1, lastSlashIndex);
+            const flags = token.value.slice(lastSlashIndex + 1);
+            return this.attachNodeBounds(
+                { kind: "RegExpLiteral", pattern, flags } as RegExpLiteral,
                 token,
                 token
             );

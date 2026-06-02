@@ -91,7 +91,7 @@ describe("semantic tokens", () => {
   });
 
   it("highlights operators and primitive literals", () => {
-    const source = "let a: int = 1 + 2\na += 3\n";
+    const source = "let a: int = 1 + 2\na += 3\nlet re = /a+/g\n";
     const session = createAnalysisSession(source);
     const semantic = createSemanticTokens({
       text: source,
@@ -110,6 +110,9 @@ describe("semantic tokens", () => {
       true
     );
     expect(decoded.some((token) => token.lexeme === "2" && token.tokenType === "number")).toBe(
+      true
+    );
+    expect(decoded.some((token) => token.lexeme === "/a+/g" && token.tokenType === "string")).toBe(
       true
     );
   });

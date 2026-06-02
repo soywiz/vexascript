@@ -40,6 +40,19 @@ console.log(c)
     expect(logs).toEqual([[10], [30n]]);
   });
 
+  it("executes regular expression literals and sparse arrays", () => {
+    const source = `let re = /a+/
+let values = [1, , 3]
+console.log(re.test("aa"))
+console.log(1 in values)
+console.log(values.length)
+`;
+
+    const logs = executeTranspiled(source, "optimized");
+
+    expect(logs).toEqual([[true], [false], [3]]);
+  });
+
   it("preserves behavior between conservative and optimized transpile targets", () => {
     const source = `let total = 0
 for (n of 0 ... 5) {

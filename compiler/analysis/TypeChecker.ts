@@ -476,6 +476,19 @@ export class TypeChecker {
 
   private visitSwitchStatement(statement: SwitchStatement, scope: Scope, flow: FlowContext): void {
     this.visitExpression(statement.discriminant, scope);
+    let sawDefaultCase = false;
+    for (const switchCase of statement.cases) {
+      if (!switchCase.test) {
+        if (sawDefaultCase) {
+          this.issues.push({
+            message: "Switch statement cannot contain multiple default clauses",
+            node: switchCase,
+            code: ANALYSIS_ISSUE_CODES.DUPLICATE_SWITCH_DEFAULT
+          });
+        }
+        sawDefaultCase = true;
+      }
+    }
     const switchScope = this.scopeFor(statement, scope);
     const switchFlow: FlowContext = {
       ...flow,
@@ -732,6 +745,9 @@ export class TypeChecker {
       case "ArrayLiteral":
         result = this.inferArrayLiteralType(expression as ArrayLiteral, scope, expectedType);
         break;
+      case "ArrayHole":
+        result = builtinType("undefined");
+        break;
       case "ObjectLiteral":
         result = this.inferObjectLiteralType(expression as ObjectLiteral, scope, expectedType);
         break;
@@ -788,6 +804,9 @@ export class TypeChecker {
           literalType("string", (expression as StringLiteral).value),
           expectedType
         ) ?? builtinType("string");
+        break;
+      case "RegExpLiteral":
+        result = namedType("RegExp");
         break;
       case "BooleanLiteral":
         result = this.contextualLiteralType(
@@ -1972,7 +1991,12 @@ export class TypeChecker {
     const expectedElementType = this.expectedArrayElementType(expectedType);
 
     for (const element of arrayLiteral.elements) {
-      const visitedType = this.visitExpression(element, scope, expectedElementType);
+      if (element.kind === "ArrayHole") {
+        this.expressionTypes.set(element, builtinType("undefined"));
+      }
+      const visitedType = element.kind === "ArrayHole"
+        ? builtinType("undefined")
+        : this.visitExpression(element, scope, expectedElementType);
       const currentType = element.kind === "SpreadExpression"
         ? this.spreadArgumentElementType(visitedType)
         : visitedType;

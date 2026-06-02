@@ -1,5 +1,5 @@
 interface FormatToken {
-  type: "identifier" | "number" | "string" | "commentLine" | "commentBlock" | "symbol" | "newline";
+  type: "identifier" | "number" | "string" | "regexp" | "commentLine" | "commentBlock" | "symbol" | "newline";
   value: string;
 }
 
@@ -72,6 +72,76 @@ function charAtOrEmpty(source: string, index: number): string {
   return source[index] ?? "";
 }
 
+function previousSignificantFormatToken(tokens: FormatToken[]): FormatToken | undefined {
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index];
+    if (token && token.type !== "newline" && token.type !== "commentLine" && token.type !== "commentBlock") {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+function formatTokenAllowsRegExpLiteral(previousToken: FormatToken | undefined): boolean {
+  if (!previousToken) {
+    return true;
+  }
+  if (previousToken.type === "identifier") {
+    return ["return", "throw", "case", "delete", "void", "typeof", "await", "in", "instanceof", "new", "else", "do", "of"].includes(previousToken.value);
+  }
+  if (previousToken.type === "symbol") {
+    return new Set([
+      "(", "{", "[", ",", ";", ":", "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=",
+      "&=", "|=", "&&=", "||=", "??=", "?", "=>", "->", "||", "&&", "??", "|", "^", "&",
+      "==", "!=", "===", "!==", "<", ">", "<=", ">=", "+", "-", "*", "/", "%", "**", "!", "~", "..."
+    ]).has(previousToken.value);
+  }
+  return false;
+}
+
+function readFormatRegExpLiteral(source: string, start: number): number {
+  let index = start + 1;
+  let escaped = false;
+  let inCharacterClass = false;
+
+  while (index < source.length) {
+    const ch = charAtOrEmpty(source, index);
+    if (ch === "\n" || ch === "\r") {
+      return start + 1;
+    }
+    if (escaped) {
+      escaped = false;
+      index += 1;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      index += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inCharacterClass = true;
+      index += 1;
+      continue;
+    }
+    if (ch === "]") {
+      inCharacterClass = false;
+      index += 1;
+      continue;
+    }
+    if (ch === "/" && !inCharacterClass) {
+      index += 1;
+      while (index < source.length && isIdentifierPart(charAtOrEmpty(source, index))) {
+        index += 1;
+      }
+      return index;
+    }
+    index += 1;
+  }
+
+  return start + 1;
+}
+
 function tokenizeForFormatting(source: string): FormatToken[] {
   const tokens: FormatToken[] = [];
   let i = 0;
@@ -116,6 +186,21 @@ function tokenizeForFormatting(source: string): FormatToken[] {
       }
       tokens.push({ type: "commentBlock", value: source.slice(start, i) });
       continue;
+    }
+
+    if (
+      ch === "/" &&
+      charAtOrEmpty(source, i + 1) !== "/" &&
+      charAtOrEmpty(source, i + 1) !== "*" &&
+      charAtOrEmpty(source, i + 1) !== "=" &&
+      formatTokenAllowsRegExpLiteral(previousSignificantFormatToken(tokens))
+    ) {
+      const end = readFormatRegExpLiteral(source, i);
+      if (end > i + 1) {
+        tokens.push({ type: "regexp", value: source.slice(i, end) });
+        i = end;
+        continue;
+      }
     }
 
     if (ch === '"' || ch === "'") {
@@ -203,7 +288,7 @@ function isWordLike(token: FormatToken | undefined): boolean {
   if (!token) {
     return false;
   }
-  return token.type === "identifier" || token.type === "number" || token.type === "string";
+  return token.type === "identifier" || token.type === "number" || token.type === "string" || token.type === "regexp";
 }
 
 function isMemberOperator(token: FormatToken | undefined): boolean {

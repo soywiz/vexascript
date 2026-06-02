@@ -679,7 +679,7 @@ function classifyToken(
   if (token.type === "number") {
     return "number";
   }
-  if (token.type === "string") {
+  if (token.type === "string" || token.type === "regexp") {
     return "string";
   }
   if (token.type === "symbol") {

@@ -9,6 +9,9 @@
       "include": "#strings"
     },
     {
+      "include": "#regexps"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -166,6 +169,14 @@
         {
           "name": "variable.other.mylang",
           "match": "\\b[_A-Za-z][_A-Za-z0-9]*\\b"
+        }
+      ]
+    },
+    "regexps": {
+      "patterns": [
+        {
+          "name": "string.regexp.mylang",
+          "match": "/(?:\\\\.|\\[(?:\\\\.|[^\\]\\\\])*\\]|[^/\\\\\\r\\n])+/[A-Za-z]*"
         }
       ]
     }

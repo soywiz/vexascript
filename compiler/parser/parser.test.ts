@@ -52,6 +52,23 @@ describe("parseExpression", () => {
         expect(parseExpression(tokenizeReader("undefined"))).toEqual({ kind: "UndefinedLiteral" });
     });
 
+    it("builds AST nodes for regular expression literals and sparse arrays", () => {
+        expect(parseExpression(tokenizeReader("/a[0-9]+/gi"))).toEqual({
+            kind: "RegExpLiteral",
+            pattern: "a[0-9]+",
+            flags: "gi"
+        });
+
+        expect(parseExpression(tokenizeReader("[1, , 3,]"))).toEqual({
+            kind: "ArrayLiteral",
+            elements: [
+                { kind: "IntLiteral", value: 1 },
+                { kind: "ArrayHole" },
+                { kind: "IntLiteral", value: 3 }
+            ]
+        });
+    });
+
     it("builds an AST for escaped string literal", () => {
         expect(parseExpression(tokenizeReader("\"hello\\n\\r\\t...world\""))).toEqual(
             { kind: "StringLiteral", value: "hello\n\r\t...world" }

@@ -315,4 +315,20 @@ describe("tokenizer", () => {
             end: { offset: 5, line: 1, column: 3 }
         });
     });
+    it("tokenizes regular expression literals contextually", () => {
+        expect(simplifyTokens("let re = /a\\/b+/gi; let quotient = total / count")).toStrictEqual([
+            { type: "identifier", value: "let" },
+            { type: "identifier", value: "re" },
+            { type: "symbol", value: "=" },
+            { type: "regexp", value: "/a\\/b+/gi" },
+            { type: "symbol", value: ";" },
+            { type: "identifier", value: "let" },
+            { type: "identifier", value: "quotient" },
+            { type: "symbol", value: "=" },
+            { type: "identifier", value: "total" },
+            { type: "symbol", value: "/" },
+            { type: "identifier", value: "count" }
+        ]);
+    })
+
 })

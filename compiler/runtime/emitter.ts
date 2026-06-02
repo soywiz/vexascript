@@ -35,6 +35,7 @@ import type {
   ObjectSpreadProperty,
   Program,
   RangeExpression,
+  RegExpLiteral,
   ReturnStatement,
   Statement,
   StringLiteral,
@@ -185,6 +186,9 @@ function wrapLongExpressionIfNeeded(expression: Expr, text: string): string {
 }
 
 function emitListElement(expression: Expr): string {
+  if (expression.kind === "ArrayHole") {
+    return "";
+  }
   const text = emitExpression(expression);
   return expression.kind === "CommaExpression" ? `(${text})` : text;
 }
@@ -217,6 +221,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         return `${(expression as LongLiteral).value}n`;
       case "StringLiteral":
         return JSON.stringify((expression as StringLiteral).value);
+      case "RegExpLiteral": {
+        const regexp = expression as RegExpLiteral;
+        return `/${regexp.pattern}/${regexp.flags}`;
+      }
       case "BooleanLiteral":
         return (expression as BooleanLiteral).value ? "true" : "false";
       case "NullLiteral":

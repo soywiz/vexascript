@@ -78,6 +78,27 @@ describe("Analysis", () => {
     expect(messages.some((message) => message.includes("'a'"))).toBe(false);
   });
 
+  it("infers regular expression literals, sparse array holes, and duplicate switch defaults", () => {
+    const source =
+      "declare class RegExp {}\n" +
+      "let re: RegExp = /a+/g\n" +
+      "let values: (int | undefined)[] = [1, , 3]\n" +
+      "switch (values[0]) {\n" +
+      "  default:\n" +
+      "    break\n" +
+      "  default:\n" +
+      "    break\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Switch statement cannot contain multiple default clauses");
+    expect(messages.some((message) => message.includes("RegExp"))).toBe(false);
+    expect(messages.some((message) => message.includes("undefined") && message.includes("assignable"))).toBe(false);
+  });
+
   it("reports semantic errors for illegal break/continue usage", () => {
     const source =
       "break\n" +

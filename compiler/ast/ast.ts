@@ -77,6 +77,12 @@ export interface StringLiteral extends Node {
     value: string
 }
 
+export interface RegExpLiteral extends Node {
+    kind: "RegExpLiteral"
+    pattern: string
+    flags: string
+}
+
 export interface CommaExpression extends Node {
     kind: "CommaExpression"
     expressions: Expr[]
@@ -171,9 +177,15 @@ export interface UpdateExpression extends Node {
     prefix: boolean
 }
 
+export interface ArrayHole extends Expr {
+    kind: "ArrayHole"
+}
+
+export type ArrayLiteralElement = Expr | ArrayHole;
+
 export interface ArrayLiteral extends Node {
     kind: "ArrayLiteral"
-    elements: Expr[]
+    elements: ArrayLiteralElement[]
 }
 
 export interface ObjectProperty extends Node {

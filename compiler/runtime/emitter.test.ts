@@ -64,6 +64,13 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let h = await promise;");
   });
 
+  it("emits regular expression literals and sparse arrays", () => {
+    const program = parseFile(tokenizeReader("let re = /a\\/b+/gi\nlet values = [1, , 3]"));
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("let re = /a\\/b+/gi;");
+    expect(emitted).toContain("let values = [1, , 3];");
+  });
+
   it("emits boolean, null, and undefined literal nodes", () => {
     const program = parseFile(tokenizeReader("let t = true\nlet f = false\nlet n = null\nlet u = undefined"));
     const emitted = emitProgram(program);

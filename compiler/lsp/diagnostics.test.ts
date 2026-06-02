@@ -56,6 +56,21 @@ describe("lsp diagnostics", () => {
     );
   });
 
+  it("assigns a semantic diagnostic code to duplicate switch defaults", () => {
+    const diagnostics = diagnosticsFor(
+      "switch (value) {\n" +
+      "  default:\n" +
+      "    break\n" +
+      "  default:\n" +
+      "    break\n" +
+      "}\n"
+    );
+
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.DUPLICATE_SWITCH_DEFAULT)
+    ).toBe(true);
+  });
+
   it("assigns readonly-reassignment diagnostic code for const/val writes", () => {
     const source =
       "const point = 1\n" +

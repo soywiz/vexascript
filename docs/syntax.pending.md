@@ -45,23 +45,13 @@ Scope notes:
 
 ## Statements and Control Flow
 
-- `switch` features still missing:
-- multiple `default` validation and diagnostics.
-- stricter fallthrough diagnostics behavior (if desired by project rules).
-
-## Expressions
-
-- RegExp literals (`/abc/`).
-
-## Object and Array Literals
-
-- Sparse arrays behavior.
+- Stricter switch fallthrough diagnostics behavior (if desired by project rules).
 
 ## Error Recovery and Diagnostics (TypeScript-oriented)
 
 - Rich diagnostics for unsupported TS syntax (actionable messages per construct).
 - Recovery strategies around module/type syntax to continue parsing more of a file.
-- Validation diagnostics for TS-specific constraints (duplicate defaults in switch, invalid modifier combinations, etc.).
+- Validation diagnostics for TS-specific constraints (invalid modifier combinations, etc.).
 
 ## Tooling/Formatting Gaps Related to Pending Syntax
 

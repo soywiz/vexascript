@@ -55,3 +55,8 @@ This document tracks common Language Server Protocol services and their status i
 - Code actions include declaration keyword replacements and auto-import fixes.
 - Diagnostics include parser and semantic issues, and keep semantic checks enabled after parser recovery.
 - Semantic tokens provide semantic highlighting for keywords, operators, literals, and symbols (`full` + `range`).
+
+## Recent diagnostic coverage
+
+- Semantic diagnostics include a dedicated code for duplicate switch defaults.
+- Semantic tokens classify regular expression literals with string-like token coloring.
