@@ -26,9 +26,6 @@ Scope notes:
 
 ## Type System Syntax
 
-- Union and intersection types (`A | B`, `A & B`) in annotations.
-- Literal types (`"x"`, `123`, `true` as types).
-- Tuple types (`[A, B]`).
 - Function types (`(a: A) => B`).
 - Type literals (`{ a: string }` as type).
 - Deeper function generic inference beyond current constrained type-parameter support.

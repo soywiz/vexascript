@@ -52,6 +52,27 @@ export interface RangeType {
   elementType: AnalysisType;
 }
 
+export interface UnionType {
+  kind: "union";
+  types: AnalysisType[];
+}
+
+export interface IntersectionType {
+  kind: "intersection";
+  types: AnalysisType[];
+}
+
+export interface LiteralType {
+  kind: "literal";
+  base: "string" | "number" | "boolean";
+  value: string | number | boolean;
+}
+
+export interface TupleType {
+  kind: "tuple";
+  elements: AnalysisType[];
+}
+
 export type AnalysisType =
   | UnknownType
   | BuiltinType
@@ -59,7 +80,11 @@ export type AnalysisType =
   | FunctionType
   | ArrayType
   | ObjectType
-  | RangeType;
+  | RangeType
+  | UnionType
+  | IntersectionType
+  | LiteralType
+  | TupleType;
 
 export const UNKNOWN_TYPE: AnalysisType = { kind: "unknown" };
 
@@ -131,6 +156,22 @@ export function rangeType(elementType: AnalysisType = builtinType("int")): Range
   };
 }
 
+export function unionType(types: AnalysisType[]): UnionType {
+  return { kind: "union", types };
+}
+
+export function intersectionType(types: AnalysisType[]): IntersectionType {
+  return { kind: "intersection", types };
+}
+
+export function literalType(base: LiteralType["base"], value: LiteralType["value"]): LiteralType {
+  return { kind: "literal", base, value };
+}
+
+export function tupleType(elements: AnalysisType[]): TupleType {
+  return { kind: "tuple", elements };
+}
+
 export function typeToString(type: AnalysisType): string {
   switch (type.kind) {
     case "unknown":
@@ -164,6 +205,14 @@ export function typeToString(type: AnalysisType): string {
         .join(", ")} }`;
     case "range":
       return `range<${typeToString(type.elementType)}>`;
+    case "union":
+      return type.types.map((member) => typeToString(member)).join(" | ");
+    case "intersection":
+      return type.types.map((member) => typeToString(member)).join(" & ");
+    case "literal":
+      return type.base === "string" ? JSON.stringify(type.value) : String(type.value);
+    case "tuple":
+      return `[${type.elements.map((element) => typeToString(element)).join(", ")}]`;
     default:
       return "unknown";
   }
@@ -229,6 +278,31 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
       }
     }
     return true;
+  }
+
+  if (a.kind === "union" && b.kind === "union") {
+    if (a.types.length !== b.types.length) {
+      return false;
+    }
+    return a.types.every((aType, index) => isSameType(aType, b.types[index]!));
+  }
+
+  if (a.kind === "intersection" && b.kind === "intersection") {
+    if (a.types.length !== b.types.length) {
+      return false;
+    }
+    return a.types.every((aType, index) => isSameType(aType, b.types[index]!));
+  }
+
+  if (a.kind === "literal" && b.kind === "literal") {
+    return a.base === b.base && a.value === b.value;
+  }
+
+  if (a.kind === "tuple" && b.kind === "tuple") {
+    if (a.elements.length !== b.elements.length) {
+      return false;
+    }
+    return a.elements.every((element, index) => isSameType(element, b.elements[index]!));
   }
 
   if (a.kind === "function" && b.kind === "function") {

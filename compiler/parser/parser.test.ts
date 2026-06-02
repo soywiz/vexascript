@@ -1885,13 +1885,32 @@ describe("parseStatement", () => {
                         {
                             kind: "FunctionParameter",
                             name: { kind: "Identifier", name: "mapper" },
-                            typeAnnotation: { kind: "Identifier", name: "(...) => T" }
+                            typeAnnotation: { kind: "Identifier", name: "(item:T) => T" }
                         }
                     ],
                     returnType: { kind: "Identifier", name: "Array<R>" },
                     body: { kind: "BlockStatement", body: [] }
                 }
             ]
+        });
+    });
+
+    it("parses union, intersection, literal, and tuple type annotations", () => {
+        expect(parseStatement(tokenizeReader("let value: string | number | null"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "string | number | null" }
+        });
+        expect(parseStatement(tokenizeReader("let value: A & B"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "A & B" }
+        });
+        expect(parseStatement(tokenizeReader("let status: \"ok\" | false"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: '"ok" | false' }
+        });
+        expect(parseStatement(tokenizeReader("let pair: [string, int]"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "[string, int]" }
         });
     });
 

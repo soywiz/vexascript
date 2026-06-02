@@ -80,3 +80,84 @@ export function substituteTypeNameText(typeName: string, substitutions: Map<stri
   }
   return substituted;
 }
+
+
+export function splitTopLevelTypeText(typeName: string, separator: "|" | "&" | ","): string[] {
+  const parts: string[] = [];
+  let angleDepth = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let quote: string | null = null;
+  let current = "";
+
+  for (let index = 0; index < typeName.length; index += 1) {
+    const ch = typeName[index]!;
+    const previous = index > 0 ? typeName[index - 1] : "";
+
+    if (quote) {
+      current += ch;
+      if (ch === quote && previous !== "\\") {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+
+    if (ch === "<") angleDepth += 1;
+    else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
+    else if (ch === "(") parenDepth += 1;
+    else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+    else if (ch === "[") bracketDepth += 1;
+    else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+
+    if (ch === separator && angleDepth === 0 && parenDepth === 0 && bracketDepth === 0) {
+      if (current.trim().length > 0) {
+        parts.push(current.trim());
+      }
+      current = "";
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (current.trim().length > 0) {
+    parts.push(current.trim());
+  }
+
+  return parts;
+}
+
+export function stripEnclosingTypeParens(typeName: string): string {
+  const trimmed = typeName.trim();
+  if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) {
+    return trimmed;
+  }
+
+  let depth = 0;
+  let quote: string | null = null;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const ch = trimmed[index]!;
+    const previous = index > 0 ? trimmed[index - 1] : "";
+    if (quote) {
+      if (ch === quote && previous !== "\\") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (depth === 0 && index < trimmed.length - 1) {
+      return trimmed;
+    }
+  }
+
+  return stripEnclosingTypeParens(trimmed.slice(1, -1));
+}

@@ -197,6 +197,31 @@ describe("Analysis", () => {
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
   });
 
+  it("checks union, intersection, literal, and tuple type annotations", () => {
+    const source =
+      "interface Named { name: string }\n" +
+      "interface Aged { age: int }\n" +
+      "let person: Named & Aged = { name: \"Ada\", age: 1 }\n" +
+      "let incomplete: Named & Aged = { name: \"Ada\" }\n" +
+      "let maybe: string | int = 1\n" +
+      "maybe = \"ok\"\n" +
+      "maybe = false\n" +
+      "let status: \"ready\" | \"done\" = \"ready\"\n" +
+      "status = \"bad\"\n" +
+      "let pair: [string, int] = [\"age\", 1]\n" +
+      "pair = [2, \"wrong\"]\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type '{ name: string }' is not assignable to type 'Named & Aged'");
+    expect(messages).toContain("Type 'boolean' is not assignable to type 'string | int'");
+    expect(messages).toContain("Type 'string' is not assignable to type '\"ready\" | \"done\"'");
+    expect(messages).toContain("Type '[int, string]' is not assignable to type '[string, int]'");
+    expect(messages.some((message) => message.includes("'ready'"))).toBe(false);
+  });
+
   it("reports reassignment of const/val variables", () => {
     const source =
       "const point = 1\n" +
