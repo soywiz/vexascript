@@ -82,12 +82,17 @@ Function parameters support:
 - optional marker (`a?`)
 - optional type annotation (`a: Int`)
 - optional default value (`a: Int = demo`)
+- rest parameters (`...items: Item[]`), which must be last
 
 Examples:
 
 ```mylang
 fun test(a, v, c?, d: Int = demo) {
   return d
+}
+
+fun collect(label: string, ...values: int[]) {
+  return values
 }
 ```
 
@@ -322,7 +327,7 @@ Supported literals:
 - template string literals with interpolation (`` `hello ${name}` ``)
 - boolean literals (`true`, `false`)
 - nullish literals (`null`, `undefined`)
-- array literals (`[1, 2, 3]`)
+- array literals (`[1, 2, 3]`) with spread elements (`[0, ...values]`)
 - object literals (`{a: 1, b: 2}`)
 
 ### Unary operators
@@ -393,13 +398,18 @@ Supported member access forms:
 - safe access: `obj?.prop`
 - non-null asserted access: `obj!.prop`
 - computed access: `obj[index]`
+- optional computed access: `obj?.[index]`
+
+Optional member and computed access include `undefined` in their inferred result type.
 
 ### Function calls
 
-Function call expressions are supported, including calls chained from member access and optional generic type arguments:
+Function call expressions are supported, including calls chained from member access, optional calls, spread arguments, and optional generic type arguments:
 
 ```mylang
 hello.world[0].test(arg1, arg2)
+maybeCallback?.(arg1, arg2)
+collect("label", ...values)
 factory<string, number>(arg1, arg2)
 ```
 

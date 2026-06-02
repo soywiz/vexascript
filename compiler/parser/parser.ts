@@ -48,6 +48,7 @@ import {
     ReturnStatement,
     Statement,
     StringLiteral,
+    SpreadExpression,
     SwitchCase,
     SwitchStatement,
     ThrowStatement,
@@ -1505,6 +1506,14 @@ export class Parser {
     private parsePrimary(): Expr {
         const token = this.tokens.read();
 
+        if (token?.type === "symbol" && token.value === "...") {
+            const argument = this.parseUnary();
+            return this.attachNodeBounds({
+                kind: "SpreadExpression",
+                argument
+            } as SpreadExpression, token, argument.lastToken ?? this.getLastReadToken() ?? token);
+        }
+
         if (token?.type === "symbol" && token.value === "(") {
             const expr = this.parseExpressionOrThrow();
             const close = this.tokens.read();
@@ -1609,6 +1618,40 @@ export class Parser {
                 }
             }
 
+            if (token?.type === "symbol" && token.value === "?." && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "(") {
+                this.tokens.skip();
+                const { args, close } = this.parseCallArgumentList();
+                expr = this.attachNodeBounds({
+                    kind: "CallExpression",
+                    callee: expr,
+                    arguments: args,
+                    optional: true,
+                    ...(pendingTypeArguments ? { typeArguments: pendingTypeArguments } : {})
+                } as CallExpression, expr.firstToken, close);
+                pendingTypeArguments = undefined;
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "?." && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "[") {
+                this.tokens.skip();
+                this.tokens.skip();
+                const property = this.parseExpressionOrThrow();
+                const close = this.tokens.read();
+                if (close?.type !== "symbol" || close.value !== "]") {
+                    this.fail("Expected ']' after optional computed member access", this.tokenAt(close));
+                }
+
+                expr = {
+                    kind: "MemberExpression",
+                    object: expr,
+                    property,
+                    computed: true,
+                    optional: true
+                } as MemberExpression;
+                this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
+                continue;
+            }
+
             if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
                 this.tokens.skip();
                 const property = this.tokens.read();
@@ -1653,26 +1696,7 @@ export class Parser {
             }
 
             if (token?.type === "symbol" && token.value === "(") {
-                this.tokens.skip();
-                const args: Expr[] = [];
-
-                if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
-                    while (this.tokens.hasMore) {
-                        args.push(this.parseExpressionOrThrow());
-                        const separator = this.tokens.peek();
-                        if (separator?.type === "symbol" && separator.value === ",") {
-                            this.tokens.skip();
-                            continue;
-                        }
-                        break;
-                    }
-                }
-
-                const close = this.tokens.read();
-                if (close?.type !== "symbol" || close.value !== ")") {
-                    this.fail("Expected ')' after call arguments", this.tokenAt(close));
-                }
-
+                const { args, close } = this.parseCallArgumentList();
                 expr = this.attachNodeBounds({
                     kind: "CallExpression",
                     callee: expr,
@@ -1732,6 +1756,33 @@ export class Parser {
         }
 
         return expr;
+    }
+
+
+    private parseCallArgumentList(): { args: Expr[]; close: Token } {
+        const open = this.tokens.read();
+        if (open?.type !== "symbol" || open.value !== "(") {
+            this.fail("Expected '(' before call arguments", this.tokenAt(open));
+        }
+        const args: Expr[] = [];
+
+        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
+            while (this.tokens.hasMore) {
+                args.push(this.parseExpressionOrThrow());
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && separator.value === ",") {
+                    this.tokens.skip();
+                    continue;
+                }
+                break;
+            }
+        }
+
+        const close = this.tokens.read();
+        if (close?.type !== "symbol" || close.value !== ")") {
+            this.fail("Expected ')' after call arguments", this.tokenAt(close));
+        }
+        return { args, close };
     }
 
     private parseUnary(): Expr {
@@ -2331,6 +2382,13 @@ export class Parser {
         }
 
         while (this.tokens.hasMore) {
+            let parameterRest = false;
+            const maybeRestToken = this.tokens.peek();
+            if (maybeRestToken?.type === "symbol" && maybeRestToken.value === "...") {
+                this.tokens.skip();
+                parameterRest = true;
+            }
+
             const parameterNameToken = this.tokens.read();
             if (parameterNameToken?.type !== "identifier") {
                 this.fail("Expected parameter name in function declaration", this.tokenAt(parameterNameToken));
@@ -2338,6 +2396,9 @@ export class Parser {
 
             let parameterOptional = false;
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+                if (parameterRest) {
+                    this.fail("Rest parameter cannot be optional", this.tokenAt(this.tokens.peek()));
+                }
                 this.tokens.skip();
                 parameterOptional = true;
             }
@@ -2358,6 +2419,9 @@ export class Parser {
                 kind: "FunctionParameter",
                 name: this.buildIdentifierFromToken(parameterNameToken)
             };
+            if (parameterRest) {
+                parameter.rest = true;
+            }
             if (parameterOptional) {
                 parameter.optional = true;
             }
@@ -2371,6 +2435,9 @@ export class Parser {
 
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
+                if (parameterRest) {
+                    this.fail("Rest parameter must be last", this.tokenAt(separator));
+                }
                 this.tokens.skip();
                 continue;
             }

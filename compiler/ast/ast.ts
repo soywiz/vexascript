@@ -118,6 +118,7 @@ export interface CallExpression extends Node {
     callee: Expr
     arguments: Expr[]
     typeArguments?: Identifier[]
+    optional?: boolean
 }
 
 export interface ArrowFunctionExpression extends Node {
@@ -139,6 +140,11 @@ export interface NewExpression extends Node {
     callee: Expr
     arguments?: Expr[]
     typeArguments?: Identifier[]
+}
+
+export interface SpreadExpression extends Node {
+    kind: "SpreadExpression"
+    argument: Expr
 }
 
 export interface UnaryExpression extends Node {
@@ -186,6 +192,7 @@ export type FunctionDeclarationKind = "fun" | "function";
 export interface FunctionParameter extends Node {
     kind: "FunctionParameter"
     name: Identifier
+    rest?: boolean
     optional?: boolean
     typeAnnotation?: Identifier
     defaultValue?: Expr

@@ -33,6 +33,7 @@ import type {
   ReturnStatement,
   Statement,
   StringLiteral,
+  SpreadExpression,
   SwitchStatement,
   ThrowStatement,
   TryStatement,
@@ -234,7 +235,9 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const member = expression as MemberExpression;
         const objectText = emitExpression(member.object, PREC_MEMBER, "left");
         if (member.computed) {
-          return `${objectText}[${emitExpression(member.property)}]`;
+          return member.optional
+            ? `${objectText}?.[${emitExpression(member.property)}]`
+            : `${objectText}[${emitExpression(member.property)}]`;
         }
         const access = member.optional ? "?." : member.nonNullAsserted ? "!." : ".";
         return `${objectText}${access}${emitExpression(member.property, PREC_MEMBER, "right")}`;
@@ -242,7 +245,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       case "CallExpression": {
         const call = expression as CallExpression;
         const calleeText = emitExpression(call.callee, PREC_MEMBER, "left");
-        return `${calleeText}(${call.arguments.map((argument) => emitExpression(argument)).join(", ")})`;
+        return `${calleeText}${call.optional ? "?." : ""}(${call.arguments.map((argument) => emitExpression(argument)).join(", ")})`;
       }
       case "NewExpression": {
         const newExpression = expression as NewExpression;
@@ -271,6 +274,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         }
         return `${emitExpression(update.argument, PREC_UPDATE, "left")}${update.operator}`;
       }
+      case "SpreadExpression":
+        return `...${emitExpression((expression as SpreadExpression).argument, PREC_UNARY, "right")}`;
       case "ArrayLiteral":
         return `[${(expression as ArrayLiteral).elements.map((element) => emitExpression(element)).join(", ")}]`;
       case "ObjectLiteral": {
@@ -318,10 +323,11 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
 function emitFunctionParameters(parameters: FunctionParameter[]): string {
   return parameters
     .map((parameter) => {
+      const restPrefix = parameter.rest ? "..." : "";
       if (parameter.defaultValue) {
-        return `${parameter.name.name} = ${emitExpression(parameter.defaultValue)}`;
+        return `${restPrefix}${parameter.name.name} = ${emitExpression(parameter.defaultValue)}`;
       }
-      return parameter.name.name;
+      return `${restPrefix}${parameter.name.name}`;
     })
     .join(", ");
 }
