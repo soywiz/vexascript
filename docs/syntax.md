@@ -376,13 +376,24 @@ Supported assignment operators:
 - `&&=`, `||=`
 - `??=`
 
-### Conditional operator
+### Conditional and comma operators
 
 MyLang supports ternary conditional expressions:
 
 ```mylang
 condition ? whenTrue : whenFalse
 ```
+
+Comma expressions are supported at the lowest expression precedence. They evaluate operands left-to-right and use the final operand type during semantic analysis:
+
+```mylang
+let value: string = (log(), "ok")
+for (let i = 0; i < 10; i++, total += i) {
+  work
+}
+```
+
+Comma-delimited lists such as call arguments and array elements remain separate syntax, so `fn(a, b)` is parsed as two arguments. Use parentheses for a comma expression argument, for example `fn((a, b))`.
 
 ### Type assertions
 
@@ -555,7 +566,7 @@ switch (value) {
 }
 ```
 
-### Return, continue, break
+### Return, continue, break, debugger, and empty statements
 
 Supported statements:
 
@@ -564,6 +575,8 @@ Supported statements:
 - `throw expression`
 - `continue`
 - `break`
+- `debugger`
+- empty statements (`;`), including as loop bodies such as `while (condition);`
 
 ### Try / catch / finally
 

@@ -7,6 +7,7 @@ import type {
   CallExpression,
   ClassStatement,
   ConditionalExpression,
+  CommaExpression,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -348,6 +349,11 @@ export function createInlayHints(
         visitExpression((expression as MemberExpression).object);
         if ((expression as MemberExpression).computed) {
           visitExpression((expression as MemberExpression).property);
+        }
+        return;
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
         }
         return;
       case "BinaryExpression":

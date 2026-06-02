@@ -13,6 +13,7 @@ import type {
   ClassPrimaryConstructorParameter,
   ClassStatement,
   ConditionalExpression,
+  CommaExpression,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -51,23 +52,24 @@ import type { AnalysisType } from "compiler/analysis/types";
 
 type Assoc = "left" | "right";
 
-const PREC_ASSIGNMENT = 1;
-const PREC_CONDITIONAL = 2;
-const PREC_LOGICAL_OR = 3;
-const PREC_LOGICAL_AND = 4;
-const PREC_BITWISE_OR = 5;
-const PREC_BITWISE_XOR = 6;
-const PREC_BITWISE_AND = 7;
-const PREC_EQUALITY = 8;
-const PREC_RELATIONAL = 9;
-const PREC_SHIFT = 10;
-const PREC_ADDITIVE = 11;
-const PREC_MULTIPLICATIVE = 12;
-const PREC_EXPONENT = 13;
-const PREC_UNARY = 14;
-const PREC_UPDATE = 15;
-const PREC_MEMBER = 16;
-const PREC_PRIMARY = 17;
+const PREC_COMMA = 1;
+const PREC_ASSIGNMENT = 2;
+const PREC_CONDITIONAL = 3;
+const PREC_LOGICAL_OR = 4;
+const PREC_LOGICAL_AND = 5;
+const PREC_BITWISE_OR = 6;
+const PREC_BITWISE_XOR = 7;
+const PREC_BITWISE_AND = 8;
+const PREC_EQUALITY = 9;
+const PREC_RELATIONAL = 10;
+const PREC_SHIFT = 11;
+const PREC_ADDITIVE = 12;
+const PREC_MULTIPLICATIVE = 13;
+const PREC_EXPONENT = 14;
+const PREC_UNARY = 15;
+const PREC_UPDATE = 16;
+const PREC_MEMBER = 17;
+const PREC_PRIMARY = 18;
 let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
 
 function normalizeVarKind(kind: string): "let" | "var" | "const" {
@@ -125,6 +127,8 @@ function binaryPrecedence(operator: BinaryExpression["operator"]): { precedence:
 
 function expressionPrecedence(expression: Expr): number {
   switch (expression.kind) {
+    case "CommaExpression":
+      return PREC_COMMA;
     case "AssignmentExpression":
       return PREC_ASSIGNMENT;
     case "AsExpression":
@@ -178,6 +182,11 @@ function wrapLongExpressionIfNeeded(expression: Expr, text: string): string {
   return `BigInt.asIntN(64, ${text})`;
 }
 
+function emitListElement(expression: Expr): string {
+  const text = emitExpression(expression);
+  return expression.kind === "CommaExpression" ? `(${text})` : text;
+}
+
 function emitObjectPropertyKey(property: ObjectProperty): string {
   if (property.computed) {
     return `[${emitExpression(property.key)}]`;
@@ -214,6 +223,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         return "undefined";
       case "Identifier":
         return emitIdentifier(expression as Identifier);
+      case "CommaExpression": {
+        const comma = expression as CommaExpression;
+        return comma.expressions.map((child) => emitExpression(child, PREC_ASSIGNMENT)).join(", ");
+      }
       case "BinaryExpression": {
         const binary = expression as BinaryExpression;
         const { precedence, assoc } = binaryPrecedence(binary.operator);
@@ -265,13 +278,13 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       case "CallExpression": {
         const call = expression as CallExpression;
         const calleeText = emitExpression(call.callee, PREC_MEMBER, "left");
-        return `${calleeText}${call.optional ? "?." : ""}(${call.arguments.map((argument) => emitExpression(argument)).join(", ")})`;
+        return `${calleeText}${call.optional ? "?." : ""}(${call.arguments.map((argument) => emitListElement(argument)).join(", ")})`;
       }
       case "NewExpression": {
         const newExpression = expression as NewExpression;
         const calleeText = emitExpression(newExpression.callee, PREC_MEMBER, "left");
         if (newExpression.arguments) {
-          return `new ${calleeText}(${newExpression.arguments.map((argument) => emitExpression(argument)).join(", ")})`;
+          return `new ${calleeText}(${newExpression.arguments.map((argument) => emitListElement(argument)).join(", ")})`;
         }
         return `new ${calleeText}`;
       }
@@ -297,7 +310,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       case "SpreadExpression":
         return `...${emitExpression((expression as SpreadExpression).argument, PREC_UNARY, "right")}`;
       case "ArrayLiteral":
-        return `[${(expression as ArrayLiteral).elements.map((element) => emitExpression(element)).join(", ")}]`;
+        return `[${(expression as ArrayLiteral).elements.map((element) => emitListElement(element)).join(", ")}]`;
       case "ObjectLiteral": {
         const objectLiteral = expression as ObjectLiteral;
         return `{${objectLiteral.properties
@@ -310,7 +323,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
               return (objectProperty.key as Identifier).name;
             }
             const key = emitObjectPropertyKey(objectProperty);
-            return `${key}: ${emitExpression(objectProperty.value)}`;
+            return `${key}: ${emitListElement(objectProperty.value)}`;
           })
           .join(", ")}}`;
       }
@@ -355,7 +368,7 @@ function emitFunctionParameters(parameters: FunctionParameter[]): string {
     .map((parameter) => {
       const restPrefix = parameter.rest ? "..." : "";
       if (parameter.defaultValue) {
-        return `${restPrefix}${parameter.name.name} = ${emitExpression(parameter.defaultValue)}`;
+        return `${restPrefix}${parameter.name.name} = ${emitListElement(parameter.defaultValue)}`;
       }
       return `${restPrefix}${parameter.name.name}`;
     })
@@ -364,7 +377,7 @@ function emitFunctionParameters(parameters: FunctionParameter[]): string {
 
 function emitVarDeclarator(declarator: VarDeclarator): string {
   if (declarator.initializer) {
-    return `${declarator.name.name} = ${emitExpression(declarator.initializer)}`;
+    return `${declarator.name.name} = ${emitListElement(declarator.initializer)}`;
   }
   return declarator.name.name;
 }
@@ -374,7 +387,7 @@ function emitVarStatementBody(statement: VarStatement): string {
     return statement.declarations.map((declaration) => emitVarDeclarator(declaration)).join(", ");
   }
   if (statement.initializer) {
-    return `${statement.name.name} = ${emitExpression(statement.initializer)}`;
+    return `${statement.name.name} = ${emitListElement(statement.initializer)}`;
   }
   return statement.name.name;
 }
@@ -442,7 +455,7 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   if (member.kind === "ClassFieldMember") {
     const field = member as ClassFieldMember;
     if (field.initializer) {
-      return `${staticPrefix}${field.name.name} = ${emitExpression(field.initializer)};`;
+      return `${staticPrefix}${field.name.name} = ${emitListElement(field.initializer)};`;
     }
     return `${staticPrefix}${field.name.name};`;
   }
@@ -511,6 +524,10 @@ export function emitStatement(statement: Statement): string {
       return "";
     case "ExprStatement":
       return `${emitExpression((statement as ExprStatement).expression)};`;
+    case "EmptyStatement":
+      return ";";
+    case "DebuggerStatement":
+      return "debugger;";
     case "BlockStatement":
       return emitBlock(statement as BlockStatement);
     case "WhileStatement": {

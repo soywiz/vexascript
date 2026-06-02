@@ -6,6 +6,7 @@ import type {
   CallExpression,
   ClassStatement,
   ConditionalExpression,
+  CommaExpression,
   DoWhileStatement,
   Expr,
   ExprStatement,
@@ -99,6 +100,11 @@ function collectCallExpressions(program: Program): CallExpression[] {
         visitExpression((expression as NewExpression).callee);
         for (const argument of (expression as NewExpression).arguments ?? []) {
           visitExpression(argument);
+        }
+        return;
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
         }
         return;
       case "BinaryExpression":
@@ -287,6 +293,11 @@ function collectAssignmentExpressions(program: Program): AssignmentExpression[] 
         visitExpression((expression as NewExpression).callee);
         for (const argument of (expression as NewExpression).arguments ?? []) {
           visitExpression(argument);
+        }
+        return;
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
         }
         return;
       case "BinaryExpression":

@@ -21,7 +21,6 @@ Scope notes:
 - `enum` declarations (`enum` and `const enum`).
 - `namespace` / `module` declarations with full body parsing (currently skipped as opaque block).
 - `declare` declarations beyond current support (`declare function`, `declare class`, `declare var/let/const/val`), including enums, namespaces/modules with typed members, and other ambient forms.
-- Variable declaration lists (`let a = 1, b = 2`).
 - Destructuring declarations (`let { a } = obj`, `let [x] = arr`).
 
 ## Type System Syntax
@@ -48,20 +47,14 @@ Scope notes:
 
 ## Statements and Control Flow
 
-- `for...of`.
-- `for...in`.
 - `with`.
 - Labels and labeled `break` / `continue`.
-- `debugger`.
-- Proper empty statements (`;`) in all positions.
 - `switch` features still missing:
 - multiple `default` validation and diagnostics.
 - stricter fallthrough diagnostics behavior (if desired by project rules).
 
 ## Expressions
 
-- Comma operator.
-- Template literals (`` `hello ${name}` ``).
 - RegExp literals (`/abc/`).
 - Numeric formats beyond current support (hex, binary, octal, numeric separators, etc.).
 

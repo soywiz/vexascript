@@ -68,6 +68,44 @@ describe("parseExpression", () => {
     });
 
 
+    it("builds an AST for comma expressions at the lowest precedence", () => {
+        expect(parseExpression(tokenizeReader("a = 1, b + 2, c"))).toEqual({
+            kind: "CommaExpression",
+            expressions: [
+                {
+                    kind: "AssignmentExpression",
+                    operator: "=",
+                    left: { kind: "Identifier", name: "a" },
+                    right: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "BinaryExpression",
+                    operator: "+",
+                    left: { kind: "Identifier", name: "b" },
+                    right: { kind: "IntLiteral", value: 2 }
+                },
+                { kind: "Identifier", name: "c" }
+            ]
+        });
+    });
+
+    it("keeps comma-delimited call arguments separate from comma expressions", () => {
+        expect(parseExpression(tokenizeReader("fn(a, (b, c))"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "fn" },
+            arguments: [
+                { kind: "Identifier", name: "a" },
+                {
+                    kind: "CommaExpression",
+                    expressions: [
+                        { kind: "Identifier", name: "b" },
+                        { kind: "Identifier", name: "c" }
+                    ]
+                }
+            ]
+        });
+    });
+
     it("builds an AST for optional call, optional element access, spread expressions, and rest parameters", () => {
         expect(parseExpression(tokenizeReader("fn?.(...args)"))).toEqual({
             kind: "CallExpression",
@@ -1097,6 +1135,16 @@ describe("parseExpression", () => {
 })
 
 describe("parseStatement", () => {
+    it("parses debugger and empty statements", () => {
+        expect(parseStatement(tokenizeReader("debugger"))).toEqual({ kind: "DebuggerStatement" });
+        expect(parseStatement(tokenizeReader(";"))).toEqual({ kind: "EmptyStatement" });
+        expect(parseStatement(tokenizeReader("while (ready);"))).toEqual({
+            kind: "WhileStatement",
+            condition: { kind: "Identifier", name: "ready" },
+            body: { kind: "EmptyStatement" }
+        });
+    });
+
     it("parses a let statement", () => {
         expect(parseStatement(tokenizeReader("let myvar = 1 + 2"))).toEqual({
             kind: "VarStatement",

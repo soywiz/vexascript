@@ -12,6 +12,7 @@ import type {
   ClassStatement,
   InterfaceStatement,
   ConditionalExpression,
+  CommaExpression,
   DoWhileStatement,
   ExprStatement,
   ForStatement,
@@ -556,6 +557,11 @@ function findMemberExpressionAtPosition(
           visitExpression(argument);
         }
         return;
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
+        }
+        return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);
         visitExpression((expression as BinaryExpression).right);
@@ -876,6 +882,11 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
         visitExpression((expression as NewExpression).callee);
         for (const argument of (expression as NewExpression).arguments ?? []) {
           visitExpression(argument);
+        }
+        return;
+      case "CommaExpression":
+        for (const child of (expression as CommaExpression).expressions) {
+          visitExpression(child);
         }
         return;
       case "BinaryExpression":
