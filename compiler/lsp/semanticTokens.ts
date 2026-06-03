@@ -12,6 +12,7 @@ import type {
   ConditionalExpression,
   CommaExpression,
   DoWhileStatement,
+  EnumStatement,
   Expr,
   ExprStatement,
   ExportStatement,
@@ -57,6 +58,7 @@ const TOKEN_TYPES = [
   "function",
   "method",
   "class",
+  "enumMember",
   "property",
   "namespace",
   "type",
@@ -83,6 +85,7 @@ export const MYLANG_SEMANTIC_TOKENS_LEGEND: SemanticTokensLegend = {
 const KEYWORDS = new Set([
   "declare",
   "namespace",
+  "enum",
   "import",
   "from",
   "as",
@@ -349,6 +352,17 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         }
         for (const member of classStatement.members) {
           visitClassMember(member);
+        }
+        return;
+      }
+      case "EnumStatement": {
+        const enumStatement = statement as EnumStatement;
+        markIdentifier(kinds, enumStatement.name, "class");
+        for (const member of enumStatement.members) {
+          markIdentifier(kinds, member.name, "enumMember");
+          if (member.initializer) {
+            visitExpression(member.initializer);
+          }
         }
         return;
       }

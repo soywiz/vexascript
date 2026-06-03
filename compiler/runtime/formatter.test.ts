@@ -205,3 +205,11 @@ describe("formatSource", () => {
     );
   });
 });
+
+
+describe("format enum declarations", () => {
+  it("formats enum members and keeps declaration spacing", () => {
+    expect(formatSource('enum Direction{Up,Down=4,Right="right"}'))
+      .toBe('enum Direction {\n  Up, Down = 4, Right = "right"\n}');
+  });
+});

@@ -52,6 +52,7 @@ const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "type", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "interface", kind: CompletionItemKind.Keyword, detail: "Keyword" },
+  { label: "enum", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "debugger", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "int", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "number", kind: CompletionItemKind.Keyword, detail: "Builtin type" },

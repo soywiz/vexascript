@@ -3509,3 +3509,35 @@ describe("Parser (with recovery)", () => {
         expect(markers[0]?.token.range.start.line).toBe(0);
     });
 });
+
+
+describe("parse enum declarations", () => {
+    it("builds AST nodes for enum and const enum declarations", () => {
+        expect(parseFile(tokenizeReader("enum Direction { Up, Down = 4, Left, Right = \"right\" }"))).toEqual({
+            kind: "Program",
+            body: [{
+                kind: "EnumStatement",
+                name: { kind: "Identifier", name: "Direction" },
+                members: [
+                    { kind: "EnumMember", name: { kind: "Identifier", name: "Up" } },
+                    { kind: "EnumMember", name: { kind: "Identifier", name: "Down" }, initializer: { kind: "IntLiteral", value: 4 } },
+                    { kind: "EnumMember", name: { kind: "Identifier", name: "Left" } },
+                    { kind: "EnumMember", name: { kind: "Identifier", name: "Right" }, initializer: { kind: "StringLiteral", value: "right" } }
+                ]
+            }]
+        });
+
+        expect(parseFile(tokenizeReader("const enum Status { Ready = 1, Done }"))).toEqual({
+            kind: "Program",
+            body: [{
+                kind: "EnumStatement",
+                const: true,
+                name: { kind: "Identifier", name: "Status" },
+                members: [
+                    { kind: "EnumMember", name: { kind: "Identifier", name: "Ready" }, initializer: { kind: "IntLiteral", value: 1 } },
+                    { kind: "EnumMember", name: { kind: "Identifier", name: "Done" } }
+                ]
+            }]
+        });
+    });
+});

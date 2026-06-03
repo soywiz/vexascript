@@ -12,6 +12,7 @@ import type {
   ConditionalExpression,
   CommaExpression,
   DoWhileStatement,
+  EnumStatement,
   Expr,
   ExprStatement,
   ExportStatement,
@@ -100,6 +101,7 @@ export class TypeChecker {
     "symbol"
   ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
+  private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
   private readonly typeAliasStatementsByName: Map<string, TypeAliasStatement> = new Map();
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
@@ -111,6 +113,7 @@ export class TypeChecker {
     private readonly bound: BoundAnalysis
   ) {
     this.collectClassStatements(program);
+    this.collectEnumStatements(program);
     this.collectInterfaceStatements(program);
     this.collectTypeAliasStatements(program);
   }
@@ -156,6 +159,9 @@ export class TypeChecker {
         return;
       case "ClassStatement":
         this.visitClassStatement(statement as ClassStatement, scope);
+        return;
+      case "EnumStatement":
+        this.visitEnumStatement(statement as EnumStatement, scope);
         return;
       case "InterfaceStatement":
       case "TypeAliasStatement":
@@ -354,6 +360,22 @@ export class TypeChecker {
         this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0, labels: [] });
       }
     });
+  }
+
+
+  private visitEnumStatement(statement: EnumStatement, scope: Scope): void {
+    const enumScope = this.scopeFor(statement, scope);
+    for (const member of statement.members) {
+      if (member.initializer) {
+        const initializerType = this.visitExpression(member.initializer, enumScope);
+        if (!this.isTypeAssignable(initializerType, builtinType("int")) && !this.isTypeAssignable(initializerType, builtinType("string"))) {
+          this.issues.push({
+            message: `Enum member '${member.name.name}' initializer must be assignable to int or string`,
+            node: member.initializer
+          });
+        }
+      }
+    }
   }
 
   private visitClassStatement(statement: ClassStatement, scope: Scope): void {
@@ -2188,6 +2210,20 @@ export class TypeChecker {
     }
   }
 
+
+  private collectEnumStatements(program: Program): void {
+    for (const statement of program.body) {
+      const candidate = statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration
+        : statement;
+      if (candidate?.kind !== "EnumStatement") {
+        continue;
+      }
+      const enumStatement = candidate as EnumStatement;
+      this.enumStatementsByName.set(enumStatement.name.name, enumStatement);
+    }
+  }
+
   private collectInterfaceStatements(program: Program): void {
     for (const statement of program.body) {
       const candidate = statement.kind === "ExportStatement"
@@ -2445,6 +2481,15 @@ export class TypeChecker {
       return null;
     }
     visited.add(visitKey);
+
+    const enumStatement = this.enumStatementsByName.get(type.name);
+    if (enumStatement) {
+      const members = new Map<string, AnalysisType>();
+      for (const enumMember of enumStatement.members) {
+        members.set(enumMember.name.name, namedType(enumStatement.name.name));
+      }
+      return members;
+    }
 
     const classStatement = this.classStatementsByName.get(type.name);
     if (classStatement) {

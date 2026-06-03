@@ -236,3 +236,24 @@ describe("emitProgram", () => {
   });
 
 });
+
+
+describe("emit enum declarations", () => {
+  it("emits runtime objects for numeric and string enum members", () => {
+    const program = parseFile(tokenizeReader('enum Direction { Up, Down = 4, Left, Right = "right" }'));
+    expect(emitProgram(program)).toBe(
+      'var Direction;\n' +
+        '(function (Direction) {\n' +
+        '  Direction[Direction["Up"] = 0] = "Up";\n' +
+        '  Direction[Direction["Down"] = 4] = "Down";\n' +
+        '  Direction[Direction["Left"] = 5] = "Left";\n' +
+        '  Direction["Right"] = "right";\n' +
+        '})(Direction || (Direction = {}));'
+    );
+  });
+
+  it("omits ambient enum declarations", () => {
+    const program = parseFile(tokenizeReader('declare enum External { Value }'));
+    expect(emitProgram(program)).toBe("");
+  });
+});
