@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { typeToString } from "compiler/analysis/types";
+import {
+  getEcmaScriptRuntimeDeclarationFilePath,
+  getEcmaScriptRuntimeProgram,
+  isEcmaScriptRuntimeNode
+} from "compiler/runtime/ecmascriptDeclarations";
 import type {
   ArrayLiteral,
   AsExpression,
@@ -260,7 +265,9 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
   if (!importBinding) {
     return {
       name: symbolAt.symbol.name,
-      filePath: currentFilePath,
+      filePath: isEcmaScriptRuntimeNode(symbolAt.symbol.node)
+        ? getEcmaScriptRuntimeDeclarationFilePath()
+        : currentFilePath,
       range: definition.range
     };
   }
@@ -494,6 +501,14 @@ function resolveClassDefinitionAcrossFiles(
         filePath: targetFilePath
       };
     }
+  }
+
+  const runtimeClass = classDeclarationByName(getEcmaScriptRuntimeProgram(), className);
+  if (runtimeClass) {
+    return {
+      classStatement: runtimeClass,
+      filePath: getEcmaScriptRuntimeDeclarationFilePath()
+    };
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
@@ -758,11 +773,12 @@ function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location |
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
-  if (!objectType || objectType.kind !== "named") {
+  if (!objectType || (objectType.kind !== "named" && objectType.kind !== "array")) {
     return null;
   }
 
-  const classResolution = resolveClassDefinitionAcrossFiles(context, objectType.name);
+  const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
+  const classResolution = resolveClassDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
@@ -848,11 +864,12 @@ function resolveCanonicalMemberSymbol(context: ResolveContext): CanonicalMemberS
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
-  if (!objectType || objectType.kind !== "named") {
+  if (!objectType || (objectType.kind !== "named" && objectType.kind !== "array")) {
     return null;
   }
 
-  const classResolution = resolveClassDefinitionAcrossFiles(context, objectType.name);
+  const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
+  const classResolution = resolveClassDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
@@ -864,7 +881,7 @@ function resolveCanonicalMemberSymbol(context: ResolveContext): CanonicalMemberS
   }
 
   return {
-    className: objectType.name,
+    className: resolvedClassName,
     memberName,
     filePath: classResolution.filePath,
     range: memberInfo.range
@@ -1113,7 +1130,11 @@ function resolveMemberReferencesAcrossFiles(
         continue;
       }
       const objectType = expressionTypes.get(member.object);
-      if (!objectType || objectType.kind !== "named" || objectType.name !== memberSymbol.className) {
+      if (!objectType || (objectType.kind !== "named" && objectType.kind !== "array")) {
+        continue;
+      }
+      const objectClassName = objectType.kind === "array" ? "Array" : objectType.name;
+      if (objectClassName !== memberSymbol.className) {
         continue;
       }
       const range = nodeToRange(member.property);
@@ -1181,11 +1202,12 @@ export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | 
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
-  if (!objectType || objectType.kind !== "named") {
+  if (!objectType || (objectType.kind !== "named" && objectType.kind !== "array")) {
     return null;
   }
 
-  const classResolution = resolveClassDefinitionAcrossFiles(context, objectType.name);
+  const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
+  const classResolution = resolveClassDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
@@ -1194,7 +1216,7 @@ export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | 
   const resolvedMember = resolveClassMember(
     classResolution.classStatement,
     memberName,
-    typeToString(objectType),
+    objectType.kind === "array" ? `Array<${typeToString(objectType.elementType)}>` : typeToString(objectType),
     {
       ast: context.session.ast,
       options: {

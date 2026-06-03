@@ -1310,6 +1310,24 @@ let z = apply(callable { a, b, c -> a + b + c })
     expect(messages.some((message) => message === "Undefined variable 'c'")).toBe(false);
   });
 
+  it("loads ECMAScript runtime declarations as ambient globals", () => {
+    const source = `fun demo() {
+  let values = [1, 2]
+  values.includes(1)
+  values.join(",")
+  let scores = new Map<string, number>()
+  scores.set("ada", Math.max(1, 2))
+  console.log(JSON.stringify(scores))
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("uses declared Array<T> members for T[] alias member resolution", () => {
     const source = `declare class Array<T> {
   map<R>(mapper: (item: T) => T): Array<R>

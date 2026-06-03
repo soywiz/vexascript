@@ -95,6 +95,8 @@ declare class Console {
 declare var console: Console
 ```
 
+A cached ECMAScript ambient runtime is loaded automatically for every analysis session, so common globals such as `Array`, `Map`, `Set`, `Math`, `JSON`, `console`, `Date`, `RegExp`, `Promise`, and `Error` are available without imports. The declarations live in `compiler/runtime/ecmascript.d.my` and are copied to `dist/ecmascript.d.my` by the build so language-server declaration navigation can open the declaration file next to the bundled executable.
+
 ### Parameters
 
 Function parameters support:

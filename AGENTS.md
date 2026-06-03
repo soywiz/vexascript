@@ -31,6 +31,8 @@ This section is the fast onboarding map for agents and contributors.
   - Analysis model/types: `compiler/analysis/model.ts`, `compiler/analysis/types.ts`
   - Analysis issue codes/contracts: `compiler/analysis/issueCodes.ts`
   - Analysis tests: `compiler/analysis/Analysis.test.ts`
+- Embedded runtime declarations:
+  - ECMAScript ambient declarations and cache: `compiler/runtime/ecmascript.d.my`, `compiler/runtime/ecmascriptDeclarations.ts`
 - Emitter / transpilation:
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`

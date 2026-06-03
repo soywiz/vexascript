@@ -24,6 +24,7 @@ import type {
   InterfaceStatement,
   IfStatement,
   Identifier,
+  ImportStatement,
   LabeledStatement,
   IntLiteral,
   MemberExpression,
@@ -79,6 +80,7 @@ import {
 } from "./types";
 import { parseTypeNameShape, splitTopLevelTypeText, stripEnclosingTypeParens } from "./typeNames";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
+import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
@@ -112,6 +114,12 @@ export class TypeChecker {
     private readonly program: Program,
     private readonly bound: BoundAnalysis
   ) {
+    const runtimeProgram = getEcmaScriptRuntimeProgram();
+    this.collectClassStatements(runtimeProgram);
+    this.collectEnumStatements(runtimeProgram);
+    this.collectInterfaceStatements(runtimeProgram);
+    this.collectTypeAliasStatements(runtimeProgram);
+    this.removeRuntimeDeclarationsShadowedByImports(program);
     this.collectClassStatements(program);
     this.collectEnumStatements(program);
     this.collectInterfaceStatements(program);
@@ -2529,6 +2537,30 @@ export class TypeChecker {
     }
   }
 
+  private removeRuntimeDeclarationsShadowedByImports(program: Program): void {
+    for (const statement of program.body) {
+      if (statement.kind !== "ImportStatement") {
+        continue;
+      }
+      const importStatement = statement as ImportStatement;
+      const importedNames = importStatement.specifiers.map((specifier) =>
+        (specifier.local ?? specifier.imported).name
+      );
+      if (importStatement.defaultImport) {
+        importedNames.push(importStatement.defaultImport.name);
+      }
+      if (importStatement.namespaceImport) {
+        importedNames.push(importStatement.namespaceImport.name);
+      }
+      for (const name of importedNames) {
+        this.classStatementsByName.delete(name);
+        this.enumStatementsByName.delete(name);
+        this.interfaceStatementsByName.delete(name);
+        this.typeAliasStatementsByName.delete(name);
+        this.namedTypeMembersCache.delete(name);
+      }
+    }
+  }
 
   private resolveOptionalAccessType(type: AnalysisType, optional: boolean): AnalysisType {
     if (!optional || isUnknownType(type)) {
