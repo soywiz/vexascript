@@ -227,6 +227,7 @@ export interface ExportSpecifier extends Node {
 export interface ExportStatement extends Statement {
     kind: "ExportStatement"
     declaration?: Statement
+    namespaceExport?: Identifier
     specifiers?: ExportSpecifier[]
     from?: StringLiteral
     exportAll?: boolean

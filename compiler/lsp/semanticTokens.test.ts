@@ -162,6 +162,19 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "fs" && token.tokenType === "namespace")).toBe(true);
   });
 
+  it("highlights export-as-namespace names as namespaces", () => {
+    const source = "export as namespace MyLib\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "MyLib" && token.tokenType === "namespace")).toBe(true);
+  });
+
   it("supports range requests", () => {
     const source =
       "switch (a) {\n" +

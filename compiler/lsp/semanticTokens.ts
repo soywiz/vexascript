@@ -291,6 +291,9 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
     switch (statement.kind) {
       case "ExportStatement": {
         const exportStatement = statement as ExportStatement;
+        if (exportStatement.namespaceExport) {
+          markIdentifier(kinds, exportStatement.namespaceExport, "namespace");
+        }
         for (const specifier of exportStatement.specifiers ?? []) {
           if (specifier.local) {
             markIdentifier(kinds, specifier.local, "variable");

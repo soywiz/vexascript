@@ -543,7 +543,7 @@ export function emitStatement(statement: Statement): string {
   switch (statement.kind) {
     case "ExportStatement": {
       const exportStatement = statement as ExportStatement;
-      if (exportStatement.typeOnly) {
+      if (exportStatement.typeOnly || exportStatement.namespaceExport) {
         return "";
       }
       if (exportStatement.exportAll) {

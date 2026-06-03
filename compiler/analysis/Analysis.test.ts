@@ -1361,6 +1361,17 @@ let unsafe = true as string
     expect(messages).toContain("Type assertion from 'boolean' to 'string' may be unsafe because neither type is assignable to the other");
   });
 
+  it("treats const assertions as erased assertions that keep the expression type", () => {
+    const source = `let values = [1, 2] as const
+let count: number = 1 as const
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("binds super in derived class methods for inherited member semantics", () => {
     const source = `class Base {
   label(): string { return "base" }

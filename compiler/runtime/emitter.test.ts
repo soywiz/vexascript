@@ -120,6 +120,7 @@ let worker = async function* work(this: Loader) { yield await next() }`));
   it("erases TypeScript type assertions during emission", () => {
     expect(emitProgram(parseFile(tokenizeReader("let name = value as string")))).toBe("let name = value;");
     expect(emitProgram(parseFile(tokenizeReader("let name = <string>value")))).toBe("let name = value;");
+    expect(emitProgram(parseFile(tokenizeReader("let values = [1, 2] as const")))).toBe("let values = [1, 2];");
   });
 
   it("erases declarations that use keyof, typeof, and indexed access types", () => {
@@ -153,6 +154,8 @@ let worker = async function* work(this: Loader) { yield await next() }`));
     expect(emitProgram(parseFile(tokenizeReader("export type { Name } from \"./types\""))))
       .toBe("");
     expect(emitProgram(parseFile(tokenizeReader("export type Name = string"))))
+      .toBe("");
+    expect(emitProgram(parseFile(tokenizeReader("export as namespace MyLib"))))
       .toBe("");
   });
 
