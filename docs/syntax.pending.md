@@ -10,9 +10,7 @@ Scope notes:
 
 ## Program and Modules
 
-- `export` declarations (`export const`, `export function`, `export class`, `export default`, `export { ... }`, `export * from`).
 - `export as namespace`.
-- `export type`.
 - ES module string specifiers (`from "..."`) as part of real module syntax handling.
 
 ## Declarations

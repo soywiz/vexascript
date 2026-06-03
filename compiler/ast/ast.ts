@@ -215,6 +215,22 @@ export interface ImportSpecifier extends Node {
     local?: Identifier
 }
 
+export interface ExportSpecifier extends Node {
+    kind: "ExportSpecifier"
+    exported: Identifier
+    local?: Identifier
+}
+
+export interface ExportStatement extends Statement {
+    kind: "ExportStatement"
+    declaration?: Statement
+    specifiers?: ExportSpecifier[]
+    from?: StringLiteral
+    exportAll?: boolean
+    default?: boolean
+    typeOnly?: boolean
+}
+
 export interface ImportStatement extends Statement {
     kind: "ImportStatement"
     specifiers: ImportSpecifier[]

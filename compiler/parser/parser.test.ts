@@ -2494,6 +2494,74 @@ describe("parseStatement", () => {
         });
     });
 
+
+    it("parses export declarations and export lists", () => {
+        expect(parseStatement(tokenizeReader("export const value: number = 1"))).toEqual({
+            kind: "ExportStatement",
+            declaration: {
+                kind: "VarStatement",
+                declarationKind: "const",
+                name: { kind: "Identifier", name: "value" },
+                typeAnnotation: { kind: "Identifier", name: "number" },
+                initializer: { kind: "IntLiteral", value: 1 }
+            }
+        });
+
+        expect(parseStatement(tokenizeReader("export { value as renamed, other } from \"./mod\""))).toEqual({
+            kind: "ExportStatement",
+            specifiers: [
+                {
+                    kind: "ExportSpecifier",
+                    local: { kind: "Identifier", name: "value" },
+                    exported: { kind: "Identifier", name: "renamed" }
+                },
+                {
+                    kind: "ExportSpecifier",
+                    exported: { kind: "Identifier", name: "other" }
+                }
+            ],
+            from: { kind: "StringLiteral", value: "./mod" }
+        });
+
+        expect(parseStatement(tokenizeReader("export * from \"./all\""))).toEqual({
+            kind: "ExportStatement",
+            exportAll: true,
+            from: { kind: "StringLiteral", value: "./all" }
+        });
+    });
+
+    it("parses default and type-only exports", () => {
+        expect(parseStatement(tokenizeReader("export default value"))).toEqual({
+            kind: "ExportStatement",
+            default: true,
+            declaration: {
+                kind: "ExprStatement",
+                expression: { kind: "Identifier", name: "value" }
+            }
+        });
+
+        expect(parseStatement(tokenizeReader("export type Name = string"))).toEqual({
+            kind: "ExportStatement",
+            declaration: {
+                kind: "TypeAliasStatement",
+                name: { kind: "Identifier", name: "Name" },
+                targetType: { kind: "Identifier", name: "string" }
+            }
+        });
+
+        expect(parseStatement(tokenizeReader("export type { Name } from \"./types\""))).toEqual({
+            kind: "ExportStatement",
+            typeOnly: true,
+            specifiers: [
+                {
+                    kind: "ExportSpecifier",
+                    exported: { kind: "Identifier", name: "Name" }
+                }
+            ],
+            from: { kind: "StringLiteral", value: "./types" }
+        });
+    });
+
     it("parses named import statements", () => {
         expect(parseStatement(tokenizeReader("import { Point, Demo } from \"./a\""))).toEqual({
             kind: "ImportStatement",

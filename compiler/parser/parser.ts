@@ -24,6 +24,8 @@ import {
     DoWhileStatement,
     Expr,
     ExprStatement,
+    ExportSpecifier,
+    ExportStatement,
     EmptyStatement,
     ForStatement,
     FloatLiteral,
@@ -228,6 +230,12 @@ export class Parser {
 
     parseStatementOrThrow(): Statement {
         const token = this.tokens.peek();
+        if (this.isTypeScriptExportAssignmentStart()) {
+            return this.parseTypeScriptExportAssignmentStatement();
+        }
+        if (token?.type === "identifier" && token.value === "export") {
+            return this.parseExportStatement();
+        }
         if (token?.type === "identifier" && this.isVariableDeclarationKeyword(token.value)) {
             return this.parseVarStatement();
         }
@@ -254,9 +262,6 @@ export class Parser {
         }
         if (this.isDeclareNamespaceStart()) {
             return this.parseDeclareNamespaceStatement();
-        }
-        if (this.isTypeScriptExportAssignmentStart()) {
-            return this.parseTypeScriptExportAssignmentStatement();
         }
         if (token?.type === "identifier" && (token.value === "class" || this.isAbstractClassStart())) {
             return this.parseClassStatement();
@@ -2250,6 +2255,154 @@ export class Parser {
         }
 
         return this.attachNodeBounds(declarator, nameToken, this.getLastReadToken() ?? nameToken);
+    }
+
+
+    private parseExportStatement(): ExportStatement {
+        const exportKeyword = this.tokens.read();
+        if (exportKeyword?.type !== "identifier" || exportKeyword.value !== "export") {
+            this.fail("Expected 'export' statement", this.tokenAt(exportKeyword));
+        }
+
+        let typeOnly = false;
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "type") {
+            const afterType = this.tokens.items[this.tokens.offset + 1];
+            if (afterType?.type === "symbol" && (afterType.value === "{" || afterType.value === "*")) {
+                this.tokens.skip();
+                typeOnly = true;
+            }
+        }
+
+        if (!typeOnly && this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "default") {
+            this.tokens.skip();
+            const next = this.tokens.peek();
+            let declaration: Statement | undefined;
+            if (next?.type === "identifier" && this.isFunctionDeclarationKeyword(next.value)) {
+                declaration = this.parseFunctionStatement();
+            } else if (next?.type === "identifier" && (next.value === "class" || this.isAbstractClassStart())) {
+                declaration = this.parseClassStatement();
+            } else {
+                const expression = this.parseExpressionOrThrow();
+                declaration = this.attachNodeBounds({ kind: "ExprStatement", expression } as ExprStatement, expression.firstToken, expression.lastToken);
+            }
+            return this.attachNodeBounds({ kind: "ExportStatement", declaration, default: true } as ExportStatement, exportKeyword, declaration.lastToken ?? this.getLastReadToken() ?? exportKeyword);
+        }
+
+        const next = this.tokens.peek();
+        if (next?.type === "symbol" && next.value === "*") {
+            this.tokens.skip();
+            const fromKeyword = this.tokens.read();
+            if (fromKeyword?.type !== "identifier" || fromKeyword.value !== "from") {
+                this.fail("Expected 'from' after export '*'", this.tokenAt(fromKeyword));
+            }
+            const sourceToken = this.tokens.read();
+            if (sourceToken?.type !== "string") {
+                this.fail("Expected string literal module path in export statement", this.tokenAt(sourceToken));
+            }
+            const from = this.attachNodeBounds({ kind: "StringLiteral", value: sourceToken.value } as StringLiteral, sourceToken, sourceToken);
+            const statement: ExportStatement = { kind: "ExportStatement", exportAll: true, from };
+            if (typeOnly) {
+                statement.typeOnly = true;
+            }
+            return this.attachNodeBounds(statement, exportKeyword, sourceToken);
+        }
+
+        if (next?.type === "symbol" && next.value === "{") {
+            const specifiers = this.parseExportSpecifierList();
+            let from: StringLiteral | undefined;
+            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "from") {
+                this.tokens.skip();
+                const sourceToken = this.tokens.read();
+                if (sourceToken?.type !== "string") {
+                    this.fail("Expected string literal module path in export statement", this.tokenAt(sourceToken));
+                }
+                from = this.attachNodeBounds({ kind: "StringLiteral", value: sourceToken.value } as StringLiteral, sourceToken, sourceToken);
+            }
+            const statement: ExportStatement = { kind: "ExportStatement", specifiers };
+            if (from) {
+                statement.from = from;
+            }
+            if (typeOnly) {
+                statement.typeOnly = true;
+            }
+            return this.attachNodeBounds(statement, exportKeyword, from?.lastToken ?? this.getLastReadToken() ?? exportKeyword);
+        }
+
+        let declaration: Statement;
+        if (typeOnly) {
+            if (next?.type === "identifier" && next.value === "type") {
+                declaration = this.parseTypeAliasStatement();
+            } else if (next?.type === "identifier" && next.value === "interface") {
+                declaration = this.parseInterfaceStatement();
+            } else {
+                this.fail("Expected type alias, interface, or named type export after 'export type'", this.tokenAt(next));
+            }
+        } else if (next?.type === "identifier" && this.isVariableDeclarationKeyword(next.value)) {
+            declaration = this.parseVarStatement();
+        } else if (next?.type === "identifier" && this.isFunctionDeclarationKeyword(next.value)) {
+            declaration = this.parseFunctionStatement();
+        } else if (next?.type === "identifier" && next.value === "type") {
+            declaration = this.parseTypeAliasStatement();
+        } else if (next?.type === "identifier" && (next.value === "class" || this.isAbstractClassStart())) {
+            declaration = this.parseClassStatement();
+        } else if (next?.type === "identifier" && next.value === "interface") {
+            declaration = this.parseInterfaceStatement();
+        } else {
+            this.fail("Expected declaration or export list after 'export'", this.tokenAt(next));
+        }
+
+        const statement: ExportStatement = { kind: "ExportStatement", declaration };
+        if (typeOnly) {
+            statement.typeOnly = true;
+        }
+        return this.attachNodeBounds(statement, exportKeyword, declaration.lastToken ?? this.getLastReadToken() ?? exportKeyword);
+    }
+
+    private parseExportSpecifierList(): ExportSpecifier[] {
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' after 'export'", this.tokenAt(openBrace));
+        }
+
+        const specifiers: ExportSpecifier[] = [];
+        while (this.tokens.hasMore) {
+            const maybeCloseBrace = this.tokens.peek();
+            if (maybeCloseBrace?.type === "symbol" && maybeCloseBrace.value === "}") {
+                this.tokens.skip();
+                break;
+            }
+
+            const localToken = this.tokens.read();
+            if (localToken?.type !== "identifier") {
+                this.fail("Expected exported symbol name", this.tokenAt(localToken));
+            }
+            const local = this.buildIdentifierFromToken(localToken);
+            let exported = local;
+            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+                this.tokens.skip();
+                const exportedToken = this.tokens.read();
+                if (exportedToken?.type !== "identifier") {
+                    this.fail("Expected exported name after 'as'", this.tokenAt(exportedToken));
+                }
+                exported = this.buildIdentifierFromToken(exportedToken);
+            }
+            const specifier: ExportSpecifier = { kind: "ExportSpecifier", exported };
+            if (exported !== local) {
+                specifier.local = local;
+            }
+            specifiers.push(this.attachNodeBounds(specifier, localToken, exported.lastToken ?? localToken));
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                continue;
+            }
+            if (separator?.type === "symbol" && separator.value === "}") {
+                continue;
+            }
+            this.fail("Expected ',' or '}' in export specifier list", this.tokenAt(separator));
+        }
+        return specifiers;
     }
 
     private parseImportStatement(): ImportStatement {

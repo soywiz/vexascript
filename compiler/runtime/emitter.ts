@@ -17,6 +17,7 @@ import type {
   DoWhileStatement,
   Expr,
   ExprStatement,
+  ExportStatement,
   ForStatement,
   FloatLiteral,
   FunctionParameter,
@@ -502,6 +503,35 @@ function emitForStatement(statement: ForStatement): string {
 
 export function emitStatement(statement: Statement): string {
   switch (statement.kind) {
+    case "ExportStatement": {
+      const exportStatement = statement as ExportStatement;
+      if (exportStatement.typeOnly) {
+        return "";
+      }
+      if (exportStatement.exportAll) {
+        return exportStatement.from ? `export * from ${JSON.stringify(exportStatement.from.value)};` : "";
+      }
+      if (exportStatement.specifiers) {
+        const names = exportStatement.specifiers
+          .map((specifier) => specifier.local
+            ? `${specifier.local.name} as ${specifier.exported.name}`
+            : specifier.exported.name)
+          .join(", ");
+        const fromClause = exportStatement.from ? ` from ${JSON.stringify(exportStatement.from.value)}` : "";
+        return `export { ${names} }${fromClause};`;
+      }
+      if (!exportStatement.declaration) {
+        return "";
+      }
+      if (exportStatement.default && exportStatement.declaration.kind === "ExprStatement") {
+        return `export default ${emitExpression((exportStatement.declaration as ExprStatement).expression)};`;
+      }
+      const emitted = emitStatement(exportStatement.declaration);
+      if (!emitted) {
+        return "";
+      }
+      return exportStatement.default ? `export default ${emitted}` : `export ${emitted}`;
+    }
     case "ImportStatement": {
       const importStatement = statement as ImportStatement;
       if (importStatement.typeOnly) {

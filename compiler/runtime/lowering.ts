@@ -1,5 +1,6 @@
 import type {
   Expr,
+  ExportStatement,
   ForStatement,
   Node,
   Program,
@@ -120,6 +121,13 @@ function lowerForStatement(statement: ForStatement): ForStatement {
 
 function lowerStatement(statement: Statement): Statement {
   switch (statement.kind) {
+    case "ExportStatement": {
+      const exportStatement = statement as ExportStatement;
+      return copyNodeBounds({
+        ...exportStatement,
+        ...(exportStatement.declaration ? { declaration: lowerStatement(exportStatement.declaration) } : {})
+      }, statement);
+    }
     case "ForStatement":
       return lowerForStatement(statement as ForStatement);
     case "BlockStatement":

@@ -458,6 +458,31 @@ a--
     expect(mismatch?.node.firstToken?.value).toBe("aa");
   });
 
+
+
+  it("checks local named export specifiers semantically", () => {
+    const okAst = parseFile(tokenizeReader("const value = 1\nexport { value }"));
+    expect(new Analysis(okAst).getIssues().map((issue) => issue.message)).toEqual([]);
+
+    const missingAst = parseFile(tokenizeReader("export { missing }"));
+    expect(new Analysis(missingAst).getIssues().map((issue) => issue.message)).toContain("Undefined variable 'missing'");
+  });
+
+  it("binds and checks declarations nested inside export statements", () => {
+    const source =
+      "export class Point\n" +
+      "export const p: Point = new Point()\n" +
+      "let again = new Point()\n";
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 2, 5);
+
+    expect(messages.some((message) => message.includes("'Point'"))).toBe(false);
+    expect(symbols.get("p")?.valueType).toBe("Point");
+    expect(symbols.get("again")?.valueType).toBe("Point");
+  });
+
   it("resolves symbols introduced by import statements", () => {
     const source =
       "import { Point } from \"./a\"\n" +

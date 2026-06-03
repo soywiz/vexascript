@@ -32,6 +32,19 @@ describe("lsp symbols", () => {
     expect(symbols[0]?.children?.[1]?.kind).toBe(SymbolKind.Property);
   });
 
+
+  it("builds document symbols for exported declarations", () => {
+    const ast = parseFile(tokenizeReader(
+      "export class Point { move() {} }\n" +
+      "export fun demo() {}\n" +
+      "export const value = 1\n"
+    ));
+
+    const symbols = createDocumentSymbols(ast);
+    expect(symbols.map((symbol) => symbol.name)).toEqual(["Point", "demo", "value"]);
+    expect(symbols[0]?.children?.map((child) => child.name)).toEqual(["move"]);
+  });
+
   it("finds workspace symbols across source roots", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-workspace-symbols-"));
     const worldFile = join(root, "world.my");

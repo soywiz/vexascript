@@ -1,4 +1,4 @@
-import type { ClassStatement, FunctionStatement, Program, VarStatement } from "compiler/ast/ast";
+import type { ClassStatement, ExportStatement, FunctionStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
 import type {
   DocumentSymbol,
   Location,
@@ -39,10 +39,18 @@ function symbolKindForTopLevel(kind: "class" | "function" | "variable"): SymbolK
   return SymbolKind.Variable;
 }
 
+function topLevelSymbolStatement(statement: Statement): Statement {
+  if (statement.kind === "ExportStatement") {
+    return (statement as ExportStatement).declaration ?? statement;
+  }
+  return statement;
+}
+
 function collectDocumentSymbols(program: Program): DocumentSymbol[] {
   const symbols: DocumentSymbol[] = [];
 
-  for (const statement of program.body) {
+  for (const originalStatement of program.body) {
+    const statement = topLevelSymbolStatement(originalStatement);
     if (statement.kind === "ClassStatement") {
       const classStatement = statement as ClassStatement;
       const classRange = nodeToRange(statement);
@@ -177,7 +185,8 @@ function collectTopLevelSymbolInformation(
     symbols.push(symbolInfo);
   };
 
-  for (const statement of program.body) {
+  for (const originalStatement of program.body) {
+    const statement = topLevelSymbolStatement(originalStatement);
     if (statement.kind === "ClassStatement") {
       const classStatement = statement as ClassStatement;
       push(classStatement.name.name, "class", classStatement.name);
