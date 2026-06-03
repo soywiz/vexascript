@@ -215,4 +215,40 @@ describe("transpile", () => {
     const throwLine = emittedLines.findIndex((line) => line.includes("throw new Error()"));
     expect(throwLine).toBe(11); // 0-based line alignment with source
   });
+
+
+  it("mangles overloaded function implementations and rewrites typed calls", () => {
+    const source = [
+      "function describe(value: int): string { return \"int\" }",
+      "function describe(value: string): string { return value }",
+      "let a = describe(1)",
+      "let b = describe(\"x\")"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("function describe__int(value) {");
+    expect(result.code).toContain("function describe__string(value) {");
+    expect(result.code).toContain("let a = describe__int(1);");
+    expect(result.code).toContain('let b = describe__string("x");');
+  });
+
+  it("emits operator overload methods and lowers matching binary expressions", () => {
+    const source = [
+      "class Point(val x: number, val y: number) {",
+      "  operator+(other: Point): Point { return new Point(this.x + other.x, this.y + other.y) }",
+      "}",
+      "let a = new Point(1, 2)",
+      "let b = new Point(3, 4)",
+      "let c = a + b"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("operator__plus(other) {");
+    expect(result.code).toContain("let c = a.operator__plus(b);");
+  });
+
 });

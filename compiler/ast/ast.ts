@@ -280,6 +280,7 @@ export interface FunctionStatement extends Statement {
     declared?: boolean
     async?: boolean
     generator?: boolean
+    missingBody?: boolean
     name: Identifier
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
@@ -312,6 +313,7 @@ export interface ClassMethodMember extends Node, ClassMemberModifiers {
     async?: boolean
     generator?: boolean
     name: Identifier
+    operator?: BinaryExpression["operator"]
     override?: boolean
     missingBody?: boolean
     typeParameters?: TypeParameter[]

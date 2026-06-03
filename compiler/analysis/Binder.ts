@@ -24,7 +24,7 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
-import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE } from "./types";
+import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
 import type { BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
@@ -100,6 +100,17 @@ export class Binder {
     symbol: Omit<AnalysisSymbol, "declaredOffset">,
     declaredOffsetOverride?: number
   ): void {
+    const existing = scope.symbols.get(symbol.name);
+    if (existing?.node === symbol.node) {
+      return;
+    }
+    if (existing?.kind === "function" && symbol.kind === "function" && existing.type && symbol.type) {
+      const existingTypes = existing.type.kind === "union" ? existing.type.types : [existing.type];
+      const mergedType = unionType([...existingTypes, symbol.type]);
+      existing.type = mergedType;
+      existing.valueType = typeToString(mergedType);
+      return;
+    }
     scope.symbols.set(symbol.name, {
       ...symbol,
       declaredOffset: declaredOffsetOverride ?? symbolOffset(symbol.node)

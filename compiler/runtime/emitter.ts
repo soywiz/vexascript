@@ -54,8 +54,44 @@ import type {
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
+import { typeToString } from "compiler/analysis/types";
 
 type Assoc = "left" | "right";
+
+const OPERATOR_METHOD_NAMES: Partial<Record<BinaryExpression["operator"], string>> = {
+  "+": "operator__plus",
+  "-": "operator__minus",
+  "*": "operator__star",
+  "/": "operator__slash",
+  "%": "operator__percent",
+  "**": "operator__power",
+  "<<": "operator__shiftLeft",
+  ">>": "operator__shiftRight",
+  ">>>": "operator__unsignedShiftRight",
+  "<": "operator__less",
+  ">": "operator__greater",
+  "<=": "operator__lessEqual",
+  ">=": "operator__greaterEqual",
+  "==": "operator__equals",
+  "!=": "operator__notEquals",
+  "===": "operator__strictEquals",
+  "!==": "operator__strictNotEquals",
+  "&": "operator__bitAnd",
+  "|": "operator__bitOr",
+  "^": "operator__bitXor",
+  "||": "operator__logicalOr",
+  "&&": "operator__logicalAnd",
+  "??": "operator__nullish"
+};
+
+interface RuntimeOverloadInfo {
+  emittedName: string;
+  parameterTypes: string[];
+  hasBody: boolean;
+}
+
+let activeProgramOverloads: Map<string, RuntimeOverloadInfo[]> = new Map();
+let activeOperatorClasses: Map<string, Set<BinaryExpression["operator"]>> = new Map();
 
 const PREC_COMMA = 1;
 const PREC_ASSIGNMENT = 2;
@@ -163,6 +199,123 @@ function maybeWrap(text: string, shouldWrap: boolean): string {
   return shouldWrap ? `(${text})` : text;
 }
 
+
+function sanitizeManglePart(text: string): string {
+  const normalized = text.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return normalized.length > 0 ? normalized : "unknown";
+}
+
+function parameterTypeName(parameter: FunctionParameter): string {
+  return parameter.typeAnnotation?.name ?? "unknown";
+}
+
+function overloadSuffix(parameters: FunctionParameter[]): string {
+  const visibleParameters = parameters.filter((parameter) => parameter.thisParameter !== true);
+  return visibleParameters.map((parameter) => sanitizeManglePart(parameterTypeName(parameter))).join("__") || "void";
+}
+
+function overloadedFunctionName(name: string, parameters: FunctionParameter[]): string {
+  return `${name}__${overloadSuffix(parameters)}`;
+}
+
+function typeMangleName(type: AnalysisType | undefined): string | null {
+  if (!type) {
+    return null;
+  }
+  if (type.kind === "literal") {
+    return type.base === "number" && Number.isInteger(type.value) ? "int" : type.base;
+  }
+  if (type.kind === "builtin") {
+    return type.name === "number" ? "int" : type.name;
+  }
+  if (type.kind === "named") {
+    return type.name;
+  }
+  return sanitizeManglePart(typeToString(type));
+}
+
+function isOverloadMatch(overload: RuntimeOverloadInfo, argumentTypes: Array<string | null>): boolean {
+  if (overload.parameterTypes.length !== argumentTypes.length) {
+    return false;
+  }
+  return overload.parameterTypes.every((parameterType, index) => {
+    const argumentType = argumentTypes[index];
+    return !argumentType || sanitizeManglePart(parameterType) === sanitizeManglePart(argumentType) || parameterType === "number" && argumentType === "int";
+  });
+}
+
+function resolveOverloadedFunctionCall(call: CallExpression): string | null {
+  if (call.callee.kind !== "Identifier") {
+    return null;
+  }
+  const name = (call.callee as Identifier).name;
+  const overloads = activeProgramOverloads.get(name);
+  if (!overloads || overloads.length <= 1) {
+    return null;
+  }
+  const argumentTypes = call.arguments.map((argument) => typeMangleName(activeExpressionTypes?.get(argument as unknown as Node)));
+  const match = overloads.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))
+    ?? overloads.find((candidate) => candidate.hasBody && candidate.parameterTypes.length === call.arguments.length);
+  return match?.emittedName ?? null;
+}
+
+function resolveOperatorMethodName(binary: BinaryExpression): string | null {
+  const leftType = activeExpressionTypes?.get(binary.left as unknown as Node);
+  if (leftType?.kind !== "named") {
+    return null;
+  }
+  if (!activeOperatorClasses.get(leftType.name)?.has(binary.operator)) {
+    return null;
+  }
+  return OPERATOR_METHOD_NAMES[binary.operator] ?? null;
+}
+
+function collectRuntimeOverloads(program: Program): Map<string, RuntimeOverloadInfo[]> {
+  const byName = new Map<string, FunctionStatement[]>();
+  for (const statement of program.body) {
+    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    if (candidate?.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = candidate as FunctionStatement;
+    if (fn.declared) {
+      continue;
+    }
+    byName.set(fn.name.name, [...(byName.get(fn.name.name) ?? []), fn]);
+  }
+  const result = new Map<string, RuntimeOverloadInfo[]>();
+  for (const [name, functions] of byName) {
+    if (functions.length <= 1) {
+      continue;
+    }
+    result.set(name, functions.map((fn) => ({
+      emittedName: overloadedFunctionName(name, fn.parameters),
+      parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+      hasBody: fn.missingBody !== true
+    })));
+  }
+  return result;
+}
+
+function collectOperatorClasses(program: Program): Map<string, Set<BinaryExpression["operator"]>> {
+  const result = new Map<string, Set<BinaryExpression["operator"]>>();
+  for (const statement of program.body) {
+    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    if (candidate?.kind !== "ClassStatement") {
+      continue;
+    }
+    const classStatement = candidate as ClassStatement;
+    for (const member of classStatement.members) {
+      if (member.kind === "ClassMethodMember" && (member as ClassMethodMember).operator) {
+        const operators = result.get(classStatement.name.name) ?? new Set<BinaryExpression["operator"]>();
+        operators.add((member as ClassMethodMember).operator!);
+        result.set(classStatement.name.name, operators);
+      }
+    }
+  }
+  return result;
+}
+
 function emitIdentifier(identifier: Identifier): string {
   return identifier.name;
 }
@@ -254,6 +407,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
 
         const leftText = maybeWrap(emitExpression(binary.left, precedence, "left"), leftChildNeedsWrap);
         const rightText = maybeWrap(emitExpression(binary.right, precedence, "right"), rightChildNeedsWrap);
+        const operatorMethodName = resolveOperatorMethodName(binary);
+        if (operatorMethodName) {
+          return `${leftText}.${operatorMethodName}(${rightText})`;
+        }
         const binaryText = `${leftText} ${binary.operator} ${rightText}`;
         return wrapLongExpressionIfNeeded(expression, binaryText);
       }
@@ -289,7 +446,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "CallExpression": {
         const call = expression as CallExpression;
-        const calleeText = emitExpression(call.callee, PREC_MEMBER, "left");
+        const overloadedName = resolveOverloadedFunctionCall(call);
+        const calleeText = overloadedName ?? emitExpression(call.callee, PREC_MEMBER, "left");
         return `${calleeText}${call.optional ? "?." : ""}(${call.arguments.map((argument) => emitListElement(argument)).join(", ")})`;
       }
       case "NewExpression": {
@@ -483,7 +641,8 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   const accessorPrefix = method.accessorKind ? `${method.accessorKind} ` : "";
   const asyncPrefix = method.async === true ? "async " : "";
   const generatorPrefix = method.generator === true ? "*" : "";
-  return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${method.name.name}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
+  const methodName = method.operator ? OPERATOR_METHOD_NAMES[method.operator] ?? method.name.name : method.name.name;
+  return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
 }
 
 function emitForStatement(statement: ForStatement): string {
@@ -601,10 +760,12 @@ export function emitStatement(statement: Statement): string {
       return emitEnumStatement(statement as EnumStatement);
     case "FunctionStatement": {
       const fn = statement as FunctionStatement;
-      if (fn.declared) {
+      if (fn.declared || fn.missingBody) {
         return "";
       }
-      return `${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""} ${fn.name.name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+      const overloads = activeProgramOverloads.get(fn.name.name);
+      const emittedName = overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name;
+      return `${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
     }
     case "ClassStatement": {
       const classStatement = statement as ClassStatement;
@@ -720,12 +881,18 @@ export function emitProgramStatements(
   expressionTypes?: ReadonlyMap<Node, AnalysisType>
 ): string[] {
   const previous = activeExpressionTypes;
+  const previousOverloads = activeProgramOverloads;
+  const previousOperatorClasses = activeOperatorClasses;
   activeExpressionTypes = expressionTypes;
+  activeProgramOverloads = collectRuntimeOverloads(program);
+  activeOperatorClasses = collectOperatorClasses(program);
   try {
     return program.body
       .map((statement) => emitStatement(statement))
       .filter((statement) => statement.trim().length > 0);
   } finally {
     activeExpressionTypes = previous;
+    activeProgramOverloads = previousOverloads;
+    activeOperatorClasses = previousOperatorClasses;
   }
 }
