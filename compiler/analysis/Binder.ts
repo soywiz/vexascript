@@ -27,6 +27,7 @@ import type { Node } from "compiler/ast/ast";
 import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE } from "./types";
 import type { BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
+import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 
 const BUILTIN_TYPE_NAMES = new Set([
   "int",
@@ -71,6 +72,7 @@ export class Binder {
 
   bind(): BoundAnalysis {
     this.bindBuiltins();
+    this.bindGlobalDeclarations(getEcmaScriptRuntimeProgram().body, this.rootScope, -1);
     this.bindGlobalDeclarations(this.program.body, this.rootScope);
     this.bindStatements(this.program.body, this.rootScope);
     return {
@@ -116,12 +118,16 @@ export class Binder {
     }
   }
 
-  private bindGlobalDeclarations(statements: Statement[], scope: Scope): void {
+  private bindGlobalDeclarations(
+    statements: Statement[],
+    scope: Scope,
+    declaredOffsetOverride?: number
+  ): void {
     for (const statement of statements) {
       if (statement.kind === "ExportStatement") {
         const exportStatement = statement as ExportStatement;
         if (exportStatement.declaration) {
-          this.bindGlobalDeclarations([exportStatement.declaration], scope);
+          this.bindGlobalDeclarations([exportStatement.declaration], scope, declaredOffsetOverride);
         }
         continue;
       }
@@ -135,7 +141,7 @@ export class Binder {
             node: importStatement.defaultImport,
             type: UNKNOWN_TYPE,
             valueType: typeToString(UNKNOWN_TYPE)
-          });
+          }, declaredOffsetOverride);
         }
         if (importStatement.namespaceImport) {
           this.declare(scope, {
@@ -144,7 +150,7 @@ export class Binder {
             node: importStatement.namespaceImport,
             type: UNKNOWN_TYPE,
             valueType: typeToString(UNKNOWN_TYPE)
-          });
+          }, declaredOffsetOverride);
         }
         for (const specifier of importStatement.specifiers) {
           const local = specifier.local ?? specifier.imported;
@@ -154,7 +160,7 @@ export class Binder {
             node: local,
             type: UNKNOWN_TYPE,
             valueType: typeToString(UNKNOWN_TYPE)
-          });
+          }, declaredOffsetOverride);
         }
         continue;
       }
@@ -171,7 +177,7 @@ export class Binder {
               isReadonly: isReadonlyVariable(variableStatement.declarationKind),
               type: symbolType,
               valueType: typeToString(symbolType)
-            });
+            }, declaredOffsetOverride);
           }
         } else {
           const symbolType = this.typeFromAnnotationLoose(variableStatement.typeAnnotation) ?? UNKNOWN_TYPE;
@@ -182,7 +188,7 @@ export class Binder {
             isReadonly: isReadonlyVariable(variableStatement.declarationKind),
             type: symbolType,
             valueType: typeToString(symbolType)
-          });
+          }, declaredOffsetOverride);
         }
         continue;
       }
@@ -205,7 +211,7 @@ export class Binder {
           node: functionStatement.name,
           type: symbolType,
           valueType: typeToString(symbolType)
-        });
+        }, declaredOffsetOverride);
         continue;
       }
 
@@ -218,7 +224,7 @@ export class Binder {
           node: classStatement.name,
           type: symbolType,
           valueType: typeToString(symbolType)
-        });
+        }, declaredOffsetOverride);
         continue;
       }
 
@@ -231,7 +237,7 @@ export class Binder {
           node: enumStatement.name,
           type: symbolType,
           valueType: typeToString(symbolType)
-        });
+        }, declaredOffsetOverride);
         continue;
       }
 
@@ -244,7 +250,7 @@ export class Binder {
           node: interfaceStatement.name,
           type: symbolType,
           valueType: typeToString(symbolType)
-        });
+        }, declaredOffsetOverride);
         continue;
       }
 
@@ -257,7 +263,7 @@ export class Binder {
           node: typeAliasStatement.name,
           type: symbolType,
           valueType: typeToString(symbolType)
-        });
+        }, declaredOffsetOverride);
       }
     }
   }

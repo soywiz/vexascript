@@ -10,6 +10,7 @@ import {
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
+import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
 
 describe("cross-file navigation", () => {
   it("resolves go-to-definition from imported symbol usage to original declaration", async () => {
@@ -671,4 +672,29 @@ describe("cross-file navigation", () => {
       ])
     );
   });
+  it("navigates array member definitions to the ECMAScript runtime declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const file = join(root, "runtime.my");
+    const source = "fun demo() {\n  [1, 2].map { it * 2 }\n}\n";
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const location = resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 1,
+      character: 10,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(getEcmaScriptRuntimeDeclarationFilePath()).toString(),
+      range: {
+        start: { line: 11, character: 2 },
+        end: { line: 11, character: 5 }
+      }
+    });
+  });
+
 });
