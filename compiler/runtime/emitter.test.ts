@@ -64,6 +64,23 @@ describe("emitProgram", () => {
     expect(emitted).toContain("let h = await promise;");
   });
 
+  it("emits async functions, generators, yield, and erases this parameters", () => {
+    const program = parseFile(tokenizeReader(`async function load(this: Loader, id: string) { return await fetch(id) }
+function* ids() { yield 1; yield* more }
+class Store { async save(this: Store) { return await persist(this) }; *values() { yield 1 } }
+let worker = async function* work(this: Loader) { yield await next() }`));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("async function load(id) {");
+    expect(emitted).toContain("return await fetch(id);");
+    expect(emitted).toContain("function* ids() {");
+    expect(emitted).toContain("yield 1;");
+    expect(emitted).toContain("yield* more;");
+    expect(emitted).toContain("async save() {");
+    expect(emitted).toContain("*values() {");
+    expect(emitted).toContain("let worker = async function* work() {");
+  });
+
   it("emits regular expression literals and sparse arrays", () => {
     const program = parseFile(tokenizeReader("let re = /a\\/b+/gi\nlet values = [1, , 3]"));
     const emitted = emitProgram(program);

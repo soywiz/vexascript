@@ -104,11 +104,11 @@
       "patterns": [
         {
           "name": "keyword.declaration.mylang",
-          "match": "\\b(import|from|let|var|val|const|function|fun|declare|class|interface|enum|extends|implements|override)\\b"
+          "match": "\\b(import|from|let|var|val|const|function|fun|declare|class|interface|enum|extends|implements|override|async)\\b"
         },
         {
           "name": "keyword.control.mylang",
-          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new|in|instanceof|typeof|void|delete|await)\\b"
+          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new|in|instanceof|typeof|void|delete|await|yield)\\b"
         },
         {
           "name": "storage.type.mylang",

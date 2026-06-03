@@ -140,12 +140,15 @@ export interface CallExpression extends Node {
 
 export interface ArrowFunctionExpression extends Node {
     kind: "ArrowFunctionExpression"
+    async?: boolean
     parameters: FunctionParameter[]
     body: Expr | BlockStatement
 }
 
 export interface FunctionExpression extends Node {
     kind: "FunctionExpression"
+    async?: boolean
+    generator?: boolean
     name?: Identifier
     parameters: FunctionParameter[]
     returnType?: Identifier
@@ -166,7 +169,7 @@ export interface SpreadExpression extends Node {
 
 export interface UnaryExpression extends Node {
     kind: "UnaryExpression"
-    operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete" | "await"
+    operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete" | "await" | "yield" | "yield*"
     argument: Expr
 }
 
@@ -246,6 +249,7 @@ export type FunctionDeclarationKind = "fun" | "function";
 export interface FunctionParameter extends Node {
     kind: "FunctionParameter"
     name: Identifier
+    thisParameter?: boolean
     rest?: boolean
     optional?: boolean
     typeAnnotation?: Identifier
@@ -273,6 +277,8 @@ export interface FunctionStatement extends Statement {
     kind: "FunctionStatement"
     declarationKind: FunctionDeclarationKind
     declared?: boolean
+    async?: boolean
+    generator?: boolean
     name: Identifier
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
@@ -302,6 +308,8 @@ export interface ClassFieldMember extends Node, ClassMemberModifiers {
 export interface ClassMethodMember extends Node, ClassMemberModifiers {
     kind: "ClassMethodMember"
     accessorKind?: "get" | "set"
+    async?: boolean
+    generator?: boolean
     name: Identifier
     override?: boolean
     missingBody?: boolean

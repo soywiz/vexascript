@@ -306,7 +306,9 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           unary.operator === "typeof" ||
           unary.operator === "void" ||
           unary.operator === "delete" ||
-          unary.operator === "await"
+          unary.operator === "await" ||
+          unary.operator === "yield" ||
+          unary.operator === "yield*"
             ? `${unary.operator} `
             : unary.operator;
         const unaryText = `${unaryOperator}${emitExpression(unary.argument, PREC_UNARY, "right")}`;
@@ -347,19 +349,19 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const arrow = expression as ArrowFunctionExpression;
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
         if (arrow.body.kind === "BlockStatement") {
-          return `${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
+          return `${arrow.async === true ? "async " : ""}${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
         }
         const bodyExpression = arrow.body as Expr;
         const bodyText = emitExpression(bodyExpression);
         if (bodyExpression.kind === "ObjectLiteral") {
-          return `${parameters} => (${bodyText})`;
+          return `${arrow.async === true ? "async " : ""}${parameters} => (${bodyText})`;
         }
-        return `${parameters} => ${bodyText}`;
+        return `${arrow.async === true ? "async " : ""}${parameters} => ${bodyText}`;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
         const name = fn.name ? ` ${fn.name.name}` : "";
-        return `function${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+        return `${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
       }
       default:
         return "undefined";
@@ -381,6 +383,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
 
 function emitFunctionParameters(parameters: FunctionParameter[]): string {
   return parameters
+    .filter((parameter) => parameter.thisParameter !== true)
     .map((parameter) => {
       const restPrefix = parameter.rest ? "..." : "";
       if (parameter.defaultValue) {
@@ -478,7 +481,9 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 
   const method = member as ClassMethodMember;
   const accessorPrefix = method.accessorKind ? `${method.accessorKind} ` : "";
-  return `${staticPrefix}${accessorPrefix}${method.name.name}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
+  const asyncPrefix = method.async === true ? "async " : "";
+  const generatorPrefix = method.generator === true ? "*" : "";
+  return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${method.name.name}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
 }
 
 function emitForStatement(statement: ForStatement): string {
@@ -599,7 +604,7 @@ export function emitStatement(statement: Statement): string {
       if (fn.declared) {
         return "";
       }
-      return `function ${fn.name.name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+      return `${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""} ${fn.name.name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
     }
     case "ClassStatement": {
       const classStatement = statement as ClassStatement;

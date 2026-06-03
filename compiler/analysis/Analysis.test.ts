@@ -37,6 +37,16 @@ describe("Analysis", () => {
     expect(visible).toContain("top");
   });
 
+  it("erases TypeScript this parameters from callable signatures", () => {
+    const ast = parseFile(tokenizeReader(`function bind(this: Loader, id: string): string { return id }
+let after = bind`));
+    const analysis = new Analysis(ast);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(1, 4).map((symbol) => [symbol.name, symbol]));
+
+    expect(symbols.get("bind")?.valueType).toBe("(id: string) => string");
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("does not leak function locals outside the function scope", () => {
     const source =
       "let top = 1\n" +

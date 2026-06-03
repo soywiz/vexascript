@@ -35,10 +35,7 @@ Scope notes:
 ## Function and Parameter Syntax
 
 - Destructured parameters.
-- `this` parameters (`function f(this: X, ...)`).
 - Overload signatures.
-- Async functions (`async function`, `await`).
-- Generator functions (`function*`) and `yield`.
 
 ## Statements and Control Flow
 

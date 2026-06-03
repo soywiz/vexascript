@@ -3540,4 +3540,38 @@ describe("parse enum declarations", () => {
             }]
         });
     });
+    it("parses async functions, generator functions, yield, and this parameters", () => {
+        const program = parseFile(tokenizeReader(`async function load(this: Loader, id: string) { return await fetch(id) }
+function* ids() { yield 1; yield* more }
+class Store { async save(this: Store) { return await persist(this) }; *values() { yield 1 } }`));
+
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            async: true,
+            name: { name: "load" },
+            parameters: [
+                { kind: "FunctionParameter", thisParameter: true, name: { name: "this" }, typeAnnotation: { name: "Loader" } },
+                { kind: "FunctionParameter", name: { name: "id" }, typeAnnotation: { name: "string" } }
+            ]
+        });
+        expect(program.body[1]).toMatchObject({
+            kind: "FunctionStatement",
+            generator: true,
+            name: { name: "ids" },
+            body: {
+                body: [
+                    { kind: "ExprStatement", expression: { kind: "UnaryExpression", operator: "yield" } },
+                    { kind: "ExprStatement", expression: { kind: "UnaryExpression", operator: "yield*" } }
+                ]
+            }
+        });
+        expect(program.body[2]).toMatchObject({
+            kind: "ClassStatement",
+            members: [
+                { kind: "ClassMethodMember", async: true, name: { name: "save" } },
+                { kind: "ClassMethodMember", generator: true, name: { name: "values" } }
+            ]
+        });
+    });
+
 });
