@@ -2444,6 +2444,24 @@ export class Parser {
             }
         }
 
+        if (!typeOnly && this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+            const asKeyword = this.tokens.read();
+            const namespaceKeyword = this.tokens.read();
+            if (namespaceKeyword?.type !== "identifier" || namespaceKeyword.value !== "namespace") {
+                this.fail("Expected 'namespace' after 'export as'", this.tokenAt(namespaceKeyword));
+            }
+            const nameToken = this.tokens.read();
+            if (nameToken?.type !== "identifier") {
+                this.fail("Expected namespace name after 'export as namespace'", this.tokenAt(nameToken));
+            }
+            const namespaceExport = this.buildIdentifierFromToken(nameToken);
+            return this.attachNodeBounds(
+                { kind: "ExportStatement", namespaceExport } as ExportStatement,
+                exportKeyword,
+                namespaceExport.lastToken ?? asKeyword ?? exportKeyword
+            );
+        }
+
         if (!typeOnly && this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "default") {
             this.tokens.skip();
             const next = this.tokens.peek();

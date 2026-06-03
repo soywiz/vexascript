@@ -2622,6 +2622,11 @@ describe("parseStatement", () => {
             exportAll: true,
             from: { kind: "StringLiteral", value: "./all" }
         });
+
+        expect(parseStatement(tokenizeReader("export as namespace MyLib"))).toEqual({
+            kind: "ExportStatement",
+            namespaceExport: { kind: "Identifier", name: "MyLib" }
+        });
     });
 
     it("parses default and type-only exports", () => {

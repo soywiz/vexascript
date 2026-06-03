@@ -61,6 +61,14 @@ function bind(this: Loader, id: string): string {
 }
 ```
 
+Type assertions with `as Type`, angle-bracket assertions, and const assertions are parsed and erased during JavaScript emission. Const assertions keep the analyzed expression type without attempting to resolve `const` as a named type:
+
+```mylang
+let name = value as string
+let precise = [1, 2] as const
+let other = <string>value
+```
+
 
 ### Function declarations
 
@@ -198,9 +206,10 @@ export { Shape } from "./shape"
 export * from "./math"
 export type Name = string
 export type { Shape } from "./types"
+export as namespace MyLib
 ```
 
-Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output.
+Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output. `export as namespace` is supported for TypeScript-style global UMD declarations; it participates in parsing and editor highlighting and is omitted from JavaScript output.
 
 ## Classes
 

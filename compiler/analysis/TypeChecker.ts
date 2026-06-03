@@ -631,6 +631,10 @@ export class TypeChecker {
       case "AsExpression": {
         const assertion = expression as AsExpression;
         const expressionType = this.visitExpression(assertion.expression, scope);
+        if (assertion.typeAnnotation.name === "const") {
+          result = expressionType;
+          break;
+        }
         const assertedType = this.resolveTypeAnnotation(assertion.typeAnnotation, scope) ?? UNKNOWN_TYPE;
         if (
           !isUnknownType(expressionType) &&

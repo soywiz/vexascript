@@ -10,7 +10,6 @@ Scope notes:
 
 ## Program and Modules
 
-- `export as namespace`.
 - ES module string specifiers (`from "..."`) as part of real module syntax handling.
 
 ## Declarations
@@ -25,7 +24,6 @@ Scope notes:
 - Mapped types (`{ [K in keyof T]: ... }`).
 - Conditional types (`T extends U ? X : Y`).
 - `infer`.
-- Utility for `as const` and const assertions.
 
 ## Class Syntax
 
