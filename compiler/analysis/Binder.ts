@@ -190,11 +190,11 @@ export class Binder {
       if (statement.kind === "FunctionStatement") {
         const functionStatement = statement as FunctionStatement;
         const symbolType = functionType(
-          functionStatement.parameters.map((parameter) => ({
+          functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: parameter.name.name,
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          rest: parameter.rest === true
+            rest: parameter.rest === true
           })),
           this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE,
           functionStatement.typeParameters?.map((parameter) => parameter.name.name)
@@ -366,7 +366,7 @@ export class Binder {
   private bindFunctionStatement(statement: FunctionStatement, scope: Scope, declareInParent: boolean): void {
     if (declareInParent) {
       const symbolType = functionType(
-        statement.parameters.map((parameter) => ({
+        statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: parameter.name.name,
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
@@ -386,6 +386,9 @@ export class Binder {
 
     const functionScope = this.createScope(scope, statement);
     for (const parameter of statement.parameters) {
+      if (parameter.thisParameter === true) {
+        continue;
+      }
       const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
       this.declare(functionScope, {
         name: parameter.name.name,
@@ -413,11 +416,11 @@ export class Binder {
       if (member.kind === "ClassMethodMember") {
         const method = member as ClassMethodMember;
         const methodType = functionType(
-          method.parameters.map((parameter) => ({
+          method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: parameter.name.name,
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-          rest: parameter.rest === true
+            rest: parameter.rest === true
           })),
           this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE,
           method.typeParameters?.map((parameter) => parameter.name.name)
@@ -448,6 +451,9 @@ export class Binder {
           }, -1);
         }
         for (const parameter of method.parameters) {
+          if (parameter.thisParameter === true) {
+            continue;
+          }
           const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
           this.declare(methodScope, {
             name: parameter.name.name,

@@ -350,6 +350,9 @@ export class TypeChecker {
 
       const functionScope = this.scopeFor(statement, scope);
       for (const parameter of statement.parameters) {
+        if (parameter.thisParameter === true) {
+          continue;
+        }
         const parameterType =
           this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
           (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
@@ -440,6 +443,9 @@ export class TypeChecker {
 
           const methodScope = this.scopeFor(method, classScope);
           for (const parameter of method.parameters) {
+            if (parameter.thisParameter === true) {
+              continue;
+            }
             const parameterType =
               this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
               (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
@@ -757,6 +763,10 @@ export class TypeChecker {
           break;
         }
         if (unary.operator === "await") {
+          result = argumentType;
+          break;
+        }
+        if (unary.operator === "yield" || unary.operator === "yield*") {
           result = argumentType;
           break;
         }
@@ -1114,7 +1124,7 @@ export class TypeChecker {
     typeParameters: TypeParameter[] = []
   ): AnalysisType {
     return functionType(
-      parameters.map((parameter) => ({
+      parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
         name: parameter.name.name,
         type: parameter.typeAnnotation
           ? this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
@@ -2523,7 +2533,7 @@ export class TypeChecker {
         members.set(
           classMember.name.name,
           this.substituteTypeParameters(functionType(
-            classMember.parameters.map((parameter) => ({
+            classMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
               name: parameter.name.name,
               type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
               optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
@@ -2575,7 +2585,7 @@ export class TypeChecker {
       members.set(
         interfaceMember.name.name,
         this.substituteTypeParameters(functionType(
-          interfaceMember.parameters.map((parameter) => ({
+          interfaceMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: parameter.name.name,
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
@@ -2714,7 +2724,7 @@ export class TypeChecker {
         return this.substituteTypeParameters(parameterType, substitutions);
       }
       return this.substituteTypeParameters(functionType(
-        classMember.parameters.map((parameter) => ({
+        classMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: parameter.name.name,
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,

@@ -41,6 +41,27 @@ val a = 10 * 2, lol = true
 
 ## Functions
 
+Functions can be declared with `fun` or TypeScript-style `function`. Both forms support `async` and generator modifiers when emitted to JavaScript:
+
+```mylang
+async function load(id: string): Promise<Response> {
+  return await fetch(id)
+}
+
+function* ids() {
+  yield 1
+}
+```
+
+A TypeScript `this` parameter may appear first in a function-like parameter list for type analysis. It is erased during JavaScript emission:
+
+```mylang
+function bind(this: Loader, id: string): string {
+  return id
+}
+```
+
+
 ### Function declarations
 
 MyLang supports function declarations with both keywords:
@@ -180,6 +201,21 @@ export type { Shape } from "./types"
 Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output.
 
 ## Classes
+
+Class methods support `async` and generator modifiers:
+
+```mylang
+class Store {
+  async save() {
+    return await persist(this)
+  }
+
+  *values() {
+    yield 1
+  }
+}
+```
+
 
 ### Class declarations
 
@@ -417,6 +453,7 @@ Supported unary operators:
 - `void x`
 - `delete x`
 - `await x`
+- `yield x` and `yield* iterable` in generator functions
 - prefix increment (`++x`)
 - prefix decrement (`--x`)
 - postfix increment (`x++`)

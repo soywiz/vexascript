@@ -87,7 +87,7 @@ function formatTokenAllowsRegExpLiteral(previousToken: FormatToken | undefined):
     return true;
   }
   if (previousToken.type === "identifier") {
-    return ["return", "throw", "case", "delete", "void", "typeof", "await", "in", "instanceof", "new", "else", "do", "of"].includes(previousToken.value);
+    return ["return", "throw", "case", "delete", "void", "typeof", "await", "yield", "in", "instanceof", "new", "else", "do", "of"].includes(previousToken.value);
   }
   if (previousToken.type === "symbol") {
     return new Set([
@@ -340,7 +340,7 @@ function classifyTopLevelLineStart(token: FormatToken): TopLevelLineKind {
     return "variableDeclaration";
   }
 
-  if (token.value === "fun" || token.value === "function" || token.value === "class" || token.value === "enum" || token.value === "interface" || token.value === "type") {
+  if (token.value === "fun" || token.value === "function" || token.value === "async" || token.value === "class" || token.value === "enum" || token.value === "interface" || token.value === "type") {
     return "functionOrClassDeclaration";
   }
 
@@ -361,6 +361,14 @@ function shouldSpaceBefore(
   if (isMemberOperator(previous) || isMemberOperator(current)) {
     return false;
   }
+  if (current.type === "symbol" && current.value === "*" && previous.type === "identifier" && previous.value === "function") {
+    return false;
+  }
+
+  if (previous.type === "symbol" && previous.value === "*" && significantBeforePrevious?.type === "identifier" && significantBeforePrevious.value === "function") {
+    return false;
+  }
+
 
   if (
     previous.type === "symbol" &&
