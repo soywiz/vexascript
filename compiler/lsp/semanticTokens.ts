@@ -1,5 +1,6 @@
 import type {
   ArrayLiteral,
+  AsExpression,
   ArrowFunctionExpression,
   AssignmentExpression,
   BinaryExpression,
@@ -509,6 +510,12 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
           visitExpression(child);
         }
         return;
+      case "AsExpression": {
+        const assertion = expression as AsExpression;
+        visitExpression(assertion.expression);
+        markTypeAnnotation(kinds, assertion.typeAnnotation);
+        return;
+      }
       case "BinaryExpression": {
         const binary = expression as BinaryExpression;
         visitExpression(binary.left);

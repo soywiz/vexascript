@@ -2,6 +2,7 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import type {
   ArrayLiteral,
+  AsExpression,
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
@@ -136,6 +137,9 @@ function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range):
         for (const child of (expression as CommaExpression).expressions) {
           visitExpression(child);
         }
+        return;
+      case "AsExpression":
+        visitExpression((expression as AsExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

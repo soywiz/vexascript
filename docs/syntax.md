@@ -514,11 +514,12 @@ let matcher: RegExp = /a[0-9]+/gi
 
 ### Type assertions
 
-MyLang supports TypeScript-style `as` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
+MyLang supports TypeScript-style `value as TypeName` and angle-bracket `<TypeName>value` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
 
 ```mylang
 let value: unknown = readValue()
 let name: string = value as string
+let count: number = <number>rawCount
 ```
 
 ### Range expressions

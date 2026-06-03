@@ -1,5 +1,6 @@
 import type {
   ArrayLiteral,
+  AsExpression,
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
@@ -108,6 +109,9 @@ function collectCallExpressions(program: Program): CallExpression[] {
         for (const child of (expression as CommaExpression).expressions) {
           visitExpression(child);
         }
+        return;
+      case "AsExpression":
+        visitExpression((expression as AsExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);
@@ -308,6 +312,9 @@ function collectAssignmentExpressions(program: Program): AssignmentExpression[] 
         for (const child of (expression as CommaExpression).expressions) {
           visitExpression(child);
         }
+        return;
+      case "AsExpression":
+        visitExpression((expression as AsExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

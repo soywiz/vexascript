@@ -1,6 +1,7 @@
 import type { Analysis } from "compiler/analysis/Analysis";
 import type {
   ArrayLiteral,
+  AsExpression,
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
@@ -359,6 +360,9 @@ export function createInlayHints(
         for (const child of (expression as CommaExpression).expressions) {
           visitExpression(child);
         }
+        return;
+      case "AsExpression":
+        visitExpression((expression as AsExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

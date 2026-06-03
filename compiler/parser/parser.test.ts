@@ -214,6 +214,19 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for TypeScript angle-bracket assertions", () => {
+        expect(parseExpression(tokenizeReader("<string>value"))).toEqual({
+            kind: "AsExpression",
+            expression: { kind: "Identifier", name: "value" },
+            typeAnnotation: { kind: "Identifier", name: "string" }
+        });
+        expect(parseExpression(tokenizeReader("<string[]>value"))).toEqual({
+            kind: "AsExpression",
+            expression: { kind: "Identifier", name: "value" },
+            typeAnnotation: { kind: "Identifier", name: "string[]" }
+        });
+    });
+
     it("builds an AST for unary plus", () => {
         expect(parseExpression(tokenizeReader("+1"))).toEqual({
             kind: "UnaryExpression",

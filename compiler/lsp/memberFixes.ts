@@ -249,6 +249,9 @@ function inferMissingMemberTypeFromDiagnostic(
           visitExpression(argument);
         }
         return;
+      case "AsExpression":
+        visitExpression((expression as import("compiler/ast/ast").AsExpression).expression);
+        return;
       case "BinaryExpression":
         visitExpression((expression as import("compiler/ast/ast").BinaryExpression).left);
         visitExpression((expression as import("compiler/ast/ast").BinaryExpression).right);

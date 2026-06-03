@@ -4,6 +4,7 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import { typeToString } from "compiler/analysis/types";
 import type {
   ArrayLiteral,
+  AsExpression,
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
@@ -564,6 +565,9 @@ function findMemberExpressionAtPosition(
           visitExpression(child);
         }
         return;
+      case "AsExpression":
+        visitExpression((expression as AsExpression).expression);
+        return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);
         visitExpression((expression as BinaryExpression).right);
@@ -897,6 +901,9 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
         for (const child of (expression as CommaExpression).expressions) {
           visitExpression(child);
         }
+        return;
+      case "AsExpression":
+        visitExpression((expression as AsExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);
