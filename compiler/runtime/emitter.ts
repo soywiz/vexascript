@@ -17,6 +17,7 @@ import type {
   DoWhileStatement,
   Expr,
   ExprStatement,
+  EnumStatement,
   ExportStatement,
   ForStatement,
   FloatLiteral,
@@ -501,6 +502,38 @@ function emitForStatement(statement: ForStatement): string {
   return `for (${initializer}; ${condition}; ${update}) ${emitStatement(statement.body)}`;
 }
 
+
+function emitEnumStatement(statement: EnumStatement): string {
+  if (statement.declared) {
+    return "";
+  }
+
+  const name = statement.name.name;
+  const lines: string[] = [`var ${name};`, `(function (${name}) {`];
+  let nextNumericValue = 0;
+  for (const member of statement.members) {
+    const memberName = member.name.name;
+    if (member.initializer) {
+      const initializer = emitExpression(member.initializer);
+      if (member.initializer.kind === "StringLiteral") {
+        lines.push(`  ${name}[${JSON.stringify(memberName)}] = ${initializer};`);
+      } else {
+        lines.push(`  ${name}[${name}[${JSON.stringify(memberName)}] = ${initializer}] = ${JSON.stringify(memberName)};`);
+      }
+      if (member.initializer.kind === "IntLiteral") {
+        nextNumericValue = (member.initializer as IntLiteral).value + 1;
+      } else {
+        nextNumericValue = 0;
+      }
+      continue;
+    }
+    lines.push(`  ${name}[${name}[${JSON.stringify(memberName)}] = ${nextNumericValue}] = ${JSON.stringify(memberName)};`);
+    nextNumericValue += 1;
+  }
+  lines.push(`})(${name} || (${name} = {}));`);
+  return lines.join("\n");
+}
+
 export function emitStatement(statement: Statement): string {
   switch (statement.kind) {
     case "ExportStatement": {
@@ -559,6 +592,8 @@ export function emitStatement(statement: Statement): string {
     }
     case "VarStatement":
       return emitVarStatement(statement as VarStatement);
+    case "EnumStatement":
+      return emitEnumStatement(statement as EnumStatement);
     case "FunctionStatement": {
       const fn = statement as FunctionStatement;
       if (fn.declared) {

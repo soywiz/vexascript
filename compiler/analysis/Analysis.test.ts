@@ -1491,3 +1491,25 @@ let badOptional: int = optionalCall
   });
 
 });
+
+
+describe("enum semantic analysis", () => {
+  it("binds enum declarations and resolves enum member access", () => {
+    const source = "enum Direction { Up, Down }\nlet direction: Direction = Direction.Up\n";
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    const visible = symbolsOfVisibleSymbolsAt(source, 1, 4);
+    expect(visible.get("Direction")?.valueType).toBe("Direction");
+  });
+
+  it("reports unknown enum members and invalid initializer types", () => {
+    const ast = parseFile(tokenizeReader('enum Direction { Up = true }\nlet value = Direction.Missing'));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Enum member 'Up' initializer must be assignable to int or string");
+    expect(messages).toContain("Property 'Missing' does not exist on type 'Direction'");
+  });
+});

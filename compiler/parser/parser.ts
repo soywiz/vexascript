@@ -24,6 +24,8 @@ import {
     DoWhileStatement,
     Expr,
     ExprStatement,
+    EnumMember,
+    EnumStatement,
     ExportSpecifier,
     ExportStatement,
     EmptyStatement,
@@ -236,6 +238,9 @@ export class Parser {
         if (token?.type === "identifier" && token.value === "export") {
             return this.parseExportStatement();
         }
+        if (token?.type === "identifier" && (token.value === "enum" || this.isConstEnumStart())) {
+            return this.parseEnumStatement();
+        }
         if (token?.type === "identifier" && this.isVariableDeclarationKeyword(token.value)) {
             return this.parseVarStatement();
         }
@@ -250,6 +255,9 @@ export class Parser {
         }
         if (this.isDeclareFunctionStart()) {
             return this.parseDeclareFunctionStatement();
+        }
+        if (this.isDeclareEnumStart()) {
+            return this.parseDeclareEnumStatement();
         }
         if (this.isDeclareVariableStart()) {
             return this.parseDeclareVariableStatement();
@@ -501,6 +509,7 @@ export class Parser {
             token.value === "const" ||
             token.value === "fun" ||
             token.value === "function" ||
+            token.value === "enum" ||
             token.value === "declare" ||
             token.value === "export" ||
             token.value === "class" ||
@@ -865,7 +874,8 @@ export class Parser {
             first?.type === "identifier" &&
             first.value === "declare" &&
             second?.type === "identifier" &&
-            this.isVariableDeclarationKeyword(second.value)
+            this.isVariableDeclarationKeyword(second.value) &&
+            !(second.value === "const" && this.peekToken(2)?.type === "identifier" && this.peekToken(2)?.value === "enum")
         );
     }
 
@@ -903,6 +913,29 @@ export class Parser {
             first.value === "declare" &&
             second?.type === "identifier" &&
             (second.value === "namespace" || second.value === "module")
+        );
+    }
+
+    private isConstEnumStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "const" &&
+            second?.type === "identifier" &&
+            second.value === "enum"
+        );
+    }
+
+    private isDeclareEnumStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        const third = this.peekToken(2);
+        return (
+            first?.type === "identifier" &&
+            first.value === "declare" &&
+            ((second?.type === "identifier" && second.value === "enum") ||
+                (second?.type === "identifier" && second.value === "const" && third?.type === "identifier" && third.value === "enum"))
         );
     }
 
@@ -2347,6 +2380,8 @@ export class Parser {
             declaration = this.parseClassStatement();
         } else if (next?.type === "identifier" && next.value === "interface") {
             declaration = this.parseInterfaceStatement();
+        } else if (next?.type === "identifier" && (next.value === "enum" || this.isConstEnumStart())) {
+            declaration = this.parseEnumStatement();
         } else {
             this.fail("Expected declaration or export list after 'export'", this.tokenAt(next));
         }
@@ -2569,6 +2604,97 @@ export class Parser {
         return specifiers;
     }
 
+    private parseEnumStatement(declared: boolean = false): EnumStatement {
+        const startToken = this.tokens.peek();
+        let isConstEnum = false;
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "const") {
+            isConstEnum = true;
+            this.tokens.skip();
+        }
+
+        const enumKeyword = this.tokens.read();
+        if (enumKeyword?.type !== "identifier" || enumKeyword.value !== "enum") {
+            this.fail("Expected enum declaration statement", this.tokenAt(enumKeyword));
+        }
+
+        const enumNameToken = this.tokens.read();
+        if (enumNameToken?.type !== "identifier") {
+            this.fail("Expected enum name after 'enum'", this.tokenAt(enumNameToken));
+        }
+
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' to start enum body", this.tokenAt(openBrace));
+        }
+
+        const members: EnumMember[] = [];
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+            if (this.isEofToken(token)) {
+                this.fail("Expected '}' to close enum body", this.tokenAt(openBrace), "block");
+            }
+            if (token?.type === "symbol" && token.value === "}") {
+                this.tokens.skip();
+                const statement: EnumStatement = {
+                    kind: "EnumStatement",
+                    name: this.buildIdentifierFromToken(enumNameToken),
+                    members
+                };
+                if (declared) {
+                    statement.declared = true;
+                }
+                if (isConstEnum) {
+                    statement.const = true;
+                }
+                return this.attachNodeBounds(statement, startToken ?? enumKeyword, this.getLastReadToken() ?? enumNameToken);
+            }
+
+            if (token?.type === "symbol" && (token.value === "," || token.value === ";")) {
+                this.tokens.skip();
+                continue;
+            }
+
+            const nameToken = this.tokens.read();
+            if (nameToken?.type !== "identifier") {
+                this.fail("Expected enum member name", this.tokenAt(nameToken));
+            }
+            let initializer: Expr | undefined;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+                this.tokens.skip();
+                initializer = this.parseAssignment();
+            }
+            const member: EnumMember = {
+                kind: "EnumMember",
+                name: this.buildIdentifierFromToken(nameToken)
+            };
+            if (initializer) {
+                member.initializer = initializer;
+            }
+            members.push(this.attachNodeBounds(member, nameToken, this.getLastReadToken() ?? nameToken));
+
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
+                this.tokens.skip();
+                continue;
+            }
+            if (separator?.type === "symbol" && separator.value === "}") {
+                continue;
+            }
+            this.fail("Expected ',' or '}' after enum member", this.tokenAt(separator));
+        }
+
+        this.fail("Expected '}' to close enum body", this.tokenAt(openBrace), "block");
+    }
+
+    private parseDeclareEnumStatement(): EnumStatement {
+        const declareKeyword = this.tokens.read();
+        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+            this.fail("Expected 'declare' before enum declaration", this.tokenAt(declareKeyword));
+        }
+        const statement = this.parseEnumStatement(true);
+        statement.declared = true;
+        return this.attachNodeBounds(statement, declareKeyword, statement.lastToken ?? this.getLastReadToken() ?? declareKeyword);
+    }
 
     private parseTypeAliasStatement(declared: boolean = false): TypeAliasStatement {
         const typeKeyword = this.tokens.read();

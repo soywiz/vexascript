@@ -4,6 +4,7 @@ import type {
   ClassMethodMember,
   ClassStatement,
   DoWhileStatement,
+  EnumStatement,
   ForStatement,
   FunctionStatement,
   ExportStatement,
@@ -221,6 +222,19 @@ export class Binder {
         continue;
       }
 
+      if (statement.kind === "EnumStatement") {
+        const enumStatement = statement as EnumStatement;
+        const symbolType = namedType(enumStatement.name.name);
+        this.declare(scope, {
+          name: enumStatement.name.name,
+          kind: "class",
+          node: enumStatement.name,
+          type: symbolType,
+          valueType: typeToString(symbolType)
+        });
+        continue;
+      }
+
       if (statement.kind === "InterfaceStatement") {
         const interfaceStatement = statement as InterfaceStatement;
         const symbolType = namedType(interfaceStatement.name.name);
@@ -273,6 +287,9 @@ export class Binder {
         return;
       case "ClassStatement":
         this.bindClassStatement(statement as ClassStatement, scope);
+        return;
+      case "EnumStatement":
+        this.bindEnumStatement(statement as EnumStatement, scope);
         return;
       case "InterfaceStatement":
       case "TypeAliasStatement":
@@ -442,6 +459,29 @@ export class Binder {
         }
         this.bindStatements(method.body.body, methodScope);
       }
+    }
+  }
+
+
+  private bindEnumStatement(statement: EnumStatement, scope: Scope): void {
+    this.declare(scope, {
+      name: statement.name.name,
+      kind: "class",
+      node: statement.name,
+      type: namedType(statement.name.name),
+      valueType: statement.name.name
+    });
+
+    const enumScope = this.createScope(scope, statement);
+    for (const member of statement.members) {
+      this.declare(enumScope, {
+        name: member.name.name,
+        kind: "variable",
+        node: member.name,
+        isReadonly: true,
+        type: namedType(statement.name.name),
+        valueType: statement.name.name
+      });
     }
   }
 

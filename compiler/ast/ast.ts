@@ -365,6 +365,20 @@ export interface TypeAliasStatement extends Statement {
     targetType: Identifier
 }
 
+export interface EnumMember extends Node {
+    kind: "EnumMember"
+    name: Identifier
+    initializer?: Expr
+}
+
+export interface EnumStatement extends Statement {
+    kind: "EnumStatement"
+    declared?: boolean
+    const?: boolean
+    name: Identifier
+    members: EnumMember[]
+}
+
 export interface ExprStatement extends Statement {
     kind: "ExprStatement"
     expression: Expr

@@ -332,6 +332,29 @@ interface PairStore<K, V> extends Iterable<K> {
 
 `interface` declarations are type-only and are omitted from emitted JavaScript output.
 
+
+### Enums
+
+MyLang supports TypeScript-style `enum` and `const enum` declarations with numeric auto-increment members, numeric initializers, and string initializers. Enum declarations create a named semantic type, enum member access is checked as a known member, and non-ambient enums emit JavaScript runtime enum objects. Ambient `declare enum` declarations participate in analysis but are omitted from emitted JavaScript.
+
+Examples:
+
+```mylang
+enum Direction {
+  Up,
+  Down = 4,
+  Left,
+  Right = "right"
+}
+
+const enum Status {
+  Ready = 1,
+  Done
+}
+
+let direction: Direction = Direction.Up
+```
+
 ### Type aliases
 
 MyLang supports type aliases for naming another supported type annotation form. Aliases may be generic and can be used anywhere a type annotation is accepted:
