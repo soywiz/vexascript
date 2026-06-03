@@ -79,6 +79,7 @@ import {
 
 type BinaryOperator = BinaryExpression["operator"];
 type AssignmentOperator = AssignmentExpression["operator"];
+type OverloadableOperator = BinaryExpression["operator"];
 type BinaryAssoc = "left" | "right";
 type InfixOperator = BinaryOperator | "...";
 
@@ -2932,10 +2933,22 @@ export class Parser {
             returnType = this.parseTypeAnnotationNode();
         }
 
-        if (this.tokens.peek()?.type !== "symbol" || this.tokens.peek()?.value !== "{") {
-            this.fail("Expected '{' to start function body", this.tokenAt());
+        let missingBody = false;
+        let body: BlockStatement;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
+            body = this.parseBlockStatement();
+        } else {
+            missingBody = true;
+            body = this.attachNodeBounds(
+                { kind: "BlockStatement", body: [] } as BlockStatement,
+                nameToken,
+                this.getLastReadToken() ?? nameToken
+            );
+            const maybeSemicolon = this.tokens.peek();
+            if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
+                this.tokens.skip();
+            }
         }
-        const body = this.parseBlockStatement();
 
         const statement: FunctionStatement = {
             kind: "FunctionStatement",
@@ -2949,6 +2962,9 @@ export class Parser {
         }
         if (isGeneratorFunction) {
             statement.generator = true;
+        }
+        if (missingBody) {
+            statement.missingBody = true;
         }
         if (typeParameters.length > 0) {
             statement.typeParameters = typeParameters;
@@ -3231,6 +3247,14 @@ export class Parser {
         return parameters;
     }
 
+    private operatorOverloadFromToken(token: Token | undefined): OverloadableOperator | undefined {
+        if (token?.type !== "symbol") {
+            return undefined;
+        }
+        const candidate = token.value as OverloadableOperator;
+        return candidate in BINARY_OPERATOR_INFO && candidate !== "in" && candidate !== "instanceof" ? candidate : undefined;
+    }
+
     private parseClassMember(allowSignatureOnly: boolean = false): ClassMember {
         const firstToken = this.tokens.peek();
         let memberStartToken = firstToken;
@@ -3279,6 +3303,25 @@ export class Parser {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
         }
 
+        let overloadedOperator: OverloadableOperator | undefined;
+        let effectiveMemberNameToken = memberNameToken;
+        if (memberNameToken.value === "operator") {
+            const operatorToken = this.tokens.peek();
+            overloadedOperator = this.operatorOverloadFromToken(operatorToken);
+            if (!overloadedOperator) {
+                this.fail("Expected overloadable operator after 'operator'", this.tokenAt(operatorToken));
+            }
+            this.tokens.skip();
+            effectiveMemberNameToken = {
+                ...memberNameToken,
+                value: `operator${overloadedOperator}`,
+                range: {
+                    start: memberNameToken.range.start,
+                    end: operatorToken!.range.end
+                }
+            };
+        }
+
         const methodTypeParameters = this.parseTypeParameterList();
         if ((methodTypeParameters.length > 0) || (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(")) {
             if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(")) {
@@ -3307,10 +3350,13 @@ export class Parser {
 
                 const signatureOnlyMethod: ClassMethodMember = {
                     kind: "ClassMethodMember",
-                    name: this.buildIdentifierFromToken(memberNameToken),
+                    name: this.buildIdentifierFromToken(effectiveMemberNameToken),
                     parameters,
                     body: signatureOnlyBody
                 };
+                if (overloadedOperator) {
+                    signatureOnlyMethod.operator = overloadedOperator;
+                }
                 if (accessorKind) {
                     signatureOnlyMethod.accessorKind = accessorKind;
                 }
@@ -3342,10 +3388,13 @@ export class Parser {
 
             const methodMember: ClassMethodMember = {
                 kind: "ClassMethodMember",
-                name: this.buildIdentifierFromToken(memberNameToken),
+                name: this.buildIdentifierFromToken(effectiveMemberNameToken),
                 parameters,
                 body: this.parseBlockStatement()
             };
+            if (overloadedOperator) {
+                methodMember.operator = overloadedOperator;
+            }
             if (accessorKind) {
                 methodMember.accessorKind = accessorKind;
             }
@@ -3400,7 +3449,7 @@ export class Parser {
 
         const fieldMember: ClassFieldMember = {
             kind: "ClassFieldMember",
-            name: this.buildIdentifierFromToken(memberNameToken)
+            name: this.buildIdentifierFromToken(effectiveMemberNameToken)
         };
         this.applyClassMemberModifiers(fieldMember, {
             override: isOverrideMember,

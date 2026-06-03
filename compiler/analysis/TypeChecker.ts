@@ -354,7 +354,10 @@ export class TypeChecker {
     this.withTypeParameters(typeParameterNames, () => {
       const returnType = this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE;
       const fnType = this.buildFunctionType(statement.parameters, returnType, scope, statement.typeParameters ?? []);
-      this.updateSymbolType(scope, statement.name.name, fnType);
+      const existingSymbolType = scope.symbols.get(statement.name.name)?.type;
+      if (statement.missingBody !== true && existingSymbolType?.kind !== "union") {
+        this.updateSymbolType(scope, statement.name.name, fnType);
+      }
 
       const functionScope = this.scopeFor(statement, scope);
       for (const parameter of statement.parameters) {
@@ -593,7 +596,7 @@ export class TypeChecker {
         const binary = expression as BinaryExpression;
         const leftType = this.visitExpression(binary.left, scope);
         const rightType = this.visitExpression(binary.right, scope);
-        result = this.inferBinaryType(binary.operator, leftType, rightType);
+        result = this.resolveOperatorOverloadType(binary.operator, leftType, rightType, scope) ?? this.inferBinaryType(binary.operator, leftType, rightType);
         break;
       }
       case "RangeExpression": {
@@ -685,7 +688,7 @@ export class TypeChecker {
         for (const argument of call.arguments) {
           argumentTypes.push(this.visitExpression(argument, scope));
         }
-        const callableType = this.callableTypeFrom(calleeType);
+        const callableType = this.callableTypeFrom(calleeType, argumentTypes);
         if (callableType) {
           const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
             this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
@@ -884,6 +887,40 @@ export class TypeChecker {
 
     this.expressionTypes.set(expression, result);
     return result;
+  }
+
+  private resolveOperatorOverloadType(
+    operator: BinaryExpression["operator"],
+    leftType: AnalysisType,
+    rightType: AnalysisType,
+    scope: Scope
+  ): AnalysisType | null {
+    if (leftType.kind !== "named") {
+      return null;
+    }
+    const classStatement = this.classStatementsByName.get(leftType.name);
+    if (!classStatement) {
+      return null;
+    }
+    for (const member of classStatement.members) {
+      if (member.kind !== "ClassMethodMember") {
+        continue;
+      }
+      const method = member as ClassMethodMember;
+      if (method.operator !== operator || method.parameters.length !== 1) {
+        continue;
+      }
+      const parameterType = method.parameters[0]?.typeAnnotation
+        ? this.resolveTypeAnnotation(method.parameters[0]!.typeAnnotation, scope) ?? UNKNOWN_TYPE
+        : UNKNOWN_TYPE;
+      if (!isUnknownType(parameterType) && !isUnknownType(rightType) && !this.isTypeAssignable(rightType, parameterType)) {
+        continue;
+      }
+      return method.returnType
+        ? this.resolveTypeAnnotation(method.returnType, scope) ?? UNKNOWN_TYPE
+        : namedType(leftType.name);
+    }
+    return null;
   }
 
   private inferBinaryType(
@@ -1418,7 +1455,7 @@ export class TypeChecker {
   }
 
 
-  private callableTypeFrom(type: AnalysisType): (AnalysisType & { kind: "function" }) | null {
+  private callableTypeFrom(type: AnalysisType, argumentTypes: AnalysisType[] = []): (AnalysisType & { kind: "function" }) | null {
     if (type.kind === "function") {
       return type;
     }
@@ -1426,7 +1463,31 @@ export class TypeChecker {
       return null;
     }
     const callableMembers = type.types.filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function");
-    return callableMembers[0] ?? null;
+    return callableMembers.find((member) => this.isCallableMatch(member, argumentTypes)) ?? callableMembers[0] ?? null;
+  }
+
+  private isCallableMatch(calleeType: AnalysisType & { kind: "function" }, argumentTypes: AnalysisType[]): boolean {
+    const lastParameter = calleeType.parameters[calleeType.parameters.length - 1];
+    const restParameter = lastParameter?.rest ? lastParameter : undefined;
+    const fixedParameters = restParameter ? calleeType.parameters.slice(0, -1) : calleeType.parameters;
+    const requiredCount = fixedParameters.filter((parameter) => !parameter.optional).length;
+    if (argumentTypes.length < requiredCount || (!restParameter && argumentTypes.length > fixedParameters.length)) {
+      return false;
+    }
+    for (let index = 0; index < argumentTypes.length; index += 1) {
+      const parameter = fixedParameters[index] ?? restParameter;
+      if (!parameter) {
+        return false;
+      }
+      const expectedType = restParameter && index >= fixedParameters.length
+        ? this.restParameterElementType(restParameter.type)
+        : parameter.type;
+      const argumentType = argumentTypes[index]!;
+      if (!isUnknownType(expectedType) && !isUnknownType(argumentType) && !this.isTypeAssignable(argumentType, expectedType)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private hasNullishUnionMember(type: AnalysisType): boolean {

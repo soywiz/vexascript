@@ -137,6 +137,35 @@ fun demo(a, b): Int {
 }
 ```
 
+
+### Function overloads
+
+Multiple top-level functions may share the same source name when their parameter type signatures differ. During JavaScript emission, overloaded implementations are currently name-mangled with their parameter types, and typed calls are rewritten to the matching emitted name:
+
+```my
+function describe(value: int): string { return "int" }
+function describe(value: string): string { return value }
+
+describe(1)      // emits as describe__int(1)
+describe("one")  // emits as describe__string("one")
+```
+
+Signature-only overload declarations may be written without a body and are omitted from JavaScript output.
+
+### Operator overloads
+
+Classes can declare binary operator overload methods with `operator` followed by the operator token. The current runtime lowering emits a mangled method name and rewrites matching binary expressions to method calls:
+
+```my
+class Point(val x: number, val y: number) {
+  operator+(other: Point): Point {
+    return new Point(this.x + other.x, this.y + other.y)
+  }
+}
+
+let c = a + b // emits as a.operator__plus(b) when a is Point
+```
+
 ### Generic function declarations
 
 Function declarations support generic type parameters, and explicit generic type arguments on calls specialize parameter and return types:
