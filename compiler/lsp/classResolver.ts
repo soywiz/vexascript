@@ -4,6 +4,7 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName, parseTypeNameShape, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type {
+  AsExpression,
   AssignmentExpression,
   BinaryExpression,
   CallExpression,
@@ -944,6 +945,13 @@ export function resolveExpressionTypeName(
   const direct = typeNameFromAnalysisType(analysis.getExpressionTypes().get(expression));
   if (direct && direct !== "unknown") {
     return direct;
+  }
+
+  if (expression.kind === "AsExpression") {
+    const assertion = expression as AsExpression;
+    return typeNameFromAnalysisType(analysis.getExpressionTypes().get(assertion))
+      ?? assertion.typeAnnotation.name
+      ?? resolveExpressionTypeName(assertion.expression, analysis, ast, options);
   }
 
   if (expression.kind === "Identifier") {

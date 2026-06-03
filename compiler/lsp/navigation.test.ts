@@ -60,6 +60,17 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("provides hover info for angle-bracket assertion expressions", () => {
+    const source = "let p = <string>value\n";
+    const analysis = analysisOf(source);
+
+    const expressionHover = createHover(analysis, 0, 9);
+    expect(expressionHover?.contents).toEqual({
+      kind: "plaintext",
+      value: "expression: string"
+    });
+  });
+
   it("provides specialized generic type hover for inferred variables", () => {
     const source = "class Map<K, V> { a: K }\nfun demo() {\n  const map = new Map<string, int>()\n}\n";
     const analysis = analysisOf(source);

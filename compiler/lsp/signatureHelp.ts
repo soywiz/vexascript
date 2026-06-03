@@ -2,6 +2,7 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, type FunctionType, typeToString } from "compiler/analysis/types";
 import type {
   ArrayLiteral,
+  AsExpression,
   AssignmentExpression,
   BinaryExpression,
   CallExpression,
@@ -196,6 +197,9 @@ function findBestInvocationContext(
         for (const child of (expression as CommaExpression).expressions) {
           visitExpression(child);
         }
+        return;
+      case "AsExpression":
+        visitExpression((expression as AsExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

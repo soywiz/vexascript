@@ -70,6 +70,15 @@ let after = bind`));
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("checks TypeScript angle-bracket assertions like as assertions", () => {
+    const ast = parseFile(tokenizeReader(`let value: string = <string>unknownValue\nlet unsafe = <number>"oops"`));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Undefined variable 'unknownValue'");
+    expect(messages).toContain("Type assertion from 'string' to 'number' may be unsafe because neither type is assignable to the other");
+  });
+
   it("reports semantic errors for unresolved variables in scope", () => {
     const source =
       "let top = 1\n" +

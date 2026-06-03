@@ -2063,6 +2063,11 @@ export class Parser {
     }
 
     private parseUnary(): Expr {
+        const angleBracketAssertion = this.tryParseAngleBracketTypeAssertion();
+        if (angleBracketAssertion) {
+            return angleBracketAssertion;
+        }
+
         const token = this.tokens.peek();
         if (token?.type === "identifier" && token.value === "new") {
             const newKeyword = this.tokens.read();
@@ -2131,6 +2136,36 @@ export class Parser {
         }
 
         return this.parsePostfix();
+    }
+
+    private tryParseAngleBracketTypeAssertion(): AsExpression | null {
+        const startOffset = this.tokens.offset;
+        const open = this.tokens.peek();
+        if (!(open?.type === "symbol" && open.value === "<")) {
+            return null;
+        }
+
+        this.tokens.skip();
+        try {
+            const typeAnnotation = this.parseTypeAnnotationNode();
+            const close = this.tokens.read();
+            if (!(close?.type === "symbol" && close.value === ">")) {
+                this.tokens.offset = startOffset;
+                return null;
+            }
+            const expression = this.parseUnary();
+            return this.attachNodeBounds({
+                kind: "AsExpression",
+                expression,
+                typeAnnotation
+            } as AsExpression, open, expression.lastToken ?? this.getLastReadToken() ?? close);
+        } catch (error) {
+            this.tokens.offset = startOffset;
+            if (error instanceof ParseError) {
+                return null;
+            }
+            throw error;
+        }
     }
 
     private tryParseInvocationTypeArguments(): Identifier[] | null {

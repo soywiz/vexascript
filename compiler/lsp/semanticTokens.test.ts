@@ -55,6 +55,19 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "debugger" && token.tokenType === "keyword")).toBe(true);
   });
 
+  it("highlights angle-bracket assertion type names", () => {
+    const source = "let value = <Point>raw\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+
+    const decoded = decodeTokens(source, semantic.data);
+    expect(decoded.some((token) => token.lexeme === "Point" && token.tokenType === "type")).toBe(true);
+  });
+
   it("highlights keywords like switch/case/default/new/declare", () => {
     const source =
       "declare class Console {\n" +

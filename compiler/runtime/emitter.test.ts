@@ -117,9 +117,9 @@ let worker = async function* work(this: Loader) { yield await next() }`));
     expect(emitProgram(program)).toBe("let value = \"Ada\";");
   });
 
-  it("erases TypeScript as assertions during emission", () => {
-    const program = parseFile(tokenizeReader("let name = value as string"));
-    expect(emitProgram(program)).toBe("let name = value;");
+  it("erases TypeScript type assertions during emission", () => {
+    expect(emitProgram(parseFile(tokenizeReader("let name = value as string")))).toBe("let name = value;");
+    expect(emitProgram(parseFile(tokenizeReader("let name = <string>value")))).toBe("let name = value;");
   });
 
   it("emits class get and set accessors", () => {

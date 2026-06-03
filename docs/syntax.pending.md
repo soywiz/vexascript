@@ -26,7 +26,6 @@ Scope notes:
 - Conditional types (`T extends U ? X : Y`).
 - `keyof`, `typeof` (type query), `infer`.
 - Utility for `as const` and const assertions.
-- Angle-bracket type assertions (`<T>value`). TypeScript-style `value as T` assertions are supported.
 
 ## Class Syntax
 
