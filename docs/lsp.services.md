@@ -36,7 +36,7 @@ This document tracks common Language Server Protocol services and their status i
 ## Formatting
 
 - [x] `textDocument/formatting`
-- [ ] `textDocument/rangeFormatting`
+- [x] `textDocument/rangeFormatting`
 - [ ] `textDocument/onTypeFormatting`
 
 ## Workspace and Commands
@@ -55,6 +55,7 @@ This document tracks common Language Server Protocol services and their status i
 - Code actions include declaration keyword replacements and auto-import fixes.
 - Diagnostics include parser and semantic issues, and keep semantic checks enabled after parser recovery.
 - Semantic tokens provide semantic highlighting for keywords, operators, literals, and symbols (`full` + `range`).
+- Formatting supports both full-document and selection/range requests.
 
 ## Recent diagnostic coverage
 

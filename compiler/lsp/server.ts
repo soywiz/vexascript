@@ -11,7 +11,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
-import { createFullDocumentFormatEdit } from "./formatting";
+import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
@@ -114,6 +114,7 @@ connection.onInitialize((params) => {
         commands: [REFRESH_DIAGNOSTICS_COMMAND]
       },
       documentFormattingProvider: true,
+      documentRangeFormattingProvider: true,
       definitionProvider: true,
       hoverProvider: true,
       referencesProvider: true,
@@ -344,6 +345,15 @@ connection.onDocumentFormatting((params): TextEdit[] => {
   }
 
   return [createFullDocumentFormatEdit(doc.getText())];
+});
+
+connection.onDocumentRangeFormatting((params): TextEdit[] => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return [];
+  }
+
+  return [createRangeFormatEdit(doc.getText(), params.range)];
 });
 
 connection.onDefinition((params) => {

@@ -16,7 +16,7 @@ This extension wires VS Code `.my` files to the MyLang language server.
   - hover
   - go-to-definition
   - rename symbol
-  - formatting
+  - formatting, including selected ranges
 
 ## Local development
 
