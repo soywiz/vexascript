@@ -400,6 +400,9 @@ type Text = string
 type Boxed<T> = Box<T>
 type Status = "ready" | "done"
 type Pair = [string, int]
+type UserKey = keyof User
+type UserName = User["name"]
+type NameCopy = typeof currentUser.name
 let name: Text = "Ada"
 let boxed: Boxed<Text> = new Box<string>()
 ```
@@ -420,6 +423,9 @@ Supported type annotation forms in declarations/members:
 - object type literals (`{ x: int; label?: string }`)
 - literal types (`"ready"`, `404`, `true`)
 - tuple types (`[string, int]`)
+- `keyof` type operators (`keyof User`)
+- `typeof` type queries over values and dotted members (`typeof config`, `typeof user.name`)
+- indexed access types (`User["name"]`, `Tuple[0]`, `User[keyof User]`)
 
 ## Expressions
 

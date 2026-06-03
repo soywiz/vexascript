@@ -82,6 +82,17 @@ describe("lsp diagnostics", () => {
     ).toBe(true);
   });
 
+  it("does not report parser or semantic diagnostics for keyof, typeof, and indexed access types", () => {
+    const source =
+      "interface Person { name: string; age: int }\n" +
+      "let person: Person = { name: \"Ada\", age: 36 }\n" +
+      "let key: keyof Person = \"name\"\n" +
+      "let name: typeof person.name = \"Ada\"\n" +
+      "let age: Person[\"age\"] = 36\n";
+
+    expect(diagnosticsFor(source)).toEqual([]);
+  });
+
   it("assigns typed implements diagnostic codes and metadata", () => {
     const source =
       "interface Reader {\n" +

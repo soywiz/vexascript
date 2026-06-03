@@ -1604,6 +1604,30 @@ export class TypeChecker {
       return tupleType(elements);
     }
 
+    const arraySuffix = this.splitArraySuffixTypeName(normalizedTypeName);
+    if (arraySuffix) {
+      let elementType = this.resolveTypeNameText(arraySuffix.elementTypeName, node, scope, false);
+      for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
+        elementType = arrayType(elementType);
+      }
+      return elementType;
+    }
+
+    const keyofType = this.resolveKeyofTypeName(normalizedTypeName, node, scope);
+    if (keyofType) {
+      return keyofType;
+    }
+
+    const typeofType = this.resolveTypeQueryName(normalizedTypeName, node, scope);
+    if (typeofType) {
+      return typeofType;
+    }
+
+    const indexedAccessType = this.resolveIndexedAccessTypeName(normalizedTypeName, node, scope);
+    if (indexedAccessType) {
+      return indexedAccessType;
+    }
+
     const literal = this.resolveLiteralTypeName(normalizedTypeName);
     if (literal) {
       return literal;
@@ -1673,6 +1697,59 @@ export class TypeChecker {
   }
 
 
+  private resolveKeyofTypeName(typeName: string, node: Node, scope: Scope): AnalysisType | null {
+    if (!typeName.startsWith("keyof ")) {
+      return null;
+    }
+    const targetType = this.resolveTypeNameText(typeName.slice("keyof ".length).trim(), node, scope, false);
+    return this.keyofType(targetType);
+  }
+
+  private resolveTypeQueryName(typeName: string, node: Node, scope: Scope): AnalysisType | null {
+    if (!typeName.startsWith("typeof ")) {
+      return null;
+    }
+
+    const path = typeName.slice("typeof ".length).trim().split(".").filter((part) => part.length > 0);
+    const baseName = path.shift();
+    if (!baseName) {
+      return UNKNOWN_TYPE;
+    }
+
+    const symbol = this.resolve(baseName, scope, undefined);
+    if (!symbol) {
+      this.issues.push({
+        message: `Undefined variable '${baseName}'`,
+        node
+      });
+      return UNKNOWN_TYPE;
+    }
+
+    let currentType = symbol.type ?? UNKNOWN_TYPE;
+    for (const memberName of path) {
+      currentType = this.memberTypeFromObjectType(currentType, memberName) ?? UNKNOWN_TYPE;
+      if (isUnknownType(currentType)) {
+        this.issues.push({
+          message: `Type '${typeToString(symbol.type ?? UNKNOWN_TYPE)}' has no member '${memberName}'`,
+          node
+        });
+        return UNKNOWN_TYPE;
+      }
+    }
+    return currentType;
+  }
+
+  private resolveIndexedAccessTypeName(typeName: string, node: Node, scope: Scope): AnalysisType | null {
+    const indexedAccess = this.splitIndexedAccessTypeName(typeName);
+    if (!indexedAccess) {
+      return null;
+    }
+
+    const objectType = this.resolveTypeNameText(indexedAccess.objectTypeName, node, scope, false);
+    const indexType = this.resolveTypeNameText(indexedAccess.indexTypeName, node, scope, false);
+    return this.indexedAccessType(objectType, indexType, node);
+  }
+
   private resolveLiteralTypeName(typeName: string): AnalysisType | null {
     if ((typeName.startsWith("\"") && typeName.endsWith("\"")) || (typeName.startsWith("'") && typeName.endsWith("'"))) {
       return literalType("string", typeName.slice(1, -1));
@@ -1689,6 +1766,194 @@ export class TypeChecker {
     return null;
   }
 
+
+  private typeFromComputedTypeNameLoose(typeName: string): AnalysisType | null {
+    const normalizedTypeName = stripEnclosingTypeParens(typeName);
+
+    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
+    if (unionParts.length > 1) {
+      return unionType(unionParts.map((part) => this.typeFromTypeNameLoose(part)));
+    }
+
+    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
+    if (intersectionParts.length > 1) {
+      return intersectionType(intersectionParts.map((part) => this.typeFromTypeNameLoose(part)));
+    }
+
+    const tupleTypeMatch = /^\[(.*)\]$/.exec(normalizedTypeName);
+    if (tupleTypeMatch) {
+      const tupleBody = tupleTypeMatch[1] ?? "";
+      const elements = tupleBody.trim().length === 0
+        ? []
+        : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(part));
+      return tupleType(elements);
+    }
+
+    const arraySuffix = this.splitArraySuffixTypeName(normalizedTypeName);
+    if (arraySuffix) {
+      let elementType = this.typeFromTypeNameLoose(arraySuffix.elementTypeName);
+      for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
+        elementType = arrayType(elementType);
+      }
+      return elementType;
+    }
+
+    const literal = this.resolveLiteralTypeName(normalizedTypeName);
+    if (literal) {
+      return literal;
+    }
+
+    if (normalizedTypeName.startsWith("keyof ")) {
+      return this.keyofType(this.typeFromTypeNameLoose(normalizedTypeName.slice("keyof ".length).trim()));
+    }
+
+    if (normalizedTypeName.startsWith("typeof ")) {
+      return UNKNOWN_TYPE;
+    }
+
+    const indexedAccess = this.splitIndexedAccessTypeName(normalizedTypeName);
+    if (indexedAccess) {
+      return this.indexedAccessType(
+        this.typeFromTypeNameLoose(indexedAccess.objectTypeName),
+        this.typeFromTypeNameLoose(indexedAccess.indexTypeName)
+      );
+    }
+
+    return null;
+  }
+
+  private splitArraySuffixTypeName(typeName: string): { elementTypeName: string; arrayDepth: number } | null {
+    let remaining = typeName.trim();
+    let arrayDepth = 0;
+    while (remaining.endsWith("[]")) {
+      remaining = remaining.slice(0, -2).trim();
+      arrayDepth += 1;
+    }
+    if (arrayDepth === 0 || remaining.length === 0) {
+      return null;
+    }
+    return { elementTypeName: remaining, arrayDepth };
+  }
+
+  private splitIndexedAccessTypeName(typeName: string): { objectTypeName: string; indexTypeName: string } | null {
+    const trimmed = typeName.trim();
+    if (!trimmed.endsWith("]")) {
+      return null;
+    }
+
+    let quote: string | null = null;
+    let angleDepth = 0;
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let bracketDepth = 0;
+    for (let index = trimmed.length - 1; index >= 0; index -= 1) {
+      const ch = trimmed[index]!;
+      const previous = index > 0 ? trimmed[index - 1] : "";
+      if (quote) {
+        if (ch === quote && previous !== "\\") quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch === ">") angleDepth += 1;
+      else if (ch === "<") angleDepth = Math.max(0, angleDepth - 1);
+      else if (ch === ")") parenDepth += 1;
+      else if (ch === "(") parenDepth = Math.max(0, parenDepth - 1);
+      else if (ch === "}") braceDepth += 1;
+      else if (ch === "{") braceDepth = Math.max(0, braceDepth - 1);
+      else if (ch === "]") bracketDepth += 1;
+      else if (ch === "[") {
+        bracketDepth -= 1;
+        if (bracketDepth === 0 && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+          const objectTypeName = trimmed.slice(0, index).trim();
+          const indexTypeName = trimmed.slice(index + 1, -1).trim();
+          if (objectTypeName.length === 0 || indexTypeName.length === 0) {
+            return null;
+          }
+          return { objectTypeName, indexTypeName };
+        }
+      }
+    }
+    return null;
+  }
+
+  private keyofType(targetType: AnalysisType): AnalysisType {
+    const keys = this.propertyNamesForType(targetType);
+    if (keys.length === 0) {
+      return builtinType("never");
+    }
+    const keyTypes = keys.map((key) => literalType("string", key));
+    return keyTypes.length === 1 ? keyTypes[0]! : unionType(keyTypes);
+  }
+
+  private indexedAccessType(objectType: AnalysisType, indexType: AnalysisType, node?: Node): AnalysisType {
+    if (isUnknownType(objectType) || isUnknownType(indexType)) {
+      return UNKNOWN_TYPE;
+    }
+
+    if (indexType.kind === "union") {
+      const memberTypes = indexType.types.map((member) => this.indexedAccessType(objectType, member, node));
+      return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
+    }
+
+    if (indexType.kind === "literal") {
+      const propertyName = String(indexType.value);
+      const propertyType = this.memberTypeFromObjectType(objectType, propertyName);
+      if (propertyType) {
+        return propertyType;
+      }
+      if (node) {
+        this.issues.push({
+          message: `Type '${typeToString(objectType)}' has no property '${propertyName}'`,
+          node
+        });
+      }
+      return UNKNOWN_TYPE;
+    }
+
+    if (indexType.kind === "builtin" && indexType.name === "number") {
+      if (objectType.kind === "array") {
+        return objectType.elementType;
+      }
+      if (objectType.kind === "tuple") {
+        return objectType.elements.length === 0 ? UNKNOWN_TYPE : unionType(objectType.elements);
+      }
+    }
+
+    if (indexType.kind === "builtin" && indexType.name === "int") {
+      return this.indexedAccessType(objectType, builtinType("number"), node);
+    }
+
+    return UNKNOWN_TYPE;
+  }
+
+  private propertyNamesForType(type: AnalysisType): string[] {
+    if (type.kind === "object") {
+      return Object.keys(type.properties).sort();
+    }
+    if (type.kind === "named") {
+      return Array.from(this.resolveNamedTypeMembers(type)?.keys() ?? []).sort();
+    }
+    if (type.kind === "tuple") {
+      return type.elements.map((_, index) => String(index));
+    }
+    return [];
+  }
+
+  private memberTypeFromObjectType(type: AnalysisType, propertyName: string): AnalysisType | null {
+    if (type.kind === "object") {
+      return type.properties[propertyName] ?? null;
+    }
+    if (type.kind === "named") {
+      return this.resolveNamedTypeMembers(type)?.get(propertyName) ?? null;
+    }
+    if (type.kind === "tuple" && /^\d+$/.test(propertyName)) {
+      return type.elements[Number(propertyName)] ?? null;
+    }
+    return null;
+  }
 
   private validateNamedTypeArgumentConstraints(
     typeName: string,
@@ -2045,6 +2310,10 @@ export class TypeChecker {
       const currentType = element.kind === "SpreadExpression"
         ? this.spreadArgumentElementType(visitedType)
         : visitedType;
+      if (expectedElementType && this.isTypeAssignable(currentType, expectedElementType)) {
+        inferredElementType = expectedElementType;
+        continue;
+      }
       if (!inferredElementType) {
         inferredElementType = currentType;
         continue;
@@ -2825,6 +3094,11 @@ export class TypeChecker {
     if (objectType) {
       return objectType;
     }
+    const computedType = this.typeFromComputedTypeNameLoose(typeAnnotation.name);
+    if (computedType) {
+      return computedType;
+    }
+
     const parsed = parseTypeNameShape(typeAnnotation.name);
     let resolvedBase: AnalysisType;
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
@@ -2857,6 +3131,11 @@ export class TypeChecker {
     if (objectType) {
       return objectType;
     }
+    const computedType = this.typeFromComputedTypeNameLoose(typeName);
+    if (computedType) {
+      return computedType;
+    }
+
     const parsed = parseTypeNameShape(typeName);
     let resolved: AnalysisType;
     if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {

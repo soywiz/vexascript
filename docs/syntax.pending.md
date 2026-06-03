@@ -22,9 +22,9 @@ Scope notes:
 ## Type System Syntax
 
 - Deeper function generic inference beyond current constrained type-parameter support.
-- Mapped types and indexed access types (`{ [K in keyof T]: ... }`, `T[K]` in type position).
+- Mapped types (`{ [K in keyof T]: ... }`).
 - Conditional types (`T extends U ? X : Y`).
-- `keyof`, `typeof` (type query), `infer`.
+- `infer`.
 - Utility for `as const` and const assertions.
 
 ## Class Syntax

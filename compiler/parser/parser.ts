@@ -689,7 +689,7 @@ export class Parser {
             if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
                 this.fail("Expected ')' to close type annotation", this.tokenAt(closeParen));
             }
-            return `(${innerType})${this.parseArrayTypeAnnotationSuffixText()}`;
+            return `(${innerType})${this.parseTypeAnnotationSuffixText()}`;
         }
 
         if (start?.type === "symbol" && start.value === "[") {
@@ -712,7 +712,7 @@ export class Parser {
                 }
                 this.fail("Expected ',' or ']' in tuple type annotation", this.tokenAt(separator));
             }
-            return `[${elements.join(", ")}]${this.parseArrayTypeAnnotationSuffixText()}`;
+            return `[${elements.join(", ")}]${this.parseTypeAnnotationSuffixText()}`;
         }
 
         if (start?.type === "symbol" && start.value === "{") {
@@ -752,7 +752,15 @@ export class Parser {
                 }
                 this.fail("Expected ',', ';', or '}' in type literal", this.tokenAt(separator));
             }
-            return `{ ${properties.join(", ")} }${this.parseArrayTypeAnnotationSuffixText()}`;
+            return `{ ${properties.join(", ")} }${this.parseTypeAnnotationSuffixText()}`;
+        }
+
+        if (start?.type === "identifier" && (start.value === "keyof" || start.value === "typeof")) {
+            this.tokens.skip();
+            const operand = start.value === "typeof"
+                ? this.parseTypeQueryOperandText()
+                : this.parsePrimaryTypeAnnotationText();
+            return `${start.value} ${operand}${this.parseTypeAnnotationSuffixText()}`;
         }
 
         const token = this.tokens.read();
@@ -766,23 +774,46 @@ export class Parser {
             typeName += `<${argumentsText.join(", ")}>`;
         }
 
-        typeName += this.parseArrayTypeAnnotationSuffixText();
+        typeName += this.parseTypeAnnotationSuffixText();
         return typeName;
     }
 
-    private parseArrayTypeAnnotationSuffixText(): string {
+    private parseTypeAnnotationSuffixText(): string {
         let suffix = "";
-        while (
-            this.tokens.peek()?.type === "symbol" &&
-            this.tokens.peek()?.value === "[" &&
-            this.peekToken(1)?.type === "symbol" &&
-            this.peekToken(1)?.value === "]"
-        ) {
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "[") {
             this.tokens.skip();
-            this.tokens.skip();
-            suffix += "[]";
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]") {
+                this.tokens.skip();
+                suffix += "[]";
+                continue;
+            }
+
+            const indexType = this.parseUnionTypeAnnotationText();
+            const close = this.tokens.read();
+            if (close?.type !== "symbol" || close.value !== "]") {
+                this.fail("Expected ']' to close indexed access type", this.tokenAt(close));
+            }
+            suffix += `[${indexType}]`;
         }
         return suffix;
+    }
+
+    private parseTypeQueryOperandText(): string {
+        const first = this.tokens.read();
+        if (!first || first.type !== "identifier") {
+            this.fail("Expected identifier after 'typeof' in type annotation", this.tokenAt(first));
+        }
+
+        let operand = first.value;
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+            this.tokens.skip();
+            const property = this.tokens.read();
+            if (!property || property.type !== "identifier") {
+                this.fail("Expected property name in 'typeof' type query", this.tokenAt(property));
+            }
+            operand += `.${property.value}`;
+        }
+        return operand;
     }
 
     private isFunctionTypeAnnotationStart(): boolean {
