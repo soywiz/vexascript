@@ -14,6 +14,7 @@ import type {
   DoWhileStatement,
   Expr,
   ExprStatement,
+  ExportStatement,
   ForStatement,
   FunctionParameter,
   FunctionExpression,
@@ -135,6 +136,18 @@ export class TypeChecker {
 
   private visitStatement(statement: Statement, scope: Scope, flow: FlowContext): void {
     switch (statement.kind) {
+      case "ExportStatement": {
+        const exportStatement = statement as ExportStatement;
+        if (!exportStatement.from) {
+          for (const specifier of exportStatement.specifiers ?? []) {
+            this.resolveIdentifierType(specifier.local ?? specifier.exported, scope);
+          }
+        }
+        if (exportStatement.declaration) {
+          this.visitStatement(exportStatement.declaration, scope, flow);
+        }
+        return;
+      }
       case "VarStatement":
         this.visitVarStatement(statement as VarStatement, scope);
         return;
@@ -2164,30 +2177,39 @@ export class TypeChecker {
 
   private collectClassStatements(program: Program): void {
     for (const statement of program.body) {
-      if (statement.kind !== "ClassStatement") {
+      const candidate = statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration
+        : statement;
+      if (candidate?.kind !== "ClassStatement") {
         continue;
       }
-      const classStatement = statement as ClassStatement;
+      const classStatement = candidate as ClassStatement;
       this.classStatementsByName.set(classStatement.name.name, classStatement);
     }
   }
 
   private collectInterfaceStatements(program: Program): void {
     for (const statement of program.body) {
-      if (statement.kind !== "InterfaceStatement") {
+      const candidate = statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration
+        : statement;
+      if (candidate?.kind !== "InterfaceStatement") {
         continue;
       }
-      const interfaceStatement = statement as InterfaceStatement;
+      const interfaceStatement = candidate as InterfaceStatement;
       this.interfaceStatementsByName.set(interfaceStatement.name.name, interfaceStatement);
     }
   }
 
   private collectTypeAliasStatements(program: Program): void {
     for (const statement of program.body) {
-      if (statement.kind !== "TypeAliasStatement") {
+      const candidate = statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration
+        : statement;
+      if (candidate?.kind !== "TypeAliasStatement") {
         continue;
       }
-      const typeAliasStatement = statement as TypeAliasStatement;
+      const typeAliasStatement = candidate as TypeAliasStatement;
       this.typeAliasStatementsByName.set(typeAliasStatement.name.name, typeAliasStatement);
     }
   }

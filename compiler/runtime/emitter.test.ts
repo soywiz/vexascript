@@ -112,6 +112,22 @@ describe("emitProgram", () => {
     expect(emitted).toContain("set value(next) {");
   });
 
+
+  it("emits value exports and erases type-only exports", () => {
+    expect(emitProgram(parseFile(tokenizeReader("export const value: number = 1"))))
+      .toBe("export const value = 1;");
+    expect(emitProgram(parseFile(tokenizeReader("export default value"))))
+      .toBe("export default value;");
+    expect(emitProgram(parseFile(tokenizeReader("export { value as renamed } from \"./mod\""))))
+      .toBe("export { value as renamed } from \"./mod\";");
+    expect(emitProgram(parseFile(tokenizeReader("export * from \"./all\""))))
+      .toBe("export * from \"./all\";");
+    expect(emitProgram(parseFile(tokenizeReader("export type { Name } from \"./types\""))))
+      .toBe("");
+    expect(emitProgram(parseFile(tokenizeReader("export type Name = string"))))
+      .toBe("");
+  });
+
   it("emits named import statements", () => {
     const program = parseFile(tokenizeReader("import { Point } from \"./a\""));
     expect(emitProgram(program)).toBe("import { Point } from \"./a\";");

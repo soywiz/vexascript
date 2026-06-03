@@ -6,6 +6,7 @@ import type {
   DoWhileStatement,
   ForStatement,
   FunctionStatement,
+  ExportStatement,
   InterfaceStatement,
   ImportStatement,
   IfStatement,
@@ -116,6 +117,14 @@ export class Binder {
 
   private bindGlobalDeclarations(statements: Statement[], scope: Scope): void {
     for (const statement of statements) {
+      if (statement.kind === "ExportStatement") {
+        const exportStatement = statement as ExportStatement;
+        if (exportStatement.declaration) {
+          this.bindGlobalDeclarations([exportStatement.declaration], scope);
+        }
+        continue;
+      }
+
       if (statement.kind === "ImportStatement") {
         const importStatement = statement as ImportStatement;
         if (importStatement.defaultImport) {
@@ -247,6 +256,13 @@ export class Binder {
 
   private bindStatement(statement: Statement, scope: Scope): void {
     switch (statement.kind) {
+      case "ExportStatement": {
+        const exportStatement = statement as ExportStatement;
+        if (exportStatement.declaration) {
+          this.bindStatement(exportStatement.declaration, scope);
+        }
+        return;
+      }
       case "ImportStatement":
         return;
       case "VarStatement":

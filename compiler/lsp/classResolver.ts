@@ -8,6 +8,7 @@ import type {
   BinaryExpression,
   CallExpression,
   ClassStatement,
+  ExportStatement,
   InterfaceStatement,
   ConditionalExpression,
   Expr,
@@ -178,10 +179,13 @@ function interfaceMemberCacheKey(
 
 export function findClassStatementInProgram(ast: Program, className: string): ClassStatement | null {
   for (const statement of ast.body) {
-    if (statement.kind !== "ClassStatement") {
+    const candidate = statement.kind === "ExportStatement"
+      ? (statement as ExportStatement).declaration
+      : statement;
+    if (candidate?.kind !== "ClassStatement") {
       continue;
     }
-    const classStatement = statement as ClassStatement;
+    const classStatement = candidate as ClassStatement;
     if (classStatement.name.name === className) {
       return classStatement;
     }
@@ -191,10 +195,13 @@ export function findClassStatementInProgram(ast: Program, className: string): Cl
 
 function findInterfaceStatementInProgram(ast: Program, interfaceName: string): InterfaceStatement | null {
   for (const statement of ast.body) {
-    if (statement.kind !== "InterfaceStatement") {
+    const candidate = statement.kind === "ExportStatement"
+      ? (statement as ExportStatement).declaration
+      : statement;
+    if (candidate?.kind !== "InterfaceStatement") {
       continue;
     }
-    const interfaceStatement = statement as InterfaceStatement;
+    const interfaceStatement = candidate as InterfaceStatement;
     if (interfaceStatement.name.name === interfaceName) {
       return interfaceStatement;
     }

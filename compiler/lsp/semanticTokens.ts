@@ -14,6 +14,7 @@ import type {
   DoWhileStatement,
   Expr,
   ExprStatement,
+  ExportStatement,
   ForStatement,
   FunctionExpression,
   FunctionParameter,
@@ -282,6 +283,19 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
 
   const visitStatement = (statement: Statement): void => {
     switch (statement.kind) {
+      case "ExportStatement": {
+        const exportStatement = statement as ExportStatement;
+        for (const specifier of exportStatement.specifiers ?? []) {
+          if (specifier.local) {
+            markIdentifier(kinds, specifier.local, "variable");
+          }
+          markIdentifier(kinds, specifier.exported, "variable");
+        }
+        if (exportStatement.declaration) {
+          visitStatement(exportStatement.declaration);
+        }
+        return;
+      }
       case "ImportStatement": {
         const importStatement = statement as ImportStatement;
         if (importStatement.defaultImport) {

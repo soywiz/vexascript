@@ -159,6 +159,26 @@ import type { Shape } from "./types"
 
 Type-only imports participate in semantic analysis as bindings but are omitted from emitted JavaScript output.
 
+## Exports
+
+MyLang supports ES module exports for declarations, named export lists, re-exports, default exports, and type-only export lists:
+
+```mylang
+export const answer: number = 42
+export function add(a: number, b: number): number {
+  return a + b
+}
+export class Point
+export default Point
+export { Point as RenamedPoint }
+export { Shape } from "./shape"
+export * from "./math"
+export type Name = string
+export type { Shape } from "./types"
+```
+
+Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output.
+
 ## Classes
 
 ### Class declarations
