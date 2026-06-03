@@ -122,6 +122,17 @@ let worker = async function* work(this: Loader) { yield await next() }`));
     expect(emitProgram(parseFile(tokenizeReader("let name = <string>value")))).toBe("let name = value;");
   });
 
+  it("erases declarations that use keyof, typeof, and indexed access types", () => {
+    const source =
+      "type PersonName = Person[\"name\"]\n" +
+      "let key: keyof Person = \"name\"\n" +
+      "let name: typeof key = key\n";
+
+    expect(emitProgram(parseFile(tokenizeReader(source)))).toBe(
+      "let key = \"name\";\nlet name = key;"
+    );
+  });
+
   it("emits class get and set accessors", () => {
     const program = parseFile(tokenizeReader("class Box {\nget value(): string { return this.raw }\nset value(next: string) { this.raw = next }\n}"));
     const emitted = emitProgram(program);

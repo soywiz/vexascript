@@ -79,6 +79,36 @@ let after = bind`));
     expect(messages).toContain("Type assertion from 'string' to 'number' may be unsafe because neither type is assignable to the other");
   });
 
+  it("resolves keyof, typeof type queries, and indexed access types semantically", () => {
+    const source =
+      "interface Person {\n" +
+      "  name: string\n" +
+      "  age: int\n" +
+      "}\n" +
+      "let person: Person = { name: \"Ada\", age: 36 }\n" +
+      "let key: keyof Person = \"name\"\n" +
+      "let copiedName: typeof person.name = \"Ada\"\n" +
+      "let indexedName: Person[\"name\"] = \"Grace\"\n" +
+      "let indexedNames: Person[\"name\"][] = [\"Grace\"]\n" +
+      "let indexedValue: Person[keyof Person] = 1\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("reports missing properties in indexed access type annotations", () => {
+    const source =
+      "interface Person { name: string }\n" +
+      "let value: Person[\"missing\"] = \"Ada\"\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Type 'Person' has no property 'missing'"
+    );
+  });
+
   it("reports semantic errors for unresolved variables in scope", () => {
     const source =
       "let top = 1\n" +

@@ -2207,6 +2207,25 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses keyof, typeof type queries, and indexed access type annotations", () => {
+        expect(parseStatement(tokenizeReader("let key: keyof Person"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "keyof Person" }
+        });
+        expect(parseStatement(tokenizeReader("let copy: typeof person.name"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "typeof person.name" }
+        });
+        expect(parseStatement(tokenizeReader('let name: Person["name"]'))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "Person[\"name\"]" }
+        });
+        expect(parseStatement(tokenizeReader("type Values<T> = T[keyof T]"))).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: "T[keyof T]" }
+        });
+    });
+
     it("parses generic type aliases", () => {
         expect(parseStatement(tokenizeReader("type Boxed<T> = Box<T>[]"))).toEqual({
             kind: "TypeAliasStatement",

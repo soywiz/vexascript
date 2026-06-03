@@ -10,20 +10,48 @@ export function splitTypeArgumentText(argumentBody: string): string[] {
   }
 
   const args: string[] = [];
-  let depth = 0;
+  let angleDepth = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote: string | null = null;
   let current = "";
-  for (const ch of argumentBody) {
+  for (let index = 0; index < argumentBody.length; index += 1) {
+    const ch = argumentBody[index]!;
+    const previous = index > 0 ? argumentBody[index - 1] : "";
+
+    if (quote) {
+      current += ch;
+      if (ch === quote && previous !== "\\") {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+
     if (ch === "<") {
-      depth += 1;
+      angleDepth += 1;
       current += ch;
       continue;
     }
     if (ch === ">") {
-      depth = Math.max(0, depth - 1);
+      angleDepth = Math.max(0, angleDepth - 1);
       current += ch;
       continue;
     }
-    if (ch === "," && depth === 0) {
+    if (ch === "(") parenDepth += 1;
+    else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+    else if (ch === "[") bracketDepth += 1;
+    else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+    else if (ch === "{") braceDepth += 1;
+    else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
+
+    if (ch === "," && angleDepth === 0 && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
       if (current.trim().length > 0) {
         args.push(current.trim());
       }
