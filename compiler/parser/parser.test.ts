@@ -2184,6 +2184,68 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses nested generic type annotations without treating closing angles as shifts", () => {
+        expect(parseStatement(tokenizeReader("let points: Array<Map<string, Point>>"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "Array<Map<string, Point>>" }
+        });
+
+        expect(parseStatement(tokenizeReader("let matrix: Array<Array<Map<string, Point>>>"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "Array<Array<Map<string, Point>>>" }
+        });
+
+        expect(parseStatement(tokenizeReader("function collect<T extends Array<Map<string, Point>>>(items: T): Array<Array<Map<string, Point>>> { return items }"))).toMatchObject({
+            kind: "FunctionStatement",
+            typeParameters: [
+                {
+                    kind: "TypeParameter",
+                    name: { kind: "Identifier", name: "T" },
+                    constraint: { kind: "Identifier", name: "Array<Map<string, Point>>" }
+                }
+            ],
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "items" },
+                    typeAnnotation: { kind: "Identifier", name: "T" }
+                }
+            ],
+            returnType: { kind: "Identifier", name: "Array<Array<Map<string, Point>>>" }
+        });
+
+        expect(parseExpression(tokenizeReader("factory<Array<Map<string, Point>>>(points)"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "factory" },
+            arguments: [{ kind: "Identifier", name: "points" }],
+            typeArguments: [{ kind: "Identifier", name: "Array<Map<string, Point>>" }]
+        });
+
+        expect(parseExpression(tokenizeReader("a >> b >>> c"))).toEqual({
+            kind: "BinaryExpression",
+            operator: ">>>",
+            left: {
+                kind: "BinaryExpression",
+                operator: ">>",
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "Identifier", name: "b" }
+            },
+            right: { kind: "Identifier", name: "c" }
+        });
+
+        expect(parseExpression(tokenizeReader("a < b >> c"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "<",
+            left: { kind: "Identifier", name: "a" },
+            right: {
+                kind: "BinaryExpression",
+                operator: ">>",
+                left: { kind: "Identifier", name: "b" },
+                right: { kind: "Identifier", name: "c" }
+            }
+        });
+    });
+
     it("parses union, intersection, literal, and tuple type annotations", () => {
         expect(parseStatement(tokenizeReader("let value: string | number | null"))).toMatchObject({
             kind: "VarStatement",

@@ -608,8 +608,7 @@ export class Parser {
                 this.tokens.skip();
                 continue;
             }
-            if (separator?.type === "symbol" && separator.value === ">") {
-                this.tokens.skip();
+            if (this.consumeGenericCloseAngle()) {
                 break;
             }
             this.fail("Expected ',' or '>' in type parameter list", this.tokenAt(separator));
@@ -630,6 +629,32 @@ export class Parser {
             firstToken,
             lastToken
         );
+    }
+
+    private consumeGenericCloseAngle(): boolean {
+        const token = this.tokens.peek();
+        if (token?.type !== "symbol" || ![">", ">>", ">>>"].includes(token.value)) {
+            return false;
+        }
+
+        if (token.value === ">") {
+            this.tokens.skip();
+            return true;
+        }
+
+        this.tokens.items[this.tokens.offset] = {
+            ...token,
+            value: token.value.slice(1),
+            range: {
+                start: {
+                    ...token.range.start,
+                    offset: token.range.start.offset + 1,
+                    column: token.range.start.column + 1
+                },
+                end: token.range.end
+            }
+        };
+        return true;
     }
 
     private parseUnionTypeAnnotationText(): string {
@@ -856,8 +881,7 @@ export class Parser {
                 this.tokens.skip();
                 continue;
             }
-            if (separator?.type === "symbol" && separator.value === ">") {
-                this.tokens.skip();
+            if (this.consumeGenericCloseAngle()) {
                 break;
             }
             this.fail("Expected ',' or '>' in type argument list", this.tokenAt(separator));
@@ -2171,6 +2195,7 @@ export class Parser {
 
     private tryParseAngleBracketTypeAssertion(): AsExpression | null {
         const startOffset = this.tokens.offset;
+        const startItems = this.tokens.items.slice();
         const open = this.tokens.peek();
         if (!(open?.type === "symbol" && open.value === "<")) {
             return null;
@@ -2179,9 +2204,9 @@ export class Parser {
         this.tokens.skip();
         try {
             const typeAnnotation = this.parseTypeAnnotationNode();
-            const close = this.tokens.read();
-            if (!(close?.type === "symbol" && close.value === ">")) {
+            if (!this.consumeGenericCloseAngle()) {
                 this.tokens.offset = startOffset;
+                this.tokens.items = startItems;
                 return null;
             }
             const expression = this.parseUnary();
@@ -2189,9 +2214,10 @@ export class Parser {
                 kind: "AsExpression",
                 expression,
                 typeAnnotation
-            } as AsExpression, open, expression.lastToken ?? this.getLastReadToken() ?? close);
+            } as AsExpression, open, expression.lastToken ?? this.getLastReadToken() ?? open);
         } catch (error) {
             this.tokens.offset = startOffset;
+            this.tokens.items = startItems;
             if (error instanceof ParseError) {
                 return null;
             }
@@ -2201,6 +2227,7 @@ export class Parser {
 
     private tryParseInvocationTypeArguments(): Identifier[] | null {
         const startOffset = this.tokens.offset;
+        const startItems = this.tokens.items.slice();
         const open = this.tokens.peek();
         if (!(open?.type === "symbol" && open.value === "<")) {
             return null;
@@ -2218,15 +2245,16 @@ export class Parser {
                     this.tokens.skip();
                     continue;
                 }
-                if (separator?.type === "symbol" && separator.value === ">") {
-                    this.tokens.skip();
+                if (this.consumeGenericCloseAngle()) {
                     break;
                 }
                 this.tokens.offset = startOffset;
+                this.tokens.items = startItems;
                 return null;
             }
         } catch (error) {
             this.tokens.offset = startOffset;
+            this.tokens.items = startItems;
             if (error instanceof ParseError) {
                 return null;
             }
@@ -2236,6 +2264,7 @@ export class Parser {
         const next = this.tokens.peek();
         if (!(next?.type === "symbol" && next.value === "(")) {
             this.tokens.offset = startOffset;
+            this.tokens.items = startItems;
             return null;
         }
 
