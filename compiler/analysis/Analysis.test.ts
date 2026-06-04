@@ -1666,4 +1666,33 @@ val Counter.next => increment(1)
     expect(imported.getIssues()).toEqual([]);
   });
 
+
+  it("contextually interprets ambiguous brace arguments as lambdas or object literals", () => {
+    const source = `interface Options { it: int }
+declare function transform(fn: (value: int) => int): int
+declare function consume(options: Options): int
+let it = 4
+let doubled = transform({ it })
+let incremented = transform({ value -> value + 1 })
+let consumed = consume({ it })
+`;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("smart-casts identifiers in if and else branches for type and range checks", () => {
+    const source = `class Cat { meow(): int { return 1 } }
+class Dog { bark(): int { return 2 } }
+fun speak(value: Cat | Dog) {
+  if (value is Cat) { value.meow() } else { value.bark() }
+  if (value instanceof Dog) { value.bark() } else { value.meow() }
+}
+fun classify(value: string | int) {
+  if (value in 0 ... 10) { let numberValue: int = value } else { let textValue: string = value }
+}
+`;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
 });

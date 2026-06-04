@@ -90,7 +90,7 @@ export interface CommaExpression extends Node {
 
 export interface BinaryExpression extends Node {
     kind: "BinaryExpression"
-    operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "in" | "instanceof" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&" | "??"
+    operator: "+" | "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "<" | ">" | "<=" | ">=" | "in" | "is" | "instanceof" | "==" | "!=" | "===" | "!==" | "&" | "|" | "^" | "||" | "&&" | "??"
     left: Expr
     right: Expr
 }
@@ -143,6 +143,7 @@ export interface ArrowFunctionExpression extends Node {
     async?: boolean
     parameters: FunctionParameter[]
     body: Expr | BlockStatement
+    contextualObjectLiteral?: ObjectLiteral
 }
 
 export interface FunctionExpression extends Node {

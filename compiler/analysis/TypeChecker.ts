@@ -144,7 +144,13 @@ export class TypeChecker {
   }
 
   private scopeFor(node: Node, fallback: Scope): Scope {
-    return this.bound.scopeByNode.get(node) ?? fallback;
+    if (fallback.node === node) return fallback;
+    const boundScope = this.bound.scopeByNode.get(node);
+    if (!boundScope) return fallback;
+    if (boundScope.parent && boundScope.parent !== fallback && boundScope.parent.node === fallback.node) {
+      return { ...boundScope, parent: fallback };
+    }
+    return boundScope;
   }
 
   private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
@@ -544,12 +550,63 @@ export class TypeChecker {
 
   private visitIfStatement(statement: IfStatement, scope: Scope, flow: FlowContext): void {
     this.visitExpression(statement.condition, scope);
-    const thenScope = this.scopeFor(statement.thenBranch, scope);
+    const thenScope = this.scopeWithNarrowings(
+      this.scopeFor(statement.thenBranch, scope),
+      this.conditionNarrowings(statement.condition, scope, true)
+    );
     this.visitStatement(statement.thenBranch, thenScope, flow);
     if (statement.elseBranch) {
-      const elseScope = this.scopeFor(statement.elseBranch, scope);
+      const elseScope = this.scopeWithNarrowings(
+        this.scopeFor(statement.elseBranch, scope),
+        this.conditionNarrowings(statement.condition, scope, false)
+      );
       this.visitStatement(statement.elseBranch, elseScope, flow);
     }
+  }
+
+  private scopeWithNarrowings(scope: Scope, narrowings: Map<string, AnalysisType>): Scope {
+    if (narrowings.size === 0) return scope;
+    const narrowedScope: Scope = {
+      ...(scope.parent ? { parent: scope.parent } : {}),
+      node: scope.node,
+      symbols: new Map(scope.symbols),
+      children: scope.children
+    };
+    for (const [name, type] of narrowings) {
+      const symbol = this.resolve(name, scope, undefined);
+      if (!symbol) continue;
+      narrowedScope.symbols.set(name, { ...symbol, type, valueType: typeToString(type) });
+    }
+    return narrowedScope;
+  }
+
+  private conditionNarrowings(condition: Expr, scope: Scope, truthy: boolean): Map<string, AnalysisType> {
+    if (condition.kind === "UnaryExpression" && (condition as UnaryExpression).operator === "!") {
+      return this.conditionNarrowings((condition as UnaryExpression).argument, scope, !truthy);
+    }
+    if (condition.kind !== "BinaryExpression") return new Map();
+    const binary = condition as BinaryExpression;
+    if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
+      return new Map([
+        ...this.conditionNarrowings(binary.left, scope, truthy),
+        ...this.conditionNarrowings(binary.right, scope, truthy)
+      ]);
+    }
+    if (binary.left.kind !== "Identifier") return new Map();
+    const identifier = binary.left as Identifier;
+    const originalType = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset)?.type ?? UNKNOWN_TYPE;
+    let checkedType: AnalysisType | undefined;
+    if ((binary.operator === "instanceof" || binary.operator === "is") && binary.right.kind === "Identifier") {
+      checkedType = namedType((binary.right as Identifier).name);
+    } else if (binary.operator === "in") {
+      const range = this.visitExpression(binary.right, scope);
+      if (range.kind === "range") checkedType = range.elementType;
+    }
+    if (!checkedType) return new Map();
+    if (truthy) return new Map([[identifier.name, checkedType]]);
+    if (originalType.kind !== "union") return new Map();
+    const remaining = originalType.types.filter((member) => !this.isTypeAssignable(member, checkedType!));
+    return new Map([[identifier.name, remaining.length === 1 ? remaining[0]! : unionType(remaining)]]);
   }
 
   private visitSwitchStatement(statement: SwitchStatement, scope: Scope, flow: FlowContext): void {
@@ -856,6 +913,10 @@ export class TypeChecker {
         break;
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
+        if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
+          result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
+          break;
+        }
         const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
         const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters, expectedFunctionType);
         let returnType: AnalysisType;
@@ -1021,6 +1082,7 @@ export class TypeChecker {
       operator === "<=" ||
       operator === ">=" ||
       operator === "in" ||
+      operator === "is" ||
       operator === "instanceof" ||
       operator === "==" ||
       operator === "!=" ||
@@ -1288,7 +1350,8 @@ export class TypeChecker {
     expectedType: AnalysisType
   ): AnalysisType | null {
     if (this.isFunctionLikeExpression(argument)) {
-      return expectedType.kind === "function" ? expectedType : null;
+      const arrow = argument.kind === "ArrowFunctionExpression" ? argument as ArrowFunctionExpression : undefined;
+      return expectedType.kind === "function" || arrow?.contextualObjectLiteral ? expectedType : null;
     }
     if (argument.kind === "ObjectLiteral") {
       return expectedType.kind === "object" || expectedType.kind === "named" ? expectedType : null;

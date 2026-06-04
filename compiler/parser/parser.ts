@@ -108,6 +108,7 @@ const BINARY_OPERATOR_INFO: Record<InfixOperator, { precedence: number; assoc: B
     ">=": { precedence: 7, assoc: "left" },
     "in": { precedence: 7, assoc: "left" },
     "instanceof": { precedence: 7, assoc: "left" },
+    "is": { precedence: 7, assoc: "left" },
     "<<": { precedence: 8, assoc: "left" },
     ">>": { precedence: 8, assoc: "left" },
     ">>>": { precedence: 8, assoc: "left" },
@@ -1245,7 +1246,7 @@ export class Parser {
             return candidate in BINARY_OPERATOR_INFO ? candidate : undefined;
         }
 
-        if (token.type === "identifier" && (token.value === "in" || token.value === "instanceof")) {
+        if (token.type === "identifier" && (token.value === "in" || token.value === "is" || token.value === "instanceof")) {
             return token.value as BinaryOperator;
         }
 
@@ -2096,6 +2097,51 @@ export class Parser {
     }
 
 
+
+    private parseCallLambdaArgument(): ArrowFunctionExpression {
+        const lambda = this.parseTailLambdaArgument();
+        if (lambda.parameters.length === 1 && lambda.parameters[0]?.name.name === "it" && lambda.body.kind === "Identifier") {
+            const identifier = lambda.body as Identifier;
+            lambda.contextualObjectLiteral = {
+                kind: "ObjectLiteral",
+                properties: [{
+                    kind: "ObjectProperty",
+                    key: identifier,
+                    value: identifier,
+                    shorthand: true
+                } as ObjectProperty]
+            } as ObjectLiteral;
+        }
+        return lambda;
+    }
+
+    private looksLikeCallLambdaArgument(): boolean {
+        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{")) {
+            return false;
+        }
+        const first = this.peekToken(1);
+        const second = this.peekToken(2);
+        if (first?.type === "identifier" && second?.type === "symbol" && second.value === "}") {
+            return true;
+        }
+        let nestedDelimiters = 0;
+        for (let index = 1; ; index += 1) {
+            const token = this.peekToken(index);
+            if (!token || token.type === "eof") return false;
+            if (token.type !== "symbol") continue;
+            if (token.value === "(" || token.value === "[" || token.value === "{") {
+                nestedDelimiters += 1;
+                continue;
+            }
+            if (token.value === ")" || token.value === "]" || token.value === "}") {
+                if (nestedDelimiters === 0) return false;
+                nestedDelimiters -= 1;
+                continue;
+            }
+            if (token.value === "->" && nestedDelimiters === 0) return true;
+        }
+    }
+
     private parseCallArgumentList(): { args: Expr[]; close: Token } {
         const open = this.tokens.read();
         if (open?.type !== "symbol" || open.value !== "(") {
@@ -2105,7 +2151,7 @@ export class Parser {
 
         if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
             while (this.tokens.hasMore) {
-                args.push(this.parseAssignment());
+                args.push(this.looksLikeCallLambdaArgument() ? this.parseCallLambdaArgument() : this.parseAssignment());
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
                     this.tokens.skip();

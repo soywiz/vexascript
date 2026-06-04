@@ -250,7 +250,7 @@ Examples:
 
 ### Tail lambdas
 
-MyLang also supports Kotlin/Swift-style tail lambdas after call expressions.
+MyLang also supports Kotlin/Swift-style tail lambdas after call expressions and brace lambdas inside call argument lists. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The explicit `{ arg1, arg2 -> expression }` form is always a lambda.
 
 Examples:
 
@@ -259,6 +259,9 @@ Examples:
 [1, 2, 3, 4].map() { it }
 [1, 2, 3, 4].map { a, b, c -> a + b + c }
 [1, 2, 3, 4].map { a: number, b: number, c: number -> a + b + c }
+transform({ it })
+transform({ value -> value + 1 })
+consumeOptions({ options })
 ```
 
 ## Imports
@@ -589,7 +592,7 @@ Supported binary operators:
 - multiplicative: `*`, `/`, `%`
 - additive: `+`, `-`
 - shift: `<<`, `>>`, `>>>`
-- relational: `<`, `>`, `<=`, `>=`, `in`, `instanceof`
+- relational: `<`, `>`, `<=`, `>=`, `in`, `is`, `instanceof`
 - equality: `==`, `!=`, `===`, `!==`
 - bitwise: `&`, `^`, `|`
 - logical: `&&`, `||`, `??`
@@ -715,6 +718,22 @@ new hello.world[0].test(arg1, arg2)
 ```
 
 ## Statements and control flow
+
+### Smart casts
+
+Within `if` and `else` branches, stable identifier types are narrowed by `is`, `instanceof`, and range-membership (`in`) checks. The false branch excludes the checked member from union types, and negated checks reverse the branch narrowing. `is` is emitted as JavaScript `instanceof`.
+
+```mylang
+if (value is Cat) {
+  value.meow()
+} else {
+  value.bark()
+}
+
+if (value in 0 ... 10) {
+  let numberValue: int = value
+}
+```
 
 ### Block statements
 
