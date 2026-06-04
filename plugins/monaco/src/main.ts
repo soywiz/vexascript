@@ -4,6 +4,7 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import * as monaco from "monaco-editor";
 import bundledSample from "../sample/main.my?raw";
 import {
+  getHoverInfo,
   pullDiagnostics,
   registerLanguage,
   registerProviders,
@@ -20,6 +21,39 @@ self.MonacoEnvironment = {
     return new editorWorker();
   },
 };
+
+declare global {
+  interface HTMLElement {
+    __mylangMonacoTest?: Window["__mylangMonacoTest"];
+  }
+
+  interface Window {
+    __mylangMonacoTest?: {
+      getMarkers(): Array<{
+        message: string;
+        startLineNumber: number;
+        startColumn: number;
+        endLineNumber: number;
+        endColumn: number;
+      }>;
+      getHoverAt(position: { lineNumber: number; column: number }): Promise<{
+        contents: string[];
+        range: {
+          startLineNumber: number;
+          startColumn: number;
+          endLineNumber: number;
+          endColumn: number;
+        } | null;
+      } | null>;
+      getPosition(): { lineNumber: number; column: number } | null;
+      getValue(): string;
+      runAction(actionId: string): Promise<void>;
+      setPosition(position: { lineNumber: number; column: number }): void;
+      setValue(value: string): Promise<void>;
+      waitForDiagnostics(): Promise<void>;
+    };
+  }
+}
 
 function setStatus(text: string, state: "connecting" | "connected" | "error" | ""): void {
   const el = document.getElementById("status")!;
@@ -47,6 +81,18 @@ function updateDirtyState(isDirty: boolean): void {
   if (fileName) {
     fileName.textContent = isDirty ? "main.my*" : "main.my";
   }
+}
+
+function toEditorRange(range: {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}) {
+  return {
+    startLineNumber: range.start.line + 1,
+    startColumn: range.start.character + 1,
+    endLineNumber: range.end.line + 1,
+    endColumn: range.end.character + 1,
+  };
 }
 
 async function main(): Promise<void> {
@@ -94,16 +140,79 @@ async function main(): Promise<void> {
   setStatus("Compiler Connected", "connected");
 
   let diagnosticsTimer: number | undefined;
+  let pendingDiagnosticsResolve: (() => void) | null = null;
+
+  const runDiagnostics = (): void => {
+    pullDiagnostics(model, sessionCache);
+    const currentSaved = resolveWorkspaceContent(bundledSample, storage, WORKSPACE_STORAGE_KEY);
+    updateDirtyState(model.getValue() !== currentSaved);
+    pendingDiagnosticsResolve?.();
+    pendingDiagnosticsResolve = null;
+  };
+
   model.onDidChangeContent(() => {
     if (diagnosticsTimer !== undefined) {
       window.clearTimeout(diagnosticsTimer);
     }
     diagnosticsTimer = window.setTimeout(() => {
-      pullDiagnostics(model, sessionCache);
-      const currentSaved = resolveWorkspaceContent(bundledSample, storage, WORKSPACE_STORAGE_KEY);
-      updateDirtyState(model.getValue() !== currentSaved);
+      runDiagnostics();
     }, 150);
   });
+
+  const testApi: NonNullable<Window["__mylangMonacoTest"]> = {
+    getMarkers() {
+      return monaco.editor.getModelMarkers({ resource: model.uri }).map((marker) => ({
+        message: marker.message,
+        startLineNumber: marker.startLineNumber,
+        startColumn: marker.startColumn,
+        endLineNumber: marker.endLineNumber,
+        endColumn: marker.endColumn,
+      }));
+    },
+    async getHoverAt(position) {
+      const hover = getHoverInfo(model, position, sessionCache);
+      if (!hover) {
+        return null;
+      }
+      const contents = Array.isArray(hover.contents)
+        ? hover.contents.map((content) => typeof content === "string" ? content : content.value)
+        : [typeof hover.contents === "string" ? hover.contents : hover.contents.value];
+      return {
+        contents,
+        range: hover.range ? toEditorRange(hover.range) : null,
+      };
+    },
+    getPosition() {
+      return editor.getPosition();
+    },
+    getValue() {
+      return model.getValue();
+    },
+    async runAction(actionId) {
+      await editor.getAction(actionId)?.run();
+    },
+    setPosition(position) {
+      editor.setPosition(position);
+      editor.focus();
+    },
+    async setValue(value) {
+      model.setValue(value);
+      await this.waitForDiagnostics();
+    },
+    async waitForDiagnostics() {
+      if (diagnosticsTimer !== undefined) {
+        window.clearTimeout(diagnosticsTimer);
+        diagnosticsTimer = undefined;
+      }
+      await new Promise<void>((resolve) => {
+        pendingDiagnosticsResolve = resolve;
+        window.setTimeout(() => runDiagnostics(), 0);
+      });
+    },
+  };
+  window.__mylangMonacoTest = testApi;
+  container.__mylangMonacoTest = testApi;
+  container.dataset.testReady = "true";
 
   document.getElementById("btn-format")?.addEventListener("click", () => {
     void editor.getAction("editor.action.formatDocument")?.run();

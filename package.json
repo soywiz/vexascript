@@ -19,7 +19,8 @@
     "monaco:install": "CI=true pnpm --dir plugins/monaco install --no-frozen-lockfile",
     "monaco:dev": "pnpm --dir plugins/monaco dev",
     "monaco:build": "pnpm --dir plugins/monaco build",
-    "monaco:start": "pnpm monaco:build && pnpm --dir plugins/monaco start"
+    "monaco:start": "pnpm monaco:build && pnpm --dir plugins/monaco start",
+    "monaco:test:e2e": "pnpm --dir plugins/monaco test:e2e"
   },
   "dependencies": {
     "commander": "^13.1.0",

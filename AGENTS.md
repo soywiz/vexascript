@@ -65,6 +65,7 @@ This section is the fast onboarding map for agents and contributors.
   - Monaco-to-compiler provider adapter: `plugins/monaco/src/compiler-providers.ts`
   - Static workspace persistence helpers: `plugins/monaco/src/workspace.ts`
   - Monaco Vite config: `plugins/monaco/vite.config.ts`
+  - Monaco Playwright config and browser e2e tests: `plugins/monaco/playwright.config.ts`, `plugins/monaco/tests/*.spec.ts`
 - LSP server and features:
   - Server entrypoint: `compiler/lsp/server.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`

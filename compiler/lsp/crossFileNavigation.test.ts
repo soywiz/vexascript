@@ -72,6 +72,37 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves go-to-definition from local instance member access to class field declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const file = join(root, "circle.my");
+
+    const source =
+      "class Circle {\n" +
+      "  radius: number\n" +
+      "}\n" +
+      "const circle: Circle = new Circle()\n" +
+      "circle.radius = 4\n";
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const location = resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 4,
+      character: 8,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(file).toString(),
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 8 }
+      }
+    });
+  });
+
   it("resolves go-to-definition from operator usage to the operator declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const file = join(root, "point.my");

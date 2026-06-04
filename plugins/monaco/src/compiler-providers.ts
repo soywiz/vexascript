@@ -18,6 +18,10 @@ import {
   createReferences,
   createRenameWorkspaceEdit,
 } from "compiler/lsp/navigation";
+import {
+  resolveDefinitionAcrossFiles,
+  resolveMemberHoverAcrossFiles,
+} from "compiler/lsp/crossFileNavigation";
 import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
 import { createSignatureHelp } from "compiler/lsp/signatureHelp";
 import { createDocumentSymbols } from "compiler/lsp/symbols";
@@ -275,6 +279,25 @@ export function pullDiagnostics(model: monaco.editor.ITextModel, cache: Map<stri
   setModelDiagnostics(model, diagnostics);
 }
 
+export function getHoverInfo(
+  model: monaco.editor.ITextModel,
+  position: monaco.IPosition,
+  cache: Map<string, SessionState>
+) {
+  const session = getSession(model, cache);
+  if (!session.analysis || !session.ast) {
+    return null;
+  }
+  return resolveMemberHoverAcrossFiles({
+    uri: model.uri.toString(),
+    line: position.lineNumber - 1,
+    character: position.column - 1,
+    session,
+    sourceRoots: [],
+    getSessionForFilePath: () => null,
+  }) ?? createHover(session.analysis, position.lineNumber - 1, position.column - 1);
+}
+
 export function registerProviders(): Map<string, SessionState> {
   const cache = new Map<string, SessionState>();
 
@@ -315,9 +338,7 @@ export function registerProviders(): Map<string, SessionState> {
 
   monaco.languages.registerHoverProvider(LANG_ID, {
     provideHover(model, position) {
-      const session = getSession(model, cache);
-      if (!session.analysis) return null;
-      const hover = createHover(session.analysis, position.lineNumber - 1, position.column - 1);
+      const hover = getHoverInfo(model, position, cache);
       if (!hover) return null;
       return {
         contents: [toMarkdown(hover.contents)].filter(Boolean) as monaco.IMarkdownString[],
@@ -359,8 +380,15 @@ export function registerProviders(): Map<string, SessionState> {
   monaco.languages.registerDefinitionProvider(LANG_ID, {
     provideDefinition(model, position) {
       const session = getSession(model, cache);
-      if (!session.analysis) return [];
-      const location = createDefinitionLocation(
+      if (!session.analysis || !session.ast) return [];
+      const location = resolveDefinitionAcrossFiles({
+        uri: model.uri.toString(),
+        line: position.lineNumber - 1,
+        character: position.column - 1,
+        session,
+        sourceRoots: [],
+        getSessionForFilePath: () => null,
+      }) ?? createDefinitionLocation(
         session.analysis,
         model.uri.toString(),
         position.lineNumber - 1,
