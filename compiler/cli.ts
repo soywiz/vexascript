@@ -4,6 +4,8 @@ import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { transpile, type TranspileTarget } from "./runtime/transpile";
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
+import { loadProject } from "./project";
+import { ensureDependencies } from "./deps";
 
 async function runLanguageServer(): Promise<void> {
   await import("./lsp/server");
@@ -60,6 +62,10 @@ async function buildFile(input: string, out?: string, target: TranspileTarget = 
 
 async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
+  const project = await loadProject(sourcePath);
+  if (project && Object.keys(project.dependencies).length > 0) {
+    await ensureDependencies(project.projectDir, project.dependencies);
+  }
   const source = await readFile(sourcePath, "utf8");
   await executeSource(source, sourcePath, target);
 }
