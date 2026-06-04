@@ -213,8 +213,11 @@ export function collectCrossFileTypeDiagnostics(
 
     const signature = member.signature;
     const providedCount = call.arguments.length;
-    const requiredCount = signature.parameters.filter((parameter) => !parameter.optional).length;
-    const totalCount = signature.parameters.length;
+    const lastParameter = signature.parameters[signature.parameters.length - 1];
+    const restParameter = lastParameter?.rest ? lastParameter : undefined;
+    const fixedParameters = restParameter ? signature.parameters.slice(0, -1) : signature.parameters;
+    const requiredCount = fixedParameters.filter((parameter) => !parameter.optional).length;
+    const totalCount = fixedParameters.length;
 
     if (providedCount < requiredCount) {
       pushDiagnostic(
@@ -224,7 +227,7 @@ export function collectCrossFileTypeDiagnostics(
           MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
         )
       );
-    } else if (providedCount > totalCount) {
+    } else if (!restParameter && providedCount > totalCount) {
       pushDiagnostic(
         diagnosticForNode(
           callDiagnosticNode(call),
@@ -243,9 +246,9 @@ export function collectCrossFileTypeDiagnostics(
       }
     }
 
-    const comparableCount = Math.min(providedCount, totalCount);
+    const comparableCount = restParameter ? providedCount : Math.min(providedCount, totalCount);
     for (let index = 0; index < comparableCount; index += 1) {
-      const parameter = signature.parameters[index];
+      const parameter = fixedParameters[index] ?? restParameter;
       const argument = call.arguments[index];
       if (!parameter || !argument) {
         continue;

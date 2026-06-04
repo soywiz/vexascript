@@ -4264,7 +4264,8 @@ export class TypeChecker {
         sourceType.parameters.map((parameter) => ({
           name: parameter.name,
           type: this.substituteTypeParameters(parameter.type, substitutions),
-          ...(parameter.optional !== undefined ? { optional: parameter.optional } : {})
+          ...(parameter.optional !== undefined ? { optional: parameter.optional } : {}),
+          ...(parameter.rest ? { rest: true } : {})
         })),
         this.substituteTypeParameters(sourceType.returnType, substitutions),
         sourceType.typeParameters,
