@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { expect } from "../../expect";
+import { expect } from "../test/expect";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

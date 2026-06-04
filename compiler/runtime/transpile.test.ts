@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { expect } from "../../expect";
+import { expect } from "../test/expect";
 import { transpile } from "./transpile";
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

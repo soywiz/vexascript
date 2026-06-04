@@ -2,7 +2,7 @@ import { Analysis } from "compiler/analysis/Analysis";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { describe, it } from "node:test";
-import { expect } from "../../expect";
+import { expect } from "../test/expect";
 import { createAnalysisSession } from "./analysisSession";
 import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
 

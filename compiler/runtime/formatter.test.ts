@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { expect } from "../../expect";
+import { expect } from "../test/expect";
 import { formatSource } from "./formatter";
 
 describe("formatSource", () => {

@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { expect } from "../../expect";
+import { expect } from "../test/expect";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   AnalysisSessionCache,

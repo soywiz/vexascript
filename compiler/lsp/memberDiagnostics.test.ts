@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
-import { expect } from "../../expect";
+import { expect } from "../test/expect";
 import { createAnalysisSession } from "./analysisSession";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 

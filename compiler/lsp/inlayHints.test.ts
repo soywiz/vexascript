@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { expect } from "../../expect";
+import { expect } from "../test/expect";
 import { createAnalysisSession } from "./analysisSession";
 import { createInlayHints } from "./inlayHints";
 
