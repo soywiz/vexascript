@@ -3953,6 +3953,99 @@ describe("Parser (with recovery)", () => {
         );
     });
 
+    it("recovers from missing binary operator right-hand sides without swallowing following functions", () => {
+        const parser = new Parser(tokenizeReader(
+            "fun demo1() {\n" +
+            "  yield 10\n" +
+            "}\n\n" +
+            "async fun myAsyncFunction(a: int, b: Point) {\n" +
+            "  return b.x + 10\n" +
+            "  const result = b + Point(1, 3)\n" +
+            "  return 10 +\n" +
+            "}\n\n" +
+            "fun demo2() {\n" +
+            "  yield 10\n" +
+            "}\n"
+        ));
+        const ast = parser.parseFile();
+
+        expect(ast.body).toHaveLength(3);
+        expect(ast.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "demo1" },
+            body: {
+                body: [
+                    {
+                        kind: "ExprStatement",
+                        expression: { kind: "UnaryExpression", operator: "yield" }
+                    }
+                ]
+            }
+        });
+        expect(ast.body[1]).toMatchObject({
+            kind: "FunctionStatement",
+            async: true,
+            name: { kind: "Identifier", name: "myAsyncFunction" },
+            body: {
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "BinaryExpression", operator: "+" }
+                    },
+                    {
+                        kind: "VarStatement",
+                        declarationKind: "const",
+                        name: { kind: "Identifier", name: "result" }
+                    }
+                ]
+            }
+        });
+        expect(ast.body[2]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "demo2" },
+            body: {
+                body: [
+                    {
+                        kind: "ExprStatement",
+                        expression: { kind: "UnaryExpression", operator: "yield" }
+                    }
+                ]
+            }
+        });
+        expect(parser.errors.map((issue) => issue.message)).toContain(
+            "Expected a number literal, string literal, identifier, '(', '[' or '{'"
+        );
+    });
+
+    it("keeps making progress after class-member recovery leaves a closing brace at file scope", () => {
+        const parser = new Parser(tokenizeReader(
+            "class Rectangle {\n" +
+            "  area: number => this.width * this.height\n" +
+            "}\n" +
+            "fun demo2() {\n" +
+            "  yield 10\n" +
+            "}\n"
+        ));
+        const ast = parser.parseFile();
+
+        expect(ast.body).toHaveLength(1);
+        expect(ast.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "demo2" },
+            body: {
+                body: [
+                    {
+                        kind: "ExprStatement",
+                        expression: { kind: "UnaryExpression", operator: "yield" }
+                    }
+                ]
+            }
+        });
+        expect(parser.errors.map((issue) => issue.message)).toContain(
+            "Expected ';', newline, or '}' between statements"
+        );
+    });
+
     it("attaches parse recovery markers to the returned AST", () => {
         const parser = new Parser(tokenizeReader("{ let bad = ; let ok = 1 }"));
         const ast = parser.parseFile();

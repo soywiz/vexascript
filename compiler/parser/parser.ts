@@ -199,6 +199,9 @@ export class Parser {
             const statementStartOffset = this.tokens.offset;
             const statement = this.parseStatement();
             if (!statement) {
+                if (this.tokens.offset === statementStartOffset && this.tokens.hasMore && !this.isEofToken(this.tokens.peek())) {
+                    this.tokens.skip();
+                }
                 continue;
             }
             body.push(statement);
@@ -420,7 +423,12 @@ export class Parser {
         const allowSwitchCaseLabels = recoveryHint === "switch";
         const localStatementRecovery = recoveryHint === "statement";
 
-        if (originToken?.type === "symbol" && (originToken.value === ";" || originToken.value === "}")) {
+        const currentToken = this.tokens.peek();
+        if (originToken?.type === "symbol" && originToken.value === ";" && currentToken === originToken) {
+            this.tokens.skip();
+            return;
+        }
+        if (originToken?.type === "symbol" && originToken.value === "}" && currentToken === originToken) {
             return;
         }
         if (
@@ -1913,6 +1921,15 @@ export class Parser {
     }
 
     private parsePrimary(): Expr {
+        const next = this.tokens.peek();
+        if (
+            this.isEofToken(next) ||
+            (next?.type === "symbol" &&
+                (next.value === "}" || next.value === ")" || next.value === "]" || next.value === ";"))
+        ) {
+            this.fail("Expected a number literal, string literal, identifier, '(', '[' or '{'", this.tokenAt(next));
+        }
+
         const token = this.tokens.read();
 
         if (token?.type === "symbol" && token.value === "...") {

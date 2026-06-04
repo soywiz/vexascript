@@ -38,6 +38,28 @@ describe("lsp analysis session", () => {
     expect(session.tokenizeError).toBeNull();
   });
 
+  it("keeps analysis responsive after class-body recovery errors leave a closing brace behind", () => {
+    const source =
+      "class Rectangle {\n" +
+      "  area: number => this.width * this.height\n" +
+      "}\n" +
+      "fun demo2() {\n" +
+      "  yield 10\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+
+    expect(session.ast).not.toBeNull();
+    expect(session.analysis).not.toBeNull();
+    expect(session.parserErrors.map((issue) => issue.message)).toContain(
+      "Expected ';', newline, or '}' between statements"
+    );
+    expect(session.ast?.body).toHaveLength(1);
+    expect(session.ast?.body[0]).toMatchObject({
+      kind: "FunctionStatement",
+      name: { name: "demo2" }
+    });
+  });
+
   it("reuses cached session for same uri+version and rebuilds on version change", () => {
     const cache = new AnalysisSessionCache();
     const uri = "file:///demo.my";
