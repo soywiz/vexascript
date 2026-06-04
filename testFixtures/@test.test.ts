@@ -48,4 +48,15 @@ describe("Parse Typescript Libraries", () => {
         expect(parser.errors).toEqual([]);
     });
 
+    it("parses samples/threejs.d.ts in typescript mode", () => {
+        const source = readFileSync(resolve(__dirname, "../samples/threejs.d.ts"), "utf8");
+
+        const parser = new Parser(tokenizeReader(source), { language: "typescript" });
+        const ast = parser.parseFile();
+
+        expect(ast.kind).toBe("Program");
+        expect(parser.tokens.hasMore).toBe(false);
+        expect(parser.errors).toEqual([]);
+    });
+
 })
