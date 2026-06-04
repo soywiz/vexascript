@@ -25,7 +25,7 @@ self.MonacoEnvironment = {
 };
 
 import * as monaco from "monaco-editor";
-import { LspClient } from "./lsp-client";
+import { CompilerClient } from "./compiler-client";
 import {
   registerLanguage,
   registerProviders,
@@ -108,16 +108,11 @@ async function main(): Promise<void> {
     bracketPairColorization: { enabled: true },
   });
 
-  // ── 3. Connect to LSP ───────────────────────────────────────────────────────
-  const wsProtocol = location.protocol === "https:" ? "wss" : "ws";
-  const lsp = new LspClient(`${wsProtocol}://${location.host}/lsp`);
-
-  try {
-    await lsp.ready;
-  } catch {
-    setStatus("LSP connection failed", "error");
-    return;
-  }
+  // ── 3. Start the in-browser LSP worker ────────────────────────────────────
+  const lsp = new CompilerClient(
+    new URL("./lsp-worker.ts", import.meta.url)
+  );
+  await lsp.ready;
 
   // ── 4. LSP initialize handshake ─────────────────────────────────────────────
   type InitResult = {

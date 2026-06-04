@@ -8,7 +8,7 @@
  */
 
 import * as monaco from "monaco-editor";
-import type { LspClient } from "./lsp-client";
+import type { CompilerClient } from "./compiler-client";
 
 // ── LSP type stubs (only the shapes we actually use) ─────────────────────────
 
@@ -304,7 +304,7 @@ export function setModelDiagnostics(
 }
 
 export async function pullDiagnostics(
-  lsp: LspClient,
+  lsp: CompilerClient,
   model: monaco.editor.ITextModel
 ): Promise<void> {
   try {
@@ -326,7 +326,7 @@ export interface SemanticTokensLegend {
 }
 
 export function registerProviders(
-  lsp: LspClient,
+  lsp: CompilerClient,
   legend: SemanticTokensLegend
 ): void {
   // ── Completion ──────────────────────────────────────────────────────────────
