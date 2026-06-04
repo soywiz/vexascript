@@ -10,6 +10,10 @@ import {
   createAutoImportCodeActions
 } from "./importFixes";
 
+function missingMemberDiagnostic(name: string, typeName: string): Diagnostic {
+  return { severity: 1, source: "mylang-sema", message: `Property '${name}' does not exist on type '${typeName}'`, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } };
+}
+
 function undefinedVariableDiagnostic(name: string): Diagnostic {
   return {
     severity: 1,
@@ -89,4 +93,27 @@ describe("import quick fixes", () => {
     expect(suggestions[0]?.symbol.name).toBe("Point");
     expect(suggestions[0]?.importPath).toBe("./a");
   });
+  it("suggests importing an exported extension property for a missing member", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
+    const durationFile = join(root, "duration.my");
+    const consumerFile = join(root, "consumer.my");
+    await writeFile(durationFile, "export val number.milliseconds => this\n", "utf8");
+    const source = "val duration = 10.milliseconds\n";
+    await writeFile(consumerFile, source, "utf8");
+    const session = createAnalysisSession(source);
+
+    const actions = createAutoImportCodeActions({
+      uri: pathToFileURL(consumerFile).toString(),
+      ast: session.ast,
+      diagnostics: [missingMemberDiagnostic("milliseconds", "int")],
+      sourceRoots: [root]
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Import 'milliseconds' from './duration'");
+    expect(actions[0]?.edit?.changes?.[pathToFileURL(consumerFile).toString()]?.[0]?.newText).toBe(
+      'import { milliseconds } from "./duration"\n'
+    );
+  });
+
 });

@@ -267,4 +267,25 @@ describe("transpile", () => {
     expect(result.code).toContain("let c = a.operator$plus$$Point(b);");
   });
 
+  it("mangles and lowers extension properties", () => {
+    const source = `class Duration(val value: number)
+export val number.milliseconds => Duration(this)
+val duration = 10.milliseconds`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("export const number$$milliseconds = ($this) => Duration($this);");
+    expect(result.code).toContain("const duration = number$$milliseconds(10);");
+  });
+
+  it("mangles imported extension properties", () => {
+    const source = `import { milliseconds } from "./duration"
+val duration = 10.milliseconds`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('import { number$$milliseconds } from "./duration";');
+    expect(result.code).toContain("const duration = number$$milliseconds(10);");
+  });
+
 });

@@ -2604,6 +2604,21 @@ describe("parseStatement", () => {
     });
 
 
+    it("parses extension properties", () => {
+        expect(parseStatement(tokenizeReader("val number.milliseconds => Duration(this)"))).toEqual({
+            kind: "VarStatement",
+            declarationKind: "val",
+            receiverType: { kind: "Identifier", name: "number" },
+            name: { kind: "Identifier", name: "milliseconds" },
+            initializer: {
+                kind: "CallExpression",
+                callee: { kind: "Identifier", name: "Duration" },
+                arguments: [{ kind: "Identifier", name: "this" }]
+            }
+        });
+    });
+
+
     it("parses export declarations and export lists", () => {
         expect(parseStatement(tokenizeReader("export const value: number = 1"))).toEqual({
             kind: "ExportStatement",

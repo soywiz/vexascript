@@ -2360,6 +2360,30 @@ export class Parser {
             this.fail("Expected variable declaration statement", this.tokenAt(declarationKeyword));
         }
 
+        const firstName = this.tokens.peek();
+        const dot = this.peekToken(1);
+        const extensionName = this.peekToken(2);
+        const arrow = this.peekToken(3);
+        if (
+            firstName?.type === "identifier" &&
+            dot?.type === "symbol" && dot.value === "." &&
+            extensionName?.type === "identifier" &&
+            arrow?.type === "symbol" && arrow.value === "=>"
+        ) {
+            this.tokens.skip();
+            this.tokens.skip();
+            this.tokens.skip();
+            this.tokens.skip();
+            const initializer = this.parseAssignment();
+            return this.attachNodeBounds({
+                kind: "VarStatement",
+                declarationKind: declarationKeyword.value as VariableDeclarationKind,
+                receiverType: this.buildIdentifierFromToken(firstName),
+                name: this.buildIdentifierFromToken(extensionName),
+                initializer
+            } as VarStatement, declarationKeyword, initializer.lastToken ?? this.getLastReadToken() ?? declarationKeyword);
+        }
+
         const declarations: VarDeclarator[] = [];
 
         while (this.tokens.hasMore) {

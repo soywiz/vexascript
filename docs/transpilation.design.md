@@ -85,6 +85,7 @@ This means emit phase never runs with known invalid compile artifacts.
 - Emission is structurally readable but not a full formatter pass.
 - Semicolons are emitted per statement; `transpile()` applies a final trailing-semicolon guard for non-empty output.
 - Import statements are emitted in standard ES module syntax for supported named imports.
+- Extension properties are emitted as exported/imported receiver-mangled functions (for example, `number.milliseconds` becomes `number$$milliseconds`) and property access is lowered to a function call with the receiver as its argument.
 
 ## Source Map Strategy (Current)
 

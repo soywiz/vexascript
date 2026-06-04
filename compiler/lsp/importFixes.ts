@@ -10,7 +10,9 @@ import { CodeActionKind } from "vscode-languageserver/node.js";
 import { getProjectIndex } from "./projectAnalysis";
 import {
   isUndefinedVariableDiagnostic,
-  UNDEFINED_VARIABLE_PATTERN
+  isMissingMemberDiagnostic,
+  UNDEFINED_VARIABLE_PATTERN,
+  MISSING_MEMBER_PATTERN
 } from "./diagnosticCodes";
 
 export interface SymbolExport {
@@ -38,13 +40,16 @@ export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
   return exports;
 }
 
-function extractUndefinedSymbols(diagnostics: Diagnostic[]): string[] {
+function extractImportableSymbols(diagnostics: Diagnostic[]): string[] {
   const names = new Set<string>();
   for (const diagnostic of diagnostics) {
-    if (!isUndefinedVariableDiagnostic(diagnostic)) {
-      continue;
-    }
-    const match = UNDEFINED_VARIABLE_PATTERN.exec(diagnostic.message);
+    const pattern = isUndefinedVariableDiagnostic(diagnostic)
+      ? UNDEFINED_VARIABLE_PATTERN
+      : isMissingMemberDiagnostic(diagnostic)
+        ? MISSING_MEMBER_PATTERN
+        : null;
+    if (!pattern) continue;
+    const match = pattern.exec(diagnostic.message);
     if (!match) {
       continue;
     }
@@ -147,7 +152,7 @@ export function createAutoImportCodeActions(params: {
     return [];
   }
 
-  const undefinedSymbols = extractUndefinedSymbols(diagnostics);
+  const undefinedSymbols = extractImportableSymbols(diagnostics);
   if (undefinedSymbols.length === 0) {
     return [];
   }

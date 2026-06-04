@@ -8,7 +8,9 @@ import type {
   ImportStatement,
   Program,
   TypeAliasStatement,
-  VarStatement
+  VarStatement,
+  ExportStatement,
+  Statement
 } from "compiler/ast/ast";
 import { compileSource } from "compiler/pipeline/compile";
 
@@ -99,7 +101,10 @@ function indexFileData(ast: Program | null, filePath: string): IndexedFileData {
   const declarations: ProjectTopLevelDeclaration[] = [];
   const imports: ProjectImportBinding[] = [];
 
-  for (const statement of ast.body) {
+  for (const originalStatement of ast.body) {
+    const statement: Statement = originalStatement.kind === "ExportStatement" && (originalStatement as ExportStatement).declaration
+      ? (originalStatement as ExportStatement).declaration!
+      : originalStatement;
     if (statement.kind === "ClassStatement") {
       const classStatement = statement as ClassStatement;
       const range = nodeRange(classStatement.name);

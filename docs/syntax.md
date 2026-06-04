@@ -176,6 +176,26 @@ fun Point.operator+(other: Point): Point {
 let c = a + b // emits as a.operator$plus$$Point(b)
 ```
 
+### Extension properties
+
+A read-only extension property is declared with a receiver type before the property name and `=>` before its value expression. Inside the expression, `this` is the receiver value:
+
+```my
+class Duration(val milliseconds: number)
+export val number.milliseconds => Duration(this)
+
+val duration = 10.milliseconds
+```
+
+Extension properties are opt-in across files. A consumer imports the source-level property name, and access without that import is reported as a missing member:
+
+```my
+import { milliseconds } from "./duration"
+val duration = 10.milliseconds
+```
+
+At JavaScript runtime, declarations and imports are mangled with the receiver type. For example, `number.milliseconds` is exported as `number$$milliseconds`, and `10.milliseconds` is lowered to `number$$milliseconds(10)`.
+
 ### Generic function declarations
 
 Function declarations support generic type parameters, and explicit generic type arguments on calls specialize parameter and return types:
