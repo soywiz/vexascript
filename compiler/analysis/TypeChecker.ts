@@ -123,6 +123,7 @@ export class TypeChecker {
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
   private readonly activeTypeAliasNames: Set<string> = new Set();
+  private readonly generatorFunctionStack: boolean[] = [];
 
   constructor(
     private readonly program: Program,
@@ -161,6 +162,19 @@ export class TypeChecker {
       return { ...boundScope, parent: fallback };
     }
     return boundScope;
+  }
+
+  private isInsideGeneratorFunction(): boolean {
+    return this.generatorFunctionStack[this.generatorFunctionStack.length - 1] === true;
+  }
+
+  private withGeneratorFunction<T>(isGenerator: boolean, run: () => T): T {
+    this.generatorFunctionStack.push(isGenerator);
+    try {
+      return run();
+    } finally {
+      this.generatorFunctionStack.pop();
+    }
   }
 
   private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
@@ -415,41 +429,44 @@ export class TypeChecker {
   }
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
-    const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
-    this.withTypeParameters(typeParameterNames, () => {
-      const returnType = this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE;
-      const fnType = this.buildFunctionType(statement.parameters, returnType, scope, statement.typeParameters ?? []);
-      const existingSymbolType = scope.symbols.get(statement.name.name)?.type;
-      if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
-        this.updateSymbolType(scope, statement.name.name, fnType);
-      }
-
-      const functionScope = this.scopeFor(statement, scope);
-      for (const parameter of statement.parameters) {
-        if (parameter.thisParameter === true) {
-          continue;
+    this.withGeneratorFunction(statement.generator === true, () => {
+      const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
+      this.withTypeParameters(typeParameterNames, () => {
+        const returnType = this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE;
+        const fnType = this.buildFunctionType(statement.parameters, returnType, scope, statement.typeParameters ?? []);
+        const existingSymbolType = scope.symbols.get(statement.name.name)?.type;
+        if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
+          this.updateSymbolType(scope, statement.name.name, fnType);
         }
-        const parameterType =
-          this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
-          (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
-        for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(functionScope, identifier.name, parameterType);
-        for (const element of bindingElements(parameter.name)) {
-          if (element.initializer) this.visitExpression(element.initializer, functionScope);
-        }
-      }
 
-      const functionFlow: FlowContext = {
-        loopDepth: 0,
-        switchDepth: 0,
-        labels: [],
-        expectedReturnType: returnType
-      };
-      for (const bodyStatement of statement.body.body) {
-        this.visitStatement(bodyStatement, functionScope, functionFlow);
-      }
-      if (statement.missingBody !== true) {
-        this.reportMissingReturnPath(statement.body, returnType, statement.name);
-      }
+        const functionScope = this.scopeFor(statement, scope);
+        for (const parameter of statement.parameters) {
+          if (parameter.thisParameter === true) {
+            continue;
+          }
+          const parameterType =
+            this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
+            (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
+          for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(functionScope, identifier.name, parameterType);
+          for (const element of bindingElements(parameter.name)) {
+            if (element.initializer) this.visitExpression(element.initializer, functionScope);
+          }
+        }
+
+        const functionFlow: FlowContext = {
+          loopDepth: 0,
+          switchDepth: 0,
+          labels: [],
+          expectedReturnType: returnType,
+          inGenerator: statement.generator === true
+        };
+        for (const bodyStatement of statement.body.body) {
+          this.visitStatement(bodyStatement, functionScope, functionFlow);
+        }
+        if (statement.missingBody !== true) {
+          this.reportMissingReturnPath(statement.body, returnType, statement.name);
+        }
+      });
     });
   }
 
@@ -519,42 +536,45 @@ export class TypeChecker {
           });
         }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
-        this.withTypeParameters(methodTypeParameterNames, () => {
-          const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
-          const methodType = this.buildFunctionType(
-            method.parameters,
-            declaredMethodReturnType ?? builtinType("void"),
-            classScope,
-            method.typeParameters ?? []
-          );
-          this.updateSymbolType(classScope, method.name.name, methodType);
+        this.withGeneratorFunction(method.generator === true, () => {
+          this.withTypeParameters(methodTypeParameterNames, () => {
+            const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
+            const methodType = this.buildFunctionType(
+              method.parameters,
+              declaredMethodReturnType ?? builtinType("void"),
+              classScope,
+              method.typeParameters ?? []
+            );
+            this.updateSymbolType(classScope, method.name.name, methodType);
 
-          const methodScope = this.scopeFor(method, classScope);
-          for (const parameter of method.parameters) {
-            if (parameter.thisParameter === true) {
-              continue;
+            const methodScope = this.scopeFor(method, classScope);
+            for (const parameter of method.parameters) {
+              if (parameter.thisParameter === true) {
+                continue;
+              }
+              const parameterType =
+                this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
+                (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
+              for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(methodScope, identifier.name, parameterType);
+              for (const element of bindingElements(parameter.name)) {
+                if (element.initializer) this.visitExpression(element.initializer, methodScope);
+              }
             }
-            const parameterType =
-              this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
-              (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
-            for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(methodScope, identifier.name, parameterType);
-            for (const element of bindingElements(parameter.name)) {
-              if (element.initializer) this.visitExpression(element.initializer, methodScope);
+            const methodReturnType = declaredMethodReturnType ?? UNKNOWN_TYPE;
+            const methodFlow: FlowContext = {
+              loopDepth: 0,
+              switchDepth: 0,
+              labels: [],
+              expectedReturnType: methodReturnType,
+              inGenerator: method.generator === true
+            };
+            for (const bodyStatement of method.body.body) {
+              this.visitStatement(bodyStatement, methodScope, methodFlow);
             }
-          }
-          const methodReturnType = declaredMethodReturnType ?? UNKNOWN_TYPE;
-          const methodFlow: FlowContext = {
-            loopDepth: 0,
-            switchDepth: 0,
-            labels: [],
-            expectedReturnType: methodReturnType
-          };
-          for (const bodyStatement of method.body.body) {
-            this.visitStatement(bodyStatement, methodScope, methodFlow);
-          }
-          if (method.missingBody !== true && method.abstract !== true) {
-            this.reportMissingReturnPath(method.body, methodReturnType, method.name);
-          }
+            if (method.missingBody !== true && method.abstract !== true) {
+              this.reportMissingReturnPath(method.body, methodReturnType, method.name);
+            }
+          });
         });
       }
 
@@ -722,7 +742,7 @@ export class TypeChecker {
   }
 
   private visitExpression(expression: Expr, scope: Scope, expectedType?: AnalysisType): AnalysisType {
-    let result: AnalysisType;
+    let result: AnalysisType = UNKNOWN_TYPE;
     switch (expression.kind) {
       case "CommaExpression": {
         const comma = expression as CommaExpression;
@@ -940,6 +960,15 @@ export class TypeChecker {
           break;
         }
         if (unary.operator === "yield" || unary.operator === "yield*") {
+          if (!this.isInsideGeneratorFunction()) {
+            this.issues.push({
+              message: "The 'yield' keyword is only allowed inside generator functions",
+              node: expression,
+              code: ANALYSIS_ISSUE_CODES.YIELD_OUTSIDE_GENERATOR
+            });
+            result = UNKNOWN_TYPE;
+            break;
+          }
           result = argumentType;
           break;
         }
@@ -971,59 +1000,65 @@ export class TypeChecker {
         break;
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
-        if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
-          result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
-          break;
-        }
-        const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
-        const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters, expectedFunctionType);
-        let returnType: AnalysisType;
-        if (arrow.body.kind === "BlockStatement") {
-          const expectedReturnType = expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
-          const arrowFlow: FlowContext = {
-            loopDepth: 0,
-            switchDepth: 0,
-            labels: [],
-            expectedReturnType
-          };
-          for (const bodyStatement of (arrow.body as BlockStatement).body) {
-            this.visitStatement(bodyStatement, arrowScope, arrowFlow);
+        this.withGeneratorFunction(false, () => {
+          if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
+            result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
+            return;
           }
-          this.reportMissingReturnPath(arrow.body as BlockStatement, expectedReturnType, arrow);
-          returnType = expectedReturnType;
-        } else {
-          returnType = this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType);
-          if (
-            expectedFunctionType &&
-            !isUnknownType(returnType) &&
-            !isUnknownType(expectedFunctionType.returnType) &&
-            !this.isTypeAssignable(returnType, expectedFunctionType.returnType)
-          ) {
-            this.reportReturnTypeMismatch(returnType, expectedFunctionType.returnType, arrow.body as Expr);
-            returnType = expectedFunctionType.returnType;
+          const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
+          const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters, expectedFunctionType);
+          let returnType: AnalysisType;
+          if (arrow.body.kind === "BlockStatement") {
+            const expectedReturnType = expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
+            const arrowFlow: FlowContext = {
+              loopDepth: 0,
+              switchDepth: 0,
+              labels: [],
+              expectedReturnType,
+              inGenerator: false
+            };
+            for (const bodyStatement of (arrow.body as BlockStatement).body) {
+              this.visitStatement(bodyStatement, arrowScope, arrowFlow);
+            }
+            this.reportMissingReturnPath(arrow.body as BlockStatement, expectedReturnType, arrow);
+            returnType = expectedReturnType;
+          } else {
+            returnType = this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType);
+            if (
+              expectedFunctionType &&
+              !isUnknownType(returnType) &&
+              !isUnknownType(expectedFunctionType.returnType) &&
+              !this.isTypeAssignable(returnType, expectedFunctionType.returnType)
+            ) {
+              this.reportReturnTypeMismatch(returnType, expectedFunctionType.returnType, arrow.body as Expr);
+              returnType = expectedFunctionType.returnType;
+            }
           }
-        }
-        result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
+          result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
+        });
         break;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
-        const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
-        const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
-        const expectedReturnType =
-          this.resolveTypeAnnotation(fn.returnType, functionScope) ?? expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
-        const functionFlow: FlowContext = {
-          loopDepth: 0,
-          switchDepth: 0,
-          labels: [],
-          expectedReturnType
-        };
-        for (const bodyStatement of fn.body.body) {
-          this.visitStatement(bodyStatement, functionScope, functionFlow);
-        }
-        this.reportMissingReturnPath(fn.body, expectedReturnType, fn.name ?? fn);
-        const returnType = isUnknownType(expectedReturnType) ? builtinType("void") : expectedReturnType;
-        result = this.buildFunctionType(fn.parameters, returnType, functionScope);
+        this.withGeneratorFunction(fn.generator === true, () => {
+          const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
+          const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
+          const expectedReturnType =
+            this.resolveTypeAnnotation(fn.returnType, functionScope) ?? expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
+          const functionFlow: FlowContext = {
+            loopDepth: 0,
+            switchDepth: 0,
+            labels: [],
+            expectedReturnType,
+            inGenerator: fn.generator === true
+          };
+          for (const bodyStatement of fn.body.body) {
+            this.visitStatement(bodyStatement, functionScope, functionFlow);
+          }
+          this.reportMissingReturnPath(fn.body, expectedReturnType, fn.name ?? fn);
+          const returnType = isUnknownType(expectedReturnType) ? builtinType("void") : expectedReturnType;
+          result = this.buildFunctionType(fn.parameters, returnType, functionScope);
+        });
         break;
       }
       case "Identifier":

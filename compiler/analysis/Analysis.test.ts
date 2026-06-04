@@ -94,6 +94,32 @@ let after = bind`));
     expect(visible).not.toContain("inner");
   });
 
+  it("allows yield only inside generator functions", () => {
+    const source =
+      "function* ok() {\n" +
+      "  yield 1\n" +
+      "  yield* []\n" +
+      "}\n" +
+      "function bad() {\n" +
+      "  yield 2\n" +
+      "}\n" +
+      "class Store {\n" +
+      "  *values() {\n" +
+      "    yield 3\n" +
+      "  }\n" +
+      "  async save() {\n" +
+      "    yield 4\n" +
+      "  }\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("The 'yield' keyword is only allowed inside generator functions");
+    expect(messages.filter((message) => message === "The 'yield' keyword is only allowed inside generator functions")).toHaveLength(2);
+  });
+
   it("uses the final comma expression operand as the expression type", () => {
     const ast = parseFile(tokenizeReader("let value: string = (1, \"ok\")"));
     const analysis = new Analysis(ast);

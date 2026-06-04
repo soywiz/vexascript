@@ -98,6 +98,18 @@ function empty(): int {
     expect(missingValue?.range.start).toEqual({ line: 7, character: 2 });
   });
 
+  it("assigns a semantic diagnostic code when yield appears outside generator functions", () => {
+    const diagnostics = diagnosticsFor(
+      "function bad() {\n" +
+      "  yield 1\n" +
+      "}\n"
+    );
+
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR)
+    ).toBe(true);
+  });
+
   it("assigns readonly-reassignment diagnostic code for const/val writes", () => {
     const source =
       "const point = 1\n" +
