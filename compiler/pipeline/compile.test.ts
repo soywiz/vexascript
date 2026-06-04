@@ -18,6 +18,14 @@ describe("compileSource", () => {
     expect(artifacts.fatalError).toBeNull();
   });
 
+  it("passes parser language options through compilation", () => {
+    const artifacts = compileSource("export = value;", { language: "typescript" });
+
+    expect(artifacts.ast).not.toBeNull();
+    expect(artifacts.parserIssues).toEqual([]);
+    expect(artifacts.analysis).not.toBeNull();
+  });
+
   it("keeps parser issues and still runs semantic analysis on recovered ast", () => {
     const source = "let = 1\nlet ok = missing\n";
     const artifacts = compileSource(source);

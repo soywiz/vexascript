@@ -6,21 +6,29 @@ Scope:
 
 - Orchestration: `compiler/runtime/transpile.ts`
 - Emission: `compiler/runtime/emitter.ts`
+- Upstream parse artifacts: `compiler/pipeline/parse.ts`
 - Upstream compile artifacts: `compiler/pipeline/compile.ts`
 
 ## Pipeline Contract
 
 `transpile(source)` follows this sequence:
 
-1. Compile source to shared artifacts (`ast`, parser issues, semantic issues, etc.).
-2. Return early if lexical/parser/fatal errors exist.
-3. Return early if semantic issues exist.
-4. Choose transpile target:
+1. Parse source through the shared parse phase, producing lexical/parser artifacts and honoring parser language options.
+2. Analyze the recovered AST through the shared compile phase, producing semantic artifacts.
+3. Return early if lexical/parser/fatal errors exist.
+4. Return early if semantic issues exist.
+5. Choose transpile target:
    - `optimized` (default): run lowering pass before emission.
    - `conservative`: emit directly from parsed AST.
-5. Emit JavaScript (+ expression type map for long arithmetic behavior).
-6. Normalize final output with `ensureTrailingSemicolon`.
-7. Produce a source map payload for successful output.
+6. Emit JavaScript (+ expression type map for long arithmetic behavior).
+7. Normalize final output with `ensureTrailingSemicolon`.
+8. Produce a source map payload for successful output.
+
+The phase boundary is exposed independently:
+
+- `parseSource(source, parserOptions)` in `compiler/pipeline/parse.ts` is the reusable tokenizer + parser entrypoint for consumers that do not need semantic analysis.
+- `compileSource(source, parserOptions)` in `compiler/pipeline/compile.ts` composes the parse phase with semantic analysis.
+- Low-level consumers must use the parse phase instead of rebuilding tokenizer/parser orchestration, which keeps parser mode selection and error artifacts consistent without introducing a dependency on semantic analysis.
 
 Current contract:
 

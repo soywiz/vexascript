@@ -2,9 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Node, Program } from "compiler/ast/ast";
-import { Parser } from "compiler/parser/parser";
-import { tokenize } from "compiler/parser/tokenizer";
-import { ListReader } from "compiler/utils/ListReader";
+import { parseSource } from "compiler/pipeline/parse";
 
 export const ECMASCRIPT_RUNTIME_DECLARATION_FILE_NAME = "ecmascript.d.my";
 
@@ -65,17 +63,18 @@ function collectNodes(root: Program): WeakSet<object> {
 
 function parseRuntimeProgram(filePath: string): Program {
   const source = readFileSync(filePath, "utf8");
-  const tokens = tokenize(source);
-  const parser = new Parser(new ListReader(tokens));
-  const program = parser.parseFile();
-  if (parser.errors.length > 0) {
+  const parsed = parseSource(source);
+  const errors = [
+    ...parsed.parserIssues.map((issue) => issue.message),
+    ...(parsed.tokenizeError ? [parsed.tokenizeError.message] : []),
+    ...(parsed.fatalError ? [parsed.fatalError] : [])
+  ];
+  if (!parsed.ast || errors.length > 0) {
     throw new Error(
-      `Embedded ECMAScript runtime declarations must parse without errors: ${parser.errors
-        .map((issue) => issue.message)
-        .join("; ")}`
+      `Embedded ECMAScript runtime declarations must parse without errors: ${errors.join("; ")}`
     );
   }
-  return program;
+  return parsed.ast;
 }
 
 export function getEcmaScriptRuntimeProgram(): Program {
