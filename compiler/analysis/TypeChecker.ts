@@ -295,7 +295,7 @@ export class TypeChecker {
             !isUnknownType(actualReturnType) &&
             !this.isTypeAssignable(actualReturnType, expectedReturnType)
           ) {
-            this.reportReturnTypeMismatch(actualReturnType, expectedReturnType, returnStatement.expression);
+            this.reportReturnTypeMismatch(actualReturnType, expectedReturnType, returnStatement);
           }
         } else if (expectedReturnType && !this.returnValueIsOptional(expectedReturnType)) {
           this.issues.push({

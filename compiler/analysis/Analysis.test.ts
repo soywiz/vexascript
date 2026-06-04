@@ -310,10 +310,10 @@ function outer(): string {
       "Type 'string' is not assignable to return type 'int'"
     ]);
     expect(issues.map((issue) => issue.node.kind)).toEqual([
-      "StringLiteral",
       "ReturnStatement",
-      "IntLiteral",
-      "StringLiteral"
+      "ReturnStatement",
+      "ReturnStatement",
+      "ReturnStatement"
     ]);
   });
 
@@ -336,7 +336,7 @@ let concise: () => int = () => "bad"`;
     ]);
     expect(issues.map((issue) => issue.node.kind)).toEqual([
       "ArrowFunctionExpression",
-      "IntLiteral",
+      "ReturnStatement",
       "StringLiteral"
     ]);
   });
