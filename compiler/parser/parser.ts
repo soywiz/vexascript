@@ -279,7 +279,10 @@ export class Parser {
             return this.parseDeclareInterfaceStatement();
         }
         if (this.isDeclareNamespaceStart()) {
-            return this.parseDeclareNamespaceStatement();
+            return this.parseNamespaceStatement(true);
+        }
+        if (token?.type === "identifier" && (token.value === "namespace" || token.value === "module")) {
+            return this.parseNamespaceStatement(false);
         }
         if (token?.type === "identifier" && (token.value === "class" || this.isAbstractClassStart())) {
             return this.parseClassStatement();
@@ -3396,9 +3399,9 @@ export class Parser {
         return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
     }
 
-    private parseDeclareNamespaceStatement(): NamespaceStatement {
-        const declareKeyword = this.tokens.read();
-        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+    private parseNamespaceStatement(declared: boolean): NamespaceStatement {
+        const declareKeyword = declared ? this.tokens.read() : undefined;
+        if (declared && (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare")) {
             this.fail("Expected 'declare' before namespace declaration", this.tokenAt(declareKeyword));
         }
 
@@ -3411,7 +3414,7 @@ export class Parser {
         }
 
         const namespaceNameToken = this.tokens.read();
-        const isExternalModuleName = namespaceKeyword.value === "module" && namespaceNameToken?.type === "string";
+        const isExternalModuleName = declared && namespaceKeyword.value === "module" && namespaceNameToken?.type === "string";
         if (namespaceNameToken?.type !== "identifier" && !isExternalModuleName) {
             this.fail("Expected namespace or module name after declaration keyword", this.tokenAt(namespaceNameToken));
         }
@@ -3436,8 +3439,10 @@ export class Parser {
             );
         }
 
-        const body = this.parseAmbientNamespaceBody();
-        this.markAmbientDeclarations(body.body);
+        const body = declared ? this.parseAmbientNamespaceBody() : this.parseBlockStatement();
+        if (declared) {
+            this.markAmbientDeclarations(body.body);
+        }
 
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
             this.tokens.skip();
@@ -3445,13 +3450,14 @@ export class Parser {
 
         const statement: NamespaceStatement = {
             kind: "NamespaceStatement",
-            declared: true,
+            ...(declared ? { declared: true } : {}),
             declarationKind: namespaceKeyword.value,
             ...(names.length > 0 ? { names } : {}),
             ...(externalModuleName ? { externalModuleName } : {}),
             body
         };
-        return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
+        const firstToken = declareKeyword ?? namespaceKeyword;
+        return this.attachNodeBounds(statement, firstToken, this.getLastReadToken() ?? firstToken);
     }
 
     private parseAmbientNamespaceBody(): BlockStatement {

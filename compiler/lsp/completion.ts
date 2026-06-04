@@ -13,12 +13,14 @@ import type {
   CommaExpression,
   DoWhileStatement,
   Expr,
+  ExportStatement,
   ForStatement,
   FunctionStatement,
   IfStatement,
   LabeledStatement,
   MemberExpression,
   NewExpression,
+  NamespaceStatement,
   ObjectLiteral,
   Program,
   RangeExpression,
@@ -55,6 +57,9 @@ const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "type", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "interface", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "enum", kind: CompletionItemKind.Keyword, detail: "Keyword" },
+  { label: "namespace", kind: CompletionItemKind.Keyword, detail: "Keyword" },
+  { label: "module", kind: CompletionItemKind.Keyword, detail: "Keyword" },
+  { label: "declare", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "debugger", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "int", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "number", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
@@ -760,6 +765,53 @@ function resolveTypeNameFromPath(
   return currentTypeName;
 }
 
+function findNamespaceByPath(ast: Program, path: string[]): NamespaceStatement | null {
+  let statements: Statement[] = ast.body;
+  let found: NamespaceStatement | null = null;
+  for (const segment of path) {
+    found = null;
+    for (const statement of statements) {
+      const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+      if (candidate?.kind === "NamespaceStatement" && (candidate as NamespaceStatement).names?.[0]?.name === segment) {
+        found = candidate as NamespaceStatement;
+        break;
+      }
+    }
+    if (!found) return null;
+    statements = found.body.body;
+  }
+  return found;
+}
+
+function buildNamespaceMemberCompletionItems(namespaceStatement: NamespaceStatement, prefix: string): CompletionItem[] {
+  const items: CompletionItem[] = [];
+  const seen = new Set<string>();
+  const push = (label: string, kind: CompletionItemKind, detail: string): void => {
+    if (!label.startsWith(prefix) || seen.has(label)) return;
+    seen.add(label);
+    items.push({ label, kind, detail });
+  };
+  for (const statement of namespaceStatement.body.body) {
+    if (statement.kind !== "ExportStatement") continue;
+    const exported = statement as ExportStatement;
+    const declaration = exported.declaration;
+    if (declaration?.kind === "VarStatement") {
+      const variable = declaration as VarStatement;
+      const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
+      for (const binding of bindings) push(binding.name, CompletionItemKind.Variable, "Namespace variable");
+    } else if (declaration?.kind === "FunctionStatement") {
+      push((declaration as FunctionStatement).name.name, CompletionItemKind.Function, "Namespace function");
+    } else if (declaration?.kind === "ClassStatement") {
+      push((declaration as ClassStatement).name.name, CompletionItemKind.Class, "Namespace class");
+    } else if (declaration?.kind === "NamespaceStatement") {
+      const name = (declaration as NamespaceStatement).names?.[0]?.name;
+      if (name) push(name, CompletionItemKind.Module, "Namespace");
+    }
+    for (const specifier of exported.specifiers ?? []) push(specifier.exported.name, CompletionItemKind.Variable, "Namespace export");
+  }
+  return items;
+}
+
 function buildMemberAccessCompletions(
   ast: Program,
   analysis: Analysis,
@@ -775,6 +827,10 @@ function buildMemberAccessCompletions(
   const resolverOptions = classResolverOptionsFromCompletionOptions(options);
   const resolverCache = createClassResolverCache();
   const pathSegments = target.objectPath.split(".");
+  const namespaceStatement = findNamespaceByPath(ast, pathSegments);
+  if (namespaceStatement) {
+    return buildNamespaceMemberCompletionItems(namespaceStatement, target.prefix);
+  }
   const className = resolveTypeNameFromPath(
     ast,
     analysis,

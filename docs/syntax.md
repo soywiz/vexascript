@@ -98,6 +98,22 @@ function sum(a, b) {
 }
 ```
 
+### Runtime namespaces and modules
+
+Runtime `namespace` and identifier-named `module` declarations group values behind a JavaScript object. Exported variables, functions, classes, enums, and nested namespaces become object members; declarations without `export` remain private to the generated namespace closure. Semantic analysis validates exported member access, and member completion offers the exported namespace surface.
+
+```mylang
+namespace Tools {
+  const prefix = "v"
+  export const version = 1
+  export function label(): string { return prefix + version }
+}
+
+console.log(Tools.label())
+```
+
+Runtime namespaces are lowered to the conventional JavaScript namespace object plus IIFE pattern. String-literal module names remain restricted to ambient external modules such as `declare module "pixi.js"`.
+
 ### Ambient declarations
 
 MyLang supports ambient declarations with `declare` for functions, classes, variables (`var` / `let` / `const` / `val`), namespaces, and modules. In `typescript` parser mode, ambient external modules may use a string-literal name such as `declare module "pixi.js"`. Ambient namespace and module bodies preserve supported declarations in the AST, participate in scoped semantic analysis and semantic highlighting, and are erased during JavaScript emission. Unsupported declaration-file members are recovered as opaque regions so large third-party `.d.ts` files remain parseable.

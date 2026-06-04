@@ -32,6 +32,7 @@ import type {
   LongLiteral,
   MemberExpression,
   NewExpression,
+  NamespaceStatement,
   ObjectLiteral,
   ObjectProperty,
   ObjectSpreadProperty,
@@ -53,6 +54,7 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
 import type { BindingElement, BindingName } from "compiler/ast/ast";
@@ -909,6 +911,70 @@ function emitEnumStatement(statement: EnumStatement): string {
   return lines.join("\n");
 }
 
+function exportedDeclarationNames(statement: Statement): string[] {
+  if (statement.kind === "VarStatement") {
+    const variable = statement as VarStatement;
+    if (variable.declarations && variable.declarations.length > 0) {
+      return variable.declarations.flatMap((declaration) => bindingIdentifiers(declaration.name).map((identifier) => identifier.name));
+    }
+    return bindingIdentifiers(variable.name).map((identifier) => identifier.name);
+  }
+  if (statement.kind === "FunctionStatement" || statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+    return [(statement as FunctionStatement | ClassStatement | EnumStatement).name.name];
+  }
+  if (statement.kind === "NamespaceStatement") {
+    return (statement as NamespaceStatement).names?.slice(0, 1).map((name) => name.name) ?? [];
+  }
+  return [];
+}
+
+function indentEmitted(text: string): string {
+  return text.split("\n").map((line) => `  ${line}`).join("\n");
+}
+
+function emitNamespaceStatement(statement: NamespaceStatement): string {
+  if (statement.declared || !statement.names || statement.names.length === 0) {
+    return "";
+  }
+
+  const path = statement.names.map((name) => name.name);
+  const root = path[0]!;
+  const alias = path.at(-1)!;
+  const target = path.join(".");
+  const lines: string[] = [`var ${root};`];
+  if (path.length > 1) {
+    lines.push(`${root} = ${root} || {};`);
+    for (let index = 1; index < path.length; index += 1) {
+      const current = path.slice(0, index + 1).join(".");
+      lines.push(`${current} = ${current} || {};`);
+    }
+  }
+  lines.push(`(function (${alias}) {`);
+  for (const child of statement.body.body) {
+    if (child.kind !== "ExportStatement") {
+      const emitted = emitStatement(child);
+      if (emitted) lines.push(indentEmitted(emitted));
+      continue;
+    }
+    const exported = child as ExportStatement;
+    if (exported.declaration) {
+      const emitted = emitStatement(exported.declaration);
+      if (emitted) lines.push(indentEmitted(emitted));
+      for (const name of exportedDeclarationNames(exported.declaration)) {
+        lines.push(`  ${alias}.${name} = ${name};`);
+      }
+    }
+    for (const specifier of exported.specifiers ?? []) {
+      const local = specifier.local?.name ?? specifier.exported.name;
+      lines.push(`  ${alias}.${specifier.exported.name} = ${local};`);
+    }
+  }
+  lines.push(path.length === 1
+    ? `})(${root} || (${root} = {}));`
+    : `})(${target});`);
+  return lines.join("\n");
+}
+
 export function emitStatement(statement: Statement): string {
   switch (statement.kind) {
     case "ExportStatement": {
@@ -1013,6 +1079,7 @@ export function emitStatement(statement: Statement): string {
       return `class ${classStatement.name.name}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
     }
     case "NamespaceStatement":
+      return emitNamespaceStatement(statement as NamespaceStatement);
     case "InterfaceStatement":
     case "TypeAliasStatement":
       return "";

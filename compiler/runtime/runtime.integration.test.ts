@@ -21,6 +21,20 @@ function executeTranspiled(source: string, target: TranspileTarget = "optimized"
 }
 
 describe("runtime integration", () => {
+  it("executes runtime namespace exports", () => {
+    const output = executeTranspiled(`
+namespace Tools {
+  const prefix = "v"
+  export const version = 1
+  export function label(): string { return prefix + version }
+}
+console.log(Tools.version)
+console.log(Tools.label())
+`);
+
+    expect(output).toEqual([[1], ["v1"]]);
+  });
+
   it("executes TypeScript constructor parameter properties", () => {
     const output = executeTranspiled(`
 class User {
