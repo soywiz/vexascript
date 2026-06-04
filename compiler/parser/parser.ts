@@ -3677,12 +3677,14 @@ export class Parser {
         }
 
         let accessorKind: ClassMethodMember["accessorKind"] | undefined;
+        let accessorKeywordToken: Token | undefined;
         if (
             this.tokens.peek()?.type === "identifier" &&
             (this.tokens.peek()?.value === "get" || this.tokens.peek()?.value === "set") &&
             this.tokens.items[this.tokens.offset + 1]?.type === "identifier"
         ) {
-            accessorKind = this.tokens.read()!.value as ClassMethodMember["accessorKind"];
+            accessorKeywordToken = this.tokens.read()!;
+            accessorKind = accessorKeywordToken.value as ClassMethodMember["accessorKind"];
         }
 
         let isGeneratorMember = false;
@@ -3753,9 +3755,10 @@ export class Parser {
                 if (overloadedOperator) {
                     signatureOnlyMethod.operator = overloadedOperator;
                 }
-                if (accessorKind) {
-                    signatureOnlyMethod.accessorKind = accessorKind;
-                }
+            if (accessorKind) {
+                this.attachNonEnumerableToken(signatureOnlyMethod, "accessorToken", accessorKeywordToken!);
+                signatureOnlyMethod.accessorKind = accessorKind;
+            }
                 if (isAsyncMember) {
                     signatureOnlyMethod.async = true;
                 }
@@ -3795,6 +3798,7 @@ export class Parser {
                 methodMember.operator = overloadedOperator;
             }
             if (accessorKind) {
+                this.attachNonEnumerableToken(methodMember, "accessorToken", accessorKeywordToken!);
                 methodMember.accessorKind = accessorKind;
             }
             if (isAsyncMember) {
@@ -3839,6 +3843,34 @@ export class Parser {
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             typeAnnotation = this.parseTypeAnnotationNode();
+        }
+
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>") {
+            const getterMember: ClassMethodMember = {
+                kind: "ClassMethodMember",
+                name: this.buildIdentifierFromToken(effectiveMemberNameToken),
+                parameters: [],
+                body: this.parseExpressionBodyAsBlock(),
+                accessorKind: "get"
+            };
+            this.applyClassMemberModifiers(getterMember, {
+                override: isOverrideMember,
+                accessModifier,
+                readonly: isReadonlyMember,
+                static: isStaticMember,
+                abstract: isAbstractMember
+            });
+            if (typeAnnotation) {
+                getterMember.returnType = typeAnnotation;
+            }
+            Object.defineProperty(getterMember, "getterShorthand", {
+                value: true,
+                enumerable: false,
+                configurable: true,
+                writable: true
+            });
+
+            return this.attachNodeBounds(getterMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
         }
 
         let initializer: Expr | undefined;

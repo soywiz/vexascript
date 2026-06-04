@@ -467,6 +467,34 @@ function resolveClassOwnMember(
       return result;
     }
 
+    if (member.accessorKind === "get") {
+      const documentation = readDocumentationFromIdentifier(member.name);
+      const result: ResolvedClassMember = {
+        className: classStatement.name.name,
+        memberName,
+        kind: "field",
+        typeName: substituteTypeNameText(member.returnType?.name ?? "unknown", substitutions)
+      };
+      if (documentation) {
+        result.documentation = documentation;
+      }
+      return result;
+    }
+
+    if (member.accessorKind === "set") {
+      const documentation = readDocumentationFromIdentifier(member.name);
+      const result: ResolvedClassMember = {
+        className: classStatement.name.name,
+        memberName,
+        kind: "field",
+        typeName: substituteTypeNameText(member.parameters[0]?.typeAnnotation?.name ?? "unknown", substitutions)
+      };
+      if (documentation) {
+        result.documentation = documentation;
+      }
+      return result;
+    }
+
     const parameters: ResolvedParameter[] = member.parameters.map((parameter) => ({
       name: bindingNameText(parameter.name),
       typeName: substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions),
@@ -507,7 +535,7 @@ function classOwnMemberKind(
     if (member.name.name !== memberName) {
       continue;
     }
-    return member.kind === "ClassFieldMember" ? "field" : "method";
+    return member.kind === "ClassFieldMember" || member.accessorKind ? "field" : "method";
   }
   return null;
 }

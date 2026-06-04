@@ -1326,6 +1326,29 @@ export class TypeChecker {
   }
 
   private createMethodSymbol(method: ClassMethodMember): AnalysisSymbol {
+    if (method.accessorKind === "get") {
+      const propertyType = this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE;
+      return {
+        name: method.name.name,
+        kind: "variable",
+        node: method.name,
+        declaredOffset: method.name.firstToken?.range.start.offset ?? -1,
+        type: propertyType,
+        valueType: typeToString(propertyType)
+      };
+    }
+    if (method.accessorKind === "set") {
+      const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+      return {
+        name: method.name.name,
+        kind: "variable",
+        node: method.name,
+        declaredOffset: method.name.firstToken?.range.start.offset ?? -1,
+        type: propertyType,
+        valueType: typeToString(propertyType)
+      };
+    }
+
     const symbolType = functionType(
       method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
         name: bindingNameText(parameter.name),

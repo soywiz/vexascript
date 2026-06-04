@@ -1364,6 +1364,25 @@ const fail: int = box.value
     expect(messages.some((message) => message.includes("Property 'value' does not exist"))).toBe(false);
   });
 
+  it("treats getter shorthand members as typed properties", () => {
+    const source = `class Rect {
+  width: number
+  height: number
+  area: number => this.width * this.height
+}
+let rect: Rect
+const ok: number = rect.area
+const fail: string = rect.area
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'number' is not assignable to type 'string'");
+    expect(messages.some((message) => message.includes("Property 'area' does not exist"))).toBe(false);
+  });
+
   it("resolves class member types from generic specifics", () => {
     const source = `class Map<K, V> {
   a: K
@@ -1564,6 +1583,26 @@ class BadRunner implements Runner {
 class GoodRunner implements Runner {
   run(step: int) {
   }
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(
+      messages.some((message) => message.includes("incorrectly implements interface"))
+    ).toBe(false);
+  });
+
+  it("accepts getter shorthand members for implemented interface properties", () => {
+    const source = `interface Shape {
+  area: number
+}
+class Rectangle implements Shape {
+  width: number
+  height: number
+  area: number => this.width * this.height
 }
 `;
 

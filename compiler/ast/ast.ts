@@ -345,8 +345,10 @@ export interface ClassFieldMember extends Node, ClassMemberModifiers {
 export interface ClassMethodMember extends Node, ClassMemberModifiers {
     kind: "ClassMethodMember"
     accessorKind?: "get" | "set"
+    accessorToken?: Token
     async?: boolean
     generator?: boolean
+    getterShorthand?: boolean
     name: Identifier
     operator?: BinaryExpression["operator"]
     override?: boolean

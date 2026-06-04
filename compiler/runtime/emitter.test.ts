@@ -175,6 +175,13 @@ let worker = async function* work(this: Loader) { yield await next() }`));
     expect(emitted).toContain("set value(next) {");
   });
 
+  it("emits getter shorthand class members as JavaScript getters", () => {
+    const program = parseFile(tokenizeReader("class Rect {\narea: number => this.width * this.height\n}"));
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("get area() {");
+    expect(emitted).toContain("return this.width * this.height;");
+  });
+
 
   it("emits value exports and erases type-only exports", () => {
     expect(emitProgram(parseFile(tokenizeReader("export const value: number = 1"))))

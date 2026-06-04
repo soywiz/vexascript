@@ -34,6 +34,17 @@ interface FunctionLikeTarget {
   shorthand: boolean;
 }
 
+function isGetterShorthand(node: FunctionStatement | ClassMethodMember): node is ClassMethodMember {
+  return node.kind === "ClassMethodMember" && node.accessorKind === "get" && node.getterShorthand === true;
+}
+
+function isRegularGetterAccessor(node: FunctionStatement | ClassMethodMember): node is ClassMethodMember {
+  return node.kind === "ClassMethodMember" &&
+    node.accessorKind === "get" &&
+    node.parameters.length === 0 &&
+    node.getterShorthand !== true;
+}
+
 function comparePosition(a: Position, b: Position): number {
   if (a.line !== b.line) {
     return a.line - b.line;
@@ -229,6 +240,25 @@ function findFunctionLikeAtPosition(ast: Program, position: Position): FunctionL
 }
 
 function shorthandRange(node: FunctionStatement | ClassMethodMember): Range | null {
+  if (isGetterShorthand(node)) {
+    const nameLastToken = node.name.lastToken;
+    const bodyLastToken = node.body.lastToken;
+    if (!nameLastToken || !bodyLastToken) {
+      return null;
+    }
+
+    return {
+      start: {
+        line: nameLastToken.range.end.line,
+        character: nameLastToken.range.end.column
+      },
+      end: {
+        line: bodyLastToken.range.end.line,
+        character: bodyLastToken.range.end.column
+      }
+    };
+  }
+
   const closeParen = node.parametersCloseParen;
   const body = node.body;
   if (!closeParen || !body.lastToken) {
@@ -248,6 +278,10 @@ function shorthandRange(node: FunctionStatement | ClassMethodMember): Range | nu
 }
 
 function fullBodyRange(node: FunctionStatement | ClassMethodMember): Range | null {
+  if (isGetterShorthand(node)) {
+    return shorthandRange(node);
+  }
+
   const closeParen = node.parametersCloseParen;
   const body = node.body;
   const bodyFirstToken = body.firstToken;
@@ -278,6 +312,16 @@ function expressionText(expression: Expr, text: string): string | null {
 }
 
 function returnTypeText(node: FunctionStatement | ClassMethodMember, text: string): string {
+  if (isGetterShorthand(node)) {
+    const nameLastToken = node.name.lastToken;
+    const bodyFirstToken = node.body.firstToken;
+    if (!nameLastToken || !bodyFirstToken) {
+      return "";
+    }
+
+    return text.slice(nameLastToken.range.end.offset, bodyFirstToken.range.start.offset).trimEnd();
+  }
+
   const closeParen = node.parametersCloseParen;
   const bodyFirstToken = node.body.firstToken;
   if (!closeParen || !bodyFirstToken) {
@@ -294,6 +338,54 @@ function lineIndent(text: string, offset: number): string {
     index += 1;
   }
   return text.slice(lineStart, index);
+}
+
+function getterAccessorPrefixRange(node: ClassMethodMember): Range | null {
+  const accessorToken = node.accessorToken;
+  const bodyLastToken = node.body.lastToken;
+  if (!accessorToken || !bodyLastToken) {
+    return null;
+  }
+
+  return {
+    start: {
+      line: accessorToken.range.start.line,
+      character: accessorToken.range.start.column
+    },
+    end: {
+      line: bodyLastToken.range.end.line,
+      character: bodyLastToken.range.end.column
+    }
+  };
+}
+
+function getterShorthandMemberRange(node: ClassMethodMember): Range | null {
+  const nameFirstToken = node.name.firstToken;
+  const bodyLastToken = node.body.lastToken;
+  if (!nameFirstToken || !bodyLastToken) {
+    return null;
+  }
+
+  return {
+    start: {
+      line: nameFirstToken.range.start.line,
+      character: nameFirstToken.range.start.column
+    },
+    end: {
+      line: bodyLastToken.range.end.line,
+      character: bodyLastToken.range.end.column
+    }
+  };
+}
+
+function getterAccessorSuffixText(node: ClassMethodMember, text: string): string {
+  const closeParen = node.parametersCloseParen;
+  const bodyFirstToken = node.body.firstToken;
+  if (!closeParen || !bodyFirstToken) {
+    return "";
+  }
+
+  return text.slice(closeParen.range.end.offset, bodyFirstToken.range.start.offset).trimEnd();
 }
 
 export function createFunctionShorthandCodeActions(params: {
@@ -317,6 +409,32 @@ export function createFunctionShorthandCodeActions(params: {
   }
 
   if (target.shorthand) {
+    if (isGetterShorthand(target.node)) {
+      const replacementRange = getterShorthandMemberRange(target.node);
+      if (!replacementRange) {
+        return [];
+      }
+
+      const baseIndent = lineIndent(params.text, target.node.firstToken?.range.start.offset ?? 0);
+      const bodyIndent = `${baseIndent}  `;
+      return [
+        {
+          title: "Convert getter shorthand to full accessor",
+          kind: CodeActionKind.QuickFix,
+          edit: {
+            changes: {
+              [params.uri]: [
+                {
+                  range: replacementRange,
+                  newText: `get ${target.node.name.name}()${returnTypeText(target.node, params.text)} {\n${bodyIndent}return ${replacementText}\n${baseIndent}}`
+                }
+              ]
+            }
+          }
+        }
+      ];
+    }
+
     const replacementRange = fullBodyRange(target.node);
     if (!replacementRange) {
       return [];
@@ -334,6 +452,30 @@ export function createFunctionShorthandCodeActions(params: {
               {
                 range: replacementRange,
                 newText: `${returnTypeText(target.node, params.text)} {\n${bodyIndent}return ${replacementText}\n${baseIndent}}`
+              }
+            ]
+          }
+        }
+      }
+    ];
+  }
+
+  if (isRegularGetterAccessor(target.node)) {
+    const replacementRange = getterAccessorPrefixRange(target.node);
+    if (!replacementRange) {
+      return [];
+    }
+
+    return [
+      {
+        title: "Convert full accessor to getter shorthand",
+        kind: CodeActionKind.QuickFix,
+        edit: {
+          changes: {
+            [params.uri]: [
+              {
+                range: replacementRange,
+                newText: `${target.node.name.name}${getterAccessorSuffixText(target.node, params.text)} => ${replacementText}`
               }
             ]
           }

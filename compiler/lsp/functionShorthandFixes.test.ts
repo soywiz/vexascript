@@ -108,6 +108,58 @@ describe("function shorthand quick fixes", () => {
     );
   });
 
+  it("converts a full getter accessor to getter shorthand", () => {
+    const source =
+      "class Rect {\n" +
+      "  get area(): number {\n" +
+      "    return this.width * this.height\n" +
+      "  }\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    const actions = createFunctionShorthandCodeActions({
+      uri: URI,
+      ast: session.ast,
+      text: source,
+      position: { line: 2, character: 6 }
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Convert full accessor to getter shorthand");
+    const edit = actions[0]?.edit?.changes?.[URI]?.[0];
+    expect(edit ? applyEdit(source, edit) : source).toBe(
+      "class Rect {\n" +
+        "  area: number => this.width * this.height\n" +
+        "}\n"
+    );
+  });
+
+  it("converts getter shorthand back to a full accessor", () => {
+    const source =
+      "class Rect {\n" +
+      "  area: number => this.width * this.height\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    const actions = createFunctionShorthandCodeActions({
+      uri: URI,
+      ast: session.ast,
+      text: source,
+      position: { line: 1, character: 15 }
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Convert getter shorthand to full accessor");
+    const edit = actions[0]?.edit?.changes?.[URI]?.[0];
+    expect(edit ? applyEdit(source, edit) : source).toBe(
+      "class Rect {\n" +
+        "  get area(): number {\n" +
+        "    return this.width * this.height\n" +
+        "  }\n" +
+        "}\n"
+    );
+  });
+
   it("does not offer shorthand when the body has more than one statement", () => {
     const source =
       "fun demo() {\n" +

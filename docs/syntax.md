@@ -431,7 +431,7 @@ class Box<T extends Entity> extends Base<T> {
 
 ### Get and set accessors
 
-Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types.
+Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types. Getters also support a shorthand form that omits `get` and the empty parameter list when the body is a single returned expression.
 
 Example:
 
@@ -444,6 +444,10 @@ class Box {
   set value(next: string) {
     this.raw = next
   }
+}
+
+class Rect {
+  area: number => this.width * this.height
 }
 ```
 

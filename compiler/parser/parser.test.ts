@@ -2084,6 +2084,95 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses getter shorthand class members", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Rect {\narea: number => this.width * this.height\n}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Rect" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "get",
+                    name: { kind: "Identifier", name: "area" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "number" },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ReturnStatement",
+                                expression: {
+                                    kind: "BinaryExpression",
+                                    operator: "*",
+                                    left: {
+                                        kind: "MemberExpression",
+                                        object: { kind: "Identifier", name: "this" },
+                                        property: { kind: "Identifier", name: "width" },
+                                        computed: false
+                                    },
+                                    right: {
+                                        kind: "MemberExpression",
+                                        object: { kind: "Identifier", name: "this" },
+                                        property: { kind: "Identifier", name: "height" },
+                                        computed: false
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+    });
+
+    it("parses getter shorthand class members in implemented interfaces", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Rectangle implements Shape {\narea: number => this.width * this.height\n}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Rectangle" },
+            implementsTypes: [{ kind: "Identifier", name: "Shape" }],
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "get",
+                    name: { kind: "Identifier", name: "area" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "number" },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ReturnStatement",
+                                expression: {
+                                    kind: "BinaryExpression",
+                                    operator: "*",
+                                    left: {
+                                        kind: "MemberExpression",
+                                        object: { kind: "Identifier", name: "this" },
+                                        property: { kind: "Identifier", name: "width" },
+                                        computed: false
+                                    },
+                                    right: {
+                                        kind: "MemberExpression",
+                                        object: { kind: "Identifier", name: "this" },
+                                        property: { kind: "Identifier", name: "height" },
+                                        computed: false
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+    });
+
     it("parses class members with override modifier", () => {
         expect(
             parseStatement(
