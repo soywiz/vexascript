@@ -3322,11 +3322,12 @@ export class Parser {
         }
 
         const namespaceNameToken = this.tokens.read();
-        if (namespaceNameToken?.type !== "identifier") {
-            this.fail("Expected namespace name after declaration keyword", this.tokenAt(namespaceNameToken));
+        const isExternalModuleName = namespaceKeyword.value === "module" && namespaceNameToken?.type === "string";
+        if (namespaceNameToken?.type !== "identifier" && !isExternalModuleName) {
+            this.fail("Expected namespace or module name after declaration keyword", this.tokenAt(namespaceNameToken));
         }
 
-        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+        while (namespaceNameToken?.type === "identifier" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
             this.tokens.skip();
             const segmentToken = this.tokens.read();
             if (segmentToken?.type !== "identifier") {

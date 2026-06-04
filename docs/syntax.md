@@ -100,7 +100,7 @@ function sum(a, b) {
 
 ### Ambient declarations
 
-MyLang supports ambient declarations with `declare` for functions, classes, and variables (`var` / `let` / `const` / `val`).
+MyLang supports ambient declarations with `declare` for functions, classes, variables (`var` / `let` / `const` / `val`), namespaces, and modules. In `typescript` parser mode, ambient external modules may use a string-literal name such as `declare module "pixi.js"`; namespace and module bodies are currently accepted as opaque declaration blocks.
 
 Example:
 
@@ -110,6 +110,9 @@ declare class Console {
   log(a: number)
 }
 declare var console: Console
+declare module "pixi.js" {
+  export = PIXI;
+}
 ```
 
 A cached ECMAScript ambient runtime is loaded automatically for every analysis session, so common globals such as `Array`, `Map`, `Set`, `Math`, `JSON`, `console`, `Date`, `RegExp`, `Promise`, and `Error` are available without imports. The declarations live in `compiler/runtime/ecmascript.d.my` and are copied to `dist/ecmascript.d.my` by the build so language-server declaration navigation can open the declaration file next to the bundled executable.

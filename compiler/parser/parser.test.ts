@@ -2527,6 +2527,21 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses string-named ambient external modules in typescript mode", () => {
+        expect(
+            parseStatement(tokenizeReader('declare module "pixi.js" { export = PIXI; }'), { language: "typescript" })
+        ).toEqual({
+            kind: "BlockStatement",
+            body: []
+        });
+    });
+
+    it("rejects string-named namespaces in typescript mode", () => {
+        expect(() =>
+            parseStatement(tokenizeReader('declare namespace "pixi.js" {}'), { language: "typescript" })
+        ).toThrow("Expected namespace or module name after declaration keyword");
+    });
+
     it("parses generic 'declare function' type parameters", () => {
         expect(
             parseStatement(
