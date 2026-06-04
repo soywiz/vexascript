@@ -1025,7 +1025,7 @@ Example:
 import { Point } from "./a";
 declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
 declare class Console {
-  log(a: number)
+  log(...a: number[])
 }
 declare var console: Console
 

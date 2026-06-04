@@ -59,10 +59,10 @@ declare class Error {
 }
 
 declare class Console {
-  log(data: any): void
-  error(data: any): void
-  warn(data: any): void
-  info(data: any): void
+  log(...data: any[]): void
+  error(...data: any[]): void
+  warn(...data: any[]): void
+  info(...data: any[]): void
 }
 
 declare class MathConstructor {

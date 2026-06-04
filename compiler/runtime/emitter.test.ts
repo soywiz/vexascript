@@ -239,9 +239,9 @@ let worker = async function* work(this: Loader) { yield await next() }`));
 
   it("omits ambient declare class/var statements from emitted JavaScript", () => {
     const program = parseFile(
-      tokenizeReader("declare class Console { log(a: number) }\ndeclare var console: Console\nconsole.log(42)")
+      tokenizeReader("declare class Console { log(...a: number[]) }\ndeclare var console: Console\nconsole.log(42, 1)")
     );
-    expect(emitProgram(program)).toBe("console.log(42);");
+    expect(emitProgram(program)).toBe("console.log(42, 1);");
   });
 
 

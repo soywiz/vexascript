@@ -162,6 +162,38 @@ describe("cross-file type diagnostics", () => {
     expect(messages).toContain("Property 'level' of type 'Logger' is not callable");
   });
 
+  it("supports variadic imported class methods", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    const worldSource = "class Logger {\n  log(...values: number[]): int { return 0 }\n}\n";
+    const helloSource =
+      "import { Logger } from \"./world\"\n" +
+      "fun demo() {\n" +
+      "  const logger = new Logger()\n" +
+      "  logger.log()\n" +
+      "  logger.log(1, 2, 3)\n" +
+      "  logger.log(1, \"bad\")\n" +
+      "}\n";
+
+    await writeFile(worldFile, worldSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    const diagnostics = collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+    const messages = diagnostics.map((diagnostic) => diagnostic.message);
+
+    expect(messages).not.toContain("Expected at most 1 argument(s), but got 3");
+    expect(messages).toContain(
+      "Argument 2 of type 'string' is not assignable to parameter 'values' of type 'number[]'"
+    );
+  });
+
   it("reports cross-file incompatible assignment to class member", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
     const worldFile = join(root, "world.my");

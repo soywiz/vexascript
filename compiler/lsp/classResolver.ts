@@ -62,6 +62,7 @@ export interface ResolvedParameter {
   name: string;
   typeName: string;
   optional: boolean;
+  rest?: boolean;
 }
 
 export interface ResolvedFunctionSignature {
@@ -469,7 +470,8 @@ function resolveClassOwnMember(
     const parameters: ResolvedParameter[] = member.parameters.map((parameter) => ({
       name: bindingNameText(parameter.name),
       typeName: substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions),
-      optional: parameter.optional === true || parameter.defaultValue !== undefined
+      optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+      rest: parameter.rest === true
     }));
     const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "void", substitutions);
     const documentation = readDocumentationFromIdentifier(member.name);
@@ -483,7 +485,7 @@ function resolveClassOwnMember(
       className: classStatement.name.name,
       memberName,
       kind: "method",
-      typeName: `(${parameters.map((parameter) => `${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${returnTypeName}`,
+      typeName: `(${parameters.map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${returnTypeName}`,
       signature,
       ...(documentation ? { documentation } : {})
     };
@@ -537,7 +539,8 @@ function resolveInterfaceOwnMember(
     const parameters: ResolvedParameter[] = member.parameters.map((parameter) => ({
       name: bindingNameText(parameter.name),
       typeName: substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions),
-      optional: parameter.optional === true || parameter.defaultValue !== undefined
+      optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+      rest: parameter.rest === true
     }));
     const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "void", substitutions);
     const documentation = readDocumentationFromIdentifier(member.name);
@@ -551,7 +554,7 @@ function resolveInterfaceOwnMember(
       className: interfaceStatement.name.name,
       memberName,
       kind: "method",
-      typeName: `(${parameters.map((parameter) => `${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${returnTypeName}`,
+      typeName: `(${parameters.map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${returnTypeName}`,
       signature,
       ...(documentation ? { documentation } : {})
     };
@@ -1149,7 +1152,8 @@ export function resolveCallableSignature(
         parameters: symbol.type.parameters.map((parameter) => ({
           name: parameter.name,
           typeName: typeToString(parameter.type),
-          optional: parameter.optional === true
+          optional: parameter.optional === true,
+          rest: parameter.rest === true
         })),
         returnTypeName: typeToString(symbol.type.returnType)
       };
