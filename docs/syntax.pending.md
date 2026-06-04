@@ -16,7 +16,6 @@ Scope notes:
 
 - `namespace` / `module` declarations with full body parsing (currently skipped as opaque block).
 - `declare` declarations beyond current support (`declare function`, `declare class`, `declare var/let/const/val`, `declare enum`), including namespaces/modules with typed members and other ambient forms.
-- Destructuring declarations (`let { a } = obj`, `let [x] = arr`).
 
 ## Type System Syntax
 

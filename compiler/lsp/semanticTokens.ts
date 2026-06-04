@@ -1,3 +1,4 @@
+import { bindingElements, bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type {
   ArrayLiteral,
   AsExpression,
@@ -241,7 +242,11 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   const kinds = new Map<string, TokenTypeName>();
 
   const visitVarDeclarator = (declaration: VarDeclarator): void => {
-    markIdentifier(kinds, declaration.name, "variable");
+    for (const identifier of bindingIdentifiers(declaration.name)) markIdentifier(kinds, identifier, "variable");
+    for (const element of bindingElements(declaration.name)) {
+      markIdentifier(kinds, element.propertyName, "property");
+      if (element.initializer) visitExpression(element.initializer);
+    }
     markTypeAnnotation(kinds, declaration.typeAnnotation);
     if (declaration.initializer) {
       visitExpression(declaration.initializer);
@@ -336,7 +341,11 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
             visitVarDeclarator(declaration);
           }
         } else {
-          markIdentifier(kinds, variableStatement.name, "variable");
+          for (const identifier of bindingIdentifiers(variableStatement.name)) markIdentifier(kinds, identifier, "variable");
+          for (const element of bindingElements(variableStatement.name)) {
+            markIdentifier(kinds, element.propertyName, "property");
+            if (element.initializer) visitExpression(element.initializer);
+          }
           markTypeAnnotation(kinds, variableStatement.typeAnnotation);
           if (variableStatement.initializer) {
             visitExpression(variableStatement.initializer);

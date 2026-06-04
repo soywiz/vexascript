@@ -285,6 +285,16 @@ let worker = async function* work(this: Loader) { yield await next() }`));
     expect(emitted).toContain("let item = result?.[0];");
   });
 
+  it("emits object and array destructuring declarations", () => {
+    const program = parseFile(tokenizeReader("let { id, name: displayName, nested: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
+
+    expect(emitProgram(program)).toBe(
+      "let { id, name: displayName, nested: { value = 1 }, ...rest } = source;\n" +
+      "const [first, , third = 3, ...tail] = values;"
+    );
+    expect(emitProgram(parseFile(tokenizeReader("let [first, ,] = values")))).toBe("let [first, ,] = values;");
+  });
+
 });
 
 

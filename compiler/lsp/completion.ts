@@ -33,6 +33,7 @@ import type {
   WhileStatement,
   WithStatement
 } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
@@ -619,12 +620,16 @@ function inferClassNameFromAstVariableInitializer(
         const varStatement = statement as VarStatement;
         if (varStatement.declarations && varStatement.declarations.length > 0) {
           for (const declaration of varStatement.declarations) {
-            const declarationLine = declaration.name.firstToken?.range.start.line ?? -1;
-            considerDeclaration(declaration.name.name, declaration.initializer, declarationLine);
+            for (const identifier of bindingIdentifiers(declaration.name)) {
+              const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+              considerDeclaration(identifier.name, declaration.initializer, declarationLine);
+            }
           }
         } else {
-          const declarationLine = varStatement.name.firstToken?.range.start.line ?? -1;
-          considerDeclaration(varStatement.name.name, varStatement.initializer, declarationLine);
+          for (const identifier of bindingIdentifiers(varStatement.name)) {
+            const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+            considerDeclaration(identifier.name, varStatement.initializer, declarationLine);
+          }
         }
       }
 

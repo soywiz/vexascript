@@ -25,9 +25,10 @@ import type {
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
-import type { BuiltinTypeName } from "./types";
+import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 
 const BUILTIN_TYPE_NAMES = new Set([
   "int",
@@ -186,25 +187,11 @@ export class Binder {
         if (variableStatement.declarations && variableStatement.declarations.length > 0) {
           for (const declaration of variableStatement.declarations) {
             const symbolType = this.typeFromAnnotationLoose(declaration.typeAnnotation) ?? UNKNOWN_TYPE;
-            this.declare(scope, {
-              name: declaration.name.name,
-              kind: "variable",
-              node: declaration.name,
-              isReadonly: isReadonlyVariable(variableStatement.declarationKind),
-              type: symbolType,
-              valueType: typeToString(symbolType)
-            }, declaredOffsetOverride);
+            this.declareBinding(scope, declaration.name, variableStatement.declarationKind, symbolType, declaredOffsetOverride);
           }
         } else {
           const symbolType = this.typeFromAnnotationLoose(variableStatement.typeAnnotation) ?? UNKNOWN_TYPE;
-          this.declare(scope, {
-            name: variableStatement.name.name,
-            kind: "variable",
-            node: variableStatement.name,
-            isReadonly: isReadonlyVariable(variableStatement.declarationKind),
-            type: symbolType,
-            valueType: typeToString(symbolType)
-          }, declaredOffsetOverride);
+          this.declareBinding(scope, variableStatement.name, variableStatement.declarationKind, symbolType, declaredOffsetOverride);
         }
         continue;
       }
@@ -377,27 +364,26 @@ export class Binder {
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
         const symbolType = this.typeFromAnnotationLoose(declaration.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: declaration.name.name,
-          kind: "variable",
-          node: declaration.name,
-          isReadonly: isReadonlyVariable(statement.declarationKind),
-          type: symbolType,
-          valueType: typeToString(symbolType)
-        });
+        this.declareBinding(scope, declaration.name, statement.declarationKind, symbolType);
       }
       return;
     }
 
     const symbolType = this.typeFromAnnotationLoose(statement.typeAnnotation) ?? UNKNOWN_TYPE;
-    this.declare(scope, {
-      name: statement.name.name,
-      kind: "variable",
-      node: statement.name,
-      isReadonly: isReadonlyVariable(statement.declarationKind),
-      type: symbolType,
-      valueType: typeToString(symbolType)
-    });
+    this.declareBinding(scope, statement.name, statement.declarationKind, symbolType);
+  }
+
+  private declareBinding(scope: Scope, binding: VarStatement["name"], kind: VariableDeclarationKind, type: AnalysisType, declaredOffsetOverride?: number): void {
+    for (const identifier of bindingIdentifiers(binding)) {
+      this.declare(scope, {
+        name: identifier.name,
+        kind: "variable",
+        node: identifier,
+        isReadonly: isReadonlyVariable(kind),
+        type,
+        valueType: typeToString(type)
+      }, declaredOffsetOverride);
+    }
   }
 
   private bindFunctionStatement(statement: FunctionStatement, scope: Scope, declareInParent: boolean): void {

@@ -1,4 +1,5 @@
 import type { ClassStatement, ExportStatement, FunctionStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type {
   DocumentSymbol,
   Location,
@@ -120,29 +121,17 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
       if (variableStatement.declarations && variableStatement.declarations.length > 0) {
         for (const declaration of variableStatement.declarations) {
           const declarationRange = nodeToRange(declaration);
-          const nameRange = nodeToRange(declaration.name);
-          if (!declarationRange || !nameRange) {
-            continue;
+          for (const identifier of bindingIdentifiers(declaration.name)) {
+            const nameRange = nodeToRange(identifier);
+            if (declarationRange && nameRange) symbols.push({ name: identifier.name, kind: SymbolKind.Variable, range: declarationRange, selectionRange: nameRange });
           }
-          symbols.push({
-            name: declaration.name.name,
-            kind: SymbolKind.Variable,
-            range: declarationRange,
-            selectionRange: nameRange
-          });
         }
       } else {
         const declarationRange = nodeToRange(statement);
-        const nameRange = nodeToRange(variableStatement.name);
-        if (!declarationRange || !nameRange) {
-          continue;
+        for (const identifier of bindingIdentifiers(variableStatement.name)) {
+          const nameRange = nodeToRange(identifier);
+          if (declarationRange && nameRange) symbols.push({ name: identifier.name, kind: SymbolKind.Variable, range: declarationRange, selectionRange: nameRange });
         }
-        symbols.push({
-          name: variableStatement.name.name,
-          kind: SymbolKind.Variable,
-          range: declarationRange,
-          selectionRange: nameRange
-        });
       }
     }
   }
@@ -210,10 +199,10 @@ function collectTopLevelSymbolInformation(
       const variableStatement = statement as VarStatement;
       if (variableStatement.declarations && variableStatement.declarations.length > 0) {
         for (const declaration of variableStatement.declarations) {
-          push(declaration.name.name, "variable", declaration.name);
+          for (const identifier of bindingIdentifiers(declaration.name)) push(identifier.name, "variable", identifier);
         }
       } else {
-        push(variableStatement.name.name, "variable", variableStatement.name);
+        for (const identifier of bindingIdentifiers(variableStatement.name)) push(identifier.name, "variable", identifier);
       }
     }
   }

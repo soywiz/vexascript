@@ -39,6 +39,15 @@ let enabled
 val a = 10 * 2, lol = true
 ```
 
+### Destructuring declarations
+
+Variable declarations support nested object and array binding patterns. Object bindings may use shorthand names, property aliases, defaults, and rest bindings. Array bindings may use holes, defaults, nested patterns, and rest bindings.
+
+```mylang
+let { id, name: displayName, nested: { value = 1 }, ...rest } = source
+const [first, , third = 3, ...tail] = values
+```
+
 ## Functions
 
 Functions can be declared with `fun` or TypeScript-style `function`. Both forms support `async` and generator modifiers when emitted to JavaScript:

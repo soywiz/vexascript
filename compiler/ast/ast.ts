@@ -259,11 +259,36 @@ export interface FunctionParameter extends Node {
     defaultValue?: Expr
 }
 
+export interface BindingElement extends Node {
+    kind: "BindingElement"
+    name: BindingName
+    propertyName?: Identifier
+    shorthand?: boolean
+    rest?: boolean
+    initializer?: Expr
+}
+
+export interface BindingHole extends Node {
+    kind: "BindingHole"
+}
+
+export interface ObjectBindingPattern extends Node {
+    kind: "ObjectBindingPattern"
+    elements: BindingElement[]
+}
+
+export interface ArrayBindingPattern extends Node {
+    kind: "ArrayBindingPattern"
+    elements: (BindingElement | BindingHole)[]
+}
+
+export type BindingName = Identifier | ObjectBindingPattern | ArrayBindingPattern;
+
 export interface VarStatement extends Statement {
     kind: "VarStatement"
     declared?: boolean
     declarationKind: VariableDeclarationKind
-    name: Identifier
+    name: BindingName
     receiverType?: Identifier
     typeAnnotation?: Identifier
     initializer?: Expr
@@ -272,7 +297,7 @@ export interface VarStatement extends Statement {
 
 export interface VarDeclarator extends Node {
     kind: "VarDeclarator"
-    name: Identifier
+    name: BindingName
     typeAnnotation?: Identifier
     initializer?: Expr
 }

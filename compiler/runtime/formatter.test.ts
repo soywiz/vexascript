@@ -209,6 +209,12 @@ describe("formatSource", () => {
       "let re = /a\\/b+/gi\nlet quotient = total / count"
     );
   });
+  it("formats object and array destructuring declarations", () => {
+    expect(formatSource("let{id,name:display,...rest}=source\nconst[first,,third=3,...tail]=values")).toBe(
+      "let { id, name: display, ...rest } = source\nconst [first, , third = 3, ...tail] = values"
+    );
+  });
+
 });
 
 

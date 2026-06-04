@@ -55,6 +55,7 @@ import type {
 import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
+import type { BindingElement, BindingName } from "compiler/ast/ast";
 
 type Assoc = "left" | "right";
 
@@ -375,7 +376,7 @@ function collectExtensionProperties(program: Program): Map<string, string> {
     const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
     if (candidate?.kind === "VarStatement" && (candidate as VarStatement).receiverType) {
       const property = candidate as VarStatement;
-      result.set(property.name.name, property.receiverType!.name);
+      result.set((property.name as Identifier).name, property.receiverType!.name);
     }
   }
 
@@ -678,11 +679,29 @@ function emitFunctionParameters(parameters: FunctionParameter[]): string {
     .join(", ");
 }
 
+function emitBindingElement(element: BindingElement, objectPattern: boolean): string {
+  const rest = element.rest ? "..." : "";
+  const name = emitBindingName(element.name);
+  const property = objectPattern && element.propertyName ? `${element.propertyName.name}: ` : "";
+  const initializer = element.initializer ? ` = ${emitListElement(element.initializer)}` : "";
+  return `${rest}${property}${name}${initializer}`;
+}
+
+function emitBindingName(binding: BindingName): string {
+  if (binding.kind === "Identifier") return binding.name;
+  if (binding.kind === "ObjectBindingPattern") {
+    return `{ ${binding.elements.map((element) => emitBindingElement(element, true)).join(", ")} }`;
+  }
+  const elements = binding.elements.map((element) => element.kind === "BindingHole" ? "" : emitBindingElement(element, false)).join(", ");
+  const trailingHole = binding.elements.at(-1)?.kind === "BindingHole" ? "," : "";
+  return `[${elements}${trailingHole}]`;
+}
+
 function emitVarDeclarator(declarator: VarDeclarator): string {
   if (declarator.initializer) {
-    return `${declarator.name.name} = ${emitListElement(declarator.initializer)}`;
+    return `${emitBindingName(declarator.name)} = ${emitListElement(declarator.initializer)}`;
   }
-  return declarator.name.name;
+  return emitBindingName(declarator.name);
 }
 
 function emitVarStatementBody(statement: VarStatement): string {
@@ -690,9 +709,9 @@ function emitVarStatementBody(statement: VarStatement): string {
     return statement.declarations.map((declaration) => emitVarDeclarator(declaration)).join(", ");
   }
   if (statement.initializer) {
-    return `${statement.name.name} = ${emitListElement(statement.initializer)}`;
+    return `${emitBindingName(statement.name)} = ${emitListElement(statement.initializer)}`;
   }
-  return statement.name.name;
+  return emitBindingName(statement.name);
 }
 
 function emitVarStatement(statement: VarStatement): string {
@@ -916,7 +935,7 @@ export function emitStatement(statement: Statement): string {
         const previousExtensionThis = activeExtensionThis;
         activeExtensionThis = true;
         try {
-          return `const ${extensionPropertyRuntimeName(property.receiverType.name, property.name.name)} = ($this) => ${property.initializer ? emitExpression(property.initializer) : "undefined"};`;
+          return `const ${extensionPropertyRuntimeName(property.receiverType.name, (property.name as Identifier).name)} = ($this) => ${property.initializer ? emitExpression(property.initializer) : "undefined"};`;
         } finally {
           activeExtensionThis = previousExtensionThis;
         }

@@ -44,6 +44,7 @@ import type {
   WhileStatement,
   WithStatement
 } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
 import { createClassResolverCache, resolveClassMember } from "./classResolver";
@@ -205,11 +206,11 @@ function findTopLevelDeclarationByName(ast: Program, name: string): Statement | 
       const variableStatement = statement as VarStatement;
       if (
         variableStatement.declarations &&
-        variableStatement.declarations.some((declaration) => declaration.name.name === name)
+        variableStatement.declarations.some((declaration) => bindingIdentifiers(declaration.name).some((identifier) => identifier.name === name))
       ) {
         return variableStatement;
       }
-      if (variableStatement.name.name === name) {
+      if (bindingIdentifiers(variableStatement.name).some((identifier) => identifier.name === name)) {
         return variableStatement;
       }
     }
@@ -221,12 +222,12 @@ function declarationRangeForName(statement: Statement, name: string) {
   if (statement.kind === "VarStatement") {
     const variableStatement = statement as VarStatement;
     if (variableStatement.declarations && variableStatement.declarations.length > 0) {
-      const declaration = variableStatement.declarations.find((item) => item.name.name === name);
-      if (declaration) {
-        return nodeToRange(declaration.name);
+      for (const declaration of variableStatement.declarations) {
+        const identifier = bindingIdentifiers(declaration.name).find((item) => item.name === name);
+        if (identifier) return nodeToRange(identifier);
       }
     }
-    return nodeToRange(variableStatement.name);
+    return nodeToRange(bindingIdentifiers(variableStatement.name).find((item) => item.name === name) ?? variableStatement.name);
   }
   if (statement.kind === "ClassStatement") {
     return nodeToRange((statement as ClassStatement).name);
