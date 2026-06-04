@@ -249,6 +249,8 @@ export type FunctionDeclarationKind = "fun" | "function";
 
 export interface FunctionParameter extends Node {
     kind: "FunctionParameter"
+    accessModifier?: ClassMemberAccessModifier
+    readonly?: boolean
     name: Identifier
     thisParameter?: boolean
     rest?: boolean

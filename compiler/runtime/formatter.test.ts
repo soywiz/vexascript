@@ -49,6 +49,11 @@ describe("formatSource", () => {
       .toBe("let a = b.c[\"d\\n\\uaa00\"].dddd");
   });
 
+  it("formats TypeScript constructor parameter properties", () => {
+    expect(formatSource("class User{constructor(public readonly id:string,private age:int=0){}}"))
+      .toBe("class User {\n  constructor(public readonly id: string, private age: int = 0) {\n  }\n}");
+  });
+
   it("formats class primary constructor parameters", () => {
     expect(formatSource("class Point(val x:number,val y:number){}"))
       .toBe("class Point(val x: number, val y: number) {\n}");

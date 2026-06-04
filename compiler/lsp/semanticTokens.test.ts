@@ -55,6 +55,18 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "debugger" && token.tokenType === "keyword")).toBe(true);
   });
 
+  it("highlights constructor parameter properties as properties", () => {
+    const source = "class User { constructor(public readonly id: string, age: int) {} }\n";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({ text: source, ast: session.ast, analysis: session.analysis });
+    const decoded = decodeTokens(source, semantic.data);
+    const id = decoded.find((token) => token.lexeme === "id");
+    const age = decoded.find((token) => token.lexeme === "age");
+
+    expect(id?.tokenType).toBe("property");
+    expect(age?.tokenType).toBe("parameter");
+  });
+
   it("highlights angle-bracket assertion type names", () => {
     const source = "let value = <Point>raw\n";
     const session = createAnalysisSession(source);

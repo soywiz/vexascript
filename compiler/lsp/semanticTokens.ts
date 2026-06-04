@@ -268,7 +268,15 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
 
     markIdentifier(kinds, member.name, "method");
     for (const parameter of member.parameters) {
-      visitParameter(parameter);
+      if (member.name.name === "constructor" && (parameter.accessModifier !== undefined || parameter.readonly === true)) {
+        markIdentifier(kinds, parameter.name, "property");
+        markTypeAnnotation(kinds, parameter.typeAnnotation);
+        if (parameter.defaultValue) {
+          visitExpression(parameter.defaultValue);
+        }
+      } else {
+        visitParameter(parameter);
+      }
     }
     markTypeAnnotation(kinds, member.returnType);
     visitBlock(member.body);

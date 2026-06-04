@@ -2081,6 +2081,61 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses TypeScript constructor parameter properties", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class User { constructor(public readonly id: string, private age = 0, protected nickname?: string) {} }")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "User" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "constructor" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            accessModifier: "public",
+                            readonly: true,
+                            name: { kind: "Identifier", name: "id" },
+                            typeAnnotation: { kind: "Identifier", name: "string" }
+                        },
+                        {
+                            kind: "FunctionParameter",
+                            accessModifier: "private",
+                            name: { kind: "Identifier", name: "age" },
+                            defaultValue: { kind: "IntLiteral", value: 0 }
+                        },
+                        {
+                            kind: "FunctionParameter",
+                            accessModifier: "protected",
+                            optional: true,
+                            name: { kind: "Identifier", name: "nickname" },
+                            typeAnnotation: { kind: "Identifier", name: "string" }
+                        }
+                    ],
+                    body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
+    it("rejects parameter properties outside constructors", () => {
+        expect(() => parseStatement(tokenizeReader("fun demo(public value: string) {}"))).toThrow(
+            "Parameter properties are only allowed in constructors"
+        );
+        expect(() => parseStatement(tokenizeReader("class Demo { run(private value: string) {} }"))).toThrow(
+            "Parameter properties are only allowed in constructors"
+        );
+        expect(() => parseStatement(tokenizeReader("class Demo { constructor(public ...values: string[]) {} }"))).toThrow(
+            "A parameter property cannot be a rest parameter"
+        );
+        expect(() => parseStatement(tokenizeReader("class Demo { constructor(public this: Demo) {} }"))).toThrow(
+            "A this parameter cannot be a parameter property"
+        );
+    });
+
     it("parses class method signatures without body as semantic-level missing body", () => {
         expect(
             parseStatement(
