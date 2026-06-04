@@ -202,6 +202,7 @@ function pushReturnTypeHint(
   node: FunctionLikeSignatureNode,
   explicitReturnType: { name: string } | undefined,
   body: Statement[],
+  isAsync: boolean,
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions,
@@ -222,10 +223,11 @@ function pushReturnTypeHint(
   if (!inRange(position.line, position.character, range)) {
     return;
   }
+  const label = isAsync ? `Promise<${inferred}>` : inferred;
   hints.push({
     position,
     kind: InlayHintKind.Type,
-    label: `: ${inferred}`
+    label: `: ${label}`
   });
 }
 
@@ -484,6 +486,7 @@ export function createInlayHints(
           statement as FunctionStatement,
           (statement as FunctionStatement).returnType,
           (statement as FunctionStatement).body.body,
+          (statement as FunctionStatement).async === true,
           analysis,
           ast,
           options,
@@ -511,6 +514,7 @@ export function createInlayHints(
               member,
               member.returnType,
               member.body.body,
+              member.async === true,
               analysis,
               ast,
               options,

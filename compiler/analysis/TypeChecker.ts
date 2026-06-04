@@ -2089,14 +2089,9 @@ export class TypeChecker {
       this.isTypeAssignable(builtinType("void"), returnType);
   }
 
-  private validateAsyncReturnTypeAnnotation(returnType: AnalysisType | undefined, node: Node): void {
-    if (!returnType || this.getAsyncReturnValueType(returnType)) {
-      return;
-    }
-    this.issues.push({
-      message: "Async functions must declare a Promise<...> return type",
-      node
-    });
+  private validateAsyncReturnTypeAnnotation(_returnType: AnalysisType | undefined, _node: Node): void {
+    // Non-Promise return type annotations on async functions are allowed; they are automatically
+    // wrapped in Promise<T> by finalizeFunctionReturnType.
   }
 
   private finalizeFunctionReturnType(
@@ -2105,6 +2100,9 @@ export class TypeChecker {
     inAsync: boolean
   ): AnalysisType {
     if (declaredOrExpectedReturnType && !isUnknownType(declaredOrExpectedReturnType)) {
+      if (inAsync && !this.getAsyncReturnValueType(declaredOrExpectedReturnType)) {
+        return namedType("Promise", [declaredOrExpectedReturnType]);
+      }
       return declaredOrExpectedReturnType;
     }
     const inferredReturnType = this.inferReturnTypeFromBlock(body);

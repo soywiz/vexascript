@@ -355,23 +355,21 @@ let expectsPromise: (flag: boolean) => Promise<int> = inferred`;
     expect(analysis.getIssues()).toEqual([]);
   });
 
-  it("rejects non-Promise annotations on async functions", () => {
-    const source = `async function wrong(): number {
+  it("auto-wraps non-Promise annotations on async functions as Promise<T>", () => {
+    const source = `async function inferred(): number {
   return 10
 }
 class Box {
   async load(): string {
     return "x"
   }
-}`;
+}
+let a: () => Promise<number> = inferred
+let b: () => Promise<string> = () => new Box().load()`;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
-    const issues = analysis.getIssues();
 
-    expect(issues.map((issue) => issue.message)).toEqual([
-      "Async functions must declare a Promise<...> return type",
-      "Async functions must declare a Promise<...> return type"
-    ]);
+    expect(analysis.getIssues()).toEqual([]);
   });
 
   it("checks contextual function-expression and arrow-function returns", () => {
