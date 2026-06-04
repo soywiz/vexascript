@@ -152,6 +152,7 @@ export interface FunctionExpression extends Node {
     generator?: boolean
     name?: Identifier
     parameters: FunctionParameter[]
+    parametersCloseParen?: Token
     returnType?: Identifier
     body: BlockStatement
 }
@@ -316,6 +317,7 @@ export interface FunctionStatement extends Statement {
     operator?: BinaryExpression["operator"]
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
+    parametersCloseParen?: Token
     returnType?: Identifier
     body: BlockStatement
 }
@@ -350,6 +352,7 @@ export interface ClassMethodMember extends Node, ClassMemberModifiers {
     missingBody?: boolean
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
+    parametersCloseParen?: Token
     returnType?: Identifier
     body: BlockStatement
 }

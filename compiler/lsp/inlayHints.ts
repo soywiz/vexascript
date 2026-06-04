@@ -127,6 +127,43 @@ function pickFunctionReturnTypeFromBody(
   return resolved;
 }
 
+interface FunctionLikeSignatureNode {
+  name: {
+    lastToken?: {
+      range: {
+        end: {
+          line: number;
+          column: number;
+        };
+      };
+    };
+  };
+  parametersCloseParen?: {
+    range: {
+      end: {
+        line: number;
+        column: number;
+      };
+    };
+  };
+}
+
+function getReturnTypeHintPosition(node: FunctionLikeSignatureNode): { line: number; character: number } | null {
+  if (node.parametersCloseParen) {
+    return {
+      line: node.parametersCloseParen.range.end.line,
+      character: node.parametersCloseParen.range.end.column
+    };
+  }
+  if (!node.name.lastToken) {
+    return null;
+  }
+  return {
+    line: node.name.lastToken.range.end.line,
+    character: node.name.lastToken.range.end.column
+  };
+}
+
 function pushParameterTypeHints(
   parameters: FunctionParameter[],
   analysis: Analysis,
@@ -162,7 +199,7 @@ function pushParameterTypeHints(
 }
 
 function pushReturnTypeHint(
-  nameNode: { lastToken?: { range: { end: { line: number; column: number } } } },
+  node: FunctionLikeSignatureNode,
   explicitReturnType: { name: string } | undefined,
   body: Statement[],
   analysis: Analysis,
@@ -171,17 +208,17 @@ function pushReturnTypeHint(
   range: Range,
   hints: InlayHint[]
 ): void {
-  if (explicitReturnType || !nameNode.lastToken) {
+  if (explicitReturnType) {
     return;
   }
   const inferred = pickFunctionReturnTypeFromBody(body, analysis, ast, options);
   if (!inferred || inferred === "unknown") {
     return;
   }
-  const position = {
-    line: nameNode.lastToken.range.end.line,
-    character: nameNode.lastToken.range.end.column
-  };
+  const position = getReturnTypeHintPosition(node);
+  if (!position) {
+    return;
+  }
   if (!inRange(position.line, position.character, range)) {
     return;
   }
@@ -444,7 +481,7 @@ export function createInlayHints(
           hints
         );
         pushReturnTypeHint(
-          (statement as FunctionStatement).name,
+          statement as FunctionStatement,
           (statement as FunctionStatement).returnType,
           (statement as FunctionStatement).body.body,
           analysis,
@@ -471,7 +508,7 @@ export function createInlayHints(
               hints
             );
             pushReturnTypeHint(
-              member.name,
+              member,
               member.returnType,
               member.body.body,
               analysis,

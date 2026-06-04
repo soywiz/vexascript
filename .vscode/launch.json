@@ -5,7 +5,7 @@
       "name": "Run MyLang Extension Host",
       "type": "extensionHost",
       "request": "launch",
-      "runtimeExecutable": "${execPath}",
+      "runtimeExecutable": "${execPath}/plugins/vscode",
       "preLaunchTask": "mylang: prepare vscode extension",
       "autoAttachChildProcesses": true
     }

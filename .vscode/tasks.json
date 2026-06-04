@@ -5,9 +5,9 @@
       "label": "mylang: install vscode extension deps",
       "type": "shell",
       "command": "pnpm",
-      "args": ["vscodeext:install"],
+      "args": ["install"],
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/plugins/vscode"
       },
       "presentation": {
         "reveal": "always",
@@ -21,7 +21,7 @@
       "command": "pnpm",
       "args": ["build"],
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/plugins/vscode"
       },
       "presentation": {
         "reveal": "always",

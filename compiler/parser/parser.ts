@@ -603,6 +603,16 @@ export class Parser {
         return node;
     }
 
+    private attachNonEnumerableToken<T extends Node, K extends string>(node: T, property: K, token: Token): T {
+        Object.defineProperty(node, property, {
+            value: token,
+            enumerable: false,
+            writable: true,
+            configurable: true
+        });
+        return node;
+    }
+
     private withNodeBounds<T extends Node>(startToken: Token | undefined, build: () => T): T {
         const node = build();
         return this.attachNodeBounds(node, startToken, this.getLastReadToken() ?? startToken);
@@ -1637,6 +1647,7 @@ export class Parser {
         if (name) {
             expression.name = name;
         }
+        this.attachNonEnumerableToken(expression, "parametersCloseParen", closeParen);
         if (returnType) {
             expression.returnType = returnType;
         }
@@ -3227,6 +3238,7 @@ export class Parser {
         if (typeParameters.length > 0) {
             statement.typeParameters = typeParameters;
         }
+        this.attachNonEnumerableToken(statement, "parametersCloseParen", closeParen);
         if (returnType) {
             statement.returnType = returnType;
         }
@@ -3705,6 +3717,7 @@ export class Parser {
                 if (methodTypeParameters.length > 0) {
                     signatureOnlyMethod.typeParameters = methodTypeParameters;
                 }
+                this.attachNonEnumerableToken(signatureOnlyMethod, "parametersCloseParen", closeParen);
                 if (returnType) {
                     signatureOnlyMethod.returnType = returnType;
                 }
@@ -3740,6 +3753,7 @@ export class Parser {
             if (methodTypeParameters.length > 0) {
                 methodMember.typeParameters = methodTypeParameters;
             }
+            this.attachNonEnumerableToken(methodMember, "parametersCloseParen", closeParen);
             if (returnType) {
                 methodMember.returnType = returnType;
             }

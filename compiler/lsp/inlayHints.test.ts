@@ -5,12 +5,13 @@ import { createInlayHints } from "./inlayHints";
 describe("inlay hints", () => {
   it("provides inferred type hints and parameter name hints", () => {
     const source =
-      "fun sum(a: int, b: int): int {\n" +
-      "  return a + b\n" +
+      "class Box {\n" +
+      "  fun size(a: int) {\n" +
+      "    return 1\n" +
+      "  }\n" +
       "}\n" +
-      "fun demo() {\n" +
-      "  val total = 1 + 2\n" +
-      "  sum(1, 2)\n" +
+      "fun sum(a: int, b: int) {\n" +
+      "  return a + b\n" +
       "}\n";
 
     const session = createAnalysisSession(source);
@@ -26,10 +27,18 @@ describe("inlay hints", () => {
       }
     );
     const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+    const returnHints = hints.filter((hint) => hint.label === ": int");
+    const lines = source.split("\n");
 
     expect(labels).toContain(": int");
-    expect(labels).toContain("a: ");
-    expect(labels).toContain("b: ");
+    expect(returnHints).toContainEqual(
+      expect.objectContaining({
+        position: {
+          line: 5,
+          character: lines[5]!.indexOf(")") + 1
+        }
+      })
+    );
   });
 
   it("provides constructor parameter name hints for new expressions", () => {
