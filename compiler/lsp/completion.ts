@@ -106,10 +106,15 @@ export interface CompletionRequestOptions {
 interface MemberAccessTarget {
   objectPath: string;
   objectStartCharacter: number;
+  memberAccessStartCharacter: number;
   prefix: string;
 }
 
 const COMPLETION_RECOVERY_MEMBER = "__mylang_completion__";
+
+function operatorSymbolFromMemberName(name: string): string | null {
+  return name.startsWith("operator") ? name.slice("operator".length) || null : null;
+}
 
 function constructorParameterProperties(classStatement: ClassStatement) {
   return classStatement.members
@@ -157,9 +162,11 @@ function parseMemberAccessTarget(
   const typedPrefix = match[2] ?? "";
   const objectInMatchIndex = fullMatch.indexOf(objectPath);
   const objectStartCharacter = match.index + (objectInMatchIndex >= 0 ? objectInMatchIndex : 0);
+  const memberAccessStartCharacter = match.index + fullMatch.lastIndexOf(".");
   return {
     objectPath: objectPath.replace(/\s+/g, ""),
     objectStartCharacter,
+    memberAccessStartCharacter,
     prefix: typedPrefix
   };
 }
@@ -168,6 +175,13 @@ function buildClassMemberCompletionItems(
   classStatement: ClassStatement,
   objectTypeName: string | undefined,
   prefix: string,
+  memberAccessEdit:
+    | {
+        line: number;
+        dotCharacter: number;
+        prefixEndCharacter: number;
+      }
+    | undefined,
   resolverContext: {
     ast: Program;
     options: ClassResolverOptions;
@@ -214,12 +228,34 @@ function buildClassMemberCompletionItems(
       continue;
     }
 
+    const operatorSymbol = operatorSymbolFromMemberName(memberName);
     pushItem({
       label: memberName,
       kind: CompletionItemKind.Method,
+      ...(operatorSymbol ? { filterText: memberName } : {}),
       detail: resolved.signature
         ? `Class method: (${resolved.signature.parameters.map((parameter) => `${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${resolved.signature.returnTypeName}`
         : "Class method",
+      ...(operatorSymbol && memberAccessEdit
+        ? {
+            textEdit: {
+              range: {
+                start: { line: memberAccessEdit.line, character: memberAccessEdit.dotCharacter + 1 },
+                end: { line: memberAccessEdit.line, character: memberAccessEdit.prefixEndCharacter }
+              },
+              newText: ` ${operatorSymbol} `
+            },
+            additionalTextEdits: [
+              {
+                range: {
+                  start: { line: memberAccessEdit.line, character: memberAccessEdit.dotCharacter },
+                  end: { line: memberAccessEdit.line, character: memberAccessEdit.dotCharacter + 1 }
+                },
+                newText: ""
+              }
+            ]
+          }
+        : {}),
       sortText: `${memberSortGroup(memberName, classStatement, membersByName)}-${memberName}`
     });
   }
@@ -1046,6 +1082,11 @@ function buildMemberAccessCompletions(
     classStatement,
     className,
     target.prefix,
+    {
+      line,
+      dotCharacter: target.memberAccessStartCharacter,
+      prefixEndCharacter: character
+    },
     {
       ast,
       options: resolverOptions,

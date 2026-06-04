@@ -169,7 +169,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels.slice(0, 2)).toEqual(["x", "y"]);
   });
 
-  it("keeps operator member completions visible", () => {
+  it("keeps operator member completions visible and edits member access safely", () => {
     const source =
       "class Point(val x: number, val y: number) {\n" +
       "  operator+(other: Point): Point => Point(x + other.x, y + other.y)\n" +
@@ -181,9 +181,27 @@ describe("createCompletionItemsForPosition", () => {
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, 5, 8, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
+    const operatorItem = items.find((item) => item.label === "operator*");
 
     expect(labels).toContain("operator+");
     expect(labels).toContain("operator*");
+    expect(operatorItem?.filterText).toBe("operator*");
+    expect(operatorItem?.textEdit).toEqual({
+      range: {
+        start: { line: 5, character: 8 },
+        end: { line: 5, character: 8 }
+      },
+      newText: " * "
+    });
+    expect(operatorItem?.additionalTextEdits).toEqual([
+      {
+        range: {
+          start: { line: 5, character: 7 },
+          end: { line: 5, character: 8 }
+        },
+        newText: ""
+      }
+    ]);
   });
 
   it("resolves member completions for chained member access", () => {
