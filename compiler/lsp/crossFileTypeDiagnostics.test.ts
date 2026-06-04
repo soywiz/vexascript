@@ -50,6 +50,57 @@ describe("cross-file type diagnostics", () => {
     );
   });
 
+  it("anchors member-call arity diagnostics on the member name", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    const worldSource = "class Logger {\n  log(value: number): int { return 0 }\n}\n";
+    const helloSource =
+      "import { Logger } from \"./world\"\n" +
+      "fun demo() {\n" +
+      "  const logger = new Logger()\n" +
+      "  logger.log()\n" +
+      "}\n";
+
+    await writeFile(worldFile, worldSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    const diagnostics = collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(
+      diagnostics.find((diagnostic) => diagnostic.message === "Expected at least 1 argument(s), but got 0")
+        ?.range.start
+    ).toEqual({ line: 3, character: 9 });
+  });
+
+  it("does not duplicate same-file member-call arity diagnostics already reported by analysis", () => {
+    const source =
+      "class Logger {\n" +
+      "  log(value: number): int { return 0 }\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const logger = new Logger()\n" +
+      "  logger.log()\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    const diagnostics = collectCrossFileTypeDiagnostics({
+      uri: "file:///demo.my",
+      session,
+      sourceRoots: []
+    });
+
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.message === "Expected at least 1 argument(s), but got 0")
+    ).toBe(false);
+  });
+
   it("reports non-callable member usage", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
     const worldFile = join(root, "world.my");

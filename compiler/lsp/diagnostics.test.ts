@@ -98,6 +98,20 @@ function empty(): int {
     expect(missingValue?.range.start).toEqual({ line: 7, character: 2 });
   });
 
+  it("anchors member-call arity diagnostics on the member name", () => {
+    const diagnostics = diagnosticsFor(
+      "fun demo() {\n" +
+      "  Math.floor()\n" +
+      "}\n"
+    );
+
+    const missingArgument = diagnostics.find(
+      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
+    );
+
+    expect(missingArgument?.range.start).toEqual({ line: 1, character: 7 });
+  });
+
   it("assigns a semantic diagnostic code when yield appears outside generator functions", () => {
     const diagnostics = diagnosticsFor(
       "function bad() {\n" +

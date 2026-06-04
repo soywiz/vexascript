@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocument";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
-import { collectDiagnosticsFromSession, createDocumentDiagnosticReport } from "./diagnostics";
+import { createDocumentDiagnosticReport } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
@@ -109,12 +109,8 @@ function getSessionForFilePathFromOpenDocuments(filePath: string) {
   return projectIndex.getSessionForFilePath(resolvePath(filePath));
 }
 
-function collectDiagnosticsForDocument(doc: LspTextDocument): Diagnostic[] {
-  const text = doc.getText();
+function collectWorkspaceDiagnosticsForDocument(doc: LspTextDocument): Diagnostic[] {
   const session = analysisSessions.getForDocument(doc);
-  const diagnostics = collectDiagnosticsFromSession(session, text, (offset) =>
-    doc.positionAt(offset)
-  );
   const crossFileDiagnostics = collectCrossFileMemberDiagnostics({
     uri: doc.uri,
     session,
@@ -127,9 +123,19 @@ function collectDiagnosticsForDocument(doc: LspTextDocument): Diagnostic[] {
     sourceRoots,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments
   });
-  diagnostics.push(...crossFileDiagnostics);
-  diagnostics.push(...crossFileTypeDiagnostics);
-  return diagnostics;
+  const sameFileKeys = new Set(
+    session.semanticIssues.map((issue) => {
+      const token = issue.node.firstToken;
+      if (!token) {
+        return issue.message;
+      }
+      return `${token.range.start.line}:${token.range.start.column}:${issue.message}`;
+    })
+  );
+  return [...crossFileDiagnostics, ...crossFileTypeDiagnostics].filter((diagnostic) => {
+    const key = `${diagnostic.range.start.line}:${diagnostic.range.start.character}:${diagnostic.message}`;
+    return !sameFileKeys.has(key);
+  });
 }
 
 connection.onInitialize((params) => {
@@ -186,14 +192,8 @@ connection.onInitialize((params) => {
   };
 });
 
-function validateDocument(doc: LspTextDocument): void {
-  connection.sendDiagnostics({ uri: doc.uri, diagnostics: collectDiagnosticsForDocument(doc) });
-}
-
-function validateAllOpenDocuments(): void {
-  for (const document of documents.all()) {
-    validateDocument(document);
-  }
+function refreshDiagnostics(): void {
+  connection.languages.diagnostics.refresh();
 }
 
 function completionPrefixAt(text: string, offset: number): string {
@@ -213,14 +213,14 @@ documents.onDidOpen((event) => {
   if (filePath) {
     projectIndex.upsertOpenDocument(filePath, event.document.getText());
   }
-  validateAllOpenDocuments();
+  refreshDiagnostics();
 });
 documents.onDidChangeContent((event) => {
   const filePath = uriToFilePath(event.document.uri);
   if (filePath) {
     projectIndex.upsertOpenDocument(filePath, event.document.getText());
   }
-  validateAllOpenDocuments();
+  refreshDiagnostics();
 });
 documents.onDidClose((event) => {
   analysisSessions.delete(event.document.uri);
@@ -229,8 +229,7 @@ documents.onDidClose((event) => {
     projectIndex.clearOpenDocument(filePath);
     projectIndex.invalidateFile(filePath);
   }
-  connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
-  validateAllOpenDocuments();
+  refreshDiagnostics();
 });
 
 connection.onCompletion((params) => {
@@ -363,7 +362,7 @@ connection.onCodeActionResolve((action) => {
 
 connection.onExecuteCommand((params) => {
   if (params.command === REFRESH_DIAGNOSTICS_COMMAND) {
-    validateAllOpenDocuments();
+    refreshDiagnostics();
   }
 });
 
@@ -542,7 +541,7 @@ connection.languages.diagnostics.onWorkspace(() => {
     resultId: string;
   } => ({
     kind: DocumentDiagnosticReportKind.Full,
-    items: collectDiagnosticsForDocument(doc),
+    items: collectWorkspaceDiagnosticsForDocument(doc),
     uri: doc.uri,
     version: doc.version,
     resultId: String(doc.version)
@@ -677,13 +676,13 @@ connection.onDocumentOnTypeFormatting((params) => {
   return doc ? createOnTypeFormattingEdits(doc.getText(), params.position, params.ch) : [];
 });
 
-connection.onDidChangeConfiguration(() => validateAllOpenDocuments());
+connection.onDidChangeConfiguration(() => refreshDiagnostics());
 connection.onDidChangeWatchedFiles((params) => {
   for (const change of params.changes) {
     const filePath = uriToFilePath(change.uri);
     if (filePath) projectIndex.invalidateFile(filePath);
   }
-  validateAllOpenDocuments();
+  refreshDiagnostics();
 });
 
 connection.languages.callHierarchy.onPrepare((params) => {

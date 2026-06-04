@@ -53,6 +53,10 @@ function diagnosticForNode(
   };
 }
 
+function callDiagnosticNode(call: CallExpression) {
+  return call.callee.kind === "MemberExpression" ? (call.callee as MemberExpression).property : call;
+}
+
 function collectCallExpressions(program: Program): CallExpression[] {
   const calls: CallExpression[] = [];
   walkAst(program, (node) => {
@@ -170,7 +174,7 @@ export function collectCrossFileTypeDiagnostics(
     if (providedCount < requiredCount) {
       pushDiagnostic(
         diagnosticForNode(
-          call,
+          callDiagnosticNode(call),
           `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
           MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
         )
@@ -178,7 +182,7 @@ export function collectCrossFileTypeDiagnostics(
     } else if (providedCount > totalCount) {
       pushDiagnostic(
         diagnosticForNode(
-          call,
+          callDiagnosticNode(call),
           `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
           MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
         )

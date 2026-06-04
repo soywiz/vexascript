@@ -1731,6 +1731,9 @@ export class TypeChecker {
     calleeType: AnalysisType & { kind: "function" },
     argumentTypes: AnalysisType[]
   ): void {
+    const diagnosticNode = call.callee.kind === "MemberExpression"
+      ? (call.callee as MemberExpression).property
+      : call;
     const lastParameter = calleeType.parameters[calleeType.parameters.length - 1];
     const restParameter = lastParameter?.rest ? lastParameter : undefined;
     const fixedParameters = restParameter ? calleeType.parameters.slice(0, -1) : calleeType.parameters;
@@ -1741,12 +1744,12 @@ export class TypeChecker {
     if (providedCount < requiredCount) {
       this.issues.push({
         message: `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
-        node: call
+        node: diagnosticNode
       });
     } else if (!restParameter && providedCount > totalCount) {
       this.issues.push({
         message: `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
-        node: call
+        node: diagnosticNode
       });
       for (let index = totalCount; index < providedCount; index += 1) {
         this.issues.push({
