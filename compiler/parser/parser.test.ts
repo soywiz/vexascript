@@ -2568,6 +2568,15 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses runtime namespace declarations", () => {
+        expect(parseStatement(tokenizeReader("namespace Tools { export const version = 1 }"))).toMatchObject({
+            kind: "NamespaceStatement",
+            declarationKind: "namespace",
+            names: [{ kind: "Identifier", name: "Tools" }],
+            body: { body: [{ kind: "ExportStatement", declaration: { kind: "VarStatement" } }] }
+        });
+    });
+
     it("parses dotted ambient namespace bodies in typescript mode", () => {
         expect(
             parseStatement(tokenizeReader("declare namespace Company.Tools {\nexport interface Config { name: string }\nexport const version: string;\n}"), { language: "typescript" })

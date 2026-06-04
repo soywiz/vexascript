@@ -36,6 +36,9 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("fn");
     expect(labels).toContain("type");
     expect(labels).toContain("interface");
+    expect(labels).toContain("namespace");
+    expect(labels).toContain("module");
+    expect(labels).toContain("declare");
     expect(labels).toContain("int");
     expect(labels).toContain("number");
     expect(labels).toContain("bigint");
@@ -70,6 +73,14 @@ describe("createCompletionItemsForPosition", () => {
     expect(point?.additionalTextEdits?.[0]?.newText).toBe(
       "import { Point } from \"./a\"\n"
     );
+  });
+
+  it("offers exported runtime namespace members for member access", () => {
+    const source = "namespace Tools { export const version = 1; const hidden = 2; export function read() { return version } }\nTools.";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 1, 6, session.analysis!, [], { text: source });
+    expect(items.map((item) => item.label)).toEqual(expect.arrayContaining(["version", "read"]));
+    expect(items.map((item) => item.label)).not.toContain("hidden");
   });
 
   it("prioritizes class member completions for member access", () => {

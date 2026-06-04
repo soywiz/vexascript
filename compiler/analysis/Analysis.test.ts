@@ -17,6 +17,13 @@ function symbolsOfVisibleSymbolsAt(source: string, line: number, character: numb
 }
 
 describe("Analysis", () => {
+  it("checks exported runtime namespace members", () => {
+    const ast = parseFile(tokenizeReader("namespace Tools { export const version: int = 1; const hidden = 2 }\nlet ok: int = Tools.version\nlet bad = Tools.hidden"));
+    const analysis = new Analysis(ast);
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Property 'hidden' does not exist on type 'Tools'");
+    expect(analysis.getIssues().map((issue) => issue.message)).not.toContain("Property 'version' does not exist on type 'Tools'");
+  });
+
   it("binds ambient namespace names and analyzes declarations inside their scope", () => {
     const source = "declare namespace Tools {\nexport const version: string;\nexport function read(): string;\n}\nconst outside = 1";
     const ast = parseFile(tokenizeReader(source), { language: "typescript" });

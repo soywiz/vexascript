@@ -117,6 +117,7 @@ export class TypeChecker {
   private readonly extensionPropertiesByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
   private readonly importedExtensionPropertyNames: Set<string> = new Set();
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
+  private readonly namespaceStatementsByName: Map<string, NamespaceStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
   private readonly typeAliasStatementsByName: Map<string, TypeAliasStatement> = new Map();
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
@@ -138,6 +139,7 @@ export class TypeChecker {
     this.collectExtensionMethods(program);
     this.collectImportedExtensionPropertyNames(program);
     this.collectEnumStatements(program);
+    this.collectNamespaceStatements(program);
     this.collectInterfaceStatements(program);
     this.collectTypeAliasStatements(program);
   }
@@ -2858,6 +2860,20 @@ export class TypeChecker {
     for (const identifier of bindingIdentifiers(varStatement.name)) this.updateSymbolType(scope, identifier.name, iteratorType);
   }
 
+  private collectNamespaceStatements(program: Program): void {
+    const visit = (statements: Statement[]): void => {
+      for (const statement of statements) {
+        const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+        if (candidate?.kind !== "NamespaceStatement") continue;
+        const namespaceStatement = candidate as NamespaceStatement;
+        const name = namespaceStatement.names?.[0]?.name;
+        if (name) this.namespaceStatementsByName.set(name, namespaceStatement);
+        visit(namespaceStatement.body.body);
+      }
+    };
+    visit(program.body);
+  }
+
   private collectClassStatements(program: Program): void {
     for (const statement of program.body) {
       const candidate = statement.kind === "ExportStatement"
@@ -3276,6 +3292,31 @@ export class TypeChecker {
       return null;
     }
     visited.add(visitKey);
+
+    const namespaceStatement = this.namespaceStatementsByName.get(type.name);
+    if (namespaceStatement) {
+      const scope = this.bound.scopeByNode.get(namespaceStatement);
+      const members = new Map<string, AnalysisType>();
+      for (const child of namespaceStatement.body.body) {
+        if (child.kind !== "ExportStatement") continue;
+        const exported = child as ExportStatement;
+        const names: string[] = [];
+        if (exported.declaration?.kind === "VarStatement") {
+          const variable = exported.declaration as VarStatement;
+          if (variable.declarations?.length) {
+            for (const declaration of variable.declarations) names.push(...bindingIdentifiers(declaration.name).map((identifier) => identifier.name));
+          } else {
+            names.push(...bindingIdentifiers(variable.name).map((identifier) => identifier.name));
+          }
+        } else if (exported.declaration?.kind === "FunctionStatement" || exported.declaration?.kind === "ClassStatement" || exported.declaration?.kind === "EnumStatement" || exported.declaration?.kind === "NamespaceStatement") {
+          const declaration = exported.declaration as FunctionStatement | ClassStatement | EnumStatement | NamespaceStatement;
+          names.push(declaration.kind === "NamespaceStatement" ? declaration.names?.[0]?.name ?? "" : declaration.name.name);
+        }
+        for (const specifier of exported.specifiers ?? []) names.push(specifier.exported.name);
+        for (const name of names.filter(Boolean)) members.set(name, scope?.symbols.get(name)?.type ?? UNKNOWN_TYPE);
+      }
+      return members;
+    }
 
     const enumStatement = this.enumStatementsByName.get(type.name);
     if (enumStatement) {

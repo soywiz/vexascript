@@ -5,6 +5,19 @@ import { emitProgram } from "./emitter";
 import { lowerProgram } from "./lowering";
 
 describe("emitProgram", () => {
+  it("lowers runtime namespaces to JavaScript objects and IIFEs", () => {
+    const program = parseFile(tokenizeReader("namespace Tools { export const version = 1; export function read() { return version } }"));
+    expect(emitProgram(program)).toBe([
+      "var Tools;",
+      "(function (Tools) {",
+      "  const version = 1;",
+      "  Tools.version = version;",
+      "  function read() {\n  return version;\n  }",
+      "  Tools.read = read;",
+      "})(Tools || (Tools = {}));"
+    ].join("\n"));
+  });
+
   it("erases ambient namespaces after their bodies have been parsed", () => {
     const program = parseFile(tokenizeReader("declare namespace Tools {\nexport const version: string;\n}"), { language: "typescript" });
     expect(emitProgram(program)).toBe("");
