@@ -8,18 +8,22 @@ export { before as beforeAll, after as afterAll };
 
 // ─── expect ──────────────────────────────────────────────────────────────────
 
-export function expect(actual: unknown) {
-  return makeExpect(actual, false);
+export function expect(actual: unknown, message?: string) {
+  return makeExpect(actual, false, message);
 }
 
 expect.arrayContaining = (arr: unknown[]) => ({ __type: "arrayContaining", arr });
 expect.objectContaining = (obj: object) => ({ __type: "objectContaining", obj });
 expect.stringContaining = (s: string) => ({ __type: "stringContaining", s });
-expect.any = (ctor: new (...a: unknown[]) => unknown) => ({ __type: "any", ctor });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+expect.any = (ctor: abstract new (...a: any[]) => unknown) => ({ __type: "any", ctor });
 
-function makeExpect(actual: unknown, negated: boolean) {
+function makeExpect(actual: unknown, negated: boolean, message?: string) {
+  function fail(msg: string): never {
+    throw new Error(message ? `${message}\n${msg}` : msg);
+  }
   return {
-    get not() { return makeExpect(actual, !negated); },
+    get not() { return makeExpect(actual, !negated, message); },
 
     get rejects() {
       return {
@@ -34,9 +38,8 @@ function makeExpect(actual: unknown, negated: boolean) {
     },
 
     toBe(expected: unknown) {
-      negated
-        ? assert.notStrictEqual(actual, expected)
-        : assert.strictEqual(actual, expected);
+      const ok = actual === expected;
+      if (negated ? ok : !ok) fail(`Expected ${JSON.stringify(actual)} ${negated ? "not " : ""}to be ${JSON.stringify(expected)}`);
     },
     toEqual(expected: unknown) {
       const eq = vitestDeepEqual(actual, expected);
@@ -86,11 +89,11 @@ function makeExpect(actual: unknown, negated: boolean) {
     },
     toBeGreaterThan(n: number) {
       if (negated ? (actual as number) > n : (actual as number) <= n)
-        throw new Error(`Expected ${actual} to ${negated ? "not " : ""}be > ${n}`);
+        fail(`Expected ${actual} to ${negated ? "not " : ""}be > ${n}`);
     },
     toBeGreaterThanOrEqual(n: number) {
       if (negated ? (actual as number) >= n : (actual as number) < n)
-        throw new Error(`Expected ${actual} to ${negated ? "not " : ""}be >= ${n}`);
+        fail(`Expected ${actual} to ${negated ? "not " : ""}be >= ${n}`);
     },
     toBeLessThan(n: number) {
       if (negated ? (actual as number) < n : (actual as number) >= n)
@@ -105,9 +108,10 @@ function makeExpect(actual: unknown, negated: boolean) {
       if (len !== n)
         throw new Error(`Expected length ${n}, got ${len}`);
     },
-    toBeInstanceOf(cls: new (...a: unknown[]) => unknown) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    toBeInstanceOf(cls: abstract new (...a: any[]) => unknown) {
       if (negated ? actual instanceof cls : !(actual instanceof cls))
-        throw new Error(`Expected value to ${negated ? "not " : ""}be instance of ${cls.name}`);
+        fail(`Expected value to ${negated ? "not " : ""}be instance of ${cls.name}`);
     },
     toBeNaN() {
       if (negated ? isNaN(actual as number) : !isNaN(actual as number))
@@ -224,17 +228,6 @@ function deepEqual(a: unknown, b: unknown): boolean {
   try { assert.deepStrictEqual(a, b); return true; } catch { return false; }
 }
 
-function assertDeepEqual(actual: unknown, expected: unknown) {
-  if (expected && typeof expected === "object" && (expected as { __type?: string }).__type === "arrayContaining") {
-    const { arr } = expected as { arr: unknown[] };
-    if (!Array.isArray(actual)) throw new Error(`Expected an array`);
-    const missing = arr.filter(item => !(actual as unknown[]).some(x => vitestDeepEqual(x, item)));
-    if (missing.length > 0) throw new Error(`Expected array to contain ${JSON.stringify(missing)}`);
-    return;
-  }
-  // Use normalizeUndefined to match vitest's toEqual behavior (undefined props ignored)
-  assert.deepStrictEqual(normalizeUndefined(actual), normalizeUndefined(expected));
-}
 
 function matchObject(actual: unknown, expected: unknown): boolean {
   if (expected === null || expected === undefined) return actual === expected;
