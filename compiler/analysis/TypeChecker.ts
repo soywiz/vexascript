@@ -705,6 +705,23 @@ export class TypeChecker {
         for (const argument of call.arguments) {
           argumentTypes.push(this.visitExpression(argument, scope));
         }
+        const calledClass =
+          call.optional !== true && call.callee.kind === "Identifier"
+            ? this.classStatementsByName.get((call.callee as Identifier).name)
+            : undefined;
+        if (calledClass) {
+          const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
+            this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
+          );
+          this.validateNamedTypeArgumentConstraints(
+            calledClass.name.name,
+            explicitTypeArguments,
+            call.callee,
+            scope
+          );
+          result = namedType(calledClass.name.name, explicitTypeArguments);
+          break;
+        }
         const callableType = this.callableTypeFrom(calleeType, argumentTypes);
         if (callableType) {
           const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>

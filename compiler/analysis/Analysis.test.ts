@@ -576,6 +576,18 @@ a--
     expect(symbols.get("point")?.valueType).toBe("MyPoint");
   });
 
+  it("infers class instance types when classes are called without new", () => {
+    const source =
+      "class Point(val x: int)\n" +
+      "let point = Point(1)\n";
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 1, 4);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbols.get("point")?.valueType).toBe("Point");
+  });
+
   it("infers class type for new expressions", () => {
     const source =
       "class Point\n" +

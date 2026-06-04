@@ -5,6 +5,14 @@ import { emitProgram } from "./emitter";
 import { lowerProgram } from "./lowering";
 
 describe("emitProgram", () => {
+  it("emits calls to classes as constructor invocations", () => {
+    const program = parseFile(tokenizeReader("class Point(val x: int)\nlet point = Point(1)"));
+    const ambientProgram = parseFile(tokenizeReader("declare class Error\nlet error = Error()"));
+
+    expect(emitProgram(program)).toContain("let point = new Point(1);");
+    expect(emitProgram(ambientProgram)).toBe("let error = new Error();");
+  });
+
   it("emits mylang for-in as for-of const", () => {
     const program = parseFile(tokenizeReader("for (n in [1,2,3]) console.log(n)"));
     expect(emitProgram(program)).toContain("for (const n of [1, 2, 3]) console.log(n);");

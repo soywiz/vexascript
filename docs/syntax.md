@@ -651,9 +651,16 @@ collect("label", ...values)
 factory<string, number>(arg1, arg2)
 ```
 
-### New expressions
+### Class instantiation and new expressions
 
-TypeScript-style `new` expressions are supported, including constructor arguments, generic type arguments, and member-based constructor targets:
+A declared class can be called directly to instantiate it. `ClassName(arguments)` is equivalent to `new ClassName(arguments)`:
+
+```mylang
+class Point(val x: int, val y: int)
+let point = Point(1, 2)
+```
+
+TypeScript-style `new` expressions are also supported, including constructor arguments, generic type arguments, and member-based constructor targets:
 
 ```mylang
 new instance()

@@ -97,6 +97,7 @@ interface RuntimeOperatorInfo extends RuntimeOverloadInfo {
 let activeProgramOverloads: Map<string, RuntimeOverloadInfo[]> = new Map();
 let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
 let activeExtensionProperties: Map<string, string> = new Map();
+let activeClassNames: Set<string> = new Set();
 let activeExtensionThis = false;
 
 const PREC_COMMA = 1;
@@ -310,6 +311,17 @@ function collectRuntimeOverloads(program: Program): Map<string, RuntimeOverloadI
 function operatorMethodName(operator: BinaryExpression["operator"], parameters: FunctionParameter[]): string {
   const baseName = OPERATOR_METHOD_NAMES[operator] ?? `operator$${sanitizeManglePart(operator)}`;
   return overloadedFunctionName(baseName, parameters);
+}
+
+function collectClassNames(program: Program): Set<string> {
+  const result = new Set<string>();
+  for (const statement of program.body) {
+    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    if (candidate?.kind === "ClassStatement") {
+      result.add((candidate as ClassStatement).name.name);
+    }
+  }
+  return result;
 }
 
 function collectOperators(program: Program): Map<string, RuntimeOperatorInfo[]> {
@@ -548,7 +560,14 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const call = expression as CallExpression;
         const overloadedName = resolveOverloadedFunctionCall(call);
         const calleeText = overloadedName ?? emitExpression(call.callee, PREC_MEMBER, "left");
-        return `${calleeText}${call.optional ? "?." : ""}(${call.arguments.map((argument) => emitListElement(argument)).join(", ")})`;
+        const argumentsText = call.arguments.map((argument) => emitListElement(argument)).join(", ");
+        const isClassCall =
+          call.optional !== true &&
+          call.callee.kind === "Identifier" &&
+          activeClassNames.has((call.callee as Identifier).name);
+        return isClassCall
+          ? `new ${calleeText}(${argumentsText})`
+          : `${calleeText}${call.optional ? "?." : ""}(${argumentsText})`;
       }
       case "NewExpression": {
         const newExpression = expression as NewExpression;
@@ -996,16 +1015,19 @@ export function emitProgram(
 
 export function emitProgramStatements(
   program: Program,
-  expressionTypes?: ReadonlyMap<Node, AnalysisType>
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>,
+  contextProgram: Program = program
 ): string[] {
   const previous = activeExpressionTypes;
   const previousOverloads = activeProgramOverloads;
   const previousOperators = activeOperators;
   const previousExtensionProperties = activeExtensionProperties;
+  const previousClassNames = activeClassNames;
   activeExpressionTypes = expressionTypes;
-  activeProgramOverloads = collectRuntimeOverloads(program);
-  activeOperators = collectOperators(program);
-  activeExtensionProperties = collectExtensionProperties(program);
+  activeProgramOverloads = collectRuntimeOverloads(contextProgram);
+  activeOperators = collectOperators(contextProgram);
+  activeExtensionProperties = collectExtensionProperties(contextProgram);
+  activeClassNames = collectClassNames(contextProgram);
   try {
     return program.body
       .map((statement) => emitStatement(statement))
@@ -1015,5 +1037,6 @@ export function emitProgramStatements(
     activeProgramOverloads = previousOverloads;
     activeOperators = previousOperators;
     activeExtensionProperties = previousExtensionProperties;
+    activeClassNames = previousClassNames;
   }
 }
