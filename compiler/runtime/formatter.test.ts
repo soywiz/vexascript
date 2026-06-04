@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { formatSource } from "./formatter";
 
 describe("formatSource", () => {
+  it("formats ambient namespace declarations and their parsed members", () => {
+    expect(formatSource("declare namespace Tools{export const version:string;}")).toBe(
+      "declare namespace Tools {\n  export const version: string;\n}"
+    );
+  });
+
   it("formats function parameters with optional marker and default value", () => {
     expect(formatSource("fun test(a,v,c?,d:Int=demo){return d}"))
       .toBe("fun test(a, v, c?, d: Int = demo) {\n  return d\n}");

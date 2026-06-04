@@ -100,7 +100,7 @@ function sum(a, b) {
 
 ### Ambient declarations
 
-MyLang supports ambient declarations with `declare` for functions, classes, variables (`var` / `let` / `const` / `val`), namespaces, and modules. In `typescript` parser mode, ambient external modules may use a string-literal name such as `declare module "pixi.js"`; namespace and module bodies are currently accepted as opaque declaration blocks.
+MyLang supports ambient declarations with `declare` for functions, classes, variables (`var` / `let` / `const` / `val`), namespaces, and modules. In `typescript` parser mode, ambient external modules may use a string-literal name such as `declare module "pixi.js"`. Ambient namespace and module bodies preserve supported declarations in the AST, participate in scoped semantic analysis and semantic highlighting, and are erased during JavaScript emission. Unsupported declaration-file members are recovered as opaque regions so large third-party `.d.ts` files remain parseable.
 
 Example:
 
@@ -110,6 +110,12 @@ declare class Console {
   log(a: number)
 }
 declare var console: Console
+declare namespace Company.Tools {
+  export interface Config {
+    name: string
+  }
+  export const version: string
+}
 declare module "pixi.js" {
   export = PIXI;
 }

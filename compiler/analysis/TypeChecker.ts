@@ -29,6 +29,7 @@ import type {
   IntLiteral,
   MemberExpression,
   NewExpression,
+  NamespaceStatement,
   ObjectLiteral,
   ObjectProperty,
   ObjectSpreadProperty,
@@ -192,6 +193,14 @@ export class TypeChecker {
       case "EnumStatement":
         this.visitEnumStatement(statement as EnumStatement, scope);
         return;
+      case "NamespaceStatement": {
+        const namespaceStatement = statement as NamespaceStatement;
+        const namespaceScope = this.scopeFor(namespaceStatement, scope);
+        for (const bodyStatement of namespaceStatement.body.body) {
+          this.visitStatement(bodyStatement, namespaceScope, flow);
+        }
+        return;
+      }
       case "InterfaceStatement":
       case "TypeAliasStatement":
         return;

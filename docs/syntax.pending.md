@@ -10,8 +10,8 @@ Scope notes:
 
 ## Declarations
 
-- `namespace` / `module` declarations with full body parsing (currently skipped as opaque block).
-- `declare` declarations beyond current support (`declare function`, `declare class`, `declare var/let/const/val`, `declare enum`), including namespaces/modules with typed members and other ambient forms.
+- Runtime `namespace` / `module` declarations and JavaScript namespace lowering; ambient bodies are parsed with tolerant recovery for unsupported declaration-file members.
+- `declare` declarations beyond current support (`declare function`, `declare class`, `declare var/let/const/val`, `declare enum`), including additional ambient forms and richer namespace/module members.
 
 ## Type System Syntax
 

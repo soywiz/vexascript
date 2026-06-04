@@ -1012,6 +1012,7 @@ export function emitStatement(statement: Statement): string {
         : "";
       return `class ${classStatement.name.name}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
     }
+    case "NamespaceStatement":
     case "InterfaceStatement":
     case "TypeAliasStatement":
       return "";

@@ -27,6 +27,7 @@ import type {
   LabeledStatement,
   ImportStatement,
   MemberExpression,
+  NamespaceStatement,
   NewExpression,
   ObjectLiteral,
   ObjectProperty,
@@ -338,6 +339,14 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
             markIdentifier(kinds, specifier.local, "variable");
           }
         }
+        return;
+      }
+      case "NamespaceStatement": {
+        const namespaceStatement = statement as NamespaceStatement;
+        for (const name of namespaceStatement.names ?? []) {
+          markIdentifier(kinds, name, "namespace");
+        }
+        visitBlock(namespaceStatement.body);
         return;
       }
       case "VarStatement": {

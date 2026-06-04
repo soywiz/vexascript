@@ -12,6 +12,7 @@ import type {
   ImportStatement,
   IfStatement,
   LabeledStatement,
+  NamespaceStatement,
   Program,
   Statement,
   SwitchStatement,
@@ -179,6 +180,16 @@ export class Binder {
         continue;
       }
 
+      if (statement.kind === "NamespaceStatement") {
+        const namespaceStatement = statement as NamespaceStatement;
+        const name = namespaceStatement.names?.[0];
+        if (name) {
+          const symbolType = namedType(name.name);
+          this.declare(scope, { name: name.name, kind: "class", node: name, type: symbolType, valueType: typeToString(symbolType) }, declaredOffsetOverride);
+        }
+        continue;
+      }
+
       if (statement.kind === "VarStatement") {
         const variableStatement = statement as VarStatement;
         if (variableStatement.receiverType) {
@@ -303,6 +314,13 @@ export class Binder {
       case "EnumStatement":
         this.bindEnumStatement(statement as EnumStatement, scope);
         return;
+      case "NamespaceStatement": {
+        const namespaceStatement = statement as NamespaceStatement;
+        const namespaceScope = this.createScope(scope, namespaceStatement);
+        this.bindGlobalDeclarations(namespaceStatement.body.body, namespaceScope);
+        this.bindStatements(namespaceStatement.body.body, namespaceScope);
+        return;
+      }
       case "InterfaceStatement":
       case "TypeAliasStatement":
         return;
