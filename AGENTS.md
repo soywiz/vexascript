@@ -72,6 +72,7 @@ This section is the fast onboarding map for agents and contributors.
   - Navigation/rename/references: `compiler/lsp/navigation.ts`, `compiler/lsp/crossFileNavigation.ts`
   - Signature help: `compiler/lsp/signatureHelp.ts`
   - Document/workspace symbols: `compiler/lsp/symbols.ts`
+  - Document structure/navigation services: `compiler/lsp/documentFeatures.ts`
   - Semantic tokens: `compiler/lsp/semanticTokens.ts`
   - Inlay hints: `compiler/lsp/inlayHints.ts`
   - Code action orchestration: `compiler/lsp/codeActions.ts`

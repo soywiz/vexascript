@@ -45,6 +45,16 @@ import {
   MYLANG_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
+import {
+  createDocumentHighlights,
+  createFoldingRanges,
+  createOnTypeFormattingEdits,
+  createReferenceCodeLenses,
+  createSelectionRanges,
+  prepareCallHierarchy,
+  createIncomingCalls,
+  createOutgoingCalls
+} from "./documentFeatures";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(TextDocument);
@@ -116,6 +126,20 @@ connection.onInitialize((params) => {
       documentFormattingProvider: true,
       documentRangeFormattingProvider: true,
       definitionProvider: true,
+      declarationProvider: true,
+      typeDefinitionProvider: true,
+      implementationProvider: true,
+      documentHighlightProvider: true,
+      codeLensProvider: { resolveProvider: false },
+      foldingRangeProvider: true,
+      selectionRangeProvider: true,
+      linkedEditingRangeProvider: true,
+      callHierarchyProvider: true,
+      diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: true },
+      documentOnTypeFormattingProvider: {
+        firstTriggerCharacter: "\n",
+        moreTriggerCharacter: ["}"]
+      },
       hoverProvider: true,
       referencesProvider: true,
       signatureHelpProvider: {
@@ -376,6 +400,32 @@ connection.onDefinition((params) => {
   });
 });
 
+connection.onDeclaration((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
+connection.onTypeDefinition((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
+connection.onImplementation((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
+
+function resolveDefinition(uri: string, line: number, character: number) {
+  const doc = documents.get(uri);
+  if (!doc) return null;
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.analysis || !session.ast) return null;
+  return resolveDefinitionAcrossFiles({
+    uri,
+    line,
+    character,
+    session,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
+}
+
+connection.onDocumentHighlight((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return [];
+  const analysis = analysisSessions.getForDocument(doc).analysis;
+  return analysis ? createDocumentHighlights(analysis, params.position.line, params.position.character) : [];
+});
+
 connection.onHover((params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
@@ -550,6 +600,83 @@ connection.languages.inlayHint.on((params) => {
     }
   );
 });
+
+connection.onCodeLens((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return [];
+  const session = analysisSessions.getForDocument(doc);
+  return session.ast && session.analysis ? createReferenceCodeLenses(session.ast, session.analysis, doc.uri) : [];
+});
+
+connection.onFoldingRanges((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return [];
+  const ast = analysisSessions.getForDocument(doc).ast;
+  return ast ? createFoldingRanges(ast) : [];
+});
+
+connection.onSelectionRanges((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return [];
+  const ast = analysisSessions.getForDocument(doc).ast;
+  return ast ? createSelectionRanges(ast, params.positions) : [];
+});
+
+connection.languages.onLinkedEditingRange((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return null;
+  const analysis = analysisSessions.getForDocument(doc).analysis;
+  if (!analysis) return null;
+  const ranges = analysis.getRenameRangesAt(params.position.line, params.position.character);
+  return ranges.length > 1 ? { ranges, wordPattern: "[A-Za-z_][A-Za-z0-9_]*" } : null;
+});
+
+connection.onDocumentOnTypeFormatting((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  return doc ? createOnTypeFormattingEdits(doc.getText(), params.position, params.ch) : [];
+});
+
+connection.onDidChangeConfiguration(() => validateAllOpenDocuments());
+connection.onDidChangeWatchedFiles((params) => {
+  for (const change of params.changes) {
+    const filePath = uriToFilePath(change.uri);
+    if (filePath) projectIndex.invalidateFile(filePath);
+  }
+  validateAllOpenDocuments();
+});
+
+connection.languages.callHierarchy.onPrepare((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return null;
+  const ast = analysisSessions.getForDocument(doc).ast;
+  return ast ? prepareCallHierarchy(ast, doc.uri, params.position) : null;
+});
+
+connection.languages.callHierarchy.onIncomingCalls((params) => {
+  const doc = documents.get(params.item.uri);
+  if (!doc) return [];
+  const ast = analysisSessions.getForDocument(doc).ast;
+  return ast ? createIncomingCalls(ast, doc.uri, params.item) : [];
+});
+
+connection.languages.callHierarchy.onOutgoingCalls((params) => {
+  const doc = documents.get(params.item.uri);
+  if (!doc) return [];
+  const ast = analysisSessions.getForDocument(doc).ast;
+  return ast ? createOutgoingCalls(ast, doc.uri, params.item) : [];
+});
+
+connection.languages.diagnostics.onWorkspace(() => ({
+  items: documents.all().map((doc) => {
+    const session = analysisSessions.getForDocument(doc);
+    return {
+      kind: "full" as const,
+      uri: doc.uri,
+      version: doc.version,
+      items: collectDiagnosticsFromSession(session, doc.getText(), (offset) => doc.positionAt(offset))
+    };
+  })
+}));
 
 connection.languages.semanticTokens.on((params) => {
   const doc = documents.get(params.textDocument.uri);
