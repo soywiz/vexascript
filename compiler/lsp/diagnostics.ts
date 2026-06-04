@@ -1,6 +1,8 @@
 import {
   type Diagnostic,
   DiagnosticSeverity,
+  DocumentDiagnosticReportKind,
+  type DocumentDiagnosticReport,
   type Position
 } from "vscode-languageserver/node.js";
 import type { AnalysisSession } from "./analysisSession";
@@ -128,4 +130,17 @@ export function collectDiagnostics(
 ): Diagnostic[] {
   const session = createAnalysisSession(text);
   return collectDiagnosticsFromSession(session, text, positionAt);
+}
+
+export function createDocumentDiagnosticReport(
+  session: AnalysisSession,
+  text: string,
+  positionAt: (offset: number) => Position,
+  resultId?: string
+): DocumentDiagnosticReport {
+  return {
+    kind: DocumentDiagnosticReportKind.Full,
+    items: collectDiagnosticsFromSession(session, text, positionAt),
+    ...(resultId ? { resultId } : {})
+  };
 }

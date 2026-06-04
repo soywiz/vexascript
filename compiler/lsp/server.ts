@@ -4,15 +4,17 @@ import {
   TextDocuments,
   TextDocumentSyncKind,
   CodeActionKind,
+  DocumentDiagnosticReportKind,
   type CodeAction,
+  type Diagnostic,
   type InitializeParams,
   type TextEdit
 } from "vscode-languageserver/node.js";
 import { fileURLToPath } from "node:url";
-import { TextDocument } from "vscode-languageserver-textdocument";
+import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocument";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
-import { collectDiagnosticsFromSession } from "./diagnostics";
+import { collectDiagnosticsFromSession, createDocumentDiagnosticReport } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
@@ -57,7 +59,7 @@ import {
 } from "./documentFeatures";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
-const documents = new TextDocuments(TextDocument);
+const documents = new TextDocuments(LspTextDocument);
 const analysisSessions = new AnalysisSessionCache();
 let sourceRoots: string[] = [];
 let projectIndex: ProjectIndex = getProjectIndex([]);
@@ -105,6 +107,29 @@ function resolveSourceRoots(params: InitializeParams): string[] {
 
 function getSessionForFilePathFromOpenDocuments(filePath: string) {
   return projectIndex.getSessionForFilePath(resolvePath(filePath));
+}
+
+function collectDiagnosticsForDocument(doc: LspTextDocument): Diagnostic[] {
+  const text = doc.getText();
+  const session = analysisSessions.getForDocument(doc);
+  const diagnostics = collectDiagnosticsFromSession(session, text, (offset) =>
+    doc.positionAt(offset)
+  );
+  const crossFileDiagnostics = collectCrossFileMemberDiagnostics({
+    uri: doc.uri,
+    session,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
+  const crossFileTypeDiagnostics = collectCrossFileTypeDiagnostics({
+    uri: doc.uri,
+    session,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
+  diagnostics.push(...crossFileDiagnostics);
+  diagnostics.push(...crossFileTypeDiagnostics);
+  return diagnostics;
 }
 
 connection.onInitialize((params) => {
@@ -161,28 +186,8 @@ connection.onInitialize((params) => {
   };
 });
 
-function validateDocument(doc: TextDocument): void {
-  const text = doc.getText();
-  const session = analysisSessions.getForDocument(doc);
-  const diagnostics = collectDiagnosticsFromSession(session, text, (offset) =>
-    doc.positionAt(offset)
-  );
-  const crossFileDiagnostics = collectCrossFileMemberDiagnostics({
-    uri: doc.uri,
-    session,
-    sourceRoots,
-    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
-  });
-  const crossFileTypeDiagnostics = collectCrossFileTypeDiagnostics({
-    uri: doc.uri,
-    session,
-    sourceRoots,
-    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
-  });
-  diagnostics.push(...crossFileDiagnostics);
-  diagnostics.push(...crossFileTypeDiagnostics);
-
-  connection.sendDiagnostics({ uri: doc.uri, diagnostics });
+function validateDocument(doc: LspTextDocument): void {
+  connection.sendDiagnostics({ uri: doc.uri, diagnostics: collectDiagnosticsForDocument(doc) });
 }
 
 function validateAllOpenDocuments(): void {
@@ -510,6 +515,42 @@ connection.onRenameRequest((params) => {
   return null;
 });
 
+connection.languages.diagnostics.on((params) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) {
+    return {
+      kind: DocumentDiagnosticReportKind.Full,
+      items: []
+    };
+  }
+
+  const session = analysisSessions.getForDocument(doc);
+  return createDocumentDiagnosticReport(
+    session,
+    doc.getText(),
+    (offset) => doc.positionAt(offset),
+    String(doc.version)
+  );
+});
+
+connection.languages.diagnostics.onWorkspace(() => {
+  const items = documents.all().map((doc): {
+    kind: typeof DocumentDiagnosticReportKind.Full;
+    items: Diagnostic[];
+    uri: string;
+    version: number;
+    resultId: string;
+  } => ({
+    kind: DocumentDiagnosticReportKind.Full,
+    items: collectDiagnosticsForDocument(doc),
+    uri: doc.uri,
+    version: doc.version,
+    resultId: String(doc.version)
+  }));
+
+  return { items };
+});
+
 connection.onReferences((params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
@@ -665,18 +706,6 @@ connection.languages.callHierarchy.onOutgoingCalls((params) => {
   const ast = analysisSessions.getForDocument(doc).ast;
   return ast ? createOutgoingCalls(ast, doc.uri, params.item) : [];
 });
-
-connection.languages.diagnostics.onWorkspace(() => ({
-  items: documents.all().map((doc) => {
-    const session = analysisSessions.getForDocument(doc);
-    return {
-      kind: "full" as const,
-      uri: doc.uri,
-      version: doc.version,
-      items: collectDiagnosticsFromSession(session, doc.getText(), (offset) => doc.positionAt(offset))
-    };
-  })
-}));
 
 connection.languages.semanticTokens.on((params) => {
   const doc = documents.get(params.textDocument.uri);

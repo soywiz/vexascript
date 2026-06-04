@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { createAnalysisSession } from "./analysisSession";
-import { collectDiagnostics, collectDiagnosticsFromSession } from "./diagnostics";
+import { collectDiagnostics, collectDiagnosticsFromSession, createDocumentDiagnosticReport } from "./diagnostics";
 import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
 function diagnosticsFor(source: string) {
@@ -108,6 +108,22 @@ function empty(): int {
     expect(
       diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR)
     ).toBe(true);
+  });
+
+  it("creates a full document diagnostic report from a session", () => {
+    const source = "function bad() {\n  yield 1\n}\n";
+    const session = createAnalysisSession(source);
+    const doc = TextDocument.create("file:///demo.my", "mylang", 7, source);
+
+    const report = createDocumentDiagnosticReport(session, source, (offset) => doc.positionAt(offset), "7");
+
+    expect(report.kind).toBe("full");
+    if (report.kind === "full") {
+      expect(report.resultId).toBe("7");
+      expect(
+        report.items.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR)
+      ).toBe(true);
+    }
   });
 
   it("does not report missing return diagnostics for ambient class methods", () => {
