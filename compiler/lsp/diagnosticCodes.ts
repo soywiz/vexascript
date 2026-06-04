@@ -22,6 +22,7 @@ export const MYLANG_DIAGNOSTIC_CODES = {
   RETURN_VALUE_REQUIRED: "MYL2014",
   RETURN_TYPE_MISMATCH: "MYL2015",
   YIELD_OUTSIDE_GENERATOR: "MYL2016",
+  OPERATOR_NOT_DEFINED: "MYL2017",
   STYLE_AVOID_ANY: "MYL3001"
 } as const;
 
@@ -45,6 +46,7 @@ export const UNKNOWN_TYPE_PATTERN = /^Unknown type '.+'. Expected builtin type \
 export const READONLY_REASSIGNMENT_PATTERN = /^Cannot assign to '([A-Za-z_][A-Za-z0-9_]*)' because it is a constant$/;
 export const IMPLEMENTS_MISSING_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is missing$/;
 export const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is of type '(.+)' but expected '(.+)'$/;
+export const OPERATOR_NOT_DEFINED_PATTERN = /^Operator '(.+)' is not defined for types '(.+)' and '(.+)'$/;
 
 function diagnosticCodeToString(diagnostic: Diagnostic): string | null {
   const value = diagnostic.code;
@@ -97,6 +99,9 @@ export function classifySemanticDiagnosticMessage(message: string): MyLangDiagno
   }
   if (IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN.test(message)) {
     return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
+  }
+  if (OPERATOR_NOT_DEFINED_PATTERN.test(message)) {
+    return MYLANG_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED;
   }
   return null;
 }

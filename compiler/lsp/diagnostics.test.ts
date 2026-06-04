@@ -124,6 +124,26 @@ function empty(): int {
     ).toBe(true);
   });
 
+  it("anchors undefined operator diagnostics on the operator token", () => {
+    const source =
+      "class Point(val x: number, val y: number) {\n" +
+      "  operator+(other: Point): Point {\n" +
+      "    return new Point(this.x + other.x, this.y + other.y)\n" +
+      "  }\n" +
+      "}\n" +
+      "let b: unknown = undefined\n" +
+      "let result: Point = b / Point(1, 3)\n";
+
+    const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+    const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
+    const diagnostic = diagnostics.find(
+      (item) => item.code === MYLANG_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED
+    );
+
+    expect(diagnostic?.message).toBe("Operator '/' is not defined for types 'unknown' and 'Point'");
+    expect(diagnostic?.range.start).toEqual(doc.positionAt(source.indexOf("/")));
+  });
+
   it("creates a full document diagnostic report from a session", () => {
     const source = "function bad() {\n  yield 1\n}\n";
     const session = createAnalysisSession(source);

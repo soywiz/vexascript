@@ -769,6 +769,13 @@ export class TypeChecker {
           result = overload.type;
         } else {
           result = this.inferBinaryType(binary.operator, leftType, rightType);
+          if (this.shouldReportUndefinedOperator(binary.operator, leftType, rightType, result)) {
+            this.issues.push({
+              message: `Operator '${binary.operator}' is not defined for types '${this.typeToDiagnosticLabel(leftType)}' and '${this.typeToDiagnosticLabel(rightType)}'`,
+              node: this.operatorDiagnosticNode(binary),
+              code: ANALYSIS_ISSUE_CODES.OPERATOR_NOT_DEFINED
+            });
+          }
         }
         break;
       }
@@ -1188,6 +1195,68 @@ export class TypeChecker {
     return null;
   }
 
+  private shouldReportUndefinedOperator(
+    operator: BinaryExpression["operator"],
+    leftType: AnalysisType,
+    rightType: AnalysisType,
+    inferredType: AnalysisType
+  ): boolean {
+    if (inferredType.kind !== "unknown") {
+      return false;
+    }
+    if (leftType.kind === "unknown" && this.isPrimitiveLikeOperatorType(rightType)) {
+      return false;
+    }
+    if (rightType.kind === "unknown" && this.isPrimitiveLikeOperatorType(leftType)) {
+      return false;
+    }
+    return operator === "+" ||
+      operator === "-" ||
+      operator === "*" ||
+      operator === "/" ||
+      operator === "%" ||
+      operator === "**" ||
+      operator === "<<" ||
+      operator === ">>" ||
+      operator === ">>>" ||
+      operator === "&" ||
+      operator === "|" ||
+      operator === "^";
+  }
+
+  private isPrimitiveLikeOperatorType(type: AnalysisType): boolean {
+    if (type.kind === "builtin") {
+      return (
+        type.name === "int" ||
+        type.name === "number" ||
+        type.name === "string" ||
+        type.name === "boolean" ||
+        type.name === "bigint" ||
+        type.name === "long" ||
+        type.name === "any" ||
+        type.name === "void" ||
+        type.name === "null" ||
+        type.name === "undefined"
+      );
+    }
+    if (type.kind === "literal") {
+      return true;
+    }
+    return false;
+  }
+
+  private operatorDiagnosticNode(binary: BinaryExpression): Node {
+    const token = binary.operatorToken;
+    if (!token) {
+      return binary;
+    }
+    return {
+      kind: "BinaryExpression",
+      firstToken: token,
+      lastToken: token
+    } as Node;
+  }
+
   private createMethodSymbol(method: ClassMethodMember): AnalysisSymbol {
     const symbolType = functionType(
       method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
@@ -1264,6 +1333,9 @@ export class TypeChecker {
       operator === "|" ||
       operator === "^"
     ) {
+      if (this.isNumberLikeType(leftType) || this.isNumberLikeType(rightType)) {
+        return builtinType("number");
+      }
       if (this.isBigIntType(leftType) && this.isBigIntType(rightType)) {
         return builtinType("bigint");
       }
@@ -1299,6 +1371,13 @@ export class TypeChecker {
     }
 
     return UNKNOWN_TYPE;
+  }
+
+  private isNumberLikeType(type: AnalysisType): boolean {
+    return (
+      (type.kind === "builtin" && type.name === "number") ||
+      (type.kind === "literal" && type.base === "number")
+    );
   }
 
   private isTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {
