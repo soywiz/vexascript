@@ -3,11 +3,12 @@ import { resolve } from "node:path";
 import { expect } from "vitest";
 import { it } from "vitest";
 import { describe } from "vitest";
+import { Analysis } from "../compiler/analysis/Analysis";
 import { Parser } from "../compiler/parser/parser";
 import { tokenizeReader } from "../compiler/parser/tokenizer";
 
 describe("Parse Typescript Libraries", () => {
-    it.skip("parses testFixtures/moment.d.ts in typescript mode", () => {
+    it("parses testFixtures/moment.d.ts in typescript mode", () => {
         const source = readFileSync(resolve(__dirname, "moment.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
@@ -18,6 +19,7 @@ describe("Parse Typescript Libraries", () => {
         expect((ast.body[0] as { declared?: boolean } | undefined)?.declared).toBe(true);
         expect(parser.tokens.hasMore).toBe(false);
         expect(parser.errors).toEqual([]);
+        expect(() => new Analysis(ast)).not.toThrow();
     });
 
     it("parses testFixtures/typescript-supported.d.ts in typescript mode", () => {
