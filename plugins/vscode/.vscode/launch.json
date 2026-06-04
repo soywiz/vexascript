@@ -5,7 +5,7 @@
       "name": "Run MyLang Extension",
       "type": "extensionHost",
       "request": "launch",
-      "runtimeExecutable": "${execPath}",
+      "runtimeExecutable": "${execPath}/test",
       "preLaunchTask": "mylang: prepare from plugin",
       "autoAttachChildProcesses": true
     }

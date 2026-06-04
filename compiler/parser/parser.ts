@@ -1063,6 +1063,16 @@ export class Parser {
         throw new ParseError(message, token, recoveryHint);
     }
 
+    private canRecoverMissingMemberIdentifier(operator: Token, nextToken?: Token): boolean {
+        if (!nextToken || nextToken.type === "eof") {
+            return false;
+        }
+        if (this.hasLineBreakBetween(operator, nextToken)) {
+            return true;
+        }
+        return nextToken.type === "symbol" && (nextToken.value === "}" || nextToken.value === ";");
+    }
+
     private isVariableDeclarationKeyword(value: string): boolean {
         if (this.language === "typescript") {
             return value === "let" || value === "var" || value === "const";
@@ -2076,6 +2086,17 @@ export class Parser {
                 this.tokens.skip();
                 const property = this.tokens.read();
                 if (property?.type !== "identifier") {
+                    if (this.canRecoverMissingMemberIdentifier(token, property)) {
+                        const errorToken = this.tokenAt(property?.type === "eof" ? token : property ?? token);
+                        this.errors.push({
+                            message: `Expected identifier after '${token.value}'`,
+                            ...(errorToken ? { token: errorToken } : {})
+                        });
+                        if (property && property.type !== "eof") {
+                            this.tokens.offset -= 1;
+                        }
+                        break;
+                    }
                     this.fail(
                         `Expected identifier after '${token.value}'`,
                         this.tokenAt(property?.type === "eof" ? token : property ?? token)

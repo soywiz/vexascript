@@ -3787,6 +3787,42 @@ describe("Parser (with recovery)", () => {
         );
     });
 
+    it("recovers incomplete member access before newline and keeps following declarations", () => {
+        const parser = new Parser(tokenizeReader(
+            "fun demo() {\n" +
+            "  const result: Point = value\n" +
+            "  return result.\n" +
+            "}\n" +
+            "class Point(val x: int, val y: int)\n"
+        ));
+        const ast = parser.parseFile();
+
+        expect(ast.body).toHaveLength(2);
+        expect(ast.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "demo" },
+            body: {
+                body: [
+                    {
+                        kind: "VarStatement",
+                        declarationKind: "const",
+                        name: { kind: "Identifier", name: "result" },
+                        typeAnnotation: { kind: "Identifier", name: "Point" }
+                    },
+                    {
+                        kind: "ReturnStatement",
+                        expression: { kind: "Identifier", name: "result" }
+                    }
+                ]
+            }
+        });
+        expect(ast.body[1]).toMatchObject({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Point" }
+        });
+        expect(parser.errors.map((issue) => issue.message)).toContain("Expected identifier after '.'");
+    });
+
     it("recovers separator errors across newline-heavy continuations until a likely statement start", () => {
         const parser = new Parser(tokenizeReader(
             "{ let a = 1 let b =\n" +

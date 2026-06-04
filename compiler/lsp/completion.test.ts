@@ -93,6 +93,21 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("demo");
   });
 
+  it("resolves member completions from explicitly typed variables", () => {
+    const source =
+      "fun demo() {\n" +
+      "  const result: Point = value\n" +
+      "  return result.\n" +
+      "}\n" +
+      "class Point(val x: int, val y: int)\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 2, 16, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["x", "y"]));
+    expect(labels).not.toEqual(expect.arrayContaining(["result", "value", "true"]));
+  });
+
   it("prioritizes class member completions for member access", () => {
     const source =
       "class Point(val x: int, val y: int) {\n" +

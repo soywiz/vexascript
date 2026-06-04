@@ -17,6 +17,7 @@ import type {
   ForStatement,
   FunctionStatement,
   IfStatement,
+  Identifier,
   LabeledStatement,
   MemberExpression,
   NewExpression,
@@ -26,6 +27,7 @@ import type {
   RangeExpression,
   ReturnStatement,
   Statement,
+  TypeAnnotation,
   SwitchStatement,
   ThrowStatement,
   TryStatement,
@@ -35,11 +37,13 @@ import type {
   WhileStatement,
   WithStatement
 } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
+import { compileSource } from "compiler/pipeline/compile";
 import type { AutoImportSuggestion } from "./importFixes";
 import {
   createClassResolverCache,
@@ -103,6 +107,8 @@ interface MemberAccessTarget {
   objectStartCharacter: number;
   prefix: string;
 }
+
+const COMPLETION_RECOVERY_MEMBER = "__mylang_completion__";
 
 function parseMemberAccessTarget(
   text: string | undefined,
@@ -222,6 +228,29 @@ function nodeRange(node: {
       character: node.lastToken.range.end.column
     }
   };
+}
+
+function findIdentifierAtPosition(
+  ast: Program,
+  line: number,
+  character: number
+): Identifier | null {
+  let best: { identifier: Identifier; size: number } | undefined;
+  walkAst(ast, (node) => {
+    if (node.kind !== "Identifier") {
+      return;
+    }
+    const identifier = node as Identifier;
+    const range = nodeRange(identifier);
+    if (!range || !rangeContainsPosition(range, { line, character })) {
+      return;
+    }
+    const size = rangeSize(range);
+    if (!best || size < best.size) {
+      best = { identifier, size };
+    }
+  });
+  return best ? best.identifier : null;
 }
 
 function comparePosition(
@@ -688,6 +717,114 @@ function inferClassNameFromAstVariableInitializer(
   return bestClassName;
 }
 
+function inferTypeNameFromAstVariableAnnotation(
+  ast: Program,
+  variableName: string,
+  line: number
+): string | null {
+  let bestLine = -1;
+  let bestTypeName: string | null = null;
+
+  const typeNameFromAnnotation = (typeAnnotation: TypeAnnotation | undefined): string | null => {
+    if (!typeAnnotation) {
+      return null;
+    }
+    if (typeAnnotation.kind === "Identifier") {
+      return typeAnnotation.name;
+    }
+    if (typeAnnotation.kind === "TypeReference") {
+      return typeAnnotation.name.name;
+    }
+    return null;
+  };
+
+  const considerDeclaration = (
+    name: string,
+    typeAnnotation: TypeAnnotation | undefined,
+    declarationLine: number
+  ): void => {
+    if (name !== variableName || declarationLine > line) {
+      return;
+    }
+    const typeName = typeNameFromAnnotation(typeAnnotation);
+    if (!typeName) {
+      return;
+    }
+    if (declarationLine >= bestLine) {
+      bestLine = declarationLine;
+      bestTypeName = typeName;
+    }
+  };
+
+  const visitStatements = (statements: Statement[]): void => {
+    for (const statement of statements) {
+      if (statement.kind === "VarStatement") {
+        const varStatement = statement as VarStatement;
+        if (varStatement.declarations && varStatement.declarations.length > 0) {
+          for (const declaration of varStatement.declarations) {
+            for (const identifier of bindingIdentifiers(declaration.name)) {
+              const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+              considerDeclaration(identifier.name, declaration.typeAnnotation, declarationLine);
+            }
+          }
+        } else {
+          for (const identifier of bindingIdentifiers(varStatement.name)) {
+            const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+            considerDeclaration(identifier.name, varStatement.typeAnnotation, declarationLine);
+          }
+        }
+      }
+
+      if (statement.kind === "FunctionStatement") {
+        visitStatements((statement as FunctionStatement).body.body);
+      } else if (statement.kind === "BlockStatement") {
+        visitStatements((statement as BlockStatement).body);
+      } else if (statement.kind === "IfStatement") {
+        const ifStatement = statement as IfStatement;
+        visitStatements([ifStatement.thenBranch]);
+        if (ifStatement.elseBranch) {
+          visitStatements([ifStatement.elseBranch]);
+        }
+      } else if (statement.kind === "WhileStatement" || statement.kind === "DoWhileStatement") {
+        const loopStatement = statement as WhileStatement | DoWhileStatement;
+        visitStatements([loopStatement.body]);
+      } else if (statement.kind === "WithStatement") {
+        visitStatements([(statement as WithStatement).body]);
+      } else if (statement.kind === "LabeledStatement") {
+        visitStatements([(statement as LabeledStatement).body]);
+      } else if (statement.kind === "ForStatement") {
+        const forStatement = statement as ForStatement;
+        if (forStatement.initializer && forStatement.initializer.kind === "VarStatement") {
+          visitStatements([forStatement.initializer]);
+        }
+        visitStatements([forStatement.body]);
+      } else if (statement.kind === "SwitchStatement") {
+        for (const switchCase of (statement as SwitchStatement).cases) {
+          visitStatements(switchCase.consequent);
+        }
+      } else if (statement.kind === "TryStatement") {
+        const tryStatement = statement as TryStatement;
+        visitStatements(tryStatement.tryBlock.body);
+        if (tryStatement.catchClause) {
+          visitStatements(tryStatement.catchClause.body.body);
+        }
+        if (tryStatement.finallyBlock) {
+          visitStatements(tryStatement.finallyBlock.body);
+        }
+      } else if (statement.kind === "ClassStatement") {
+        for (const member of (statement as ClassStatement).members) {
+          if (member.kind === "ClassMethodMember") {
+            visitStatements(member.body.body);
+          }
+        }
+      }
+    }
+  };
+
+  visitStatements(ast.body);
+  return bestTypeName;
+}
+
 function resolveTypeNameFromPath(
   ast: Program,
   analysis: Analysis,
@@ -711,28 +848,52 @@ function resolveTypeNameFromPath(
     return null;
   };
 
+  const identifierAtCursor = pathSegments.length === 1
+    ? findIdentifierAtPosition(ast, line, objectStartCharacter)
+    : null;
+  if (identifierAtCursor) {
+    const expressionTypeName = analysis.getExpressionTypes().get(identifierAtCursor)
+      ? typeToString(analysis.getExpressionTypes().get(identifierAtCursor)!)
+      : null;
+    if (expressionTypeName && expressionTypeName !== "unknown") {
+      return expressionTypeName;
+    }
+    const annotatedTypeName = inferTypeNameFromAstVariableAnnotation(ast, identifierAtCursor.name, line);
+    if (annotatedTypeName) {
+      return annotatedTypeName;
+    }
+  }
+
   const symbolMatch = analysis.getSymbolAt(line, Math.max(0, objectStartCharacter));
   let currentTypeName: string | null = null;
+  const firstSegment = pathSegments[0];
+  if (!firstSegment) {
+    return null;
+  }
 
   const resolvedSymbolMatch = symbolMatch;
-  if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === pathSegments[0]) {
+  if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === firstSegment) {
     currentTypeName = typeNameFromSymbol(resolvedSymbolMatch.symbol);
   } else {
     const visibleSymbols = analysis.getVisibleSymbolsAt(line, objectStartCharacter);
-    const symbol = visibleSymbols.find((candidate) => candidate.name === pathSegments[0]);
+    const symbol = visibleSymbols.find((candidate) => candidate.name === firstSegment);
     if (!symbol) {
-      return null;
+      currentTypeName =
+        inferTypeNameFromAstVariableAnnotation(ast, firstSegment, line) ??
+        inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
+      if (!currentTypeName) {
+        return null;
+      }
+    } else {
+      currentTypeName = typeNameFromSymbol(symbol);
     }
-    currentTypeName = typeNameFromSymbol(symbol);
   }
 
   if (!currentTypeName || currentTypeName === "unknown") {
-    const firstSegment = pathSegments[0];
-    if (firstSegment) {
-      currentTypeName = inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
-    }
+    currentTypeName =
+      inferTypeNameFromAstVariableAnnotation(ast, firstSegment, line) ??
+      inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
   }
-
   for (let index = 1; index < pathSegments.length; index += 1) {
     const memberName = pathSegments[index];
     if (!memberName || !currentTypeName) {
@@ -817,7 +978,8 @@ function buildMemberAccessCompletions(
   analysis: Analysis,
   line: number,
   character: number,
-  options: CompletionRequestOptions
+  options: CompletionRequestOptions,
+  allowRecovery = true
 ): CompletionItem[] | null {
   const target = parseMemberAccessTarget(options.text, line, character);
   if (!target) {
@@ -841,7 +1003,7 @@ function buildMemberAccessCompletions(
     resolverCache
   );
   if (!className) {
-    return null;
+    return allowRecovery ? buildRecoveredMemberAccessCompletions(line, character, options) : null;
   }
 
   const classStatement = resolveClassStatementAcrossFiles(
@@ -851,14 +1013,69 @@ function buildMemberAccessCompletions(
     resolverCache
   )?.classStatement;
   if (!classStatement) {
-    return null;
+    return allowRecovery ? buildRecoveredMemberAccessCompletions(line, character, options) : null;
   }
 
-  return buildClassMemberCompletionItems(classStatement, className, target.prefix, {
+  const items = buildClassMemberCompletionItems(classStatement, className, target.prefix, {
     ast,
     options: resolverOptions,
     cache: resolverCache
   });
+  if (items.length > 0 || !allowRecovery) {
+    return items;
+  }
+  return buildRecoveredMemberAccessCompletions(line, character, options);
+}
+
+function recoverSourceForMemberAccessCompletion(
+  text: string,
+  line: number,
+  character: number
+): string | null {
+  const target = parseMemberAccessTarget(text, line, character);
+  if (!target) {
+    return null;
+  }
+  const lines = text.split("\n");
+  const lineText = lines[line];
+  if (lineText === undefined) {
+    return null;
+  }
+  const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
+  lines[line] =
+    lineText.slice(0, clampedCharacter) +
+    COMPLETION_RECOVERY_MEMBER +
+    lineText.slice(clampedCharacter);
+  return lines.join("\n");
+}
+
+function buildRecoveredMemberAccessCompletions(
+  line: number,
+  character: number,
+  options: CompletionRequestOptions
+): CompletionItem[] | null {
+  if (!options.text) {
+    return null;
+  }
+  const recoveredSource = recoverSourceForMemberAccessCompletion(options.text, line, character);
+  if (!recoveredSource || recoveredSource === options.text) {
+    return null;
+  }
+  const recovered = compileSource(recoveredSource);
+  if (!recovered.ast || !recovered.analysis) {
+    return null;
+  }
+  return buildMemberAccessCompletions(
+    recovered.ast,
+    recovered.analysis,
+    line,
+    character,
+    {
+      ...options,
+      text: recoveredSource
+    },
+    false
+  );
 }
 
 export function createCompletionItemsForPosition(
