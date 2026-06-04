@@ -1676,6 +1676,21 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses an extension operator function statement", () => {
+        expect(parseStatement(tokenizeReader("fun Point.operator+(other: Point): Point { return other }"))).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            receiverType: { kind: "Identifier", name: "Point" },
+            name: { kind: "Identifier", name: "operator+" },
+            operator: "+",
+            parameters: [
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "other" }, typeAnnotation: { kind: "Identifier", name: "Point" } }
+            ],
+            returnType: { kind: "Identifier", name: "Point" },
+            body: { kind: "BlockStatement", body: [{ kind: "ReturnStatement", expression: { kind: "Identifier", name: "other" } }] }
+        });
+    });
+
     it("parses a generic function statement", () => {
         expect(parseStatement(tokenizeReader("fun identity<T>(value: T): T { return value }"))).toEqual({
             kind: "FunctionStatement",

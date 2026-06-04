@@ -206,6 +206,9 @@ export class Binder {
 
       if (statement.kind === "FunctionStatement") {
         const functionStatement = statement as FunctionStatement;
+        if (functionStatement.receiverType) {
+          continue;
+        }
         const symbolType = functionType(
           functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: parameter.name.name,
@@ -381,7 +384,7 @@ export class Binder {
   }
 
   private bindFunctionStatement(statement: FunctionStatement, scope: Scope, declareInParent: boolean): void {
-    if (declareInParent) {
+    if (declareInParent && !statement.receiverType) {
       const symbolType = functionType(
         statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: parameter.name.name,
@@ -402,6 +405,15 @@ export class Binder {
     }
 
     const functionScope = this.createScope(scope, statement);
+    if (statement.receiverType) {
+      this.declare(functionScope, {
+        name: "this",
+        kind: "variable",
+        node: statement.receiverType,
+        type: namedType(statement.receiverType.name),
+        valueType: statement.receiverType.name
+      }, -1);
+    }
     for (const parameter of statement.parameters) {
       if (parameter.thisParameter === true) {
         continue;

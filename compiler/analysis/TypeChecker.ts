@@ -103,6 +103,7 @@ export class TypeChecker {
     "symbol"
   ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
+  private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
   private readonly typeAliasStatementsByName: Map<string, TypeAliasStatement> = new Map();
@@ -121,6 +122,7 @@ export class TypeChecker {
     this.collectTypeAliasStatements(runtimeProgram);
     this.removeRuntimeDeclarationsShadowedByImports(program);
     this.collectClassStatements(program);
+    this.collectExtensionOperators(program);
     this.collectEnumStatements(program);
     this.collectInterfaceStatements(program);
     this.collectTypeAliasStatements(program);
@@ -899,28 +901,35 @@ export class TypeChecker {
       return null;
     }
     const classStatement = this.classStatementsByName.get(leftType.name);
-    if (!classStatement) {
-      return null;
-    }
-    for (const member of classStatement.members) {
+    for (const member of classStatement?.members ?? []) {
       if (member.kind !== "ClassMethodMember") {
         continue;
       }
       const method = member as ClassMethodMember;
-      if (method.operator !== operator || method.parameters.length !== 1) {
-        continue;
-      }
-      const parameterType = method.parameters[0]?.typeAnnotation
-        ? this.resolveTypeAnnotation(method.parameters[0]!.typeAnnotation, scope) ?? UNKNOWN_TYPE
-        : UNKNOWN_TYPE;
-      if (!isUnknownType(parameterType) && !isUnknownType(rightType) && !this.isTypeAssignable(rightType, parameterType)) {
+      if (method.operator !== operator || method.parameters.length !== 1 || !this.operatorParameterMatches(method.parameters[0], rightType, scope)) {
         continue;
       }
       return method.returnType
         ? this.resolveTypeAnnotation(method.returnType, scope) ?? UNKNOWN_TYPE
         : namedType(leftType.name);
     }
+    for (const extension of this.extensionOperatorsByReceiver.get(leftType.name) ?? []) {
+      if (extension.operator !== operator || extension.parameters.length !== 1 || !this.operatorParameterMatches(extension.parameters[0], rightType, scope)) {
+        continue;
+      }
+      return extension.returnType
+        ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
+        : namedType(leftType.name);
+    }
     return null;
+  }
+
+
+  private operatorParameterMatches(parameter: FunctionParameter | undefined, rightType: AnalysisType, scope: Scope): boolean {
+    const parameterType = parameter?.typeAnnotation
+      ? this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
+      : UNKNOWN_TYPE;
+    return isUnknownType(parameterType) || isUnknownType(rightType) || this.isTypeAssignable(rightType, parameterType);
   }
 
   private inferBinaryType(
@@ -2559,6 +2568,27 @@ export class TypeChecker {
       }
       const classStatement = candidate as ClassStatement;
       this.classStatementsByName.set(classStatement.name.name, classStatement);
+    }
+  }
+
+
+  private collectExtensionOperators(program: Program): void {
+    for (const statement of program.body) {
+      const candidate = statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration
+        : statement;
+      if (candidate?.kind !== "FunctionStatement") {
+        continue;
+      }
+      const extension = candidate as FunctionStatement;
+      if (!extension.receiverType || !extension.operator) {
+        continue;
+      }
+      const receiverName = extension.receiverType.name;
+      this.extensionOperatorsByReceiver.set(receiverName, [
+        ...(this.extensionOperatorsByReceiver.get(receiverName) ?? []),
+        extension
+      ]);
     }
   }
 

@@ -2907,9 +2907,34 @@ export class Parser {
             isGeneratorFunction = true;
         }
 
-        const nameToken = this.tokens.read();
-        if (nameToken?.type !== "identifier") {
-            this.fail("Expected function name after declaration keyword", this.tokenAt(nameToken));
+        const firstNameToken = this.tokens.read();
+        if (firstNameToken?.type !== "identifier") {
+            this.fail("Expected function name after declaration keyword", this.tokenAt(firstNameToken));
+        }
+
+        let receiverType: Identifier | undefined;
+        let overloadedOperator: OverloadableOperator | undefined;
+        let nameToken = firstNameToken;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+            this.tokens.skip();
+            receiverType = this.buildIdentifierFromToken(firstNameToken);
+            nameToken = this.tokens.read()!;
+            if (nameToken.type !== "identifier") {
+                this.fail("Expected extension method name after receiver type", this.tokenAt(nameToken));
+            }
+            if (nameToken.value === "operator") {
+                const operatorToken = this.tokens.peek();
+                overloadedOperator = this.operatorOverloadFromToken(operatorToken);
+                if (!overloadedOperator) {
+                    this.fail("Expected overloadable operator after 'operator'", this.tokenAt(operatorToken));
+                }
+                this.tokens.skip();
+                nameToken = {
+                    ...nameToken,
+                    value: `operator${overloadedOperator}`,
+                    range: { start: nameToken.range.start, end: operatorToken!.range.end }
+                };
+            }
         }
 
         const typeParameters = this.parseTypeParameterList();
@@ -2957,6 +2982,12 @@ export class Parser {
             parameters,
             body
         };
+        if (receiverType) {
+            statement.receiverType = receiverType;
+        }
+        if (overloadedOperator) {
+            statement.operator = overloadedOperator;
+        }
         if (isAsyncFunction) {
             statement.async = true;
         }

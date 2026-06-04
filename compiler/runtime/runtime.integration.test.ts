@@ -67,4 +67,19 @@ console.log(total)
     expect(conservativeLogs).toEqual([[10]]);
     expect(optimizedLogs).toEqual([[10]]);
   });
+
+  it("executes extension operator methods", () => {
+    const source = `class Point(val x: int, val y: int) {}
+fun Point.operator+(other: Point): Point {
+  return new Point(this.x + other.x, this.y + other.y)
+}
+let result = new Point(1, 2) + new Point(3, 4)
+console.log(result.x)
+console.log(result.y)
+`;
+
+    const logs = executeTranspiled(source);
+
+    expect(logs).toEqual([[4], [6]]);
+  });
 });

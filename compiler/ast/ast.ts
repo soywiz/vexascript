@@ -282,6 +282,8 @@ export interface FunctionStatement extends Statement {
     generator?: boolean
     missingBody?: boolean
     name: Identifier
+    receiverType?: Identifier
+    operator?: BinaryExpression["operator"]
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     returnType?: Identifier
