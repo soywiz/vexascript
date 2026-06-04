@@ -14,14 +14,12 @@
     "vscodeext:launch": "pnpm vscodeext:install && pnpm build && code --new-window --extensionDevelopmentPath=./plugins/vscode .",
     "vscodeext:launch:insiders": "pnpm vscodeext:install && pnpm build && code-insiders --new-window --extensionDevelopmentPath=./plugins/vscode .",
     "ide": "pnpm vscodeext:launch",
-    "test": "tsc --noEmit && node scripts/run-tests.mjs",
-    "test:watch": "node --watch scripts/run-tests.mjs",
+    "test": "tsc --noEmit && vitest run",
+    "test:watch": "vitest",
     "monaco:install": "pnpm --dir plugins/monaco install",
     "monaco:dev": "pnpm monaco:install && pnpm build && pnpm --dir plugins/monaco dev",
     "monaco:build": "pnpm monaco:install && pnpm build && pnpm --dir plugins/monaco build",
-    "monaco:start": "pnpm build && NODE_ENV=production pnpm --dir plugins/monaco start",
-    "test": "tsc --noEmit && vitest run",
-    "test:watch": "vitest"
+    "monaco:start": "pnpm build && NODE_ENV=production pnpm --dir plugins/monaco start"
   },
   "dependencies": {
     "commander": "^13.1.0",
@@ -31,6 +29,7 @@
   "devDependencies": {
     "@types/node": "^22.15.30",
     "esbuild": "^0.21.5",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.8"
   }
 }
