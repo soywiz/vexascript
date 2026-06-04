@@ -652,7 +652,7 @@ export class Parser {
 
     private parseTypeAnnotationNode(): Identifier {
         const firstToken = this.tokens.peek();
-        const typeName = this.parseUnionTypeAnnotationText();
+        const typeName = this.parseConditionalTypeAnnotationText();
         const lastToken = this.getLastReadToken() ?? firstToken;
         if (!firstToken || !lastToken) {
             this.fail("Expected type identifier", this.tokenAt(firstToken));
@@ -688,6 +688,28 @@ export class Parser {
             }
         };
         return true;
+    }
+
+    private parseConditionalTypeAnnotationText(): string {
+        const checkType = this.parseUnionTypeAnnotationText();
+        const extendsKeyword = this.tokens.peek();
+        if (extendsKeyword?.type !== "identifier" || extendsKeyword.value !== "extends") {
+            return checkType;
+        }
+
+        this.tokens.skip();
+        const constraintType = this.parseUnionTypeAnnotationText();
+        const question = this.tokens.read();
+        if (question?.type !== "symbol" || question.value !== "?") {
+            this.fail("Expected '?' in conditional type annotation", this.tokenAt(question));
+        }
+        const trueType = this.parseConditionalTypeAnnotationText();
+        const colon = this.tokens.read();
+        if (colon?.type !== "symbol" || colon.value !== ":") {
+            this.fail("Expected ':' in conditional type annotation", this.tokenAt(colon));
+        }
+        const falseType = this.parseConditionalTypeAnnotationText();
+        return `${checkType} extends ${constraintType} ? ${trueType} : ${falseType}`;
     }
 
     private parseUnionTypeAnnotationText(): string {
@@ -738,11 +760,11 @@ export class Parser {
                 if (arrow?.type !== "symbol" || arrow.value !== "=>") {
                     this.fail("Expected '=>' in function type annotation", this.tokenAt(arrow));
                 }
-                const returnType = this.parseUnionTypeAnnotationText();
+                const returnType = this.parseConditionalTypeAnnotationText();
                 return `(${parameterText}) => ${returnType}`;
             }
 
-            const innerType = this.parseUnionTypeAnnotationText();
+            const innerType = this.parseConditionalTypeAnnotationText();
             const closeParen = this.tokens.read();
             if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
                 this.fail("Expected ')' to close type annotation", this.tokenAt(closeParen));
@@ -758,7 +780,7 @@ export class Parser {
                     this.tokens.skip();
                     break;
                 }
-                elements.push(this.parseUnionTypeAnnotationText());
+                elements.push(this.parseConditionalTypeAnnotationText());
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
                     this.tokens.skip();
@@ -782,6 +804,20 @@ export class Parser {
                     break;
                 }
 
+                if (this.isMappedTypeMemberStart()) {
+                    properties.push(this.parseMappedTypeMemberText());
+                    const separator = this.tokens.peek();
+                    if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
+                        this.tokens.skip();
+                        continue;
+                    }
+                    if (separator?.type === "symbol" && separator.value === "}") {
+                        this.tokens.skip();
+                        break;
+                    }
+                    this.fail("Expected ',', ';', or '}' after mapped type member", this.tokenAt(separator));
+                }
+
                 const propertyName = this.tokens.read();
                 if (!propertyName || !["identifier", "string", "number"].includes(propertyName.type)) {
                     this.fail("Expected property name in type literal", this.tokenAt(propertyName));
@@ -798,7 +834,7 @@ export class Parser {
                     this.fail("Expected ':' after type literal property name", this.tokenAt(colon));
                 }
 
-                properties.push(`${nameText}: ${this.parseUnionTypeAnnotationText()}`);
+                properties.push(`${nameText}: ${this.parseConditionalTypeAnnotationText()}`);
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && (separator.value === "," || separator.value === ";")) {
                     this.tokens.skip();
@@ -811,6 +847,16 @@ export class Parser {
                 this.fail("Expected ',', ';', or '}' in type literal", this.tokenAt(separator));
             }
             return `{ ${properties.join(", ")} }${this.parseTypeAnnotationSuffixText()}`;
+        }
+
+        if (start?.type === "identifier" && start.value === "infer") {
+            this.tokens.skip();
+            let inferredType = `infer ${this.parsePrimaryTypeAnnotationText()}`;
+            if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
+                this.tokens.skip();
+                inferredType += ` extends ${this.parseUnionTypeAnnotationText()}`;
+            }
+            return inferredType;
         }
 
         if (start?.type === "identifier" && (start.value === "keyof" || start.value === "typeof")) {
@@ -836,6 +882,72 @@ export class Parser {
         return typeName;
     }
 
+    private isMappedTypeMemberStart(): boolean {
+        const first = this.peekToken(0);
+        if (first?.type === "symbol" && first.value === "[") {
+            return true;
+        }
+        if (first?.type === "identifier" && first.value === "readonly") {
+            return this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "[";
+        }
+        return (
+            first?.type === "symbol" &&
+            (first.value === "+" || first.value === "-") &&
+            this.peekToken(1)?.type === "identifier" &&
+            this.peekToken(1)?.value === "readonly" &&
+            this.peekToken(2)?.type === "symbol" &&
+            this.peekToken(2)?.value === "["
+        );
+    }
+
+    private parseMappedTypeMemberText(): string {
+        let readonlyModifier = "";
+        const first = this.tokens.peek();
+        if (first?.type === "symbol" && (first.value === "+" || first.value === "-")) {
+            readonlyModifier = this.tokens.read()!.value;
+        }
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "readonly") {
+            this.tokens.skip();
+            readonlyModifier += "readonly ";
+        }
+
+        const openBracket = this.tokens.read();
+        const parameter = this.tokens.read();
+        if (parameter?.type !== "identifier") {
+            this.fail("Expected type parameter name in mapped type", this.tokenAt(parameter ?? openBracket));
+        }
+        const inKeyword = this.tokens.read();
+        if (inKeyword?.type !== "identifier" || inKeyword.value !== "in") {
+            this.fail("Expected 'in' in mapped type", this.tokenAt(inKeyword));
+        }
+        const keyType = this.parseConditionalTypeAnnotationText();
+        let remappedKey = "";
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+            this.tokens.skip();
+            remappedKey = ` as ${this.parseConditionalTypeAnnotationText()}`;
+        }
+        const closeBracket = this.tokens.read();
+        if (closeBracket?.type !== "symbol" || closeBracket.value !== "]") {
+            this.fail("Expected ']' after mapped type key", this.tokenAt(closeBracket));
+        }
+        let optionalModifier = "";
+        if (this.tokens.peek()?.type === "symbol" && (this.tokens.peek()?.value === "+" || this.tokens.peek()?.value === "-")) {
+            optionalModifier = this.tokens.read()!.value;
+        }
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+            this.tokens.skip();
+            optionalModifier += "?";
+        } else if (optionalModifier !== "") {
+            this.fail("Expected '?' after mapped type optional modifier", this.tokenAt(this.tokens.peek()));
+        }
+        const colon = this.tokens.read();
+        if (colon?.type !== "symbol" || colon.value !== ":") {
+            this.fail("Expected ':' after mapped type key", this.tokenAt(colon));
+        }
+        const valueType = this.parseConditionalTypeAnnotationText();
+        return `${readonlyModifier}[${parameter.value} in ${keyType}${remappedKey}]${optionalModifier}: ${valueType}`;
+    }
+
     private parseTypeAnnotationSuffixText(): string {
         let suffix = "";
         while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "[") {
@@ -846,7 +958,7 @@ export class Parser {
                 continue;
             }
 
-            const indexType = this.parseUnionTypeAnnotationText();
+            const indexType = this.parseConditionalTypeAnnotationText();
             const close = this.tokens.read();
             if (close?.type !== "symbol" || close.value !== "]") {
                 this.fail("Expected ']' to close indexed access type", this.tokenAt(close));
@@ -908,7 +1020,7 @@ export class Parser {
 
         const args: string[] = [];
         while (this.tokens.hasMore) {
-            args.push(this.parseUnionTypeAnnotationText());
+            args.push(this.parseConditionalTypeAnnotationText());
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
                 this.tokens.skip();

@@ -2339,6 +2339,29 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses mapped, conditional, and infer type annotations", () => {
+        expect(parseStatement(tokenizeReader("type Optional<T> = { [K in keyof T]?: T[K] }"))).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: "{ [K in keyof T]?: T[K] }" }
+        });
+        expect(parseStatement(tokenizeReader("type Concrete<T> = { -readonly [K in keyof T as K]-?: T[K] }"))).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: "{ -readonly [K in keyof T as K]-?: T[K] }" }
+        });
+        expect(parseStatement(tokenizeReader("type Element<T> = T extends (infer U)[] ? U : T"))).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: "T extends (infer U)[] ? U : T" }
+        });
+        expect(parseStatement(tokenizeReader("type Constrained<T> = T extends infer U extends string ? U : never"))).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: "T extends infer U extends string ? U : never" }
+        });
+        expect(parseStatement(tokenizeReader("type Recursive<T> = T extends string ? true : T extends number ? false : never"))).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: "T extends string ? true : T extends number ? false : never" }
+        });
+    });
+
     it("parses keyof, typeof type queries, and indexed access type annotations", () => {
         expect(parseStatement(tokenizeReader("let key: keyof Person"))).toMatchObject({
             kind: "VarStatement",
