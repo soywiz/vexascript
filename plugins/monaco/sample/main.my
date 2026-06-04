@@ -1,0 +1,147 @@
+// MyLang Monaco Editor — demo file
+// Try: hover over symbols · Ctrl+Space for completion · F12 for definition
+//      Shift+F12 for references · F2 to rename · Shift+Alt+F to format
+
+// ── Type declarations ─────────────────────────────────────────────────────────
+
+declare class Math {
+    static sqrt(x: number): number
+    static abs(x: number): number
+    static max(a: number, b: number): number
+    static min(a: number, b: number): number
+}
+
+declare class Console {
+    log(message: any): void
+}
+
+declare var console: Console
+
+// ── Interfaces ────────────────────────────────────────────────────────────────
+
+interface Shape {
+    area(): number
+    perimeter(): number
+    describe(): string
+}
+
+interface Comparable<T> {
+    compareTo(other: T): number
+}
+
+// ── Generic container ─────────────────────────────────────────────────────────
+
+class Stack<T> {
+    items: T[]
+    size: number
+
+    push(item: T): void {
+        this.size = this.size + 1
+    }
+
+    pop(): T {
+        this.size = this.size - 1
+        return this.items[0]
+    }
+
+    peek(): T {
+        return this.items[0]
+    }
+
+    isEmpty(): boolean {
+        return this.size === 0
+    }
+}
+
+// ── Concrete shapes ───────────────────────────────────────────────────────────
+
+class Rectangle implements Shape {
+    width: number
+    height: number
+
+    area(): number {
+        return this.width * this.height
+    }
+
+    perimeter(): number {
+        return 2 * (this.width + this.height)
+    }
+
+    describe(): string {
+        return "Rectangle(" + this.width + "x" + this.height + ")"
+    }
+}
+
+class Circle implements Shape, Comparable<Circle> {
+    radius: number
+
+    area(): number {
+        return 3.14159 * this.radius * this.radius
+    }
+
+    perimeter(): number {
+        return 2 * 3.14159 * this.radius
+    }
+
+    describe(): string {
+        return "Circle(r=" + this.radius + ")"
+    }
+
+    compareTo(other: Circle): number {
+        return this.radius - other.radius
+    }
+}
+
+// ── Utility functions ─────────────────────────────────────────────────────────
+
+fun printShape(shape: Shape): void {
+    console.log(shape.describe())
+    console.log("  area:      " + shape.area())
+    console.log("  perimeter: " + shape.perimeter())
+}
+
+fun factorial(n: number): number {
+    if (n <= 1) return 1
+    return n * factorial(n - 1)
+}
+
+fun sumRange(lo: number, hi: number): number {
+    var total = 0
+    for (i in lo...hi) {
+        total = total + i
+    }
+    return total
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+fun main(): void {
+    // Polymorphism via interface
+    const rect = new Rectangle()
+    rect.width = 8
+    rect.height = 5
+    printShape(rect)
+
+    const circle = new Circle()
+    circle.radius = 4
+    printShape(circle)
+
+    const big = new Circle()
+    big.radius = 10
+    console.log("big vs circle: " + big.compareTo(circle))
+
+    // Generic stack
+    const stack = new Stack<number>()
+    for (n in 1...6) {
+        stack.push(n * n)
+    }
+    console.log("stack size: " + stack.size)
+
+    // Arithmetic
+    console.log("10! = " + factorial(10))
+    console.log("sum 1..100 = " + sumRange(1, 101))
+    console.log("sqrt(2) ≈ " + Math.sqrt(2))
+
+    // Try introducing a type error to see diagnostics:
+    // const x: number = "this should be an error"
+}
