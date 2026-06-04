@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Node, Program } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
 
 export const ECMASCRIPT_RUNTIME_DECLARATION_FILE_NAME = "ecmascript.d.my";
@@ -30,34 +31,7 @@ export function getEcmaScriptRuntimeDeclarationFilePath(): string {
 
 function collectNodes(root: Program): WeakSet<object> {
   const nodes = new WeakSet<object>();
-  const seen = new WeakSet<object>();
-
-  const visit = (value: unknown): void => {
-    if (!value || typeof value !== "object") {
-      return;
-    }
-    const objectValue = value as Record<string, unknown>;
-    if (seen.has(objectValue)) {
-      return;
-    }
-    seen.add(objectValue);
-
-    if (typeof objectValue["kind"] === "string") {
-      nodes.add(objectValue);
-    }
-
-    for (const child of Object.values(objectValue)) {
-      if (Array.isArray(child)) {
-        for (const item of child) {
-          visit(item);
-        }
-      } else if (child && typeof child === "object") {
-        visit(child);
-      }
-    }
-  };
-
-  visit(root);
+  walkAst(root, (node) => nodes.add(node));
   return nodes;
 }
 

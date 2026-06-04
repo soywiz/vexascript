@@ -81,4 +81,32 @@ fun demo() {
       )
     ).toBe(true);
   });
+
+  it("reports unknown members nested in arrow-function expressions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-member-diag-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    const worldSource = "class MyPoint(const x: number) { }\n";
+    const helloSource =
+      'import { MyPoint } from "./world"\n' +
+      "fun demo() {\n" +
+      "  const point = new MyPoint(1)\n" +
+      "  const inspect = () => point.missing\n" +
+      "}\n";
+
+    await writeFile(worldFile, worldSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    const diagnostics = collectCrossFileMemberDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      "Property 'missing' does not exist on type 'MyPoint'"
+    );
+  });
 });
