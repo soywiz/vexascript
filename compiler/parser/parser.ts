@@ -1318,13 +1318,14 @@ export class Parser {
         this.fail("Expected ';', newline, 'case', 'default', or '}' between switch statements", next, "switch");
     }
 
-    private buildBinary(operator: BinaryOperator, left: Expr, right: Expr): BinaryExpression {
-        return this.attachNodeBounds({
+    private buildBinary(operator: BinaryOperator, operatorToken: Token, left: Expr, right: Expr): BinaryExpression {
+        const binary = this.attachNodeBounds({
             kind: "BinaryExpression",
             operator,
             left,
             right
         } as BinaryExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
+        return this.attachNonEnumerableToken(binary, "operatorToken", operatorToken);
     }
 
     private binaryOperatorFromToken(token: Token | undefined): InfixOperator | undefined {
@@ -1372,7 +1373,7 @@ export class Parser {
                 continue;
             }
 
-            left = this.buildBinary(operator, left, right);
+            left = this.buildBinary(operator, token as Token, left, right);
         }
 
         return left;

@@ -21,7 +21,7 @@
       "command": "pnpm",
       "args": ["build"],
       "options": {
-        "cwd": "${workspaceFolder}/plugins/vscode"
+        "cwd": "${workspaceFolder}"
       },
       "presentation": {
         "reveal": "always",

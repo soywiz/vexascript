@@ -257,7 +257,9 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
   }
 
   const definition = context.session.analysis.getDefinitionAt(context.line, context.character);
-  const symbolAt = context.session.analysis.getSymbolAt(context.line, context.character);
+  const symbolAt =
+    context.session.analysis.getSymbolAt(context.line, context.character) ??
+    context.session.analysis.getOperatorSymbolAt(context.line, context.character);
   if (!definition || !symbolAt) {
     return null;
   }

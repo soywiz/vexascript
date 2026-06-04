@@ -59,6 +59,7 @@ import type {
   CheckedAnalysis,
   FlowContext,
   IdentifierResolution,
+  OperatorResolution,
   Scope
 } from "./model";
 import {
@@ -94,6 +95,7 @@ import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarat
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
   private readonly identifierResolutions: IdentifierResolution[] = [];
+  private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private static readonly BUILTIN_TYPE_NAMES = new Set([
     "int",
@@ -150,6 +152,7 @@ export class TypeChecker {
     return {
       issues: [...this.issues],
       identifierResolutions: [...this.identifierResolutions],
+      operatorResolutions: [...this.operatorResolutions],
       expressionTypes: this.expressionTypes
     };
   }
@@ -757,7 +760,16 @@ export class TypeChecker {
         const binary = expression as BinaryExpression;
         const leftType = this.visitExpression(binary.left, scope);
         const rightType = this.visitExpression(binary.right, scope);
-        result = this.resolveOperatorOverloadType(binary.operator, leftType, rightType, scope) ?? this.inferBinaryType(binary.operator, leftType, rightType);
+        const overload = this.resolveOperatorOverload(binary.operator, leftType, rightType, scope);
+        if (overload) {
+          this.operatorResolutions.push({
+            expression: binary,
+            symbol: overload.symbol
+          });
+          result = overload.type;
+        } else {
+          result = this.inferBinaryType(binary.operator, leftType, rightType);
+        }
         break;
       }
       case "RangeExpression": {
@@ -1137,12 +1149,12 @@ export class TypeChecker {
     return result;
   }
 
-  private resolveOperatorOverloadType(
+  private resolveOperatorOverload(
     operator: BinaryExpression["operator"],
     leftType: AnalysisType,
     rightType: AnalysisType,
     scope: Scope
-  ): AnalysisType | null {
+  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
     if (leftType.kind !== "named") {
       return null;
     }
@@ -1155,19 +1167,67 @@ export class TypeChecker {
       if (method.operator !== operator || method.parameters.length !== 1 || !this.operatorParameterMatches(method.parameters[0], rightType, scope)) {
         continue;
       }
-      return method.returnType
-        ? this.resolveTypeAnnotation(method.returnType, scope) ?? UNKNOWN_TYPE
-        : namedType(leftType.name);
+      return {
+        type: method.returnType
+          ? this.resolveTypeAnnotation(method.returnType, scope) ?? UNKNOWN_TYPE
+          : namedType(leftType.name),
+        symbol: this.createMethodSymbol(method)
+      };
     }
     for (const extension of this.extensionOperatorsByReceiver.get(leftType.name) ?? []) {
       if (extension.operator !== operator || extension.parameters.length !== 1 || !this.operatorParameterMatches(extension.parameters[0], rightType, scope)) {
         continue;
       }
-      return extension.returnType
-        ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
-        : namedType(leftType.name);
+      return {
+        type: extension.returnType
+          ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
+          : namedType(leftType.name),
+        symbol: this.createFunctionSymbol(extension)
+      };
     }
     return null;
+  }
+
+  private createMethodSymbol(method: ClassMethodMember): AnalysisSymbol {
+    const symbolType = functionType(
+      method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+        name: bindingNameText(parameter.name),
+        type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
+      })),
+      this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE,
+      method.typeParameters?.map((parameter) => parameter.name.name)
+    );
+    return {
+      name: method.name.name,
+      kind: "method",
+      node: method.name,
+      declaredOffset: method.name.firstToken?.range.start.offset ?? -1,
+      type: symbolType,
+      valueType: typeToString(symbolType)
+    };
+  }
+
+  private createFunctionSymbol(statement: FunctionStatement): AnalysisSymbol {
+    const symbolType = functionType(
+      statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+        name: bindingNameText(parameter.name),
+        type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
+      })),
+      this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE,
+      statement.typeParameters?.map((parameter) => parameter.name.name)
+    );
+    return {
+      name: statement.name.name,
+      kind: "function",
+      node: statement.name,
+      declaredOffset: statement.name.firstToken?.range.start.offset ?? -1,
+      type: symbolType,
+      valueType: typeToString(symbolType)
+    };
   }
 
 

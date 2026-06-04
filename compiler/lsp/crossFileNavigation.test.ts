@@ -71,6 +71,42 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves go-to-definition from operator usage to the operator declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const file = join(root, "point.my");
+
+    const source =
+      "class Point(val x: number, val y: number) {\n" +
+      "  operator+(other: Point): Point {\n" +
+      "    return new Point(this.x + other.x, this.y + other.y)\n" +
+      "  }\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  let p = new Point(1, 2)\n" +
+      "  let q = new Point(3, 4)\n" +
+      "  let r = p + q\n" +
+      "}\n";
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const location = resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 8,
+      character: 12,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(file).toString(),
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 11 }
+      }
+    });
+  });
+
   it("provides hover info for primary constructor members", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const file = join(root, "world.my");

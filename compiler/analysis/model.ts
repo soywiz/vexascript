@@ -1,4 +1,5 @@
 import type { Node } from "compiler/ast/ast";
+import type { BinaryExpression } from "compiler/ast/ast";
 import type { AnalysisType } from "./types";
 import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
 
@@ -48,8 +49,14 @@ export interface IdentifierResolution {
   symbol: AnalysisSymbol;
 }
 
+export interface OperatorResolution {
+  expression: BinaryExpression;
+  symbol: AnalysisSymbol;
+}
+
 export interface CheckedAnalysis {
   issues: AnalysisIssue[];
   identifierResolutions: IdentifierResolution[];
+  operatorResolutions: OperatorResolution[];
   expressionTypes: Map<Node, AnalysisType>;
 }

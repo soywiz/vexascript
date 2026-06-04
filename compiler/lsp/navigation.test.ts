@@ -82,6 +82,73 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("provides hover and definition for operator uses that resolve to class overloads", () => {
+    const source =
+      "class Point(val x: number, val y: number) {\n" +
+      "  operator+(other: Point): Point {\n" +
+      "    return new Point(this.x + other.x, this.y + other.y)\n" +
+      "  }\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  let p = new Point(1, 2)\n" +
+      "  let q = new Point(3, 4)\n" +
+      "  let r = p + q\n" +
+      "}\n";
+    const analysis = analysisOf(source);
+
+    const hover = createHover(analysis, 8, 12);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "method operator+: (other: Point) => Point"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 8, character: 12 },
+      end: { line: 8, character: 13 }
+    });
+
+    const definition = createDefinitionLocation(analysis, URI, 8, 12);
+    expect(definition).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 11 }
+      }
+    });
+  });
+
+  it("provides hover and definition for extension operator uses", () => {
+    const source =
+      "class Point(val x: number, val y: number)\n" +
+      "fun Point.operator+(other: Point): Point {\n" +
+      "  return new Point(this.x + other.x, this.y + other.y)\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  let p = new Point(1, 2)\n" +
+      "  let q = new Point(3, 4)\n" +
+      "  let r = p + q\n" +
+      "}\n";
+    const analysis = analysisOf(source);
+
+    const hover = createHover(analysis, 7, 12);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "function operator+: (other: Point) => Point"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 7, character: 12 },
+      end: { line: 7, character: 13 }
+    });
+
+    const definition = createDefinitionLocation(analysis, URI, 7, 12);
+    expect(definition).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 1, character: 10 },
+        end: { line: 1, character: 19 }
+      }
+    });
+  });
+
   it("supports prepare rename and rename workspace edits", () => {
     const source = "fun demo() {\n  let local = 1\n  return local\n}\n";
     const analysis = analysisOf(source);

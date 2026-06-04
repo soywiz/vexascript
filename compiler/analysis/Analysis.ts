@@ -1,9 +1,10 @@
-import type { Node, Program } from "compiler/ast/ast";
+import type { BinaryExpression, Node, Program } from "compiler/ast/ast";
 import { Binder } from "./Binder";
 import type {
   AnalysisIssue,
   AnalysisSymbol,
   IdentifierResolution,
+  OperatorResolution,
   Scope
 } from "./model";
 import { TypeChecker } from "./TypeChecker";
@@ -30,6 +31,7 @@ export class Analysis {
   private readonly rootScope: Scope;
   private readonly issues: AnalysisIssue[];
   private readonly identifierResolutions: IdentifierResolution[];
+  private readonly operatorResolutions: OperatorResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
 
   constructor(program: Program) {
@@ -39,6 +41,7 @@ export class Analysis {
     const checked = new TypeChecker(program, bound).check();
     this.issues = checked.issues;
     this.identifierResolutions = checked.identifierResolutions;
+    this.operatorResolutions = checked.operatorResolutions;
     this.expressionTypes = checked.expressionTypes;
   }
 
@@ -103,7 +106,7 @@ export class Analysis {
   }
 
   getDefinitionAt(line: number, character: number): AnalysisSymbolMatch | null {
-    const at = this.getSymbolAt(line, character);
+    const at = this.getSymbolAt(line, character) ?? this.getOperatorSymbolAt(line, character);
     if (!at) {
       return null;
     }
@@ -204,7 +207,7 @@ export class Analysis {
   }
 
   getHoverAt(line: number, character: number): AnalysisHoverInfo | null {
-    const symbolMatch = this.getSymbolAt(line, character);
+    const symbolMatch = this.getSymbolAt(line, character) ?? this.getOperatorSymbolAt(line, character);
     if (symbolMatch) {
       const typeLabel = symbolMatch.symbol.valueType ?? "unknown";
       return {
@@ -222,6 +225,21 @@ export class Analysis {
       contents: `expression: ${typeToString(expressionMatch.type)}`,
       range: expressionMatch.range
     };
+  }
+
+  getOperatorSymbolAt(line: number, character: number): AnalysisSymbolMatch | null {
+    let best: AnalysisSymbolMatch | null = null;
+    for (const resolution of this.operatorResolutions) {
+      const range = this.operatorRange(resolution.expression);
+      if (!range || !this.rangeContains(range, line, character)) {
+        continue;
+      }
+      const candidate: AnalysisSymbolMatch = { symbol: resolution.symbol, range };
+      if (!best || this.rangeSize(candidate.range) < this.rangeSize(best.range)) {
+        best = candidate;
+      }
+    }
+    return best;
   }
 
   private findSmallestExpressionTypeAt(
@@ -252,6 +270,23 @@ export class Analysis {
     return {
       type: best.type,
       range: best.range
+    };
+  }
+
+  private operatorRange(expression: BinaryExpression): AnalysisRange | null {
+    const token = expression.operatorToken;
+    if (!token) {
+      return null;
+    }
+    return {
+      start: {
+        line: token.range.start.line,
+        character: token.range.start.column
+      },
+      end: {
+        line: token.range.end.line,
+        character: token.range.end.column
+      }
     };
   }
 
