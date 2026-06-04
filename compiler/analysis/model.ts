@@ -11,6 +11,7 @@ export interface AnalysisSymbol {
   node: Node;
   declaredOffset: number;
   isReadonly?: boolean;
+  implicitReceiver?: boolean;
   type?: AnalysisType;
   valueType?: AnalysisValueType;
 }

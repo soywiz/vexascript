@@ -104,6 +104,7 @@ export class TypeChecker {
   ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
+  private readonly extensionMethodsByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
   private readonly extensionPropertiesByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
   private readonly importedExtensionPropertyNames: Set<string> = new Set();
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
@@ -125,6 +126,7 @@ export class TypeChecker {
     this.removeRuntimeDeclarationsShadowedByImports(program);
     this.collectClassStatements(program);
     this.collectExtensionOperators(program);
+    this.collectExtensionMethods(program);
     this.collectImportedExtensionPropertyNames(program);
     this.collectEnumStatements(program);
     this.collectInterfaceStatements(program);
@@ -2633,6 +2635,49 @@ export class TypeChecker {
   }
 
 
+  private resolveExtensionMemberType(objectType: AnalysisType, memberName: string): AnalysisType | null {
+    const propertyType = this.resolveExtensionPropertyType(objectType, memberName);
+    if (propertyType) {
+      return propertyType;
+    }
+    const receiverNames: string[] = [];
+    if (objectType.kind === "builtin") {
+      receiverNames.push(objectType.name);
+      if (objectType.name === "int") receiverNames.push("number");
+    } else if (objectType.kind === "named") {
+      receiverNames.push(objectType.name);
+    }
+    for (const receiverName of receiverNames) {
+      const methodType = this.extensionMethodsByReceiver.get(receiverName)?.get(memberName);
+      if (methodType) return methodType;
+    }
+    return null;
+  }
+
+  private collectExtensionMethods(program: Program): void {
+    for (const statement of program.body) {
+      const candidate = statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration
+        : statement;
+      if (candidate?.kind !== "FunctionStatement") continue;
+      const extension = candidate as FunctionStatement;
+      if (!extension.receiverType || extension.operator) continue;
+      const methods = this.extensionMethodsByReceiver.get(extension.receiverType.name) ?? new Map<string, AnalysisType>();
+      methods.set(extension.name.name, functionType(
+        extension.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+          name: parameter.name.name,
+          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
+        })),
+        this.typeFromAnnotationLoose(extension.returnType) ?? UNKNOWN_TYPE,
+        extension.typeParameters?.map((parameter) => parameter.name.name)
+      ));
+      this.extensionMethodsByReceiver.set(extension.receiverType.name, methods);
+    }
+  }
+
+
   private collectExtensionOperators(program: Program): void {
     for (const statement of program.body) {
       const candidate = statement.kind === "ExportStatement"
@@ -2734,7 +2779,7 @@ export class TypeChecker {
     }
 
     const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-    if (this.resolveExtensionPropertyType(objectType, propertyName) || this.importedExtensionPropertyNames.has(propertyName)) {
+    if (this.resolveExtensionMemberType(objectType, propertyName) || this.importedExtensionPropertyNames.has(propertyName)) {
       return;
     }
 
@@ -2851,7 +2896,7 @@ export class TypeChecker {
     }
 
     const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-    const extensionType = this.resolveExtensionPropertyType(objectType, memberName);
+    const extensionType = this.resolveExtensionMemberType(objectType, memberName);
     if (extensionType) {
       return extensionType;
     }

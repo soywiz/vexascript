@@ -99,6 +99,7 @@ let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
 let activeExtensionProperties: Map<string, string> = new Map();
 let activeClassNames: Set<string> = new Set();
 let activeExtensionThis = false;
+let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
 
 const PREC_COMMA = 1;
 const PREC_ASSIGNMENT = 2;
@@ -422,7 +423,13 @@ function collectExtensionProperties(program: Program): Map<string, string> {
 }
 
 function emitIdentifier(identifier: Identifier): string {
-  return activeExtensionThis && identifier.name === "this" ? "$this" : identifier.name;
+  if (activeExtensionThis && identifier.name === "this") {
+    return "$this";
+  }
+  if (activeImplicitReceiverIdentifiers.has(identifier)) {
+    return `${activeExtensionThis ? "$this" : "this"}.${identifier.name}`;
+  }
+  return identifier.name;
 }
 
 function eraseTypeArguments(typeName: string): string {
@@ -1035,22 +1042,26 @@ export function emitStatement(statement: Statement): string {
 
 export function emitProgram(
   program: Program,
-  expressionTypes?: ReadonlyMap<Node, AnalysisType>
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>,
+  implicitReceiverIdentifiers?: ReadonlySet<Node>
 ): string {
-  return emitProgramStatements(program, expressionTypes).join("\n");
+  return emitProgramStatements(program, expressionTypes, program, implicitReceiverIdentifiers).join("\n");
 }
 
 export function emitProgramStatements(
   program: Program,
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
-  contextProgram: Program = program
+  contextProgram: Program = program,
+  implicitReceiverIdentifiers: ReadonlySet<Node> = new Set()
 ): string[] {
   const previous = activeExpressionTypes;
   const previousOverloads = activeProgramOverloads;
   const previousOperators = activeOperators;
   const previousExtensionProperties = activeExtensionProperties;
   const previousClassNames = activeClassNames;
+  const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
   activeExpressionTypes = expressionTypes;
+  activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
   activeProgramOverloads = collectRuntimeOverloads(contextProgram);
   activeOperators = collectOperators(contextProgram);
   activeExtensionProperties = collectExtensionProperties(contextProgram);
@@ -1065,5 +1076,6 @@ export function emitProgramStatements(
     activeOperators = previousOperators;
     activeExtensionProperties = previousExtensionProperties;
     activeClassNames = previousClassNames;
+    activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
   }
 }

@@ -152,6 +152,25 @@ describe("one")  // emits as describe$$string("one")
 
 Signature-only overload declarations may be written without a body and are omitted from JavaScript output.
 
+### Implicit member access
+
+Inside a class method or field initializer, class members can be referenced without writing `this.`. Parameters and local variables still shadow members with the same name. JavaScript emission qualifies each resolved implicit member with `this.`:
+
+```my
+class Counter(val value: int) {
+  increment(amount: int): int {
+    return value + amount // emits as: return this.value + amount
+  }
+}
+```
+
+The same implicit receiver lookup is available inside extension methods and extension properties. Extension methods emit implicit members with `this.`, while extension-property arrow functions use their generated receiver parameter:
+
+```my
+fun Counter.doubled(): int { return value + value }
+val Counter.next => increment(1)
+```
+
 ### Operator overloads
 
 Classes can declare binary operator overload methods with `operator` followed by the operator token. Mangled runtime names use `$` for operator names and `$$` before the parameter-type signature. The runtime lowering rewrites matching binary expressions to method calls:

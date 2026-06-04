@@ -69,6 +69,14 @@ export class Analysis {
     return this.expressionTypes;
   }
 
+  getImplicitReceiverIdentifiers(): ReadonlySet<Node> {
+    return new Set(
+      this.identifierResolutions
+        .filter((resolution) => resolution.symbol.implicitReceiver === true)
+        .map((resolution) => resolution.identifier)
+    );
+  }
+
   getSymbolAt(line: number, character: number): AnalysisSymbolMatch | null {
     for (const resolution of this.identifierResolutions) {
       const range = this.nodeToRange(resolution.identifier);
