@@ -310,6 +310,7 @@ export interface FunctionStatement extends Statement {
     async?: boolean
     generator?: boolean
     missingBody?: boolean
+    jsImpl?: string
     name: Identifier
     receiverType?: Identifier
     operator?: BinaryExpression["operator"]

@@ -45,6 +45,21 @@ pnpm test
 pnpm test:watch
 ```
 
+MyLang test files use the `.test.my` suffix and have inline `test` and `assert` helpers available without imports:
+
+```my
+test(() => {
+  assert(1 + 1 == 2)
+})
+```
+
+Run every `.test.my` file below the current directory, or pass one or more files/directories to limit discovery:
+
+```bash
+pnpm run cli test
+pnpm run cli test compiler-tests math.test.my
+```
+
 ## CLI usage
 
 ### Compile a file

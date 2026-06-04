@@ -95,10 +95,16 @@ interface RuntimeOperatorInfo extends RuntimeOverloadInfo {
   operator: BinaryExpression["operator"];
 }
 
+interface JavaScriptImplementationInfo {
+  template: string;
+  parameters: FunctionParameter[];
+}
+
 let activeProgramOverloads: Map<string, RuntimeOverloadInfo[]> = new Map();
 let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
 let activeExtensionProperties: Map<string, string> = new Map();
 let activeClassNames: Set<string> = new Set();
+let activeJavaScriptImplementations: Map<string, JavaScriptImplementationInfo> = new Map();
 let activeExtensionThis = false;
 let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
 
@@ -269,6 +275,32 @@ function resolveOverloadedFunctionCall(call: CallExpression): string | null {
   return match?.emittedName ?? null;
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function emitJavaScriptImplementationCall(call: CallExpression): string | null {
+  if (call.optional === true || call.callee.kind !== "Identifier") {
+    return null;
+  }
+  const implementation = activeJavaScriptImplementations.get((call.callee as Identifier).name);
+  if (!implementation) {
+    return null;
+  }
+
+  let emitted = implementation.template;
+  const parameters = implementation.parameters.filter((parameter) => parameter.thisParameter !== true);
+  for (const [index, parameter] of parameters.entries()) {
+    if (parameter.name.kind !== "Identifier") {
+      continue;
+    }
+    const argument = call.arguments[index] ?? parameter.defaultValue;
+    const replacement = argument ? `(${emitListElement(argument)})` : "undefined";
+    emitted = emitted.replace(new RegExp(`\\b${escapeRegExp(parameter.name.name)}\\b`, "g"), replacement);
+  }
+  return emitted;
+}
+
 function resolveOperatorMethodName(binary: BinaryExpression): string | null {
   const leftType = activeExpressionTypes?.get(binary.left as unknown as Node);
   if (leftType?.kind !== "named") {
@@ -322,6 +354,21 @@ function collectClassNames(program: Program): Set<string> {
     const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
     if (candidate?.kind === "ClassStatement") {
       result.add((candidate as ClassStatement).name.name);
+    }
+  }
+  return result;
+}
+
+function collectJavaScriptImplementations(program: Program): Map<string, JavaScriptImplementationInfo> {
+  const result = new Map<string, JavaScriptImplementationInfo>();
+  for (const statement of program.body) {
+    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    if (candidate?.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = candidate as FunctionStatement;
+    if (fn.jsImpl !== undefined) {
+      result.set(fn.name.name, { template: fn.jsImpl, parameters: fn.parameters });
     }
   }
   return result;
@@ -568,6 +615,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "CallExpression": {
         const call = expression as CallExpression;
+        const javaScriptImplementation = emitJavaScriptImplementationCall(call);
+        if (javaScriptImplementation) {
+          return javaScriptImplementation;
+        }
         const overloadedName = resolveOverloadedFunctionCall(call);
         const calleeText = overloadedName ?? emitExpression(call.callee, PREC_MEMBER, "left");
         const argumentsText = call.arguments.map((argument) => emitListElement(argument)).join(", ");
@@ -1083,6 +1134,7 @@ export function emitProgramStatements(
   const previousOperators = activeOperators;
   const previousExtensionProperties = activeExtensionProperties;
   const previousClassNames = activeClassNames;
+  const previousJavaScriptImplementations = activeJavaScriptImplementations;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
   activeExpressionTypes = expressionTypes;
   activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
@@ -1090,6 +1142,7 @@ export function emitProgramStatements(
   activeOperators = collectOperators(contextProgram);
   activeExtensionProperties = collectExtensionProperties(contextProgram);
   activeClassNames = collectClassNames(contextProgram);
+  activeJavaScriptImplementations = collectJavaScriptImplementations(contextProgram);
   try {
     return program.body
       .map((statement) => emitStatement(statement))
@@ -1100,6 +1153,7 @@ export function emitProgramStatements(
     activeOperators = previousOperators;
     activeExtensionProperties = previousExtensionProperties;
     activeClassNames = previousClassNames;
+    activeJavaScriptImplementations = previousJavaScriptImplementations;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
   }
 }

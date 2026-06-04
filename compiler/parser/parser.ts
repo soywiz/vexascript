@@ -238,6 +238,9 @@ export class Parser {
 
     parseStatementOrThrow(): Statement {
         const token = this.tokens.peek();
+        if (token?.type === "symbol" && token.value === "@") {
+            return this.parseAnnotatedFunctionStatement();
+        }
         if (this.isTypeScriptExportAssignmentStart()) {
             return this.parseTypeScriptExportAssignmentStatement();
         }
@@ -339,6 +342,30 @@ export class Parser {
             expression.firstToken,
             expression.lastToken
         );
+    }
+
+    private parseAnnotatedFunctionStatement(): FunctionStatement {
+        const atToken = this.tokens.read();
+        const annotationName = this.tokens.read();
+        if (annotationName?.type !== "identifier" || annotationName.value !== "JsImpl") {
+            this.fail("Expected 'JsImpl' annotation", this.tokenAt(annotationName));
+        }
+        const openParen = this.tokens.read();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            this.fail("Expected '(' after '@JsImpl'", this.tokenAt(openParen));
+        }
+        const implementation = this.tokens.read();
+        if (implementation?.type !== "string") {
+            this.fail("Expected a JavaScript string in '@JsImpl'", this.tokenAt(implementation));
+        }
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after '@JsImpl' implementation", this.tokenAt(closeParen));
+        }
+
+        const functionStatement = this.parseFunctionStatement();
+        functionStatement.jsImpl = implementation.value;
+        return this.attachNodeBounds(functionStatement, atToken, functionStatement.lastToken ?? closeParen);
     }
 
     parseFileOrThrow(): Program {
