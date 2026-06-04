@@ -2554,8 +2554,55 @@ describe("parseStatement", () => {
         expect(
             parseStatement(tokenizeReader('declare module "pixi.js" { export = PIXI; }'), { language: "typescript" })
         ).toEqual({
-            kind: "BlockStatement",
-            body: []
+            kind: "NamespaceStatement",
+            declared: true,
+            declarationKind: "module",
+            externalModuleName: { kind: "StringLiteral", value: "pixi.js" },
+            body: {
+                kind: "BlockStatement",
+                body: [{
+                    kind: "ExprStatement",
+                    expression: { kind: "Identifier", name: "PIXI" }
+                }]
+            }
+        });
+    });
+
+    it("parses dotted ambient namespace bodies in typescript mode", () => {
+        expect(
+            parseStatement(tokenizeReader("declare namespace Company.Tools {\nexport interface Config { name: string }\nexport const version: string;\n}"), { language: "typescript" })
+        ).toEqual({
+            kind: "NamespaceStatement",
+            declared: true,
+            declarationKind: "namespace",
+            names: [
+                { kind: "Identifier", name: "Company" },
+                { kind: "Identifier", name: "Tools" }
+            ],
+            body: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ExportStatement",
+                        declaration: {
+                            kind: "InterfaceStatement",
+                            declared: true,
+                            name: { kind: "Identifier", name: "Config" },
+                            members: [{ kind: "InterfacePropertyMember", name: { kind: "Identifier", name: "name" }, typeAnnotation: { kind: "Identifier", name: "string" } }]
+                        }
+                    },
+                    {
+                        kind: "ExportStatement",
+                        declaration: {
+                            kind: "VarStatement",
+                            declarationKind: "const",
+                            declared: true,
+                            name: { kind: "Identifier", name: "version" },
+                            typeAnnotation: { kind: "Identifier", name: "string" }
+                        }
+                    }
+                ]
+            }
         });
     });
 

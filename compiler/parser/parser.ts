@@ -50,6 +50,7 @@ import {
     LabeledStatement,
     MemberExpression,
     NewExpression,
+    NamespaceStatement,
     NullLiteral,
     ObjectBindingPattern,
     ArrayBindingPattern,
@@ -1206,30 +1207,6 @@ export class Parser {
         this.fail("Expected ')' after function parameters", this.tokenAt(openParen));
     }
 
-    private skipUntilMatchingCloseSymbol(openToken: Token, openValue: string, closeValue: string, missingCloseMessage: string): Token {
-        let depth = 1;
-
-        while (this.tokens.hasMore) {
-            const token = this.tokens.read();
-            if (!token) {
-                break;
-            }
-
-            if (token.type === "symbol" && token.value === openValue) {
-                depth += 1;
-                continue;
-            }
-
-            if (token.type === "symbol" && token.value === closeValue) {
-                depth -= 1;
-                if (depth === 0) {
-                    return token;
-                }
-            }
-        }
-
-        this.fail(missingCloseMessage, this.tokenAt(openToken));
-    }
 
     private skipTypeAnnotationUntilStatementEnd(): void {
         let parenDepth = 0;
@@ -3419,7 +3396,7 @@ export class Parser {
         return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
     }
 
-    private parseDeclareNamespaceStatement(): Statement {
+    private parseDeclareNamespaceStatement(): NamespaceStatement {
         const declareKeyword = this.tokens.read();
         if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
             this.fail("Expected 'declare' before namespace declaration", this.tokenAt(declareKeyword));
@@ -3439,30 +3416,93 @@ export class Parser {
             this.fail("Expected namespace or module name after declaration keyword", this.tokenAt(namespaceNameToken));
         }
 
-        while (namespaceNameToken?.type === "identifier" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
-            this.tokens.skip();
-            const segmentToken = this.tokens.read();
-            if (segmentToken?.type !== "identifier") {
-                this.fail("Expected identifier after '.' in namespace name", this.tokenAt(segmentToken));
+        const names: Identifier[] = [];
+        let externalModuleName: StringLiteral | undefined;
+        if (namespaceNameToken?.type === "identifier") {
+            names.push(this.buildIdentifierFromToken(namespaceNameToken));
+            while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+                this.tokens.skip();
+                const segmentToken = this.tokens.read();
+                if (segmentToken?.type !== "identifier") {
+                    this.fail("Expected identifier after '.' in namespace name", this.tokenAt(segmentToken));
+                }
+                names.push(this.buildIdentifierFromToken(segmentToken));
             }
+        } else if (namespaceNameToken?.type === "string") {
+            externalModuleName = this.attachNodeBounds(
+                { kind: "StringLiteral", value: namespaceNameToken.value } as StringLiteral,
+                namespaceNameToken,
+                namespaceNameToken
+            );
         }
 
-        const openBrace = this.tokens.read();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
-            this.fail("Expected '{' to start namespace body", this.tokenAt(openBrace));
-        }
-
-        this.skipUntilMatchingCloseSymbol(openBrace, "{", "}", "Expected '}' to close namespace body");
+        const body = this.parseAmbientNamespaceBody();
+        this.markAmbientDeclarations(body.body);
 
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
             this.tokens.skip();
         }
 
-        return this.attachNodeBounds(
-            { kind: "BlockStatement", body: [] } as BlockStatement,
-            declareKeyword,
-            this.getLastReadToken() ?? declareKeyword
-        );
+        const statement: NamespaceStatement = {
+            kind: "NamespaceStatement",
+            declared: true,
+            declarationKind: namespaceKeyword.value,
+            ...(names.length > 0 ? { names } : {}),
+            ...(externalModuleName ? { externalModuleName } : {}),
+            body
+        };
+        return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
+    }
+
+    private parseAmbientNamespaceBody(): BlockStatement {
+        const bodyStartOffset = this.tokens.offset;
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' to start namespace body", this.tokenAt(openBrace));
+        }
+
+        let depth = 1;
+        let closeBrace: Token | undefined;
+        while (this.tokens.hasMore) {
+            const token = this.tokens.read();
+            if (token?.type !== "symbol") continue;
+            if (token.value === "{") depth += 1;
+            if (token.value === "}") {
+                depth -= 1;
+                if (depth === 0) {
+                    closeBrace = token;
+                    break;
+                }
+            }
+        }
+        if (!closeBrace) {
+            this.fail("Expected '}' to close namespace body", this.tokenAt(openBrace), "block");
+        }
+
+        // Parse a detached token slice so unsupported declaration-file members can be
+        // recovered without moving the surrounding file parser out of the namespace.
+        const bodyTokens = this.tokens.items.slice(bodyStartOffset, this.tokens.offset);
+        const nestedParser = new Parser(new ListReader(bodyTokens), { language: this.language });
+        const parsed = nestedParser.parseStatement();
+        if (parsed?.kind === "BlockStatement") {
+            return parsed as BlockStatement;
+        }
+        return this.attachNodeBounds({ kind: "BlockStatement", body: [] } as BlockStatement, openBrace, closeBrace);
+    }
+
+    private markAmbientDeclarations(statements: Statement[]): void {
+        for (const statement of statements) {
+            const declaration = statement.kind === "ExportStatement"
+                ? (statement as ExportStatement).declaration
+                : statement;
+            if (!declaration) continue;
+            if (declaration.kind === "VarStatement" || declaration.kind === "FunctionStatement" ||
+                declaration.kind === "ClassStatement" || declaration.kind === "InterfaceStatement" ||
+                declaration.kind === "TypeAliasStatement" || declaration.kind === "EnumStatement" ||
+                declaration.kind === "NamespaceStatement") {
+                (declaration as { declared?: boolean }).declared = true;
+            }
+        }
     }
 
     private parseTypeScriptExportAssignmentStatement(): ExprStatement {

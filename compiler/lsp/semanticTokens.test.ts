@@ -1,3 +1,6 @@
+import { Analysis } from "compiler/analysis/Analysis";
+import { parseFile } from "compiler/parser/parser";
+import { tokenizeReader } from "compiler/parser/tokenizer";
 import { describe, expect, it } from "vitest";
 import { createAnalysisSession } from "./analysisSession";
 import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
@@ -175,6 +178,16 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "useState" && token.tokenType === "variable")).toBe(true);
     expect(decoded.some((token) => token.lexeme === "useLocalState" && token.tokenType === "variable")).toBe(true);
     expect(decoded.some((token) => token.lexeme === "fs" && token.tokenType === "namespace")).toBe(true);
+  });
+
+  it("highlights ambient namespace paths and parsed body declarations", () => {
+    const source = "declare namespace Company.Tools {\nexport const version: string;\n}";
+    const ast = parseFile(tokenizeReader(source), { language: "typescript" });
+    const semantic = createSemanticTokens({ text: source, ast, analysis: new Analysis(ast) });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.filter((token) => token.tokenType === "namespace").map((token) => token.lexeme)).toEqual(["Company", "Tools"]);
+    expect(decoded.some((token) => token.lexeme === "version" && token.tokenType === "variable")).toBe(true);
   });
 
   it("highlights export-as-namespace names as namespaces", () => {

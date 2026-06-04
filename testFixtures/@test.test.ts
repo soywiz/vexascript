@@ -31,7 +31,7 @@ describe("Parse Typescript Libraries", () => {
         expect(ast.kind).toBe("Program");
         expect(ast.body[0]?.kind).toBe("FunctionStatement");
         expect((ast.body[0] as { declared?: boolean } | undefined)?.declared).toBe(true);
-        expect(ast.body[1]?.kind).toBe("BlockStatement");
+        expect(ast.body[1]?.kind).toBe("NamespaceStatement");
         expect(ast.body[2]?.kind).toBe("ExprStatement");
         expect(parser.tokens.hasMore).toBe(false);
         expect(parser.errors).toEqual([]);

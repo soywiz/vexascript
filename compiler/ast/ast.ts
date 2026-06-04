@@ -408,6 +408,15 @@ export interface TypeAliasStatement extends Statement {
     targetType: Identifier
 }
 
+export interface NamespaceStatement extends Statement {
+    kind: "NamespaceStatement"
+    declared?: boolean
+    declarationKind: "namespace" | "module"
+    names?: Identifier[]
+    externalModuleName?: StringLiteral
+    body: BlockStatement
+}
+
 export interface EnumMember extends Node {
     kind: "EnumMember"
     name: Identifier

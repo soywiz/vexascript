@@ -17,6 +17,17 @@ function symbolsOfVisibleSymbolsAt(source: string, line: number, character: numb
 }
 
 describe("Analysis", () => {
+  it("binds ambient namespace names and analyzes declarations inside their scope", () => {
+    const source = "declare namespace Tools {\nexport const version: string;\nexport function read(): string;\n}\nconst outside = 1";
+    const ast = parseFile(tokenizeReader(source), { language: "typescript" });
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getVisibleSymbolsAt(1, 16).map((symbol) => symbol.name)).toEqual(expect.arrayContaining(["Tools", "version", "read"]));
+    expect(analysis.getVisibleSymbolsAt(4, 0).map((symbol) => symbol.name)).toContain("Tools");
+    expect(analysis.getVisibleSymbolsAt(4, 0).map((symbol) => symbol.name)).not.toContain("version");
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("builds nested scopes and exposes function parameters/local variables", () => {
     const source =
       "let top = 1\n" +

@@ -5,6 +5,11 @@ import { emitProgram } from "./emitter";
 import { lowerProgram } from "./lowering";
 
 describe("emitProgram", () => {
+  it("erases ambient namespaces after their bodies have been parsed", () => {
+    const program = parseFile(tokenizeReader("declare namespace Tools {\nexport const version: string;\n}"), { language: "typescript" });
+    expect(emitProgram(program)).toBe("");
+  });
+
   it("emits calls to classes as constructor invocations", () => {
     const program = parseFile(tokenizeReader("class Point(val x: int)\nlet point = Point(1)"));
     const ambientProgram = parseFile(tokenizeReader("declare class Error\nlet error = Error()"));
