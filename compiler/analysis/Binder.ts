@@ -65,12 +65,14 @@ function isReadonlyVariable(kind: VariableDeclarationKind): boolean {
 export class Binder {
   private readonly scopeByNode: WeakMap<Node, Scope> = new WeakMap();
   private readonly rootScope: Scope;
+  private readonly classStatementsByName = new Map<string, ClassStatement>();
 
   constructor(private readonly program: Program) {
     this.rootScope = this.createScope(undefined, program);
   }
 
   bind(): BoundAnalysis {
+    this.collectClassStatements(this.program.body);
     this.bindBuiltins();
     this.bindGlobalDeclarations(getEcmaScriptRuntimeProgram().body, this.rootScope, -1);
     this.bindGlobalDeclarations(this.program.body, this.rootScope);
@@ -362,6 +364,7 @@ export class Binder {
   private bindVarStatement(statement: VarStatement, scope: Scope): void {
     if (statement.receiverType) {
       const extensionScope = this.createScope(scope, statement);
+      this.declareReceiverMembers(extensionScope, statement.receiverType.name);
       this.declare(extensionScope, {
         name: "this",
         kind: "variable",
@@ -420,6 +423,7 @@ export class Binder {
 
     const functionScope = this.createScope(scope, statement);
     if (statement.receiverType) {
+      this.declareReceiverMembers(functionScope, statement.receiverType.name);
       this.declare(functionScope, {
         name: "this",
         kind: "variable",
@@ -455,6 +459,7 @@ export class Binder {
     });
 
     const classScope = this.createScope(scope, statement);
+    this.declareClassMembers(classScope, statement);
     for (const member of statement.members) {
       if (member.kind === "ClassMethodMember") {
         const method = member as ClassMethodMember;
@@ -508,6 +513,90 @@ export class Binder {
         }
         this.bindStatements(method.body.body, methodScope);
       }
+    }
+  }
+
+
+  private collectClassStatements(statements: Statement[]): void {
+    for (const statement of statements) {
+      const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+      if (candidate?.kind === "ClassStatement") {
+        const classStatement = candidate as ClassStatement;
+        this.classStatementsByName.set(classStatement.name.name, classStatement);
+      }
+    }
+  }
+
+  private declareReceiverMembers(scope: Scope, receiverName: string): void {
+    const classStatement = this.classStatementsByName.get(receiverName);
+    if (classStatement) {
+      this.declareClassMembers(scope, classStatement);
+    }
+  }
+
+  private declareClassMembers(scope: Scope, statement: ClassStatement): void {
+    for (const parameter of statement.primaryConstructorParameters ?? []) {
+      const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
+      this.declare(scope, {
+        name: parameter.name.name,
+        kind: "variable",
+        node: parameter.name,
+        isReadonly: isReadonlyVariable(parameter.declarationKind),
+        implicitReceiver: true,
+        type: parameterType,
+        valueType: typeToString(parameterType)
+      }, -1);
+    }
+    for (const constructor of statement.members.filter(
+      (member): member is ClassMethodMember => member.kind === "ClassMethodMember" && member.name.name === "constructor"
+    )) {
+      for (const parameter of constructor.parameters.filter(
+        (candidate) => candidate.accessModifier !== undefined || candidate.readonly === true
+      )) {
+        const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
+        this.declare(scope, {
+          name: parameter.name.name,
+          kind: "variable",
+          node: parameter.name,
+          isReadonly: parameter.readonly === true,
+          implicitReceiver: true,
+          type: parameterType,
+          valueType: typeToString(parameterType)
+        }, -1);
+      }
+    }
+    for (const member of statement.members) {
+      if (member.kind === "ClassFieldMember") {
+        const fieldType = this.typeFromAnnotationLoose(member.typeAnnotation) ?? UNKNOWN_TYPE;
+        this.declare(scope, {
+          name: member.name.name,
+          kind: "variable",
+          node: member.name,
+          isReadonly: member.readonly === true,
+          implicitReceiver: true,
+          type: fieldType,
+          valueType: typeToString(fieldType)
+        }, -1);
+        continue;
+      }
+      const methodType = functionType(
+        member.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+          name: parameter.name.name,
+          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
+        })),
+        this.typeFromAnnotationLoose(member.returnType) ?? UNKNOWN_TYPE,
+        member.typeParameters?.map((parameter) => parameter.name.name)
+      );
+      this.declare(scope, {
+        name: member.name.name,
+        kind: "method",
+        node: member.name,
+        implicitReceiver: true,
+        type: methodType,
+        valueType: typeToString(methodType)
+      }, -1);
     }
   }
 

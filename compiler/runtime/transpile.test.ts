@@ -276,6 +276,22 @@ describe("transpile", () => {
     expect(result.code).toContain("let c = a.operator$plus$$Point(b);");
   });
 
+  it("qualifies unqualified class and extension members with their receiver", () => {
+    const source = `class Counter(val value: int) {
+  increment(amount: int): int { return value + amount }
+  identity(value: int): int { return value }
+}
+fun Counter.doubled(): int { return value + value }
+val Counter.next => increment(1)`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("return this.value + amount;");
+    expect(result.code).toContain("identity(value) {\nreturn value;");
+    expect(result.code).toContain("return this.value + this.value;");
+    expect(result.code).toContain("const Counter$$next = ($this) => $this.increment(1);");
+  });
+
   it("mangles and lowers extension properties", () => {
     const source = `class Duration(val value: number)
 export val number.milliseconds => Duration(this)

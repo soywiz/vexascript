@@ -92,6 +92,23 @@ console.log(total)
     expect(optimizedLogs).toEqual([[10]]);
   });
 
+  it("executes unqualified class and extension member access", () => {
+    const source = `class Counter(val value: int) {
+  increment(amount: int): int { return value + amount }
+}
+fun Counter.doubled(): int { return value + value }
+val Counter.next => increment(1)
+let counter = new Counter(5)
+console.log(counter.increment(2))
+console.log(counter.doubled())
+console.log(counter.next)
+`;
+
+    const logs = executeTranspiled(source);
+
+    expect(logs).toEqual([[7], [10], [6]]);
+  });
+
   it("executes extension operator methods", () => {
     const source = `class Point(val x: int, val y: int) {}
 fun Point.operator+(other: Point): Point {

@@ -1623,6 +1623,18 @@ describe("enum semantic analysis", () => {
     expect(messages).toContain("Enum member 'Up' initializer must be assignable to int or string");
     expect(messages).toContain("Property 'Missing' does not exist on type 'Direction'");
   });
+  it("resolves unqualified members inside classes and extension members", () => {
+    const source = `class Counter(val value: int) {
+  increment(amount: int): int { return value + amount }
+}
+fun Counter.doubled(): int { return value + value }
+val Counter.next => increment(1)
+`;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("checks extension properties only when declared or imported", () => {
     const missing = new Analysis(parseFile(tokenizeReader("val duration = 10.milliseconds")));
     expect(missing.getIssues().map((issue) => issue.message)).toContain(

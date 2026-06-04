@@ -131,10 +131,11 @@ function sourceLinesForEmittedStatement(statement: Statement, emittedStatement: 
 
 function emitProgramWithLineMap(
   program: Program,
-  expressionTypes: ReadonlyMap<Node, AnalysisType>
+  expressionTypes: ReadonlyMap<Node, AnalysisType>,
+  implicitReceiverIdentifiers: ReadonlySet<Node>
 ): { emitted: string; sourceLinesByGeneratedLine: number[] } {
   const sourceLinesByGeneratedLine: number[] = [];
-  const emittedStatements = emitProgramStatements(program, expressionTypes);
+  const emittedStatements = emitProgramStatements(program, expressionTypes, program, implicitReceiverIdentifiers);
 
   let emittedIndex = 0;
   for (const statement of program.body) {
@@ -142,7 +143,7 @@ function emitProgramWithLineMap(
     if (!candidate) {
       break;
     }
-    const emittedRaw = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, program);
+    const emittedRaw = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, program, implicitReceiverIdentifiers);
     const emittedStatement = emittedRaw.length > 0 ? emittedRaw[0]! : "";
     if (emittedStatement.trim().length <= 0) {
       continue;
@@ -157,13 +158,14 @@ function emitProgramWithLineMap(
 
 function emitProgramWithSourceLineOffsets(
   program: Program,
-  expressionTypes: ReadonlyMap<Node, AnalysisType>
+  expressionTypes: ReadonlyMap<Node, AnalysisType>,
+  implicitReceiverIdentifiers: ReadonlySet<Node>
 ): string {
   const lines: string[] = [];
   let generatedLine = 0;
 
   for (const statement of program.body) {
-    const emittedSingle = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, program);
+    const emittedSingle = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, program, implicitReceiverIdentifiers);
     if (emittedSingle.length <= 0) {
       continue;
     }
@@ -243,12 +245,14 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const target = options.target ?? "optimized";
   const programForEmission = target === "conservative" ? artifacts.ast : lowerProgram(artifacts.ast);
   const expressionTypes = artifacts.analysis.getExpressionTypes();
+  const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
   const { emitted, sourceLinesByGeneratedLine } = emitProgramWithLineMap(
     programForEmission,
-    expressionTypes
+    expressionTypes,
+    implicitReceiverIdentifiers
   );
   const emittedWithOffsets = options.preserveSourceLineOffsets
-    ? emitProgramWithSourceLineOffsets(programForEmission, expressionTypes)
+    ? emitProgramWithSourceLineOffsets(programForEmission, expressionTypes, implicitReceiverIdentifiers)
     : emitted;
   const code = options.preserveSourceLineOffsets
     ? ensureTrailingSemicolonPreservingLines(emittedWithOffsets)
