@@ -94,6 +94,7 @@ This means emit phase never runs with known invalid compile artifacts.
 - Semicolons are emitted per statement; `transpile()` applies a final trailing-semicolon guard for non-empty output.
 - Import statements are emitted in standard ES module syntax for supported named imports.
 - Extension properties are emitted as exported/imported receiver-mangled functions (for example, `number.milliseconds` becomes `number$$milliseconds`) and property access is lowered to a function call with the receiver as its argument.
+- Whole-program emitter discovery uses the shared structural AST traversal rather than construct-specific recursive walkers, so newly introduced statement and expression containers participate automatically.
 
 ## Source Map Strategy (Current)
 

@@ -56,6 +56,7 @@ import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
 import type { BindingElement, BindingName } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 
 type Assoc = "left" | "right";
 
@@ -428,46 +429,28 @@ function collectExtensionProperties(program: Program): Map<string, string> {
     }
   }
 
-  const visitExpression = (expression: Expr): void => {
-    if (expression.kind === "MemberExpression") {
-      const member = expression as MemberExpression;
-      if (!member.computed && member.property.kind === "Identifier") {
-        const name = (member.property as Identifier).name;
-        if (!result.has(name) && importedNames.has(name)) {
-          const objectType = activeExpressionTypes?.get(member.object);
-          if (objectType?.kind === "builtin") result.set(name, objectType.name === "int" ? "number" : objectType.name);
-          else if (objectType?.kind === "named") result.set(name, objectType.name);
-        }
-      }
-      visitExpression(member.object);
+  walkAst(program, (node) => {
+    if (node.kind !== "MemberExpression") {
       return;
     }
-    if (expression.kind === "CallExpression") {
-      const call = expression as CallExpression; visitExpression(call.callee); call.arguments.forEach(visitExpression);
-    } else if (expression.kind === "NewExpression") {
-      const value = expression as NewExpression; visitExpression(value.callee); value.arguments?.forEach(visitExpression);
-    } else if (expression.kind === "BinaryExpression") {
-      const value = expression as BinaryExpression; visitExpression(value.left); visitExpression(value.right);
-    } else if (expression.kind === "AssignmentExpression") {
-      const value = expression as AssignmentExpression; visitExpression(value.left); visitExpression(value.right);
-    } else if (expression.kind === "ConditionalExpression") {
-      const value = expression as ConditionalExpression; visitExpression(value.test); visitExpression(value.consequent); visitExpression(value.alternate);
-    } else if (expression.kind === "CommaExpression") (expression as CommaExpression).expressions.forEach(visitExpression);
-    else if (expression.kind === "AsExpression") visitExpression((expression as AsExpression).expression);
-    else if (expression.kind === "UnaryExpression" || expression.kind === "UpdateExpression") visitExpression((expression as UnaryExpression | UpdateExpression).argument);
-    else if (expression.kind === "ArrayLiteral") (expression as ArrayLiteral).elements.forEach(visitExpression);
-  };
-  const visitStatement = (statement: Statement): void => {
-    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
-    if (!candidate) return;
-    if (candidate.kind === "VarStatement") {
-      const value = candidate as VarStatement; if (value.initializer) visitExpression(value.initializer); value.declarations?.forEach((d) => { if (d.initializer) visitExpression(d.initializer); });
-    } else if (candidate.kind === "ExprStatement") visitExpression((candidate as ExprStatement).expression);
-    else if (candidate.kind === "FunctionStatement") (candidate as FunctionStatement).body.body.forEach(visitStatement);
-    else if (candidate.kind === "BlockStatement") (candidate as BlockStatement).body.forEach(visitStatement);
-    else if (candidate.kind === "ReturnStatement" && (candidate as ReturnStatement).expression) visitExpression((candidate as ReturnStatement).expression!);
-  };
-  program.body.forEach(visitStatement);
+
+    const member = node as MemberExpression;
+    if (member.computed || member.property.kind !== "Identifier") {
+      return;
+    }
+
+    const name = (member.property as Identifier).name;
+    if (result.has(name) || !importedNames.has(name)) {
+      return;
+    }
+
+    const objectType = activeExpressionTypes?.get(member.object);
+    if (objectType?.kind === "builtin") {
+      result.set(name, objectType.name === "int" ? "number" : objectType.name);
+    } else if (objectType?.kind === "named") {
+      result.set(name, objectType.name);
+    }
+  });
   return result;
 }
 

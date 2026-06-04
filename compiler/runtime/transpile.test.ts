@@ -313,6 +313,17 @@ val duration = 10.milliseconds`;
     expect(result.code).toContain("const duration = number$$milliseconds(10);");
   });
 
+  it("discovers imported extension properties in nested statements", () => {
+    const source = `import { milliseconds } from "./duration"
+if (true) {
+  val duration = 10.milliseconds
+}`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('import { number$$milliseconds } from "./duration";');
+    expect(result.code).toContain("const duration = number$$milliseconds(10);");
+  });
 
   it("emits contextually resolved brace arguments and is checks", () => {
     const source = `interface Options { it: int }
