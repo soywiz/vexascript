@@ -136,6 +136,17 @@ fun collect(label: string, ...values: int[]) {
 }
 ```
 
+Parameters also support object and array binding patterns, including nesting, property aliases, defaults, holes, and rest bindings. The introduced binding names are available throughout the function body, and the patterns are preserved in emitted JavaScript:
+
+```mylang
+function unpack(
+  { id, nested: { value = 1 }, ...metadata },
+  [first, , ...tail] = values
+) {
+  return value
+}
+```
+
 ### Return type annotation
 
 Functions support optional return type annotation:

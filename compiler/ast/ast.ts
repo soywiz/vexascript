@@ -252,7 +252,7 @@ export interface FunctionParameter extends Node {
     kind: "FunctionParameter"
     accessModifier?: ClassMemberAccessModifier
     readonly?: boolean
-    name: Identifier
+    name: BindingName
     thisParameter?: boolean
     rest?: boolean
     optional?: boolean

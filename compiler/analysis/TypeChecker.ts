@@ -50,7 +50,7 @@ import type {
   WhileStatement,
   WithStatement
 } from "compiler/ast/ast";
-import { bindingElements, bindingIdentifiers } from "compiler/ast/bindingPatterns";
+import { bindingElements, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Node } from "compiler/ast/ast";
 import type {
   AnalysisSymbol,
@@ -399,7 +399,10 @@ export class TypeChecker {
         const parameterType =
           this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
           (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
-        this.updateSymbolType(functionScope, parameter.name.name, parameterType);
+        for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(functionScope, identifier.name, parameterType);
+        for (const element of bindingElements(parameter.name)) {
+          if (element.initializer) this.visitExpression(element.initializer, functionScope);
+        }
       }
 
       for (const bodyStatement of statement.body.body) {
@@ -492,7 +495,10 @@ export class TypeChecker {
             const parameterType =
               this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
               (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
-            this.updateSymbolType(methodScope, parameter.name.name, parameterType);
+            for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(methodScope, identifier.name, parameterType);
+            for (const element of bindingElements(parameter.name)) {
+              if (element.initializer) this.visitExpression(element.initializer, methodScope);
+            }
           }
           for (const bodyStatement of method.body.body) {
             this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0, labels: [] });
@@ -1286,10 +1292,10 @@ export class TypeChecker {
   ): AnalysisType {
     return functionType(
       parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-        name: parameter.name.name,
+        name: bindingNameText(parameter.name),
         type: parameter.typeAnnotation
           ? this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
-          : scope.symbols.get(parameter.name.name)?.type ?? UNKNOWN_TYPE,
+          : scope.symbols.get(bindingNameText(parameter.name))?.type ?? UNKNOWN_TYPE,
         optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
         rest: parameter.rest === true
       })),
@@ -2312,7 +2318,7 @@ export class TypeChecker {
     const parameterProperty = classStatement?.members
       .filter((candidate): candidate is ClassMethodMember => candidate.kind === "ClassMethodMember" && candidate.name.name === "constructor")
       .flatMap((constructor) => constructor.parameters)
-      .find((parameter) => (parameter.accessModifier !== undefined || parameter.readonly === true) && parameter.name.name === propertyName);
+      .find((parameter) => (parameter.accessModifier !== undefined || parameter.readonly === true) && bindingNameText(parameter.name) === propertyName);
     if (classField?.readonly !== true && parameterProperty?.readonly !== true) {
       return;
     }
@@ -2427,14 +2433,19 @@ export class TypeChecker {
         this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
         expectedParameterType ??
         (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
-      functionScope.symbols.set(parameter.name.name, {
-        name: parameter.name.name,
-        kind: "parameter",
-        node: parameter.name,
-        declaredOffset: parameter.name.firstToken?.range.start.offset ?? -1,
-        type: parameterType,
-        valueType: typeToString(parameterType)
-      });
+      for (const element of bindingElements(parameter.name)) {
+        if (element.initializer) this.visitExpression(element.initializer, functionScope);
+      }
+      for (const identifier of bindingIdentifiers(parameter.name)) {
+        functionScope.symbols.set(identifier.name, {
+          name: identifier.name,
+          kind: "parameter",
+          node: identifier,
+          declaredOffset: identifier.firstToken?.range.start.offset ?? -1,
+          type: parameterType,
+          valueType: typeToString(parameterType)
+        });
+      }
     }
     return functionScope;
   }
@@ -2735,7 +2746,7 @@ export class TypeChecker {
       const methods = this.extensionMethodsByReceiver.get(extension.receiverType.name) ?? new Map<string, AnalysisType>();
       methods.set(extension.name.name, functionType(
         extension.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-          name: parameter.name.name,
+          name: bindingNameText(parameter.name),
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
@@ -2915,7 +2926,7 @@ export class TypeChecker {
       }
       if (member.kind === "ClassMethodMember" && member.name.name === "constructor") {
         const parameterProperty = member.parameters.find(
-          (parameter) => (parameter.accessModifier !== undefined || parameter.readonly === true) && parameter.name.name === memberName
+          (parameter) => (parameter.accessModifier !== undefined || parameter.readonly === true) && bindingNameText(parameter.name) === memberName
         );
         if (parameterProperty) {
           return { member: parameterProperty, declaringClassName: className };
@@ -3100,7 +3111,7 @@ export class TypeChecker {
       const members = new Map<string, AnalysisType>();
       for (const parameter of classStatement.primaryConstructorParameters ?? []) {
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-        members.set(parameter.name.name, this.substituteTypeParameters(parameterType, substitutions));
+        members.set(bindingNameText(parameter.name), this.substituteTypeParameters(parameterType, substitutions));
       }
       for (const constructor of classStatement.members.filter(
         (member): member is ClassMethodMember => member.kind === "ClassMethodMember" && member.name.name === "constructor"
@@ -3109,7 +3120,7 @@ export class TypeChecker {
           (candidate) => candidate.accessModifier !== undefined || candidate.readonly === true
         )) {
           const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-          members.set(parameter.name.name, this.substituteTypeParameters(parameterType, substitutions));
+          members.set(bindingNameText(parameter.name), this.substituteTypeParameters(parameterType, substitutions));
         }
       }
 
@@ -3137,7 +3148,7 @@ export class TypeChecker {
           classMember.name.name,
           this.substituteTypeParameters(functionType(
             classMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-              name: parameter.name.name,
+              name: bindingNameText(parameter.name),
               type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
               optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
               rest: parameter.rest === true
@@ -3189,7 +3200,7 @@ export class TypeChecker {
         interfaceMember.name.name,
         this.substituteTypeParameters(functionType(
           interfaceMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-            name: parameter.name.name,
+            name: bindingNameText(parameter.name),
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
             rest: parameter.rest === true
@@ -3291,7 +3302,7 @@ export class TypeChecker {
     memberName: string
   ): Identifier | null {
     for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-      if (parameter.name.name === memberName) {
+      if (bindingNameText(parameter.name) === memberName) {
         return parameter.name;
       }
     }
@@ -3328,7 +3339,7 @@ export class TypeChecker {
       }
       return this.substituteTypeParameters(functionType(
         classMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-          name: parameter.name.name,
+          name: bindingNameText(parameter.name),
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true

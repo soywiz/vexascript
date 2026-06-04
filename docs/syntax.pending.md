@@ -26,7 +26,6 @@ Scope notes:
 
 ## Function and Parameter Syntax
 
-- Destructured parameters.
 - Overload signatures.
 
 ## Statements and Control Flow

@@ -254,7 +254,11 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   };
 
   const visitParameter = (parameter: FunctionParameter): void => {
-    markIdentifier(kinds, parameter.name, "parameter");
+    for (const identifier of bindingIdentifiers(parameter.name)) markIdentifier(kinds, identifier, "parameter");
+    for (const element of bindingElements(parameter.name)) {
+      markIdentifier(kinds, element.propertyName, "property");
+      if (element.initializer) visitExpression(element.initializer);
+    }
     markTypeAnnotation(kinds, parameter.typeAnnotation);
     if (parameter.defaultValue) {
       visitExpression(parameter.defaultValue);
@@ -274,7 +278,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
     markIdentifier(kinds, member.name, "method");
     for (const parameter of member.parameters) {
       if (member.name.name === "constructor" && (parameter.accessModifier !== undefined || parameter.readonly === true)) {
-        markIdentifier(kinds, parameter.name, "property");
+        if (parameter.name.kind === "Identifier") markIdentifier(kinds, parameter.name, "property");
         markTypeAnnotation(kinds, parameter.typeAnnotation);
         if (parameter.defaultValue) {
           visitExpression(parameter.defaultValue);
@@ -367,7 +371,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         const classStatement = statement as ClassStatement;
         markIdentifier(kinds, classStatement.name, "class");
         for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-          markIdentifier(kinds, parameter.name, "property");
+          if (parameter.name.kind === "Identifier") markIdentifier(kinds, parameter.name, "property");
           markTypeAnnotation(kinds, parameter.typeAnnotation);
           if (parameter.defaultValue) {
             visitExpression(parameter.defaultValue);

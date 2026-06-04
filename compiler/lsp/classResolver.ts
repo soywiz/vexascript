@@ -1,3 +1,4 @@
+import { bindingNameText } from "compiler/ast/bindingPatterns";
 import { existsSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
@@ -418,11 +419,11 @@ function resolveClassOwnMember(
   substitutions: Map<string, string>
 ): ResolvedClassMember | null {
   for (const parameter of classPropertyParameters(classStatement)) {
-    if (parameter.name.name !== memberName) {
+    if (bindingNameText(parameter.name) !== memberName) {
       continue;
     }
     const typeName = substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions);
-    const documentation = readDocumentationFromIdentifier(parameter.name);
+    const documentation = parameter.name.kind === "Identifier" ? readDocumentationFromIdentifier(parameter.name) : undefined;
     const result: ResolvedClassMember = {
       className: classStatement.name.name,
       memberName,
@@ -454,7 +455,7 @@ function resolveClassOwnMember(
     }
 
     const parameters: ResolvedParameter[] = member.parameters.map((parameter) => ({
-      name: parameter.name.name,
+      name: bindingNameText(parameter.name),
       typeName: substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions),
       optional: parameter.optional === true || parameter.defaultValue !== undefined
     }));
@@ -484,7 +485,7 @@ function classOwnMemberKind(
   memberName: string
 ): "field" | "method" | null {
   for (const parameter of classPropertyParameters(classStatement)) {
-    if (parameter.name.name === memberName) {
+    if (bindingNameText(parameter.name) === memberName) {
       return "field";
     }
   }
@@ -522,7 +523,7 @@ function resolveInterfaceOwnMember(
     }
 
     const parameters: ResolvedParameter[] = member.parameters.map((parameter) => ({
-      name: parameter.name.name,
+      name: bindingNameText(parameter.name),
       typeName: substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions),
       optional: parameter.optional === true || parameter.defaultValue !== undefined
     }));
@@ -849,7 +850,7 @@ function collectClassMemberNamesRecursive(
   visitedClasses.add(visitKey);
 
   for (const parameter of classPropertyParameters(classStatement)) {
-    addUniqueMemberName(names, seenNames, parameter.name.name);
+    addUniqueMemberName(names, seenNames, bindingNameText(parameter.name));
   }
   for (const member of classStatement.members) {
     addUniqueMemberName(names, seenNames, member.name.name);
@@ -910,7 +911,7 @@ export function resolveClassMemberNames(
 
   if (!context) {
     for (const parameter of classPropertyParameters(classStatement)) {
-      addUniqueMemberName(names, seenNames, parameter.name.name);
+      addUniqueMemberName(names, seenNames, bindingNameText(parameter.name));
     }
     for (const member of classStatement.members) {
       addUniqueMemberName(names, seenNames, member.name.name);
@@ -1223,7 +1224,7 @@ export function resolveConstructorSignature(
   return {
     className: symbol.name,
     parameters: (classResolution.classStatement.primaryConstructorParameters ?? []).map((parameter) => ({
-      name: parameter.name.name,
+      name: bindingNameText(parameter.name),
       typeName: parameter.typeAnnotation?.name ?? "unknown",
       optional: false
     }))
