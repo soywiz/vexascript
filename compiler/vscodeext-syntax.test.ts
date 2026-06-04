@@ -76,6 +76,7 @@ describe("VS Code extension syntax highlighting", () => {
     expect(keywordPatterns.join(" ")).toContain("finally");
     expect(keywordPatterns.join(" ")).toContain("new");
     expect(keywordPatterns.join(" ")).toContain("in");
+    expect(keywordPatterns.join(" ")).toContain("is");
     expect(keywordPatterns.join(" ")).toContain("instanceof");
     expect(keywordPatterns.join(" ")).toContain("typeof");
     expect(keywordPatterns.join(" ")).toContain("void");

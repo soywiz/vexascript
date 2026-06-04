@@ -155,6 +155,7 @@ function binaryPrecedence(operator: BinaryExpression["operator"]): { precedence:
     case "<=":
     case ">=":
     case "in":
+    case "is":
     case "instanceof":
       return { precedence: PREC_RELATIONAL, assoc: "left" };
     case "<<":
@@ -524,7 +525,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (operatorMethodName) {
           return `${leftText}.${operatorMethodName}(${rightText})`;
         }
-        const binaryText = `${leftText} ${binary.operator} ${rightText}`;
+        const emittedOperator = binary.operator === "is" ? "instanceof" : binary.operator;
+        const binaryText = `${leftText} ${emittedOperator} ${rightText}`;
         return wrapLongExpressionIfNeeded(expression, binaryText);
       }
       case "RangeExpression": {
@@ -632,6 +634,9 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
+        if (arrow.contextualObjectLiteral && activeExpressionTypes?.get(expression as unknown as Node)?.kind !== "function") {
+          return emitExpression(arrow.contextualObjectLiteral, parentPrecedence, side);
+        }
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
         if (arrow.body.kind === "BlockStatement") {
           return `${arrow.async === true ? "async " : ""}${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;

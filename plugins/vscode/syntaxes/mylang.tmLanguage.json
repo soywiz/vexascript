@@ -108,7 +108,7 @@
         },
         {
           "name": "keyword.control.mylang",
-          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new|in|instanceof|typeof|void|delete|await|yield)\\b"
+          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new|in|is|instanceof|typeof|void|delete|await|yield)\\b"
         },
         {
           "name": "storage.type.mylang",

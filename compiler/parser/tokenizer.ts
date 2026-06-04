@@ -210,6 +210,7 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
       "await",
       "in",
       "instanceof",
+      "is",
       "new",
       "else",
       "do"

@@ -3787,4 +3787,20 @@ class Store { async save(this: Store) { return await persist(this) }; *values() 
         });
     });
 
+
+    it("parses brace lambdas inside call argument lists while preserving object literals", () => {
+        expect(parseExpression(tokenizeReader("apply({ value -> value + 1 })"))).toMatchObject({
+            kind: "CallExpression",
+            arguments: [{ kind: "ArrowFunctionExpression", parameters: [{ name: { name: "value" } }] }]
+        });
+        expect(parseExpression(tokenizeReader("apply({ it })"))).toMatchObject({
+            kind: "CallExpression",
+            arguments: [{ kind: "ArrowFunctionExpression", contextualObjectLiteral: { kind: "ObjectLiteral" } }]
+        });
+        expect(parseExpression(tokenizeReader("apply({ value: 1 })"))).toMatchObject({
+            kind: "CallExpression",
+            arguments: [{ kind: "ObjectLiteral" }]
+        });
+    });
+
 });
