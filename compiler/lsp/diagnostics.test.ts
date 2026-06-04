@@ -94,8 +94,23 @@ function empty(): int {
     );
 
     expect(missingPath?.range.start).toEqual({ line: 0, character: 9 });
-    expect(wrongType?.range.start).toEqual({ line: 4, character: 9 });
+    expect(wrongType?.range.start).toEqual({ line: 4, character: 2 });
     expect(missingValue?.range.start).toEqual({ line: 7, character: 2 });
+  });
+
+  it("anchors return type mismatch diagnostics on the return keyword", () => {
+    const source = `async function load(): Promise<number> {
+  return "bad"
+}
+`;
+    const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+    const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
+    const diagnostic = diagnostics.find(
+      (item) => item.code === MYLANG_DIAGNOSTIC_CODES.RETURN_TYPE_MISMATCH
+    );
+
+    expect(diagnostic?.message).toBe("Type 'string' is not assignable to return type 'Promise<number>'");
+    expect(diagnostic?.range.start).toEqual(doc.positionAt(source.indexOf("return")));
   });
 
   it("anchors member-call arity diagnostics on the member name", () => {
