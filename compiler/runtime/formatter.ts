@@ -813,6 +813,9 @@ export function formatSource(source: string): string {
       genericRole === "splitClose" ||
       (previousEmitted?.type === "symbol" && previousEmitted.value === "<" && currentInsideGeneric) ||
       (previousEmitted?.type === "symbol" && previousEmitted.value === ">" && currentInsideGeneric) ||
+      ((previousEmitted?.type === "symbol" && previousEmitted.value === ">") || genericRole === "splitClose") &&
+        token.type === "symbol" &&
+        token.value === "(" ||
       (previousInsideGeneric && token.type === "symbol" && token.value === ".") ||
       (previousEmitted?.type === "symbol" && previousEmitted.value === "." && currentInsideGeneric);
     if (previousEmitted && !suppressLeadingSpace && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious, nextToken)) {

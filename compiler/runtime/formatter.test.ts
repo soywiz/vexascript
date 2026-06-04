@@ -169,6 +169,8 @@ describe("formatSource", () => {
       .toBe("new instance()");
     expect(formatSource("new instance"))
       .toBe("new instance");
+    expect(formatSource("new Stack<number> ()"))
+      .toBe("new Stack<number>()");
     expect(formatSource("new hello.world[0].test(arg1,arg2)"))
       .toBe("new hello.world[0].test(arg1, arg2)");
   });
