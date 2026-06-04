@@ -23,6 +23,13 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toBe("");
   });
 
+  it("erases additional ambient declarations, including exported declarations", () => {
+    const program = parseFile(tokenizeReader(
+      "declare type Id = string;\nexport declare const id: Id;\nexport declare function read(id: Id): string;\nexport declare abstract class Reader {}"
+    ), { language: "typescript" });
+    expect(emitProgram(program)).toBe("");
+  });
+
   it("emits calls to classes as constructor invocations", () => {
     const program = parseFile(tokenizeReader("class Point(val x: int)\nlet point = Point(1)"));
     const ambientProgram = parseFile(tokenizeReader("declare class Error\nlet error = Error()"));

@@ -266,6 +266,9 @@ export class Parser {
         if (this.isDeclareFunctionStart()) {
             return this.parseDeclareFunctionStatement();
         }
+        if (this.isDeclareTypeAliasStart()) {
+            return this.parseDeclareTypeAliasStatement();
+        }
         if (this.isDeclareEnumStart()) {
             return this.parseDeclareEnumStatement();
         }
@@ -877,6 +880,14 @@ export class Parser {
         }
 
         let typeName = this.typeTokenText(token);
+        while (
+            token.type === "identifier" &&
+            this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "." &&
+            this.peekToken(1)?.type === "identifier"
+        ) {
+            this.tokens.skip();
+            typeName += `.${this.tokens.read()!.value}`;
+        }
         if (token.type === "identifier" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
             const argumentsText = this.parseTypeArgumentListText();
             typeName += `<${argumentsText.join(", ")}>`;
@@ -1071,6 +1082,17 @@ export class Parser {
         );
     }
 
+    private isDeclareTypeAliasStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "declare" &&
+            second?.type === "identifier" &&
+            second.value === "type"
+        );
+    }
+
     private isDeclareVariableStart(): boolean {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
@@ -1101,7 +1123,8 @@ export class Parser {
             first?.type === "identifier" &&
             first.value === "declare" &&
             second?.type === "identifier" &&
-            second.value === "class"
+            (second.value === "class" ||
+                (second.value === "abstract" && this.peekToken(2)?.type === "identifier" && this.peekToken(2)?.value === "class"))
         );
     }
 
@@ -1184,77 +1207,6 @@ export class Parser {
             second?.type === "symbol" &&
             second.value === "="
         );
-    }
-
-    private skipUntilMatchingCloseParen(openParen: Token): Token {
-        let depth = 1;
-
-        while (this.tokens.hasMore) {
-            const token = this.tokens.read();
-            if (!token) {
-                break;
-            }
-
-            if (token.type === "symbol" && token.value === "(") {
-                depth += 1;
-                continue;
-            }
-            if (token.type === "symbol" && token.value === ")") {
-                depth -= 1;
-                if (depth === 0) {
-                    return token;
-                }
-            }
-        }
-
-        this.fail("Expected ')' after function parameters", this.tokenAt(openParen));
-    }
-
-
-    private skipTypeAnnotationUntilStatementEnd(): void {
-        let parenDepth = 0;
-        let bracketDepth = 0;
-        let braceDepth = 0;
-
-        while (this.tokens.hasMore) {
-            const token = this.tokens.peek();
-            if (!token) {
-                return;
-            }
-
-            if (token.type === "symbol") {
-                if (token.value === "(") {
-                    parenDepth += 1;
-                } else if (token.value === ")") {
-                    if (parenDepth > 0) {
-                        parenDepth -= 1;
-                    }
-                } else if (token.value === "[") {
-                    bracketDepth += 1;
-                } else if (token.value === "]") {
-                    if (bracketDepth > 0) {
-                        bracketDepth -= 1;
-                    }
-                } else if (token.value === "{") {
-                    braceDepth += 1;
-                } else if (token.value === "}") {
-                    if (braceDepth > 0) {
-                        braceDepth -= 1;
-                    }
-                }
-
-                if (
-                    token.value === ";" &&
-                    parenDepth === 0 &&
-                    bracketDepth === 0 &&
-                    braceDepth === 0
-                ) {
-                    return;
-                }
-            }
-
-            this.tokens.skip();
-        }
     }
 
     private getLastReadToken(): Token | undefined {
@@ -2789,7 +2741,12 @@ export class Parser {
         }
 
         let declaration: Statement;
-        if (typeOnly) {
+        if (!typeOnly && next?.type === "identifier" && next.value === "declare") {
+            declaration = this.parseStatementOrThrow();
+            if (!("declared" in declaration) || declaration.declared !== true) {
+                this.fail("Expected ambient declaration after 'export declare'", this.tokenAt(next));
+            }
+        } else if (typeOnly) {
             if (next?.type === "identifier" && next.value === "type") {
                 declaration = this.parseTypeAliasStatement();
             } else if (next?.type === "identifier" && next.value === "interface") {
@@ -3283,54 +3240,20 @@ export class Parser {
             this.fail("Expected 'declare' before function declaration", this.tokenAt(declareKeyword));
         }
 
-        const functionKeyword = this.tokens.read();
-        if (functionKeyword?.type !== "identifier" || functionKeyword.value !== "function") {
-            this.fail("Expected 'function' after 'declare'", this.tokenAt(functionKeyword));
+        const statement = this.parseFunctionStatement();
+        statement.declared = true;
+        return this.attachNodeBounds(statement, declareKeyword, statement.lastToken ?? this.getLastReadToken() ?? declareKeyword);
+    }
+
+    private parseDeclareTypeAliasStatement(): TypeAliasStatement {
+        const declareKeyword = this.tokens.read();
+        if (declareKeyword?.type !== "identifier" || declareKeyword.value !== "declare") {
+            this.fail("Expected 'declare' before type alias declaration", this.tokenAt(declareKeyword));
         }
 
-        const nameToken = this.tokens.read();
-        if (nameToken?.type !== "identifier") {
-            this.fail("Expected function name after declaration keyword", this.tokenAt(nameToken));
-        }
-
-        const typeParameters = this.parseTypeParameterList();
-
-        const openParen = this.tokens.read();
-        if (openParen?.type !== "symbol" || openParen.value !== "(") {
-            this.fail("Expected '(' after function name", this.tokenAt(openParen));
-        }
-
-        this.skipUntilMatchingCloseParen(openParen);
-
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
-            this.tokens.skip();
-            this.skipTypeAnnotationUntilStatementEnd();
-        }
-
-        const maybeSemicolon = this.tokens.peek();
-        if (maybeSemicolon?.type === "symbol" && maybeSemicolon.value === ";") {
-            this.tokens.skip();
-        }
-
-        const emptyBody = this.attachNodeBounds(
-            { kind: "BlockStatement", body: [] } as BlockStatement,
-            functionKeyword,
-            functionKeyword
-        );
-
-        const statement: FunctionStatement = {
-            kind: "FunctionStatement",
-            declarationKind: "function",
-            declared: true,
-            name: this.buildIdentifierFromToken(nameToken),
-            parameters: [],
-            body: emptyBody
-        };
-        if (typeParameters.length > 0) {
-            statement.typeParameters = typeParameters;
-        }
-
-        return this.attachNodeBounds(statement, declareKeyword, this.getLastReadToken() ?? declareKeyword);
+        const statement = this.parseTypeAliasStatement(true);
+        statement.declared = true;
+        return this.attachNodeBounds(statement, declareKeyword, statement.lastToken ?? this.getLastReadToken() ?? declareKeyword);
     }
 
     private parseDeclareVariableStatement(): VarStatement {
@@ -3362,8 +3285,8 @@ export class Parser {
         }
 
         const classKeyword = this.tokens.peek();
-        if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
-            this.fail("Expected 'class' after 'declare'", this.tokenAt(classKeyword));
+        if (classKeyword?.type !== "identifier" || (classKeyword.value !== "class" && !this.isAbstractClassStart())) {
+            this.fail("Expected 'class' or 'abstract class' after 'declare'", this.tokenAt(classKeyword));
         }
 
         const statement = this.parseClassStatement(true);

@@ -190,6 +190,17 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "version" && token.tokenType === "variable")).toBe(true);
   });
 
+  it("highlights exported ambient declarations", () => {
+    const source = "declare type Id = string;\nexport declare function read(id: Id): Id;";
+    const ast = parseFile(tokenizeReader(source), { language: "typescript" });
+    const semantic = createSemanticTokens({ text: source, ast, analysis: new Analysis(ast) });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "Id" && token.tokenType === "type")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "read" && token.tokenType === "function")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "id" && token.tokenType === "parameter")).toBe(true);
+  });
+
   it("highlights export-as-namespace names as namespaces", () => {
     const source = "export as namespace MyLib\n";
     const session = createAnalysisSession(source);

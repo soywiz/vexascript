@@ -116,12 +116,14 @@ Runtime namespaces are lowered to the conventional JavaScript namespace object p
 
 ### Ambient declarations
 
-MyLang supports ambient declarations with `declare` for functions, classes, variables (`var` / `let` / `const` / `val`), namespaces, and modules. In `typescript` parser mode, ambient external modules may use a string-literal name such as `declare module "pixi.js"`. Ambient namespace and module bodies preserve supported declarations in the AST, participate in scoped semantic analysis and semantic highlighting, and are erased during JavaScript emission. Unsupported declaration-file members are recovered as opaque regions so large third-party `.d.ts` files remain parseable.
+MyLang supports ambient declarations with `declare` for functions, classes (including `abstract class`), variables (`var` / `let` / `const` / `val`), type aliases, interfaces, enums, namespaces, and modules. Ambient declarations can also be wrapped in TypeScript-style `export declare`. In `typescript` parser mode, ambient external modules may use a string-literal name such as `declare module "pixi.js"`. Ambient namespace and module bodies preserve supported declarations in the AST, participate in scoped semantic analysis and semantic highlighting, and are erased during JavaScript emission. Unsupported declaration-file members are recovered as opaque regions so large third-party `.d.ts` files remain parseable.
 
 Example:
 
 ```mylang
 declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
+declare type MomentFactory = (input: moment.MomentInput) => moment.Moment;
+export declare abstract class Clock {}
 declare class Console {
   log(a: number)
 }
@@ -1005,7 +1007,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports ES module imports (`import { ... } from "..."`, default imports, namespace imports, side-effect imports, and `import type`), ambient declarations (`declare function`, `declare class`, `declare interface`, `declare var/let/const`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
+When the parser runs in `typescript` mode, it supports ES module imports (`import { ... } from "..."`, default imports, namespace imports, side-effect imports, and `import type`), ambient declarations (`declare function`, `declare type`, `declare abstract class`, `declare interface`, `declare enum`, `declare var/let/const`, and `export declare ...`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
 
 Example:
 

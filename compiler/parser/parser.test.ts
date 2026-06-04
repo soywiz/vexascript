@@ -2545,9 +2545,49 @@ describe("parseStatement", () => {
             declarationKind: "function",
             declared: true,
             name: { kind: "Identifier", name: "moment" },
-            parameters: [],
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "inp" },
+                    optional: true,
+                    typeAnnotation: { kind: "Identifier", name: "moment.MomentInput" }
+                },
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "strict" },
+                    optional: true,
+                    typeAnnotation: { kind: "Identifier", name: "boolean" }
+                }
+            ],
+            returnType: { kind: "Identifier", name: "moment.Moment" },
+            missingBody: true,
             body: { kind: "BlockStatement", body: [] }
         });
+    });
+
+    it("parses additional ambient declaration forms", () => {
+        const program = parseFile(tokenizeReader(
+            "declare type Id = string;\n" +
+            "declare abstract class Service { abstract run(id: Id): void }\n" +
+            "export declare const service: Service;\n" +
+            "export declare function create(id: Id): Service;"
+        ), { language: "typescript" });
+
+        expect(program.body).toMatchObject([
+            { kind: "TypeAliasStatement", declared: true, name: { name: "Id" }, targetType: { name: "string" } },
+            { kind: "ClassStatement", declared: true, abstract: true, name: { name: "Service" } },
+            { kind: "ExportStatement", declaration: { kind: "VarStatement", declared: true, name: { name: "service" } } },
+            {
+                kind: "ExportStatement",
+                declaration: {
+                    kind: "FunctionStatement",
+                    declared: true,
+                    name: { name: "create" },
+                    parameters: [{ name: { name: "id" }, typeAnnotation: { name: "Id" } }],
+                    returnType: { name: "Service" }
+                }
+            }
+        ]);
     });
 
     it("parses string-named ambient external modules in typescript mode", () => {
@@ -2635,7 +2675,9 @@ describe("parseStatement", () => {
             typeParameters: [
                 { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
             ],
-            parameters: [],
+            parameters: [{ kind: "FunctionParameter", name: { kind: "Identifier", name: "value" }, typeAnnotation: { kind: "Identifier", name: "T" } }],
+            returnType: { kind: "Identifier", name: "T" },
+            missingBody: true,
             body: { kind: "BlockStatement", body: [] }
         });
     });
@@ -2651,7 +2693,12 @@ describe("parseStatement", () => {
             declarationKind: "function",
             declared: true,
             name: { kind: "Identifier", name: "moment" },
-            parameters: [],
+            parameters: [
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "inp" }, optional: true, typeAnnotation: { kind: "Identifier", name: "moment.MomentInput" } },
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "strict" }, optional: true, typeAnnotation: { kind: "Identifier", name: "boolean" } }
+            ],
+            returnType: { kind: "Identifier", name: "moment.Moment" },
+            missingBody: true,
             body: { kind: "BlockStatement", body: [] }
         });
     });
