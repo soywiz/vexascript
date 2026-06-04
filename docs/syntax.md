@@ -341,6 +341,23 @@ class Box {
 }
 ```
 
+### TypeScript constructor parameter properties
+
+TypeScript-style constructors can promote parameters to instance properties by adding an access modifier (`public`, `private`, or `protected`) and/or `readonly`. Parameter properties participate in type analysis, access-control and readonly diagnostics, member completion/navigation, and are initialized automatically during JavaScript emission.
+
+```mylang
+class User {
+  constructor(public readonly id: string, private age: int = 0) {
+  }
+
+  birthday() {
+    this.age = this.age + 1
+  }
+}
+```
+
+Modifiers are only valid on parameters of a class `constructor`; ordinary function and method parameters cannot use them.
+
 ### Optional primary constructor
 
 Class declarations support an optional primary constructor parameter list after the class name.

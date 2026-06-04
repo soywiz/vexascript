@@ -2237,7 +2237,11 @@ export class TypeChecker {
       (candidate): candidate is ClassFieldMember =>
         candidate.kind === "ClassFieldMember" && candidate.name.name === propertyName
     );
-    if (!classField || classField.readonly !== true) {
+    const parameterProperty = classStatement?.members
+      .filter((candidate): candidate is ClassMethodMember => candidate.kind === "ClassMethodMember" && candidate.name.name === "constructor")
+      .flatMap((constructor) => constructor.parameters)
+      .find((parameter) => (parameter.accessModifier !== undefined || parameter.readonly === true) && parameter.name.name === propertyName);
+    if (classField?.readonly !== true && parameterProperty?.readonly !== true) {
       return;
     }
     if (member.object.kind === "Identifier" && (member.object as Identifier).name === "this" && this.enclosingMethodName(scope) === "constructor") {
@@ -2785,7 +2789,7 @@ export class TypeChecker {
     });
   }
 
-  private findClassMember(className: string, memberName: string): { member: ClassFieldMember | ClassMethodMember; declaringClassName: string } | null {
+  private findClassMember(className: string, memberName: string): { member: ClassFieldMember | ClassMethodMember | FunctionParameter; declaringClassName: string } | null {
     const classStatement = this.classStatementsByName.get(className);
     if (!classStatement) {
       return null;
@@ -2793,6 +2797,14 @@ export class TypeChecker {
     for (const member of classStatement.members) {
       if (member.name.name === memberName) {
         return { member, declaringClassName: className };
+      }
+      if (member.kind === "ClassMethodMember" && member.name.name === "constructor") {
+        const parameterProperty = member.parameters.find(
+          (parameter) => (parameter.accessModifier !== undefined || parameter.readonly === true) && parameter.name.name === memberName
+        );
+        if (parameterProperty) {
+          return { member: parameterProperty, declaringClassName: className };
+        }
       }
     }
     if (!classStatement.extendsType) {
@@ -2974,6 +2986,16 @@ export class TypeChecker {
       for (const parameter of classStatement.primaryConstructorParameters ?? []) {
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
         members.set(parameter.name.name, this.substituteTypeParameters(parameterType, substitutions));
+      }
+      for (const constructor of classStatement.members.filter(
+        (member): member is ClassMethodMember => member.kind === "ClassMethodMember" && member.name.name === "constructor"
+      )) {
+        for (const parameter of constructor.parameters.filter(
+          (candidate) => candidate.accessModifier !== undefined || candidate.readonly === true
+        )) {
+          const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
+          members.set(parameter.name.name, this.substituteTypeParameters(parameterType, substitutions));
+        }
       }
 
       for (const classMember of classStatement.members) {

@@ -1436,6 +1436,27 @@ child.token
     expect(messages.filter((message) => message.includes("Member 'token' is protected"))).toHaveLength(2);
   });
 
+  it("analyzes constructor parameter properties as typed readonly members", () => {
+    const source = `
+class User {
+  constructor(public readonly id: string, private age: int) {}
+  birthday() {
+    this.age = this.age + 1
+    this.id = "changed"
+  }
+}
+let user = new User("a", 1)
+let id: string = user.id
+let hidden = user.age
+let bad: int = user.id
+`;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Cannot assign to readonly member 'id'");
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Member 'age' is private and can only be accessed within class 'User'");
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Type 'string' is not assignable to type 'int'");
+  });
+
   it("validates readonly and abstract class member semantics", () => {
     const source = `abstract class Base {
   public readonly id: string

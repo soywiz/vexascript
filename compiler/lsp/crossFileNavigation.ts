@@ -365,11 +365,22 @@ function rangeContainsPosition(
   return true;
 }
 
+function constructorParameterProperties(classStatement: ClassStatement): FunctionParameter[] {
+  return classStatement.members
+    .filter((member) => member.kind === "ClassMethodMember" && member.name.name === "constructor")
+    .flatMap((member) => member.kind === "ClassMethodMember" ? member.parameters : [])
+    .filter((parameter) => parameter.accessModifier !== undefined || parameter.readonly === true);
+}
+
+function classPropertyParameters(classStatement: ClassStatement) {
+  return [...(classStatement.primaryConstructorParameters ?? []), ...constructorParameterProperties(classStatement)];
+}
+
 function classMemberDeclarationRangeByName(
   classStatement: ClassStatement,
   memberName: string
 ): { start: { line: number; character: number }; end: { line: number; character: number } } | null {
-  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+  for (const parameter of classPropertyParameters(classStatement)) {
     if (parameter.name.name !== memberName) {
       continue;
     }
@@ -410,7 +421,7 @@ function classMemberInfoByName(
   classStatement: ClassStatement,
   memberName: string
 ): ClassMemberInfo | null {
-  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+  for (const parameter of classPropertyParameters(classStatement)) {
     if (parameter.name.name !== memberName) {
       continue;
     }
@@ -805,7 +816,7 @@ function findClassMemberDeclarationAtPosition(
       continue;
     }
     const classStatement = statement as ClassStatement;
-    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+    for (const parameter of classPropertyParameters(classStatement)) {
       const member = classMemberInfoByName(classStatement, parameter.name.name);
       if (!member || !rangeContainsPosition(member.range, line, character)) {
         continue;

@@ -21,6 +21,19 @@ function executeTranspiled(source: string, target: TranspileTarget = "optimized"
 }
 
 describe("runtime integration", () => {
+  it("executes TypeScript constructor parameter properties", () => {
+    const output = executeTranspiled(`
+class User {
+  constructor(public readonly id: string, private age: int = 1) {}
+  describe() { return this.id + ":" + this.age }
+}
+let user = new User("ada", 37)
+console.log(user.describe())
+`);
+
+    expect(output).toEqual([["ada:37"]]);
+  });
+
   it("executes lowered range loops, class constructor fields, and bigint/long arithmetic", () => {
     const source = `class Pair(val x: int, val y: int)
 let total = 0

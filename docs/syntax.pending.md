@@ -25,10 +25,6 @@ Scope notes:
 - Conditional types (`T extends U ? X : Y`).
 - `infer`.
 
-## Class Syntax
-
-- Parameter properties in TypeScript classes (`constructor(public x: number)`).
-
 ## Function and Parameter Syntax
 
 - Destructured parameters.

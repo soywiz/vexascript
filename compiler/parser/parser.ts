@@ -3221,13 +3221,35 @@ export class Parser {
         );
     }
 
-    private parseFunctionParameters(): FunctionParameter[] {
+    private parseFunctionParameters(allowParameterProperties: boolean = false): FunctionParameter[] {
         const parameters: FunctionParameter[] = [];
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
             return parameters;
         }
 
         while (this.tokens.hasMore) {
+            let parameterAccessModifier: FunctionParameter["accessModifier"] | undefined;
+            let parameterReadonly = false;
+            let propertyModifierToken: Token | undefined;
+            while (this.tokens.peek()?.type === "identifier") {
+                const modifier = this.tokens.peek()!.value;
+                if (modifier === "public" || modifier === "private" || modifier === "protected") {
+                    propertyModifierToken ??= this.tokens.peek();
+                    parameterAccessModifier = this.tokens.read()!.value as FunctionParameter["accessModifier"];
+                    continue;
+                }
+                if (modifier === "readonly") {
+                    propertyModifierToken ??= this.tokens.peek();
+                    parameterReadonly = true;
+                    this.tokens.skip();
+                    continue;
+                }
+                break;
+            }
+            if (propertyModifierToken && !allowParameterProperties) {
+                this.fail("Parameter properties are only allowed in constructors", this.tokenAt(propertyModifierToken));
+            }
+
             let parameterRest = false;
             const maybeRestToken = this.tokens.peek();
             if (maybeRestToken?.type === "symbol" && maybeRestToken.value === "...") {
@@ -3258,20 +3280,32 @@ export class Parser {
             let parameterDefaultValue: Expr | undefined;
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
                 this.tokens.skip();
-                parameterDefaultValue = this.parseExpressionOrThrow();
+                parameterDefaultValue = this.parseAssignment();
             }
 
             const parameter: FunctionParameter = {
                 kind: "FunctionParameter",
                 name: this.buildIdentifierFromToken(parameterNameToken)
             };
+            if (parameterAccessModifier) {
+                parameter.accessModifier = parameterAccessModifier;
+            }
+            if (parameterReadonly) {
+                parameter.readonly = true;
+            }
             if (parameterNameToken.value === "this") {
+                if (propertyModifierToken) {
+                    this.fail("A this parameter cannot be a parameter property", this.tokenAt(propertyModifierToken));
+                }
                 if (parameters.length !== 0 || parameterRest || parameterOptional || parameterDefaultValue) {
                     this.fail("A this parameter must be the first non-rest parameter without optional/default syntax", this.tokenAt(parameterNameToken));
                 }
                 parameter.thisParameter = true;
             }
             if (parameterRest) {
+                if (propertyModifierToken) {
+                    this.fail("A parameter property cannot be a rest parameter", this.tokenAt(propertyModifierToken));
+                }
                 parameter.rest = true;
             }
             if (parameterOptional) {
@@ -3383,7 +3417,7 @@ export class Parser {
                 this.fail("Expected '(' after method type parameters", this.tokenAt(this.tokens.peek()));
             }
             this.tokens.skip();
-            const parameters = this.parseFunctionParameters();
+            const parameters = this.parseFunctionParameters(effectiveMemberNameToken.value === "constructor");
 
             const closeParen = this.tokens.read();
             if (closeParen?.type !== "symbol" || closeParen.value !== ")") {

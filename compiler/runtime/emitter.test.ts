@@ -220,6 +220,17 @@ let worker = async function* work(this: Loader) { yield await next() }`));
   });
 
 
+  it("emits constructor parameter properties as runtime assignments", () => {
+    const program = parseFile(tokenizeReader("class User { constructor(public readonly id: string, private age = 0) { console.log(id) } }"));
+    expect(emitProgram(program)).toBe("class User {\nconstructor(id, age = 0) {\nthis.id = id;\nthis.age = age;\nconsole.log(id);\n}\n}");
+  });
+
+  it("initializes derived-class parameter properties after super", () => {
+    const program = parseFile(tokenizeReader("class Base {}\nclass Child extends Base { constructor(public id: string) {\n super()\n} }"));
+
+    expect(emitProgram(program)).toContain("constructor(id) {\nsuper();\nthis.id = id;\n}");
+  });
+
   it("emits static class members while omitting type-only class modifiers", () => {
     const emitted = emitProgram(parseFile(tokenizeReader(`class Demo {
   private static count: int = 0

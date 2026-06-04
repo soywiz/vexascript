@@ -401,12 +401,23 @@ function readDocumentationFromIdentifier(identifier: Identifier): string | undef
   return undefined;
 }
 
+function constructorParameterProperties(classStatement: ClassStatement) {
+  return classStatement.members
+    .filter((member) => member.kind === "ClassMethodMember" && member.name.name === "constructor")
+    .flatMap((member) => member.kind === "ClassMethodMember" ? member.parameters : [])
+    .filter((parameter) => parameter.accessModifier !== undefined || parameter.readonly === true);
+}
+
+function classPropertyParameters(classStatement: ClassStatement) {
+  return [...(classStatement.primaryConstructorParameters ?? []), ...constructorParameterProperties(classStatement)];
+}
+
 function resolveClassOwnMember(
   classStatement: ClassStatement,
   memberName: string,
   substitutions: Map<string, string>
 ): ResolvedClassMember | null {
-  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+  for (const parameter of classPropertyParameters(classStatement)) {
     if (parameter.name.name !== memberName) {
       continue;
     }
@@ -472,7 +483,7 @@ function classOwnMemberKind(
   classStatement: ClassStatement,
   memberName: string
 ): "field" | "method" | null {
-  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+  for (const parameter of classPropertyParameters(classStatement)) {
     if (parameter.name.name === memberName) {
       return "field";
     }
@@ -837,7 +848,7 @@ function collectClassMemberNamesRecursive(
   }
   visitedClasses.add(visitKey);
 
-  for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+  for (const parameter of classPropertyParameters(classStatement)) {
     addUniqueMemberName(names, seenNames, parameter.name.name);
   }
   for (const member of classStatement.members) {
@@ -898,7 +909,7 @@ export function resolveClassMemberNames(
   const seenNames = new Set<string>();
 
   if (!context) {
-    for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+    for (const parameter of classPropertyParameters(classStatement)) {
       addUniqueMemberName(names, seenNames, parameter.name.name);
     }
     for (const member of classStatement.members) {

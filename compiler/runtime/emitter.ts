@@ -746,6 +746,32 @@ function emitClassPrimaryConstructor(
   return `constructor(${params}) {${assignments.length > 0 ? ` ${assignments.join(" ")}` : ""} }`;
 }
 
+function isParameterProperty(parameter: FunctionParameter): boolean {
+  return parameter.accessModifier !== undefined || parameter.readonly === true;
+}
+
+function emitConstructorBlock(method: ClassMethodMember): string {
+  const assignments = method.parameters
+    .filter(isParameterProperty)
+    .map((parameter) => `this.${parameter.name.name} = ${parameter.name.name};`);
+  if (assignments.length === 0) {
+    return emitBlock(method.body);
+  }
+
+  const emittedStatements = method.body.body.map((statement) => emitStatement(statement));
+  const firstStatement = method.body.body[0];
+  const insertAt = firstStatement?.kind === "ExprStatement" &&
+    (firstStatement as ExprStatement).expression.kind === "CallExpression" &&
+    ((firstStatement as ExprStatement).expression as CallExpression).callee.kind === "Identifier" &&
+    (((firstStatement as ExprStatement).expression as CallExpression).callee as Identifier).name === "super"
+      ? 1
+      : 0;
+  emittedStatements.splice(insertAt, 0, ...assignments);
+  return `{
+${emittedStatements.join("\n")}
+}`;
+}
+
 function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   const staticPrefix = member.static === true ? "static " : "";
   if (member.kind === "ClassFieldMember") {
@@ -761,7 +787,8 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   const asyncPrefix = method.async === true ? "async " : "";
   const generatorPrefix = method.generator === true ? "*" : "";
   const methodName = method.operator ? operatorMethodName(method.operator, method.parameters) : method.name.name;
-  return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${emitBlock(method.body)}`;
+  const body = methodName === "constructor" ? emitConstructorBlock(method) : emitBlock(method.body);
+  return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;
 }
 
 function emitForStatement(statement: ForStatement): string {

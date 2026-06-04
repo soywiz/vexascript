@@ -103,6 +103,19 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("point");
   });
 
+  it("includes constructor parameter properties in member completion", () => {
+    const source =
+      "class User { constructor(public id: string, readonly age: int) {} }\n" +
+      "let user = new User(\"a\", 1)\n" +
+      "user.id\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 2, 5, session.analysis!, [], { text: source });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("id")?.detail).toBe("Class property: string");
+    expect(byLabel.get("age")?.detail).toBe("Class property: int");
+  });
+
   it("resolves member completions for chained member access", () => {
     const source =
       "class Point(val x: int, val y: int)\n" +
