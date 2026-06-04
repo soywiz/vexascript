@@ -1,7 +1,8 @@
 import { Analysis } from "compiler/analysis/Analysis";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
-import { describe, expect, it } from "vitest";
+import { describe, it } from "node:test";
+import { expect } from "../../vitest";
 import { createAnalysisSession } from "./analysisSession";
 import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
 

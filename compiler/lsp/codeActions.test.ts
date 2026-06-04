@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, it } from "node:test";
+import { expect } from "../../vitest";
 import type { CodeAction } from "vscode-languageserver/node.js";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 

@@ -1,5 +1,5 @@
 // Local vitest adapter: re-exports node:test and wraps node:assert as expect().
-// Tests import from "vitest" which resolves here via the scripts/resolver.mjs hook.
+// Tests import from "../../vitest" which resolves here via the scripts/resolver.mjs hook.
 import { describe, it, test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 

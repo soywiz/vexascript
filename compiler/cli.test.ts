@@ -1,7 +1,8 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, it } from "node:test";
+import { expect, vi } from "../vitest";
 import { ensureLspTransportArg, runCli } from "./cli";
 
 describe("CLI", () => {

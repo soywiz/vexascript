@@ -7,12 +7,12 @@ export function parseToml(source: string): TomlDocument {
   let currentSection = "";
 
   for (const rawLine of source.split("\n")) {
-    const line = rawLine.split("#")[0].trim();
+    const line = rawLine.split("#")[0]!.trim();
     if (line === "") continue;
 
     const sectionMatch = /^\[([^\]]+)\]$/.exec(line);
     if (sectionMatch) {
-      currentSection = sectionMatch[1].trim();
+      currentSection = sectionMatch[1]!.trim();
       doc[currentSection] ??= {};
       continue;
     }

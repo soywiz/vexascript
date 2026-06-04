@@ -1,6 +1,6 @@
-import { describe } from "node:test";
+import { describe, it } from "node:test";
+import { expect } from "../../vitest";
 import { tokenize } from "./tokenizer";
-import { expect, it } from "vitest";
 
 function simplifyTokens(input: string, includeEof: boolean = false) {
     const tokens = tokenize(input);
