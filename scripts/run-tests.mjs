@@ -35,7 +35,7 @@ if (testFiles.length === 0) {
 
 const result = spawnSync(
   process.execPath,
-  ["--import", "./scripts/register-loader.mjs", "--test", ...testFiles],
+  ["--import", "./scripts/register-loader.mjs", "--test", "--test-reporter=dot", ...testFiles],
   { stdio: "inherit", cwd: root }
 );
 
