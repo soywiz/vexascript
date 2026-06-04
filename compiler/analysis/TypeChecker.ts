@@ -79,7 +79,14 @@ import {
   typeToString,
   unionType
 } from "./types";
-import { parseTypeNameShape, splitTopLevelTypeText, stripEnclosingTypeParens } from "./typeNames";
+import {
+  findMatchingTypeDelimiter,
+  findTopLevelTypeCharacter,
+  parseTypeNameShape,
+  splitTopLevelDelimitedTypeText,
+  splitTopLevelTypeText,
+  stripEnclosingTypeParens
+} from "./typeNames";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 
@@ -3836,7 +3843,7 @@ export class TypeChecker {
       return null;
     }
 
-    const closeParenIndex = this.findMatchingDelimiter(trimmed, 0, "(", ")");
+    const closeParenIndex = findMatchingTypeDelimiter(trimmed, 0, "(", ")");
     if (closeParenIndex < 0) {
       return null;
     }
@@ -3848,7 +3855,7 @@ export class TypeChecker {
     const parameterBody = trimmed.slice(1, closeParenIndex).trim();
     const parameters = parameterBody.length === 0
       ? []
-      : this.splitTopLevelDelimitedText(parameterBody).map((part, index) => {
+      : splitTopLevelDelimitedTypeText(parameterBody).map((part, index) => {
           let text = part.trim();
           let rest = false;
           if (text.startsWith("...")) {
@@ -3856,7 +3863,7 @@ export class TypeChecker {
             text = text.slice(3).trim();
           }
 
-          const colonIndex = this.findTopLevelCharacter(text, ":");
+          const colonIndex = findTopLevelTypeCharacter(text, ":");
           if (colonIndex < 0) {
             return {
               name: `arg${index + 1}`,
@@ -3897,8 +3904,8 @@ export class TypeChecker {
       return [];
     }
 
-    return this.splitTopLevelDelimitedText(body, new Set([",", ";"])).map((part) => {
-      const colonIndex = this.findTopLevelCharacter(part, ":");
+    return splitTopLevelDelimitedTypeText(body, new Set([",", ";"])).map((part) => {
+      const colonIndex = findTopLevelTypeCharacter(part, ":");
       if (colonIndex < 0) {
         return { name: part.trim(), typeName: "unknown" };
       }
@@ -3918,118 +3925,6 @@ export class TypeChecker {
         ...(optional ? { optional: true } : {})
       };
     });
-  }
-
-  private splitTopLevelDelimitedText(text: string, delimiters: Set<string> = new Set([","])): string[] {
-    const parts: string[] = [];
-    let current = "";
-    let angleDepth = 0;
-    let parenDepth = 0;
-    let braceDepth = 0;
-    let bracketDepth = 0;
-    let quote: string | null = null;
-
-    for (let index = 0; index < text.length; index += 1) {
-      const ch = text[index]!;
-      const previous = index > 0 ? text[index - 1] : "";
-      if (quote) {
-        current += ch;
-        if (ch === quote && previous !== "\\") {
-          quote = null;
-        }
-        continue;
-      }
-      if (ch === '"' || ch === "'") {
-        quote = ch;
-        current += ch;
-        continue;
-      }
-      if (ch === "<") angleDepth += 1;
-      else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
-      else if (ch === "(") parenDepth += 1;
-      else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
-      else if (ch === "{") braceDepth += 1;
-      else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
-      else if (ch === "[") bracketDepth += 1;
-      else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
-
-      if (
-        delimiters.has(ch) &&
-        angleDepth === 0 &&
-        parenDepth === 0 &&
-        braceDepth === 0 &&
-        bracketDepth === 0
-      ) {
-        if (current.trim().length > 0) {
-          parts.push(current.trim());
-        }
-        current = "";
-        continue;
-      }
-      current += ch;
-    }
-
-    if (current.trim().length > 0) {
-      parts.push(current.trim());
-    }
-    return parts;
-  }
-
-  private findTopLevelCharacter(text: string, target: string): number {
-    let angleDepth = 0;
-    let parenDepth = 0;
-    let braceDepth = 0;
-    let bracketDepth = 0;
-    let quote: string | null = null;
-    for (let index = 0; index < text.length; index += 1) {
-      const ch = text[index]!;
-      const previous = index > 0 ? text[index - 1] : "";
-      if (quote) {
-        if (ch === quote && previous !== "\\") quote = null;
-        continue;
-      }
-      if (ch === '"' || ch === "'") {
-        quote = ch;
-        continue;
-      }
-      if (ch === "<") angleDepth += 1;
-      else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
-      else if (ch === "(") parenDepth += 1;
-      else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
-      else if (ch === "{") braceDepth += 1;
-      else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
-      else if (ch === "[") bracketDepth += 1;
-      else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
-      if (ch === target && angleDepth === 0 && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) {
-        return index;
-      }
-    }
-    return -1;
-  }
-
-  private findMatchingDelimiter(text: string, openIndex: number, open: string, close: string): number {
-    let depth = 0;
-    let quote: string | null = null;
-    for (let index = openIndex; index < text.length; index += 1) {
-      const ch = text[index]!;
-      const previous = index > 0 ? text[index - 1] : "";
-      if (quote) {
-        if (ch === quote && previous !== "\\") quote = null;
-        continue;
-      }
-      if (ch === '"' || ch === "'") {
-        quote = ch;
-        continue;
-      }
-      if (ch === open) depth += 1;
-      if (ch === close) {
-        depth -= 1;
-        if (depth === 0) {
-          return index;
-        }
-      }
-    }
-    return -1;
   }
 
   private looksLikeFunctionTypeAnnotation(typeName: string): boolean {

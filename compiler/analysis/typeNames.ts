@@ -4,66 +4,120 @@ export interface TypeNameShape {
   arrayDepth: number;
 }
 
-export function splitTypeArgumentText(argumentBody: string): string[] {
-  if (argumentBody.length === 0) {
-    return [];
-  }
+interface TypeTextDepths {
+  angle: number;
+  paren: number;
+  bracket: number;
+  brace: number;
+}
 
-  const args: string[] = [];
-  let angleDepth = 0;
-  let parenDepth = 0;
-  let bracketDepth = 0;
-  let braceDepth = 0;
+function scanTypeText(
+  text: string,
+  visit: (character: string, index: number, isTopLevel: boolean) => boolean | void
+): void {
+  const depths: TypeTextDepths = { angle: 0, paren: 0, bracket: 0, brace: 0 };
   let quote: string | null = null;
-  let current = "";
-  for (let index = 0; index < argumentBody.length; index += 1) {
-    const ch = argumentBody[index]!;
-    const previous = index > 0 ? argumentBody[index - 1] : "";
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    const previous = index > 0 ? text[index - 1] : "";
 
     if (quote) {
-      current += ch;
-      if (ch === quote && previous !== "\\") {
+      if (character === quote && previous !== "\\") {
         quote = null;
       }
       continue;
     }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      current += ch;
+    if (character === '"' || character === "'") {
+      quote = character;
       continue;
     }
 
-    if (ch === "<") {
-      angleDepth += 1;
-      current += ch;
-      continue;
+    const isTopLevel = Object.values(depths).every((depth) => depth === 0);
+    if (visit(character, index, isTopLevel) === false) {
+      return;
     }
-    if (ch === ">") {
-      angleDepth = Math.max(0, angleDepth - 1);
-      current += ch;
-      continue;
-    }
-    if (ch === "(") parenDepth += 1;
-    else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
-    else if (ch === "[") bracketDepth += 1;
-    else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
-    else if (ch === "{") braceDepth += 1;
-    else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
 
-    if (ch === "," && angleDepth === 0 && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
-      if (current.trim().length > 0) {
-        args.push(current.trim());
+    if (character === "<") depths.angle += 1;
+    else if (character === ">") depths.angle = Math.max(0, depths.angle - 1);
+    else if (character === "(") depths.paren += 1;
+    else if (character === ")") depths.paren = Math.max(0, depths.paren - 1);
+    else if (character === "[") depths.bracket += 1;
+    else if (character === "]") depths.bracket = Math.max(0, depths.bracket - 1);
+    else if (character === "{") depths.brace += 1;
+    else if (character === "}") depths.brace = Math.max(0, depths.brace - 1);
+  }
+}
+
+/** Splits type text at delimiters that are outside all nested type structures. */
+export function splitTopLevelDelimitedTypeText(
+  text: string,
+  delimiters: ReadonlySet<string> = new Set([","])
+): string[] {
+  const parts: string[] = [];
+  let partStart = 0;
+
+  scanTypeText(text, (character, index, isTopLevel) => {
+    if (isTopLevel && delimiters.has(character)) {
+      const part = text.slice(partStart, index).trim();
+      if (part.length > 0) {
+        parts.push(part);
       }
-      current = "";
+      partStart = index + 1;
+    }
+  });
+
+  const finalPart = text.slice(partStart).trim();
+  if (finalPart.length > 0) {
+    parts.push(finalPart);
+  }
+  return parts;
+}
+
+/** Finds a character that is outside all nested type structures. */
+export function findTopLevelTypeCharacter(text: string, target: string): number {
+  let foundIndex = -1;
+  scanTypeText(text, (character, index, isTopLevel) => {
+    if (isTopLevel && character === target) {
+      foundIndex = index;
+      return false;
+    }
+    return true;
+  });
+  return foundIndex;
+}
+
+/** Finds the delimiter matching an opening delimiter, ignoring delimiters in quoted text. */
+export function findMatchingTypeDelimiter(
+  text: string,
+  openIndex: number,
+  open: string,
+  close: string
+): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let index = openIndex; index < text.length; index += 1) {
+    const character = text[index]!;
+    const previous = index > 0 ? text[index - 1] : "";
+    if (quote) {
+      if (character === quote && previous !== "\\") quote = null;
       continue;
     }
-    current += ch;
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === open) depth += 1;
+    if (character === close) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
   }
-  if (current.trim().length > 0) {
-    args.push(current.trim());
-  }
-  return args;
+  return -1;
+}
+
+export function splitTypeArgumentText(argumentBody: string): string[] {
+  return splitTopLevelDelimitedTypeText(argumentBody);
 }
 
 export function parseTypeNameShape(typeName: string): TypeNameShape {
@@ -109,56 +163,8 @@ export function substituteTypeNameText(typeName: string, substitutions: Map<stri
   return substituted;
 }
 
-
 export function splitTopLevelTypeText(typeName: string, separator: "|" | "&" | ","): string[] {
-  const parts: string[] = [];
-  let angleDepth = 0;
-  let parenDepth = 0;
-  let bracketDepth = 0;
-  let quote: string | null = null;
-  let current = "";
-
-  for (let index = 0; index < typeName.length; index += 1) {
-    const ch = typeName[index]!;
-    const previous = index > 0 ? typeName[index - 1] : "";
-
-    if (quote) {
-      current += ch;
-      if (ch === quote && previous !== "\\") {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-
-    if (ch === "<") angleDepth += 1;
-    else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
-    else if (ch === "(") parenDepth += 1;
-    else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
-    else if (ch === "[") bracketDepth += 1;
-    else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
-
-    if (ch === separator && angleDepth === 0 && parenDepth === 0 && bracketDepth === 0) {
-      if (current.trim().length > 0) {
-        parts.push(current.trim());
-      }
-      current = "";
-      continue;
-    }
-
-    current += ch;
-  }
-
-  if (current.trim().length > 0) {
-    parts.push(current.trim());
-  }
-
-  return parts;
+  return splitTopLevelDelimitedTypeText(typeName, new Set([separator]));
 }
 
 export function stripEnclosingTypeParens(typeName: string): string {
@@ -166,26 +172,8 @@ export function stripEnclosingTypeParens(typeName: string): string {
   if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) {
     return trimmed;
   }
-
-  let depth = 0;
-  let quote: string | null = null;
-  for (let index = 0; index < trimmed.length; index += 1) {
-    const ch = trimmed[index]!;
-    const previous = index > 0 ? trimmed[index - 1] : "";
-    if (quote) {
-      if (ch === quote && previous !== "\\") quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-    if (ch === "(") depth += 1;
-    if (ch === ")") depth -= 1;
-    if (depth === 0 && index < trimmed.length - 1) {
-      return trimmed;
-    }
+  if (findMatchingTypeDelimiter(trimmed, 0, "(", ")") !== trimmed.length - 1) {
+    return trimmed;
   }
-
   return stripEnclosingTypeParens(trimmed.slice(1, -1));
 }
