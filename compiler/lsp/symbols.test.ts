@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
-import { expect } from "../../vitest";
+import { expect } from "../../expect";
 import { SymbolKind } from "vscode-languageserver/node.js";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
-import { expect } from "../vitest";
+import { expect } from "../expect";
 
 type VscodeExtPackage = {
   contributes?: {

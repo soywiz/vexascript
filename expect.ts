@@ -1,5 +1,5 @@
-// Local vitest adapter: re-exports node:test and wraps node:assert as expect().
-// Tests import from "../../vitest" which resolves here via the scripts/resolver.mjs hook.
+// Local expect adapter: re-exports node:test and wraps node:assert as expect().
+// Tests import from "../../expect" which resolves here via the scripts/resolver.mjs hook.
 import { describe, it, test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 
@@ -42,7 +42,7 @@ function makeExpect(actual: unknown, negated: boolean, message?: string) {
       if (negated ? ok : !ok) fail(`Expected ${JSON.stringify(actual)} ${negated ? "not " : ""}to be ${JSON.stringify(expected)}`);
     },
     toEqual(expected: unknown) {
-      const eq = vitestDeepEqual(actual, expected);
+      const eq = expectDeepEqual(actual, expected);
       if (negated ? eq : !eq) {
         // Use assert for nice diff output
         negated
@@ -164,7 +164,7 @@ function makeExpect(actual: unknown, negated: boolean, message?: string) {
   };
 }
 
-/** Strip undefined-valued keys recursively, matching vitest toEqual behavior */
+/** Strip undefined-valued keys recursively, matching expect toEqual behavior */
 function normalizeUndefined(val: unknown): unknown {
   if (val === null || typeof val !== "object") return val;
   if (Array.isArray(val)) return val.map(normalizeUndefined);
@@ -176,11 +176,11 @@ function normalizeUndefined(val: unknown): unknown {
 }
 
 /** vitest-compatible deep equality: undefined properties in objects are treated as absent */
-function vitestDeepEqual(a: unknown, b: unknown): boolean {
+function expectDeepEqual(a: unknown, b: unknown): boolean {
   if (b && typeof b === "object") {
     const bTyped = b as { __type?: string; arr?: unknown[]; obj?: object };
     if (bTyped.__type === "arrayContaining") {
-      return Array.isArray(a) && bTyped.arr!.every(item => (a as unknown[]).some(x => vitestDeepEqual(x, item)));
+      return Array.isArray(a) && bTyped.arr!.every(item => (a as unknown[]).some(x => expectDeepEqual(x, item)));
     }
     if (bTyped.__type === "objectContaining") {
       return matchObject(a, bTyped.obj!);
@@ -194,7 +194,7 @@ function vitestDeepEqual(a: unknown, b: unknown): boolean {
   if (Array.isArray(a)) {
     const bArr = b as unknown[];
     if (a.length !== bArr.length) return false;
-    return a.every((v, i) => vitestDeepEqual(v, bArr[i]));
+    return a.every((v, i) => expectDeepEqual(v, bArr[i]));
   }
   // Objects: skip undefined-valued keys
   const aKeys = Object.keys(a as object).filter(k => (a as Record<string, unknown>)[k] !== undefined);
@@ -202,7 +202,7 @@ function vitestDeepEqual(a: unknown, b: unknown): boolean {
   if (aKeys.length !== bKeys.length) return false;
   return aKeys.every(k =>
     (b as Record<string, unknown>)[k] !== undefined &&
-    vitestDeepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
+    expectDeepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
   );
 }
 

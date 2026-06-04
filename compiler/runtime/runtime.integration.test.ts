@@ -1,6 +1,6 @@
 import { Script, createContext } from "node:vm";
 import { describe, it } from "node:test";
-import { expect } from "../../vitest";
+import { expect } from "../../expect";
 import { transpile, type TranspileTarget } from "./transpile";
 
 function executeTranspiled(source: string, target: TranspileTarget = "optimized"): unknown[][] {

@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { expect } from "../../vitest";
+import { expect } from "../../expect";
 import { parseSource } from "./parse";
 
 describe("parseSource", () => {

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { expect } from "../vitest";
+import { expect } from "../expect";
 
 const architectureMap = readFileSync("AGENTS.md", "utf8");
 const architectureMapSection = extractArchitectureMapSection(architectureMap);

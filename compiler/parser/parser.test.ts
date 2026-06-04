@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { expect } from "../../vitest";
+import { expect } from "../../expect";
 import { ParseError, Parser, getProgramRecoveryMarkers, parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
