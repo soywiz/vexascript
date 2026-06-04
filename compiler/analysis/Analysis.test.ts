@@ -1965,6 +1965,15 @@ val Counter.next => increment(1)
     expect(imported.getIssues()).toEqual([]);
   });
 
+  it("allows numeric operators between number and int", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(
+      "class TimeSpan(val ms: number)\n" +
+      "val number.seconds => TimeSpan(this * 1000)\n"
+    )));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
 
   it("contextually interprets ambiguous brace arguments as lambdas or object literals", () => {
     const source = `interface Options { it: int }

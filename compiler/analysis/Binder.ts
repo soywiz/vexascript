@@ -64,6 +64,12 @@ function isReadonlyVariable(kind: VariableDeclarationKind): boolean {
   return kind === "const" || kind === "val";
 }
 
+function receiverSelfType(typeName: string): AnalysisType {
+  return BUILTIN_TYPE_NAMES.has(typeName)
+    ? builtinType(typeName as BuiltinTypeName)
+    : namedType(typeName);
+}
+
 export class Binder {
   private readonly scopeByNode: WeakMap<Node, Scope> = new WeakMap();
   private readonly rootScope: Scope;
@@ -374,7 +380,7 @@ export class Binder {
         name: "this",
         kind: "variable",
         node: statement.receiverType,
-        type: namedType(statement.receiverType.name),
+        type: receiverSelfType(statement.receiverType.name),
         valueType: statement.receiverType.name
       }, -1);
       return;
@@ -444,7 +450,7 @@ export class Binder {
         name: "this",
         kind: "variable",
         node: statement.receiverType,
-        type: namedType(statement.receiverType.name),
+        type: receiverSelfType(statement.receiverType.name),
         valueType: statement.receiverType.name
       }, -1);
     }
