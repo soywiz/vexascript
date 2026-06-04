@@ -448,6 +448,22 @@ function viaTry(flag: boolean): int {
   });
 
 
+  it("keeps nested unions inside object type annotations", () => {
+    const source = `type Result = { value: string | int }
+let numeric: Result = { value: 1 }
+let textual: Result = { value: "ok" }
+let invalid: Result = { value: true }
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([
+      "Type '{ value: boolean }' is not assignable to type '{ value: string | int }'",
+      "Nested type mismatch: expression '{ ... }' is '{ value: boolean }' but expected '{ value: string | int }'"
+    ]);
+  });
+
   it("checks function and object type literal annotations", () => {
     const source = `let mapper: (value: int) => string = (value: int) => "ok"
 let badMapper: (value: int) => string = (value: int) => value
