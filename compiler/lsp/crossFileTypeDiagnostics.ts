@@ -3,6 +3,7 @@ import type {
   CallExpression,
   Identifier,
   MemberExpression,
+  NewExpression,
   Program
 } from "compiler/ast/ast";
 import { baseTypeName } from "compiler/analysis/typeNames";
@@ -13,6 +14,7 @@ import type { AnalysisSession } from "./analysisSession";
 import { MYLANG_DIAGNOSTIC_CODES, type MyLangDiagnosticCode } from "./diagnosticCodes";
 import {
   createClassResolverCache,
+  resolveConstructorSignature,
   isTypeAssignableByName,
   resolveClassMember,
   resolveClassStatementAcrossFiles,
@@ -55,6 +57,10 @@ function diagnosticForNode(
 
 function callDiagnosticNode(call: CallExpression) {
   return call.callee.kind === "MemberExpression" ? (call.callee as MemberExpression).property : call;
+}
+
+function constructorDiagnosticNode(node: CallExpression | NewExpression) {
+  return node.callee.kind === "MemberExpression" ? (node.callee as MemberExpression).property : node.callee;
 }
 
 function collectCallExpressions(program: Program): CallExpression[] {
@@ -122,6 +128,45 @@ export function collectCrossFileTypeDiagnostics(
   };
 
   for (const call of collectCallExpressions(session.ast)) {
+    const constructorSignature = resolveConstructorSignature(
+      call.callee,
+      session.analysis,
+      session.ast,
+      options
+    );
+    if (constructorSignature) {
+      const providedCount = call.arguments.length;
+      const requiredCount = constructorSignature.parameters.filter((parameter) => !parameter.optional).length;
+      const totalCount = constructorSignature.parameters.length;
+
+      if (providedCount < requiredCount) {
+        pushDiagnostic(
+          diagnosticForNode(
+            constructorDiagnosticNode(call),
+            `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
+            MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
+          )
+        );
+      } else if (providedCount > totalCount) {
+        pushDiagnostic(
+          diagnosticForNode(
+            constructorDiagnosticNode(call),
+            `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
+            MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
+          )
+        );
+        for (let index = totalCount; index < providedCount; index += 1) {
+          pushDiagnostic(
+            diagnosticForNode(
+              call.arguments[index] ?? constructorDiagnosticNode(call),
+              `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
+              MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
+            )
+          );
+        }
+      }
+    }
+
     if (call.callee.kind !== "MemberExpression") {
       continue;
     }
@@ -222,6 +267,49 @@ export function collectCrossFileTypeDiagnostics(
     }
   }
 
+  for (const node of walkCallLikeNewExpressions(session.ast)) {
+    const constructorSignature = resolveConstructorSignature(
+      node.callee,
+      session.analysis,
+      session.ast,
+      options
+    );
+    if (!constructorSignature) {
+      continue;
+    }
+
+    const providedCount = node.arguments?.length ?? 0;
+    const requiredCount = constructorSignature.parameters.filter((parameter) => !parameter.optional).length;
+    const totalCount = constructorSignature.parameters.length;
+
+    if (providedCount < requiredCount) {
+      pushDiagnostic(
+        diagnosticForNode(
+          constructorDiagnosticNode(node),
+          `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
+          MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
+        )
+      );
+    } else if (providedCount > totalCount) {
+      pushDiagnostic(
+        diagnosticForNode(
+          constructorDiagnosticNode(node),
+          `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
+          MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
+        )
+      );
+      for (let index = totalCount; index < providedCount; index += 1) {
+        pushDiagnostic(
+          diagnosticForNode(
+            node.arguments?.[index] ?? constructorDiagnosticNode(node),
+            `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
+            MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
+          )
+        );
+      }
+    }
+  }
+
   for (const assignment of collectAssignmentExpressions(session.ast)) {
     if (assignment.left.kind !== "MemberExpression") {
       continue;
@@ -279,4 +367,14 @@ export function collectCrossFileTypeDiagnostics(
   }
 
   return diagnostics;
+}
+
+function walkCallLikeNewExpressions(program: Program): NewExpression[] {
+  const nodes: NewExpression[] = [];
+  walkAst(program, (node) => {
+    if (node.kind === "NewExpression") {
+      nodes.push(node as NewExpression);
+    }
+  });
+  return nodes;
 }

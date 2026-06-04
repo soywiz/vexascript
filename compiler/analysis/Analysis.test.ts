@@ -773,6 +773,21 @@ a--
     expect(symbols.get("point")?.valueType).toBe("Point");
   });
 
+  it("reports missing constructor arguments for class calls and new expressions", () => {
+    const source =
+      "class Point(val x: number, val y: number)\n" +
+      "fun demo() {\n" +
+      "  new Point()\n" +
+      "  Point()\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.filter((message) => message === "Expected at least 2 argument(s), but got 0")).toHaveLength(2);
+  });
+
   it("infers class type for new expressions", () => {
     const source =
       "class Point\n" +

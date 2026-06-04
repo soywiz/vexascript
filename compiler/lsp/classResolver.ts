@@ -1215,30 +1215,58 @@ export function resolveConstructorSignature(
     return null;
   }
 
+  const classResolution = resolveClassStatementAcrossFiles(
+    ast,
+    identifier.name,
+    options,
+    createClassResolverCache()
+  );
+  if (classResolution) {
+    return {
+      className: classResolution.classStatement.name.name,
+      parameters: (classResolution.classStatement.primaryConstructorParameters ?? []).map((parameter) => ({
+        name: bindingNameText(parameter.name),
+        typeName: parameter.typeAnnotation?.name ?? "unknown",
+        optional: parameter.defaultValue !== undefined
+      }))
+    };
+  }
+
   const symbol = analysis.getSymbolAt(
     identifier.firstToken.range.start.line,
     identifier.firstToken.range.start.column
   )?.symbol;
-  if (!symbol || symbol.kind !== "class") {
+  const className = symbol?.kind === "class"
+    ? symbol.name
+    : symbol?.valueType
+      ? baseTypeName(symbol.valueType)
+      : symbol?.type
+        ? baseTypeName(typeToString(symbol.type))
+        : null;
+  if (!className) {
     return null;
   }
 
-  const classResolution = resolveClassStatementAcrossFiles(
+  const resolvedClass = resolveClassStatementAcrossFiles(
     ast,
-    symbol.name,
+    className,
     options,
     createClassResolverCache()
   );
-  if (!classResolution) {
+  if (!resolvedClass) {
     return null;
   }
 
   return {
-    className: symbol.name,
-    parameters: (classResolution.classStatement.primaryConstructorParameters ?? []).map((parameter) => ({
+    className,
+    parameters: (resolvedClass.classStatement.primaryConstructorParameters ?? []).map((parameter: {
+      name: Identifier;
+      typeAnnotation?: Identifier;
+      defaultValue?: Expr;
+    }) => ({
       name: bindingNameText(parameter.name),
       typeName: parameter.typeAnnotation?.name ?? "unknown",
-      optional: false
+      optional: parameter.defaultValue !== undefined
     }))
   };
 }

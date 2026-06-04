@@ -50,6 +50,40 @@ describe("cross-file type diagnostics", () => {
     );
   });
 
+  it("reports missing constructor arguments for imported classes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    await writeFile(worldFile, "class Point(val x: number, val y: number)\n", "utf8");
+    await writeFile(
+      helloFile,
+      "import { Point } from \"./world\"\n" +
+        "fun demo() {\n" +
+        "  new Point()\n" +
+        "  Point()\n" +
+        "}\n",
+      "utf8"
+    );
+
+    const session = createAnalysisSession(
+      "import { Point } from \"./world\"\n" +
+        "fun demo() {\n" +
+        "  new Point()\n" +
+        "  Point()\n" +
+        "}\n"
+    );
+    const diagnostics = collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(
+      diagnostics.filter((diagnostic) => diagnostic.message === "Expected at least 2 argument(s), but got 0")
+    ).toHaveLength(2);
+  });
+
   it("anchors member-call arity diagnostics on the member name", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
     const worldFile = join(root, "world.my");

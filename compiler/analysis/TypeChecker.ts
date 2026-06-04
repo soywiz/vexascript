@@ -863,6 +863,7 @@ export class TypeChecker {
             call.callee,
             scope
           );
+          this.validateConstructorArity(call, calledClass);
           result = namedType(calledClass.name.name, explicitTypeArguments);
           break;
         }
@@ -914,7 +915,19 @@ export class TypeChecker {
               newExpression.callee,
               scope
             );
+            const classStatement = this.classStatementsByName.get(calleeType.name);
+            if (classStatement) {
+              this.validateConstructorArity(newExpression, classStatement);
+            }
             result = namedType(calleeType.name, explicitTypeArguments);
+            break;
+          }
+          const classStatement = calleeType.kind === "named"
+            ? this.classStatementsByName.get(calleeType.name)
+            : undefined;
+          if (classStatement) {
+            this.validateConstructorArity(newExpression, classStatement);
+            result = calleeType;
             break;
           }
           result = calleeType;
@@ -923,6 +936,18 @@ export class TypeChecker {
 
         if (newExpression.callee.kind === "Identifier") {
           const calleeIdentifier = newExpression.callee as Node & { kind: "Identifier"; name: string };
+          const classStatement = this.classStatementsByName.get(calleeIdentifier.name);
+          if (classStatement) {
+            this.validateConstructorArity(newExpression, classStatement);
+            this.validateNamedTypeArgumentConstraints(
+              calleeIdentifier.name,
+              explicitTypeArguments,
+              calleeIdentifier,
+              scope
+            );
+            result = namedType(calleeIdentifier.name, explicitTypeArguments);
+            break;
+          }
           this.validateNamedTypeArgumentConstraints(
             calleeIdentifier.name,
             explicitTypeArguments,
@@ -1786,6 +1811,37 @@ export class TypeChecker {
       });
       if (argumentExpression) {
         this.reportNestedMismatchContext(comparableArgumentType, expectedType, argumentExpression);
+      }
+    }
+  }
+
+  private validateConstructorArity(node: CallExpression | NewExpression, classStatement: ClassStatement): void {
+    const parameters = classStatement.primaryConstructorParameters ?? [];
+    if (parameters.length === 0) {
+      return;
+    }
+    const requiredCount = parameters.filter((parameter) => parameter.defaultValue === undefined).length;
+    const providedCount = node.arguments?.length ?? 0;
+    const totalCount = parameters.length;
+    const diagnosticNode = node.kind === "CallExpression"
+      ? node.callee
+      : node.callee;
+
+    if (providedCount < requiredCount) {
+      this.issues.push({
+        message: `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
+        node: diagnosticNode
+      });
+    } else if (providedCount > totalCount) {
+      this.issues.push({
+        message: `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
+        node: diagnosticNode
+      });
+      for (let index = totalCount; index < providedCount; index += 1) {
+        this.issues.push({
+          message: `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
+          node: node.arguments?.[index] ?? diagnosticNode
+        });
       }
     }
   }
