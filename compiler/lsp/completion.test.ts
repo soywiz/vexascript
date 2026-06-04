@@ -153,6 +153,39 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("age")?.detail).toBe("Class property: int");
   });
 
+  it("prioritizes primary constructor properties ahead of methods in member completion", () => {
+    const source =
+      "class Point(val x: number, val y: number) {\n" +
+      "  operator+(other: Point): Point => Point(x + other.x, y + other.y)\n" +
+      "  operator*(scale: number): Point => Point(x * scale, y * scale)\n" +
+      "}\n" +
+      "fun demo(point: Point) {\n" +
+      "  point.\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 5, 8, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels.slice(0, 2)).toEqual(["x", "y"]);
+  });
+
+  it("keeps operator member completions visible", () => {
+    const source =
+      "class Point(val x: number, val y: number) {\n" +
+      "  operator+(other: Point): Point => Point(x + other.x, y + other.y)\n" +
+      "  operator*(scale: number): Point => Point(x * scale, y * scale)\n" +
+      "}\n" +
+      "fun demo(point: Point) {\n" +
+      "  point.\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 5, 8, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("operator+");
+    expect(labels).toContain("operator*");
+  });
+
   it("resolves member completions for chained member access", () => {
     const source =
       "class Point(val x: int, val y: int)\n" +
