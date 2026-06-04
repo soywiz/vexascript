@@ -28,6 +28,7 @@ describe("LSP document features", () => {
     const source = "fun add() {}\nadd()\n";
     const lenses = createReferenceCodeLenses(parse(source), buildAnalysisForSource(source)!, "file:///test.my");
     expect(lenses[0]?.command?.title).toBe("1 reference");
+    expect(lenses[0]?.command?.command).toBe("mylang.showReferences");
   });
 
   it("builds same-document call hierarchy", () => {
