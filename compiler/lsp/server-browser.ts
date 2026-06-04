@@ -34,6 +34,7 @@ import { AnalysisSessionCache } from "./analysisSession";
 import { createCallFixCodeActions } from "./callFixes";
 import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
+import { createStringTemplateCodeActions } from "./stringTemplateFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import {
   createCompletionItemsForPosition,
@@ -194,6 +195,15 @@ export function startLspInWorker(): void {
 
     actions.push(
       ...createFunctionShorthandCodeActions({
+        uri: params.textDocument.uri,
+        ast: session.ast,
+        text: doc.getText(),
+        position: params.range.start,
+      })
+    );
+
+    actions.push(
+      ...createStringTemplateCodeActions({
         uri: params.textDocument.uri,
         ast: session.ast,
         text: doc.getText(),

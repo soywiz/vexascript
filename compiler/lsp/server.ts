@@ -22,6 +22,7 @@ import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./impor
 import { createCallFixCodeActions } from "./callFixes";
 import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
+import { createStringTemplateCodeActions } from "./stringTemplateFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
 import {
@@ -314,6 +315,14 @@ connection.onCodeAction((params) => {
     position: params.range.start
   });
   actions.push(...functionShorthandActions);
+
+  const stringTemplateActions = createStringTemplateCodeActions({
+    uri: params.textDocument.uri,
+    ast: session.ast,
+    text: doc.getText(),
+    position: params.range.start
+  });
+  actions.push(...stringTemplateActions);
 
   const autoImportActions = createAutoImportCodeActions({
     uri: params.textDocument.uri,
