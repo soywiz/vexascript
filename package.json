@@ -14,6 +14,10 @@
     "vscodeext:launch": "pnpm vscodeext:install && pnpm build && code --new-window --extensionDevelopmentPath=./plugins/vscode .",
     "vscodeext:launch:insiders": "pnpm vscodeext:install && pnpm build && code-insiders --new-window --extensionDevelopmentPath=./plugins/vscode .",
     "ide": "pnpm vscodeext:launch",
+    "monaco:install": "pnpm --dir plugins/monaco install",
+    "monaco:dev": "pnpm monaco:install && pnpm build && pnpm --dir plugins/monaco dev",
+    "monaco:build": "pnpm monaco:install && pnpm build && pnpm --dir plugins/monaco build",
+    "monaco:start": "pnpm build && NODE_ENV=production pnpm --dir plugins/monaco start",
     "test": "tsc --noEmit && vitest run",
     "test:watch": "vitest"
   },
