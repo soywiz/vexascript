@@ -1590,4 +1590,21 @@ describe("enum semantic analysis", () => {
     expect(messages).toContain("Enum member 'Up' initializer must be assignable to int or string");
     expect(messages).toContain("Property 'Missing' does not exist on type 'Direction'");
   });
+  it("checks extension properties only when declared or imported", () => {
+    const missing = new Analysis(parseFile(tokenizeReader("val duration = 10.milliseconds")));
+    expect(missing.getIssues().map((issue) => issue.message)).toContain(
+      "Property 'milliseconds' does not exist on type 'int'"
+    );
+
+    const local = new Analysis(parseFile(tokenizeReader(
+      "class Duration(val value: number)\nval number.milliseconds => Duration(this)\nval duration = 10.milliseconds"
+    )));
+    expect(local.getIssues()).toEqual([]);
+
+    const imported = new Analysis(parseFile(tokenizeReader(
+      'import { milliseconds } from "./duration"\nval duration = 10.milliseconds'
+    )));
+    expect(imported.getIssues()).toEqual([]);
+  });
+
 });

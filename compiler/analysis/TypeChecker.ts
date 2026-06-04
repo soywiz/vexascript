@@ -104,6 +104,8 @@ export class TypeChecker {
   ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
+  private readonly extensionPropertiesByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
+  private readonly importedExtensionPropertyNames: Set<string> = new Set();
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
   private readonly typeAliasStatementsByName: Map<string, TypeAliasStatement> = new Map();
@@ -123,6 +125,7 @@ export class TypeChecker {
     this.removeRuntimeDeclarationsShadowedByImports(program);
     this.collectClassStatements(program);
     this.collectExtensionOperators(program);
+    this.collectImportedExtensionPropertyNames(program);
     this.collectEnumStatements(program);
     this.collectInterfaceStatements(program);
     this.collectTypeAliasStatements(program);
@@ -313,6 +316,18 @@ export class TypeChecker {
   }
 
   private visitVarStatement(statement: VarStatement, scope: Scope): void {
+    if (statement.receiverType) {
+      const extensionScope = this.scopeFor(statement, scope);
+      const explicitType = this.resolveTypeAnnotation(statement.typeAnnotation, extensionScope);
+      const initializerType = statement.initializer
+        ? this.visitExpression(statement.initializer, extensionScope, explicitType)
+        : UNKNOWN_TYPE;
+      const propertyType = explicitType ?? initializerType;
+      const properties = this.extensionPropertiesByReceiver.get(statement.receiverType.name) ?? new Map<string, AnalysisType>();
+      properties.set(statement.name.name, propertyType);
+      this.extensionPropertiesByReceiver.set(statement.receiverType.name, properties);
+      return;
+    }
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
         const explicitType = this.resolveTypeAnnotation(declaration.typeAnnotation, scope);
@@ -2572,6 +2587,31 @@ export class TypeChecker {
   }
 
 
+  private collectImportedExtensionPropertyNames(program: Program): void {
+    for (const statement of program.body) {
+      if (statement.kind !== "ImportStatement") continue;
+      for (const specifier of (statement as ImportStatement).specifiers) {
+        this.importedExtensionPropertyNames.add((specifier.local ?? specifier.imported).name);
+      }
+    }
+  }
+
+  private resolveExtensionPropertyType(objectType: AnalysisType, propertyName: string): AnalysisType | null {
+    const receiverNames: string[] = [];
+    if (objectType.kind === "builtin") {
+      receiverNames.push(objectType.name);
+      if (objectType.name === "int") receiverNames.push("number");
+    } else if (objectType.kind === "named") {
+      receiverNames.push(objectType.name);
+    }
+    for (const receiverName of receiverNames) {
+      const type = this.extensionPropertiesByReceiver.get(receiverName)?.get(propertyName);
+      if (type) return type;
+    }
+    return null;
+  }
+
+
   private collectExtensionOperators(program: Program): void {
     for (const statement of program.body) {
       const candidate = statement.kind === "ExportStatement"
@@ -2672,12 +2712,15 @@ export class TypeChecker {
       return;
     }
 
+    const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+    if (this.resolveExtensionPropertyType(objectType, propertyName) || this.importedExtensionPropertyNames.has(propertyName)) {
+      return;
+    }
+
     const knownMembers = this.membersForType(objectType);
     if (!knownMembers) {
       return;
     }
-
-    const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
     if (knownMembers.has(propertyName)) {
       this.validateMemberVisibility(member, objectType, propertyName, scope);
       return;
@@ -2779,6 +2822,13 @@ export class TypeChecker {
     }
 
     const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+    const extensionType = this.resolveExtensionPropertyType(objectType, memberName);
+    if (extensionType) {
+      return extensionType;
+    }
+    if (this.importedExtensionPropertyNames.has(memberName)) {
+      return UNKNOWN_TYPE;
+    }
     if (objectType.kind === "union") {
       const memberTypes = objectType.types
         .filter((type) => !this.isNullishType(type))
@@ -2856,6 +2906,9 @@ export class TypeChecker {
     }
     if (type.kind === "named") {
       return this.resolveNamedTypeMembers(type);
+    }
+    if (type.kind === "builtin" && type.name !== "any" && type.name !== "unknown") {
+      return new Map();
     }
     return null;
   }

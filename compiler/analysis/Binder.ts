@@ -178,6 +178,9 @@ export class Binder {
 
       if (statement.kind === "VarStatement") {
         const variableStatement = statement as VarStatement;
+        if (variableStatement.receiverType) {
+          continue;
+        }
         if (variableStatement.declarations && variableStatement.declarations.length > 0) {
           for (const declaration of variableStatement.declarations) {
             const symbolType = this.typeFromAnnotationLoose(declaration.typeAnnotation) ?? UNKNOWN_TYPE;
@@ -357,6 +360,17 @@ export class Binder {
   }
 
   private bindVarStatement(statement: VarStatement, scope: Scope): void {
+    if (statement.receiverType) {
+      const extensionScope = this.createScope(scope, statement);
+      this.declare(extensionScope, {
+        name: "this",
+        kind: "variable",
+        node: statement.receiverType,
+        type: namedType(statement.receiverType.name),
+        valueType: statement.receiverType.name
+      }, -1);
+      return;
+    }
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
         const symbolType = this.typeFromAnnotationLoose(declaration.typeAnnotation) ?? UNKNOWN_TYPE;

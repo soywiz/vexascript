@@ -262,6 +262,7 @@ export interface VarStatement extends Statement {
     declared?: boolean
     declarationKind: VariableDeclarationKind
     name: Identifier
+    receiverType?: Identifier
     typeAnnotation?: Identifier
     initializer?: Expr
     declarations?: VarDeclarator[]

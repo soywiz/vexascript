@@ -96,6 +96,8 @@ interface RuntimeOperatorInfo extends RuntimeOverloadInfo {
 
 let activeProgramOverloads: Map<string, RuntimeOverloadInfo[]> = new Map();
 let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
+let activeExtensionProperties: Map<string, string> = new Map();
+let activeExtensionThis = false;
 
 const PREC_COMMA = 1;
 const PREC_ASSIGNMENT = 2;
@@ -346,8 +348,69 @@ function collectOperators(program: Program): Map<string, RuntimeOperatorInfo[]> 
   return result;
 }
 
+function extensionPropertyRuntimeName(receiverType: string, propertyName: string): string {
+  return `${sanitizeManglePart(receiverType)}$$${sanitizeManglePart(propertyName)}`;
+}
+
+function collectExtensionProperties(program: Program): Map<string, string> {
+  const result = new Map<string, string>();
+  const importedNames = new Set<string>();
+  for (const statement of program.body) {
+    if (statement.kind === "ImportStatement") {
+      for (const specifier of (statement as ImportStatement).specifiers) importedNames.add((specifier.local ?? specifier.imported).name);
+    }
+    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    if (candidate?.kind === "VarStatement" && (candidate as VarStatement).receiverType) {
+      const property = candidate as VarStatement;
+      result.set(property.name.name, property.receiverType!.name);
+    }
+  }
+
+  const visitExpression = (expression: Expr): void => {
+    if (expression.kind === "MemberExpression") {
+      const member = expression as MemberExpression;
+      if (!member.computed && member.property.kind === "Identifier") {
+        const name = (member.property as Identifier).name;
+        if (!result.has(name) && importedNames.has(name)) {
+          const objectType = activeExpressionTypes?.get(member.object);
+          if (objectType?.kind === "builtin") result.set(name, objectType.name === "int" ? "number" : objectType.name);
+          else if (objectType?.kind === "named") result.set(name, objectType.name);
+        }
+      }
+      visitExpression(member.object);
+      return;
+    }
+    if (expression.kind === "CallExpression") {
+      const call = expression as CallExpression; visitExpression(call.callee); call.arguments.forEach(visitExpression);
+    } else if (expression.kind === "NewExpression") {
+      const value = expression as NewExpression; visitExpression(value.callee); value.arguments?.forEach(visitExpression);
+    } else if (expression.kind === "BinaryExpression") {
+      const value = expression as BinaryExpression; visitExpression(value.left); visitExpression(value.right);
+    } else if (expression.kind === "AssignmentExpression") {
+      const value = expression as AssignmentExpression; visitExpression(value.left); visitExpression(value.right);
+    } else if (expression.kind === "ConditionalExpression") {
+      const value = expression as ConditionalExpression; visitExpression(value.test); visitExpression(value.consequent); visitExpression(value.alternate);
+    } else if (expression.kind === "CommaExpression") (expression as CommaExpression).expressions.forEach(visitExpression);
+    else if (expression.kind === "AsExpression") visitExpression((expression as AsExpression).expression);
+    else if (expression.kind === "UnaryExpression" || expression.kind === "UpdateExpression") visitExpression((expression as UnaryExpression | UpdateExpression).argument);
+    else if (expression.kind === "ArrayLiteral") (expression as ArrayLiteral).elements.forEach(visitExpression);
+  };
+  const visitStatement = (statement: Statement): void => {
+    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    if (!candidate) return;
+    if (candidate.kind === "VarStatement") {
+      const value = candidate as VarStatement; if (value.initializer) visitExpression(value.initializer); value.declarations?.forEach((d) => { if (d.initializer) visitExpression(d.initializer); });
+    } else if (candidate.kind === "ExprStatement") visitExpression((candidate as ExprStatement).expression);
+    else if (candidate.kind === "FunctionStatement") (candidate as FunctionStatement).body.body.forEach(visitStatement);
+    else if (candidate.kind === "BlockStatement") (candidate as BlockStatement).body.forEach(visitStatement);
+    else if (candidate.kind === "ReturnStatement" && (candidate as ReturnStatement).expression) visitExpression((candidate as ReturnStatement).expression!);
+  };
+  program.body.forEach(visitStatement);
+  return result;
+}
+
 function emitIdentifier(identifier: Identifier): string {
-  return identifier.name;
+  return activeExtensionThis && identifier.name === "this" ? "$this" : identifier.name;
 }
 
 function eraseTypeArguments(typeName: string): string {
@@ -466,6 +529,13 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       case "MemberExpression": {
         const member = expression as MemberExpression;
         const objectText = emitExpression(member.object, PREC_MEMBER, "left");
+        if (!member.computed && member.property.kind === "Identifier") {
+          const propertyName = (member.property as Identifier).name;
+          const receiverType = activeExtensionProperties.get(propertyName);
+          if (receiverType) {
+            return `${extensionPropertyRuntimeName(receiverType, propertyName)}(${objectText})`;
+          }
+        }
         if (member.computed) {
           return member.optional
             ? `${objectText}?.[${emitExpression(member.property)}]`
@@ -776,16 +846,30 @@ export function emitStatement(statement: Statement): string {
         clauses.push(`* as ${importStatement.namespaceImport.name}`);
       } else if (importStatement.specifiers.length > 0) {
         const names = importStatement.specifiers
-          .map((specifier) => specifier.local
-            ? `${specifier.imported.name} as ${specifier.local.name}`
-            : specifier.imported.name)
+          .map((specifier) => {
+            const localName = specifier.local?.name ?? specifier.imported.name;
+            const receiverType = activeExtensionProperties.get(localName);
+            const importedName = receiverType ? extensionPropertyRuntimeName(receiverType, specifier.imported.name) : specifier.imported.name;
+            return specifier.local ? `${importedName} as ${specifier.local.name}` : importedName;
+          })
           .join(", ");
         clauses.push(`{ ${names} }`);
       }
       return `import ${clauses.join(", ")} from ${source};`;
     }
-    case "VarStatement":
-      return emitVarStatement(statement as VarStatement);
+    case "VarStatement": {
+      const property = statement as VarStatement;
+      if (property.receiverType) {
+        const previousExtensionThis = activeExtensionThis;
+        activeExtensionThis = true;
+        try {
+          return `const ${extensionPropertyRuntimeName(property.receiverType.name, property.name.name)} = ($this) => ${property.initializer ? emitExpression(property.initializer) : "undefined"};`;
+        } finally {
+          activeExtensionThis = previousExtensionThis;
+        }
+      }
+      return emitVarStatement(property);
+    }
     case "EnumStatement":
       return emitEnumStatement(statement as EnumStatement);
     case "FunctionStatement": {
@@ -917,9 +1001,11 @@ export function emitProgramStatements(
   const previous = activeExpressionTypes;
   const previousOverloads = activeProgramOverloads;
   const previousOperators = activeOperators;
+  const previousExtensionProperties = activeExtensionProperties;
   activeExpressionTypes = expressionTypes;
   activeProgramOverloads = collectRuntimeOverloads(program);
   activeOperators = collectOperators(program);
+  activeExtensionProperties = collectExtensionProperties(program);
   try {
     return program.body
       .map((statement) => emitStatement(statement))
@@ -928,5 +1014,6 @@ export function emitProgramStatements(
     activeExpressionTypes = previous;
     activeProgramOverloads = previousOverloads;
     activeOperators = previousOperators;
+    activeExtensionProperties = previousExtensionProperties;
   }
 }
