@@ -10,40 +10,40 @@ This document tracks common Language Server Protocol services and their status i
 - [x] `textDocument/references`
 - [x] `textDocument/rename`
 - [x] `textDocument/prepareRename`
-- [ ] `textDocument/declaration`
-- [ ] `textDocument/typeDefinition`
-- [ ] `textDocument/implementation`
+- [x] `textDocument/declaration`
+- [x] `textDocument/typeDefinition`
+- [x] `textDocument/implementation`
 - [x] `textDocument/signatureHelp`
-- [ ] `textDocument/documentHighlight`
+- [x] `textDocument/documentHighlight`
 - [x] `textDocument/documentSymbol`
 - [x] `workspace/symbol`
 - [x] `textDocument/semanticTokens/full`
 - [x] `textDocument/semanticTokens/range`
 - [x] `textDocument/inlayHint`
-- [ ] `textDocument/codeLens`
-- [ ] `textDocument/foldingRange`
-- [ ] `textDocument/selectionRange`
-- [ ] `textDocument/linkedEditingRange`
-- [ ] `textDocument/callHierarchy`
+- [x] `textDocument/codeLens`
+- [x] `textDocument/foldingRange`
+- [x] `textDocument/selectionRange`
+- [x] `textDocument/linkedEditingRange`
+- [x] `textDocument/callHierarchy`
 
 ## Diagnostics and Code Actions
 
 - [x] `textDocument/publishDiagnostics` (push model)
 - [x] `textDocument/codeAction` (quick fixes)
-- [ ] `textDocument/codeAction/resolve`
-- [ ] `workspace/diagnostic`
+- [x] `textDocument/codeAction/resolve`
+- [x] `workspace/diagnostic` (reports open workspace documents; push diagnostics remain enabled)
 
 ## Formatting
 
 - [x] `textDocument/formatting`
 - [x] `textDocument/rangeFormatting`
-- [ ] `textDocument/onTypeFormatting`
+- [x] `textDocument/onTypeFormatting`
 
 ## Workspace and Commands
 
-- [ ] `workspace/executeCommand`
-- [ ] `workspace/configuration`
-- [ ] `workspace/didChangeWatchedFiles` (server-side handling)
+- [x] `workspace/executeCommand`
+- [x] `workspace/configuration`
+- [x] `workspace/didChangeWatchedFiles` (server-side handling)
 
 ## Notes on Implemented Features
 
@@ -61,3 +61,11 @@ This document tracks common Language Server Protocol services and their status i
 
 - Semantic diagnostics include a dedicated code for duplicate switch defaults.
 - Semantic tokens classify regular expression literals with string-like token coloring.
+
+## Recently completed services
+
+- Declaration, type-definition, and implementation requests reuse project-aware definition resolution.
+- Document highlights, reference code lenses, folding ranges, nested selection ranges, and linked editing ranges are available.
+- On-type formatting handles newline indentation and closing braces.
+- Call hierarchy reports same-document function calls.
+- Workspace diagnostic pulls report open documents. Configuration and watched-file changes refresh open-document diagnostics and invalidate changed project files.
