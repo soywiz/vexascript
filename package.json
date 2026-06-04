@@ -14,8 +14,8 @@
     "vscodeext:launch": "pnpm vscodeext:install && pnpm build && code --new-window --extensionDevelopmentPath=./plugins/vscode .",
     "vscodeext:launch:insiders": "pnpm vscodeext:install && pnpm build && code-insiders --new-window --extensionDevelopmentPath=./plugins/vscode .",
     "ide": "pnpm vscodeext:launch",
-    "test": "tsc --noEmit && node scripts/run-tests.mjs",
-    "test:watch": "node --watch scripts/run-tests.mjs",
+    "test": "tsx --test --test-reporter=dot",
+    "test:watch": "tsx --watch --test --test-reporter=dot",
     "monaco:install": "pnpm --dir plugins/monaco install",
     "monaco:dev": "pnpm monaco:install && pnpm build && pnpm --dir plugins/monaco dev",
     "monaco:build": "pnpm monaco:install && pnpm build && pnpm --dir plugins/monaco build",
@@ -27,6 +27,7 @@
     "vscode-languageserver-textdocument": "^1.0.12"
   },
   "devDependencies": {
+    "tsx": "^4.22.4",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.15.30",
     "esbuild": "^0.21.5",

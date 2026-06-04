@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { it, describe } from "node:test";
-import { expect } from "../compiler/expect";
+import { expect } from "../compiler/test/expect";
 import { Analysis } from "../compiler/analysis/Analysis";
 import { Parser } from "../compiler/parser/parser";
 import { tokenizeReader } from "../compiler/parser/tokenizer";
 
 describe("Parse Typescript Libraries", () => {
     it("parses testFixtures/moment.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(__dirname, "moment.d.ts"), "utf8");
+        const source = readFileSync(resolve(import.meta.dirname, "moment.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
@@ -22,7 +22,7 @@ describe("Parse Typescript Libraries", () => {
     });
 
     it("parses testFixtures/typescript-supported.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(__dirname, "typescript-supported.d.ts"), "utf8");
+        const source = readFileSync(resolve(import.meta.dirname, "typescript-supported.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
@@ -37,7 +37,7 @@ describe("Parse Typescript Libraries", () => {
     });
 
     it("parses testFixtures/PIXI.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(__dirname, "./PIXI.d.ts"), "utf8");
+        const source = readFileSync(resolve(import.meta.dirname, "./PIXI.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
@@ -48,7 +48,7 @@ describe("Parse Typescript Libraries", () => {
     });
 
     it("parses testFixtures/threejs.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(__dirname, "./threejs.d.ts"), "utf8");
+        const source = readFileSync(resolve(import.meta.dirname, "./threejs.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();

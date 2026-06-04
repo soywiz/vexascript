@@ -38,7 +38,7 @@ describe("VS Code extension syntax highlighting", () => {
   });
 
   it("includes core keyword/string/operator patterns in grammar", () => {
-    const grammarPath = resolve(__dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
+    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
     const grammar = JSON.parse(readFileSync(grammarPath, "utf8")) as {
       repository?: Record<string, { patterns?: Array<{ match?: string }> }>;
     };
