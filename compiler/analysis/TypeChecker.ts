@@ -50,6 +50,7 @@ import type {
   WhileStatement,
   WithStatement
 } from "compiler/ast/ast";
+import { bindingElements, bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { Node } from "compiler/ast/ast";
 import type {
   AnalysisSymbol,
@@ -326,7 +327,7 @@ export class TypeChecker {
         : UNKNOWN_TYPE;
       const propertyType = explicitType ?? initializerType;
       const properties = this.extensionPropertiesByReceiver.get(statement.receiverType.name) ?? new Map<string, AnalysisType>();
-      properties.set(statement.name.name, propertyType);
+      properties.set(bindingIdentifiers(statement.name)[0]!.name, propertyType);
       this.extensionPropertiesByReceiver.set(statement.receiverType.name, properties);
       return;
     }
@@ -345,8 +346,11 @@ export class TypeChecker {
         ) {
           this.reportTypeMismatch(initializerType, explicitType, declaration.name, declaration.initializer);
         }
+        for (const element of bindingElements(declaration.name)) {
+          if (element.initializer) this.visitExpression(element.initializer, scope);
+        }
         const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
-        this.updateSymbolType(scope, declaration.name.name, inferredType);
+        for (const identifier of bindingIdentifiers(declaration.name)) this.updateSymbolType(scope, identifier.name, inferredType);
       }
       return;
     }
@@ -364,8 +368,11 @@ export class TypeChecker {
     ) {
       this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer);
     }
+    for (const element of bindingElements(statement.name)) {
+      if (element.initializer) this.visitExpression(element.initializer, scope);
+    }
     const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
-    this.updateSymbolType(scope, statement.name.name, inferredType);
+    for (const identifier of bindingIdentifiers(statement.name)) this.updateSymbolType(scope, identifier.name, inferredType);
   }
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
@@ -2588,12 +2595,12 @@ export class TypeChecker {
     const varStatement = iterator as VarStatement;
     if (varStatement.declarations && varStatement.declarations.length > 0) {
       for (const declaration of varStatement.declarations) {
-        this.updateSymbolType(scope, declaration.name.name, iteratorType);
+        for (const identifier of bindingIdentifiers(declaration.name)) this.updateSymbolType(scope, identifier.name, iteratorType);
       }
       return;
     }
 
-    this.updateSymbolType(scope, varStatement.name.name, iteratorType);
+    for (const identifier of bindingIdentifiers(varStatement.name)) this.updateSymbolType(scope, identifier.name, iteratorType);
   }
 
   private collectClassStatements(program: Program): void {

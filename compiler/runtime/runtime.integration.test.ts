@@ -123,4 +123,19 @@ console.log(result.y)
 
     expect(logs).toEqual([[4], [6]]);
   });
+  it("executes nested object and array destructuring declarations", () => {
+    const source = `let { id, name: displayName, nested: { value = 4 }, ...rest } = { id: 1, name: "Ada", nested: {}, extra: 7 }
+const [first, , third = 3, ...tail] = [10, 20]
+console.log(id)
+console.log(displayName)
+console.log(value)
+console.log(rest.extra)
+console.log(first)
+console.log(third)
+console.log(tail.length)
+`;
+
+    expect(executeTranspiled(source)).toEqual([[1], ["Ada"], [4], [7], [10], [3], [0]]);
+  });
+
 });

@@ -6,6 +6,8 @@ import {
     AsExpression,
     AssignmentExpression,
     BigIntLiteral,
+    BindingElement,
+    BindingName,
     BinaryExpression,
     BooleanLiteral,
     BlockStatement,
@@ -49,6 +51,8 @@ import {
     MemberExpression,
     NewExpression,
     NullLiteral,
+    ObjectBindingPattern,
+    ArrayBindingPattern,
     Node,
     ObjectLiteral,
     ObjectLiteralProperty,
@@ -2420,10 +2424,8 @@ export class Parser {
     }
 
     private parseVarDeclarator(): VarDeclarator {
-        const nameToken = this.tokens.read();
-        if (nameToken?.type !== "identifier") {
-            this.fail("Expected identifier in variable declaration", this.tokenAt(nameToken));
-        }
+        const firstToken = this.tokens.peek();
+        const name = this.parseBindingName();
 
         let typeAnnotation: Identifier | undefined;
         const maybeColon = this.tokens.peek();
@@ -2441,7 +2443,7 @@ export class Parser {
 
         const declarator: VarDeclarator = {
             kind: "VarDeclarator",
-            name: this.buildIdentifierFromToken(nameToken)
+            name
         };
         if (typeAnnotation) {
             declarator.typeAnnotation = typeAnnotation;
@@ -2450,7 +2452,86 @@ export class Parser {
             declarator.initializer = initializer;
         }
 
-        return this.attachNodeBounds(declarator, nameToken, this.getLastReadToken() ?? nameToken);
+        return this.attachNodeBounds(declarator, firstToken, this.getLastReadToken() ?? firstToken);
+    }
+
+    private parseBindingName(): BindingName {
+        const token = this.tokens.peek();
+        if (token?.type === "identifier") {
+            this.tokens.skip();
+            return this.buildIdentifierFromToken(token);
+        }
+        if (token?.type === "symbol" && token.value === "{") {
+            return this.parseObjectBindingPattern();
+        }
+        if (token?.type === "symbol" && token.value === "[") {
+            return this.parseArrayBindingPattern();
+        }
+        this.fail("Expected identifier in variable declaration", this.tokenAt(token));
+    }
+
+    private parseBindingElement(allowPropertyName: boolean): BindingElement {
+        const firstToken = this.tokens.peek();
+        let rest = false;
+        if (firstToken?.type === "symbol" && firstToken.value === "...") {
+            this.tokens.skip();
+            rest = true;
+        }
+        const firstName = this.parseBindingName();
+        let propertyName: Identifier | undefined;
+        let name = firstName;
+        let shorthand = false;
+        if (allowPropertyName && firstName.kind === "Identifier") {
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                this.tokens.skip();
+                propertyName = firstName;
+                name = this.parseBindingName();
+            } else {
+                shorthand = true;
+            }
+        }
+        let initializer: Expr | undefined;
+        if (!rest && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+            this.tokens.skip();
+            initializer = this.parseAssignment();
+        }
+        const element: BindingElement = { kind: "BindingElement", name };
+        if (propertyName) element.propertyName = propertyName;
+        if (shorthand) element.shorthand = true;
+        if (rest) element.rest = true;
+        if (initializer) element.initializer = initializer;
+        return this.attachNodeBounds(element, firstToken, this.getLastReadToken() ?? firstToken);
+    }
+
+    private parseObjectBindingPattern(): ObjectBindingPattern {
+        const open = this.tokens.read();
+        const elements: BindingElement[] = [];
+        while (this.tokens.hasMore && !(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}")) {
+            elements.push(this.parseBindingElement(true));
+            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",")) break;
+            this.tokens.skip();
+        }
+        const close = this.tokens.read();
+        if (!(close?.type === "symbol" && close.value === "}")) this.fail("Expected '}' after object binding pattern", this.tokenAt(close));
+        return this.attachNodeBounds({ kind: "ObjectBindingPattern", elements }, open, close);
+    }
+
+    private parseArrayBindingPattern(): ArrayBindingPattern {
+        const open = this.tokens.read();
+        const elements: ArrayBindingPattern["elements"] = [];
+        while (this.tokens.hasMore && !(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "]")) {
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",") {
+                const comma = this.tokens.read();
+                elements.push(this.attachNodeBounds({ kind: "BindingHole" }, comma, comma));
+                continue;
+            }
+            elements.push(this.parseBindingElement(false));
+            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ",")) break;
+            this.tokens.skip();
+        }
+        const close = this.tokens.read();
+        if (!(close?.type === "symbol" && close.value === "]")) this.fail("Expected ']' after array binding pattern", this.tokenAt(close));
+        return this.attachNodeBounds({ kind: "ArrayBindingPattern", elements }, open, close);
     }
 
 

@@ -55,6 +55,7 @@ const BINARY_OPERATORS = new Set([
 ]);
 
 const CONTROL_KEYWORDS_WITH_PAREN = new Set(["if", "for", "while", "with", "switch", "catch"]);
+const VARIABLE_DECLARATION_KEYWORDS = new Set(["let", "var", "val", "const"]);
 
 function isIdentifierStart(ch: string): boolean {
   return /[A-Za-z_]/.test(ch);
@@ -379,6 +380,7 @@ function shouldSpaceBefore(
     return false;
   }
 
+  if (current.type === "symbol" && current.value === "," && previous.type === "symbol" && previous.value === ",") return true;
   if (current.type === "symbol" && (current.value === ")" || current.value === "]" || current.value === "}" || current.value === "," || current.value === ";")) {
     return false;
   }
@@ -415,8 +417,9 @@ function shouldSpaceBefore(
     return true;
   }
 
-  if (current.type === "symbol" && current.value === "{") {
-    return !!previousSignificant && !(previousSignificant.type === "symbol" && previousSignificant.value === "{");
+  if (current.type === "symbol" && (current.value === "{" || current.value === "[")) {
+    if (previousSignificant?.type === "identifier" && VARIABLE_DECLARATION_KEYWORDS.has(previousSignificant.value)) return true;
+    if (current.value === "{") return !!previousSignificant && !(previousSignificant.type === "symbol" && previousSignificant.value === "{");
   }
 
   if (previous.type === "symbol" && (previous.value === "," || previous.value === ":")) {
@@ -470,6 +473,8 @@ export function formatSource(source: string): string {
   let atLineStart = true;
   let parenDepth = 0;
   let bracketDepth = 0;
+  let bindingBraceDepth = 0;
+  let awaitingVariableBinding = false;
 
   let previousEmitted: FormatToken | undefined;
   let previousSignificant: FormatToken | undefined;
@@ -495,6 +500,7 @@ export function formatSource(source: string): string {
     }
     atLineStart = true;
     previousEmitted = undefined;
+    awaitingVariableBinding = false;
   };
 
   const beginLineIfNeeded = (token: FormatToken): void => {
@@ -580,6 +586,18 @@ export function formatSource(source: string): string {
       continue;
     }
 
+    if (token.type === "symbol" && token.value === "}" && bindingBraceDepth > 0) {
+      beginLineIfNeeded(token);
+      writeIndentIfNeeded();
+      if (!result.endsWith(" ") && previousEmitted?.value !== "{") result += " ";
+      result += token.value;
+      bindingBraceDepth -= 1;
+      previousEmitted = token;
+      significantBeforePrevious = previousSignificant;
+      previousSignificant = token;
+      continue;
+    }
+
     if (token.type === "symbol" && token.value === "}") {
       beginLineIfNeeded(token);
       if (!atLineStart) {
@@ -612,11 +630,18 @@ export function formatSource(source: string): string {
     }
 
     result += token.value;
+    if (token.type === "identifier" && VARIABLE_DECLARATION_KEYWORDS.has(token.value)) awaitingVariableBinding = true;
+    if (token.type === "symbol" && token.value === "=") awaitingVariableBinding = false;
     previousEmitted = token;
     significantBeforePrevious = previousSignificant;
     previousSignificant = token;
 
     if (token.type === "symbol") {
+      if (token.value === "{" && (awaitingVariableBinding || bindingBraceDepth > 0)) {
+        bindingBraceDepth += 1;
+        result += " ";
+        continue;
+      }
       if (token.value === "{") {
         indentLevel += 1;
         writeNewline();
@@ -640,6 +665,7 @@ export function formatSource(source: string): string {
         parenDepth += 1;
       } else if (token.value === ")") {
         parenDepth = Math.max(0, parenDepth - 1);
+        awaitingVariableBinding = false;
       } else if (token.value === "[") {
         bracketDepth += 1;
       } else if (token.value === "]") {

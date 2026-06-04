@@ -3758,4 +3758,33 @@ class Store { async save(this: Store) { return await persist(this) }; *values() 
         });
     });
 
+    it("parses object and array binding patterns in variable declarations", () => {
+        const program = parseFile(tokenizeReader("let { id, name: displayName, nested: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
+
+        expect(program.body[0]).toMatchObject({
+            kind: "VarStatement",
+            name: {
+                kind: "ObjectBindingPattern",
+                elements: [
+                    { kind: "BindingElement", name: { kind: "Identifier", name: "id" }, shorthand: true },
+                    { kind: "BindingElement", propertyName: { name: "name" }, name: { name: "displayName" } },
+                    { kind: "BindingElement", propertyName: { name: "nested" }, name: { kind: "ObjectBindingPattern" } },
+                    { kind: "BindingElement", rest: true, name: { name: "rest" } }
+                ]
+            }
+        });
+        expect(program.body[1]).toMatchObject({
+            kind: "VarStatement",
+            name: {
+                kind: "ArrayBindingPattern",
+                elements: [
+                    { kind: "BindingElement", name: { name: "first" } },
+                    { kind: "BindingHole" },
+                    { kind: "BindingElement", name: { name: "third" }, initializer: { kind: "IntLiteral", value: 3 } },
+                    { kind: "BindingElement", rest: true, name: { name: "tail" } }
+                ]
+            }
+        });
+    });
+
 });

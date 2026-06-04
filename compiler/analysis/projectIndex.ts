@@ -12,6 +12,7 @@ import type {
   ExportStatement,
   Statement
 } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { compileSource } from "compiler/pipeline/compile";
 
 export interface ProjectSessionLike {
@@ -163,24 +164,15 @@ function indexFileData(ast: Program | null, filePath: string): IndexedFileData {
       const variableStatement = statement as VarStatement;
       if (variableStatement.declarations && variableStatement.declarations.length > 0) {
         for (const declaration of variableStatement.declarations) {
-          const range = nodeRange(declaration.name);
-          if (!range) {
-            continue;
+          for (const identifier of bindingIdentifiers(declaration.name)) {
+            const range = nodeRange(identifier);
+            if (range) declarations.push({ name: identifier.name, kind: "variable", range });
           }
-          declarations.push({
-            name: declaration.name.name,
-            kind: "variable",
-            range
-          });
         }
       } else {
-        const range = nodeRange(variableStatement.name);
-        if (range) {
-          declarations.push({
-            name: variableStatement.name.name,
-            kind: "variable",
-            range
-          });
+        for (const identifier of bindingIdentifiers(variableStatement.name)) {
+          const range = nodeRange(identifier);
+          if (range) declarations.push({ name: identifier.name, kind: "variable", range });
         }
       }
       continue;

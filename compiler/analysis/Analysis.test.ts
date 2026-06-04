@@ -1601,6 +1601,20 @@ let badOptional: int = optionalCall
     expect(messages).toContain("Type 'int | undefined' is not assignable to type 'int'");
   });
 
+  it("binds every identifier introduced by nested destructuring declarations", () => {
+    const source = "let { id, name: displayName, nested: { value = 1 }, ...rest } = source\n" +
+      "const [first, , third = 3, ...tail] = values\n" +
+      "displayName; value; rest; first; third; tail\n" +
+      "first = 4";
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+
+    for (const name of ["id", "displayName", "value", "rest", "first", "third", "tail"]) {
+      expect(messages).not.toContain(`Undefined variable '${name}'`);
+    }
+    expect(messages).toContain("Cannot assign to 'first' because it is a constant");
+  });
+
 });
 
 

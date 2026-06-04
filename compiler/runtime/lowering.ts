@@ -8,6 +8,7 @@ import type {
   UpdateExpression,
   VarStatement
 } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 
 function cloneExpression<T extends Expr>(expression: T): T {
   return expression;
@@ -67,8 +68,7 @@ function lowerForStatement(statement: ForStatement): ForStatement {
       statement.iterator.kind === "Identifier"
         ? (statement.iterator as any).name
         : statement.iterator.kind === "VarStatement"
-          ? ((statement.iterator as VarStatement).declarations?.[0]?.name.name ??
-            (statement.iterator as VarStatement).name.name)
+          ? (bindingIdentifiers((statement.iterator as VarStatement).declarations?.[0]?.name ?? (statement.iterator as VarStatement).name)[0]?.name)
           : null;
 
     if (iteratorName) {

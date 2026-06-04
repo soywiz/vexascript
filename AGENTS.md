@@ -18,6 +18,7 @@ This section is the fast onboarding map for agents and contributors.
   - Tokenizer tests: `compiler/parser/tokenizer.test.ts`
 - AST:
   - AST node definitions: `compiler/ast/ast.ts`
+  - Binding-pattern traversal helpers: `compiler/ast/bindingPatterns.ts`
 - Source locations:
   - Shared user-facing source coordinate formatting: `compiler/sourceLocations.ts`
   - Source location tests: `compiler/sourceLocations.test.ts`

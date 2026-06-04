@@ -279,4 +279,16 @@ describe("semantic tokens", () => {
       decoded.some((token) => token.lexeme === "interface" && token.tokenType === "keyword")
     ).toBe(true);
   });
+  it("highlights identifiers introduced by destructuring as variables", () => {
+    const source = "let { source: target, nested: { value }, ...rest } = input\nconst [first, , ...tail] = values";
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({ text: source, ast: session.ast, analysis: session.analysis });
+    const decoded = decodeTokens(source, semantic.data);
+
+    for (const name of ["target", "value", "rest", "first", "tail"]) {
+      expect(decoded.some((token) => token.lexeme === name && token.tokenType === "variable")).toBe(true);
+    }
+    expect(decoded.some((token) => token.lexeme === "source" && token.tokenType === "property")).toBe(true);
+  });
+
 });
