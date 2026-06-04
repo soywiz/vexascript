@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { it, describe } from "node:test";
-import { expect } from "../vitest";
+import { expect } from "../expect";
 import { Analysis } from "../compiler/analysis/Analysis";
 import { Parser } from "../compiler/parser/parser";
 import { tokenizeReader } from "../compiler/parser/tokenizer";

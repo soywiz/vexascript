@@ -1,13 +1,10 @@
 // Node.js custom loader: transpiles TypeScript with esbuild and redirects
-// "vitest" imports to our minimal shim.
 import { transform } from "esbuild";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath, pathToFileURL } from "url";
 import { resolve as pathResolve, dirname } from "path";
 
 const root = process.cwd();
-
-const vitestURL = pathToFileURL(pathResolve(root, "vitest.ts")).href;
 
 // Directories that may be used as baseUrl roots (from tsconfig baseUrl: ".")
 const BASE_URL_ROOTS = ["compiler", "testFixtures"];
@@ -30,10 +27,6 @@ function tryRootRelative(specifier) {
 }
 
 export async function resolve(specifier, context, nextResolve) {
-  if (specifier === "vitest") {
-    return { url: vitestURL, shortCircuit: true };
-  }
-
   // Handle baseUrl-relative imports (e.g. "compiler/parser/parser")
   const rootRelative = tryRootRelative(specifier);
   if (rootRelative) {
