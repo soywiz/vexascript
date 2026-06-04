@@ -37,8 +37,8 @@ describe("Parse Typescript Libraries", () => {
         expect(parser.errors).toEqual([]);
     });
 
-    it("parses samples/PIXI.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(__dirname, "../samples/PIXI.d.ts"), "utf8");
+    it("parses testFixtures/PIXI.d.ts in typescript mode", () => {
+        const source = readFileSync(resolve(__dirname, "./PIXI.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
@@ -48,8 +48,8 @@ describe("Parse Typescript Libraries", () => {
         expect(parser.errors).toEqual([]);
     });
 
-    it("parses samples/threejs.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(__dirname, "../samples/threejs.d.ts"), "utf8");
+    it("parses testFixtures/threejs.d.ts in typescript mode", () => {
+        const source = readFileSync(resolve(__dirname, "./threejs.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();

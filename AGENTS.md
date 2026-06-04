@@ -99,7 +99,7 @@ This section is the fast onboarding map for agents and contributors.
 ### Test Fixtures and Auxiliary Utilities
 
 - Runtime sample fixture: `testFixtures/sample.my`
-- Third-party declaration samples: `samples/PIXI.d.ts`, `samples/threejs.d.ts`
+- Third-party declaration samples: `testFixtures/PIXI.d.ts`, `testFixtures/threejs.d.ts`
 - TypeScript compatibility fixture: `testFixtures/typescript-supported.d.ts`
 - Fixture tests: `testFixtures/@test.test.ts`
 - Reader utilities used by parser/tokenizer:
