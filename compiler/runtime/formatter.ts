@@ -4,6 +4,12 @@ interface FormatToken {
 }
 
 type TopLevelLineKind = "variableDeclaration" | "functionOrClassDeclaration" | "other";
+type GenericAngleRole = "open" | "close" | "splitClose" | undefined;
+interface GenericAngleClassification {
+  emittedOverrides: Array<string | undefined>;
+  roles: Array<GenericAngleRole>;
+  inside: boolean[];
+}
 
 const INDENT = "  ";
 
@@ -473,8 +479,173 @@ function nextNonNewlineToken(tokens: FormatToken[], index: number): FormatToken 
   return undefined;
 }
 
+function previousNonTriviaToken(tokens: FormatToken[], index: number): FormatToken | undefined {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const token = tokens[i];
+    if (!token) {
+      continue;
+    }
+    if (token.type !== "newline" && token.type !== "commentLine" && token.type !== "commentBlock") {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+function isFQNameStartToken(token: FormatToken | undefined): boolean {
+  return !!token && token.type === "identifier";
+}
+
+function isFQNameContinuationToken(token: FormatToken | undefined, expectIdentifier: boolean): boolean {
+  if (!token) {
+    return false;
+  }
+  if (expectIdentifier) {
+    return token.type === "identifier";
+  }
+  return token.type === "symbol" && token.value === ".";
+}
+
+function genericCloseCount(symbol: string, pendingGenericDepth: number): number {
+  if (symbol === ">" || symbol === ">=") {
+    return Math.min(1, pendingGenericDepth);
+  }
+  if (symbol === ">>" || symbol === ">>=") {
+    return Math.min(2, pendingGenericDepth);
+  }
+  if (symbol === ">>>" || symbol === ">>>=") {
+    return Math.min(3, pendingGenericDepth);
+  }
+  return 0;
+}
+
+function detectGenericAngleRoles(tokens: FormatToken[]): GenericAngleClassification {
+  const emittedOverrides: Array<string | undefined> = new Array(tokens.length).fill(undefined);
+  const roles: Array<GenericAngleRole> = new Array(tokens.length).fill(undefined);
+  const inside = new Array(tokens.length).fill(false);
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token || token.type !== "symbol" || token.value !== "<" || inside[index]) {
+      continue;
+    }
+
+    const previous = previousNonTriviaToken(tokens, index);
+    const next = nextNonNewlineToken(tokens, index);
+    if (previous?.type !== "identifier" || !isFQNameStartToken(next)) {
+      continue;
+    }
+
+    let cursor = index + 1;
+    let pendingGenericDepth = 1;
+    let expectIdentifier = true;
+    let valid = true;
+    const visitedIndexes: number[] = [index];
+    let endIndex = -1;
+
+    while (cursor < tokens.length) {
+      const current = tokens[cursor];
+      visitedIndexes.push(cursor);
+      cursor += 1;
+
+      if (!current || current.type === "commentLine" || current.type === "commentBlock") {
+        continue;
+      }
+      if (current.type === "newline") {
+        break;
+      }
+      if (expectIdentifier) {
+        if (current.type === "symbol" && current.value === ">") {
+          pendingGenericDepth -= 1;
+          roles[cursor - 1] = "close";
+          expectIdentifier = false;
+          if (pendingGenericDepth === 0) {
+            endIndex = cursor - 1;
+            break;
+          }
+          continue;
+        }
+        const immediateCloseCount = current.type === "symbol" ? genericCloseCount(current.value, pendingGenericDepth) : 0;
+        if (immediateCloseCount > 0) {
+          const suffix = current.value.slice(immediateCloseCount);
+          if (suffix.length > 0) {
+            emittedOverrides[cursor - 1] = `${">".repeat(immediateCloseCount)} ${suffix}`;
+          }
+          const closeCount = immediateCloseCount;
+          pendingGenericDepth -= closeCount;
+          roles[cursor - 1] = "splitClose";
+          expectIdentifier = false;
+          if (pendingGenericDepth === 0) {
+            endIndex = cursor - 1;
+            break;
+          }
+          continue;
+        }
+        if (!isFQNameContinuationToken(current, true)) {
+          valid = false;
+          break;
+        }
+        expectIdentifier = false;
+        continue;
+      }
+
+      if (current.type === "symbol" && current.value === ".") {
+        expectIdentifier = true;
+        continue;
+      }
+        if (current.type === "symbol" && current.value === "<") {
+          const nestedNext = nextNonNewlineToken(tokens, cursor - 1);
+          if (!isFQNameStartToken(nestedNext)) {
+            valid = false;
+            break;
+          }
+          pendingGenericDepth += 1;
+          roles[cursor - 1] = "open";
+          expectIdentifier = true;
+          continue;
+      }
+      const closeCount = current.type === "symbol" ? genericCloseCount(current.value, pendingGenericDepth) : 0;
+      if (closeCount > 0) {
+        const suffix = current.value.slice(closeCount);
+        if (suffix.length > 0) {
+          emittedOverrides[cursor - 1] = `${">".repeat(closeCount)} ${suffix}`;
+        }
+        pendingGenericDepth -= closeCount;
+        roles[cursor - 1] = closeCount === 1 && current.value === ">" ? "close" : "splitClose";
+        if (pendingGenericDepth === 0) {
+          endIndex = cursor - 1;
+          break;
+        }
+        continue;
+      }
+
+      valid = false;
+      break;
+    }
+
+    const tokenAfterSequence = endIndex >= 0 ? nextNonNewlineToken(tokens, endIndex) : undefined;
+    const hasTrailingSuffix = endIndex >= 0 && !!emittedOverrides[endIndex];
+    if (!valid || pendingGenericDepth !== 0 || (!hasTrailingSuffix && isWordLike(tokenAfterSequence))) {
+      for (let reset = index; reset < cursor; reset += 1) {
+        if (roles[reset] === "open" || roles[reset] === "close" || roles[reset] === "splitClose") {
+          roles[reset] = undefined;
+        }
+      }
+      continue;
+    }
+
+    roles[index] = "open";
+    for (const visitedIndex of visitedIndexes) {
+      inside[visitedIndex] = true;
+    }
+  }
+
+  return { emittedOverrides, roles, inside };
+}
+
 export function formatSource(source: string): string {
   const tokens = tokenizeForFormatting(source);
+  const { emittedOverrides: genericEmittedOverrides, roles: genericAngleRoles, inside: genericInsideTokens } = detectGenericAngleRoles(tokens);
 
   let result = "";
   let indentLevel = 0;
@@ -633,11 +804,28 @@ export function formatSource(source: string): string {
     writeIndentIfNeeded();
 
     const nextToken = nextNonNewlineToken(tokens, index);
-    if (previousEmitted && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious, nextToken)) {
+    const genericRole = genericAngleRoles[index];
+    const previousInsideGeneric = index > 0 ? genericInsideTokens[index - 1] : false;
+    const currentInsideGeneric = genericInsideTokens[index];
+    const suppressLeadingSpace =
+      genericRole === "open" ||
+      genericRole === "close" ||
+      genericRole === "splitClose" ||
+      (previousEmitted?.type === "symbol" && previousEmitted.value === "<" && currentInsideGeneric) ||
+      (previousEmitted?.type === "symbol" && previousEmitted.value === ">" && currentInsideGeneric) ||
+      (previousInsideGeneric && token.type === "symbol" && token.value === ".") ||
+      (previousEmitted?.type === "symbol" && previousEmitted.value === "." && currentInsideGeneric);
+    if (previousEmitted && !suppressLeadingSpace && shouldSpaceBefore(previousEmitted, token, previousSignificant, significantBeforePrevious, nextToken)) {
       result += " ";
     }
 
-    result += token.value;
+    if (genericEmittedOverrides[index]) {
+      result += genericEmittedOverrides[index];
+    } else if (genericRole === "splitClose" && token.type === "symbol") {
+      result += ">".repeat(genericCloseCount(token.value, 3));
+    } else {
+      result += token.value;
+    }
     if (token.type === "identifier" && VARIABLE_DECLARATION_KEYWORDS.has(token.value)) awaitingVariableBinding = true;
     if (token.type === "symbol" && token.value === "=") awaitingVariableBinding = false;
     previousEmitted = token;

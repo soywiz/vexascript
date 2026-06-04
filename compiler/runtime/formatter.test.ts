@@ -124,6 +124,15 @@ describe("formatSource", () => {
       .toBe("for (a of 0 ... 10)console.log(a)");
   });
 
+  it("keeps generic angle brackets tight while preserving comparison spacing", () => {
+    expect(formatSource("let value:Promise<Response>=load()"))
+      .toBe("let value: Promise<Response> = load()");
+    expect(formatSource("let nested:Outer<inner.Value<Item>>=source"))
+      .toBe("let nested: Outer<inner.Value<Item>> = source");
+    expect(formatSource("if(a<b>c)return value"))
+      .toBe("if (a < b > c)return value");
+  });
+
   it("formats switch with case and default", () => {
     expect(formatSource("switch(x){case 1:let y=x;break;default:return 0}"))
       .toBe(
