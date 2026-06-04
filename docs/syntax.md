@@ -172,6 +172,31 @@ describe("one")  // emits as describe$$string("one")
 
 Signature-only overload declarations may be written without a body and are omitted from JavaScript output.
 
+### Inline JavaScript implementations
+
+A bodyless function may use `@JsImpl` to provide a trusted JavaScript template that is inserted at each direct call site. Parameter identifiers in the template are replaced with the emitted call arguments. When an argument is omitted, its declared default value is used; otherwise it is replaced with `undefined`.
+
+```my
+@JsImpl("if (!cond) throw new Error(message)")
+fun assert(cond: boolean, message: string = "assert failed")
+
+assert(value > 0)
+```
+
+The annotated declaration itself is omitted from JavaScript output. Templates are raw JavaScript and are responsible for being valid in every context where the function is called.
+
+### Test files
+
+The CLI `test` command discovers files ending in `.test.my`. Each test file receives inline `test(call)` and `assert(cond, message = "assert failed")` helpers without imports:
+
+```my
+test(() => {
+  assert(2 * 3 == 6)
+})
+```
+
+`test` invokes its callback, and `assert` throws an `Error` when its condition is false. The helpers are implemented with `@JsImpl`, so test execution does not require additional runtime files.
+
 ### Implicit member access
 
 Inside a class method or field initializer, class members can be referenced without writing `this.`. Parameters and local variables still shadow members with the same name. JavaScript emission qualifies each resolved implicit member with `this.`:

@@ -3823,3 +3823,16 @@ describe("destructured parameters", () => {
         });
     });
 });
+
+describe("JavaScript implementation annotations", () => {
+    it("parses @JsImpl on bodyless functions", () => {
+        const program = parseFile(tokenizeReader('@JsImpl("if (!cond) throw new Error(message)")\nfun assert(cond: boolean, message: string = "assert failed")'));
+
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { name: "assert" },
+            missingBody: true,
+            jsImpl: "if (!cond) throw new Error(message)"
+        });
+    });
+});

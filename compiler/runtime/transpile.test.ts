@@ -334,4 +334,17 @@ if (cat is Cat) { transform({ it }) }
     expect(result.code).toContain("cat instanceof Cat");
   });
 
+  it("inlines @JsImpl functions and substitutes arguments and defaults", () => {
+    const source = `@JsImpl("((function test() { call() })())")
+fun test(call: any)
+@JsImpl("if (!cond) throw new Error(message)")
+fun assert(cond: boolean, message: string = "assert failed")
+test(() => { assert(1 == 1) })`;
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toBe('((function test() { (() => {\nif (!(1 == 1)) throw new Error(("assert failed"));\n})() })());');
+  });
+
 });

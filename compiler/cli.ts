@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
@@ -61,7 +61,11 @@ async function buildFile(input: string, out?: string, target: TranspileTarget = 
 async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
-  const outputPath = resolve(process.cwd(), input.replace(/\.[^.]+$/, ".js"));
+  await executeSource(source, sourcePath, target);
+}
+
+async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
+  const outputPath = sourcePath.replace(/\.[^.]+$/, ".js");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -86,6 +90,55 @@ async function runFile(input: string, target: TranspileTarget = "conservative"):
       console.warn(`warning: ${warning}`);
     }
   }
+}
+
+const TEST_RUNTIME_SOURCE = `@JsImpl("((function test() { call() })())")
+fun test(call: any)
+@JsImpl("if (!cond) throw new Error(message)")
+fun assert(cond: boolean, message: string = "assert failed")
+`;
+
+const IGNORED_TEST_DIRECTORIES = new Set([".git", "dist", "node_modules"]);
+
+async function discoverTestFiles(path: string): Promise<string[]> {
+  const resolvedPath = resolve(process.cwd(), path);
+  const info = await stat(resolvedPath);
+  if (info.isFile()) {
+    return resolvedPath.endsWith(".test.my") ? [resolvedPath] : [];
+  }
+  if (!info.isDirectory()) {
+    return [];
+  }
+
+  const entries = await readdir(resolvedPath, { withFileTypes: true });
+  const discovered: string[] = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (entry.isDirectory() && IGNORED_TEST_DIRECTORIES.has(entry.name)) {
+      continue;
+    }
+    const entryPath = resolve(resolvedPath, entry.name);
+    if (entry.isDirectory()) {
+      discovered.push(...await discoverTestFiles(entryPath));
+    } else if (entry.isFile() && entry.name.endsWith(".test.my")) {
+      discovered.push(entryPath);
+    }
+  }
+  return discovered;
+}
+
+async function runTests(paths: string[]): Promise<void> {
+  const discovered = await Promise.all((paths.length > 0 ? paths : [process.cwd()]).map(discoverTestFiles));
+  const testFiles = [...new Set(discovered.flat())].sort();
+  if (testFiles.length === 0) {
+    throw new Error("No .test.my files found");
+  }
+
+  for (const testFile of testFiles) {
+    const source = await readFile(testFile, "utf8");
+    await executeSource(`${source}\n${TEST_RUNTIME_SOURCE}`, testFile, "conservative");
+    console.log(`Passed: ${testFile}`);
+  }
+  console.log(`${testFiles.length} test file${testFiles.length === 1 ? "" : "s"} passed`);
 }
 
 async function printTokens(input: string): Promise<void> {
@@ -146,6 +199,14 @@ function createProgram(): Command {
     .action(async (input: string, opts: { target?: string }) => {
       const target = opts.target === "conservative" ? "conservative" : "optimized";
       await runFile(input, target);
+    });
+
+  program
+    .command("test")
+    .description("Discover and run .test.my files with inline test and assert helpers")
+    .argument("[paths...]", "Test files or directories", [])
+    .action(async (paths: string[]) => {
+      await runTests(paths);
     });
 
   program

@@ -167,6 +167,29 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Formatted:");
   });
 
+  it("test command discovers and executes .test.my files with test and assert helpers", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-tests-"));
+    const testFile = join(dir, "math.test.my");
+    await writeFile(testFile, "test(() => { assert(1 + 1 == 2) })", "utf8");
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "test", dir]);
+
+    expect(logSpy.mock.calls.map((call) => String(call[0]))).toEqual([
+      `Passed: ${testFile}`,
+      "1 test file passed"
+    ]);
+  });
+
+  it("test command fails when an inline assertion fails", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-tests-"));
+    const testFile = join(dir, "failure.test.my");
+    await writeFile(testFile, 'test(() => { assert(false, "expected true") })', "utf8");
+
+    await expect(runCli(["node", "mylang", "test", testFile])).rejects.toThrow("expected true");
+  });
+
   it("adds --stdio when starting language server without transport arg", () => {
     expect(ensureLspTransportArg(["node", "mylang", "--lsp"])).toEqual([
       "node",
