@@ -1,64 +1,35 @@
 import { Analysis, type AnalysisIssue } from "compiler/analysis/Analysis";
-import type { Program } from "compiler/ast/ast";
-import { Parser, type ParseIssue } from "compiler/parser/parser";
-import { TokenizeError, tokenize } from "compiler/parser/tokenizer";
-import { ListReader } from "compiler/utils/ListReader";
+import type { ParseIssue, ParserOptions } from "compiler/parser/parser";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
+import { parseSource, type ParseArtifacts } from "./parse";
 
-export interface CompilationArtifacts {
-  ast: Program | null;
-  parserIssues: ParseIssue[];
+export interface CompilationArtifacts extends ParseArtifacts {
   analysis: Analysis | null;
   semanticIssues: AnalysisIssue[];
-  tokenizeError: TokenizeError | null;
-  fatalError: string | null;
 }
 
-export function compileSource(source: string): CompilationArtifacts {
-  try {
-    const tokens = tokenize(source);
-    const parser = new Parser(new ListReader(tokens));
-    const ast = parser.parseFile();
-    const parserIssues = [...parser.errors];
-
-    try {
-      const analysis = new Analysis(ast);
-      return {
-        ast,
-        parserIssues,
-        analysis,
-        semanticIssues: analysis.getIssues(),
-        tokenizeError: null,
-        fatalError: null
-      };
-    } catch (error) {
-      return {
-        ast,
-        parserIssues,
-        analysis: null,
-        semanticIssues: [],
-        tokenizeError: null,
-        fatalError: error instanceof Error ? error.message : String(error)
-      };
-    }
-  } catch (error) {
-    if (error instanceof TokenizeError) {
-      return {
-        ast: null,
-        parserIssues: [],
-        analysis: null,
-        semanticIssues: [],
-        tokenizeError: error,
-        fatalError: null
-      };
-    }
-
+export function compileSource(source: string, options: ParserOptions = {}): CompilationArtifacts {
+  const parsed = parseSource(source, options);
+  if (!parsed.ast) {
     return {
-      ast: null,
-      parserIssues: [],
+      ...parsed,
+      analysis: null,
+      semanticIssues: []
+    };
+  }
+
+  try {
+    const analysis = new Analysis(parsed.ast);
+    return {
+      ...parsed,
+      analysis,
+      semanticIssues: analysis.getIssues()
+    };
+  } catch (error) {
+    return {
+      ...parsed,
       analysis: null,
       semanticIssues: [],
-      tokenizeError: null,
       fatalError: error instanceof Error ? error.message : String(error)
     };
   }

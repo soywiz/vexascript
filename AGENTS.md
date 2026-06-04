@@ -50,9 +50,11 @@ This section is the fast onboarding map for agents and contributors.
 
 ### Tooling and Integration Pieces
 
-- Compilation pipeline (shared parse + analysis artifacts):
-  - `compiler/pipeline/compile.ts`
-  - Tests: `compiler/pipeline/compile.test.ts`
+- Compilation pipeline (separate shared parse and parse + analysis artifacts):
+  - Parse phase: `compiler/pipeline/parse.ts`
+  - Parse phase tests: `compiler/pipeline/parse.test.ts`
+  - Compile phase: `compiler/pipeline/compile.ts`
+  - Compile phase tests: `compiler/pipeline/compile.test.ts`
 - CLI:
   - CLI entrypoint and commands: `compiler/cli.ts`
   - CLI tests: `compiler/cli.test.ts`

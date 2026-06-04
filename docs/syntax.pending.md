@@ -8,10 +8,6 @@ Scope notes:
 - It is intentionally practical (roadmap-style), not a full formal grammar diff.
 - Unless explicitly noted, items are missing in both `mylang` and `typescript` parser modes.
 
-## Program and Modules
-
-- ES module string specifiers (`from "..."`) as part of real module syntax handling.
-
 ## Declarations
 
 - `namespace` / `module` declarations with full body parsing (currently skipped as opaque block).
@@ -23,10 +19,6 @@ Scope notes:
 - Mapped types (`{ [K in keyof T]: ... }`).
 - Conditional types (`T extends U ? X : Y`).
 - `infer`.
-
-## Function and Parameter Syntax
-
-- Overload signatures.
 
 ## Statements and Control Flow
 
