@@ -110,6 +110,19 @@ function empty(): int {
     ).toBe(true);
   });
 
+  it("does not report missing return diagnostics for ambient class methods", () => {
+    const diagnostics = diagnosticsFor(
+      "declare class MathConstructor {\n" +
+      "  abs(x: number): number\n" +
+      "  ceil(x: number): number\n" +
+      "}\n"
+    );
+
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.NOT_ALL_CODE_PATHS_RETURN)
+    ).toBe(false);
+  });
+
   it("assigns readonly-reassignment diagnostic code for const/val writes", () => {
     const source =
       "const point = 1\n" +

@@ -571,7 +571,7 @@ export class TypeChecker {
             for (const bodyStatement of method.body.body) {
               this.visitStatement(bodyStatement, methodScope, methodFlow);
             }
-            if (method.missingBody !== true && method.abstract !== true) {
+            if (statement.declared !== true && method.missingBody !== true && method.abstract !== true) {
               this.reportMissingReturnPath(method.body, methodReturnType, method.name);
             }
           });

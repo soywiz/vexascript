@@ -1556,6 +1556,21 @@ fun demo() {
     expect(messages.some((message) => message === "Undefined variable 'it'")).toBe(false);
   });
 
+  it("does not require return paths for methods declared inside ambient classes", () => {
+    const source = `declare class MathConstructor {
+  abs(x: number): number
+  ceil(x: number): number
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).not.toContain("Not all code paths return a value");
+    expect(messages).toEqual([]);
+  });
+
 
 
   it("uses TypeScript as assertions as semantic target types", () => {
