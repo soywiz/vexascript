@@ -142,7 +142,7 @@ function emitProgramWithLineMap(
     if (!candidate) {
       break;
     }
-    const emittedRaw = emitProgramStatements({ ...program, body: [statement] }, expressionTypes);
+    const emittedRaw = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, program);
     const emittedStatement = emittedRaw.length > 0 ? emittedRaw[0]! : "";
     if (emittedStatement.trim().length <= 0) {
       continue;
@@ -163,7 +163,7 @@ function emitProgramWithSourceLineOffsets(
   let generatedLine = 0;
 
   for (const statement of program.body) {
-    const emittedSingle = emitProgramStatements({ ...program, body: [statement] }, expressionTypes);
+    const emittedSingle = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, program);
     if (emittedSingle.length <= 0) {
       continue;
     }

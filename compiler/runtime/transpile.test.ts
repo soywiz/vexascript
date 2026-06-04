@@ -149,6 +149,15 @@ describe("transpile", () => {
     expect(result.code).toContain("let msg = \"hello \" + name + \"\";");
   });
 
+  it("preserves class-call instantiation when preserving source line offsets", () => {
+    const source = "class Point(val x: int)\n\nlet point = Point(1)";
+
+    const result = transpile(source, { preserveSourceLineOffsets: true });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("let point = new Point(1);");
+  });
+
   it("maps emitted lines to original source lines when declarations are omitted", () => {
     const source = [
       "declare class Console {",
@@ -274,7 +283,7 @@ val duration = 10.milliseconds`;
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("export const number$$milliseconds = ($this) => Duration($this);");
+    expect(result.code).toContain("export const number$$milliseconds = ($this) => new Duration($this);");
     expect(result.code).toContain("const duration = number$$milliseconds(10);");
   });
 

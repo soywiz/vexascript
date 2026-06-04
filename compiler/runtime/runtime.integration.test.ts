@@ -40,6 +40,17 @@ console.log(c)
     expect(logs).toEqual([[10], [30n]]);
   });
 
+  it("instantiates classes when they are called without new", () => {
+    const source = `class Point(val x: int, val y: int)
+let point = Point(2, 5)
+console.log(point.x + point.y)
+`;
+
+    const logs = executeTranspiled(source);
+
+    expect(logs).toEqual([[7]]);
+  });
+
   it("executes regular expression literals and sparse arrays", () => {
     const source = `let re = /a+/
 let values = [1, , 3]
