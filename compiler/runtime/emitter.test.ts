@@ -297,6 +297,21 @@ let worker = async function* work(this: Loader) { yield await next() }`));
     expect(emitted).toContain("let e = [1, 2, 3, 4].map((it) => it);");
     expect(emitted).toContain("let f = [1, 2, 3, 4].map((a, b, c) => a + b + c);");
   });
+
+  it("emits function and method shorthand bodies as regular JavaScript returns", () => {
+    const program = parseFile(tokenizeReader(
+      "fun double(value: int): int => value * 2\n" +
+      "class Point {\n" +
+      "  operator*(other: Point): Point => Point(x * other.x, y * other.y)\n" +
+      "}"
+    ));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("function double(value) {");
+    expect(emitted).toContain("return value * 2;");
+    expect(emitted).toContain("operator$star$$Point(other) {");
+    expect(emitted).toContain("return new Point(x * other.x, y * other.y);");
+  });
   it("emits optional call, optional element access, spread expressions, and rest parameters", () => {
     const program = parseFile(tokenizeReader(
       "fun collect(...values: int[]) { return values }\n" +

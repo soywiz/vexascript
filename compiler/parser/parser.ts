@@ -3222,6 +3222,8 @@ export class Parser {
         let body: BlockStatement;
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
             body = this.parseBlockStatement();
+        } else if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>") {
+            body = this.parseExpressionBodyAsBlock();
         } else {
             missingBody = true;
             body = this.attachNodeBounds(
@@ -3266,6 +3268,37 @@ export class Parser {
         }
 
         return this.attachNodeBounds(statement, declarationKeyword, this.getLastReadToken() ?? declarationKeyword);
+    }
+
+    private parseExpressionBodyAsBlock(): BlockStatement {
+        const arrowToken = this.tokens.read();
+        if (arrowToken?.type !== "symbol" || arrowToken.value !== "=>") {
+            this.fail("Expected '=>' before shorthand function body", this.tokenAt(arrowToken));
+        }
+
+        const expression = this.parseAssignment();
+        const returnStatement = this.attachNodeBounds(
+            {
+                kind: "ReturnStatement",
+                expression
+            } as ReturnStatement,
+            expression.firstToken ?? arrowToken,
+            expression.lastToken ?? this.getLastReadToken() ?? arrowToken
+        );
+        const block = this.attachNodeBounds(
+            {
+                kind: "BlockStatement",
+                body: [returnStatement]
+            } as BlockStatement,
+            arrowToken,
+            expression.lastToken ?? this.getLastReadToken() ?? arrowToken
+        );
+
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ";") {
+            this.tokens.skip();
+        }
+
+        return block;
     }
 
     private parseDeclareFunctionStatement(): FunctionStatement {
@@ -3701,7 +3734,10 @@ export class Parser {
                 returnType = this.parseTypeAnnotationNode();
             }
 
-            if (this.tokens.peek()?.type !== "symbol" || this.tokens.peek()?.value !== "{") {
+            if (
+                this.tokens.peek()?.type !== "symbol" ||
+                (this.tokens.peek()?.value !== "{" && this.tokens.peek()?.value !== "=>")
+            ) {
                 const signatureOnlyBody = this.attachNodeBounds(
                     { kind: "BlockStatement", body: [] } as BlockStatement,
                     memberNameToken,
@@ -3751,7 +3787,9 @@ export class Parser {
                 kind: "ClassMethodMember",
                 name: this.buildIdentifierFromToken(effectiveMemberNameToken),
                 parameters,
-                body: this.parseBlockStatement()
+                body: this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
+                    ? this.parseExpressionBodyAsBlock()
+                    : this.parseBlockStatement()
             };
             if (overloadedOperator) {
                 methodMember.operator = overloadedOperator;

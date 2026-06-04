@@ -184,6 +184,16 @@ fun demo(a, b): Int {
 }
 ```
 
+When the body is just a single returned expression, declarations and class methods can also use `=>` shorthand:
+
+```mylang
+fun demo(a, b): Int => a + b
+
+class Point(val x: number, val y: number) {
+  operator*(other: Point): Point => Point(x * other.x, y * other.y)
+}
+```
+
 
 ### Function overloads
 

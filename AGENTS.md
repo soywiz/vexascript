@@ -77,6 +77,7 @@ This section is the fast onboarding map for agents and contributors.
   - Inlay hints: `compiler/lsp/inlayHints.ts`
   - Code action orchestration: `compiler/lsp/codeActions.ts`
   - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`
+  - Function shorthand quick fixes: `compiler/lsp/functionShorthandFixes.ts`
   - Class/interface resolution helpers: `compiler/lsp/classResolver.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
 - VS Code extension and syntax highlighting:

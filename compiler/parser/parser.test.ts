@@ -1790,6 +1790,36 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses function shorthand bodies with =>", () => {
+        expect(parseStatement(tokenizeReader("fun demo(value: int): int => value + 1"))).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            name: { kind: "Identifier", name: "demo" },
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "value" },
+                    typeAnnotation: { kind: "Identifier", name: "int" }
+                }
+            ],
+            returnType: { kind: "Identifier", name: "int" },
+            body: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "ReturnStatement",
+                        expression: {
+                            kind: "BinaryExpression",
+                            operator: "+",
+                            left: { kind: "Identifier", name: "value" },
+                            right: { kind: "IntLiteral", value: 1 }
+                        }
+                    }
+                ]
+            }
+        });
+    });
+
     it("parses return/throw/continue/break statements", () => {
         expect(parseStatement(tokenizeReader("return value"))).toEqual({
             kind: "ReturnStatement",
@@ -1921,6 +1951,68 @@ describe("parseStatement", () => {
                     name: { kind: "Identifier", name: "demo" },
                     parameters: [],
                     body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
+    it("parses class method shorthand bodies with =>", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Point { operator*(other: Point): Point => Point(x * other.x, y * other.y) }")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Point" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "operator*" },
+                    operator: "*",
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "other" },
+                            typeAnnotation: { kind: "Identifier", name: "Point" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "Point" },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ReturnStatement",
+                                expression: {
+                                    kind: "CallExpression",
+                                    callee: { kind: "Identifier", name: "Point" },
+                                    arguments: [
+                                        {
+                                            kind: "BinaryExpression",
+                                            operator: "*",
+                                            left: { kind: "Identifier", name: "x" },
+                                            right: {
+                                                kind: "MemberExpression",
+                                                object: { kind: "Identifier", name: "other" },
+                                                property: { kind: "Identifier", name: "x" },
+                                                computed: false
+                                            }
+                                        },
+                                        {
+                                            kind: "BinaryExpression",
+                                            operator: "*",
+                                            left: { kind: "Identifier", name: "y" },
+                                            right: {
+                                                kind: "MemberExpression",
+                                                object: { kind: "Identifier", name: "other" },
+                                                property: { kind: "Identifier", name: "y" },
+                                                computed: false
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
                 }
             ]
         });

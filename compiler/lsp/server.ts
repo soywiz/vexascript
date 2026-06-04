@@ -20,6 +20,7 @@ import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
 import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./importFixes";
 import { createCallFixCodeActions } from "./callFixes";
+import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
@@ -305,6 +306,14 @@ connection.onCodeAction((params) => {
       }
     });
   }
+
+  const functionShorthandActions = createFunctionShorthandCodeActions({
+    uri: params.textDocument.uri,
+    ast: session.ast,
+    text: doc.getText(),
+    position: params.range.start
+  });
+  actions.push(...functionShorthandActions);
 
   const autoImportActions = createAutoImportCodeActions({
     uri: params.textDocument.uri,

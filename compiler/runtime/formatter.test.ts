@@ -24,6 +24,13 @@ describe("formatSource", () => {
       .toBe("fun test(a, v, c?, d: Int = demo) {\n  return d\n}");
   });
 
+  it("formats function and method shorthand bodies with =>", () => {
+    expect(formatSource("fun demo(value:int):int=>value+1"))
+      .toBe("fun demo(value: int): int => value + 1");
+    expect(formatSource("class Point{operator*(other:Point):Point=>Point(x*other.x,y*other.y)}"))
+      .toBe("class Point {\n  operator*(other: Point): Point => Point(x * other.x, y * other.y)\n}");
+  });
+
   it("formats class declaration with field, constructor, and method", () => {
     expect(
       formatSource("class Demo { a=10; constructor(){}; demo(){} }")

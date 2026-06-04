@@ -14,6 +14,7 @@ const MULTI_CHAR_SYMBOLS = [
   "<<=",
   ">>=",
   ">>>",
+  "=>",
   "&&=",
   "||=",
   "??=",
@@ -48,6 +49,7 @@ const BINARY_OPERATORS = new Set([
   "...",
   "<", ">", "<=", ">=",
   "==", "!=", "===", "!==",
+  "=>",
   "&", "|", "^", "&&", "||",
   "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=", "&=", "|=", "&&=", "||="
   , "??="
@@ -362,6 +364,9 @@ function shouldSpaceBefore(
   if (isMemberOperator(previous) || isMemberOperator(current)) {
     return false;
   }
+  if (current.type === "symbol" && current.value === "*" && previous.type === "identifier" && previous.value === "operator") {
+    return false;
+  }
   if (current.type === "symbol" && current.value === "*" && previous.type === "identifier" && previous.value === "function") {
     return false;
   }
@@ -427,6 +432,9 @@ function shouldSpaceBefore(
   }
 
   if (current.type === "symbol" && current.value === "(") {
+    if (previous.type === "symbol" && previous.value === "*" && significantBeforePrevious?.type === "identifier" && significantBeforePrevious.value === "operator") {
+      return false;
+    }
     return (
       (previous.type === "identifier" && CONTROL_KEYWORDS_WITH_PAREN.has(previous.value)) ||
       (previous.type === "symbol" && isBinaryOperatorToken(previous, significantBeforePrevious))
