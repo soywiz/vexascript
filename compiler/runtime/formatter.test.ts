@@ -14,6 +14,11 @@ describe("formatSource", () => {
     );
   });
 
+  it("formats additional ambient declaration forms", () => {
+    expect(formatSource("export declare function read(id:string):string;declare type Id=string;"))
+      .toBe("export declare function read(id: string): string;\ndeclare type Id = string;");
+  });
+
   it("formats function parameters with optional marker and default value", () => {
     expect(formatSource("fun test(a,v,c?,d:Int=demo){return d}"))
       .toBe("fun test(a, v, c?, d: Int = demo) {\n  return d\n}");

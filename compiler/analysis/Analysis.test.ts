@@ -35,6 +35,18 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("uses ambient function signatures and exported ambient declarations during analysis", () => {
+    const source = `declare type Id = string
+export declare function lookup(id: Id): int
+lookup(123)
+`;
+    const ast = parseFile(tokenizeReader(source), { language: "typescript" });
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getVisibleSymbolsAt(2, 0).map((symbol) => symbol.name)).toEqual(expect.arrayContaining(["Id", "lookup"]));
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Argument 1 of type 'int' is not assignable to parameter 'id' of type 'string'");
+  });
+
   it("builds nested scopes and exposes function parameters/local variables", () => {
     const source =
       "let top = 1\n" +

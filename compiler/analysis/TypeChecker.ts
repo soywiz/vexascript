@@ -420,7 +420,7 @@ export class TypeChecker {
       const returnType = this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE;
       const fnType = this.buildFunctionType(statement.parameters, returnType, scope, statement.typeParameters ?? []);
       const existingSymbolType = scope.symbols.get(statement.name.name)?.type;
-      if (statement.missingBody !== true && existingSymbolType?.kind !== "union") {
+      if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
         this.updateSymbolType(scope, statement.name.name, fnType);
       }
 
