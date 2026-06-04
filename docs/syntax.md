@@ -146,15 +146,15 @@ Multiple top-level functions may share the same source name when their parameter
 function describe(value: int): string { return "int" }
 function describe(value: string): string { return value }
 
-describe(1)      // emits as describe__int(1)
-describe("one")  // emits as describe__string("one")
+describe(1)      // emits as describe$$int(1)
+describe("one")  // emits as describe$$string("one")
 ```
 
 Signature-only overload declarations may be written without a body and are omitted from JavaScript output.
 
 ### Operator overloads
 
-Classes can declare binary operator overload methods with `operator` followed by the operator token. The current runtime lowering emits a mangled method name and rewrites matching binary expressions to method calls:
+Classes can declare binary operator overload methods with `operator` followed by the operator token. Mangled runtime names use `$` for operator names and `$$` before the parameter-type signature. The runtime lowering rewrites matching binary expressions to method calls:
 
 ```my
 class Point(val x: number, val y: number) {
@@ -163,7 +163,17 @@ class Point(val x: number, val y: number) {
   }
 }
 
-let c = a + b // emits as a.operator__plus(b) when a is Point
+let c = a + b // emits as a.operator$plus$$Point(b) when a is Point
+```
+
+Binary operators may also be declared as extension methods by placing the receiver type before `.operator`. Extension operators are installed on the receiver prototype and participate in the same type-directed lowering:
+
+```my
+fun Point.operator+(other: Point): Point {
+  return new Point(this.x + other.x, this.y + other.y)
+}
+
+let c = a + b // emits as a.operator$plus$$Point(b)
 ```
 
 ### Generic function declarations

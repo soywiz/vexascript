@@ -228,10 +228,10 @@ describe("transpile", () => {
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("function describe__int(value) {");
-    expect(result.code).toContain("function describe__string(value) {");
-    expect(result.code).toContain("let a = describe__int(1);");
-    expect(result.code).toContain('let b = describe__string("x");');
+    expect(result.code).toContain("function describe$$int(value) {");
+    expect(result.code).toContain("function describe$$string(value) {");
+    expect(result.code).toContain("let a = describe$$int(1);");
+    expect(result.code).toContain('let b = describe$$string("x");');
   });
 
   it("emits operator overload methods and lowers matching binary expressions", () => {
@@ -247,8 +247,24 @@ describe("transpile", () => {
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("operator__plus(other) {");
-    expect(result.code).toContain("let c = a.operator__plus(b);");
+    expect(result.code).toContain("operator$plus$$Point(other) {");
+    expect(result.code).toContain("let c = a.operator$plus$$Point(b);");
+  });
+
+  it("emits extension operator methods and lowers matching binary expressions", () => {
+    const source = [
+      "class Point(val x: number, val y: number) {}",
+      "fun Point.operator+(other: Point): Point { return new Point(this.x + other.x, this.y + other.y) }",
+      "let a = new Point(1, 2)",
+      "let b = new Point(3, 4)",
+      "let c: Point = a + b"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("Point.prototype.operator$plus$$Point = function(other) {");
+    expect(result.code).toContain("let c = a.operator$plus$$Point(b);");
   });
 
 });
