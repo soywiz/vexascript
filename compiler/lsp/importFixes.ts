@@ -6,7 +6,6 @@ import type {
   Statement
 } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
-import { CodeActionKind } from "vscode-languageserver/node.js";
 import { getProjectIndex } from "./projectAnalysis";
 import {
   isUndefinedVariableDiagnostic,
@@ -20,6 +19,8 @@ export interface SymbolExport {
   filePath: string;
   kind: "class" | "function" | "variable";
 }
+
+const CODE_ACTION_KIND_QUICK_FIX = "quickfix";
 
 export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
   const exports: SymbolExport[] = [];
@@ -183,7 +184,7 @@ export function createAutoImportCodeActions(params: {
     const importPath = toImportPath(currentFilePath, best.filePath);
     actions.push({
       title: `Import '${symbolName}' from '${importPath}'`,
-      kind: CodeActionKind.QuickFix,
+      kind: CODE_ACTION_KIND_QUICK_FIX,
       edit: {
         changes: {
           [uri]: [

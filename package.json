@@ -16,10 +16,10 @@
     "ide": "pnpm vscodeext:launch",
     "test": "tsx --test --test-reporter=dot",
     "test:watch": "tsx --watch --test --test-reporter=dot",
-    "monaco:install": "pnpm --dir plugins/monaco install",
-    "monaco:dev": "pnpm monaco:install && pnpm build && pnpm --dir plugins/monaco dev",
-    "monaco:build": "pnpm monaco:install && pnpm build && pnpm --dir plugins/monaco build",
-    "monaco:start": "pnpm build && NODE_ENV=production pnpm --dir plugins/monaco start"
+    "monaco:install": "CI=true pnpm --dir plugins/monaco install --no-frozen-lockfile",
+    "monaco:dev": "pnpm --dir plugins/monaco dev",
+    "monaco:build": "pnpm --dir plugins/monaco build",
+    "monaco:start": "pnpm monaco:build && pnpm --dir plugins/monaco start"
   },
   "dependencies": {
     "commander": "^13.1.0",

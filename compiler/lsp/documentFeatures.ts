@@ -1,7 +1,4 @@
 import {
-  DocumentHighlightKind,
-  FoldingRangeKind,
-  SymbolKind,
   type CallHierarchyIncomingCall,
   type CallHierarchyItem,
   type CallHierarchyOutgoingCall,
@@ -17,6 +14,35 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import type { Node, Program } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import type { TokenComment } from "compiler/parser/tokenizer";
+
+const SymbolKind = {
+  File: 1,
+  Module: 2,
+  Namespace: 3,
+  Package: 4,
+  Class: 5,
+  Method: 6,
+  Property: 7,
+  Field: 8,
+  Constructor: 9,
+  Enum: 10,
+  Interface: 11,
+  Function: 12,
+  Variable: 13,
+  Constant: 14,
+} as const;
+
+const DocumentHighlightKind = {
+  Text: 1,
+  Read: 2,
+  Write: 3
+} as const;
+
+const FoldingRangeKind = {
+  Comment: "comment",
+  Imports: "imports",
+  Region: "region"
+} as const;
 
 function position(line: number, character: number): Position {
   return { line, character };
@@ -109,7 +135,7 @@ export function createSelectionRanges(ast: Program, positions: Position[]): Sele
   });
 }
 
-function declarationName(node: Node): { name: string; range: Range; kind: SymbolKind } | null {
+function declarationName(node: Node): { name: string; range: Range; kind: number } | null {
   const candidate = node as Node & { name?: Node & { name?: string } };
   if (!candidate.name || candidate.name.kind !== "Identifier" || !candidate.name.name) return null;
   const range = nodeRange(candidate.name);

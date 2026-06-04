@@ -1,7 +1,5 @@
 import {
   type Diagnostic,
-  DiagnosticSeverity,
-  DocumentDiagnosticReportKind,
   type DocumentDiagnosticReport,
   type Position
 } from "vscode-languageserver/node.js";
@@ -12,6 +10,17 @@ import {
   mapAnalysisIssueCodeToDiagnosticCode,
   MYLANG_DIAGNOSTIC_CODES
 } from "./diagnosticCodes";
+
+const DiagnosticSeverity = {
+  Error: 1,
+  Warning: 2,
+  Information: 3,
+  Hint: 4
+} as const;
+
+const DocumentDiagnosticReportKind = {
+  Full: "full"
+} as const;
 
 function fallbackRange() {
   return {

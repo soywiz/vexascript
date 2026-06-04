@@ -34,13 +34,17 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import type { InlayHint, Range } from "vscode-languageserver/node.js";
-import { InlayHintKind } from "vscode-languageserver/node.js";
 import {
   resolveCallableSignature,
   resolveConstructorSignature,
   resolveExpressionTypeName,
   type ClassResolverOptions
 } from "./classResolver";
+
+const InlayHintKind = {
+  Type: 1,
+  Parameter: 2
+} as const;
 
 function inRange(
   line: number,

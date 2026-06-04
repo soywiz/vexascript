@@ -49,10 +49,35 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import type { SourceRange, Token } from "compiler/parser/tokenizer";
 import { tokenize } from "compiler/parser/tokenizer";
 import {
-  SemanticTokensBuilder,
   type SemanticTokens,
   type SemanticTokensLegend
 } from "vscode-languageserver/node.js";
+
+class SimpleSemanticTokensBuilder {
+  private readonly data: number[] = [];
+  private previousLine = 0;
+  private previousCharacter = 0;
+
+  push(
+    line: number,
+    character: number,
+    length: number,
+    tokenType: number,
+    tokenModifiers: number
+  ): void {
+    const deltaLine = line - this.previousLine;
+    const deltaCharacter = deltaLine === 0
+      ? character - this.previousCharacter
+      : character;
+    this.data.push(deltaLine, deltaCharacter, length, tokenType, tokenModifiers);
+    this.previousLine = line;
+    this.previousCharacter = character;
+  }
+
+  build(): SemanticTokens {
+    return { data: this.data };
+  }
+}
 
 const TOKEN_TYPES = [
   "keyword",
@@ -787,7 +812,7 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
     return { data: [] };
   }
   const identifierKinds = params.ast ? collectIdentifierKindsFromAst(params.ast) : new Map();
-  const builder = new SemanticTokensBuilder();
+  const builder = new SimpleSemanticTokensBuilder();
 
   for (const token of tokens) {
     if (token.type === "eof") {
