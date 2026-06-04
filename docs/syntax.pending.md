@@ -16,9 +16,6 @@ Scope notes:
 ## Type System Syntax
 
 - Deeper function generic inference beyond current constrained type-parameter support.
-- Mapped types (`{ [K in keyof T]: ... }`).
-- Conditional types (`T extends U ? X : Y`).
-- `infer`.
 
 ## Statements and Control Flow
 

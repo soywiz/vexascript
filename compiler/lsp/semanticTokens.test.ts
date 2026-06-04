@@ -86,6 +86,7 @@ describe("semantic tokens", () => {
       "  log(a: number)\n" +
       "}\n" +
       "declare var console: Console\n" +
+      "type Element<T> = T extends (infer U)[] ? U : keyof T\n" +
       "switch (new Console()) {\n" +
       "  case console:\n" +
       "    break\n" +
@@ -109,10 +110,12 @@ describe("semantic tokens", () => {
     expect(byPosition.get("0:8")).toBe("keyword");
     expect(byPosition.get("3:0")).toBe("keyword");
     expect(byPosition.get("3:8")).toBe("keyword");
-    expect(byPosition.get("4:0")).toBe("keyword");
-    expect(byPosition.get("4:8")).toBe("keyword");
-    expect(byPosition.get("5:2")).toBe("keyword");
-    expect(byPosition.get("7:2")).toBe("keyword");
+    expect(decoded.some((token) => token.lexeme === "infer" && token.tokenType === "keyword")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "keyof" && token.tokenType === "keyword")).toBe(true);
+    expect(byPosition.get("5:0")).toBe("keyword");
+    expect(byPosition.get("5:8")).toBe("keyword");
+    expect(byPosition.get("6:2")).toBe("keyword");
+    expect(byPosition.get("8:2")).toBe("keyword");
   });
 
   it("highlights operators and primitive literals", () => {

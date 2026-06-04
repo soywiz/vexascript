@@ -1138,6 +1138,20 @@ let wrongValue: int = box.value
     expect(messages.some((message) => message.includes("Unknown type 'Boxed'"))).toBe(false);
   });
 
+  it("accepts mapped and conditional aliases conservatively", () => {
+    const source = `type Optional<T> = { [K in keyof T]?: T[K] }
+type Element<T> = T extends (infer U)[] ? U : T
+let optional: Optional<{ name: string }> = { name: "Ada" }
+let element: Element<string[]> = "Ada"
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = `interface PairStore<K, V> {
   keys: K[]

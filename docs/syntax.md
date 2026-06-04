@@ -564,7 +564,7 @@ let name: Text = "Ada"
 let boxed: Boxed<Text> = new Box<string>()
 ```
 
-`type` declarations are type-only and are omitted from emitted JavaScript output.
+`type` declarations are type-only and are omitted from emitted JavaScript output. Mapped and conditional types are preserved structurally by the parser; semantic analysis resolves the portions it understands and otherwise treats them conservatively as `unknown`.
 
 ### Type annotation forms
 
@@ -583,6 +583,9 @@ Supported type annotation forms in declarations/members:
 - `keyof` type operators (`keyof User`)
 - `typeof` type queries over values and dotted members (`typeof config`, `typeof user.name`)
 - indexed access types (`User["name"]`, `Tuple[0]`, `User[keyof User]`)
+- mapped types (`{ [K in keyof T]?: T[K] }`)
+- conditional types (`T extends U ? X : Y`)
+- inferred conditional-type variables (`T extends (infer U)[] ? U : T`)
 
 ## Expressions
 

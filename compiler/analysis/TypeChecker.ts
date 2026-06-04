@@ -1929,6 +1929,9 @@ export class TypeChecker {
     captureResolution: boolean
   ): AnalysisType {
     const normalizedTypeName = stripEnclosingTypeParens(typeName);
+    if (this.isDeferredAdvancedTypeName(normalizedTypeName)) {
+      return UNKNOWN_TYPE;
+    }
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
     if (unionParts.length > 1) {
       return unionType(unionParts.map((part) =>
@@ -2119,6 +2122,9 @@ export class TypeChecker {
 
   private typeFromComputedTypeNameLoose(typeName: string): AnalysisType | null {
     const normalizedTypeName = stripEnclosingTypeParens(typeName);
+    if (this.isDeferredAdvancedTypeName(normalizedTypeName)) {
+      return UNKNOWN_TYPE;
+    }
 
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
     if (unionParts.length > 1) {
@@ -2170,6 +2176,14 @@ export class TypeChecker {
     }
 
     return null;
+  }
+
+  private isDeferredAdvancedTypeName(typeName: string): boolean {
+    return (
+      typeName.startsWith("infer ") ||
+      /^\{ (?:[+-]?readonly )?\[/.test(typeName) ||
+      /(?:^| )extends .+ \? /.test(typeName)
+    );
   }
 
   private splitArraySuffixTypeName(typeName: string): { elementTypeName: string; arrayDepth: number } | null {
