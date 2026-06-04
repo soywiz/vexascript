@@ -22,6 +22,7 @@ import type {
   UpdateExpression,
   Program
 } from "compiler/ast/ast";
+import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { uriToFilePath } from "./importFixes";
 import {
   getProjectSessionForFilePath,
@@ -264,6 +265,17 @@ export function resolveClassStatementAcrossFiles(
         return resolved;
       }
     }
+  }
+
+  const runtimeProgram = getEcmaScriptRuntimeProgram();
+  const runtimeLocal = findClassStatementInProgram(runtimeProgram, className);
+  if (runtimeLocal) {
+    const resolved = {
+      classStatement: runtimeLocal,
+      filePath: ""
+    };
+    resolverCache.classStatementByName.set(className, resolved);
+    return resolved;
   }
 
   const sourceRoots = options.sourceRoots ?? [];

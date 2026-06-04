@@ -83,6 +83,16 @@ describe("createCompletionItemsForPosition", () => {
     expect(items.map((item) => item.label)).not.toContain("hidden");
   });
 
+  it("offers ECMAScript runtime members for built-in globals", () => {
+    const source = "fun demo() {\n  Math.\n}\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 1, 7, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["abs", "floor", "max", "random"]));
+    expect(labels).not.toContain("demo");
+  });
+
   it("prioritizes class member completions for member access", () => {
     const source =
       "class Point(val x: int, val y: int) {\n" +
