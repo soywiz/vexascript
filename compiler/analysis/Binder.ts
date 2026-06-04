@@ -28,7 +28,7 @@ import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE, union
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
-import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
+import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 
 const BUILTIN_TYPE_NAMES = new Set([
   "int",
@@ -203,7 +203,7 @@ export class Binder {
         }
         const symbolType = functionType(
           functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-            name: parameter.name.name,
+            name: bindingNameText(parameter.name),
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
             rest: parameter.rest === true
@@ -373,6 +373,18 @@ export class Binder {
     this.declareBinding(scope, statement.name, statement.declarationKind, symbolType);
   }
 
+  private declareParameterBinding(scope: Scope, binding: VarStatement["name"], type: AnalysisType): void {
+    for (const identifier of bindingIdentifiers(binding)) {
+      this.declare(scope, {
+        name: identifier.name,
+        kind: "parameter",
+        node: identifier,
+        type,
+        valueType: typeToString(type)
+      });
+    }
+  }
+
   private declareBinding(scope: Scope, binding: VarStatement["name"], kind: VariableDeclarationKind, type: AnalysisType, declaredOffsetOverride?: number): void {
     for (const identifier of bindingIdentifiers(binding)) {
       this.declare(scope, {
@@ -390,7 +402,7 @@ export class Binder {
     if (declareInParent && !statement.receiverType) {
       const symbolType = functionType(
         statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-          name: parameter.name.name,
+          name: bindingNameText(parameter.name),
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
@@ -423,13 +435,7 @@ export class Binder {
         continue;
       }
       const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-      this.declare(functionScope, {
-        name: parameter.name.name,
-        kind: "parameter",
-        node: parameter.name,
-        type: parameterType,
-        valueType: typeToString(parameterType)
-      });
+      this.declareParameterBinding(functionScope, parameter.name, parameterType);
     }
 
     this.bindStatements(statement.body.body, functionScope);
@@ -451,7 +457,7 @@ export class Binder {
         const method = member as ClassMethodMember;
         const methodType = functionType(
           method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-            name: parameter.name.name,
+            name: bindingNameText(parameter.name),
             type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
             rest: parameter.rest === true
@@ -489,13 +495,7 @@ export class Binder {
             continue;
           }
           const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
-          this.declare(methodScope, {
-            name: parameter.name.name,
-            kind: "parameter",
-            node: parameter.name,
-            type: parameterType,
-            valueType: typeToString(parameterType)
-          });
+          this.declareParameterBinding(methodScope, parameter.name, parameterType);
         }
         this.bindStatements(method.body.body, methodScope);
       }
@@ -524,7 +524,7 @@ export class Binder {
     for (const parameter of statement.primaryConstructorParameters ?? []) {
       const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
       this.declare(scope, {
-        name: parameter.name.name,
+        name: bindingNameText(parameter.name),
         kind: "variable",
         node: parameter.name,
         isReadonly: isReadonlyVariable(parameter.declarationKind),
@@ -541,7 +541,7 @@ export class Binder {
       )) {
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
         this.declare(scope, {
-          name: parameter.name.name,
+          name: bindingNameText(parameter.name),
           kind: "variable",
           node: parameter.name,
           isReadonly: parameter.readonly === true,
@@ -567,7 +567,7 @@ export class Binder {
       }
       const methodType = functionType(
         member.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-          name: parameter.name.name,
+          name: bindingNameText(parameter.name),
           type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true

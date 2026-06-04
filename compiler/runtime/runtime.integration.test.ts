@@ -139,3 +139,20 @@ console.log(tail.length)
   });
 
 });
+
+describe("destructured parameter runtime integration", () => {
+  it("executes nested object and array parameter patterns with defaults, holes, and rest bindings", () => {
+    const source = `function unpack({ id, nested: { value = 4 }, ...metadata }, [first, , third = 3, ...tail] = [10, 20]) {
+  console.log(id)
+  console.log(value)
+  console.log(metadata.extra)
+  console.log(first)
+  console.log(third)
+  console.log(tail.length)
+}
+unpack({ id: 1, nested: {}, extra: 7 })
+`;
+
+    expect(executeTranspiled(source)).toEqual([[1], [4], [7], [10], [3], [0]]);
+  });
+});

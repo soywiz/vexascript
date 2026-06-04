@@ -3804,3 +3804,22 @@ class Store { async save(this: Store) { return await persist(this) }; *values() 
     });
 
 });
+
+describe("destructured parameters", () => {
+    it("parses object, array, nested, default, and rest binding patterns", () => {
+        const program = parseFile(tokenizeReader("function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail] = values) { return value }"));
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            parameters: [
+                { name: { kind: "ObjectBindingPattern", elements: [
+                    { name: { name: "id" }, shorthand: true },
+                    { propertyName: { name: "nested" }, name: { kind: "ObjectBindingPattern" } },
+                    { rest: true, name: { name: "meta" } }
+                ] } },
+                { name: { kind: "ArrayBindingPattern", elements: [
+                    { name: { name: "first" } }, { kind: "BindingHole" }, { rest: true, name: { name: "tail" } }
+                ] }, defaultValue: { kind: "Identifier", name: "values" } }
+            ]
+        });
+    });
+});

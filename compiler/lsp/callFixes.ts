@@ -1,3 +1,4 @@
+import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType } from "compiler/analysis/types";
 import type {
@@ -588,7 +589,7 @@ function extraArgumentQuickFix(params: {
   }
 
   const expressionTypes = analysis.getExpressionTypes();
-  const usedNames = new Set(functionDeclaration.parameters.map((parameter) => parameter.name.name));
+  const usedNames = new Set(functionDeclaration.parameters.flatMap((parameter) => bindingIdentifiers(parameter.name).map((identifier) => identifier.name)));
   const missingParts: string[] = [];
 
   for (let index = existingCount; index < call.arguments.length; index += 1) {
@@ -687,7 +688,7 @@ function mismatchArgumentQuickFix(params: {
   }
 
   return {
-    title: `Change parameter '${parameter.name.name}' type to '${annotation}'`,
+    title: `Change parameter '${bindingNameText(parameter.name)}' type to '${annotation}'`,
     kind: CodeActionKind.QuickFix,
     edit: {
       changes: {
@@ -806,7 +807,7 @@ function changeSignatureQuickFix(params: {
   if (provided.length > existing.length) {
     const parens = findFunctionParens(functionDeclaration, text);
     if (parens) {
-      const usedNames = new Set(existing.map((parameter) => parameter.name.name));
+      const usedNames = new Set(existing.flatMap((parameter) => bindingIdentifiers(parameter.name).map((identifier) => identifier.name)));
       const additions: string[] = [];
       for (let index = existing.length; index < provided.length; index += 1) {
         const argument = provided[index]!;

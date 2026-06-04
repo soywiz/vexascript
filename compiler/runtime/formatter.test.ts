@@ -224,3 +224,10 @@ describe("format enum declarations", () => {
       .toBe('enum Direction {\n  Up, Down = 4, Right = "right"\n}');
   });
 });
+
+describe("format destructured parameters", () => {
+  it("formats object and array parameter patterns", () => {
+    expect(formatSource("function unpack({id,nested:{value=1},...meta},[first,,...tail]=values){return value}"))
+      .toBe("function unpack({\n  id, nested: {\n    value = 1\n  }, ...meta\n}, [first, , ...tail] = values) {\n  return value\n}");
+  });
+});

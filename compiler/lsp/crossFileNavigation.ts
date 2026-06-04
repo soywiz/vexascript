@@ -44,7 +44,7 @@ import type {
   WhileStatement,
   WithStatement
 } from "compiler/ast/ast";
-import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
+import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
 import { createClassResolverCache, resolveClassMember } from "./classResolver";
@@ -382,7 +382,7 @@ function classMemberDeclarationRangeByName(
   memberName: string
 ): { start: { line: number; character: number }; end: { line: number; character: number } } | null {
   for (const parameter of classPropertyParameters(classStatement)) {
-    if (parameter.name.name !== memberName) {
+    if (bindingNameText(parameter.name) !== memberName) {
       continue;
     }
     const range = nodeToRange(parameter.name);
@@ -412,7 +412,7 @@ function functionTypeLabelFromParameters(
     .map((parameter) => {
       const typeName = parameter.typeAnnotation?.name ?? "unknown";
       const optionalSuffix = parameter.optional ? "?" : "";
-      return `${parameter.name.name}${optionalSuffix}: ${typeName}`;
+      return `${bindingNameText(parameter.name)}${optionalSuffix}: ${typeName}`;
     })
     .join(", ");
   return `(${parameterLabel}) => ${returnTypeName ?? "void"}`;
@@ -423,7 +423,7 @@ function classMemberInfoByName(
   memberName: string
 ): ClassMemberInfo | null {
   for (const parameter of classPropertyParameters(classStatement)) {
-    if (parameter.name.name !== memberName) {
+    if (bindingNameText(parameter.name) !== memberName) {
       continue;
     }
     const range = nodeToRange(parameter.name);
@@ -818,7 +818,7 @@ function findClassMemberDeclarationAtPosition(
     }
     const classStatement = statement as ClassStatement;
     for (const parameter of classPropertyParameters(classStatement)) {
-      const member = classMemberInfoByName(classStatement, parameter.name.name);
+      const member = classMemberInfoByName(classStatement, bindingNameText(parameter.name));
       if (!member || !rangeContainsPosition(member.range, line, character)) {
         continue;
       }

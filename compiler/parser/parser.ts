@@ -2100,7 +2100,7 @@ export class Parser {
 
     private parseCallLambdaArgument(): ArrowFunctionExpression {
         const lambda = this.parseTailLambdaArgument();
-        if (lambda.parameters.length === 1 && lambda.parameters[0]?.name.name === "it" && lambda.body.kind === "Identifier") {
+        if (lambda.parameters.length === 1 && lambda.parameters[0]?.name.kind === "Identifier" && lambda.parameters[0].name.name === "it" && lambda.body.kind === "Identifier") {
             const identifier = lambda.body as Identifier;
             lambda.contextualObjectLiteral = {
                 kind: "ObjectLiteral",
@@ -3384,9 +3384,10 @@ export class Parser {
                 parameterRest = true;
             }
 
-            const parameterNameToken = this.tokens.read();
-            if (parameterNameToken?.type !== "identifier") {
-                this.fail("Expected parameter name in function declaration", this.tokenAt(parameterNameToken));
+            const parameterNameToken = this.tokens.peek();
+            const parameterName = this.parseBindingName();
+            if (propertyModifierToken && parameterName.kind !== "Identifier") {
+                this.fail("A parameter property must use an identifier name", this.tokenAt(parameterNameToken));
             }
 
             let parameterOptional = false;
@@ -3412,7 +3413,7 @@ export class Parser {
 
             const parameter: FunctionParameter = {
                 kind: "FunctionParameter",
-                name: this.buildIdentifierFromToken(parameterNameToken)
+                name: parameterName
             };
             if (parameterAccessModifier) {
                 parameter.accessModifier = parameterAccessModifier;
@@ -3420,7 +3421,7 @@ export class Parser {
             if (parameterReadonly) {
                 parameter.readonly = true;
             }
-            if (parameterNameToken.value === "this") {
+            if (parameterName.kind === "Identifier" && parameterName.name === "this") {
                 if (propertyModifierToken) {
                     this.fail("A this parameter cannot be a parameter property", this.tokenAt(propertyModifierToken));
                 }

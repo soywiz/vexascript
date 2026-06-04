@@ -677,9 +677,9 @@ function emitFunctionParameters(parameters: FunctionParameter[]): string {
     .map((parameter) => {
       const restPrefix = parameter.rest ? "..." : "";
       if (parameter.defaultValue) {
-        return `${restPrefix}${parameter.name.name} = ${emitListElement(parameter.defaultValue)}`;
+        return `${restPrefix}${emitBindingName(parameter.name)} = ${emitListElement(parameter.defaultValue)}`;
       }
-      return `${restPrefix}${parameter.name.name}`;
+      return `${restPrefix}${emitBindingName(parameter.name)}`;
     })
     .join(", ");
 }
@@ -771,7 +771,7 @@ function emitClassPrimaryConstructor(
   const assignments: string[] = [];
 
   for (const parameter of parameters) {
-    assignments.push(`this.${parameter.name.name} = ${parameter.name.name};`);
+    assignments.push(`this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
   }
 
   return `constructor(${params}) {${assignments.length > 0 ? ` ${assignments.join(" ")}` : ""} }`;
@@ -784,7 +784,7 @@ function isParameterProperty(parameter: FunctionParameter): boolean {
 function emitConstructorBlock(method: ClassMethodMember): string {
   const assignments = method.parameters
     .filter(isParameterProperty)
-    .map((parameter) => `this.${parameter.name.name} = ${parameter.name.name};`);
+    .map((parameter) => `this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
   if (assignments.length === 0) {
     return emitBlock(method.body);
   }

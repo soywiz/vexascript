@@ -317,3 +317,10 @@ describe("emit enum declarations", () => {
     expect(emitProgram(program)).toBe("");
   });
 });
+
+describe("emit destructured parameters", () => {
+  it("preserves object, array, nested, default, and rest parameter patterns", () => {
+    const program = parseFile(tokenizeReader("function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail] = values) { return value }"));
+    expect(emitProgram(program)).toBe("function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail] = values) {\nreturn value;\n}");
+  });
+});

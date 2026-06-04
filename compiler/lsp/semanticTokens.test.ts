@@ -292,3 +292,15 @@ describe("semantic tokens", () => {
   });
 
 });
+
+describe("destructured parameter semantic tokens", () => {
+  it("highlights introduced names as parameters and property keys as properties", () => {
+    const source = "function unpack({ source: target, nested: { value }, ...rest }, [first, , ...tail]) { return target }";
+    const session = createAnalysisSession(source);
+    const decoded = decodeTokens(source, createSemanticTokens({ text: source, ast: session.ast, analysis: session.analysis }).data);
+    for (const name of ["target", "value", "rest", "first", "tail"]) {
+      expect(decoded.some((token) => token.lexeme === name && token.tokenType === "parameter")).toBe(true);
+    }
+    expect(decoded.some((token) => token.lexeme === "source" && token.tokenType === "property")).toBe(true);
+  });
+});

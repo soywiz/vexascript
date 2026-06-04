@@ -17,3 +17,9 @@ export function bindingElements(binding: BindingName): BindingElement[] {
     element.kind === "BindingHole" ? [] : [element, ...bindingElements(element.name)]
   );
 }
+
+export function bindingNameText(binding: BindingName): string {
+  if (binding.kind === "Identifier") return binding.name;
+  const names = bindingIdentifiers(binding).map((identifier) => identifier.name).join(", ");
+  return binding.kind === "ObjectBindingPattern" ? `{ ${names} }` : `[${names}]`;
+}

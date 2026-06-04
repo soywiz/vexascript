@@ -1696,3 +1696,13 @@ fun classify(value: string | int) {
   });
 
 });
+
+describe("destructured parameter analysis", () => {
+  it("binds every identifier introduced by nested parameter patterns", () => {
+    const source = "function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail]) { return id + value + first; meta; tail }";
+    const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
+    for (const name of ["id", "value", "meta", "first", "tail"]) {
+      expect(messages).not.toContain(`Undefined variable '${name}'`);
+    }
+  });
+});
