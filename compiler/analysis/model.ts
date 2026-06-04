@@ -34,6 +34,7 @@ export interface FlowContext {
   loopDepth: number;
   switchDepth: number;
   labels?: Array<{ name: string; allowsContinue: boolean }>;
+  expectedReturnType?: AnalysisType;
 }
 
 export interface BoundAnalysis {

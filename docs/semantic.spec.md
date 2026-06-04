@@ -123,6 +123,11 @@ Current semantic diagnostics include:
   - too many arguments,
   - unexpected extra arguments.
 - Function call argument type mismatches.
+- Return-flow and return-value validation:
+  - every reachable path in a function with a known non-void return type must return a value or terminate by throwing,
+  - bare `return` statements are rejected when the expected return type does not accept `undefined` or `void`,
+  - return expressions are checked against the nearest function, method, function-expression, or contextual arrow-function return type,
+  - diagnostics are attached to the function name/expression, bare `return`, or incompatible return expression as appropriate.
 - Contextual generic function return inference from variable annotations and assignment targets, including nested calls inside array literals and object-literal properties.
 - Invalid control-flow statements:
   - `continue` outside loops,
