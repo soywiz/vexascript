@@ -317,6 +317,63 @@ function outer(): string {
     ]);
   });
 
+  it("accepts awaited and non-awaited return values in async functions with Promise return types", () => {
+    const source = `declare function promisedInt(): Promise<int>
+async function goodValue(): Promise<int> {
+  return 10
+}
+async function goodPromise(): Promise<int> {
+  return promisedInt()
+}
+async function bad(): Promise<int> {
+  return "bad"
+}
+async function empty(): Promise<void> {
+  return
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const issues = analysis.getIssues();
+
+    expect(issues.map((issue) => issue.message)).toEqual([
+      "Type 'string' is not assignable to return type 'Promise<int>'"
+    ]);
+    expect(issues.map((issue) => issue.node.kind)).toEqual([
+      "ReturnStatement"
+    ]);
+  });
+
+  it("infers Promise return types from async function returns", () => {
+    const source = `async function inferred(flag: boolean) {
+  if (flag) return 10
+  return 20
+}
+let expectsPromise: (flag: boolean) => Promise<int> = inferred`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("rejects non-Promise annotations on async functions", () => {
+    const source = `async function wrong(): number {
+  return 10
+}
+class Box {
+  async load(): string {
+    return "x"
+  }
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const issues = analysis.getIssues();
+
+    expect(issues.map((issue) => issue.message)).toEqual([
+      "Async functions must declare a Promise<...> return type",
+      "Async functions must declare a Promise<...> return type"
+    ]);
+  });
+
   it("checks contextual function-expression and arrow-function returns", () => {
     const source = `let arrow: (flag: boolean) => int = (flag) => {
   if (flag) return 1

@@ -62,6 +62,8 @@ function* ids() {
 }
 ```
 
+In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10` and `return Promise.resolve(10)` are valid for `Promise<int>`. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
+
 A TypeScript `this` parameter may appear first in a function-like parameter list for type analysis. It is erased during JavaScript emission:
 
 ```mylang

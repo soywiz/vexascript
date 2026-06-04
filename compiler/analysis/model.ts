@@ -36,6 +36,7 @@ export interface FlowContext {
   switchDepth: number;
   labels?: Array<{ name: string; allowsContinue: boolean }>;
   expectedReturnType?: AnalysisType;
+  inAsync?: boolean;
   inGenerator?: boolean;
 }
 

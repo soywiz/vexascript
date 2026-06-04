@@ -287,17 +287,30 @@ export class TypeChecker {
       case "ReturnStatement": {
         const returnStatement = statement as ReturnStatement;
         const expectedReturnType = flow.expectedReturnType;
+        const asyncReturnValueType =
+          flow.inAsync === true && expectedReturnType
+            ? this.getAsyncReturnValueType(expectedReturnType)
+            : null;
         if (returnStatement.expression) {
-          const actualReturnType = this.visitExpression(returnStatement.expression, scope, expectedReturnType);
+          const actualReturnType = this.visitExpression(
+            returnStatement.expression,
+            scope,
+            asyncReturnValueType ?? expectedReturnType
+          );
           if (
             expectedReturnType &&
             !isUnknownType(expectedReturnType) &&
             !isUnknownType(actualReturnType) &&
-            !this.isTypeAssignable(actualReturnType, expectedReturnType)
+            !this.returnExpressionIsAssignable(actualReturnType, expectedReturnType, asyncReturnValueType)
           ) {
             this.reportReturnTypeMismatch(actualReturnType, expectedReturnType, returnStatement);
           }
-        } else if (expectedReturnType && !this.returnValueIsOptional(expectedReturnType)) {
+        } else if (
+          expectedReturnType &&
+          !(flow.inAsync === true
+            ? this.asyncReturnValueIsOptional(expectedReturnType, asyncReturnValueType)
+            : this.returnValueIsOptional(expectedReturnType))
+        ) {
           this.issues.push({
             message: "A function whose declared return type is neither 'undefined' nor 'void' must return a value",
             node: returnStatement,
@@ -435,7 +448,11 @@ export class TypeChecker {
     this.withGeneratorFunction(statement.generator === true, () => {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
       this.withTypeParameters(typeParameterNames, () => {
-        const returnType = this.resolveTypeAnnotation(statement.returnType, scope) ?? UNKNOWN_TYPE;
+        const declaredReturnType = this.resolveTypeAnnotation(statement.returnType, scope);
+        if (statement.async === true) {
+          this.validateAsyncReturnTypeAnnotation(declaredReturnType, statement.returnType ?? statement.name);
+        }
+        const returnType = declaredReturnType ?? UNKNOWN_TYPE;
         const fnType = this.buildFunctionType(statement.parameters, returnType, scope, statement.typeParameters ?? []);
         const existingSymbolType = scope.symbols.get(statement.name.name)?.type;
         if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
@@ -461,13 +478,26 @@ export class TypeChecker {
           switchDepth: 0,
           labels: [],
           expectedReturnType: returnType,
+          inAsync: statement.async === true,
           inGenerator: statement.generator === true
         };
         for (const bodyStatement of statement.body.body) {
           this.visitStatement(bodyStatement, functionScope, functionFlow);
         }
+        const resolvedReturnType = this.finalizeFunctionReturnType(
+          declaredReturnType,
+          statement.body,
+          statement.async === true
+        );
+        if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
+          this.updateSymbolType(
+            scope,
+            statement.name.name,
+            this.buildFunctionType(statement.parameters, resolvedReturnType, scope, statement.typeParameters ?? [])
+          );
+        }
         if (statement.missingBody !== true) {
-          this.reportMissingReturnPath(statement.body, returnType, statement.name);
+          this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, statement.async === true);
         }
       });
     });
@@ -542,6 +572,9 @@ export class TypeChecker {
         this.withGeneratorFunction(method.generator === true, () => {
           this.withTypeParameters(methodTypeParameterNames, () => {
             const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
+            if (method.async === true) {
+              this.validateAsyncReturnTypeAnnotation(declaredMethodReturnType, method.returnType ?? method.name);
+            }
             const methodType = this.buildFunctionType(
               method.parameters,
               declaredMethodReturnType ?? builtinType("void"),
@@ -574,8 +607,23 @@ export class TypeChecker {
             for (const bodyStatement of method.body.body) {
               this.visitStatement(bodyStatement, methodScope, methodFlow);
             }
+            const resolvedMethodReturnType = this.finalizeFunctionReturnType(
+              declaredMethodReturnType,
+              method.body,
+              method.async === true
+            );
+            this.updateSymbolType(
+              classScope,
+              method.name.name,
+              this.buildFunctionType(
+                method.parameters,
+                resolvedMethodReturnType,
+                classScope,
+                method.typeParameters ?? []
+              )
+            );
             if (statement.declared !== true && method.missingBody !== true && method.abstract !== true) {
-              this.reportMissingReturnPath(method.body, methodReturnType, method.name);
+              this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, method.async === true);
             }
           });
         });
@@ -1064,10 +1112,17 @@ export class TypeChecker {
             for (const bodyStatement of (arrow.body as BlockStatement).body) {
               this.visitStatement(bodyStatement, arrowScope, arrowFlow);
             }
-            this.reportMissingReturnPath(arrow.body as BlockStatement, expectedReturnType, arrow);
-            returnType = expectedReturnType;
+            returnType = this.finalizeFunctionReturnType(
+              expectedFunctionType?.returnType,
+              arrow.body as BlockStatement,
+              arrow.async === true
+            );
+            this.reportMissingReturnPath(arrow.body as BlockStatement, returnType, arrow, arrow.async === true);
           } else {
             returnType = this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType);
+            if (arrow.async === true && (!expectedFunctionType || isUnknownType(expectedFunctionType.returnType))) {
+              returnType = namedType("Promise", [returnType]);
+            }
             if (
               expectedFunctionType &&
               !isUnknownType(returnType) &&
@@ -1087,20 +1142,29 @@ export class TypeChecker {
         this.withGeneratorFunction(fn.generator === true, () => {
           const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
           const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
+          const declaredReturnType = this.resolveTypeAnnotation(fn.returnType, functionScope);
+          if (fn.async === true) {
+            this.validateAsyncReturnTypeAnnotation(declaredReturnType, fn.returnType ?? fn.name ?? fn);
+          }
           const expectedReturnType =
-            this.resolveTypeAnnotation(fn.returnType, functionScope) ?? expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
+            declaredReturnType ?? expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
           const functionFlow: FlowContext = {
             loopDepth: 0,
             switchDepth: 0,
             labels: [],
             expectedReturnType,
+            inAsync: fn.async === true,
             inGenerator: fn.generator === true
           };
           for (const bodyStatement of fn.body.body) {
             this.visitStatement(bodyStatement, functionScope, functionFlow);
           }
-          this.reportMissingReturnPath(fn.body, expectedReturnType, fn.name ?? fn);
-          const returnType = isUnknownType(expectedReturnType) ? builtinType("void") : expectedReturnType;
+          const returnType = this.finalizeFunctionReturnType(
+            declaredReturnType ?? expectedFunctionType?.returnType,
+            fn.body,
+            fn.async === true
+          );
+          this.reportMissingReturnPath(fn.body, returnType, fn.name ?? fn, fn.async === true);
           result = this.buildFunctionType(fn.parameters, returnType, functionScope);
         });
         break;
@@ -2025,10 +2089,152 @@ export class TypeChecker {
       this.isTypeAssignable(builtinType("void"), returnType);
   }
 
-  private reportMissingReturnPath(body: BlockStatement, returnType: AnalysisType, node: Node): void {
+  private validateAsyncReturnTypeAnnotation(returnType: AnalysisType | undefined, node: Node): void {
+    if (!returnType || this.getAsyncReturnValueType(returnType)) {
+      return;
+    }
+    this.issues.push({
+      message: "Async functions must declare a Promise<...> return type",
+      node
+    });
+  }
+
+  private finalizeFunctionReturnType(
+    declaredOrExpectedReturnType: AnalysisType | undefined,
+    body: BlockStatement,
+    inAsync: boolean
+  ): AnalysisType {
+    if (declaredOrExpectedReturnType && !isUnknownType(declaredOrExpectedReturnType)) {
+      return declaredOrExpectedReturnType;
+    }
+    const inferredReturnType = this.inferReturnTypeFromBlock(body);
+    return inAsync ? namedType("Promise", [inferredReturnType]) : inferredReturnType;
+  }
+
+  private inferReturnTypeFromBlock(body: BlockStatement): AnalysisType {
+    const returnExpressionTypes = this.collectReturnExpressionTypes(body.body);
+    if (returnExpressionTypes.length === 0) {
+      return builtinType("void");
+    }
+    return this.combineTypes(returnExpressionTypes);
+  }
+
+  private collectReturnExpressionTypes(statements: Statement[]): AnalysisType[] {
+    const collected: AnalysisType[] = [];
+    for (const statement of statements) {
+      this.collectReturnExpressionTypesFromStatement(statement, collected);
+    }
+    return collected;
+  }
+
+  private collectReturnExpressionTypesFromStatement(statement: Statement, collected: AnalysisType[]): void {
+    switch (statement.kind) {
+      case "ReturnStatement": {
+        const expression = (statement as ReturnStatement).expression;
+        if (expression) {
+          collected.push(this.expressionTypes.get(expression) ?? UNKNOWN_TYPE);
+        } else {
+          collected.push(builtinType("undefined"));
+        }
+        return;
+      }
+      case "BlockStatement":
+        for (const child of (statement as BlockStatement).body) {
+          this.collectReturnExpressionTypesFromStatement(child, collected);
+        }
+        return;
+      case "IfStatement": {
+        const ifStatement = statement as IfStatement;
+        this.collectReturnExpressionTypesFromStatement(ifStatement.thenBranch, collected);
+        if (ifStatement.elseBranch) {
+          this.collectReturnExpressionTypesFromStatement(ifStatement.elseBranch, collected);
+        }
+        return;
+      }
+      case "ForStatement":
+      case "WhileStatement":
+      case "DoWhileStatement":
+      case "WithStatement":
+      case "LabeledStatement":
+        this.collectReturnExpressionTypesFromStatement(
+          (statement as ForStatement | WhileStatement | DoWhileStatement | WithStatement | LabeledStatement).body,
+          collected
+        );
+        return;
+      case "SwitchStatement":
+        for (const switchCase of (statement as SwitchStatement).cases) {
+          for (const consequent of switchCase.consequent) {
+            this.collectReturnExpressionTypesFromStatement(consequent, collected);
+          }
+        }
+        return;
+      case "TryStatement": {
+        const tryStatement = statement as TryStatement;
+        this.collectReturnExpressionTypesFromStatement(tryStatement.tryBlock, collected);
+        if (tryStatement.catchClause) {
+          this.collectReturnExpressionTypesFromStatement(tryStatement.catchClause.body, collected);
+        }
+        if (tryStatement.finallyBlock) {
+          this.collectReturnExpressionTypesFromStatement(tryStatement.finallyBlock, collected);
+        }
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  private combineTypes(types: AnalysisType[]): AnalysisType {
+    const uniqueTypes: AnalysisType[] = [];
+    for (const type of types) {
+      if (!uniqueTypes.some((existing) => isSameType(existing, type))) {
+        uniqueTypes.push(type);
+      }
+    }
+    if (uniqueTypes.length === 0) {
+      return builtinType("void");
+    }
+    if (uniqueTypes.length === 1) {
+      return uniqueTypes[0]!;
+    }
+    return unionType(uniqueTypes);
+  }
+
+  private getAsyncReturnValueType(returnType: AnalysisType): AnalysisType | null {
+    if (returnType.kind !== "named" || returnType.name !== "Promise") {
+      return null;
+    }
+    return returnType.typeArguments?.[0] ?? UNKNOWN_TYPE;
+  }
+
+  private returnExpressionIsAssignable(
+    actualReturnType: AnalysisType,
+    expectedReturnType: AnalysisType,
+    asyncReturnValueType: AnalysisType | null
+  ): boolean {
+    if (asyncReturnValueType) {
+      return this.isTypeAssignable(actualReturnType, asyncReturnValueType) ||
+        this.isTypeAssignable(actualReturnType, expectedReturnType);
+    }
+    return this.isTypeAssignable(actualReturnType, expectedReturnType);
+  }
+
+  private asyncReturnValueIsOptional(
+    expectedReturnType: AnalysisType,
+    asyncReturnValueType: AnalysisType | null
+  ): boolean {
+    return asyncReturnValueType
+      ? this.returnValueIsOptional(asyncReturnValueType)
+      : this.returnValueIsOptional(expectedReturnType);
+  }
+
+  private reportMissingReturnPath(body: BlockStatement, returnType: AnalysisType, node: Node, inAsync: boolean = false): void {
+    const asyncReturnValueType = inAsync ? this.getAsyncReturnValueType(returnType) : null;
     if (
       isUnknownType(returnType) ||
-      this.returnValueIsOptional(returnType) ||
+      (inAsync
+        ? this.asyncReturnValueIsOptional(returnType, asyncReturnValueType)
+        : this.returnValueIsOptional(returnType)) ||
       this.statementListAlwaysExits(body.body)
     ) {
       return;
