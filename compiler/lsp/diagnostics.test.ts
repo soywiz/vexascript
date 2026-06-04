@@ -71,6 +71,33 @@ describe("lsp diagnostics", () => {
     ).toBe(true);
   });
 
+  it("assigns distinct return diagnostic codes at the nearest source locations", () => {
+    const diagnostics = diagnosticsFor(`function incomplete(flag: boolean): int {
+  if (flag) return 1
+}
+function wrong(): int {
+  return "bad"
+}
+function empty(): int {
+  return
+}
+`);
+
+    const missingPath = diagnostics.find(
+      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.NOT_ALL_CODE_PATHS_RETURN
+    );
+    const wrongType = diagnostics.find(
+      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.RETURN_TYPE_MISMATCH
+    );
+    const missingValue = diagnostics.find(
+      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.RETURN_VALUE_REQUIRED
+    );
+
+    expect(missingPath?.range.start).toEqual({ line: 0, character: 9 });
+    expect(wrongType?.range.start).toEqual({ line: 4, character: 9 });
+    expect(missingValue?.range.start).toEqual({ line: 7, character: 2 });
+  });
+
   it("assigns readonly-reassignment diagnostic code for const/val writes", () => {
     const source =
       "const point = 1\n" +

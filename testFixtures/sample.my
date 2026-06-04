@@ -15,6 +15,7 @@ class Map<K, V> {
     b: V
 
     get(key: K): V {
+        return this.b
     }
 }
 

@@ -251,8 +251,23 @@ export class TypeChecker {
       }
       case "ReturnStatement": {
         const returnStatement = statement as ReturnStatement;
+        const expectedReturnType = flow.expectedReturnType;
         if (returnStatement.expression) {
-          this.visitExpression(returnStatement.expression, scope);
+          const actualReturnType = this.visitExpression(returnStatement.expression, scope, expectedReturnType);
+          if (
+            expectedReturnType &&
+            !isUnknownType(expectedReturnType) &&
+            !isUnknownType(actualReturnType) &&
+            !this.isTypeAssignable(actualReturnType, expectedReturnType)
+          ) {
+            this.reportReturnTypeMismatch(actualReturnType, expectedReturnType, returnStatement.expression);
+          }
+        } else if (expectedReturnType && !this.returnValueIsOptional(expectedReturnType)) {
+          this.issues.push({
+            message: "A function whose declared return type is neither 'undefined' nor 'void' must return a value",
+            node: returnStatement,
+            code: ANALYSIS_ISSUE_CODES.RETURN_VALUE_REQUIRED
+          });
         }
         return;
       }
@@ -405,12 +420,20 @@ export class TypeChecker {
         }
       }
 
+      const functionFlow: FlowContext = {
+        loopDepth: 0,
+        switchDepth: 0,
+        labels: [],
+        expectedReturnType: returnType
+      };
       for (const bodyStatement of statement.body.body) {
-        this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0, labels: [] });
+        this.visitStatement(bodyStatement, functionScope, functionFlow);
+      }
+      if (statement.missingBody !== true) {
+        this.reportMissingReturnPath(statement.body, returnType, statement.name);
       }
     });
   }
-
 
   private visitEnumStatement(statement: EnumStatement, scope: Scope): void {
     const enumScope = this.scopeFor(statement, scope);
@@ -479,9 +502,10 @@ export class TypeChecker {
         }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
         this.withTypeParameters(methodTypeParameterNames, () => {
+          const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
           const methodType = this.buildFunctionType(
             method.parameters,
-            this.resolveTypeAnnotation(method.returnType, classScope) ?? builtinType("void"),
+            declaredMethodReturnType ?? builtinType("void"),
             classScope,
             method.typeParameters ?? []
           );
@@ -500,8 +524,18 @@ export class TypeChecker {
               if (element.initializer) this.visitExpression(element.initializer, methodScope);
             }
           }
+          const methodReturnType = declaredMethodReturnType ?? UNKNOWN_TYPE;
+          const methodFlow: FlowContext = {
+            loopDepth: 0,
+            switchDepth: 0,
+            labels: [],
+            expectedReturnType: methodReturnType
+          };
           for (const bodyStatement of method.body.body) {
-            this.visitStatement(bodyStatement, methodScope, { loopDepth: 0, switchDepth: 0, labels: [] });
+            this.visitStatement(bodyStatement, methodScope, methodFlow);
+          }
+          if (method.missingBody !== true && method.abstract !== true) {
+            this.reportMissingReturnPath(method.body, methodReturnType, method.name);
           }
         });
       }
@@ -927,12 +961,29 @@ export class TypeChecker {
         const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters, expectedFunctionType);
         let returnType: AnalysisType;
         if (arrow.body.kind === "BlockStatement") {
+          const expectedReturnType = expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
+          const arrowFlow: FlowContext = {
+            loopDepth: 0,
+            switchDepth: 0,
+            labels: [],
+            expectedReturnType
+          };
           for (const bodyStatement of (arrow.body as BlockStatement).body) {
-            this.visitStatement(bodyStatement, arrowScope, { loopDepth: 0, switchDepth: 0, labels: [] });
+            this.visitStatement(bodyStatement, arrowScope, arrowFlow);
           }
-          returnType = builtinType("void");
+          this.reportMissingReturnPath(arrow.body as BlockStatement, expectedReturnType, arrow);
+          returnType = expectedReturnType;
         } else {
           returnType = this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType);
+          if (
+            expectedFunctionType &&
+            !isUnknownType(returnType) &&
+            !isUnknownType(expectedFunctionType.returnType) &&
+            !this.isTypeAssignable(returnType, expectedFunctionType.returnType)
+          ) {
+            this.reportReturnTypeMismatch(returnType, expectedFunctionType.returnType, arrow.body as Expr);
+            returnType = expectedFunctionType.returnType;
+          }
         }
         result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
         break;
@@ -941,10 +992,19 @@ export class TypeChecker {
         const fn = expression as FunctionExpression;
         const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
         const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
+        const expectedReturnType =
+          this.resolveTypeAnnotation(fn.returnType, functionScope) ?? expectedFunctionType?.returnType ?? UNKNOWN_TYPE;
+        const functionFlow: FlowContext = {
+          loopDepth: 0,
+          switchDepth: 0,
+          labels: [],
+          expectedReturnType
+        };
         for (const bodyStatement of fn.body.body) {
-          this.visitStatement(bodyStatement, functionScope, { loopDepth: 0, switchDepth: 0, labels: [] });
+          this.visitStatement(bodyStatement, functionScope, functionFlow);
         }
-        const returnType = this.resolveTypeAnnotation(fn.returnType, functionScope) ?? expectedFunctionType?.returnType ?? builtinType("void");
+        this.reportMissingReturnPath(fn.body, expectedReturnType, fn.name ?? fn);
+        const returnType = isUnknownType(expectedReturnType) ? builtinType("void") : expectedReturnType;
         result = this.buildFunctionType(fn.parameters, returnType, functionScope);
         break;
       }
@@ -1695,6 +1755,97 @@ export class TypeChecker {
       return argumentType.typeArguments[0];
     }
     return UNKNOWN_TYPE;
+  }
+
+  private reportReturnTypeMismatch(
+    sourceType: AnalysisType,
+    targetType: AnalysisType,
+    node: Node
+  ): void {
+    this.issues.push({
+      message: `Type '${typeToString(sourceType)}' is not assignable to return type '${typeToString(targetType)}'`,
+      node,
+      code: ANALYSIS_ISSUE_CODES.RETURN_TYPE_MISMATCH
+    });
+  }
+
+  private returnValueIsOptional(returnType: AnalysisType): boolean {
+    return this.isTypeAssignable(builtinType("undefined"), returnType) ||
+      this.isTypeAssignable(builtinType("void"), returnType);
+  }
+
+  private reportMissingReturnPath(body: BlockStatement, returnType: AnalysisType, node: Node): void {
+    if (
+      isUnknownType(returnType) ||
+      this.returnValueIsOptional(returnType) ||
+      this.statementListAlwaysExits(body.body)
+    ) {
+      return;
+    }
+    this.issues.push({
+      message: "Not all code paths return a value",
+      node,
+      code: ANALYSIS_ISSUE_CODES.NOT_ALL_CODE_PATHS_RETURN
+    });
+  }
+
+  private statementListAlwaysExits(statements: Statement[]): boolean {
+    for (const statement of statements) {
+      if (this.statementAlwaysExits(statement)) {
+        return true;
+      }
+      if (statement.kind === "BreakStatement" || statement.kind === "ContinueStatement") {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  private statementAlwaysExits(statement: Statement): boolean {
+    switch (statement.kind) {
+      case "ReturnStatement":
+      case "ThrowStatement":
+        return true;
+      case "BlockStatement":
+        return this.statementListAlwaysExits((statement as BlockStatement).body);
+      case "IfStatement": {
+        const conditional = statement as IfStatement;
+        return (
+          conditional.elseBranch !== undefined &&
+          this.statementAlwaysExits(conditional.thenBranch) &&
+          this.statementAlwaysExits(conditional.elseBranch)
+        );
+      }
+      case "DoWhileStatement":
+        return this.statementAlwaysExits((statement as DoWhileStatement).body);
+      case "SwitchStatement": {
+        const switchStatement = statement as SwitchStatement;
+        if (!switchStatement.cases.some((switchCase) => switchCase.test === undefined)) {
+          return false;
+        }
+        return switchStatement.cases.every((_, index) =>
+          this.statementListAlwaysExits(
+            switchStatement.cases.slice(index).flatMap((switchCase) => switchCase.consequent)
+          )
+        );
+      }
+      case "TryStatement": {
+        const tryStatement = statement as TryStatement;
+        if (tryStatement.finallyBlock && this.statementAlwaysExits(tryStatement.finallyBlock)) {
+          return true;
+        }
+        return (
+          this.statementAlwaysExits(tryStatement.tryBlock) &&
+          (tryStatement.catchClause === undefined || this.statementAlwaysExits(tryStatement.catchClause.body))
+        );
+      }
+      case "WithStatement":
+        return this.statementAlwaysExits((statement as WithStatement).body);
+      case "LabeledStatement":
+        return this.statementAlwaysExits((statement as LabeledStatement).body);
+      default:
+        return false;
+    }
   }
 
   private reportTypeMismatch(

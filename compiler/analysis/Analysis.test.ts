@@ -194,6 +194,119 @@ let after = bind`));
     expect(messages.some((message) => message.includes("'blockLabel'") && message.startsWith("Undefined"))).toBe(false);
   });
 
+  it("requires every reachable path in non-void functions and methods to return", () => {
+    const source = `function complete(flag: boolean): int {
+  if (flag) {
+    return 1
+  } else {
+    return 2
+  }
+}
+function incomplete(flag: boolean): int {
+  if (flag) return 1
+}
+class Calculator {
+  choose(flag: boolean): string {
+    if (flag) return "yes"
+  }
+  fail(): int {
+    throw "failure"
+  }
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const missingReturnIssues = analysis.getIssues().filter(
+      (issue) => issue.message === "Not all code paths return a value"
+    );
+
+    expect(missingReturnIssues).toHaveLength(2);
+    expect(missingReturnIssues.map((issue) => issue.node.kind)).toEqual(["Identifier", "Identifier"]);
+    expect(missingReturnIssues.map((issue) => (issue.node as { name?: string }).name)).toEqual([
+      "incomplete",
+      "choose"
+    ]);
+  });
+
+  it("checks return values against the nearest function return type", () => {
+    const source = `function wrong(): int {
+  return "bad"
+}
+function missingValue(): string {
+  return
+}
+function wrongVoid(): void {
+  return 1
+}
+function outer(): string {
+  function inner(): int {
+    return "inner bad"
+  }
+  return "ok"
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const issues = analysis.getIssues();
+
+    expect(issues.map((issue) => issue.message)).toEqual([
+      "Type 'string' is not assignable to return type 'int'",
+      "A function whose declared return type is neither 'undefined' nor 'void' must return a value",
+      "Type 'int' is not assignable to return type 'void'",
+      "Type 'string' is not assignable to return type 'int'"
+    ]);
+    expect(issues.map((issue) => issue.node.kind)).toEqual([
+      "StringLiteral",
+      "ReturnStatement",
+      "IntLiteral",
+      "StringLiteral"
+    ]);
+  });
+
+  it("checks contextual function-expression and arrow-function returns", () => {
+    const source = `let arrow: (flag: boolean) => int = (flag) => {
+  if (flag) return 1
+}
+let expression: () => string = function(): string {
+  return 1
+}
+let concise: () => int = () => "bad"`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const issues = analysis.getIssues();
+
+    expect(issues.map((issue) => issue.message)).toEqual([
+      "Not all code paths return a value",
+      "Type 'int' is not assignable to return type 'string'",
+      "Type 'string' is not assignable to return type 'int'"
+    ]);
+    expect(issues.map((issue) => issue.node.kind)).toEqual([
+      "ArrowFunctionExpression",
+      "IntLiteral",
+      "StringLiteral"
+    ]);
+  });
+
+  it("recognizes exhaustive switch and try/catch return paths", () => {
+    const source = `function viaSwitch(value: int): string {
+  switch (value) {
+    case 1:
+      return "one"
+    default:
+      return "other"
+  }
+}
+function viaTry(flag: boolean): int {
+  try {
+    if (flag) return 1
+    throw "bad"
+  } catch (error) {
+    return 2
+  }
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("checks with statement object expressions and bodies", () => {
     const source =
       "let scope = { value: 1 }\n" +
@@ -349,7 +462,7 @@ let badPoint: { x: int; label: string } = { x: 1, label: 2 }
 
     expect(symbols.get("mapper")?.valueType).toBe("(value: int) => string");
     expect(symbols.get("point")?.valueType).toBe("{ x: int, label: string | undefined }");
-    expect(messages).toContain("Type '(value: int) => int' is not assignable to type '(value: int) => string'");
+    expect(messages).toContain("Type 'int' is not assignable to return type 'string'");
     expect(messages).toContain("Type '{ x: int, label: int }' is not assignable to type '{ x: int, label: string }'");
   });
 
