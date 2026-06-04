@@ -997,6 +997,10 @@ export class TypeChecker {
             result = calleeType;
             break;
           }
+          if (calleeType.kind === "function") {
+            result = calleeType.returnType;
+            break;
+          }
           result = calleeType;
           break;
         }
@@ -3793,7 +3797,10 @@ export class TypeChecker {
           continue;
         }
 
-        const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
+        const rawReturnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
+        const returnType = classMember.async === true && !this.getAsyncReturnValueType(rawReturnType)
+          ? namedType("Promise", [rawReturnType])
+          : rawReturnType;
         if (classMember.accessorKind === "get") {
           members.set(classMember.name.name, this.substituteTypeParameters(returnType, substitutions));
           continue;
