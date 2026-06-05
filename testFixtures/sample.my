@@ -1,5 +1,5 @@
 declare class Console {
-    log(a: number)
+    log(...a: any)
 }
 
 declare var console: Console
@@ -24,3 +24,24 @@ fun demoGenerics() {
     map.a
     map.get("id")
 }
+
+class Point(val x: number, val y: number)
+
+fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)
+fun Point.operator-(other: Point) => Point(x - other.x, y - other.y)
+
+class TimeSpan(val ms: number) {
+}
+
+val number.seconds => TimeSpan(this * 1000.0)
+val number.milliseconds => TimeSpan(this)
+
+fun delay(time: TimeSpan) {
+  return new Promise({ resolve, reject ->
+    setTimeout(resolve, time.ms)
+  })
+}
+
+console.log("[a]")
+await delay(0.1.seconds)
+console.log("[b]", Point(1, 2) + Point(3, 4))

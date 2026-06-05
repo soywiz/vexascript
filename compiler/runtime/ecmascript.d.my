@@ -49,9 +49,13 @@ declare class RegExp {
 }
 
 declare class Promise<T> {
+  constructor(callback: (resolve: (T) => void, reject: (Error) => void) => void)
   then<R>(onFulfilled: (value: T) => R): Promise<R>
   catch<R>(onRejected: (reason: any) => R): Promise<T | R>
 }
+
+declare function setTimeout(code: () => void, time: number): number
+declare function setInterval(code: () => void, time: number): number
 
 declare class Error {
   name: string

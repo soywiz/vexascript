@@ -54,7 +54,7 @@ describe("CLI", () => {
 
     await runCli(["node", "mylang", "run", "testFixtures/sample.my"]);
 
-    expect(logSpy.mock.calls).toEqual([[42], [1], [2], [3]]);
+    expect(logSpy.mock.calls).toEqual([[42], [1], [2], [3], ['[a]'], ['[b]', { x: 4, y: 6 }]]);
   });
 
   it("run command supports conservative target mode", async () => {
