@@ -293,6 +293,18 @@ val Counter.next => increment(1)`;
     expect(result.code).toContain("const Counter$$next = ($this) => $this.increment(1);");
   });
 
+  it("lowers int multiplication and division to 32-bit JavaScript operations", () => {
+    const source = `let a: int = 9
+let b: int = 4
+let product: int = a * b
+let quotient: int = a / b`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("let product = Math.imul(a, b);");
+    expect(result.code).toContain("let quotient = (a / b) | 0;");
+  });
+
   it("mangles and lowers extension properties", () => {
     const source = `class Duration(val value: number)
 export val number.milliseconds => Duration(this)
