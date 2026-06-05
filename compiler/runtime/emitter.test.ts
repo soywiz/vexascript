@@ -115,6 +115,24 @@ let worker = async function* work(this: Loader) { yield await next() }`));
     expect(emitted).toContain("let worker = async function* work() {");
   });
 
+  it("emits sync functions and methods as async and strips the go operator", () => {
+    const program = parseFile(tokenizeReader(`sync function load(id: string): int { return 1 }
+sync fun fetchValue(): int { return 2 }
+class Store { sync save(): int { return 3 } }
+let arrow = sync () => { return 4 }
+let expr = sync function(): int { return 5 }
+let promise = go fetchValue()`));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("async function load(id) {");
+    expect(emitted).toContain("async function fetchValue() {");
+    expect(emitted).toContain("async save() {");
+    expect(emitted).toContain("let arrow = async () => {");
+    expect(emitted).toContain("let expr = async function() {");
+    // `go` is erased at emission: the underlying call is emitted untouched.
+    expect(emitted).toContain("let promise = fetchValue();");
+  });
+
   it("emits regular expression literals and sparse arrays", () => {
     const program = parseFile(tokenizeReader("let re = /a\\/b+/gi\nlet values = [1, , 3]"));
     const emitted = emitProgram(program);

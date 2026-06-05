@@ -4131,6 +4131,67 @@ class Store { async save(this: Store) { return await persist(this) }; *values() 
         });
     });
 
+    it("parses sync functions, methods, arrows, and function expressions", () => {
+        const program = parseFile(tokenizeReader(`sync function load(id: string): int { return 1 }
+sync fun fetchValue(): int { return 2 }
+class Store { sync save(): int { return 3 } }
+let arrow = sync () => { return 4 }
+let expr = sync function(): int { return 5 }`));
+
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            sync: true,
+            name: { name: "load" }
+        });
+        expect(program.body[1]).toMatchObject({
+            kind: "FunctionStatement",
+            sync: true,
+            name: { name: "fetchValue" }
+        });
+        expect(program.body[2]).toMatchObject({
+            kind: "ClassStatement",
+            members: [{ kind: "ClassMethodMember", sync: true, name: { name: "save" } }]
+        });
+        expect(program.body[3]).toMatchObject({
+            kind: "VarStatement",
+            initializer: { kind: "ArrowFunctionExpression", sync: true }
+        });
+        expect(program.body[4]).toMatchObject({
+            kind: "VarStatement",
+            initializer: { kind: "FunctionExpression", sync: true }
+        });
+    });
+
+    it("parses the contextual `go` operator while keeping `go` usable as an identifier", () => {
+        const goOperator = parseExpression(tokenizeReader("go fetchValue()"));
+        expect(goOperator).toMatchObject({
+            kind: "UnaryExpression",
+            operator: "go",
+            argument: { kind: "CallExpression", callee: { name: "fetchValue" } }
+        });
+
+        const program = parseFile(tokenizeReader(`let go = 5
+let total = go + 1
+let result = go
+go = 7`));
+        expect(program.body[0]).toMatchObject({ kind: "VarStatement", initializer: { kind: "IntLiteral", value: 5 } });
+        expect(program.body[1]).toMatchObject({
+            kind: "VarStatement",
+            initializer: { kind: "BinaryExpression", operator: "+", left: { kind: "Identifier", name: "go" } }
+        });
+        expect(program.body[2]).toMatchObject({
+            kind: "VarStatement",
+            initializer: { kind: "Identifier", name: "go" }
+        });
+        expect(program.body[3]).toMatchObject({
+            kind: "ExprStatement",
+            expression: { kind: "AssignmentExpression", left: { kind: "Identifier", name: "go" } }
+        });
+
+        const goCall = parseExpression(tokenizeReader("go()"));
+        expect(goCall).toMatchObject({ kind: "CallExpression", callee: { kind: "Identifier", name: "go" } });
+    });
+
     it("parses object and array binding patterns in variable declarations", () => {
         const program = parseFile(tokenizeReader("let { id, name: displayName, nested: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
 

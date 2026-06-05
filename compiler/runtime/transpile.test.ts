@@ -227,6 +227,52 @@ describe("transpile", () => {
   });
 
 
+  it("auto-awaits Promise-typed statements inside sync functions", () => {
+    const source = [
+      "sync fun fetchValue(): int { return 1 }",
+      "sync fun main(): int {",
+      "  let x = fetchValue()",
+      "  x = fetchValue()",
+      "  fetchValue()",
+      "  return x + 10",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // sync functions are emitted as async functions.
+    expect(result.code).toContain("async function fetchValue() {");
+    expect(result.code).toContain("async function main() {");
+    // Promise-typed initializers, assignments and expression statements are awaited automatically.
+    expect(result.code).toContain("let x = await fetchValue();");
+    expect(result.code).toContain("x = await fetchValue();");
+    expect(result.code).toContain("await fetchValue();");
+    // The auto-awaited value is observed as the unwrapped type, so arithmetic type-checks.
+    expect(result.code).toContain("return x + 10;");
+  });
+
+  it("suppresses auto-await with the go operator and only auto-awaits inside sync functions", () => {
+    const source = [
+      "sync fun fetchValue(): int { return 1 }",
+      "sync fun main(): void {",
+      "  let p: Promise<int> = go fetchValue()",
+      "  go fetchValue()",
+      "  let nested = () => { let r = fetchValue() }",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // `go` keeps the Promise, so no await is emitted.
+    expect(result.code).toContain("let p = fetchValue();");
+    expect(result.code).toContain("fetchValue();");
+    expect(result.code).not.toContain("await fetchValue()");
+    // Nested non-sync functions do not auto-await.
+    expect(result.code).toContain("let r = fetchValue();");
+  });
+
   it("mangles overloaded function implementations and rewrites typed calls", () => {
     const source = [
       "function describe(value: int): string { return \"int\" }",

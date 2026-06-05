@@ -415,6 +415,49 @@ let b: () => Promise<string> = () => new Box().load()`;
     expect(analysis.getIssues()).toEqual([]);
   });
 
+  it("treats sync functions as Promise<T> producers without requiring a Promise annotation", () => {
+    const source = `sync function inferred(): number {
+  return 10
+}
+class Box {
+  sync load(): string {
+    return "x"
+  }
+}
+let a: () => Promise<number> = inferred
+let b: () => Promise<string> = () => new Box().load()`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("auto-awaits Promise-typed bindings inside sync functions while go preserves the Promise", () => {
+    const source = `sync fun fetchValue(): int { return 1 }
+sync fun main(): int {
+  let x = fetchValue()
+  let p: Promise<int> = go fetchValue()
+  return x + 10
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("observes auto-awaited sync results as their unwrapped type", () => {
+    const source = `sync fun fetchValue(): int { return 1 }
+sync fun main(): void {
+  let s: string = fetchValue()
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Type 'int' is not assignable to type 'string'"
+    );
+  });
+
   it("checks contextual function-expression and arrow-function returns", () => {
     const source = `let arrow: (flag: boolean) => int = (flag) => {
   if (flag) return 1

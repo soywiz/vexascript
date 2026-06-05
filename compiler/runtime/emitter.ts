@@ -130,6 +130,53 @@ const PREC_UPDATE = 16;
 const PREC_MEMBER = 17;
 const PREC_PRIMARY = 18;
 let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
+// Tracks whether the currently emitted function body is a `sync` function, which auto-awaits
+// Promise-typed expression statements, variable initializers and assignment right-hand sides.
+let activeInSync = false;
+
+function isAsyncEmittedFunction(node: { async?: boolean; sync?: boolean }): boolean {
+  return node.async === true || node.sync === true;
+}
+
+function asyncEmitPrefix(node: { async?: boolean; sync?: boolean }): string {
+  return isAsyncEmittedFunction(node) ? "async " : "";
+}
+
+function isGoExpression(expression: Expr): boolean {
+  return expression.kind === "UnaryExpression" && (expression as UnaryExpression).operator === "go";
+}
+
+function shouldAutoAwait(expression: Expr): boolean {
+  if (!activeInSync || isGoExpression(expression)) {
+    return false;
+  }
+  const type = activeExpressionTypes?.get(expression as unknown as Node);
+  return type?.kind === "named" && type.name === "Promise";
+}
+
+function withInSync<T>(inSync: boolean, run: () => T): T {
+  const previous = activeInSync;
+  activeInSync = inSync;
+  try {
+    return run();
+  } finally {
+    activeInSync = previous;
+  }
+}
+
+function emitAutoAwaitExpression(expression: Expr): string {
+  if (shouldAutoAwait(expression)) {
+    return `await ${emitExpression(expression, PREC_UNARY, "right")}`;
+  }
+  return emitExpression(expression);
+}
+
+function emitAutoAwaitListElement(expression: Expr): string {
+  if (shouldAutoAwait(expression)) {
+    return `await ${emitExpression(expression, PREC_UNARY, "right")}`;
+  }
+  return emitListElement(expression);
+}
 
 function normalizeVarKind(kind: string): "let" | "var" | "const" {
   if (kind === "val") {
@@ -601,7 +648,9 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;
         const leftText = emitExpression(assignment.left, PREC_ASSIGNMENT, "left");
-        const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
+        const rightText = shouldAutoAwait(assignment.right)
+          ? `await ${emitExpression(assignment.right, PREC_UNARY, "right")}`
+          : emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
         return `${leftText} ${assignment.operator} ${rightText}`;
       }
       case "AsExpression":
@@ -658,6 +707,11 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "UnaryExpression": {
         const unary = expression as UnaryExpression;
+        if (unary.operator === "go") {
+          // `go expr` is a compile-time marker that opts out of sync auto-await; emit the inner
+          // expression unchanged so the underlying Promise flows through untouched.
+          return emitExpression(unary.argument, parentPrecedence, side);
+        }
         const unaryOperator =
           unary.operator === "typeof" ||
           unary.operator === "void" ||
@@ -708,19 +762,21 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         }
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
         if (arrow.body.kind === "BlockStatement") {
-          return `${arrow.async === true ? "async " : ""}${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
+          const block = withInSync(arrow.sync === true, () => emitBlock(arrow.body as BlockStatement));
+          return `${asyncEmitPrefix(arrow)}${parameters} => ${block}`;
         }
         const bodyExpression = arrow.body as Expr;
         const bodyText = emitExpression(bodyExpression);
         if (bodyExpression.kind === "ObjectLiteral") {
-          return `${arrow.async === true ? "async " : ""}${parameters} => (${bodyText})`;
+          return `${asyncEmitPrefix(arrow)}${parameters} => (${bodyText})`;
         }
-        return `${arrow.async === true ? "async " : ""}${parameters} => ${bodyText}`;
+        return `${asyncEmitPrefix(arrow)}${parameters} => ${bodyText}`;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
         const name = fn.name ? ` ${fn.name.name}` : "";
-        return `${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+        const body = withInSync(fn.sync === true, () => emitBlock(fn.body));
+        return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${body}`;
       }
       default:
         return "undefined";
@@ -773,7 +829,7 @@ function emitBindingName(binding: BindingName): string {
 
 function emitVarDeclarator(declarator: VarDeclarator): string {
   if (declarator.initializer) {
-    return `${emitBindingName(declarator.name)} = ${emitListElement(declarator.initializer)}`;
+    return `${emitBindingName(declarator.name)} = ${emitAutoAwaitListElement(declarator.initializer)}`;
   }
   return emitBindingName(declarator.name);
 }
@@ -783,7 +839,7 @@ function emitVarStatementBody(statement: VarStatement): string {
     return statement.declarations.map((declaration) => emitVarDeclarator(declaration)).join(", ");
   }
   if (statement.initializer) {
-    return `${emitBindingName(statement.name)} = ${emitListElement(statement.initializer)}`;
+    return `${emitBindingName(statement.name)} = ${emitAutoAwaitListElement(statement.initializer)}`;
   }
   return emitBindingName(statement.name);
 }
@@ -884,10 +940,12 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 
   const method = member as ClassMethodMember;
   const accessorPrefix = method.accessorKind ? `${method.accessorKind} ` : "";
-  const asyncPrefix = method.async === true ? "async " : "";
+  const asyncPrefix = asyncEmitPrefix(method);
   const generatorPrefix = method.generator === true ? "*" : "";
   const methodName = method.operator ? operatorMethodName(method.operator, method.parameters) : method.name.name;
-  const body = methodName === "constructor" ? emitConstructorBlock(method) : emitBlock(method.body);
+  const body = withInSync(method.sync === true, () =>
+    methodName === "constructor" ? emitConstructorBlock(method) : emitBlock(method.body)
+  );
   return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;
 }
 
@@ -1089,11 +1147,13 @@ export function emitStatement(statement: Statement): string {
       }
       if (fn.receiverType) {
         const emittedName = fn.operator ? operatorMethodName(fn.operator, fn.parameters) : fn.name.name;
-        return `${fn.receiverType.name}.prototype.${emittedName} = ${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)};`;
+        const receiverBody = withInSync(fn.sync === true, () => emitBlock(fn.body));
+        return `${fn.receiverType.name}.prototype.${emittedName} = ${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}(${emitFunctionParameters(fn.parameters)}) ${receiverBody};`;
       }
       const overloads = activeProgramOverloads.get(fn.name.name);
       const emittedName = overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name;
-      return `${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+      const fnBody = withInSync(fn.sync === true, () => emitBlock(fn.body));
+      return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${fnBody}`;
     }
     case "ClassStatement": {
       const classStatement = statement as ClassStatement;
@@ -1117,7 +1177,7 @@ export function emitStatement(statement: Statement): string {
     case "TypeAliasStatement":
       return "";
     case "ExprStatement":
-      return `${emitExpression((statement as ExprStatement).expression)};`;
+      return `${emitAutoAwaitExpression((statement as ExprStatement).expression)};`;
     case "EmptyStatement":
       return ";";
     case "DebuggerStatement":
@@ -1220,6 +1280,8 @@ export function emitProgramStatements(
   const previousClassNames = activeClassNames;
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
+  const previousInSync = activeInSync;
+  activeInSync = false;
   activeExpressionTypes = expressionTypes;
   activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
   activeProgramOverloads = collectRuntimeOverloads(contextProgram);
@@ -1239,5 +1301,6 @@ export function emitProgramStatements(
     activeClassNames = previousClassNames;
     activeJavaScriptImplementations = previousJavaScriptImplementations;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
+    activeInSync = previousInSync;
   }
 }

@@ -64,6 +64,40 @@ function* ids() {
 
 In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10` and `return Promise.resolve(10)` are valid for `Promise<int>`. `await expr` evaluates to `T` when `expr` has type `Promise<T>`; otherwise `await` preserves the original type. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
 
+### `sync` functions (implicit await)
+
+The `sync` modifier declares a function that behaves like `async` internally (it is emitted as a JavaScript `async function` and may use `await`), but with two ergonomic differences:
+
+- The return type is written **without** the `Promise<...>` wrapper. `sync fun load(): Response` is internally an async function returning `Promise<Response>`; from the outside (and from other functions) the call is observed as `Promise<Response>`, so it participates in auto-await just like any other Promise.
+- Inside a `sync` function body, any expression statement, variable initializer, or assignment right-hand side whose type is `Promise<T>` is **automatically awaited**, and its observed type becomes `T`.
+
+```mylang
+sync fun fetchValue(): int {
+  return 1
+}
+
+sync fun main(): int {
+  let x = fetchValue()   // emitted as: let x = await fetchValue();  -> x: int
+  fetchValue()           // emitted as: await fetchValue();
+  return x + 10
+}
+```
+
+`sync` is also valid on methods, arrow functions, and function expressions (`class C { sync m(): int { ... } }`, `sync () => { ... }`, `sync function () { ... }`).
+
+#### The `go` contextual operator
+
+To opt out of the implicit await and obtain the underlying `Promise<T>`, prefix the expression with the contextual `go` operator. `go expr` is not awaited and keeps the `Promise<T>` type:
+
+```mylang
+sync fun main(): void {
+  let pending: Promise<int> = go fetchValue()  // emitted as: let pending = fetchValue();
+  go fetchValue()                              // fire-and-forget, emitted as: fetchValue();
+}
+```
+
+`go` is contextual: it only acts as the no-await operator when an operand follows on the same line. Otherwise it remains a normal identifier, so existing code using `go` as a variable or function name keeps working.
+
 A TypeScript `this` parameter may appear first in a function-like parameter list for type analysis. It is erased during JavaScript emission:
 
 ```mylang
