@@ -7,6 +7,7 @@ import {
   pullDiagnostics,
   registerLanguage,
   registerProviders,
+  updateAutoAwaitGlyphs,
 } from "./compiler-providers";
 import {
   persistWorkspaceContent,
@@ -91,6 +92,7 @@ async function main(): Promise<void> {
   const savedBaseline = resolveWorkspaceContent(bundledSample, storage, WORKSPACE_STORAGE_KEY);
   updateDirtyState(model.getValue() !== savedBaseline);
   pullDiagnostics(model, sessionCache);
+  updateAutoAwaitGlyphs(editor, sessionCache);
   setStatus("Compiler Connected", "connected");
 
   let diagnosticsTimer: number | undefined;
@@ -100,6 +102,7 @@ async function main(): Promise<void> {
     }
     diagnosticsTimer = window.setTimeout(() => {
       pullDiagnostics(model, sessionCache);
+      updateAutoAwaitGlyphs(editor, sessionCache);
       const currentSaved = resolveWorkspaceContent(bundledSample, storage, WORKSPACE_STORAGE_KEY);
       updateDirtyState(model.getValue() !== currentSaved);
     }, 150);

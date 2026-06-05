@@ -16,6 +16,7 @@ import {
 } from "compiler/lsp/documentFeatures";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "compiler/lsp/formatting";
 import { createInlayHints } from "compiler/lsp/inlayHints";
+import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
 import {
   createHover,
   createPrepareRename,
@@ -342,6 +343,48 @@ export function pullDiagnostics(model: monaco.editor.ITextModel, cache: Map<stri
     }
   );
   setModelDiagnostics(model, diagnostics);
+}
+
+const autoAwaitGlyphCollections = new WeakMap<
+  monaco.editor.ICodeEditor,
+  monaco.editor.IEditorDecorationsCollection
+>();
+
+/**
+ * Renders glyph-margin icons on the lines where the compiler inserts an implicit `await` inside a
+ * `sync` function body (similar to Kotlin's suspend-call gutter markers). Safe to call repeatedly;
+ * the decorations are reconciled through a per-editor decorations collection.
+ */
+export function updateAutoAwaitGlyphs(
+  editor: monaco.editor.ICodeEditor,
+  cache: Map<string, SessionState>
+): void {
+  let collection = autoAwaitGlyphCollections.get(editor);
+  if (!collection) {
+    collection = editor.createDecorationsCollection();
+    autoAwaitGlyphCollections.set(editor, collection);
+  }
+
+  const model = editor.getModel();
+  if (!model) {
+    collection.clear();
+    return;
+  }
+
+  const session = getSession(model, cache);
+  if (!session.ast || !session.analysis) {
+    collection.clear();
+    return;
+  }
+
+  const decorations = createAutoAwaitDecorations(session.ast, session.analysis).map((decoration) => ({
+    range: toMonacoRange(decoration.range),
+    options: {
+      glyphMarginClassName: "mylang-auto-await-glyph",
+      glyphMarginHoverMessage: { value: decoration.message },
+    },
+  }));
+  collection.set(decorations);
 }
 
 export function registerProviders(): Map<string, SessionState> {

@@ -6,6 +6,7 @@ import {
   DocumentDiagnosticReportKind,
   type Diagnostic,
   type InitializeParams,
+  type Range,
   type TextEdit
 } from "vscode-languageserver/node.js";
 import { fileURLToPath } from "node:url";
@@ -35,6 +36,7 @@ import {
 import { resolve as resolvePath } from "node:path";
 import { createSignatureHelp } from "./signatureHelp";
 import { createInlayHints } from "./inlayHints";
+import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 import {
   createSemanticTokens,
@@ -581,6 +583,16 @@ connection.onCodeLens((params) => {
   if (!doc) return [];
   const session = analysisSessions.getForDocument(doc);
   return session.ast && session.analysis ? createReferenceCodeLenses(session.ast, session.analysis, doc.uri) : [];
+});
+
+// Custom request: the editor asks for the lines that receive an implicit `await` so it can render
+// gutter icons (similar to Kotlin's suspend-call markers). Not part of the standard LSP protocol.
+connection.onRequest("mylang/autoAwaitDecorations", (params: { textDocument: { uri: string }; range?: Range }) => {
+  const doc = documents.get(params.textDocument.uri);
+  if (!doc) return [];
+  const session = analysisSessions.getForDocument(doc);
+  if (!session.ast || !session.analysis) return [];
+  return createAutoAwaitDecorations(session.ast, session.analysis, params.range);
 });
 
 connection.onFoldingRanges((params) => {
