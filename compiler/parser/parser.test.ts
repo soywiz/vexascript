@@ -2899,6 +2899,27 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses 'declare fun' as a function declaration in mylang mode", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("declare fun moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;"),
+                { language: "mylang" }
+            )
+        ).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            declared: true,
+            name: { kind: "Identifier", name: "moment" },
+            parameters: [
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "inp" }, optional: true, typeAnnotation: { kind: "Identifier", name: "moment.MomentInput" } },
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "strict" }, optional: true, typeAnnotation: { kind: "Identifier", name: "boolean" } }
+            ],
+            returnType: { kind: "Identifier", name: "moment.Moment" },
+            missingBody: true,
+            body: { kind: "BlockStatement", body: [] }
+        });
+    });
+
     it("parses 'declare class' with signature-only members", () => {
         expect(
             parseStatement(

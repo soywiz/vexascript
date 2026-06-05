@@ -1098,7 +1098,7 @@ export class Parser {
             first?.type === "identifier" &&
             first.value === "declare" &&
             second?.type === "identifier" &&
-            second.value === "function"
+            this.isFunctionDeclarationKeyword(second.value)
         );
     }
 
