@@ -1,4 +1,4 @@
-import { Analysis, type AnalysisIssue } from "compiler/analysis/Analysis";
+import { Analysis, type AnalysisIssue, type AnalysisOptions } from "compiler/analysis/Analysis";
 import type { ParseIssue, ParserOptions } from "compiler/parser/parser";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
 import { parseSource, type ParseArtifacts } from "./parse";
@@ -8,7 +8,11 @@ export interface CompilationArtifacts extends ParseArtifacts {
   semanticIssues: AnalysisIssue[];
 }
 
-export function compileSource(source: string, options: ParserOptions = {}): CompilationArtifacts {
+export function compileSource(
+  source: string,
+  options: ParserOptions = {},
+  analysisOptions: AnalysisOptions = {}
+): CompilationArtifacts {
   const parsed = parseSource(source, options);
   if (!parsed.ast) {
     return {
@@ -19,7 +23,7 @@ export function compileSource(source: string, options: ParserOptions = {}): Comp
   }
 
   try {
-    const analysis = new Analysis(parsed.ast);
+    const analysis = new Analysis(parsed.ast, analysisOptions);
     return {
       ...parsed,
       analysis,

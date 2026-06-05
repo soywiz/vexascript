@@ -69,11 +69,17 @@ export class Binder {
   private readonly rootScope: Scope;
   private readonly classStatementsByName = new Map<string, ClassStatement>();
 
-  constructor(private readonly program: Program) {
+  constructor(
+    private readonly program: Program,
+    private readonly externalDeclarations: Statement[] = []
+  ) {
     this.rootScope = this.createScope(undefined, program);
   }
 
   bind(): BoundAnalysis {
+    // External (imported) declarations are collected first so that same-file
+    // declarations override them on name clashes.
+    this.collectClassStatements(this.externalDeclarations);
     this.collectClassStatements(this.program.body);
     this.bindBuiltins();
     this.bindGlobalDeclarations(getEcmaScriptRuntimeProgram().body, this.rootScope, -1);

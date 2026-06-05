@@ -1,4 +1,4 @@
-import type { BinaryExpression, Node, Program } from "compiler/ast/ast";
+import type { BinaryExpression, Node, Program, Statement } from "compiler/ast/ast";
 import { Binder } from "./Binder";
 import type {
   AnalysisIssue,
@@ -27,6 +27,24 @@ export interface AnalysisHoverInfo {
   range: AnalysisRange;
 }
 
+/**
+ * Optional inputs that make a single-file analysis aware of declarations that
+ * live in other files. The core analysis is otherwise single-file; callers that
+ * have project/import context (the LSP server, the Monaco demo) can resolve the
+ * imported top-level declarations and pass them here so that, for example,
+ * extension methods declared on an imported class can resolve the implicit
+ * `this` receiver and its members across files.
+ */
+export interface AnalysisOptions {
+  /**
+   * Top-level declaration statements imported from other files (classes,
+   * interfaces, enums, type aliases). They are registered for name/member
+   * resolution only; they are never re-checked or re-bound as if they belonged
+   * to the analyzed program.
+   */
+  externalDeclarations?: Statement[];
+}
+
 export class Analysis {
   private readonly rootScope: Scope;
   private readonly issues: AnalysisIssue[];
@@ -35,11 +53,12 @@ export class Analysis {
   private readonly expressionTypes: Map<Node, AnalysisType>;
   private readonly autoAwaitExpressions: Set<Node>;
 
-  constructor(program: Program) {
-    const bound = new Binder(program).bind();
+  constructor(program: Program, options: AnalysisOptions = {}) {
+    const externalDeclarations = options.externalDeclarations ?? [];
+    const bound = new Binder(program, externalDeclarations).bind();
     this.rootScope = bound.rootScope;
 
-    const checked = new TypeChecker(program, bound).check();
+    const checked = new TypeChecker(program, bound, externalDeclarations).check();
     this.issues = checked.issues;
     this.identifierResolutions = checked.identifierResolutions;
     this.operatorResolutions = checked.operatorResolutions;

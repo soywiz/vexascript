@@ -96,6 +96,7 @@ This section is the fast onboarding map for agents and contributors.
   - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`, `compiler/lsp/stringTemplateFixes.ts`
   - Function shorthand quick fixes: `compiler/lsp/functionShorthandFixes.ts`
   - Class/interface resolution helpers: `compiler/lsp/classResolver.ts`
+  - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`): `compiler/lsp/importedDeclarations.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`

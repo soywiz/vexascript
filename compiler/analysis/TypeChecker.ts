@@ -132,22 +132,31 @@ export class TypeChecker {
 
   constructor(
     private readonly program: Program,
-    private readonly bound: BoundAnalysis
+    private readonly bound: BoundAnalysis,
+    externalDeclarations: readonly Statement[] = []
   ) {
     const runtimeProgram = getEcmaScriptRuntimeProgram();
-    this.collectClassStatements(runtimeProgram);
-    this.collectEnumStatements(runtimeProgram);
-    this.collectInterfaceStatements(runtimeProgram);
-    this.collectTypeAliasStatements(runtimeProgram);
+    this.collectClassStatements(runtimeProgram.body);
+    this.collectEnumStatements(runtimeProgram.body);
+    this.collectInterfaceStatements(runtimeProgram.body);
+    this.collectTypeAliasStatements(runtimeProgram.body);
+    // Imported (cross-file) declarations are registered for name/member
+    // resolution only. They are never visited or re-checked because the
+    // statement walk only traverses this program's body. Local declarations are
+    // collected afterwards so they win on name clashes.
+    this.collectClassStatements(externalDeclarations);
+    this.collectEnumStatements(externalDeclarations);
+    this.collectInterfaceStatements(externalDeclarations);
+    this.collectTypeAliasStatements(externalDeclarations);
     this.removeRuntimeDeclarationsShadowedByImports(program);
-    this.collectClassStatements(program);
+    this.collectClassStatements(program.body);
     this.collectExtensionOperators(program);
     this.collectExtensionMethods(program);
     this.collectImportedExtensionPropertyNames(program);
-    this.collectEnumStatements(program);
+    this.collectEnumStatements(program.body);
     this.collectNamespaceStatements(program);
-    this.collectInterfaceStatements(program);
-    this.collectTypeAliasStatements(program);
+    this.collectInterfaceStatements(program.body);
+    this.collectTypeAliasStatements(program.body);
   }
 
   check(): CheckedAnalysis {
@@ -3466,8 +3475,8 @@ export class TypeChecker {
     visit(program.body);
   }
 
-  private collectClassStatements(program: Program): void {
-    for (const statement of program.body) {
+  private collectClassStatements(statements: readonly Statement[]): void {
+    for (const statement of statements) {
       const candidate = statement.kind === "ExportStatement"
         ? (statement as ExportStatement).declaration
         : statement;
@@ -3569,8 +3578,8 @@ export class TypeChecker {
   }
 
 
-  private collectEnumStatements(program: Program): void {
-    for (const statement of program.body) {
+  private collectEnumStatements(statements: readonly Statement[]): void {
+    for (const statement of statements) {
       const candidate = statement.kind === "ExportStatement"
         ? (statement as ExportStatement).declaration
         : statement;
@@ -3582,8 +3591,8 @@ export class TypeChecker {
     }
   }
 
-  private collectInterfaceStatements(program: Program): void {
-    for (const statement of program.body) {
+  private collectInterfaceStatements(statements: readonly Statement[]): void {
+    for (const statement of statements) {
       const candidate = statement.kind === "ExportStatement"
         ? (statement as ExportStatement).declaration
         : statement;
@@ -3595,8 +3604,8 @@ export class TypeChecker {
     }
   }
 
-  private collectTypeAliasStatements(program: Program): void {
-    for (const statement of program.body) {
+  private collectTypeAliasStatements(statements: readonly Statement[]): void {
+    for (const statement of statements) {
       const candidate = statement.kind === "ExportStatement"
         ? (statement as ExportStatement).declaration
         : statement;
