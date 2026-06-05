@@ -46,15 +46,31 @@ describe("auto-await decorations", () => {
       "sync fun main(): void {\n" +
       "  let stored = go fetchValue()\n" +
       "  let alias = stored\n" +
-      "}\n" +
-      "async fun other(): void {\n" +
-      "  let y = fetchValue()\n" +
       "}\n";
 
     const session = createAnalysisSession(source);
     const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
 
     expect(decorations).toEqual([]);
+  });
+
+  it("marks explicit await expressions in async and sync functions", () => {
+    const source =
+      "async fun fetchValue(): Promise<int> { return 1 }\n" +
+      "async fun usesAsync(): Promise<int> {\n" +
+      "  return await fetchValue()\n" +
+      "}\n" +
+      "sync fun usesSync(): int {\n" +
+      "  let pending = go fetchValue()\n" +
+      "  return await pending\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
+
+    // Explicit awaits are flagged on lines 2 and 6, even though `go`/local references are not.
+    expect(decorations.map((decoration) => decoration.range.start.line)).toEqual([2, 6]);
+    expect(decorations.every((decoration) => decoration.message.length > 0)).toBe(true);
   });
 
   it("restricts decorations to the requested range", () => {

@@ -1,14 +1,16 @@
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { Node } from "compiler/ast/ast";
+import type { Node, Program, UnaryExpression } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 import type { Range } from "vscode-languageserver/node.js";
 
 /**
- * A gutter/margin marker for a line where the compiler inserts an implicit `await` because a
- * Promise-typed expression is auto-awaited inside a `sync` function body (similar to the
- * suspend-call gutter icons in Kotlin IDEs).
+ * A gutter/margin marker for a line that contains an `await` — either an explicit `await` inside an
+ * `async`/`sync` function, or an implicit one inserted by the compiler when a Promise-typed
+ * expression is auto-awaited inside a `sync` function body (similar to the suspend-call gutter icons
+ * in Kotlin IDEs).
  *
- * One decoration is produced per affected line: `range` spans the whole auto-awaited expression
- * (useful for hover), while editors typically render the gutter icon on `range.start.line`.
+ * One decoration is produced per affected line: `range` spans the awaited expression (useful for
+ * hover), while editors typically render the gutter icon on `range.start.line`.
  */
 export interface AutoAwaitDecoration {
   range: {
@@ -19,7 +21,9 @@ export interface AutoAwaitDecoration {
   message: string;
 }
 
-const AUTO_AWAIT_MESSAGE = "Implicit await: this Promise is automatically awaited inside a sync function";
+const IMPLICIT_AWAIT_MESSAGE =
+  "Implicit await: this Promise is automatically awaited inside a sync function";
+const EXPLICIT_AWAIT_MESSAGE = "Awaited expression";
 
 function nodeRange(node: Node): AutoAwaitDecoration["range"] | null {
   if (!node.firstToken || !node.lastToken) {
@@ -38,35 +42,46 @@ function nodeRange(node: Node): AutoAwaitDecoration["range"] | null {
 }
 
 /**
- * Computes the auto-await gutter decorations for the expressions the analyzer flagged as implicitly
- * awaited, restricted to (and overlapping with) the requested `range`. At most one decoration is
- * returned per source line so editors render a single gutter icon per line.
+ * Computes the await gutter decorations for a document: explicit `await` expressions plus the
+ * expressions the analyzer flagged as implicitly awaited, restricted to (and overlapping with) the
+ * requested `range`. At most one decoration is returned per source line so editors render a single
+ * gutter icon per line.
  */
 export function createAutoAwaitDecorations(
-  _ast: unknown,
+  ast: Program,
   analysis: Analysis,
   range?: Range
 ): AutoAwaitDecoration[] {
   const byLine = new Map<number, AutoAwaitDecoration>();
 
-  for (const node of analysis.getAutoAwaitExpressions()) {
+  const consider = (node: Node, message: string): void => {
     const decorationRange = nodeRange(node);
     if (!decorationRange) {
-      continue;
+      return;
     }
     if (
       range &&
       (decorationRange.end.line < range.start.line || decorationRange.start.line > range.end.line)
     ) {
-      continue;
+      return;
     }
     const line = decorationRange.start.line;
     const existing = byLine.get(line);
-    // Keep the earliest-starting expression on each line for a stable, single gutter marker.
+    // Keep the earliest-starting awaited expression on each line for a stable, single gutter marker.
     if (!existing || decorationRange.start.character < existing.range.start.character) {
-      byLine.set(line, { range: decorationRange, message: AUTO_AWAIT_MESSAGE });
+      byLine.set(line, { range: decorationRange, message });
     }
+  };
+
+  for (const node of analysis.getAutoAwaitExpressions()) {
+    consider(node, IMPLICIT_AWAIT_MESSAGE);
   }
+
+  walkAst(ast, (node) => {
+    if (node.kind === "UnaryExpression" && (node as UnaryExpression).operator === "await") {
+      consider(node, EXPLICIT_AWAIT_MESSAGE);
+    }
+  });
 
   return [...byLine.values()].sort((a, b) => a.range.start.line - b.range.start.line);
 }

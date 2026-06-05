@@ -74,17 +74,18 @@ function activate(context) {
     clientOptions
   );
 
-  context.subscriptions.push(client.start());
+  const ready = client.start();
 
-  registerAutoAwaitGutterIcons(context, client);
+  registerAutoAwaitGutterIcons(context, client, ready);
 }
 
 /**
- * Renders gutter icons on the lines where the compiler inserts an implicit `await` inside `sync`
- * functions (similar to Kotlin's suspend-call markers). The line list comes from the custom
- * `mylang/autoAwaitDecorations` LSP request.
+ * Renders gutter icons on the lines that contain an `await` — explicit awaits in async/sync
+ * functions and the implicit awaits the compiler inserts inside `sync` functions (similar to
+ * Kotlin's suspend-call markers). The line list comes from the custom `mylang/autoAwaitDecorations`
+ * LSP request.
  */
-function registerAutoAwaitGutterIcons(context, client) {
+function registerAutoAwaitGutterIcons(context, client, ready) {
   const decorationType = window.createTextEditorDecorationType({
     gutterIconPath: path.join(context.extensionPath, "icons", "auto-await.svg"),
     gutterIconSize: "contain"
@@ -123,8 +124,6 @@ function registerAutoAwaitGutterIcons(context, client) {
     pending = setTimeout(() => updateEditor(editor), 150);
   }
 
-  client.onReady().then(() => updateEditor(window.activeTextEditor));
-
   context.subscriptions.push(
     window.onDidChangeActiveTextEditor((editor) => updateEditor(editor)),
     workspace.onDidChangeTextDocument((event) => {
@@ -134,6 +133,12 @@ function registerAutoAwaitGutterIcons(context, client) {
       }
     })
   );
+
+  Promise.resolve(ready)
+    .then(() => updateEditor(window.activeTextEditor))
+    .catch(() => {
+      /* server failed to start; nothing to decorate */
+    });
 }
 
 function deactivate() {
