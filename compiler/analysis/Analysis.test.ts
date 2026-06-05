@@ -474,6 +474,23 @@ sync fun main(): void {
     expect(analysis.getIssues()).toEqual([]);
   });
 
+  it("keeps the Promise type of local variables instead of auto-awaiting references", () => {
+    const source = `async fun demo2(): Promise<int> { return 10 }
+sync fun demo(): void {
+  let stored = go demo2()
+  let alias: Promise<int> = stored
+  let plain: int = stored
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    // `alias = stored` is fine (both Promise<int>); `plain: int = stored` is a mismatch because the
+    // local variable reference is not auto-awaited.
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([
+      "Type 'Promise<int>' is not assignable to type 'int'"
+    ]);
+  });
+
   it("keeps the Promise type when go opts out, even in argument positions", () => {
     const source = `declare function use(value: int): void
 sync fun fetchValue(): int { return 1 }

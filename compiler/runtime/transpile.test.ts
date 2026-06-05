@@ -317,6 +317,26 @@ describe("transpile", () => {
     expect(result.code).toContain("let r = fetchValue();");
   });
 
+  it("does not auto-await bare local variable or parameter references", () => {
+    const source = [
+      "async fun demo2(): Promise<int> { return 10 }",
+      "sync fun demo(): void {",
+      "  let stored = go demo2()",
+      "  let alias = stored",
+      "  let inline = demo2()",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // A Promise produced inline by a call is awaited.
+    expect(result.code).toContain("let inline = await demo2();");
+    // A Promise stored in a local variable keeps its Promise type: references are not awaited.
+    expect(result.code).toContain("let stored = demo2();");
+    expect(result.code).toContain("let alias = stored;");
+  });
+
   it("mangles overloaded function implementations and rewrites typed calls", () => {
     const source = [
       "function describe(value: int): string { return \"int\" }",

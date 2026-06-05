@@ -1278,30 +1278,42 @@ export class TypeChecker {
         break;
     }
 
-    this.expressionTypes.set(expression, result);
-
     // Pervasive auto-await: inside a `sync` function body, any expression that evaluates to a
     // Promise is implicitly awaited wherever it is used as a value (call arguments, operands,
-    // initializers, ...). The raw Promise type is kept in `expressionTypes` so the emitter can
-    // detect it, while callers observe the unwrapped value type. `go expr` opts out (it is never
-    // added here), and positions such as `await`/`go` operands, `.then`-style member receivers and
-    // `return` expressions pass `suppressAutoAwait` to keep the Promise.
+    // initializers, ...). Callers (and tooling such as hover/inlay hints) observe the unwrapped
+    // value type, while the set of auto-awaited nodes tells the emitter where to insert `await`.
+    // `go expr` opts out (it is never added here), and positions such as `await`/`go` operands,
+    // `.then`-style member receivers and `return` expressions pass `suppressAutoAwait`.
     if (
       !suppressAutoAwait &&
       this.isInsideSyncFunction() &&
       !this.isGoExpression(expression) &&
+      !this.isLocalValueReference(expression, scope) &&
       result.kind === "named" &&
       result.name === "Promise"
     ) {
       this.autoAwaitExpressions.add(expression);
-      return this.unwrapPromiseType(result) ?? result;
+      result = this.unwrapPromiseType(result) ?? result;
     }
 
+    this.expressionTypes.set(expression, result);
     return result;
   }
 
   private isGoExpression(expression: Expr): boolean {
     return expression.kind === "UnaryExpression" && (expression as UnaryExpression).operator === "go";
+  }
+
+  // A bare reference to a local variable or parameter is never auto-awaited: once a Promise has
+  // been stored in a variable, it keeps its `Promise<T>` type until it is awaited explicitly (or
+  // consumed inline). Auto-await only applies to expressions that *produce* a Promise (calls, ...).
+  private isLocalValueReference(expression: Expr, scope: Scope): boolean {
+    if (expression.kind !== "Identifier") {
+      return false;
+    }
+    const identifier = expression as Node & { kind: "Identifier"; name: string };
+    const symbol = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset);
+    return symbol?.kind === "variable" || symbol?.kind === "parameter";
   }
 
   private isPromiseMethodName(name: string): boolean {

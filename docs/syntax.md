@@ -84,7 +84,19 @@ sync fun main(): int {
 }
 ```
 
-When the receiver of a member access is a Promise, it is awaited before the member is accessed, so `fetchBox().value()` becomes `(await fetchBox()).value()`. The only exceptions, where the Promise is kept and **not** awaited, are accessing a Promise method (`.then`, `.catch`, `.finally`) and `return` expressions (a returned Promise is flattened by the surrounding async function).
+When the receiver of a member access is a Promise, it is awaited before the member is accessed, so `fetchBox().value()` becomes `(await fetchBox()).value()`. The exceptions, where the Promise is kept and **not** awaited, are:
+
+- Accessing a Promise method (`.then`, `.catch`, `.finally`).
+- `return` expressions (a returned Promise is flattened by the surrounding async function).
+- **Bare references to a local variable or parameter.** Auto-await only happens at the point a Promise is *produced* (a call, a member call, ...), not when an already-stored Promise value is read. Once a Promise is held in a variable it keeps its `Promise<T>` type until it is awaited explicitly.
+
+```mylang
+sync fun demo(): void {
+  let stored = go fetchValue()  // stored: Promise<int>  (go opts out)
+  let alias = stored            // alias: Promise<int>   (local reference, not awaited)
+  let inline = fetchValue()     // inline: int           (awaited at the call site)
+}
+```
 
 `sync` is also valid on methods, arrow functions, and function expressions (`class C { sync m(): int { ... } }`, `sync () => { ... }`, `sync function () { ... }`).
 
