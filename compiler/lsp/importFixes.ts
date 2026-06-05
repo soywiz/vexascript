@@ -107,6 +107,17 @@ function chooseBestExport(
   return sorted[0] ?? null;
 }
 
+function findExistingImportFromPath(ast: Program, importPath: string): ImportStatement | null {
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") break;
+    const importStmt = statement as ImportStatement;
+    if (importStmt.from.value === importPath) {
+      return importStmt;
+    }
+  }
+  return null;
+}
+
 export function importInsertionRange(ast: Program): Range {
   let lastImport: Statement | null = null;
   for (const statement of ast.body) {
@@ -186,20 +197,50 @@ export function createAutoImportCodeActions(params: {
     }
 
     const importPath = toImportPath(currentFilePath, best.filePath);
-    actions.push({
-      title: `Import '${symbolName}' from '${importPath}'`,
-      kind: CODE_ACTION_KIND_QUICK_FIX,
-      edit: {
-        changes: {
-          [uri]: [
-            {
-              range,
-              newText: `import { ${symbolName} } from "${importPath}"\n`
-            }
-          ]
+    const existingImport = findExistingImportFromPath(ast, importPath);
+
+    if (existingImport?.firstToken && existingImport?.lastToken) {
+      const existingNames = existingImport.specifiers.map((s) => s.imported.name);
+      const allNames = [...existingNames, symbolName];
+      const clauses: string[] = [];
+      if (existingImport.defaultImport) clauses.push(existingImport.defaultImport.name);
+      if (existingImport.namespaceImport) clauses.push(`* as ${existingImport.namespaceImport.name}`);
+      if (allNames.length > 0) clauses.push(`{ ${allNames.join(", ")} }`);
+      const start = existingImport.firstToken.range.start;
+      const end = existingImport.lastToken.range.end;
+      actions.push({
+        title: `Import '${symbolName}' from '${importPath}'`,
+        kind: CODE_ACTION_KIND_QUICK_FIX,
+        edit: {
+          changes: {
+            [uri]: [
+              {
+                range: {
+                  start: { line: start.line, character: start.column },
+                  end: { line: end.line, character: end.column }
+                },
+                newText: `import ${clauses.join(", ")} from "${importPath}"`
+              }
+            ]
+          }
         }
-      }
-    });
+      });
+    } else {
+      actions.push({
+        title: `Import '${symbolName}' from '${importPath}'`,
+        kind: CODE_ACTION_KIND_QUICK_FIX,
+        edit: {
+          changes: {
+            [uri]: [
+              {
+                range,
+                newText: `import { ${symbolName} } from "${importPath}"\n`
+              }
+            ]
+          }
+        }
+      });
+    }
   }
 
   return actions;

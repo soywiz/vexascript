@@ -53,6 +53,30 @@ describe("import quick fixes", () => {
     );
   });
 
+  it("merges import into existing import from the same file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
+    const fileA = join(root, "a.my");
+    const fileB = join(root, "b.my");
+
+    await writeFile(fileA, "class Point\nclass Vector\n", "utf8");
+    const sourceB = 'import { Point } from "./a"\nfun demo() {\n  return new Vector()\n}\n';
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const actions = createAutoImportCodeActions({
+      uri: pathToFileURL(fileB).toString(),
+      ast: sessionB.ast,
+      diagnostics: [undefinedVariableDiagnostic("Vector")],
+      sourceRoots: [root]
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Import 'Vector' from './a'");
+    const edit = actions[0]?.edit?.changes?.[pathToFileURL(fileB).toString()]?.[0];
+    expect(edit?.newText).toBe('import { Point, Vector } from "./a"');
+    expect(edit?.range.start).toEqual({ line: 0, character: 0 });
+  });
+
   it("does not suggest duplicate import when symbol is already imported", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
     const fileA = join(root, "a.my");
