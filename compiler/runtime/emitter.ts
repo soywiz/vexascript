@@ -130,6 +130,22 @@ const PREC_UPDATE = 16;
 const PREC_MEMBER = 17;
 const PREC_PRIMARY = 18;
 let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
+// Expressions flagged by the analyzer as receiving an implicit `await` because they evaluate to a
+// Promise inside a `sync` function body. Auto-await placement (including which positions opt out)
+// is decided entirely by the analyzer; the emitter just inserts `await` for the flagged nodes.
+let activeAutoAwaitExpressions: ReadonlySet<Node> = new Set();
+
+function isAsyncEmittedFunction(node: { async?: boolean; sync?: boolean }): boolean {
+  return node.async === true || node.sync === true;
+}
+
+function asyncEmitPrefix(node: { async?: boolean; sync?: boolean }): string {
+  return isAsyncEmittedFunction(node) ? "async " : "";
+}
+
+function isAutoAwaited(expression: Expr): boolean {
+  return activeAutoAwaitExpressions.has(expression as unknown as Node);
+}
 
 function normalizeVarKind(kind: string): "let" | "var" | "const" {
   if (kind === "val") {
@@ -658,6 +674,11 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "UnaryExpression": {
         const unary = expression as UnaryExpression;
+        if (unary.operator === "go") {
+          // `go expr` is a compile-time marker that opts out of sync auto-await; emit the inner
+          // expression unchanged so the underlying Promise flows through untouched.
+          return emitExpression(unary.argument, parentPrecedence, side);
+        }
         const unaryOperator =
           unary.operator === "typeof" ||
           unary.operator === "void" ||
@@ -708,32 +729,40 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         }
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
         if (arrow.body.kind === "BlockStatement") {
-          return `${arrow.async === true ? "async " : ""}${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
+          return `${asyncEmitPrefix(arrow)}${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
         }
         const bodyExpression = arrow.body as Expr;
         const bodyText = emitExpression(bodyExpression);
         if (bodyExpression.kind === "ObjectLiteral") {
-          return `${arrow.async === true ? "async " : ""}${parameters} => (${bodyText})`;
+          return `${asyncEmitPrefix(arrow)}${parameters} => (${bodyText})`;
         }
-        return `${arrow.async === true ? "async " : ""}${parameters} => ${bodyText}`;
+        return `${asyncEmitPrefix(arrow)}${parameters} => ${bodyText}`;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
         const name = fn.name ? ` ${fn.name.name}` : "";
-        return `${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+        return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
       }
       default:
         return "undefined";
     }
   };
 
-  const self = emitSelf();
+  let self = emitSelf();
+  let effectivePrecedence = currentPrecedence;
 
-  if (currentPrecedence < parentPrecedence) {
+  if (isAutoAwaited(expression)) {
+    // Wrap the (Promise-typed) expression in an implicit `await`. The awaited result binds as a
+    // unary expression, so parenthesize the operand when it would otherwise bind looser.
+    self = `await ${maybeWrap(self, currentPrecedence < PREC_UNARY)}`;
+    effectivePrecedence = PREC_UNARY;
+  }
+
+  if (effectivePrecedence < parentPrecedence) {
     return `(${self})`;
   }
 
-  if (currentPrecedence === parentPrecedence && expression.kind === "AssignmentExpression" && side === "left") {
+  if (effectivePrecedence === parentPrecedence && expression.kind === "AssignmentExpression" && side === "left") {
     return `(${self})`;
   }
 
@@ -884,7 +913,7 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 
   const method = member as ClassMethodMember;
   const accessorPrefix = method.accessorKind ? `${method.accessorKind} ` : "";
-  const asyncPrefix = method.async === true ? "async " : "";
+  const asyncPrefix = asyncEmitPrefix(method);
   const generatorPrefix = method.generator === true ? "*" : "";
   const methodName = method.operator ? operatorMethodName(method.operator, method.parameters) : method.name.name;
   const body = methodName === "constructor" ? emitConstructorBlock(method) : emitBlock(method.body);
@@ -1089,11 +1118,11 @@ export function emitStatement(statement: Statement): string {
       }
       if (fn.receiverType) {
         const emittedName = fn.operator ? operatorMethodName(fn.operator, fn.parameters) : fn.name.name;
-        return `${fn.receiverType.name}.prototype.${emittedName} = ${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)};`;
+        return `${fn.receiverType.name}.prototype.${emittedName} = ${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)};`;
       }
       const overloads = activeProgramOverloads.get(fn.name.name);
       const emittedName = overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name;
-      return `${fn.async === true ? "async " : ""}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+      return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
     }
     case "ClassStatement": {
       const classStatement = statement as ClassStatement;
@@ -1202,16 +1231,18 @@ export function emitStatement(statement: Statement): string {
 export function emitProgram(
   program: Program,
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
-  implicitReceiverIdentifiers?: ReadonlySet<Node>
+  implicitReceiverIdentifiers?: ReadonlySet<Node>,
+  autoAwaitExpressions?: ReadonlySet<Node>
 ): string {
-  return emitProgramStatements(program, expressionTypes, program, implicitReceiverIdentifiers).join("\n");
+  return emitProgramStatements(program, expressionTypes, program, implicitReceiverIdentifiers, autoAwaitExpressions).join("\n");
 }
 
 export function emitProgramStatements(
   program: Program,
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
   contextProgram: Program = program,
-  implicitReceiverIdentifiers: ReadonlySet<Node> = new Set()
+  implicitReceiverIdentifiers: ReadonlySet<Node> = new Set(),
+  autoAwaitExpressions: ReadonlySet<Node> = new Set()
 ): string[] {
   const previous = activeExpressionTypes;
   const previousOverloads = activeProgramOverloads;
@@ -1220,8 +1251,10 @@ export function emitProgramStatements(
   const previousClassNames = activeClassNames;
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
+  const previousAutoAwaitExpressions = activeAutoAwaitExpressions;
   activeExpressionTypes = expressionTypes;
   activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
+  activeAutoAwaitExpressions = autoAwaitExpressions;
   activeProgramOverloads = collectRuntimeOverloads(contextProgram);
   activeOperators = collectOperators(contextProgram);
   activeExtensionProperties = collectExtensionProperties(contextProgram);
@@ -1239,5 +1272,6 @@ export function emitProgramStatements(
     activeClassNames = previousClassNames;
     activeJavaScriptImplementations = previousJavaScriptImplementations;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
+    activeAutoAwaitExpressions = previousAutoAwaitExpressions;
   }
 }

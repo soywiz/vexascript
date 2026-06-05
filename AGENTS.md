@@ -90,6 +90,7 @@ This section is the fast onboarding map for agents and contributors.
   - Document structure/navigation services: `compiler/lsp/documentFeatures.ts`
   - Semantic tokens: `compiler/lsp/semanticTokens.ts`
   - Inlay hints: `compiler/lsp/inlayHints.ts`
+  - Await gutter decorations (lines with an explicit `await` in async/sync functions or an implicit auto-`await` inside `sync` functions, served via the custom `mylang/autoAwaitDecorations` request and the Monaco glyph margin): `compiler/lsp/autoAwaitDecorations.ts`
   - Code action orchestration: `compiler/lsp/codeActions.ts`
   - Shared code-action collection (used by both the LSP server and the Monaco in-process providers): `compiler/lsp/codeActionsAggregate.ts`
   - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`, `compiler/lsp/stringTemplateFixes.ts`

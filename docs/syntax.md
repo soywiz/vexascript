@@ -64,6 +64,57 @@ function* ids() {
 
 In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10` and `return Promise.resolve(10)` are valid for `Promise<int>`. `await expr` evaluates to `T` when `expr` has type `Promise<T>`; otherwise `await` preserves the original type. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
 
+### `sync` functions (implicit await)
+
+The `sync` modifier declares a function that behaves like `async` internally (it is emitted as a JavaScript `async function` and may use `await`), but with two ergonomic differences:
+
+- The return type is written **without** the `Promise<...>` wrapper. `sync fun load(): Response` is internally an async function returning `Promise<Response>`; from the outside (and from other functions) the call is observed as `Promise<Response>`, so it participates in auto-await just like any other Promise.
+- Inside a `sync` function body, **any** subexpression whose type is `Promise<T>` is **automatically awaited** wherever it is used as a value, and its observed type becomes `T`. This applies everywhere — expression statements, variable initializers, assignment right-hand sides, call arguments, operands, array/object elements, and member receivers.
+
+```mylang
+sync fun fetchValue(): int {
+  return 1
+}
+
+sync fun main(): int {
+  let x = fetchValue()                 // let x = await fetchValue();   -> x: int
+  fetchValue()                         // await fetchValue();
+  use(fetchValue(), fetchValue() + 1)  // use(await fetchValue(), (await fetchValue()) + 1);
+  return x + 10
+}
+```
+
+When the receiver of a member access is a Promise, it is awaited before the member is accessed, so `fetchBox().value()` becomes `(await fetchBox()).value()`. The exceptions, where the Promise is kept and **not** awaited, are:
+
+- Accessing a Promise method (`.then`, `.catch`, `.finally`).
+- `return` expressions (a returned Promise is flattened by the surrounding async function).
+- **Bare references to a local variable or parameter.** Auto-await only happens at the point a Promise is *produced* (a call, a member call, ...), not when an already-stored Promise value is read. Once a Promise is held in a variable it keeps its `Promise<T>` type until it is awaited explicitly.
+
+```mylang
+sync fun demo(): void {
+  let stored = go fetchValue()  // stored: Promise<int>  (go opts out)
+  let alias = stored            // alias: Promise<int>   (local reference, not awaited)
+  let inline = fetchValue()     // inline: int           (awaited at the call site)
+}
+```
+
+`sync` is also valid on methods, arrow functions, and function expressions (`class C { sync m(): int { ... } }`, `sync () => { ... }`, `sync function () { ... }`).
+
+#### The `go` contextual operator
+
+To opt out of the implicit await and obtain the underlying `Promise<T>`, prefix the expression with the contextual `go` operator. `go expr` is never awaited and keeps the `Promise<T>` type, in any position:
+
+```mylang
+sync fun main(): void {
+  let pending: Promise<int> = go fetchValue()  // let pending = fetchValue();
+  go fetchValue()                              // fire-and-forget: fetchValue();
+  use(go fetchValue())                         // pass the Promise along: use(fetchValue());
+  go fetchValue().then(handle)                 // .then also keeps the Promise
+}
+```
+
+`go` is contextual: it only acts as the no-await operator when an operand follows on the same line. Otherwise it remains a normal identifier, so existing code using `go` as a variable or function name keeps working.
+
 A TypeScript `this` parameter may appear first in a function-like parameter list for type analysis. It is erased during JavaScript emission:
 
 ```mylang

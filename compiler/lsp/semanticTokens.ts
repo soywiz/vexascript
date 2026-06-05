@@ -125,6 +125,7 @@ const KEYWORDS = new Set([
   "implements",
   "override",
   "async",
+  "sync",
   "yield",
   "fun",
   "function",

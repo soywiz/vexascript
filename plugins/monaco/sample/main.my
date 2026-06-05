@@ -145,3 +145,18 @@ fun main(): void {
     // Try introducing a type error to see diagnostics:
     // const x: number = "this should be an error"
 }
+
+// ── sync functions and auto-await ───────────────────────────────────────────────
+// `sync` functions are emitted as async, but Promises are awaited automatically.
+// Lines with an implicit await show a gutter icon in the margin (like Kotlin suspend).
+
+async fun fetchNumber(): Promise<number> {
+    return 42
+}
+
+sync fun computeTotal(): number {
+    const a = fetchNumber()          // auto-awaited → number (gutter icon)
+    const b = fetchNumber()          // auto-awaited → number (gutter icon)
+    const pending = go fetchNumber() // `go` keeps the Promise (no icon)
+    return a + b
+}

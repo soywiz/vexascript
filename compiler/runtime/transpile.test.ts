@@ -227,6 +227,116 @@ describe("transpile", () => {
   });
 
 
+  it("auto-awaits Promise-typed statements inside sync functions", () => {
+    const source = [
+      "sync fun fetchValue(): int { return 1 }",
+      "sync fun main(): int {",
+      "  let x = fetchValue()",
+      "  x = fetchValue()",
+      "  fetchValue()",
+      "  return x + 10",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // sync functions are emitted as async functions.
+    expect(result.code).toContain("async function fetchValue() {");
+    expect(result.code).toContain("async function main() {");
+    // Promise-typed initializers, assignments and expression statements are awaited automatically.
+    expect(result.code).toContain("let x = await fetchValue();");
+    expect(result.code).toContain("x = await fetchValue();");
+    expect(result.code).toContain("await fetchValue();");
+    // The auto-awaited value is observed as the unwrapped type, so arithmetic type-checks.
+    expect(result.code).toContain("return x + 10;");
+  });
+
+  it("auto-awaits Promise-typed subexpressions anywhere inside sync functions", () => {
+    const source = [
+      "declare function use(a: int, b: int): void",
+      "declare function add(a: int, b: int): int",
+      "sync fun fetchValue(): int { return 1 }",
+      "sync fun main(): void {",
+      "  use(fetchValue(), fetchValue())",
+      "  let total = fetchValue() + add(fetchValue(), 2)",
+      "  let arr = [fetchValue(), 3]",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // Call arguments, operands, nested calls and array elements are all awaited.
+    expect(result.code).toContain("use(await fetchValue(), await fetchValue());");
+    expect(result.code).toContain("let total = await fetchValue() + add(await fetchValue(), 2);");
+    expect(result.code).toContain("let arr = [await fetchValue(), 3];");
+  });
+
+  it("auto-awaits a Promise receiver before a member call but not for then/catch/finally", () => {
+    const source = [
+      "class Box { value(): int { return 1 } }",
+      "sync fun fetchBox(): Box { return Box() }",
+      "sync fun fetchValue(): int { return 1 }",
+      "declare function use(v: int): void",
+      "sync fun main(): void {",
+      "  let v = fetchBox().value()",
+      "  fetchValue().then(use)",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // Calling a method of the resolved value awaits the receiver first.
+    expect(result.code).toContain("let v = (await fetchBox()).value();");
+    // Accessing `.then` keeps the Promise: the receiver is not awaited.
+    expect(result.code).toContain("fetchValue().then(use);");
+  });
+
+  it("suppresses auto-await with the go operator and only auto-awaits inside sync functions", () => {
+    const source = [
+      "declare function use(p: Promise<int>): void",
+      "sync fun fetchValue(): int { return 1 }",
+      "sync fun main(): void {",
+      "  let p: Promise<int> = go fetchValue()",
+      "  go fetchValue()",
+      "  use(go fetchValue())",
+      "  let nested = () => { let r = fetchValue() }",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // `go` keeps the Promise, so no await is emitted, including inside call arguments.
+    expect(result.code).toContain("let p = fetchValue();");
+    expect(result.code).toContain("use(fetchValue());");
+    expect(result.code).not.toContain("await fetchValue()");
+    // Nested non-sync functions do not auto-await.
+    expect(result.code).toContain("let r = fetchValue();");
+  });
+
+  it("does not auto-await bare local variable or parameter references", () => {
+    const source = [
+      "async fun demo2(): Promise<int> { return 10 }",
+      "sync fun demo(): void {",
+      "  let stored = go demo2()",
+      "  let alias = stored",
+      "  let inline = demo2()",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // A Promise produced inline by a call is awaited.
+    expect(result.code).toContain("let inline = await demo2();");
+    // A Promise stored in a local variable keeps its Promise type: references are not awaited.
+    expect(result.code).toContain("let stored = demo2();");
+    expect(result.code).toContain("let alias = stored;");
+  });
+
   it("mangles overloaded function implementations and rewrites typed calls", () => {
     const source = [
       "function describe(value: int): string { return \"int\" }",

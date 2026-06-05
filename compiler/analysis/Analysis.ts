@@ -33,6 +33,7 @@ export class Analysis {
   private readonly identifierResolutions: IdentifierResolution[];
   private readonly operatorResolutions: OperatorResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
+  private readonly autoAwaitExpressions: Set<Node>;
 
   constructor(program: Program) {
     const bound = new Binder(program).bind();
@@ -43,6 +44,7 @@ export class Analysis {
     this.identifierResolutions = checked.identifierResolutions;
     this.operatorResolutions = checked.operatorResolutions;
     this.expressionTypes = checked.expressionTypes;
+    this.autoAwaitExpressions = checked.autoAwaitExpressions;
   }
 
   getVisibleSymbolsAt(line: number, character: number): AnalysisSymbol[] {
@@ -70,6 +72,10 @@ export class Analysis {
 
   getExpressionTypes(): ReadonlyMap<Node, AnalysisType> {
     return this.expressionTypes;
+  }
+
+  getAutoAwaitExpressions(): ReadonlySet<Node> {
+    return this.autoAwaitExpressions;
   }
 
   getImplicitReceiverIdentifiers(): ReadonlySet<Node> {

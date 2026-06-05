@@ -349,7 +349,7 @@ function classifyTopLevelLineStart(token: FormatToken): TopLevelLineKind {
     return "variableDeclaration";
   }
 
-  if (token.value === "fun" || token.value === "function" || token.value === "async" || token.value === "class" || token.value === "enum" || token.value === "interface" || token.value === "type") {
+  if (token.value === "fun" || token.value === "function" || token.value === "async" || token.value === "sync" || token.value === "class" || token.value === "enum" || token.value === "interface" || token.value === "type") {
     return "functionOrClassDeclaration";
   }
 

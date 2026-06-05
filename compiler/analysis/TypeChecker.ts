@@ -98,6 +98,7 @@ export class TypeChecker {
   private readonly identifierResolutions: IdentifierResolution[] = [];
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
+  private readonly autoAwaitExpressions: Set<Node> = new Set();
   private static readonly BUILTIN_TYPE_NAMES = new Set([
     "int",
     "number",
@@ -127,6 +128,7 @@ export class TypeChecker {
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
   private readonly activeTypeAliasNames: Set<string> = new Set();
   private readonly generatorFunctionStack: boolean[] = [];
+  private readonly syncFunctionStack: boolean[] = [];
 
   constructor(
     private readonly program: Program,
@@ -154,7 +156,8 @@ export class TypeChecker {
       issues: [...this.issues],
       identifierResolutions: [...this.identifierResolutions],
       operatorResolutions: [...this.operatorResolutions],
-      expressionTypes: this.expressionTypes
+      expressionTypes: this.expressionTypes,
+      autoAwaitExpressions: this.autoAwaitExpressions
     };
   }
 
@@ -179,6 +182,25 @@ export class TypeChecker {
     } finally {
       this.generatorFunctionStack.pop();
     }
+  }
+
+  private isInsideSyncFunction(): boolean {
+    return this.syncFunctionStack[this.syncFunctionStack.length - 1] === true;
+  }
+
+  private withSyncFunction<T>(isSync: boolean, run: () => T): T {
+    this.syncFunctionStack.push(isSync);
+    try {
+      return run();
+    } finally {
+      this.syncFunctionStack.pop();
+    }
+  }
+
+  // A `sync` function is internally an async function: it is emitted as `async`, returns a
+  // Promise<T> when observed from the outside, and supports auto-await inside its own body.
+  private isAsyncLike(node: { async?: boolean; sync?: boolean }): boolean {
+    return node.async === true || node.sync === true;
   }
 
   private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
@@ -293,10 +315,13 @@ export class TypeChecker {
             ? this.getAsyncReturnValueType(expectedReturnType)
             : null;
         if (returnStatement.expression) {
+          // A returned Promise is flattened by the surrounding async/sync function, so it is not
+          // auto-awaited (mirroring plain `async` semantics).
           const actualReturnType = this.visitExpression(
             returnStatement.expression,
             scope,
-            asyncReturnValueType ?? expectedReturnType
+            asyncReturnValueType ?? expectedReturnType,
+            true
           );
           if (
             expectedReturnType &&
@@ -455,11 +480,12 @@ export class TypeChecker {
   }
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
-    this.withGeneratorFunction(statement.generator === true, () => {
+    const isAsyncLike = this.isAsyncLike(statement);
+    this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
       this.withTypeParameters(typeParameterNames, () => {
         const declaredReturnType = this.resolveTypeAnnotation(statement.returnType, scope);
-        if (statement.async === true) {
+        if (isAsyncLike) {
           this.validateAsyncReturnTypeAnnotation(declaredReturnType, statement.returnType ?? statement.name);
         }
         const returnType = declaredReturnType ?? UNKNOWN_TYPE;
@@ -489,7 +515,7 @@ export class TypeChecker {
           switchDepth: 0,
           labels: [],
           expectedReturnType: returnType,
-          inAsync: statement.async === true,
+          inAsync: isAsyncLike,
           inGenerator: statement.generator === true
         };
         for (const bodyStatement of statement.body.body) {
@@ -498,7 +524,7 @@ export class TypeChecker {
         const resolvedReturnType = this.finalizeFunctionReturnType(
           declaredReturnType,
           statement.body,
-          statement.async === true
+          isAsyncLike
         );
         if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
           this.updateSymbolType(
@@ -508,10 +534,10 @@ export class TypeChecker {
           );
         }
         if (statement.missingBody !== true) {
-          this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, statement.async === true);
+          this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, isAsyncLike);
         }
       });
-    });
+    }));
   }
 
   private visitEnumStatement(statement: EnumStatement, scope: Scope): void {
@@ -580,10 +606,11 @@ export class TypeChecker {
           });
         }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
-        this.withGeneratorFunction(method.generator === true, () => {
+        const methodIsAsyncLike = this.isAsyncLike(method);
+        this.withGeneratorFunction(method.generator === true, () => this.withSyncFunction(method.sync === true, () => {
           this.withTypeParameters(methodTypeParameterNames, () => {
             const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
-            if (method.async === true) {
+            if (methodIsAsyncLike) {
               this.validateAsyncReturnTypeAnnotation(declaredMethodReturnType, method.returnType ?? method.name);
             }
             const methodType = this.buildFunctionType(
@@ -614,6 +641,7 @@ export class TypeChecker {
               switchDepth: 0,
               labels: [],
               expectedReturnType: methodReturnType,
+              inAsync: methodIsAsyncLike,
               inGenerator: method.generator === true
             };
             for (const bodyStatement of method.body.body) {
@@ -622,7 +650,7 @@ export class TypeChecker {
             const resolvedMethodReturnType = this.finalizeFunctionReturnType(
               declaredMethodReturnType,
               method.body,
-              method.async === true
+              methodIsAsyncLike
             );
             this.updateSymbolType(
               classScope,
@@ -635,10 +663,10 @@ export class TypeChecker {
               )
             );
             if (statement.declared !== true && method.missingBody !== true && method.abstract !== true) {
-              this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, method.async === true);
+              this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike);
             }
           });
-        });
+        }));
       }
 
       this.validateOverrideMembers(statement);
@@ -804,7 +832,12 @@ export class TypeChecker {
     }
   }
 
-  private visitExpression(expression: Expr, scope: Scope, expectedType?: AnalysisType): AnalysisType {
+  private visitExpression(
+    expression: Expr,
+    scope: Scope,
+    expectedType?: AnalysisType,
+    suppressAutoAwait: boolean = false
+  ): AnalysisType {
     let result: AnalysisType = UNKNOWN_TYPE;
     switch (expression.kind) {
       case "CommaExpression": {
@@ -911,7 +944,13 @@ export class TypeChecker {
       }
       case "MemberExpression": {
         const member = expression as MemberExpression;
-        const objectType = this.visitExpression(member.object, scope);
+        // Accessing `.then`/`.catch`/`.finally` means the Promise is being consumed explicitly, so
+        // the receiver keeps its Promise type instead of being auto-awaited.
+        const suppressObjectAutoAwait =
+          !member.computed &&
+          member.property.kind === "Identifier" &&
+          this.isPromiseMethodName((member.property as Identifier).name);
+        const objectType = this.visitExpression(member.object, scope, undefined, suppressObjectAutoAwait);
         if (member.computed) {
           const propertyType = this.visitExpression(member.property, scope);
           result = this.resolveOptionalAccessType(this.resolveComputedMemberType(objectType, propertyType), member.optional === true);
@@ -1046,7 +1085,10 @@ export class TypeChecker {
       }
       case "UnaryExpression": {
         const unary = expression as UnaryExpression;
-        const argumentType = this.visitExpression(unary.argument, scope);
+        // `await x` and `go x` consume the Promise directly, so their operand must not be
+        // auto-awaited (which would otherwise unwrap it before they see it).
+        const suppressArgumentAutoAwait = unary.operator === "await" || unary.operator === "go";
+        const argumentType = this.visitExpression(unary.argument, scope, undefined, suppressArgumentAutoAwait);
         if (unary.operator === "!") {
           result = builtinType("boolean");
           break;
@@ -1065,6 +1107,11 @@ export class TypeChecker {
         }
         if (unary.operator === "await") {
           result = this.unwrapPromiseType(argumentType) ?? argumentType;
+          break;
+        }
+        if (unary.operator === "go") {
+          // `go expr` opts out of sync auto-await and yields the underlying Promise unchanged.
+          result = argumentType;
           break;
         }
         if (unary.operator === "yield" || unary.operator === "yield*") {
@@ -1108,7 +1155,8 @@ export class TypeChecker {
         break;
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
-        this.withGeneratorFunction(false, () => {
+        const arrowIsAsyncLike = this.isAsyncLike(arrow);
+        this.withGeneratorFunction(false, () => this.withSyncFunction(arrow.sync === true, () => {
           if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
             result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
             return;
@@ -1123,6 +1171,7 @@ export class TypeChecker {
               switchDepth: 0,
               labels: [],
               expectedReturnType,
+              inAsync: arrowIsAsyncLike,
               inGenerator: false
             };
             for (const bodyStatement of (arrow.body as BlockStatement).body) {
@@ -1131,12 +1180,12 @@ export class TypeChecker {
             returnType = this.finalizeFunctionReturnType(
               expectedFunctionType?.returnType,
               arrow.body as BlockStatement,
-              arrow.async === true
+              arrowIsAsyncLike
             );
-            this.reportMissingReturnPath(arrow.body as BlockStatement, returnType, arrow, arrow.async === true);
+            this.reportMissingReturnPath(arrow.body as BlockStatement, returnType, arrow, arrowIsAsyncLike);
           } else {
             returnType = this.visitExpression(arrow.body as Expr, arrowScope, expectedFunctionType?.returnType);
-            if (arrow.async === true && (!expectedFunctionType || isUnknownType(expectedFunctionType.returnType))) {
+            if (arrowIsAsyncLike && (!expectedFunctionType || isUnknownType(expectedFunctionType.returnType))) {
               returnType = namedType("Promise", [returnType]);
             }
             if (
@@ -1150,16 +1199,17 @@ export class TypeChecker {
             }
           }
           result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
-        });
+        }));
         break;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
-        this.withGeneratorFunction(fn.generator === true, () => {
+        const fnIsAsyncLike = this.isAsyncLike(fn);
+        this.withGeneratorFunction(fn.generator === true, () => this.withSyncFunction(fn.sync === true, () => {
           const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
           const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
           const declaredReturnType = this.resolveTypeAnnotation(fn.returnType, functionScope);
-          if (fn.async === true) {
+          if (fnIsAsyncLike) {
             this.validateAsyncReturnTypeAnnotation(declaredReturnType, fn.returnType ?? fn.name ?? fn);
           }
           const expectedReturnType =
@@ -1169,7 +1219,7 @@ export class TypeChecker {
             switchDepth: 0,
             labels: [],
             expectedReturnType,
-            inAsync: fn.async === true,
+            inAsync: fnIsAsyncLike,
             inGenerator: fn.generator === true
           };
           for (const bodyStatement of fn.body.body) {
@@ -1178,11 +1228,11 @@ export class TypeChecker {
           const returnType = this.finalizeFunctionReturnType(
             declaredReturnType ?? expectedFunctionType?.returnType,
             fn.body,
-            fn.async === true
+            fnIsAsyncLike
           );
-          this.reportMissingReturnPath(fn.body, returnType, fn.name ?? fn, fn.async === true);
+          this.reportMissingReturnPath(fn.body, returnType, fn.name ?? fn, fnIsAsyncLike);
           result = this.buildFunctionType(fn.parameters, returnType, functionScope);
-        });
+        }));
         break;
       }
       case "Identifier":
@@ -1239,8 +1289,46 @@ export class TypeChecker {
         break;
     }
 
+    // Pervasive auto-await: inside a `sync` function body, any expression that evaluates to a
+    // Promise is implicitly awaited wherever it is used as a value (call arguments, operands,
+    // initializers, ...). Callers (and tooling such as hover/inlay hints) observe the unwrapped
+    // value type, while the set of auto-awaited nodes tells the emitter where to insert `await`.
+    // `go expr` opts out (it is never added here), and positions such as `await`/`go` operands,
+    // `.then`-style member receivers and `return` expressions pass `suppressAutoAwait`.
+    if (
+      !suppressAutoAwait &&
+      this.isInsideSyncFunction() &&
+      !this.isGoExpression(expression) &&
+      !this.isLocalValueReference(expression, scope) &&
+      result.kind === "named" &&
+      result.name === "Promise"
+    ) {
+      this.autoAwaitExpressions.add(expression);
+      result = this.unwrapPromiseType(result) ?? result;
+    }
+
     this.expressionTypes.set(expression, result);
     return result;
+  }
+
+  private isGoExpression(expression: Expr): boolean {
+    return expression.kind === "UnaryExpression" && (expression as UnaryExpression).operator === "go";
+  }
+
+  // A bare reference to a local variable or parameter is never auto-awaited: once a Promise has
+  // been stored in a variable, it keeps its `Promise<T>` type until it is awaited explicitly (or
+  // consumed inline). Auto-await only applies to expressions that *produce* a Promise (calls, ...).
+  private isLocalValueReference(expression: Expr, scope: Scope): boolean {
+    if (expression.kind !== "Identifier") {
+      return false;
+    }
+    const identifier = expression as Node & { kind: "Identifier"; name: string };
+    const symbol = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset);
+    return symbol?.kind === "variable" || symbol?.kind === "parameter";
+  }
+
+  private isPromiseMethodName(name: string): boolean {
+    return name === "then" || name === "catch" || name === "finally";
   }
 
   private resolveOperatorOverload(
@@ -3861,7 +3949,7 @@ export class TypeChecker {
         }
 
         const rawReturnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
-        const returnType = classMember.async === true && !this.getAsyncReturnValueType(rawReturnType)
+        const returnType = this.isAsyncLike(classMember) && !this.getAsyncReturnValueType(rawReturnType)
           ? namedType("Promise", [rawReturnType])
           : rawReturnType;
         if (classMember.accessorKind === "get") {

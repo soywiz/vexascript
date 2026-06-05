@@ -257,7 +257,7 @@ export class Parser {
         if (token?.type === "identifier" && token.value === "import") {
             return this.parseImportStatement();
         }
-        if (token?.type === "identifier" && (this.isFunctionDeclarationKeyword(token.value) || this.isAsyncFunctionDeclarationStart())) {
+        if (token?.type === "identifier" && (this.isFunctionDeclarationKeyword(token.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart())) {
             return this.parseFunctionStatement();
         }
         if (token?.type === "identifier" && token.value === "type") {
@@ -1136,6 +1136,17 @@ export class Parser {
         );
     }
 
+    private isSyncFunctionDeclarationStart(): boolean {
+        const first = this.peekToken(0);
+        const second = this.peekToken(1);
+        return (
+            first?.type === "identifier" &&
+            first.value === "sync" &&
+            second?.type === "identifier" &&
+            this.isFunctionDeclarationKeyword(second.value)
+        );
+    }
+
     private isDeclareClassStart(): boolean {
         const first = this.peekToken(0);
         const second = this.peekToken(1);
@@ -1610,7 +1621,7 @@ export class Parser {
         this.fail("Expected identifier, string, number, or computed key in object literal", this.tokenAt(token));
     }
 
-    private parseFunctionExpression(functionKeyword: Token, async: boolean = false): FunctionExpression {
+    private parseFunctionExpression(functionKeyword: Token, async: boolean = false, sync: boolean = false): FunctionExpression {
         let generator = false;
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "*") {
             this.tokens.skip();
@@ -1651,6 +1662,9 @@ export class Parser {
         };
         if (async) {
             expression.async = true;
+        }
+        if (sync) {
+            expression.sync = true;
         }
         if (generator) {
             expression.generator = true;
@@ -1833,9 +1847,14 @@ export class Parser {
     private tryParseArrowFunctionExpression(): ArrowFunctionExpression | null {
         const startOffset = this.tokens.offset;
         let async = false;
+        let sync = false;
         let first = this.tokens.peek();
         if (first?.type === "identifier" && first.value === "async" && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "(") {
             async = true;
+            this.tokens.skip();
+            first = this.tokens.peek();
+        } else if (first?.type === "identifier" && first.value === "sync" && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "(") {
+            sync = true;
             this.tokens.skip();
             first = this.tokens.peek();
         }
@@ -1897,6 +1916,7 @@ export class Parser {
                 {
                     kind: "ArrowFunctionExpression",
                     ...(async ? { async: true } : {}),
+                    ...(sync ? { sync: true } : {}),
                     parameters,
                     body
                 } as ArrowFunctionExpression,
@@ -2020,6 +2040,14 @@ export class Parser {
             ) {
                 this.tokens.skip();
                 return this.parseFunctionExpression(token, true);
+            }
+            if (
+                token.value === "sync" &&
+                this.tokens.peek()?.type === "identifier" &&
+                this.tokens.peek()?.value === "function"
+            ) {
+                this.tokens.skip();
+                return this.parseFunctionExpression(token, false, true);
             }
             if (token.value === "true" || token.value === "false") {
                 return this.attachNodeBounds(
@@ -2349,6 +2377,28 @@ export class Parser {
                 operator,
                 argument
             } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
+        }
+        if (token?.type === "identifier" && token.value === "go") {
+            const next = this.peekToken(1);
+            // `go` is a contextual keyword: it only acts as the no-await operator when an operand
+            // follows on the same line (a restricted production, like `yield`). Otherwise it is a
+            // plain identifier, so existing code using `go` as a variable keeps working.
+            const startsExpression =
+                next?.type === "identifier" &&
+                next.value !== "in" &&
+                next.value !== "instanceof" &&
+                next.value !== "is" &&
+                next.value !== "as" &&
+                next.range.start.line === token.range.end.line;
+            if (startsExpression) {
+                this.tokens.skip();
+                const argument = this.parseUnary();
+                return this.attachNodeBounds({
+                    kind: "UnaryExpression",
+                    operator: "go",
+                    argument
+                } as UnaryExpression, token, argument.lastToken ?? this.getLastReadToken());
+            }
         }
 
         return this.parsePostfix();
@@ -3172,8 +3222,12 @@ export class Parser {
         const firstKeyword = this.tokens.read();
         let declarationKeyword = firstKeyword;
         let isAsyncFunction = false;
+        let isSyncFunction = false;
         if (firstKeyword?.type === "identifier" && firstKeyword.value === "async") {
             isAsyncFunction = true;
+            declarationKeyword = this.tokens.read();
+        } else if (firstKeyword?.type === "identifier" && firstKeyword.value === "sync") {
+            isSyncFunction = true;
             declarationKeyword = this.tokens.read();
         }
         if (
@@ -3274,6 +3328,9 @@ export class Parser {
         }
         if (isAsyncFunction) {
             statement.async = true;
+        }
+        if (isSyncFunction) {
+            statement.sync = true;
         }
         if (isGeneratorFunction) {
             statement.generator = true;
@@ -3679,6 +3736,7 @@ export class Parser {
         let isStaticMember = false;
         let isAbstractMember = false;
         let isAsyncMember = false;
+        let isSyncMember = false;
 
         while (this.tokens.peek()?.type === "identifier" && this.isClassMemberModifier(this.tokens.peek()!.value)) {
             const modifierToken = this.tokens.read()!;
@@ -3695,6 +3753,8 @@ export class Parser {
                 isAbstractMember = true;
             } else if (modifierToken.value === "async") {
                 isAsyncMember = true;
+            } else if (modifierToken.value === "sync") {
+                isSyncMember = true;
             }
         }
 
@@ -3784,6 +3844,9 @@ export class Parser {
                 if (isAsyncMember) {
                     signatureOnlyMethod.async = true;
                 }
+                if (isSyncMember) {
+                    signatureOnlyMethod.sync = true;
+                }
                 if (isGeneratorMember) {
                     signatureOnlyMethod.generator = true;
                 }
@@ -3825,6 +3888,9 @@ export class Parser {
             }
             if (isAsyncMember) {
                 methodMember.async = true;
+            }
+            if (isSyncMember) {
+                methodMember.sync = true;
             }
             if (isGeneratorMember) {
                 methodMember.generator = true;
@@ -3928,7 +3994,7 @@ export class Parser {
     }
 
     private isClassMemberModifier(value: string): boolean {
-        return value === "override" || value === "public" || value === "private" || value === "protected" || value === "readonly" || value === "static" || value === "abstract" || value === "async";
+        return value === "override" || value === "public" || value === "private" || value === "protected" || value === "readonly" || value === "static" || value === "abstract" || value === "async" || value === "sync";
     }
 
     private applyClassMemberModifiers(
