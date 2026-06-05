@@ -28,6 +28,8 @@ export interface ProjectContext {
 export interface ProjectTopLevelDeclaration {
   name: string;
   kind: "class" | "function" | "variable";
+  receiverType?: string;
+  memberKind?: "property" | "method";
   range: {
     start: { line: number; character: number };
     end: { line: number; character: number };
@@ -154,6 +156,12 @@ function indexFileData(ast: Program | null, filePath: string): IndexedFileData {
         declarations.push({
           name: functionStatement.name.name,
           kind: "function",
+          ...(functionStatement.receiverType
+            ? {
+                receiverType: functionStatement.receiverType.name,
+                memberKind: "method" as const
+              }
+            : {}),
           range
         });
       }
@@ -166,13 +174,33 @@ function indexFileData(ast: Program | null, filePath: string): IndexedFileData {
         for (const declaration of variableStatement.declarations) {
           for (const identifier of bindingIdentifiers(declaration.name)) {
             const range = nodeRange(identifier);
-            if (range) declarations.push({ name: identifier.name, kind: "variable", range });
+            if (range) declarations.push({
+              name: identifier.name,
+              kind: "variable",
+              ...(variableStatement.receiverType
+                ? {
+                    receiverType: variableStatement.receiverType.name,
+                    memberKind: "property" as const
+                  }
+                : {}),
+              range
+            });
           }
         }
       } else {
         for (const identifier of bindingIdentifiers(variableStatement.name)) {
           const range = nodeRange(identifier);
-          if (range) declarations.push({ name: identifier.name, kind: "variable", range });
+          if (range) declarations.push({
+            name: identifier.name,
+            kind: "variable",
+            ...(variableStatement.receiverType
+              ? {
+                  receiverType: variableStatement.receiverType.name,
+                  memberKind: "property" as const
+                }
+              : {}),
+            range
+          });
         }
       }
       continue;

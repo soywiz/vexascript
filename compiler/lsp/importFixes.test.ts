@@ -8,6 +8,7 @@ import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
 import {
   buildAutoImportSuggestions,
+  buildExtensionAutoImportSuggestions,
   createAutoImportCodeActions
 } from "./importFixes";
 
@@ -115,6 +116,34 @@ describe("import quick fixes", () => {
     expect(actions[0]?.edit?.changes?.[pathToFileURL(consumerFile).toString()]?.[0]?.newText).toBe(
       'import { milliseconds } from "./duration"\n'
     );
+  });
+
+  it("filters extension auto-import suggestions by receiver type", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
+    const durationFile = join(root, "duration.my");
+    const consumerFile = join(root, "consumer.my");
+    await writeFile(
+      durationFile,
+      "export val number.milliseconds => this\n" +
+        "export val string.milliseconds => this\n" +
+        "export fun number.ms(): int { return this }\n",
+      "utf8"
+    );
+    const source = "10.\n";
+    await writeFile(consumerFile, source, "utf8");
+    const session = createAnalysisSession(source);
+
+    const suggestions = buildExtensionAutoImportSuggestions({
+      uri: pathToFileURL(consumerFile).toString(),
+      ast: session.ast,
+      sourceRoots: [root],
+      receiverType: "int",
+      prefix: "m",
+      excludeSymbols: new Set()
+    });
+
+    expect(suggestions.map((suggestion) => suggestion.symbol.name)).toEqual(["milliseconds", "ms"]);
+    expect(suggestions.every((suggestion) => suggestion.symbol.receiverType === "number")).toBe(true);
   });
 
 });
