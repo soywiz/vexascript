@@ -2033,6 +2033,23 @@ val Counter.next => increment(1)
     expect(imported.getIssues()).toEqual([]);
   });
 
+  it("checks explicit type annotations on extension properties", () => {
+    const ok = new Analysis(parseFile(tokenizeReader(
+      "class Duration(val value: number)\n" +
+      "val number.milliseconds: Duration => Duration(this)\n" +
+      "val duration: Duration = 10.milliseconds"
+    )));
+    expect(ok.getIssues()).toEqual([]);
+
+    const mismatch = new Analysis(parseFile(tokenizeReader(
+      "class Duration(val value: number)\n" +
+      "val number.milliseconds: Duration => this"
+    )));
+    expect(mismatch.getIssues().map((issue) => issue.message)).toContain(
+      "Type 'number' is not assignable to type 'Duration'"
+    );
+  });
+
   it("infers number for mixed int and number multiplication", () => {
     const source = `let a: number = 1
 let b: int = 2
