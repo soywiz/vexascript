@@ -1424,6 +1424,12 @@ export class TypeChecker {
       operator === "|" ||
       operator === "^"
     ) {
+      if (this.isIntType(leftType) && this.isIntType(rightType)) {
+        return builtinType("int");
+      }
+      if (this.isNumberType(leftType) && this.isNumberType(rightType)) {
+        return builtinType("number");
+      }
       if (this.isNumberLikeType(leftType) || this.isNumberLikeType(rightType)) {
         return builtinType("number");
       }
@@ -1433,7 +1439,7 @@ export class TypeChecker {
       if (this.isLongType(leftType) && this.isLongType(rightType)) {
         return builtinType("long");
       }
-      return this.isIntType(leftType) && this.isIntType(rightType) ? builtinType("int") : UNKNOWN_TYPE;
+      return UNKNOWN_TYPE;
     }
 
     if (operator === "??") {
