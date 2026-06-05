@@ -1,4 +1,6 @@
 import type { CompletionItem } from "vscode-languageserver/node.js";
+import { fileURLToPath } from "node:url";
+import { resolve as resolvePath } from "node:path";
 import type {
   ArrayLiteral,
   AsExpression,
@@ -44,7 +46,10 @@ import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import { compileSource } from "compiler/pipeline/compile";
-import type { AutoImportSuggestion } from "./importFixes";
+import {
+  buildExtensionAutoImportSuggestions,
+  type AutoImportSuggestion
+} from "./importFixes";
 import {
   createClassResolverCache,
   resolveCallableSignature,
@@ -139,6 +144,13 @@ interface MemberAccessTarget {
   prefix: string;
 }
 
+interface ExtensionMemberCompletionCandidate {
+  name: string;
+  receiverType: string;
+  kind: "property" | "method";
+  returnTypeName?: string | null;
+}
+
 const COMPLETION_RECOVERY_MEMBER = "__mylang_completion__";
 
 function operatorSymbolFromMemberName(name: string): string | null {
@@ -182,7 +194,7 @@ function parseMemberAccessTarget(
   }
   const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
   const uptoCursor = lineText.slice(0, clampedCharacter);
-  const match = /([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*)\.\s*([A-Za-z_][A-Za-z0-9_]*)?$/.exec(uptoCursor);
+  const match = /((?:[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?)(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*)\.\s*([A-Za-z_][A-Za-z0-9_]*)?$/.exec(uptoCursor);
   if (!match || !match[1]) {
     return null;
   }
@@ -198,6 +210,260 @@ function parseMemberAccessTarget(
     memberAccessStartCharacter,
     prefix: typedPrefix
   };
+}
+
+function inferLiteralTypeName(pathSegment: string): string | null {
+  if (/^\d+$/.test(pathSegment)) {
+    return "int";
+  }
+  if (/^\d+\.\d+$/.test(pathSegment)) {
+    return "number";
+  }
+  return null;
+}
+
+function extensionReceiverMatches(receiverType: string, objectTypeName: string): boolean {
+  const normalized = baseTypeName(objectTypeName);
+  return receiverType === normalized || (normalized === "int" && receiverType === "number");
+}
+
+function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string {
+  return resolvePath(importerFilePath.replace(/[/\\][^/\\]+$/, ""), importPath.endsWith(".my") ? importPath : `${importPath}.my`);
+}
+
+function inferExtensionReturnTypeName(
+  statement: Statement,
+  analysis: Analysis | null
+): string | null {
+  if (statement.kind === "VarStatement") {
+    const variable = statement as VarStatement;
+    if (variable.typeAnnotation?.name) {
+      return variable.typeAnnotation.name;
+    }
+    if (variable.initializer && analysis) {
+      const initializerType = analysis.getExpressionTypes().get(variable.initializer);
+      const typeName = initializerType ? typeToString(initializerType) : null;
+      if (typeName && typeName !== "unknown") {
+        return typeName;
+      }
+    }
+    if (variable.initializer?.kind === "CallExpression" && variable.initializer.callee.kind === "Identifier") {
+      return variable.initializer.callee.name;
+    }
+    if (variable.initializer?.kind === "NewExpression" && variable.initializer.callee.kind === "Identifier") {
+      return variable.initializer.callee.name;
+    }
+    return null;
+  }
+  if (statement.kind === "FunctionStatement") {
+    return (statement as FunctionStatement).returnType?.name ?? null;
+  }
+  return null;
+}
+
+function collectAvailableExtensionMembers(
+  ast: Program,
+  objectTypeName: string,
+  options: CompletionRequestOptions,
+  analysis?: Analysis | null
+): ExtensionMemberCompletionCandidate[] {
+  const currentFilePath = options.uri?.startsWith("file://")
+    ? fileURLToPath(options.uri)
+    : null;
+  const importedNames = new Set<string>();
+  const candidates: ExtensionMemberCompletionCandidate[] = [];
+  const seen = new Set<string>();
+
+  const maybePushStatement = (statement: Statement): void => {
+    const candidate = statement.kind === "ExportStatement"
+      ? (statement as ExportStatement).declaration
+      : statement;
+    if (!candidate) {
+      return;
+    }
+    if (candidate.kind === "VarStatement") {
+      const variable = candidate as VarStatement;
+      const receiverType = variable.receiverType?.name;
+      if (!receiverType || !extensionReceiverMatches(receiverType, objectTypeName)) {
+        return;
+      }
+      const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
+      for (const binding of bindings) {
+        if (seen.has(`property:${binding.name}`)) {
+          continue;
+        }
+        seen.add(`property:${binding.name}`);
+        candidates.push({
+          name: binding.name,
+          receiverType,
+          kind: "property",
+          returnTypeName: inferExtensionReturnTypeName(variable, analysis)
+        });
+      }
+      return;
+    }
+    if (candidate.kind === "FunctionStatement") {
+      const fn = candidate as FunctionStatement;
+      const receiverType = fn.receiverType?.name;
+      if (!receiverType || fn.operator || !extensionReceiverMatches(receiverType, objectTypeName)) {
+        return;
+      }
+      if (seen.has(`method:${fn.name.name}`)) {
+        return;
+      }
+      seen.add(`method:${fn.name.name}`);
+      candidates.push({
+        name: fn.name.name,
+        receiverType,
+        kind: "method",
+        returnTypeName: inferExtensionReturnTypeName(fn, analysis)
+      });
+    }
+  };
+
+  for (const statement of ast.body) {
+    maybePushStatement(statement);
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    for (const specifier of statement.specifiers) {
+      importedNames.add((specifier.local ?? specifier.imported).name);
+    }
+  }
+
+  if (!currentFilePath || !options.getSessionForFilePath) {
+    return candidates;
+  }
+
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const targetFilePath = resolveImportTargetFilePath(currentFilePath, statement.from.value);
+    const importedSession = options.getSessionForFilePath(targetFilePath);
+    const importedAst = importedSession?.ast;
+    const importedAnalysis = importedSession?.analysis ?? null;
+    if (!importedAst) {
+      continue;
+    }
+    for (const importedStatement of importedAst.body) {
+      const unwrapped = importedStatement.kind === "ExportStatement"
+        ? (importedStatement as ExportStatement).declaration
+        : importedStatement;
+      if (!unwrapped) {
+        continue;
+      }
+      if (unwrapped.kind === "VarStatement") {
+        const variable = unwrapped as VarStatement;
+        const receiverType = variable.receiverType?.name;
+        if (!receiverType || !extensionReceiverMatches(receiverType, objectTypeName)) {
+          continue;
+        }
+        const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
+        for (const binding of bindings) {
+          if (!importedNames.has(binding.name) || seen.has(`property:${binding.name}`)) {
+            continue;
+          }
+          seen.add(`property:${binding.name}`);
+          candidates.push({
+            name: binding.name,
+            receiverType,
+            kind: "property",
+            returnTypeName: inferExtensionReturnTypeName(variable, importedAnalysis)
+          });
+        }
+        continue;
+      }
+      if (unwrapped.kind === "FunctionStatement") {
+        const fn = unwrapped as FunctionStatement;
+        const receiverType = fn.receiverType?.name;
+        if (!receiverType || fn.operator || !extensionReceiverMatches(receiverType, objectTypeName)) {
+          continue;
+        }
+        if (!importedNames.has(fn.name.name) || seen.has(`method:${fn.name.name}`)) {
+          continue;
+        }
+        seen.add(`method:${fn.name.name}`);
+        candidates.push({
+          name: fn.name.name,
+          receiverType,
+          kind: "method",
+          returnTypeName: inferExtensionReturnTypeName(fn, importedAnalysis)
+        });
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function resolveExtensionMemberTypeName(
+  ast: Program,
+  objectTypeName: string,
+  memberName: string,
+  options: CompletionRequestOptions,
+  analysis?: Analysis | null
+): string | null {
+  const candidate = collectAvailableExtensionMembers(ast, objectTypeName, options, analysis)
+    .find((item) => item.name === memberName);
+  return candidate?.returnTypeName ?? null;
+}
+
+function buildExtensionMemberCompletionItems(
+  ast: Program,
+  objectTypeName: string,
+  prefix: string,
+  options: CompletionRequestOptions,
+  analysis?: Analysis | null
+): CompletionItem[] {
+  const normalizedPrefix = prefix.trim();
+  const items: CompletionItem[] = [];
+  const seen = new Set<string>();
+
+  const pushItem = (item: CompletionItem): void => {
+    if (normalizedPrefix.length > 0 && !item.label.startsWith(normalizedPrefix)) {
+      return;
+    }
+    if (seen.has(item.label)) {
+      return;
+    }
+    seen.add(item.label);
+    items.push(item);
+  };
+
+  for (const candidate of collectAvailableExtensionMembers(ast, objectTypeName, options, analysis)) {
+    pushItem({
+      label: candidate.name,
+      kind: candidate.kind === "method" ? CompletionItemKind.Method : CompletionItemKind.Property,
+      detail: `Extension ${candidate.kind}: ${candidate.receiverType}`
+    });
+  }
+
+  if (options.uri && options.sourceRoots?.length) {
+    const autoImports = buildExtensionAutoImportSuggestions({
+      uri: options.uri,
+      ast,
+      sourceRoots: options.sourceRoots,
+      receiverType: baseTypeName(objectTypeName),
+      prefix: normalizedPrefix,
+      excludeSymbols: seen
+    });
+    for (const suggestion of autoImports) {
+      pushItem({
+        label: suggestion.symbol.name,
+        kind: suggestion.symbol.memberKind === "method" ? CompletionItemKind.Method : CompletionItemKind.Property,
+        detail: `Auto import extension from ${suggestion.importPath}`,
+        additionalTextEdits: [
+          {
+            range: suggestion.range,
+            newText: `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
+          }
+        ]
+      });
+    }
+  }
+
+  return items.sort((left, right) => left.label.localeCompare(right.label));
 }
 
 function buildClassMemberCompletionItems(
@@ -961,22 +1227,27 @@ function resolveTypeNameFromPath(
   if (!firstSegment) {
     return null;
   }
-
-  const resolvedSymbolMatch = symbolMatch;
-  if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === firstSegment) {
-    currentTypeName = typeNameFromSymbol(resolvedSymbolMatch.symbol);
-  } else {
-    const visibleSymbols = analysis.getVisibleSymbolsAt(line, objectStartCharacter);
-    const symbol = visibleSymbols.find((candidate) => candidate.name === firstSegment);
-    if (!symbol) {
-      currentTypeName =
-        inferTypeNameFromAstVariableAnnotation(ast, firstSegment, line) ??
-        inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
-      if (!currentTypeName) {
-        return null;
-      }
+  const literalTypeName = inferLiteralTypeName(firstSegment);
+  if (literalTypeName) {
+    currentTypeName = literalTypeName;
+  }
+  if (!currentTypeName) {
+    const resolvedSymbolMatch = symbolMatch;
+    if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === firstSegment) {
+      currentTypeName = typeNameFromSymbol(resolvedSymbolMatch.symbol);
     } else {
-      currentTypeName = typeNameFromSymbol(symbol);
+      const visibleSymbols = analysis.getVisibleSymbolsAt(line, objectStartCharacter);
+      const symbol = visibleSymbols.find((candidate) => candidate.name === firstSegment);
+      if (!symbol) {
+        currentTypeName =
+          inferTypeNameFromAstVariableAnnotation(ast, firstSegment, line) ??
+          inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
+        if (!currentTypeName) {
+          return null;
+        }
+      } else {
+        currentTypeName = typeNameFromSymbol(symbol);
+      }
     }
   }
 
@@ -997,7 +1268,19 @@ function resolveTypeNameFromPath(
       resolverCache
     );
     if (!classResolution) {
-      return null;
+      currentTypeName = resolveExtensionMemberTypeName(
+        ast,
+        currentTypeName,
+        memberName,
+        {
+          ...resolverOptions
+        },
+        analysis
+      );
+      if (!currentTypeName) {
+        return null;
+      }
+      continue;
     }
     const member = resolveClassMember(classResolution.classStatement, memberName, currentTypeName, {
       ast,
@@ -1005,7 +1288,19 @@ function resolveTypeNameFromPath(
       cache: resolverCache
     });
     if (!member) {
-      return null;
+      currentTypeName = resolveExtensionMemberTypeName(
+        ast,
+        currentTypeName,
+        memberName,
+        {
+          ...resolverOptions
+        },
+        analysis
+      );
+      if (!currentTypeName) {
+        return null;
+      }
+      continue;
     }
     if (member.kind === "method") {
       currentTypeName = member.signature?.returnTypeName ?? null;
@@ -1103,25 +1398,26 @@ function buildMemberAccessCompletions(
     resolverOptions,
     resolverCache
   )?.classStatement;
-  if (!classStatement) {
-    return allowRecovery ? buildRecoveredMemberAccessCompletions(line, character, options) : null;
-  }
-
-  const items = buildClassMemberCompletionItems(
-    classStatement,
-    className,
-    target.prefix,
-    {
-      line,
-      dotCharacter: target.memberAccessStartCharacter,
-      prefixEndCharacter: character
-    },
-    {
-      ast,
-      options: resolverOptions,
-      cache: resolverCache
-    }
-  );
+  const items = [
+    ...buildExtensionMemberCompletionItems(ast, className, target.prefix, options, analysis),
+    ...(classStatement
+      ? buildClassMemberCompletionItems(
+          classStatement,
+          className,
+          target.prefix,
+          {
+            line,
+            dotCharacter: target.memberAccessStartCharacter,
+            prefixEndCharacter: character
+          },
+          {
+            ast,
+            options: resolverOptions,
+            cache: resolverCache
+          }
+        )
+      : [])
+  ];
   if (items.length > 0 || !allowRecovery) {
     return items;
   }
@@ -1197,6 +1493,20 @@ export function createCompletionItemsForPosition(
   );
   if (memberCompletions && memberCompletions.length > 0) {
     return memberCompletions;
+  }
+  const memberTarget = parseMemberAccessTarget(options.text, line, character);
+  const literalReceiverType = memberTarget ? inferLiteralTypeName(memberTarget.objectPath) : null;
+  if (memberTarget && literalReceiverType) {
+    const literalExtensionCompletions = buildExtensionMemberCompletionItems(
+      ast,
+      literalReceiverType,
+      memberTarget.prefix,
+      options,
+      resolvedAnalysis
+    );
+    if (literalExtensionCompletions.length > 0) {
+      return literalExtensionCompletions;
+    }
   }
 
   const visibleSymbols = resolvedAnalysis.getVisibleSymbolsAt(line, character);

@@ -1,4 +1,8 @@
 import { describe, it } from "node:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { expect } from "../test/expect";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -92,6 +96,70 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(labels).toEqual(expect.arrayContaining(["abs", "floor", "max", "random"]));
     expect(labels).not.toContain("demo");
+  });
+
+  it("offers local extension members for numeric literal member access", () => {
+    const source =
+      "class TimeSpan(val ms: number)\n" +
+      "val number.milliseconds => TimeSpan(this)\n" +
+      "val number.seconds => TimeSpan(this * 1000)\n" +
+      "10.\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 3, 3, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["milliseconds", "seconds"]));
+  });
+
+  it("offers auto-imported extension members for numeric literal member access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-"));
+    const durationFile = join(root, "duration.my");
+    const consumerFile = join(root, "consumer.my");
+    await writeFile(
+      durationFile,
+      "class TimeSpan(val ms: number)\n" +
+        "export val number.milliseconds => TimeSpan(this)\n" +
+        "export val number.seconds => TimeSpan(this * 1000)\n",
+      "utf8"
+    );
+    const source = "10.\n";
+    await writeFile(consumerFile, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 0, 3, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => {
+        if (filePath === durationFile) {
+          return createAnalysisSession(
+            "class TimeSpan(val ms: number)\n" +
+              "export val number.milliseconds => TimeSpan(this)\n" +
+              "export val number.seconds => TimeSpan(this * 1000)\n"
+          );
+        }
+        return filePath === consumerFile ? session : null;
+      }
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("milliseconds")?.detail).toBe("Auto import extension from ./duration");
+    expect(byLabel.get("milliseconds")?.additionalTextEdits?.[0]?.newText).toBe(
+      "import { milliseconds } from \"./duration\"\n"
+    );
+    expect(byLabel.get("seconds")?.detail).toBe("Auto import extension from ./duration");
+  });
+
+  it("resolves chained members after extension properties", () => {
+    const source =
+      "class TimeSpan(val ms: number)\n" +
+      "val number.seconds => TimeSpan(this * 1000)\n" +
+      "10.seconds.\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 2, 11, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("ms");
   });
 
   it("resolves member completions from explicitly typed variables", () => {

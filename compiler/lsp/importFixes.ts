@@ -18,6 +18,8 @@ export interface SymbolExport {
   name: string;
   filePath: string;
   kind: "class" | "function" | "variable";
+  receiverType?: string;
+  memberKind?: "property" | "method";
 }
 
 const CODE_ACTION_KIND_QUICK_FIX = "quickfix";
@@ -31,6 +33,8 @@ export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
       exports.push({
         name: entry.declaration.name,
         kind: entry.declaration.kind,
+        receiverType: entry.declaration.receiverType,
+        memberKind: entry.declaration.memberKind,
         filePath: entry.filePath
       });
     }
@@ -211,14 +215,45 @@ export interface AutoImportSuggestion {
   range: Range;
 }
 
+export function buildExtensionAutoImportSuggestions(params: {
+  uri: string;
+  ast: Program | null;
+  sourceRoots: string[];
+  receiverType: string;
+  prefix?: string;
+  memberKind?: "property" | "method";
+  excludeSymbols?: Set<string>;
+}): AutoImportSuggestion[] {
+  const { receiverType, memberKind } = params;
+  return buildAutoImportSuggestions({
+    ...params,
+    allowEmptyPrefix: true
+  }).filter(({ symbol }) => {
+    if (!symbol.receiverType) {
+      return false;
+    }
+    const receiverMatches =
+      symbol.receiverType === receiverType ||
+      (receiverType === "int" && symbol.receiverType === "number");
+    if (!receiverMatches) {
+      return false;
+    }
+    if (memberKind && symbol.memberKind !== memberKind) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export function buildAutoImportSuggestions(params: {
   uri: string;
   ast: Program | null;
   sourceRoots: string[];
   prefix?: string;
+  allowEmptyPrefix?: boolean;
   excludeSymbols?: Set<string>;
 }): AutoImportSuggestion[] {
-  const { uri, ast, sourceRoots, prefix, excludeSymbols } = params;
+  const { uri, ast, sourceRoots, prefix, allowEmptyPrefix, excludeSymbols } = params;
   if (!ast || sourceRoots.length === 0) {
     return [];
   }
@@ -234,7 +269,7 @@ export function buildAutoImportSuggestions(params: {
   }
 
   const normalizedPrefix = prefix?.trim() ?? "";
-  if (normalizedPrefix.length === 0) {
+  if (normalizedPrefix.length === 0 && allowEmptyPrefix !== true) {
     return [];
   }
   const results: AutoImportSuggestion[] = [];
