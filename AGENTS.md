@@ -60,11 +60,21 @@ This section is the fast onboarding map for agents and contributors.
 - CLI:
   - CLI entrypoint and commands: `compiler/cli.ts`
   - CLI tests: `compiler/cli.test.ts`
-- Monaco browser plugin:
+- Monaco browser plugin (project root: `plugins/monaco/`):
   - Static Monaco demo entrypoint: `plugins/monaco/src/main.ts`
-  - Monaco-to-compiler provider adapter: `plugins/monaco/src/compiler-providers.ts`
+  - Monaco-to-compiler provider adapter (in-process; does NOT use LSP, calls the
+    compiler's `compiler/lsp/*` feature functions directly and maps them to
+    Monaco's `monaco.languages.register*Provider` APIs to reach VS Code feature
+    parity): `plugins/monaco/src/compiler-providers.ts`
+  - Optional LSP-over-Web-Worker path (alternative transport, not wired into the
+    default demo): `plugins/monaco/src/lsp-providers.ts`,
+    `plugins/monaco/src/compiler-client.ts`, `plugins/monaco/src/lsp-worker.ts`,
+    `plugins/monaco/src/lsp-client.ts`, `compiler/lsp/server-browser.ts`
+  - Browser stubs for Node built-ins used by shared compiler modules:
+    `plugins/monaco/src/browser-stubs/`
   - Static workspace persistence helpers: `plugins/monaco/src/workspace.ts`
-  - Monaco Vite config: `plugins/monaco/vite.config.ts`
+  - Demo backend server: `plugins/monaco/server.mjs`
+  - Monaco package manifest and Vite config: `plugins/monaco/package.json`, `plugins/monaco/vite.config.ts`
 - LSP server and features:
   - Server entrypoint: `compiler/lsp/server.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
@@ -81,12 +91,13 @@ This section is the fast onboarding map for agents and contributors.
   - Semantic tokens: `compiler/lsp/semanticTokens.ts`
   - Inlay hints: `compiler/lsp/inlayHints.ts`
   - Code action orchestration: `compiler/lsp/codeActions.ts`
+  - Shared code-action collection (used by both the LSP server and the Monaco in-process providers): `compiler/lsp/codeActionsAggregate.ts`
   - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`, `compiler/lsp/stringTemplateFixes.ts`
   - Function shorthand quick fixes: `compiler/lsp/functionShorthandFixes.ts`
   - Class/interface resolution helpers: `compiler/lsp/classResolver.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
-- VS Code extension and syntax highlighting:
-  - Extension entrypoint: `plugins/vscode/extension.js`
+- VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
+  - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`
   - TextMate grammar: `plugins/vscode/syntaxes/mylang.tmLanguage.json`
   - VS Code extension manifest/config: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `compiler/vscodeext-syntax.test.ts`

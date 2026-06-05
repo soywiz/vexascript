@@ -12,6 +12,7 @@ import type {
   Expr,
   ExprStatement,
   ForStatement,
+  FunctionStatement,
   IfStatement,
   LabeledStatement,
   MemberExpression,
@@ -21,6 +22,7 @@ import type {
   RangeExpression,
   ReturnStatement,
   Statement,
+  StringLiteral,
   SwitchStatement,
   ThrowStatement,
   TryStatement,
@@ -130,7 +132,7 @@ function buildTemplateLiteral(text: string, expression: BinaryExpression): strin
   for (const segment of segments) {
     if (segment.kind === "StringLiteral") {
       hasStringLiteral = true;
-      result += escapeTemplateText(segment.value);
+      result += escapeTemplateText((segment as StringLiteral).value);
       continue;
     }
 
@@ -277,7 +279,7 @@ function findConcatenationAtPosition(ast: Program, position: Position): BinaryEx
         }
         return;
       case "FunctionStatement":
-        for (const child of statement.body.body) {
+        for (const child of (statement as FunctionStatement).body.body) {
           visitStatement(child);
         }
         return;
@@ -367,7 +369,12 @@ function findConcatenationAtPosition(ast: Program, position: Position): BinaryEx
     visitStatement(statement);
   }
 
-  return best?.expression ?? null;
+  // `best` is only ever assigned inside the nested `consider` closure, which
+  // defeats TypeScript's control-flow narrowing at this point (it collapses the
+  // variable to `never`); read it back through an explicit cast to recover the
+  // declared type.
+  const selected = best as { expression: BinaryExpression; size: number } | null;
+  return selected ? selected.expression : null;
 }
 
 export function createStringTemplateCodeActions(params: {

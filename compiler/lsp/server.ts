@@ -3,28 +3,20 @@ import {
   ProposedFeatures,
   TextDocuments,
   TextDocumentSyncKind,
-  CodeActionKind,
   DocumentDiagnosticReportKind,
-  type CodeAction,
   type Diagnostic,
   type InitializeParams,
   type TextEdit
 } from "vscode-languageserver/node.js";
 import { fileURLToPath } from "node:url";
 import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocument";
-import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { createDocumentDiagnosticReport } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
-import { buildAutoImportSuggestions, createAutoImportCodeActions } from "./importFixes";
-import { createCallFixCodeActions } from "./callFixes";
-import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
-import { createCreateMemberCodeActions } from "./memberFixes";
-import { createStringTemplateCodeActions } from "./stringTemplateFixes";
-import { createTypeFixCodeActions } from "./typeFixes";
-import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
+import { buildAutoImportSuggestions } from "./importFixes";
+import { collectCodeActions } from "./codeActionsAggregate";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -284,92 +276,17 @@ connection.onCodeAction((params) => {
     return [];
   }
 
-  const replacement = findDeclarationKeywordReplacementAtPosition(
-    session.ast,
-    params.range.start.line,
-    params.range.start.character
-  );
-  const actions: CodeAction[] = [];
-
-  if (replacement) {
-    actions.push({
-      title: `Replace '${replacement.from}' with '${replacement.to}'`,
-      kind: CodeActionKind.QuickFix,
-      edit: {
-        changes: {
-          [params.textDocument.uri]: [
-            {
-              range: replacement.range,
-              newText: replacement.to
-            }
-          ]
-        }
-      }
-    });
-  }
-
-  const functionShorthandActions = createFunctionShorthandCodeActions({
-    uri: params.textDocument.uri,
-    ast: session.ast,
-    text: doc.getText(),
-    position: params.range.start
-  });
-  actions.push(...functionShorthandActions);
-
-  const stringTemplateActions = createStringTemplateCodeActions({
-    uri: params.textDocument.uri,
-    ast: session.ast,
-    text: doc.getText(),
-    position: params.range.start
-  });
-  actions.push(...stringTemplateActions);
-
-  const autoImportActions = createAutoImportCodeActions({
-    uri: params.textDocument.uri,
-    ast: session.ast,
-    diagnostics: params.context.diagnostics,
-    sourceRoots
-  });
-  actions.push(...autoImportActions);
-
-  const callFixActions = createCallFixCodeActions({
+  const actions = collectCodeActions({
     uri: params.textDocument.uri,
     text: doc.getText(),
     ast: session.ast,
     analysis: session.analysis,
-    diagnostics: params.context.diagnostics
-  });
-  actions.push(...callFixActions);
-
-  const createMemberActions = createCreateMemberCodeActions({
-    uri: params.textDocument.uri,
-    ast: session.ast,
-    analysis: session.analysis,
-    diagnostics: params.context.diagnostics,
-    sourceRoots,
-    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
-  });
-  actions.push(...createMemberActions);
-
-  const typeFixActions = createTypeFixCodeActions({
-    uri: params.textDocument.uri,
-    ast: session.ast,
-    analysis: session.analysis,
+    range: params.range,
     diagnostics: params.context.diagnostics,
     sourceRoots,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
-    commandName: REFRESH_DIAGNOSTICS_COMMAND
+    refreshDiagnosticsCommand: REFRESH_DIAGNOSTICS_COMMAND
   });
-  actions.push(...typeFixActions);
-
-  const interfaceImplementationFixActions = createInterfaceImplementationCodeActions({
-    uri: params.textDocument.uri,
-    ast: session.ast,
-    diagnostics: params.context.diagnostics,
-    sourceRoots,
-    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
-  });
-  actions.push(...interfaceImplementationFixActions);
 
   return deferCodeActions(actions);
 });
