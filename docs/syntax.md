@@ -281,11 +281,12 @@ let c = a + b // emits as a.operator$plus$$Point(b)
 
 ### Extension properties
 
-A read-only extension property is declared with a receiver type before the property name and `=>` before its value expression. Inside the expression, `this` is the receiver value:
+A read-only extension property is declared with a receiver type before the property name, an optional `: Type` annotation, and `=>` before its value expression. Inside the expression, `this` is the receiver value:
 
 ```my
 class Duration(val milliseconds: number)
 export val number.milliseconds => Duration(this)
+val number.seconds: Duration => Duration(this * 1000)
 
 val duration = 10.milliseconds
 ```

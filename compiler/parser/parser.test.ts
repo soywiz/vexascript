@@ -3008,6 +3008,26 @@ describe("parseStatement", () => {
                 arguments: [{ kind: "Identifier", name: "this" }]
             }
         });
+
+        expect(parseStatement(tokenizeReader("val number.seconds: TimeSpan => TimeSpan(this * 1000)"))).toEqual({
+            kind: "VarStatement",
+            declarationKind: "val",
+            receiverType: { kind: "Identifier", name: "number" },
+            name: { kind: "Identifier", name: "seconds" },
+            typeAnnotation: { kind: "Identifier", name: "TimeSpan" },
+            initializer: {
+                kind: "CallExpression",
+                callee: { kind: "Identifier", name: "TimeSpan" },
+                arguments: [
+                    {
+                        kind: "BinaryExpression",
+                        operator: "*",
+                        left: { kind: "Identifier", name: "this" },
+                        right: { kind: "IntLiteral", value: 1000 }
+                    }
+                ]
+            }
+        });
     });
 
 

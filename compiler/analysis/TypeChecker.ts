@@ -395,6 +395,15 @@ export class TypeChecker {
       const initializerType = statement.initializer
         ? this.visitExpression(statement.initializer, extensionScope, explicitType)
         : UNKNOWN_TYPE;
+      if (
+        explicitType &&
+        statement.initializer &&
+        !isUnknownType(explicitType) &&
+        !isUnknownType(initializerType) &&
+        !this.isTypeAssignable(initializerType, explicitType)
+      ) {
+        this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer);
+      }
       const propertyType = explicitType ?? initializerType;
       const properties = this.extensionPropertiesByReceiver.get(statement.receiverType.name) ?? new Map<string, AnalysisType>();
       properties.set(bindingIdentifiers(statement.name)[0]!.name, propertyType);

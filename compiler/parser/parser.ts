@@ -2523,25 +2523,41 @@ export class Parser {
         const firstName = this.tokens.peek();
         const dot = this.peekToken(1);
         const extensionName = this.peekToken(2);
+        const maybeColon = this.peekToken(3);
         const arrow = this.peekToken(3);
         if (
             firstName?.type === "identifier" &&
             dot?.type === "symbol" && dot.value === "." &&
             extensionName?.type === "identifier" &&
-            arrow?.type === "symbol" && arrow.value === "=>"
+            (
+                (arrow?.type === "symbol" && arrow.value === "=>") ||
+                (maybeColon?.type === "symbol" && maybeColon.value === ":")
+            )
         ) {
             this.tokens.skip();
             this.tokens.skip();
             this.tokens.skip();
-            this.tokens.skip();
+            let typeAnnotation: Identifier | undefined;
+            if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
+                this.tokens.skip();
+                typeAnnotation = this.parseTypeAnnotationNode();
+            }
+            const extensionArrow = this.tokens.read();
+            if (extensionArrow?.type !== "symbol" || extensionArrow.value !== "=>") {
+                this.fail("Expected '=>' before extension property body", this.tokenAt(extensionArrow));
+            }
             const initializer = this.parseAssignment();
-            return this.attachNodeBounds({
+            const statement: VarStatement = {
                 kind: "VarStatement",
                 declarationKind: declarationKeyword.value as VariableDeclarationKind,
                 receiverType: this.buildIdentifierFromToken(firstName),
                 name: this.buildIdentifierFromToken(extensionName),
                 initializer
-            } as VarStatement, declarationKeyword, initializer.lastToken ?? this.getLastReadToken() ?? declarationKeyword);
+            };
+            if (typeAnnotation) {
+                statement.typeAnnotation = typeAnnotation;
+            }
+            return this.attachNodeBounds(statement, declarationKeyword, initializer.lastToken ?? this.getLastReadToken() ?? declarationKeyword);
         }
 
         const declarations: VarDeclarator[] = [];
