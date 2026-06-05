@@ -407,6 +407,15 @@ import type { Shape } from "./types"
 
 Type-only imports participate in semantic analysis as bindings but are omitted from emitted JavaScript output.
 
+Extension operator overloads declared in another file (for example `fun Point.operator+`) can be imported by their `operator` name so the operator resolves across files:
+
+```mylang
+import { Point, operator+ } from "./geometry"
+val sum = Point(1, 2) + Point(3, 4)
+```
+
+An `operator+` binding is not a real runtime export: it is installed on the receiver's prototype as a side effect of loading the module, so it is dropped from the emitted named bindings while the module load is preserved. When a binary operator is reported as undefined and a matching overload exists in another file, a quick fix offers to add the `operator` import.
+
 ## Exports
 
 MyLang supports ES module exports for declarations, named export lists, re-exports, default exports, and type-only export lists:

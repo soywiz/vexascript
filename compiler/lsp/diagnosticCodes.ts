@@ -152,6 +152,16 @@ export function isMissingMemberDiagnostic(diagnostic: Diagnostic): boolean {
   );
 }
 
+export function isOperatorNotDefinedDiagnostic(diagnostic: Diagnostic): boolean {
+  if (diagnostic.source !== "mylang-sema") {
+    return false;
+  }
+  return (
+    diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED) ||
+    OPERATOR_NOT_DEFINED_PATTERN.test(diagnostic.message)
+  );
+}
+
 export function isTypeMismatchDiagnostic(diagnostic: Diagnostic): boolean {
   if (diagnostic.source !== "mylang-sema") {
     return false;

@@ -4,6 +4,7 @@ import type {
   ClassStatement,
   EnumStatement,
   ExportStatement,
+  FunctionStatement,
   ImportStatement,
   InterfaceStatement,
   Program,
@@ -31,6 +32,8 @@ type NamedTypeDeclaration =
   | EnumStatement
   | TypeAliasStatement;
 
+type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement;
+
 export interface CollectImportedDeclarationsContext extends ProjectContext {
   uri?: string;
 }
@@ -50,14 +53,25 @@ function resolveImportTargetFilePath(importerFilePath: string, importPath: strin
   return null;
 }
 
-function unwrapDeclaration(statement: Statement): NamedTypeDeclaration | null {
+function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
   const candidate = statement.kind === "ExportStatement"
     ? (statement as ExportStatement).declaration
     : statement;
-  if (!candidate || !TYPE_DECLARATION_KINDS.has(candidate.kind)) {
+  if (!candidate) {
     return null;
   }
-  return candidate as NamedTypeDeclaration;
+  if (TYPE_DECLARATION_KINDS.has(candidate.kind)) {
+    return candidate as NamedTypeDeclaration;
+  }
+  // Extension operator overloads (e.g. `fun Point.operator+`) can be imported by
+  // their synthesized name (`operator+`) so the operator resolves cross-file.
+  if (candidate.kind === "FunctionStatement") {
+    const functionStatement = candidate as FunctionStatement;
+    if (functionStatement.receiverType && functionStatement.operator) {
+      return functionStatement;
+    }
+  }
+  return null;
 }
 
 /**
@@ -80,7 +94,7 @@ export function collectImportedTypeDeclarations(
   }
 
   const result: Statement[] = [];
-  const seen = new Set<NamedTypeDeclaration>();
+  const seen = new Set<ImportableDeclaration>();
 
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") {

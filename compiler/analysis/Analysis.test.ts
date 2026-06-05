@@ -120,6 +120,30 @@ let after = bind`));
 
       expect(messages).toContain("Undefined variable 'x'");
     });
+
+    it("resolves an operator overload declared in an imported file", () => {
+      const externalSource =
+        "class Point(val x: number, val y: number)\n" +
+        "fun Point.operator+(other: Point): Point => Point(x + other.x, y + other.y)\n";
+      const usageSource = "val sum = Point(1, 2) + Point(3, 4)\n";
+      const externalDeclarations = parseFile(tokenizeReader(externalSource)).body;
+      const ast = parseFile(tokenizeReader(usageSource));
+      const analysis = new Analysis(ast, { externalDeclarations });
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages.filter((message) => message.includes("Operator '+' is not defined"))).toEqual([]);
+    });
+
+    it("still reports an undefined operator without importing the overload", () => {
+      const externalSource = "class Point(val x: number, val y: number)\n";
+      const usageSource = "val sum = Point(1, 2) + Point(3, 4)\n";
+      const externalDeclarations = parseFile(tokenizeReader(externalSource)).body;
+      const ast = parseFile(tokenizeReader(usageSource));
+      const analysis = new Analysis(ast, { externalDeclarations });
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages.some((message) => message.includes("Operator '+' is not defined"))).toBe(true);
+    });
   });
 
   it("allows yield only inside generator functions", () => {

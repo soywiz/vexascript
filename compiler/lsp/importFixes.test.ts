@@ -28,6 +28,18 @@ function undefinedVariableDiagnostic(name: string): Diagnostic {
   };
 }
 
+function operatorNotDefinedDiagnostic(operator: string, leftType: string, rightType: string): Diagnostic {
+  return {
+    severity: 1,
+    source: "mylang-sema",
+    message: `Operator '${operator}' is not defined for types '${leftType}' and '${rightType}'`,
+    range: {
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 1 }
+    }
+  };
+}
+
 describe("import quick fixes", () => {
   it("suggests import from another .my file in source roots", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
@@ -95,6 +107,33 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toEqual([]);
+  });
+
+  it("suggests importing an extension operator overload for an undefined operator", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
+    const fileA = join(root, "other.my");
+    const fileB = join(root, "sample.my");
+
+    await writeFile(
+      fileA,
+      "class Point(val x: number, val y: number)\nfun Point.operator+(other: Point): Point => Point(x + other.x, y + other.y)\n",
+      "utf8"
+    );
+    const sourceB = 'import { Point } from "./other"\nval p = Point(1, 2) + Point(3, 4)\n';
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const actions = createAutoImportCodeActions({
+      uri: pathToFileURL(fileB).toString(),
+      ast: sessionB.ast,
+      diagnostics: [operatorNotDefinedDiagnostic("+", "Point", "Point")],
+      sourceRoots: [root]
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Import 'operator+' from './other'");
+    const edit = actions[0]?.edit?.changes?.[pathToFileURL(fileB).toString()]?.[0];
+    expect(edit?.newText).toBe('import { Point, operator+ } from "./other"');
   });
 
   it("builds completion-friendly auto-import suggestions filtered by prefix", async () => {

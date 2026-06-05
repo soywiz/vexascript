@@ -10,8 +10,10 @@ import { getProjectIndex } from "./projectAnalysis";
 import {
   isUndefinedVariableDiagnostic,
   isMissingMemberDiagnostic,
+  isOperatorNotDefinedDiagnostic,
   UNDEFINED_VARIABLE_PATTERN,
-  MISSING_MEMBER_PATTERN
+  MISSING_MEMBER_PATTERN,
+  OPERATOR_NOT_DEFINED_PATTERN
 } from "./diagnosticCodes";
 
 export interface SymbolExport {
@@ -64,6 +66,40 @@ function extractImportableSymbols(diagnostics: Diagnostic[]): string[] {
     }
   }
   return Array.from(names.values());
+}
+
+interface OperatorImportRequest {
+  /** The synthesized symbol name to import, e.g. "operator+". */
+  symbolName: string;
+  /** The receiver type the operator is defined on, e.g. "Point". */
+  receiverType: string;
+}
+
+function extractOperatorImports(diagnostics: Diagnostic[]): OperatorImportRequest[] {
+  const requests: OperatorImportRequest[] = [];
+  const seen = new Set<string>();
+  for (const diagnostic of diagnostics) {
+    if (!isOperatorNotDefinedDiagnostic(diagnostic)) {
+      continue;
+    }
+    const match = OPERATOR_NOT_DEFINED_PATTERN.exec(diagnostic.message);
+    if (!match) {
+      continue;
+    }
+    const operator = match[1];
+    const leftType = match[2];
+    if (!operator || !leftType) {
+      continue;
+    }
+    // The receiver of a binary operator overload is the left-hand operand type.
+    const key = `${leftType}::operator${operator}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    requests.push({ symbolName: `operator${operator}`, receiverType: leftType });
+  }
+  return requests;
 }
 
 export function hasImportedSymbol(ast: Program, symbolName: string): boolean {
@@ -169,7 +205,8 @@ export function createAutoImportCodeActions(params: {
   }
 
   const undefinedSymbols = extractImportableSymbols(diagnostics);
-  if (undefinedSymbols.length === 0) {
+  const operatorImports = extractOperatorImports(diagnostics);
+  if (undefinedSymbols.length === 0 && operatorImports.length === 0) {
     return [];
   }
 
@@ -191,59 +228,91 @@ export function createAutoImportCodeActions(params: {
         symbolExport.name === symbolName &&
         symbolExport.filePath !== currentFilePath
     );
-    const best = chooseBestExport(candidates, currentFilePath);
-    if (!best) {
+    const action = buildImportCodeAction({ uri, ast, range, symbolName, candidates, currentFilePath });
+    if (action) {
+      actions.push(action);
+    }
+  }
+
+  for (const { symbolName, receiverType } of operatorImports) {
+    if (hasImportedSymbol(ast, symbolName)) {
       continue;
     }
 
-    const importPath = toImportPath(currentFilePath, best.filePath);
-    const existingImport = findExistingImportFromPath(ast, importPath);
-
-    if (existingImport?.firstToken && existingImport?.lastToken) {
-      const existingNames = existingImport.specifiers.map((s) => s.imported.name);
-      const allNames = [...existingNames, symbolName];
-      const clauses: string[] = [];
-      if (existingImport.defaultImport) clauses.push(existingImport.defaultImport.name);
-      if (existingImport.namespaceImport) clauses.push(`* as ${existingImport.namespaceImport.name}`);
-      if (allNames.length > 0) clauses.push(`{ ${allNames.join(", ")} }`);
-      const start = existingImport.firstToken.range.start;
-      const end = existingImport.lastToken.range.end;
-      actions.push({
-        title: `Import '${symbolName}' from '${importPath}'`,
-        kind: CODE_ACTION_KIND_QUICK_FIX,
-        edit: {
-          changes: {
-            [uri]: [
-              {
-                range: {
-                  start: { line: start.line, character: start.column },
-                  end: { line: end.line, character: end.column }
-                },
-                newText: `import ${clauses.join(", ")} from "${importPath}"`
-              }
-            ]
-          }
-        }
-      });
-    } else {
-      actions.push({
-        title: `Import '${symbolName}' from '${importPath}'`,
-        kind: CODE_ACTION_KIND_QUICK_FIX,
-        edit: {
-          changes: {
-            [uri]: [
-              {
-                range,
-                newText: `import { ${symbolName} } from "${importPath}"\n`
-              }
-            ]
-          }
-        }
-      });
+    const candidates = exportedSymbols.filter(
+      (symbolExport) =>
+        symbolExport.name === symbolName &&
+        symbolExport.receiverType === receiverType &&
+        symbolExport.filePath !== currentFilePath
+    );
+    const action = buildImportCodeAction({ uri, ast, range, symbolName, candidates, currentFilePath });
+    if (action) {
+      actions.push(action);
     }
   }
 
   return actions;
+}
+
+function buildImportCodeAction(params: {
+  uri: string;
+  ast: Program;
+  range: Range;
+  symbolName: string;
+  candidates: SymbolExport[];
+  currentFilePath: string;
+}): CodeAction | null {
+  const { uri, ast, range, symbolName, candidates, currentFilePath } = params;
+  const best = chooseBestExport(candidates, currentFilePath);
+  if (!best) {
+    return null;
+  }
+
+  const importPath = toImportPath(currentFilePath, best.filePath);
+  const existingImport = findExistingImportFromPath(ast, importPath);
+
+  if (existingImport?.firstToken && existingImport?.lastToken) {
+    const existingNames = existingImport.specifiers.map((s) => s.imported.name);
+    const allNames = [...existingNames, symbolName];
+    const clauses: string[] = [];
+    if (existingImport.defaultImport) clauses.push(existingImport.defaultImport.name);
+    if (existingImport.namespaceImport) clauses.push(`* as ${existingImport.namespaceImport.name}`);
+    if (allNames.length > 0) clauses.push(`{ ${allNames.join(", ")} }`);
+    const start = existingImport.firstToken.range.start;
+    const end = existingImport.lastToken.range.end;
+    return {
+      title: `Import '${symbolName}' from '${importPath}'`,
+      kind: CODE_ACTION_KIND_QUICK_FIX,
+      edit: {
+        changes: {
+          [uri]: [
+            {
+              range: {
+                start: { line: start.line, character: start.column },
+                end: { line: end.line, character: end.column }
+              },
+              newText: `import ${clauses.join(", ")} from "${importPath}"`
+            }
+          ]
+        }
+      }
+    };
+  }
+
+  return {
+    title: `Import '${symbolName}' from '${importPath}'`,
+    kind: CODE_ACTION_KIND_QUICK_FIX,
+    edit: {
+      changes: {
+        [uri]: [
+          {
+            range,
+            newText: `import { ${symbolName} } from "${importPath}"\n`
+          }
+        ]
+      }
+    }
+  };
 }
 
 export function pathToUri(path: string): string {

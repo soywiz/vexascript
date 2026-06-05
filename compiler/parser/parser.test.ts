@@ -3141,6 +3141,34 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses operator overloads in named import specifiers", () => {
+        expect(parseStatement(tokenizeReader("import { Point, operator+ } from \"./other\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "Point" }
+                },
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "operator+" }
+                }
+            ],
+            from: { kind: "StringLiteral", value: "./other" }
+        });
+
+        expect(parseStatement(tokenizeReader("import { operator- } from \"./other\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "operator-" }
+                }
+            ],
+            from: { kind: "StringLiteral", value: "./other" }
+        });
+    });
+
     it("parses default, namespace, side-effect, type-only, and aliased import forms", () => {
         expect(parseStatement(tokenizeReader("import React from \"react\""))).toEqual({
             kind: "ImportStatement",

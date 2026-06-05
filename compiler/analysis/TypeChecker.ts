@@ -148,6 +148,9 @@ export class TypeChecker {
     this.collectEnumStatements(externalDeclarations);
     this.collectInterfaceStatements(externalDeclarations);
     this.collectTypeAliasStatements(externalDeclarations);
+    // Imported extension operator overloads (e.g. `import { operator+ }`) are
+    // registered so a cross-file operator like `a + b` resolves to the overload.
+    this.collectExtensionOperators({ kind: "Program", body: [...externalDeclarations] } as Program);
     this.removeRuntimeDeclarationsShadowedByImports(program);
     this.collectClassStatements(program.body);
     this.collectExtensionOperators(program);

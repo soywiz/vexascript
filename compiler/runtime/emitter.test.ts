@@ -236,6 +236,15 @@ let promise = go fetchValue()`));
       .toBe("");
   });
 
+  it("drops operator-overload import bindings while keeping the module load", () => {
+    // Operator-only import becomes a side-effecting import so the prototype patch runs.
+    expect(emitProgram(parseFile(tokenizeReader("import { operator+ } from \"./other\""))))
+      .toBe("import \"./other\";");
+    // Mixed imports keep their value bindings and drop the operator binding.
+    expect(emitProgram(parseFile(tokenizeReader("import { Point, operator+ } from \"./other\""))))
+      .toBe("import { Point } from \"./other\";");
+  });
+
   it("emits decimal and scientific numeric literals", () => {
     const program = parseFile(tokenizeReader("let a = 10.573\nlet b = 10e-3"));
     const emitted = emitProgram(program);
