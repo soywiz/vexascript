@@ -1,5 +1,5 @@
 import type { Analysis, AnalysisIssue } from "compiler/analysis/Analysis";
-import type { Program } from "compiler/ast/ast";
+import type { Program, Statement } from "compiler/ast/ast";
 import type { ParseIssue } from "compiler/parser/parser";
 import type { TokenizeError } from "compiler/parser/tokenizer";
 import { compileSource } from "compiler/pipeline/compile";
@@ -14,8 +14,11 @@ export interface AnalysisSession {
   fatalError: string | null;
 }
 
-export function createAnalysisSession(source: string): AnalysisSession {
-  const artifacts = compileSource(source);
+export function createAnalysisSession(
+  source: string,
+  externalDeclarations: Statement[] = []
+): AnalysisSession {
+  const artifacts = compileSource(source, {}, { externalDeclarations });
   return {
     ast: artifacts.ast,
     parserErrors: artifacts.parserIssues,
@@ -30,8 +33,21 @@ export function buildAnalysisForSource(source: string): Analysis | null {
   return createAnalysisSession(source).analysis;
 }
 
+/**
+ * Resolves the imported top-level type declarations that a document depends on,
+ * so the per-document analysis can resolve cross-file receivers/members. A first
+ * single-file analysis is built (without externals) so the resolver can inspect
+ * the document's import statements.
+ */
+export type ExternalDeclarationsResolver = (
+  document: TextDocument,
+  session: AnalysisSession
+) => Statement[];
+
 export class AnalysisSessionCache {
   private readonly cache = new Map<string, { version: number; session: AnalysisSession }>();
+
+  constructor(private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver) {}
 
   getForDocument(document: TextDocument): AnalysisSession {
     const cached = this.cache.get(document.uri);
@@ -39,7 +55,11 @@ export class AnalysisSessionCache {
       return cached.session;
     }
 
-    const session = createAnalysisSession(document.getText());
+    const baseSession = createAnalysisSession(document.getText());
+    const externalDeclarations = this.resolveExternalDeclarations?.(document, baseSession) ?? [];
+    const session = externalDeclarations.length > 0
+      ? createAnalysisSession(document.getText(), externalDeclarations)
+      : baseSession;
     this.cache.set(document.uri, { version: document.version, session });
     return session;
   }

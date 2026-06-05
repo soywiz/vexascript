@@ -95,6 +95,33 @@ let after = bind`));
     expect(visible).not.toContain("inner");
   });
 
+  describe("cross-file extension methods (externalDeclarations)", () => {
+    const otherFileSource = "class Point(val x: number, val y: number)\n";
+    const mainSource =
+      "fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)\n" +
+      "fun Point.distanceTo(other: Point): number => this.x - other.x + (this.y - other.y)\n";
+
+    it("resolves the implicit receiver and members of an imported class", () => {
+      const externalDeclarations = parseFile(tokenizeReader(otherFileSource)).body;
+      const ast = parseFile(tokenizeReader(mainSource));
+      const analysis = new Analysis(ast, { externalDeclarations });
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages).not.toContain("Undefined variable 'x'");
+      expect(messages).not.toContain("Undefined variable 'y'");
+      expect(messages.filter((message) => message.includes("Operator '+' is not defined"))).toEqual([]);
+      expect(messages.filter((message) => message.includes("Operator '-' is not defined"))).toEqual([]);
+    });
+
+    it("still reports the receiver members as undefined without the imported class", () => {
+      const ast = parseFile(tokenizeReader(mainSource));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages).toContain("Undefined variable 'x'");
+    });
+  });
+
   it("allows yield only inside generator functions", () => {
     const source =
       "function* ok() {\n" +
