@@ -477,6 +477,7 @@ export class TypeChecker {
           const parameterType =
             this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
             (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
+          this.validateRestParameterType(parameter, parameterType);
           for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(functionScope, identifier.name, parameterType);
           for (const element of bindingElements(parameter.name)) {
             if (element.initializer) this.visitExpression(element.initializer, functionScope);
@@ -601,6 +602,7 @@ export class TypeChecker {
               const parameterType =
                 this.resolveTypeAnnotation(parameter.typeAnnotation, methodScope) ??
                 (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, methodScope) : UNKNOWN_TYPE);
+              this.validateRestParameterType(parameter, parameterType);
               for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(methodScope, identifier.name, parameterType);
               for (const element of bindingElements(parameter.name)) {
                 if (element.initializer) this.visitExpression(element.initializer, methodScope);
@@ -3107,6 +3109,7 @@ export class TypeChecker {
         this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
         expectedParameterType ??
         (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
+      this.validateRestParameterType(parameter, parameterType);
       for (const element of bindingElements(parameter.name)) {
         if (element.initializer) this.visitExpression(element.initializer, functionScope);
       }
@@ -3122,6 +3125,16 @@ export class TypeChecker {
       }
     }
     return functionScope;
+  }
+
+  private validateRestParameterType(parameter: FunctionParameter, parameterType: AnalysisType): void {
+    if (parameter.rest !== true || parameterType.kind === "array" || isUnknownType(parameterType)) {
+      return;
+    }
+    this.issues.push({
+      message: `Rest parameter '${bindingNameText(parameter.name)}' must have an array type`,
+      node: parameter.typeAnnotation ?? parameter.name
+    });
   }
 
   private isIntType(type: AnalysisType): boolean {
