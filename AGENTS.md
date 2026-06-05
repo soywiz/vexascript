@@ -141,6 +141,7 @@ This section is the fast onboarding map for agents and contributors.
 ## Language policy
 
 - All code and documentation must be written in English.
+- All repository-facing artifacts must be written in English, including pull requests, commit messages, issue descriptions, code comments, and any other persistent project communication, even if the conversation with the user happens in another language such as Spanish.
 
 ## Documentation policy
 
