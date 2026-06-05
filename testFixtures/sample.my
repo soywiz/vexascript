@@ -1,5 +1,5 @@
 declare class Console {
-    log(...a: any)
+    log(...a: any[])
 }
 
 declare var console: Console
