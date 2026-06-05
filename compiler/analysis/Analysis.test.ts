@@ -344,6 +344,35 @@ async function empty(): Promise<void> {
     ]);
   });
 
+  it("unwraps Promise values in await expressions and preserves non-Promise values", () => {
+    const source = `declare function promisedInt(): Promise<int>
+declare function plainInt(): int
+
+async function consumePromise() {
+  let value: int = await promisedInt()
+}
+
+async function consumePlain() {
+  let value: int = await plainInt()
+}
+
+async function wrongAwaitedType() {
+  let value: string = await promisedInt()
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const issues = analysis.getIssues();
+
+    expect(issues.map((issue) => issue.message)).toEqual([
+      "Type 'int' is not assignable to type 'string'",
+      "Nested type mismatch: expression 'await ... )' is 'int' but expected 'string'"
+    ]);
+    expect(issues.map((issue) => issue.node.kind)).toEqual([
+      "Identifier",
+      "UnaryExpression"
+    ]);
+  });
+
   it("infers Promise return types from async function returns", () => {
     const source = `async function inferred(flag: boolean) {
   if (flag) return 10

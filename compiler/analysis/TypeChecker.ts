@@ -1052,7 +1052,7 @@ export class TypeChecker {
           break;
         }
         if (unary.operator === "await") {
-          result = argumentType;
+          result = this.unwrapPromiseType(argumentType) ?? argumentType;
           break;
         }
         if (unary.operator === "yield" || unary.operator === "yield*") {
@@ -2225,11 +2225,15 @@ export class TypeChecker {
     return unionType(uniqueTypes);
   }
 
-  private getAsyncReturnValueType(returnType: AnalysisType): AnalysisType | null {
-    if (returnType.kind !== "named" || returnType.name !== "Promise") {
+  private unwrapPromiseType(type: AnalysisType): AnalysisType | null {
+    if (type.kind !== "named" || type.name !== "Promise") {
       return null;
     }
-    return returnType.typeArguments?.[0] ?? UNKNOWN_TYPE;
+    return type.typeArguments?.[0] ?? UNKNOWN_TYPE;
+  }
+
+  private getAsyncReturnValueType(returnType: AnalysisType): AnalysisType | null {
+    return this.unwrapPromiseType(returnType);
   }
 
   private returnExpressionIsAssignable(
