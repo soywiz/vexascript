@@ -2033,6 +2033,20 @@ val Counter.next => increment(1)
     expect(imported.getIssues()).toEqual([]);
   });
 
+  it("infers number for mixed int and number multiplication", () => {
+    const source = `let a: number = 1
+let b: int = 2
+let leftMixed = a * b
+let rightMixed = b * a
+`;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const symbols = new Map(analysis.getVisibleSymbolsAt(3, 0).map((symbol) => [symbol.name, symbol]));
+
+    expect(analysis.getIssues()).toEqual([]);
+    expect(symbols.get("leftMixed")?.valueType).toBe("number");
+    expect(symbols.get("rightMixed")?.valueType).toBe("number");
+  });
+
 
   it("contextually interprets ambiguous brace arguments as lambdas or object literals", () => {
     const source = `interface Options { it: int }
