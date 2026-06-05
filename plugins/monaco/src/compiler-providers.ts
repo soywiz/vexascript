@@ -1,7 +1,12 @@
 import * as monaco from "monaco-editor";
 import { createAnalysisSession, type AnalysisSession } from "compiler/lsp/analysisSession";
-import { createCompletionItemsForPosition } from "compiler/lsp/completion";
+import {
+  createCompletionItemsForPosition,
+  createKeywordOnlyCompletionItems,
+} from "compiler/lsp/completion";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
+import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
+import { DiagnosticSeverity, type Diagnostic } from "vscode-languageserver/node.js";
 import {
   createDocumentHighlights,
   createFoldingRanges,
@@ -12,12 +17,15 @@ import {
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "compiler/lsp/formatting";
 import { createInlayHints } from "compiler/lsp/inlayHints";
 import {
-  createDefinitionLocation,
   createHover,
   createPrepareRename,
-  createReferences,
-  createRenameWorkspaceEdit,
 } from "compiler/lsp/navigation";
+import {
+  resolveDefinitionAcrossFiles,
+  resolveMemberHoverAcrossFiles,
+  resolveReferencesAcrossFiles,
+  resolveRenameAcrossFiles,
+} from "compiler/lsp/crossFileNavigation";
 import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
 import { createSignatureHelp } from "compiler/lsp/signatureHelp";
 import { createDocumentSymbols } from "compiler/lsp/symbols";
@@ -27,6 +35,24 @@ const LANG_ID = "mylang";
 interface SessionState {
   version: number;
   session: AnalysisSession;
+}
+
+/**
+ * Build the resolver context shared by the cross-file navigation, hover,
+ * completion and code-action helpers. The Monaco static demo is single-file,
+ * so there is no other session to resolve into; the helpers gracefully fall
+ * back to in-file results.
+ */
+function resolverContext(model: monaco.editor.ITextModel): {
+  uri: string;
+  sourceRoots: string[];
+  getSessionForFilePath: () => null;
+} {
+  return {
+    uri: model.uri.toString(),
+    sourceRoots: [],
+    getSessionForFilePath: () => null,
+  };
 }
 
 const CIK = monaco.languages.CompletionItemKind;
@@ -104,6 +130,19 @@ function lspEditToMonaco(edit: { range: { start: { line: number; character: numb
   return { range: toMonacoRange(edit.range), text: edit.newText };
 }
 
+function workspaceEditToMonaco(edit: {
+  changes?: Record<string, Array<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }>>;
+}): monaco.languages.WorkspaceEdit {
+  const edits: monaco.languages.IWorkspaceTextEdit[] = [];
+  for (const [uri, uriEdits] of Object.entries(edit.changes ?? {})) {
+    const resource = monaco.Uri.parse(uri);
+    for (const uriEdit of uriEdits) {
+      edits.push({ resource, textEdit: lspEditToMonaco(uriEdit), versionId: undefined });
+    }
+  }
+  return { edits };
+}
+
 function completionEditRange(
   textEdit: unknown,
   fallbackRange: monaco.IRange
@@ -173,6 +212,36 @@ function toMarkdown(value: unknown): monaco.IMarkdownString | string | undefined
     return content.kind === "markdown" ? { value: content.value, isTrusted: false } : content.value;
   }
   return undefined;
+}
+
+/**
+ * Normalise an LSP hover `contents` payload into Monaco `IMarkdownString[]`.
+ * Monaco only renders `IMarkdownString` objects, so plain strings and
+ * plaintext / MarkedString entries (used by our type signatures) are wrapped in
+ * a fenced code block to render as monospaced text.
+ */
+function hoverContentsToMarkdown(contents: unknown): monaco.IMarkdownString[] {
+  const entries = Array.isArray(contents) ? contents : [contents];
+  const result: monaco.IMarkdownString[] = [];
+  for (const entry of entries) {
+    if (!entry) continue;
+    if (typeof entry === "string") {
+      result.push({ value: "```mylang\n" + entry + "\n```" });
+      continue;
+    }
+    if (typeof entry === "object") {
+      const record = entry as { kind?: string; language?: string; value?: string };
+      if (typeof record.value !== "string") continue;
+      if (record.kind === "markdown") {
+        result.push({ value: record.value, isTrusted: false });
+      } else {
+        // plaintext MarkupContent or { language, value } MarkedString.
+        const lang = record.language ?? "mylang";
+        result.push({ value: "```" + lang + "\n" + record.value + "\n```" });
+      }
+    }
+  }
+  return result;
 }
 
 export function registerLanguage(): void {
@@ -282,8 +351,18 @@ export function registerProviders(): Map<string, SessionState> {
     triggerCharacters: ["."],
     provideCompletionItems(model, position) {
       const session = getSession(model, cache);
+      const word = model.getWordUntilPosition(position);
       if (!session.ast || !session.analysis) {
-        return { suggestions: [] };
+        const keywordItems = createKeywordOnlyCompletionItems();
+        const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
+        return {
+          suggestions: keywordItems.map((item) => ({
+            label: item.label,
+            kind: LSP_CIK[item.kind ?? 0] ?? CIK.Text,
+            insertText: item.insertText ?? item.label,
+            range,
+          })),
+        };
       }
       const items = createCompletionItemsForPosition(
         session.ast,
@@ -291,9 +370,8 @@ export function registerProviders(): Map<string, SessionState> {
         position.column - 1,
         session.analysis,
         [],
-        { text: model.getValue(), uri: model.uri.toString(), sourceRoots: [], getSessionForFilePath: () => null }
+        { text: model.getValue(), ...resolverContext(model) }
       );
-      const word = model.getWordUntilPosition(position);
       const defaultRange = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
       return {
         suggestions: items.map((item) => ({
@@ -316,11 +394,21 @@ export function registerProviders(): Map<string, SessionState> {
   monaco.languages.registerHoverProvider(LANG_ID, {
     provideHover(model, position) {
       const session = getSession(model, cache);
-      if (!session.analysis) return null;
-      const hover = createHover(session.analysis, position.lineNumber - 1, position.column - 1);
+      if (!session.analysis || !session.ast) return null;
+      const line = position.lineNumber - 1;
+      const character = position.column - 1;
+      // Member hover may probe the (stubbed) file system in the browser; guard
+      // it and fall back to the in-file hover.
+      let memberHover = null;
+      try {
+        memberHover = resolveMemberHoverAcrossFiles({ line, character, session, ...resolverContext(model) });
+      } catch {
+        memberHover = null;
+      }
+      const hover = memberHover ?? createHover(session.analysis, line, character);
       if (!hover) return null;
       return {
-        contents: [toMarkdown(hover.contents)].filter(Boolean) as monaco.IMarkdownString[],
+        contents: hoverContentsToMarkdown(hover.contents),
         range: hover.range ? toMonacoRange(hover.range) : undefined,
       };
     },
@@ -332,11 +420,7 @@ export function registerProviders(): Map<string, SessionState> {
     provideSignatureHelp(model, position) {
       const session = getSession(model, cache);
       if (!session.ast || !session.analysis) return null;
-      const help = createSignatureHelp(session.ast, session.analysis, position.lineNumber - 1, position.column - 1, {
-        uri: model.uri.toString(),
-        sourceRoots: [],
-        getSessionForFilePath: () => null,
-      });
+      const help = createSignatureHelp(session.ast, session.analysis, position.lineNumber - 1, position.column - 1, resolverContext(model));
       if (!help) return null;
       return {
         value: {
@@ -356,31 +440,60 @@ export function registerProviders(): Map<string, SessionState> {
     },
   });
 
+  const resolveDefinition = (
+    model: monaco.editor.ITextModel,
+    position: monaco.IPosition
+  ): monaco.languages.Definition => {
+    const session = getSession(model, cache);
+    if (!session.analysis || !session.ast) return [];
+    let location = null;
+    try {
+      location = resolveDefinitionAcrossFiles({
+        line: position.lineNumber - 1,
+        character: position.column - 1,
+        session,
+        ...resolverContext(model),
+      });
+    } catch {
+      location = null;
+    }
+    return location ? [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }] : [];
+  };
+
+  // VS Code's LSP server answers definition, declaration, type definition and
+  // implementation with the same cross-file resolver; mirror that here.
   monaco.languages.registerDefinitionProvider(LANG_ID, {
-    provideDefinition(model, position) {
-      const session = getSession(model, cache);
-      if (!session.analysis) return [];
-      const location = createDefinitionLocation(
-        session.analysis,
-        model.uri.toString(),
-        position.lineNumber - 1,
-        position.column - 1
-      );
-      return location ? [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }] : [];
-    },
+    provideDefinition: resolveDefinition,
+  });
+  monaco.languages.registerDeclarationProvider(LANG_ID, {
+    provideDeclaration: resolveDefinition,
+  });
+  monaco.languages.registerTypeDefinitionProvider(LANG_ID, {
+    provideTypeDefinition: resolveDefinition,
+  });
+  monaco.languages.registerImplementationProvider(LANG_ID, {
+    provideImplementation: resolveDefinition,
   });
 
   monaco.languages.registerReferenceProvider(LANG_ID, {
     provideReferences(model, position, context) {
       const session = getSession(model, cache);
-      if (!session.analysis) return [];
-      return createReferences(
-        session.analysis,
-        model.uri.toString(),
-        position.lineNumber - 1,
-        position.column - 1,
-        context.includeDeclaration
-      ).map((location) => ({ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }));
+      if (!session.analysis || !session.ast) return [];
+      let locations: ReturnType<typeof resolveReferencesAcrossFiles> = [];
+      try {
+        locations = resolveReferencesAcrossFiles(
+          {
+            line: position.lineNumber - 1,
+            character: position.column - 1,
+            session,
+            ...resolverContext(model),
+          },
+          context.includeDeclaration
+        );
+      } catch {
+        locations = [];
+      }
+      return locations.map((location) => ({ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }));
     },
   });
 
@@ -411,23 +524,87 @@ export function registerProviders(): Map<string, SessionState> {
     },
     provideRenameEdits(model, position, newName) {
       const session = getSession(model, cache);
-      if (!session.analysis) return { edits: [] };
-      const edit = createRenameWorkspaceEdit(
-        session.analysis,
-        model.uri.toString(),
-        position.lineNumber - 1,
-        position.column - 1,
-        newName
-      );
-      if (!edit) return { edits: [] };
-      const edits: monaco.languages.IWorkspaceTextEdit[] = [];
-      for (const [uri, uriEdits] of Object.entries(edit.changes ?? {})) {
-        const resource = monaco.Uri.parse(uri);
-        for (const uriEdit of uriEdits) {
-          edits.push({ resource, textEdit: lspEditToMonaco(uriEdit), versionId: undefined });
-        }
+      if (!session.analysis || !session.ast) return { edits: [] };
+      let edit = null;
+      try {
+        edit = resolveRenameAcrossFiles(
+          {
+            line: position.lineNumber - 1,
+            character: position.column - 1,
+            session,
+            ...resolverContext(model),
+          },
+          newName
+        );
+      } catch {
+        edit = null;
       }
-      return { edits };
+      if (!edit) return { edits: [] };
+      return workspaceEditToMonaco(edit);
+    },
+  });
+
+  monaco.languages.registerLinkedEditingRangeProvider(LANG_ID, {
+    provideLinkedEditingRanges(model, position) {
+      const session = getSession(model, cache);
+      if (!session.analysis) return null;
+      const ranges = session.analysis.getRenameRangesAt(position.lineNumber - 1, position.column - 1);
+      if (ranges.length <= 1) return null;
+      return {
+        ranges: ranges.map(toMonacoRange),
+        wordPattern: /[A-Za-z_][A-Za-z0-9_]*/,
+      };
+    },
+  });
+
+  monaco.languages.registerCodeActionProvider(LANG_ID, {
+    provideCodeActions(model, range, context) {
+      const session = getSession(model, cache);
+      if (!session.ast) return { actions: [], dispose: () => {} };
+      const diagnostics: Diagnostic[] = context.markers.map((marker) => {
+        const rawCode = marker.code;
+        const code = typeof rawCode === "object" && rawCode !== null ? rawCode.value : rawCode;
+        return {
+          range: toLspRange({
+            startLineNumber: marker.startLineNumber,
+            startColumn: marker.startColumn,
+            endLineNumber: marker.endLineNumber,
+            endColumn: marker.endColumn,
+          }),
+          severity:
+            marker.severity === monaco.MarkerSeverity.Error
+              ? DiagnosticSeverity.Error
+              : marker.severity === monaco.MarkerSeverity.Warning
+                ? DiagnosticSeverity.Warning
+                : marker.severity === monaco.MarkerSeverity.Info
+                  ? DiagnosticSeverity.Information
+                  : DiagnosticSeverity.Hint,
+          message: marker.message,
+          ...(code !== undefined ? { code } : {}),
+        };
+      });
+      let actions: ReturnType<typeof collectCodeActions> = [];
+      try {
+        actions = collectCodeActions({
+          text: model.getValue(),
+          ast: session.ast,
+          analysis: session.analysis,
+          range: toLspRange(range),
+          diagnostics,
+          ...resolverContext(model),
+        });
+      } catch {
+        actions = [];
+      }
+      return {
+        actions: actions.map((action) => ({
+          title: action.title,
+          kind: action.kind,
+          isPreferred: action.isPreferred,
+          edit: action.edit ? workspaceEditToMonaco(action.edit) : undefined,
+        })),
+        dispose: () => {},
+      };
     },
   });
 
@@ -514,11 +691,7 @@ export function registerProviders(): Map<string, SessionState> {
           session.ast,
           session.analysis,
           toLspRange(range),
-          {
-            uri: model.uri.toString(),
-            sourceRoots: [],
-            getSessionForFilePath: () => null,
-          }
+          resolverContext(model)
         ).map((hint) => ({
           position: toMonacoPos(hint.position),
           label: typeof hint.label === "string" ? hint.label : hint.label.map((part) => part.value).join(""),
@@ -548,6 +721,20 @@ export function registerProviders(): Map<string, SessionState> {
       return tokens?.data ? { data: new Uint32Array(tokens.data) } : null;
     },
     releaseDocumentSemanticTokens: () => {},
+  });
+
+  monaco.languages.registerDocumentRangeSemanticTokensProvider(LANG_ID, {
+    getLegend: () => MYLANG_SEMANTIC_TOKENS_LEGEND,
+    provideDocumentRangeSemanticTokens(model, range) {
+      const session = getSession(model, cache);
+      const tokens = createSemanticTokens({
+        text: model.getValue(),
+        ast: session.ast,
+        analysis: session.analysis,
+        range: toLspRange(range),
+      });
+      return tokens?.data ? { data: new Uint32Array(tokens.data) } : { data: new Uint32Array() };
+    },
   });
 
   monaco.languages.registerCodeLensProvider(LANG_ID, {
