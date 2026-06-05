@@ -60,4 +60,7 @@ export interface CheckedAnalysis {
   identifierResolutions: IdentifierResolution[];
   operatorResolutions: OperatorResolution[];
   expressionTypes: Map<Node, AnalysisType>;
+  // Expressions that receive an implicit `await` because they evaluate to a Promise inside a
+  // `sync` function body (and were not opted out via the `go` operator or `.then`-style usage).
+  autoAwaitExpressions: Set<Node>;
 }

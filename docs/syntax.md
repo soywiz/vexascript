@@ -69,7 +69,7 @@ In `async` functions, return expressions are checked against the inner `Promise<
 The `sync` modifier declares a function that behaves like `async` internally (it is emitted as a JavaScript `async function` and may use `await`), but with two ergonomic differences:
 
 - The return type is written **without** the `Promise<...>` wrapper. `sync fun load(): Response` is internally an async function returning `Promise<Response>`; from the outside (and from other functions) the call is observed as `Promise<Response>`, so it participates in auto-await just like any other Promise.
-- Inside a `sync` function body, any expression statement, variable initializer, or assignment right-hand side whose type is `Promise<T>` is **automatically awaited**, and its observed type becomes `T`.
+- Inside a `sync` function body, **any** subexpression whose type is `Promise<T>` is **automatically awaited** wherever it is used as a value, and its observed type becomes `T`. This applies everywhere — expression statements, variable initializers, assignment right-hand sides, call arguments, operands, array/object elements, and member receivers.
 
 ```mylang
 sync fun fetchValue(): int {
@@ -77,22 +77,27 @@ sync fun fetchValue(): int {
 }
 
 sync fun main(): int {
-  let x = fetchValue()   // emitted as: let x = await fetchValue();  -> x: int
-  fetchValue()           // emitted as: await fetchValue();
+  let x = fetchValue()                 // let x = await fetchValue();   -> x: int
+  fetchValue()                         // await fetchValue();
+  use(fetchValue(), fetchValue() + 1)  // use(await fetchValue(), (await fetchValue()) + 1);
   return x + 10
 }
 ```
+
+When the receiver of a member access is a Promise, it is awaited before the member is accessed, so `fetchBox().value()` becomes `(await fetchBox()).value()`. The only exceptions, where the Promise is kept and **not** awaited, are accessing a Promise method (`.then`, `.catch`, `.finally`) and `return` expressions (a returned Promise is flattened by the surrounding async function).
 
 `sync` is also valid on methods, arrow functions, and function expressions (`class C { sync m(): int { ... } }`, `sync () => { ... }`, `sync function () { ... }`).
 
 #### The `go` contextual operator
 
-To opt out of the implicit await and obtain the underlying `Promise<T>`, prefix the expression with the contextual `go` operator. `go expr` is not awaited and keeps the `Promise<T>` type:
+To opt out of the implicit await and obtain the underlying `Promise<T>`, prefix the expression with the contextual `go` operator. `go expr` is never awaited and keeps the `Promise<T>` type, in any position:
 
 ```mylang
 sync fun main(): void {
-  let pending: Promise<int> = go fetchValue()  // emitted as: let pending = fetchValue();
-  go fetchValue()                              // fire-and-forget, emitted as: fetchValue();
+  let pending: Promise<int> = go fetchValue()  // let pending = fetchValue();
+  go fetchValue()                              // fire-and-forget: fetchValue();
+  use(go fetchValue())                         // pass the Promise along: use(fetchValue());
+  go fetchValue().then(handle)                 // .then also keeps the Promise
 }
 ```
 

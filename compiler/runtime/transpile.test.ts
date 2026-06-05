@@ -252,12 +252,56 @@ describe("transpile", () => {
     expect(result.code).toContain("return x + 10;");
   });
 
+  it("auto-awaits Promise-typed subexpressions anywhere inside sync functions", () => {
+    const source = [
+      "declare function use(a: int, b: int): void",
+      "declare function add(a: int, b: int): int",
+      "sync fun fetchValue(): int { return 1 }",
+      "sync fun main(): void {",
+      "  use(fetchValue(), fetchValue())",
+      "  let total = fetchValue() + add(fetchValue(), 2)",
+      "  let arr = [fetchValue(), 3]",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // Call arguments, operands, nested calls and array elements are all awaited.
+    expect(result.code).toContain("use(await fetchValue(), await fetchValue());");
+    expect(result.code).toContain("let total = await fetchValue() + add(await fetchValue(), 2);");
+    expect(result.code).toContain("let arr = [await fetchValue(), 3];");
+  });
+
+  it("auto-awaits a Promise receiver before a member call but not for then/catch/finally", () => {
+    const source = [
+      "class Box { value(): int { return 1 } }",
+      "sync fun fetchBox(): Box { return Box() }",
+      "sync fun fetchValue(): int { return 1 }",
+      "declare function use(v: int): void",
+      "sync fun main(): void {",
+      "  let v = fetchBox().value()",
+      "  fetchValue().then(use)",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // Calling a method of the resolved value awaits the receiver first.
+    expect(result.code).toContain("let v = (await fetchBox()).value();");
+    // Accessing `.then` keeps the Promise: the receiver is not awaited.
+    expect(result.code).toContain("fetchValue().then(use);");
+  });
+
   it("suppresses auto-await with the go operator and only auto-awaits inside sync functions", () => {
     const source = [
+      "declare function use(p: Promise<int>): void",
       "sync fun fetchValue(): int { return 1 }",
       "sync fun main(): void {",
       "  let p: Promise<int> = go fetchValue()",
       "  go fetchValue()",
+      "  use(go fetchValue())",
       "  let nested = () => { let r = fetchValue() }",
       "}"
     ].join("\n");
@@ -265,9 +309,9 @@ describe("transpile", () => {
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
-    // `go` keeps the Promise, so no await is emitted.
+    // `go` keeps the Promise, so no await is emitted, including inside call arguments.
     expect(result.code).toContain("let p = fetchValue();");
-    expect(result.code).toContain("fetchValue();");
+    expect(result.code).toContain("use(fetchValue());");
     expect(result.code).not.toContain("await fetchValue()");
     // Nested non-sync functions do not auto-await.
     expect(result.code).toContain("let r = fetchValue();");

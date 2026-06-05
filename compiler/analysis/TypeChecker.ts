@@ -98,6 +98,7 @@ export class TypeChecker {
   private readonly identifierResolutions: IdentifierResolution[] = [];
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
+  private readonly autoAwaitExpressions: Set<Node> = new Set();
   private static readonly BUILTIN_TYPE_NAMES = new Set([
     "int",
     "number",
@@ -155,7 +156,8 @@ export class TypeChecker {
       issues: [...this.issues],
       identifierResolutions: [...this.identifierResolutions],
       operatorResolutions: [...this.operatorResolutions],
-      expressionTypes: this.expressionTypes
+      expressionTypes: this.expressionTypes,
+      autoAwaitExpressions: this.autoAwaitExpressions
     };
   }
 
@@ -199,18 +201,6 @@ export class TypeChecker {
   // Promise<T> when observed from the outside, and supports auto-await inside its own body.
   private isAsyncLike(node: { async?: boolean; sync?: boolean }): boolean {
     return node.async === true || node.sync === true;
-  }
-
-  // Inside a `sync` function body, a directly used Promise-typed expression is implicitly awaited,
-  // unless it is wrapped with the `go` contextual operator (which preserves the Promise).
-  private applyAutoAwait(expression: Expr | undefined, type: AnalysisType): AnalysisType {
-    if (!expression || !this.isInsideSyncFunction()) {
-      return type;
-    }
-    if (expression.kind === "UnaryExpression" && (expression as UnaryExpression).operator === "go") {
-      return type;
-    }
-    return this.unwrapPromiseType(type) ?? type;
   }
 
   private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
@@ -325,10 +315,13 @@ export class TypeChecker {
             ? this.getAsyncReturnValueType(expectedReturnType)
             : null;
         if (returnStatement.expression) {
+          // A returned Promise is flattened by the surrounding async/sync function, so it is not
+          // auto-awaited (mirroring plain `async` semantics).
           const actualReturnType = this.visitExpression(
             returnStatement.expression,
             scope,
-            asyncReturnValueType ?? expectedReturnType
+            asyncReturnValueType ?? expectedReturnType,
+            true
           );
           if (
             expectedReturnType &&
@@ -436,11 +429,8 @@ export class TypeChecker {
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
         const explicitType = this.resolveTypeAnnotation(declaration.typeAnnotation, scope);
-        const rawInitializerType = declaration.initializer
+        const initializerType = declaration.initializer
           ? this.visitExpression(declaration.initializer, scope, explicitType)
-          : undefined;
-        const initializerType = rawInitializerType !== undefined
-          ? this.applyAutoAwait(declaration.initializer, rawInitializerType)
           : undefined;
         if (
           explicitType &&
@@ -461,11 +451,8 @@ export class TypeChecker {
     }
 
     const explicitType = this.resolveTypeAnnotation(statement.typeAnnotation, scope);
-    const rawInitializerType = statement.initializer
+    const initializerType = statement.initializer
       ? this.visitExpression(statement.initializer, scope, explicitType)
-      : undefined;
-    const initializerType = rawInitializerType !== undefined
-      ? this.applyAutoAwait(statement.initializer, rawInitializerType)
       : undefined;
     if (
       explicitType &&
@@ -834,7 +821,12 @@ export class TypeChecker {
     }
   }
 
-  private visitExpression(expression: Expr, scope: Scope, expectedType?: AnalysisType): AnalysisType {
+  private visitExpression(
+    expression: Expr,
+    scope: Scope,
+    expectedType?: AnalysisType,
+    suppressAutoAwait: boolean = false
+  ): AnalysisType {
     let result: AnalysisType = UNKNOWN_TYPE;
     switch (expression.kind) {
       case "CommaExpression": {
@@ -886,10 +878,7 @@ export class TypeChecker {
         }
         this.validateReadonlyAssignmentTarget(assignment.left, scope);
         const leftType = this.visitExpression(assignment.left, scope);
-        const rightType = this.applyAutoAwait(
-          assignment.right,
-          this.visitExpression(assignment.right, scope, leftType)
-        );
+        const rightType = this.visitExpression(assignment.right, scope, leftType);
         if (
           !isUnknownType(leftType) &&
           !isUnknownType(rightType) &&
@@ -944,7 +933,13 @@ export class TypeChecker {
       }
       case "MemberExpression": {
         const member = expression as MemberExpression;
-        const objectType = this.visitExpression(member.object, scope);
+        // Accessing `.then`/`.catch`/`.finally` means the Promise is being consumed explicitly, so
+        // the receiver keeps its Promise type instead of being auto-awaited.
+        const suppressObjectAutoAwait =
+          !member.computed &&
+          member.property.kind === "Identifier" &&
+          this.isPromiseMethodName((member.property as Identifier).name);
+        const objectType = this.visitExpression(member.object, scope, undefined, suppressObjectAutoAwait);
         if (member.computed) {
           const propertyType = this.visitExpression(member.property, scope);
           result = this.resolveOptionalAccessType(this.resolveComputedMemberType(objectType, propertyType), member.optional === true);
@@ -1079,7 +1074,10 @@ export class TypeChecker {
       }
       case "UnaryExpression": {
         const unary = expression as UnaryExpression;
-        const argumentType = this.visitExpression(unary.argument, scope);
+        // `await x` and `go x` consume the Promise directly, so their operand must not be
+        // auto-awaited (which would otherwise unwrap it before they see it).
+        const suppressArgumentAutoAwait = unary.operator === "await" || unary.operator === "go";
+        const argumentType = this.visitExpression(unary.argument, scope, undefined, suppressArgumentAutoAwait);
         if (unary.operator === "!") {
           result = builtinType("boolean");
           break;
@@ -1281,7 +1279,33 @@ export class TypeChecker {
     }
 
     this.expressionTypes.set(expression, result);
+
+    // Pervasive auto-await: inside a `sync` function body, any expression that evaluates to a
+    // Promise is implicitly awaited wherever it is used as a value (call arguments, operands,
+    // initializers, ...). The raw Promise type is kept in `expressionTypes` so the emitter can
+    // detect it, while callers observe the unwrapped value type. `go expr` opts out (it is never
+    // added here), and positions such as `await`/`go` operands, `.then`-style member receivers and
+    // `return` expressions pass `suppressAutoAwait` to keep the Promise.
+    if (
+      !suppressAutoAwait &&
+      this.isInsideSyncFunction() &&
+      !this.isGoExpression(expression) &&
+      result.kind === "named" &&
+      result.name === "Promise"
+    ) {
+      this.autoAwaitExpressions.add(expression);
+      return this.unwrapPromiseType(result) ?? result;
+    }
+
     return result;
+  }
+
+  private isGoExpression(expression: Expr): boolean {
+    return expression.kind === "UnaryExpression" && (expression as UnaryExpression).operator === "go";
+  }
+
+  private isPromiseMethodName(name: string): boolean {
+    return name === "then" || name === "catch" || name === "finally";
   }
 
   private resolveOperatorOverload(

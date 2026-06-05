@@ -458,6 +458,36 @@ sync fun main(): void {
     );
   });
 
+  it("auto-awaits Promise-typed subexpressions in argument and member positions", () => {
+    const source = `declare function use(value: int): void
+class Box { value(): int { return 1 } }
+sync fun fetchValue(): int { return 1 }
+sync fun fetchBox(): Box { return Box() }
+sync fun main(): void {
+  use(fetchValue())
+  use(fetchValue() + 1)
+  use(fetchBox().value())
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("keeps the Promise type when go opts out, even in argument positions", () => {
+    const source = `declare function use(value: int): void
+sync fun fetchValue(): int { return 1 }
+sync fun main(): void {
+  use(go fetchValue())
+}`;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Argument 1 of type 'Promise<int>' is not assignable to parameter 'value' of type 'int'"
+    );
+  });
+
   it("checks contextual function-expression and arrow-function returns", () => {
     const source = `let arrow: (flag: boolean) => int = (flag) => {
   if (flag) return 1
