@@ -150,6 +150,18 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("seconds")?.detail).toBe("Auto import extension from ./duration");
   });
 
+  it("resolves chained members after extension properties", () => {
+    const source =
+      "class TimeSpan(val ms: number)\n" +
+      "val number.seconds => TimeSpan(this * 1000)\n" +
+      "10.seconds.\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 2, 11, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("ms");
+  });
+
   it("resolves member completions from explicitly typed variables", () => {
     const source =
       "fun demo() {\n" +

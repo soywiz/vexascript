@@ -148,6 +148,7 @@ interface ExtensionMemberCompletionCandidate {
   name: string;
   receiverType: string;
   kind: "property" | "method";
+  returnTypeName?: string | null;
 }
 
 const COMPLETION_RECOVERY_MEMBER = "__mylang_completion__";
@@ -230,10 +231,41 @@ function resolveImportTargetFilePath(importerFilePath: string, importPath: strin
   return resolvePath(importerFilePath.replace(/[/\\][^/\\]+$/, ""), importPath.endsWith(".my") ? importPath : `${importPath}.my`);
 }
 
+function inferExtensionReturnTypeName(
+  statement: Statement,
+  analysis: Analysis | null
+): string | null {
+  if (statement.kind === "VarStatement") {
+    const variable = statement as VarStatement;
+    if (variable.typeAnnotation?.name) {
+      return variable.typeAnnotation.name;
+    }
+    if (variable.initializer && analysis) {
+      const initializerType = analysis.getExpressionTypes().get(variable.initializer);
+      const typeName = initializerType ? typeToString(initializerType) : null;
+      if (typeName && typeName !== "unknown") {
+        return typeName;
+      }
+    }
+    if (variable.initializer?.kind === "CallExpression" && variable.initializer.callee.kind === "Identifier") {
+      return variable.initializer.callee.name;
+    }
+    if (variable.initializer?.kind === "NewExpression" && variable.initializer.callee.kind === "Identifier") {
+      return variable.initializer.callee.name;
+    }
+    return null;
+  }
+  if (statement.kind === "FunctionStatement") {
+    return (statement as FunctionStatement).returnType?.name ?? null;
+  }
+  return null;
+}
+
 function collectAvailableExtensionMembers(
   ast: Program,
   objectTypeName: string,
-  options: CompletionRequestOptions
+  options: CompletionRequestOptions,
+  analysis?: Analysis | null
 ): ExtensionMemberCompletionCandidate[] {
   const currentFilePath = options.uri?.startsWith("file://")
     ? fileURLToPath(options.uri)
@@ -261,7 +293,12 @@ function collectAvailableExtensionMembers(
           continue;
         }
         seen.add(`property:${binding.name}`);
-        candidates.push({ name: binding.name, receiverType, kind: "property" });
+        candidates.push({
+          name: binding.name,
+          receiverType,
+          kind: "property",
+          returnTypeName: inferExtensionReturnTypeName(variable, analysis)
+        });
       }
       return;
     }
@@ -275,7 +312,12 @@ function collectAvailableExtensionMembers(
         return;
       }
       seen.add(`method:${fn.name.name}`);
-      candidates.push({ name: fn.name.name, receiverType, kind: "method" });
+      candidates.push({
+        name: fn.name.name,
+        receiverType,
+        kind: "method",
+        returnTypeName: inferExtensionReturnTypeName(fn, analysis)
+      });
     }
   };
 
@@ -300,6 +342,7 @@ function collectAvailableExtensionMembers(
     const targetFilePath = resolveImportTargetFilePath(currentFilePath, statement.from.value);
     const importedSession = options.getSessionForFilePath(targetFilePath);
     const importedAst = importedSession?.ast;
+    const importedAnalysis = importedSession?.analysis ?? null;
     if (!importedAst) {
       continue;
     }
@@ -322,7 +365,12 @@ function collectAvailableExtensionMembers(
             continue;
           }
           seen.add(`property:${binding.name}`);
-          candidates.push({ name: binding.name, receiverType, kind: "property" });
+          candidates.push({
+            name: binding.name,
+            receiverType,
+            kind: "property",
+            returnTypeName: inferExtensionReturnTypeName(variable, importedAnalysis)
+          });
         }
         continue;
       }
@@ -336,7 +384,12 @@ function collectAvailableExtensionMembers(
           continue;
         }
         seen.add(`method:${fn.name.name}`);
-        candidates.push({ name: fn.name.name, receiverType, kind: "method" });
+        candidates.push({
+          name: fn.name.name,
+          receiverType,
+          kind: "method",
+          returnTypeName: inferExtensionReturnTypeName(fn, importedAnalysis)
+        });
       }
     }
   }
@@ -344,11 +397,24 @@ function collectAvailableExtensionMembers(
   return candidates;
 }
 
+function resolveExtensionMemberTypeName(
+  ast: Program,
+  objectTypeName: string,
+  memberName: string,
+  options: CompletionRequestOptions,
+  analysis?: Analysis | null
+): string | null {
+  const candidate = collectAvailableExtensionMembers(ast, objectTypeName, options, analysis)
+    .find((item) => item.name === memberName);
+  return candidate?.returnTypeName ?? null;
+}
+
 function buildExtensionMemberCompletionItems(
   ast: Program,
   objectTypeName: string,
   prefix: string,
-  options: CompletionRequestOptions
+  options: CompletionRequestOptions,
+  analysis?: Analysis | null
 ): CompletionItem[] {
   const normalizedPrefix = prefix.trim();
   const items: CompletionItem[] = [];
@@ -365,7 +431,7 @@ function buildExtensionMemberCompletionItems(
     items.push(item);
   };
 
-  for (const candidate of collectAvailableExtensionMembers(ast, objectTypeName, options)) {
+  for (const candidate of collectAvailableExtensionMembers(ast, objectTypeName, options, analysis)) {
     pushItem({
       label: candidate.name,
       kind: candidate.kind === "method" ? CompletionItemKind.Method : CompletionItemKind.Property,
@@ -1161,26 +1227,27 @@ function resolveTypeNameFromPath(
   if (!firstSegment) {
     return null;
   }
-  const literalTypeName = pathSegments.length === 1 ? inferLiteralTypeName(firstSegment) : null;
+  const literalTypeName = inferLiteralTypeName(firstSegment);
   if (literalTypeName) {
-    return literalTypeName;
+    currentTypeName = literalTypeName;
   }
-
-  const resolvedSymbolMatch = symbolMatch;
-  if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === firstSegment) {
-    currentTypeName = typeNameFromSymbol(resolvedSymbolMatch.symbol);
-  } else {
-    const visibleSymbols = analysis.getVisibleSymbolsAt(line, objectStartCharacter);
-    const symbol = visibleSymbols.find((candidate) => candidate.name === firstSegment);
-    if (!symbol) {
-      currentTypeName =
-        inferTypeNameFromAstVariableAnnotation(ast, firstSegment, line) ??
-        inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
-      if (!currentTypeName) {
-        return null;
-      }
+  if (!currentTypeName) {
+    const resolvedSymbolMatch = symbolMatch;
+    if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === firstSegment) {
+      currentTypeName = typeNameFromSymbol(resolvedSymbolMatch.symbol);
     } else {
-      currentTypeName = typeNameFromSymbol(symbol);
+      const visibleSymbols = analysis.getVisibleSymbolsAt(line, objectStartCharacter);
+      const symbol = visibleSymbols.find((candidate) => candidate.name === firstSegment);
+      if (!symbol) {
+        currentTypeName =
+          inferTypeNameFromAstVariableAnnotation(ast, firstSegment, line) ??
+          inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
+        if (!currentTypeName) {
+          return null;
+        }
+      } else {
+        currentTypeName = typeNameFromSymbol(symbol);
+      }
     }
   }
 
@@ -1201,7 +1268,19 @@ function resolveTypeNameFromPath(
       resolverCache
     );
     if (!classResolution) {
-      return null;
+      currentTypeName = resolveExtensionMemberTypeName(
+        ast,
+        currentTypeName,
+        memberName,
+        {
+          ...resolverOptions
+        },
+        analysis
+      );
+      if (!currentTypeName) {
+        return null;
+      }
+      continue;
     }
     const member = resolveClassMember(classResolution.classStatement, memberName, currentTypeName, {
       ast,
@@ -1209,7 +1288,19 @@ function resolveTypeNameFromPath(
       cache: resolverCache
     });
     if (!member) {
-      return null;
+      currentTypeName = resolveExtensionMemberTypeName(
+        ast,
+        currentTypeName,
+        memberName,
+        {
+          ...resolverOptions
+        },
+        analysis
+      );
+      if (!currentTypeName) {
+        return null;
+      }
+      continue;
     }
     if (member.kind === "method") {
       currentTypeName = member.signature?.returnTypeName ?? null;
@@ -1308,7 +1399,7 @@ function buildMemberAccessCompletions(
     resolverCache
   )?.classStatement;
   const items = [
-    ...buildExtensionMemberCompletionItems(ast, className, target.prefix, options),
+    ...buildExtensionMemberCompletionItems(ast, className, target.prefix, options, analysis),
     ...(classStatement
       ? buildClassMemberCompletionItems(
           classStatement,
@@ -1410,7 +1501,8 @@ export function createCompletionItemsForPosition(
       ast,
       literalReceiverType,
       memberTarget.prefix,
-      options
+      options,
+      resolvedAnalysis
     );
     if (literalExtensionCompletions.length > 0) {
       return literalExtensionCompletions;
