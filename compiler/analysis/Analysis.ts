@@ -1,4 +1,4 @@
-import type { BinaryExpression, Node, Program } from "compiler/ast/ast";
+import type { BinaryExpression, ClassStatement, Node, Program } from "compiler/ast/ast";
 import { Binder } from "./Binder";
 import type {
   AnalysisIssue,
@@ -35,11 +35,14 @@ export class Analysis {
   private readonly expressionTypes: Map<Node, AnalysisType>;
   private readonly autoAwaitExpressions: Set<Node>;
 
-  constructor(program: Program) {
-    const bound = new Binder(program).bind();
+  constructor(
+    program: Program,
+    importedClassStatements: ReadonlyMap<string, ClassStatement> = new Map()
+  ) {
+    const bound = new Binder(program, importedClassStatements).bind();
     this.rootScope = bound.rootScope;
 
-    const checked = new TypeChecker(program, bound).check();
+    const checked = new TypeChecker(program, bound, importedClassStatements).check();
     this.issues = checked.issues;
     this.identifierResolutions = checked.identifierResolutions;
     this.operatorResolutions = checked.operatorResolutions;

@@ -1,4 +1,5 @@
 import { Analysis, type AnalysisIssue } from "compiler/analysis/Analysis";
+import type { ClassStatement } from "compiler/ast/ast";
 import type { ParseIssue, ParserOptions } from "compiler/parser/parser";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
 import { parseSource, type ParseArtifacts } from "./parse";
@@ -8,8 +9,13 @@ export interface CompilationArtifacts extends ParseArtifacts {
   semanticIssues: AnalysisIssue[];
 }
 
-export function compileSource(source: string, options: ParserOptions = {}): CompilationArtifacts {
-  const parsed = parseSource(source, options);
+export interface CompileOptions extends ParserOptions {
+  importedClassStatements?: ReadonlyMap<string, ClassStatement>;
+}
+
+export function compileSource(source: string, options: CompileOptions = {}): CompilationArtifacts {
+  const { importedClassStatements = new Map(), ...parserOptions } = options;
+  const parsed = parseSource(source, parserOptions);
   if (!parsed.ast) {
     return {
       ...parsed,
@@ -19,7 +25,7 @@ export function compileSource(source: string, options: ParserOptions = {}): Comp
   }
 
   try {
-    const analysis = new Analysis(parsed.ast);
+    const analysis = new Analysis(parsed.ast, importedClassStatements);
     return {
       ...parsed,
       analysis,

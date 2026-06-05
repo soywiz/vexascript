@@ -132,7 +132,8 @@ export class TypeChecker {
 
   constructor(
     private readonly program: Program,
-    private readonly bound: BoundAnalysis
+    private readonly bound: BoundAnalysis,
+    importedClassStatements: ReadonlyMap<string, ClassStatement> = new Map()
   ) {
     const runtimeProgram = getEcmaScriptRuntimeProgram();
     this.collectClassStatements(runtimeProgram);
@@ -141,6 +142,11 @@ export class TypeChecker {
     this.collectTypeAliasStatements(runtimeProgram);
     this.removeRuntimeDeclarationsShadowedByImports(program);
     this.collectClassStatements(program);
+    for (const [name, stmt] of importedClassStatements) {
+      if (!this.classStatementsByName.has(name)) {
+        this.classStatementsByName.set(name, stmt);
+      }
+    }
     this.collectExtensionOperators(program);
     this.collectExtensionMethods(program);
     this.collectImportedExtensionPropertyNames(program);

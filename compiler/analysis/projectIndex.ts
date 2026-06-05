@@ -238,6 +238,22 @@ function compileToSession(source: string): ProjectSessionLike {
   };
 }
 
+function extractExportedClassStatements(ast: Program, importedNames: Set<string>): Map<string, ClassStatement> {
+  const result = new Map<string, ClassStatement>();
+  for (const statement of ast.body) {
+    const candidate = statement.kind === "ExportStatement"
+      ? (statement as ExportStatement).declaration
+      : undefined;
+    if (candidate?.kind === "ClassStatement") {
+      const cls = candidate as ClassStatement;
+      if (importedNames.has(cls.name.name)) {
+        result.set(cls.name.name, cls);
+      }
+    }
+  }
+  return result;
+}
+
 function rootsKey(sourceRoots: string[]): string {
   if (sourceRoots.length === 0) {
     return "<empty>";
@@ -249,6 +265,7 @@ export class ProjectIndex {
   private readonly sourceRoots: string[];
   private readonly diskSessions = new Map<string, CachedDiskSession>();
   private readonly openOverrides = new Map<string, OpenFileOverride>();
+  private readonly compilingFiles = new Set<string>();
 
   constructor(sourceRoots: string[]) {
     this.sourceRoots = [...sourceRoots];
@@ -287,7 +304,7 @@ export class ProjectIndex {
 
   upsertOpenDocument(filePath: string, source: string): void {
     const normalized = resolve(filePath);
-    const session = compileToSession(source);
+    const session = this.compileSessionForFile(normalized, source);
     const indexed = indexFileData(session.ast, normalized);
     this.openOverrides.set(normalized, { session, indexed });
   }
@@ -313,7 +330,7 @@ export class ProjectIndex {
     }
 
     const source = readFileSync(normalized, "utf8");
-    const session = compileToSession(source);
+    const session = this.compileSessionForFile(normalized, source);
     const indexed = indexFileData(session.ast, normalized);
     const next: CachedDiskSession = {
       mtimeMs: fileStats.mtimeMs,
@@ -322,6 +339,40 @@ export class ProjectIndex {
     };
     this.diskSessions.set(normalized, next);
     return next;
+  }
+
+  private compileSessionForFile(normalizedFilePath: string, source: string): ProjectSessionLike {
+    if (this.compilingFiles.has(normalizedFilePath)) {
+      return compileToSession(source);
+    }
+    this.compilingFiles.add(normalizedFilePath);
+    try {
+      const importedClassStatements = this.resolveImportedClassStatements(normalizedFilePath, source);
+      const compiled = compileSource(source, { importedClassStatements });
+      return { ast: compiled.ast, analysis: compiled.analysis };
+    } finally {
+      this.compilingFiles.delete(normalizedFilePath);
+    }
+  }
+
+  private resolveImportedClassStatements(filePath: string, source: string): Map<string, ClassStatement> {
+    const parsed = compileSource(source);
+    if (!parsed.ast) return new Map();
+    const result = new Map<string, ClassStatement>();
+    for (const statement of parsed.ast.body) {
+      if (statement.kind !== "ImportStatement") continue;
+      const importStatement = statement as ImportStatement;
+      const importedNames = new Set(importStatement.specifiers.map((s) => s.imported.name));
+      if (importedNames.size === 0) continue;
+      const targetFilePath = resolveImportTargetFilePath(filePath, importStatement.from.value);
+      if (!targetFilePath) continue;
+      const targetSession = this.getSessionForFilePath(targetFilePath);
+      if (!targetSession?.ast) continue;
+      for (const [name, cls] of extractExportedClassStatements(targetSession.ast, importedNames)) {
+        result.set(name, cls);
+      }
+    }
+    return result;
   }
 
   getSessionForFilePath(filePath: string): ProjectSessionLike | null {

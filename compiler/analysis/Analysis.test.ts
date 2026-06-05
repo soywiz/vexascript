@@ -2135,6 +2135,22 @@ val Counter.next => increment(1)
     expect(analysis.getIssues()).toEqual([]);
   });
 
+  it("resolves unqualified members and this.member in extension methods on imported classes", () => {
+    const pointClass = parseFile(tokenizeReader("export class Point(val x: number, val y: number)"));
+    const pointClassStatement = (pointClass.body[0] as import("compiler/ast/ast").ExportStatement).declaration as import("compiler/ast/ast").ClassStatement;
+    const importedClassStatements = new Map([["Point", pointClassStatement]]);
+
+    const withUnqualified = new Analysis(parseFile(tokenizeReader(
+      'import { Point } from "./point"\nfun Point.operator+(other: Point) => Point(x + other.x, y + other.y)'
+    )), importedClassStatements);
+    expect(withUnqualified.getIssues()).toEqual([]);
+
+    const withThis = new Analysis(parseFile(tokenizeReader(
+      'import { Point } from "./point"\nfun Point.operator+(other: Point) => Point(this.x + other.x, this.y + other.y)'
+    )), importedClassStatements);
+    expect(withThis.getIssues()).toEqual([]);
+  });
+
   it("checks extension properties only when declared or imported", () => {
     const missing = new Analysis(parseFile(tokenizeReader("val duration = 10.milliseconds")));
     expect(missing.getIssues().map((issue) => issue.message)).toContain(

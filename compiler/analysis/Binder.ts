@@ -69,7 +69,10 @@ export class Binder {
   private readonly rootScope: Scope;
   private readonly classStatementsByName = new Map<string, ClassStatement>();
 
-  constructor(private readonly program: Program) {
+  constructor(
+    private readonly program: Program,
+    private readonly importedClassStatements: ReadonlyMap<string, ClassStatement> = new Map()
+  ) {
     this.rootScope = this.createScope(undefined, program);
   }
 
@@ -552,7 +555,7 @@ export class Binder {
   }
 
   private declareReceiverMembers(scope: Scope, receiverName: string): void {
-    const classStatement = this.classStatementsByName.get(receiverName);
+    const classStatement = this.classStatementsByName.get(receiverName) ?? this.importedClassStatements.get(receiverName);
     if (classStatement) {
       this.declareClassMembers(scope, classStatement);
     }
