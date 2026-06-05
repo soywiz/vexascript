@@ -102,6 +102,20 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for empty template interpolation via a missing-expression placeholder", () => {
+        expect(parseExpression(tokenizeReader("`${}`"))).toEqual({
+            kind: "BinaryExpression",
+            operator: "+",
+            left: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "StringLiteral", value: "" },
+                right: { kind: "MissingExpression" }
+            },
+            right: { kind: "StringLiteral", value: "" }
+        });
+    });
+
 
     it("builds an AST for comma expressions at the lowest precedence", () => {
         expect(parseExpression(tokenizeReader("a = 1, b + 2, c"))).toEqual({

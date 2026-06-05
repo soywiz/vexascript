@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
-import { parseFile } from "compiler/parser/parser";
+import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
@@ -316,6 +316,19 @@ function outer(): string {
       "ReturnStatement",
       "ReturnStatement"
     ]);
+  });
+
+  it("reports empty template interpolations as semantic missing-expression errors", () => {
+    const source = "class TimeSpan(val ms: number) {\n  toString() => `${}`\n}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const parser = new Parser(tokenizeReader(source));
+    parser.parseFile();
+    const analysis = new Analysis(ast);
+
+    expect(parser.errors).toEqual([]);
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Expected an expression");
+    expect(analysis.getIssues().map((issue) => issue.node.kind)).toContain("MissingExpression");
   });
 
   it("accepts awaited and non-awaited return values in async functions with Promise return types", () => {

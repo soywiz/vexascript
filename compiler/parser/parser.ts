@@ -1924,6 +1924,12 @@ export class Parser {
         }
 
         if (token?.type === "symbol" && token.value === "(") {
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+                const close = this.tokens.read();
+                return this.attachNodeBounds({
+                    kind: "MissingExpression"
+                } as Expr, token, close ?? token);
+            }
             const expr = this.parseExpressionOrThrow();
             const close = this.tokens.read();
             if (close?.type !== "symbol" || close.value !== ")") {

@@ -559,6 +559,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         return "null";
       case "UndefinedLiteral":
         return "undefined";
+      case "MissingExpression":
+        return "undefined";
       case "Identifier":
         return emitIdentifier(expression as Identifier);
       case "CommaExpression": {

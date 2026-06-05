@@ -48,6 +48,10 @@ export interface UndefinedLiteral extends Node {
     kind: "UndefinedLiteral"
 }
 
+export interface MissingExpression extends Node {
+    kind: "MissingExpression"
+}
+
 export interface Identifier extends Node {
     kind: "Identifier"
     name: string
