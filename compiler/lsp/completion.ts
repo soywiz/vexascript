@@ -968,6 +968,16 @@ function symbolKindPriority(symbol: AnalysisSymbol): number {
   return 4;
 }
 
+function symbolReceiverPriority(symbol: AnalysisSymbol): number {
+  if (symbol.implicitReceiver === true && symbol.name !== "this") {
+    return 0;
+  }
+  if (symbol.name === "this") {
+    return 2;
+  }
+  return 1;
+}
+
 function inferClassNameFromAstVariableInitializer(
   ast: Program,
   variableName: string,
@@ -1523,11 +1533,15 @@ export function createCompletionItemsForPosition(
       symbol,
       scopeDistance,
       typeRelevance: symbolTypeRelevance(symbol, expectedTypeName),
+      receiverPriority: symbolReceiverPriority(symbol),
       kindPriority: symbolKindPriority(symbol)
     }))
     .sort((left, right) => {
       if (left.typeRelevance !== right.typeRelevance) {
         return right.typeRelevance - left.typeRelevance;
+      }
+      if (left.receiverPriority !== right.receiverPriority) {
+        return left.receiverPriority - right.receiverPriority;
       }
       if (left.scopeDistance !== right.scopeDistance) {
         return left.scopeDistance - right.scopeDistance;
@@ -1538,11 +1552,8 @@ export function createCompletionItemsForPosition(
       return left.symbol.name.localeCompare(right.symbol.name);
     });
 
-  const items: CompletionItem[] = KEYWORD_COMPLETIONS.map((item, index) => ({
-    ...item,
-    sortText: `9-${String(index).padStart(4, "0")}-${item.label}`
-  }));
-  const seenLabels = new Set(items.map((item) => item.label));
+  const items: CompletionItem[] = [];
+  const seenLabels = new Set<string>();
   for (let index = 0; index < rankedSymbols.length; index += 1) {
     const entry = rankedSymbols[index]!;
     const symbol = entry.symbol;
@@ -1579,6 +1590,18 @@ export function createCompletionItemsForPosition(
           newText: `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
         }
       ]
+    });
+  }
+
+  for (let index = 0; index < KEYWORD_COMPLETIONS.length; index += 1) {
+    const item = KEYWORD_COMPLETIONS[index]!;
+    if (seenLabels.has(item.label)) {
+      continue;
+    }
+    seenLabels.add(item.label);
+    items.push({
+      ...item,
+      sortText: `9-${String(index).padStart(4, "0")}-${item.label}`
     });
   }
 

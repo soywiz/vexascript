@@ -28,6 +28,7 @@ import type {
   LabeledStatement,
   IntLiteral,
   MemberExpression,
+  MissingExpression,
   NewExpression,
   NamespaceStatement,
   ObjectLiteral,
@@ -1175,6 +1176,13 @@ export class TypeChecker {
       }
       case "Identifier":
         result = this.resolveIdentifierType(expression as Node & { kind: "Identifier"; name: string }, scope);
+        break;
+      case "MissingExpression":
+        this.issues.push({
+          message: "Expected an expression",
+          node: expression as MissingExpression
+        });
+        result = UNKNOWN_TYPE;
         break;
       case "IntLiteral":
         result = this.contextualLiteralType(

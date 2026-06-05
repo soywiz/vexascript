@@ -162,6 +162,32 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("ms");
   });
 
+  it("offers constructor properties inside template interpolation", () => {
+    const source =
+      "class TimeSpan(val ms: number) {\n" +
+      "  toString() => `${m}`\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 1, 20, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels[0]).toBe("ms");
+    expect(labels).toContain("this");
+  });
+
+  it("offers constructor properties inside empty template interpolation", () => {
+    const source =
+      "class TimeSpan(val ms: number) {\n" +
+      "  toString() => `${}`\n" +
+      "}\n";
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, 1, 18, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels[0]).toBe("ms");
+    expect(labels).toContain("this");
+  });
+
   it("resolves member completions from explicitly typed variables", () => {
     const source =
       "fun demo() {\n" +
