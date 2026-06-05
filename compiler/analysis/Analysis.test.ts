@@ -1968,6 +1968,22 @@ console.info(true, false)
     expect(messages).toEqual([]);
   });
 
+  it("requires rest parameters to use array types", () => {
+    const source = `declare class Console {
+  log(...a: any)
+}
+fun collect(...values: string) {
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Rest parameter 'a' must have an array type");
+    expect(messages).toContain("Rest parameter 'values' must have an array type");
+  });
+
   it("binds every identifier introduced by nested destructuring declarations", () => {
     const source = "let { id, name: displayName, nested: { value = 1 }, ...rest } = source\n" +
       "const [first, , third = 3, ...tail] = values\n" +
