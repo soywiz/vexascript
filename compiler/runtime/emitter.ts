@@ -319,6 +319,33 @@ function resolveOperatorMethodName(binary: BinaryExpression): string | null {
     ?? null;
 }
 
+function isBuiltinTypeNamed(type: AnalysisType | undefined, name: string): boolean {
+  return type?.kind === "builtin" && type.name === name;
+}
+
+function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, rightText: string): string | null {
+  const expressionType = activeExpressionTypes?.get(binary as unknown as Node);
+  const leftType = activeExpressionTypes?.get(binary.left as unknown as Node);
+  const rightType = activeExpressionTypes?.get(binary.right as unknown as Node);
+
+  if (
+    !isBuiltinTypeNamed(expressionType, "int") ||
+    !isBuiltinTypeNamed(leftType, "int") ||
+    !isBuiltinTypeNamed(rightType, "int")
+  ) {
+    return null;
+  }
+
+  switch (binary.operator) {
+    case "*":
+      return `Math.imul(${leftText}, ${rightText})`;
+    case "/":
+      return `(${leftText} / ${rightText}) | 0`;
+    default:
+      return null;
+  }
+}
+
 function collectRuntimeOverloads(program: Program): Map<string, RuntimeOverloadInfo[]> {
   const byName = new Map<string, FunctionStatement[]>();
   for (const statement of program.body) {
@@ -556,6 +583,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const operatorMethodName = resolveOperatorMethodName(binary);
         if (operatorMethodName) {
           return `${leftText}.${operatorMethodName}(${rightText})`;
+        }
+        const typedIntegerBinary = emitTypedIntegerBinary(binary, leftText, rightText);
+        if (typedIntegerBinary) {
+          return typedIntegerBinary;
         }
         const emittedOperator = binary.operator === "is" ? "instanceof" : binary.operator;
         const binaryText = `${leftText} ${emittedOperator} ${rightText}`;
