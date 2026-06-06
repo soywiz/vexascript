@@ -276,6 +276,45 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("point");
   });
 
+  it("offers Array<T> members for array-typed variable member access", () => {
+    const { source, line, character } = sourceWithCursor(
+      "declare class Array<T> {\n" +
+      "  length: number\n" +
+      "  push(item: T): number\n" +
+      "  map<R>(callback: (value: T) => R): Array<R>\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const items: int[] = []\n" +
+      "  items.^^^\n" +
+      "}\n"
+    );
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect([...byLabel.keys()]).toContain("push");
+    expect([...byLabel.keys()]).toContain("map");
+    expect([...byLabel.keys()]).toContain("length");
+    expect(byLabel.get("push")?.detail).toBe("Class method: (item: int) => number");
+  });
+
+  it("offers Array<T> members for unknown[] member access", () => {
+    const { source, line, character } = sourceWithCursor(
+      "declare class Array<T> {\n" +
+      "  push(item: T): number\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  const items: unknown[] = []\n" +
+      "  items.^^^\n" +
+      "}\n"
+    );
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("push");
+  });
+
   it("includes constructor parameter properties in member completion", () => {
     const { source, line, character } = sourceWithCursor(
       "class User { constructor(public id: string, readonly age: int) {} }\n" +
