@@ -46,6 +46,39 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves go-to-definition for member access inside a trailing-lambda body", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const file = join(root, "other.my");
+
+    const source = dedent`
+      class TimeSpan(val ms: number)
+      fun delay(time: TimeSpan): Promise<T> => new Promise { resolve, reject ->
+        setTimeout(resolve, time.ms)
+      }
+      `;
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    // Cursor on `ms` in `time.ms`, which lives inside the `new Promise { ... }`
+    // trailing lambda body.
+    const location = resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 2,
+      character: source.split("\n")[2]!.indexOf(".ms") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(file).toString(),
+      range: {
+        start: { line: 0, character: 19 },
+        end: { line: 0, character: 21 }
+      }
+    });
+  });
+
   it("resolves go-to-definition from member access to class member declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const fileA = join(root, "world.my");
