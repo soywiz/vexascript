@@ -1104,6 +1104,7 @@ export class TypeChecker {
             : this.instantiateFunctionType(callableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
           this.validateFunctionTypeArgumentConstraints(callableType, instantiatedCalleeType, call);
           this.validateCallArguments(call, instantiatedCalleeType, contextualArgumentTypes);
+          this.evolveArrayElementTypeFromMutation(call, scope, contextualArgumentTypes);
           result = this.resolveOptionalAccessType(
             instantiatedCalleeType.returnType,
             call.optional === true || this.hasNullishUnionMember(calleeType)
@@ -3807,6 +3808,74 @@ export class TypeChecker {
     }
     symbol.type = type;
     symbol.valueType = typeToString(type);
+  }
+
+  /**
+   * Evolving array inference: when a variable whose element type is still
+   * unknown (for example `const array: unknown[] = []` or `let xs = []`) is
+   * mutated through `push`/`unshift`, refine the variable's element type from
+   * the inserted value. This mirrors how TypeScript lets an implicitly typed
+   * empty array "evolve" from how it is used, so `array.push(10)` updates the
+   * inferred type of `array` to `int[]`.
+   */
+  private evolveArrayElementTypeFromMutation(
+    call: CallExpression,
+    scope: Scope,
+    argumentTypes: AnalysisType[]
+  ): void {
+    if (call.optional === true) {
+      return;
+    }
+    const callee = call.callee;
+    if (callee.kind !== "MemberExpression") {
+      return;
+    }
+    const member = callee as MemberExpression;
+    if (member.computed || member.optional === true) {
+      return;
+    }
+    if (member.object.kind !== "Identifier" || member.property.kind !== "Identifier") {
+      return;
+    }
+    const methodName = (member.property as Identifier).name;
+    if (methodName !== "push" && methodName !== "unshift") {
+      return;
+    }
+    if (argumentTypes.length === 0) {
+      return;
+    }
+    const identifier = member.object as Node & { kind: "Identifier"; name: string };
+    const usageOffset = identifier.firstToken?.range.start.offset;
+    const symbol = this.resolve(identifier.name, scope, usageOffset);
+    if (!symbol || symbol.type?.kind !== "array") {
+      return;
+    }
+    const element = symbol.type.elementType;
+    const elementIsUnknown = isUnknownType(element) || (element.kind === "builtin" && element.name === "unknown");
+    if (!elementIsUnknown) {
+      return;
+    }
+    const elementType = this.widenForArrayElement(argumentTypes[0]!);
+    if (isUnknownType(elementType) || (elementType.kind === "builtin" && elementType.name === "unknown")) {
+      return;
+    }
+    const evolved = arrayType(elementType);
+    symbol.type = evolved;
+    symbol.valueType = typeToString(evolved);
+  }
+
+  /** Widen a literal value type to its underlying primitive for array element inference. */
+  private widenForArrayElement(type: AnalysisType): AnalysisType {
+    if (type.kind === "literal") {
+      if (type.base === "string") {
+        return builtinType("string");
+      }
+      if (type.base === "boolean") {
+        return builtinType("boolean");
+      }
+      return builtinType("number");
+    }
+    return type;
   }
 
   private createFunctionLikeExpressionScope(
