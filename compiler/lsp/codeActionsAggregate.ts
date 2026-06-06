@@ -13,6 +13,7 @@ import { createCallFixCodeActions } from "./callFixes";
 import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
 import { createStringTemplateCodeActions } from "./stringTemplateFixes";
+import { createTrailingLambdaCodeActions } from "./trailingLambdaFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
 
@@ -83,6 +84,15 @@ export function collectCodeActions(params: CollectCodeActionsParams): CodeAction
 
   actions.push(
     ...createStringTemplateCodeActions({
+      uri,
+      ast,
+      text,
+      position: range.start
+    })
+  );
+
+  actions.push(
+    ...createTrailingLambdaCodeActions({
       uri,
       ast,
       text,
