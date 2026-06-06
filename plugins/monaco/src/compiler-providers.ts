@@ -303,9 +303,24 @@ export function registerLanguage(): void {
       { open: "'", close: "'" },
     ],
     indentationRules: {
-      increaseIndentPattern: /^.*\{[^}"']*$/,
+      increaseIndentPattern: /^.*(\{[^}"']*|->)\s*$/,
       decreaseIndentPattern: /^\s*\}/,
     },
+    onEnterRules: [
+      {
+        // Brace/tail lambda arrow with an auto-closed `}` (and trailing
+        // call parens) right after the cursor: split onto an indented line
+        // and push the closing bracket(s) down.
+        beforeText: /->\s*$/,
+        afterText: /^\s*[)\]}]/,
+        action: { indentAction: monaco.languages.IndentAction.IndentOutdent },
+      },
+      {
+        // Lambda arrow at end of line with nothing after: just indent.
+        beforeText: /->\s*$/,
+        action: { indentAction: monaco.languages.IndentAction.Indent },
+      },
+    ],
   });
 }
 

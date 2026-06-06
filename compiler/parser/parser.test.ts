@@ -906,6 +906,21 @@ describe("parseExpression", () => {
                 }
             ]
         });
+
+        const multiStatement = parseExpression(
+            tokenizeReader("new Promise({ resolve, reject ->\n  setTimeout(resolve, 1)\n  setTimeout(reject, 2)\n})")
+        ) as any;
+        const lambda = multiStatement.arguments[0];
+        expect(lambda.kind).toBe("ArrowFunctionExpression");
+        expect(lambda.parameters.map((parameter: any) => parameter.name.name)).toEqual([
+            "resolve",
+            "reject"
+        ]);
+        expect(lambda.body.kind).toBe("BlockStatement");
+        expect(lambda.body.body.length).toBe(2);
+        expect(lambda.body.body.every((statement: any) => statement.kind === "ExprStatement")).toBe(
+            true
+        );
     });
 
     it("builds an AST for new expression variants", () => {
