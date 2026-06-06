@@ -1,21 +1,12 @@
 import type {
   BlockStatement,
   ClassMethodMember,
-  ClassStatement,
   Expr,
-  DoWhileStatement,
-  ForStatement,
   FunctionStatement,
-  IfStatement,
-  LabeledStatement,
   Program,
-  ReturnStatement,
-  SwitchStatement,
-  Statement,
-  TryStatement,
-  WhileStatement,
-  WithStatement
+  ReturnStatement
 } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 import { CodeActionKind, type CodeAction, type Range } from "vscode-languageserver/node.js";
 import { containsPosition, nodeRange, rangeSize, tokenRange, type Position } from "./ranges";
 
@@ -82,89 +73,17 @@ function findFunctionLikeAtPosition(ast: Program, position: Position): FunctionL
     }
   };
 
-  const visitStatement = (statement: Statement): void => {
-    switch (statement.kind) {
-      case "FunctionStatement": {
-        const fn = statement as FunctionStatement;
-        consider(fn, fn.body);
-        for (const child of fn.body.body) {
-          visitStatement(child);
-        }
-        return;
-      }
-      case "ClassStatement": {
-        const classStatement = statement as ClassStatement;
-        for (const member of classStatement.members) {
-          if (member.kind !== "ClassMethodMember") {
-            continue;
-          }
-          consider(member, member.body);
-          for (const child of member.body.body) {
-            visitStatement(child);
-          }
-        }
-        return;
-      }
-      case "BlockStatement":
-        for (const child of (statement as BlockStatement).body) {
-          visitStatement(child);
-        }
-        return;
-      case "IfStatement": {
-        const ifStatement = statement as IfStatement;
-        visitStatement(ifStatement.thenBranch);
-        if (ifStatement.elseBranch) {
-          visitStatement(ifStatement.elseBranch);
-        }
-        return;
-      }
-      case "WhileStatement":
-        visitStatement((statement as WhileStatement).body);
-        return;
-      case "WithStatement":
-        visitStatement((statement as WithStatement).body);
-        return;
-      case "LabeledStatement":
-        visitStatement((statement as LabeledStatement).body);
-        return;
-      case "DoWhileStatement":
-        visitStatement((statement as DoWhileStatement).body);
-        return;
-      case "ForStatement":
-        visitStatement((statement as ForStatement).body);
-        return;
-      case "SwitchStatement":
-        for (const switchCase of (statement as SwitchStatement).cases) {
-          for (const child of switchCase.consequent) {
-            visitStatement(child);
-          }
-        }
-        return;
-      case "TryStatement": {
-        const tryStatement = statement as TryStatement;
-        for (const child of tryStatement.tryBlock.body) {
-          visitStatement(child);
-        }
-        if (tryStatement.catchClause) {
-          for (const child of tryStatement.catchClause.body.body) {
-            visitStatement(child);
-          }
-        }
-        if (tryStatement.finallyBlock) {
-          for (const child of tryStatement.finallyBlock.body) {
-            visitStatement(child);
-          }
-        }
-        return;
-      }
-      default:
-        return;
+  walkAst(ast, (node) => {
+    if (node.kind === "FunctionStatement") {
+      const fn = node as FunctionStatement;
+      consider(fn, fn.body);
+      return;
     }
-  };
-
-  for (const statement of ast.body) {
-    visitStatement(statement);
-  }
+    if (node.kind === "ClassMethodMember") {
+      const method = node as ClassMethodMember;
+      consider(method, method.body);
+    }
+  });
 
   return state.best ? state.best.target : null;
 }

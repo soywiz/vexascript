@@ -15,17 +15,13 @@ review. The low-risk, behavior-preserving consolidations have already been
 applied (shared `compiler/moduleResolution.ts` for local import resolution, a
 single `BUILTIN_TYPE_NAMES` in `compiler/analysis/types.ts`, shared
 `classPropertyParameters`/`constructorParameterProperties` exported from
-`compiler/lsp/classResolver.ts`, and `unwrapExportedDeclaration` in
-`compiler/ast/traversal.ts`). The remaining items below are larger refactors
-that need their own focused change with tests:
+`compiler/lsp/classResolver.ts`, `unwrapExportedDeclaration` in
+`compiler/ast/traversal.ts`, and shared LSP quick-fix target lookup via
+`compiler/lsp/nodeSearch.ts` backed by `compiler/ast/traversal.ts`). Future
+quick fixes should use `nodeSearch.ts`/`walkAst` instead of adding bespoke
+recursive visitors. The remaining items below are larger refactors that need
+their own focused change with tests:
 
-- LSP quick-fix modules (`typeFixes.ts`, `memberFixes.ts`, `callFixes.ts`,
-  `stringTemplateFixes.ts`, `functionShorthandFixes.ts`) still each
-  reimplement a ~100-line `visitExpression`/`visitStatement` AST walk for
-  locating fix targets. They now share `compiler/lsp/ranges.ts` for
-  token-to-LSP range conversion, position comparison, containment, and range
-  sizing; the remaining work is a generic "find node at position" visitor
-  (the shared `compiler/ast/traversal.ts` walker can back it).
 - Cross-file declaration resolution is implemented twice: the semantic
   `TypeChecker` and the LSP `classResolver`/`crossFileNavigation` independently
   walk imports/runtime/project to resolve a type name to its declaration. A
