@@ -25,6 +25,24 @@ describe("auto-await decorations", () => {
     expect(decorations[0]!.message).toContain("Implicit await");
   });
 
+  it("marks lines where a Promise is implicitly awaited inside an async function", () => {
+    const source =
+      "async fun fetchValue(): Promise<int> { return 1 }\n" +
+      "async fun main(): Promise<void> {\n" +
+      "  let x = fetchValue()\n" +
+      "  fetchValue()\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!, {
+      start: { line: 0, character: 0 },
+      end: { line: 20, character: 0 }
+    });
+
+    expect(decorations.map((decoration) => decoration.range.start.line)).toEqual([2, 3]);
+    expect(decorations[0]!.message).toContain("Implicit await");
+  });
+
   it("emits a single decoration per line even with multiple auto-awaited expressions", () => {
     const source =
       "declare function use(a: int, b: int): void\n" +

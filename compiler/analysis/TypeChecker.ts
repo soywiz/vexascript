@@ -114,7 +114,11 @@ export class TypeChecker {
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
   private readonly activeTypeAliasNames: Set<string> = new Set();
   private readonly generatorFunctionStack: boolean[] = [];
-  private readonly syncFunctionStack: boolean[] = [];
+  // Tracks whether the function currently being checked participates in pervasive auto-await.
+  // Both `sync` and `async` functions are async-like and auto-await Promise-typed expressions;
+  // plain functions do not. The stack handles nesting (a plain function nested in an async one
+  // does not auto-await).
+  private readonly autoAwaitFunctionStack: boolean[] = [];
 
   constructor(
     private readonly program: Program,
@@ -185,16 +189,16 @@ export class TypeChecker {
     }
   }
 
-  private isInsideSyncFunction(): boolean {
-    return this.syncFunctionStack[this.syncFunctionStack.length - 1] === true;
+  private isInsideAutoAwaitFunction(): boolean {
+    return this.autoAwaitFunctionStack[this.autoAwaitFunctionStack.length - 1] === true;
   }
 
-  private withSyncFunction<T>(isSync: boolean, run: () => T): T {
-    this.syncFunctionStack.push(isSync);
+  private withAutoAwaitFunction<T>(isAutoAwait: boolean, run: () => T): T {
+    this.autoAwaitFunctionStack.push(isAutoAwait);
     try {
       return run();
     } finally {
-      this.syncFunctionStack.pop();
+      this.autoAwaitFunctionStack.pop();
     }
   }
 
@@ -482,7 +486,7 @@ export class TypeChecker {
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
     const isAsyncLike = this.isAsyncLike(statement);
-    this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => {
+    this.withGeneratorFunction(statement.generator === true, () => this.withAutoAwaitFunction(this.isAsyncLike(statement), () => {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
       this.withTypeParameters(typeParameterNames, () => {
         const declaredReturnType = this.resolveTypeAnnotation(statement.returnType, scope);
@@ -608,7 +612,7 @@ export class TypeChecker {
         }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
         const methodIsAsyncLike = this.isAsyncLike(method);
-        this.withGeneratorFunction(method.generator === true, () => this.withSyncFunction(method.sync === true, () => {
+        this.withGeneratorFunction(method.generator === true, () => this.withAutoAwaitFunction(this.isAsyncLike(method), () => {
           this.withTypeParameters(methodTypeParameterNames, () => {
             const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
             if (methodIsAsyncLike) {
@@ -1205,7 +1209,7 @@ export class TypeChecker {
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
         const arrowIsAsyncLike = this.isAsyncLike(arrow);
-        this.withGeneratorFunction(false, () => this.withSyncFunction(arrow.sync === true, () => {
+        this.withGeneratorFunction(false, () => this.withAutoAwaitFunction(this.isAsyncLike(arrow), () => {
           if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
             result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
             return;
@@ -1260,7 +1264,7 @@ export class TypeChecker {
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
         const fnIsAsyncLike = this.isAsyncLike(fn);
-        this.withGeneratorFunction(fn.generator === true, () => this.withSyncFunction(fn.sync === true, () => {
+        this.withGeneratorFunction(fn.generator === true, () => this.withAutoAwaitFunction(fnIsAsyncLike, () => {
           const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
           const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
           const declaredReturnType = this.resolveTypeAnnotation(fn.returnType, functionScope);
@@ -1344,15 +1348,16 @@ export class TypeChecker {
         break;
     }
 
-    // Pervasive auto-await: inside a `sync` function body, any expression that evaluates to a
-    // Promise is implicitly awaited wherever it is used as a value (call arguments, operands,
-    // initializers, ...). Callers (and tooling such as hover/inlay hints) observe the unwrapped
-    // value type, while the set of auto-awaited nodes tells the emitter where to insert `await`.
-    // `go expr` opts out (it is never added here), and positions such as `await`/`go` operands,
-    // `.then`-style member receivers and `return` expressions pass `suppressAutoAwait`.
+    // Pervasive auto-await: inside an async-like (`async` or `sync`) function body, any expression
+    // that evaluates to a Promise is implicitly awaited wherever it is used as a value (call
+    // arguments, operands, initializers, ...). Callers (and tooling such as hover/inlay hints)
+    // observe the unwrapped value type, while the set of auto-awaited nodes tells the emitter where
+    // to insert `await`. `go expr` opts out (it is never added here), and positions such as
+    // `await`/`go` operands, `.then`-style member receivers and `return` expressions pass
+    // `suppressAutoAwait`.
     if (
       !suppressAutoAwait &&
-      this.isInsideSyncFunction() &&
+      this.isInsideAutoAwaitFunction() &&
       !this.isGoExpression(expression) &&
       !this.isLocalValueReference(expression, scope) &&
       result.kind === "named" &&

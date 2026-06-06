@@ -64,12 +64,21 @@ function* ids() {
 
 In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10` and `return Promise.resolve(10)` are valid for `Promise<int>`. `await expr` evaluates to `T` when `expr` has type `Promise<T>`; otherwise `await` preserves the original type. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
 
+### Pervasive auto-await (`async` and `sync` functions)
+
+Inside the body of any async-like function — both `async` and `sync` — **any** subexpression whose type is `Promise<T>` is **automatically awaited** wherever it is used as a value, and its observed type becomes `T`. This applies everywhere — expression statements, variable initializers, assignment right-hand sides, call arguments, operands, array/object elements, and member receivers. Writing `await` explicitly is still allowed and behaves the same; the implicit await simply makes it unnecessary in most positions. Use the `go` operator (see below) to opt out and keep the underlying `Promise<T>`.
+
+```mylang
+async fun main(): Promise<void> {
+  let x = fetchValue()                 // let x = await fetchValue();   -> x: int
+  fetchValue()                         // await fetchValue();
+  use(fetchValue(), fetchValue() + 1)  // use(await fetchValue(), (await fetchValue()) + 1);
+}
+```
+
 ### `sync` functions (implicit await)
 
-The `sync` modifier declares a function that behaves like `async` internally (it is emitted as a JavaScript `async function` and may use `await`), but with two ergonomic differences:
-
-- The return type is written **without** the `Promise<...>` wrapper. `sync fun load(): Response` is internally an async function returning `Promise<Response>`; from the outside (and from other functions) the call is observed as `Promise<Response>`, so it participates in auto-await just like any other Promise.
-- Inside a `sync` function body, **any** subexpression whose type is `Promise<T>` is **automatically awaited** wherever it is used as a value, and its observed type becomes `T`. This applies everywhere — expression statements, variable initializers, assignment right-hand sides, call arguments, operands, array/object elements, and member receivers.
+The `sync` modifier declares a function that behaves like `async` internally (it is emitted as a JavaScript `async function` and may use `await`), but with one ergonomic difference: the return type is written **without** the `Promise<...>` wrapper. `sync fun load(): Response` is internally an async function returning `Promise<Response>`; from the outside (and from other functions) the call is observed as `Promise<Response>`, so it participates in auto-await just like any other Promise. The pervasive auto-await described above applies identically to `sync` and `async` bodies.
 
 ```mylang
 sync fun fetchValue(): int {

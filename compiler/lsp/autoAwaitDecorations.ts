@@ -6,8 +6,8 @@ import type { Range } from "vscode-languageserver/node.js";
 /**
  * A gutter/margin marker for a line that contains an `await` — either an explicit `await` inside an
  * `async`/`sync` function, or an implicit one inserted by the compiler when a Promise-typed
- * expression is auto-awaited inside a `sync` function body (similar to the suspend-call gutter icons
- * in Kotlin IDEs).
+ * expression is auto-awaited inside an async-like (`async` or `sync`) function body (similar to the
+ * suspend-call gutter icons in Kotlin IDEs).
  *
  * One decoration is produced per affected line: `range` spans the awaited expression (useful for
  * hover), while editors typically render the gutter icon on `range.start.line`.
@@ -22,7 +22,7 @@ export interface AutoAwaitDecoration {
 }
 
 const IMPLICIT_AWAIT_MESSAGE =
-  "Implicit await: this Promise is automatically awaited inside a sync function";
+  "Implicit await: this Promise is automatically awaited inside an async/sync function";
 const EXPLICIT_AWAIT_MESSAGE = "Awaited expression";
 
 function nodeRange(node: Node): AutoAwaitDecoration["range"] | null {

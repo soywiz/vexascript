@@ -314,8 +314,32 @@ describe("transpile", () => {
     expect(result.code).toContain("let p = fetchValue();");
     expect(result.code).toContain("use(fetchValue());");
     expect(result.code).not.toContain("await fetchValue()");
-    // Nested non-sync functions do not auto-await.
+    // Nested plain (non-async-like) functions do not auto-await.
     expect(result.code).toContain("let r = fetchValue();");
+  });
+
+  it("auto-awaits Promise-typed expressions inside async functions, like sync functions", () => {
+    const source = [
+      "declare function use(a: int, b: int): void",
+      "async fun fetchValue(): Promise<int> { return 1 }",
+      "async fun main(): Promise<void> {",
+      "  let x = fetchValue()",
+      "  fetchValue()",
+      "  use(fetchValue(), fetchValue())",
+      "  let pending = go fetchValue()",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // Promise-typed initializers, bare statements and call arguments are awaited automatically,
+    // exactly as inside a `sync` function.
+    expect(result.code).toContain("let x = await fetchValue();");
+    expect(result.code).toContain("await fetchValue();");
+    expect(result.code).toContain("use(await fetchValue(), await fetchValue());");
+    // `go` still opts out inside async functions, keeping the Promise.
+    expect(result.code).toContain("let pending = fetchValue();");
   });
 
   it("does not auto-await bare local variable or parameter references", () => {
