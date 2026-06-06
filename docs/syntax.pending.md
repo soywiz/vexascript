@@ -18,7 +18,7 @@ All currently tracked concrete ambient declaration forms are implemented, includ
 
 ## Statements and Control Flow
 
-- Stricter switch fallthrough diagnostics behavior (if desired by project rules).
+All currently tracked concrete statement/control-flow syntax and switch diagnostics are implemented. Future statement gaps should be added here when identified.
 
 ## Error Recovery and Diagnostics (TypeScript-oriented)
 

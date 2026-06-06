@@ -30,7 +30,7 @@ Notes:
 Binding is lexical and scope-based:
 
 - The binder creates nested scopes for blocks, functions, loops, conditionals, switch/try branches, classes, and methods.
-- Semantic analysis validates switch structure, including reporting duplicate `default` clauses.
+- Semantic analysis validates switch structure, including reporting duplicate `default` clauses and non-empty cases that can fall through to the next case label without an explicit `break`, `return`, `throw`, or `continue`.
 - Visible symbols at a position are gathered from innermost scope to outermost scope.
 - Declarations in the same lexical scope update existing symbols when type information becomes more precise.
 

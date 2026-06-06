@@ -72,6 +72,19 @@ describe("lsp diagnostics", () => {
     ).toBe(true);
   });
 
+  it("assigns a semantic diagnostic code to switch case fallthrough", () => {
+    const diagnostics = diagnosticsFor(`switch (value) {
+  case 1:
+    value + 1
+  default:
+    break
+}`);
+
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.SWITCH_CASE_FALLTHROUGH)
+    ).toBe(true);
+  });
+
   it("assigns distinct return diagnostic codes at the nearest source locations", () => {
     const diagnostics = diagnosticsFor(`function incomplete(flag: boolean): int {
   if (flag) return 1
