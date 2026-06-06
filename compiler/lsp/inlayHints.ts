@@ -19,6 +19,7 @@ import type {
   LabeledStatement,
   MemberExpression,
   NewExpression,
+  NonNullExpression,
   ObjectLiteral,
   Program,
   RangeExpression,
@@ -406,6 +407,9 @@ export function createInlayHints(
         return;
       case "AsExpression":
         visitExpression((expression as AsExpression).expression);
+        return;
+      case "NonNullExpression":
+        visitExpression((expression as NonNullExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

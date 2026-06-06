@@ -173,6 +173,8 @@ let promise = go fetchValue()`));
     expect(emitProgram(parseFile(tokenizeReader("let name = value as string")))).toBe("let name = value;");
     expect(emitProgram(parseFile(tokenizeReader("let name = <string>value")))).toBe("let name = value;");
     expect(emitProgram(parseFile(tokenizeReader("let values = [1, 2] as const")))).toBe("let values = [1, 2];");
+    expect(emitProgram(parseFile(tokenizeReader("let name = value!")))).toBe("let name = value;");
+    expect(emitProgram(parseFile(tokenizeReader("let length = maybe!.name!.length")))).toBe("let length = maybe.name.length;");
   });
 
   it("erases declarations that use keyof, typeof, and indexed access types", () => {

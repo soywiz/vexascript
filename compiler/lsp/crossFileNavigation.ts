@@ -29,6 +29,7 @@ import type {
   ImportStatement,
   MemberExpression,
   NewExpression,
+  NonNullExpression,
   ObjectLiteral,
   Program,
   RangeExpression,
@@ -599,6 +600,9 @@ function findMemberExpressionAtPosition(
       case "AsExpression":
         visitExpression((expression as AsExpression).expression);
         return;
+      case "NonNullExpression":
+        visitExpression((expression as NonNullExpression).expression);
+        return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);
         visitExpression((expression as BinaryExpression).right);
@@ -937,6 +941,9 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
         return;
       case "AsExpression":
         visitExpression((expression as AsExpression).expression);
+        return;
+      case "NonNullExpression":
+        visitExpression((expression as NonNullExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

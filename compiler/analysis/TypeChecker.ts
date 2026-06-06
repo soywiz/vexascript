@@ -31,6 +31,7 @@ import type {
   MissingExpression,
   NewExpression,
   NamespaceStatement,
+  NonNullExpression,
   ObjectLiteral,
   ObjectProperty,
   ObjectSpreadProperty,
@@ -983,6 +984,11 @@ export class TypeChecker {
         result = assertedType;
         break;
       }
+      case "NonNullExpression": {
+        const nonNull = expression as NonNullExpression;
+        result = this.removeNullishFromType(this.visitExpression(nonNull.expression, scope));
+        break;
+      }
       case "ConditionalExpression": {
         const conditional = expression as ConditionalExpression;
         this.visitExpression(conditional.test, scope);
@@ -1007,7 +1013,8 @@ export class TypeChecker {
           !member.computed &&
           member.property.kind === "Identifier" &&
           this.isPromiseMethodName((member.property as Identifier).name);
-        const objectType = this.visitExpression(member.object, scope, undefined, suppressObjectAutoAwait);
+        const rawObjectType = this.visitExpression(member.object, scope, undefined, suppressObjectAutoAwait);
+        const objectType = member.nonNullAsserted === true ? this.removeNullishFromType(rawObjectType) : rawObjectType;
         if (member.computed) {
           const propertyType = this.visitExpression(member.property, scope);
           result = this.resolveOptionalAccessType(this.resolveComputedMemberType(objectType, propertyType), member.optional === true);
@@ -2149,6 +2156,17 @@ export class TypeChecker {
 
   private hasNullishUnionMember(type: AnalysisType): boolean {
     return type.kind === "union" && type.types.some((member) => this.isNullishType(member));
+  }
+
+  private removeNullishFromType(type: AnalysisType): AnalysisType {
+    if (type.kind !== "union") {
+      return type;
+    }
+    const nonNullishTypes = type.types.filter((member) => !this.isNullishType(member));
+    if (nonNullishTypes.length === 0) {
+      return UNKNOWN_TYPE;
+    }
+    return nonNullishTypes.length === 1 ? nonNullishTypes[0]! : unionType(nonNullishTypes);
   }
 
   private validateCallArguments(

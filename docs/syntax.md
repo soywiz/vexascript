@@ -123,12 +123,13 @@ function bind(this: Loader, id: string): string {
 }
 ```
 
-Type assertions with `as Type`, angle-bracket assertions, and const assertions are parsed and erased during JavaScript emission. Const assertions keep the analyzed expression type without attempting to resolve `const` as a named type:
+Type assertions with `as Type`, angle-bracket assertions, const assertions, and non-null assertions are parsed and erased during JavaScript emission. Const assertions keep the analyzed expression type without attempting to resolve `const` as a named type. Non-null assertions remove `null` and `undefined` from the analyzed expression type without changing runtime output:
 
 ```mylang
 let name = value as string
 let precise = [1, 2] as const
 let other = <string>value
+let definitelyName = maybeName!
 ```
 
 
@@ -817,7 +818,7 @@ Supported member access forms:
 - computed access: `obj[index]`
 - optional computed access: `obj?.[index]`
 
-Optional member and computed access include `undefined` in their inferred result type.
+Optional member and computed access include `undefined` in their inferred result type. Non-null asserted access removes `null` and `undefined` from the receiver type before resolving the member and is erased to normal dot access during JavaScript emission.
 
 ### Array literals
 

@@ -1913,6 +1913,22 @@ let unsafe = true as string
     expect(messages).toContain("Type assertion from 'boolean' to 'string' may be unsafe because neither type is assignable to the other");
   });
 
+  it("narrows nullable unions with TypeScript non-null assertions", () => {
+    const source = `let maybeName: string | null | undefined = "Ada"
+let name: string = maybeName!
+let stillMaybe: string = maybeName
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string | null | undefined' is not assignable to type 'string'");
+    expect(messages.filter((message) => message.includes("is not assignable to type"))).toEqual([
+      "Type 'string | null | undefined' is not assignable to type 'string'"
+    ]);
+  });
+
   it("treats const assertions as erased assertions that keep the expression type", () => {
     const source = `let values = [1, 2] as const
 let count: number = 1 as const

@@ -24,6 +24,7 @@ import type {
   LabeledStatement,
   MemberExpression,
   NewExpression,
+  NonNullExpression,
   NamespaceStatement,
   ObjectLiteral,
   Program,
@@ -719,6 +720,9 @@ function findArgumentCompletionContext(
         return;
       case "AsExpression":
         visitExpression((expression as AsExpression).expression);
+        return;
+      case "NonNullExpression":
+        visitExpression((expression as NonNullExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

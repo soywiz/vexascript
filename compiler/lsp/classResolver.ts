@@ -15,6 +15,7 @@ import type {
   Identifier,
   MemberExpression,
   NewExpression,
+  NonNullExpression,
   UnaryExpression,
   UpdateExpression,
   Program
@@ -861,6 +862,12 @@ export function resolveExpressionTypeName(
     return typeNameFromAnalysisType(analysis.getExpressionTypes().get(assertion))
       ?? assertion.typeAnnotation.name
       ?? resolveExpressionTypeName(assertion.expression, analysis, ast, options);
+  }
+
+  if (expression.kind === "NonNullExpression") {
+    const nonNull = expression as NonNullExpression;
+    return typeNameFromAnalysisType(analysis.getExpressionTypes().get(nonNull))
+      ?? resolveExpressionTypeName(nonNull.expression, analysis, ast, options);
   }
 
   if (expression.kind === "Identifier") {
