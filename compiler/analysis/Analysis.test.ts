@@ -482,6 +482,37 @@ let expectsPromise: (flag: boolean) => Promise<int> = inferred`;
     expect(analysis.getIssues()).toEqual([]);
   });
 
+
+  it("contextually types Promise constructor executors and infers resolved values", () => {
+    const okSource = `let promise: Promise<int> = new Promise((resolve, reject) => {
+  resolve(123)
+})`;
+    const okAnalysis = new Analysis(parseFile(tokenizeReader(okSource)));
+    expect(okAnalysis.getIssues().map((issue) => issue.message)).toEqual([]);
+
+    const mismatchSource = `let promise: Promise<string> = new Promise((resolve, reject) => {
+  resolve(123)
+})`;
+    const mismatchAnalysis = new Analysis(parseFile(tokenizeReader(mismatchSource)));
+    expect(mismatchAnalysis.getIssues().map((issue) => issue.message)).toContain(
+      "Type 'Promise<int>' is not assignable to type 'Promise<string>'"
+    );
+  });
+
+  it("validates Promise constructor and resolver arity", () => {
+    const source = `let missing = new Promise()
+let extra = new Promise((resolve, reject) => {
+  resolve(1, 2)
+})`;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual(expect.arrayContaining([
+      "Expected at least 1 argument(s), but got 0",
+      "Expected at most 1 argument(s), but got 2",
+      "Unexpected argument 2; function expects at most 1 argument(s)"
+    ]));
+  });
+
+
   it("auto-wraps non-Promise annotations on async functions as Promise<T>", () => {
     const source = `async function inferred(): number {
   return 10

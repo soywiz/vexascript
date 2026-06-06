@@ -58,6 +58,20 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("demo")?.detail).toBe("In-scope function: (a: unknown, b: int) => unknown");
   });
 
+  it("offers contextually typed Promise executor parameters", () => {
+    const { source, line, character } = sourceWithCursor(
+      "let promise = new Promise((resolve, reject) => {\n" +
+      "  ^^^resolve(1)\n" +
+      "})\n"
+    );
+    const ast = parseFile(tokenizeReader(source));
+    const items = createCompletionItemsForPosition(ast, line, character);
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("resolve")?.detail).toBe("In-scope parameter: (arg1: int) => void");
+    expect(byLabel.get("reject")?.detail).toBe("In-scope parameter: (arg1: Error) => void");
+  });
+
   it("keeps keyword completions available", () => {
     const labels = createKeywordOnlyCompletionItems().map((item) => item.label);
     expect(labels).toContain("fn");

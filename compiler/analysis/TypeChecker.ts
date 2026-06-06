@@ -1083,35 +1083,32 @@ export class TypeChecker {
       case "NewExpression": {
         const newExpression = expression as NewExpression;
         const calleeType = this.visitExpression(newExpression.callee, scope);
-        for (const argument of newExpression.arguments ?? []) {
-          this.visitExpression(argument, scope);
-        }
         const explicitTypeArguments = (newExpression.typeArguments ?? []).map((typeArgument) =>
           this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
         );
+
+        const classStatement = this.classStatementForNewExpression(newExpression, calleeType);
+        if (classStatement) {
+          this.validateNamedTypeArgumentConstraints(
+            classStatement.name.name,
+            explicitTypeArguments,
+            newExpression.callee,
+            scope
+          );
+          const constructedType = this.inferConstructedType(
+            newExpression,
+            classStatement,
+            explicitTypeArguments,
+            scope
+          );
+          result = constructedType;
+          break;
+        }
+
+        for (const argument of newExpression.arguments ?? []) {
+          this.visitExpression(argument, scope);
+        }
         if (!isUnknownType(calleeType)) {
-          if (calleeType.kind === "named" && explicitTypeArguments.length > 0) {
-            this.validateNamedTypeArgumentConstraints(
-              calleeType.name,
-              explicitTypeArguments,
-              newExpression.callee,
-              scope
-            );
-            const classStatement = this.classStatementsByName.get(calleeType.name);
-            if (classStatement) {
-              this.validateConstructorArity(newExpression, classStatement);
-            }
-            result = namedType(calleeType.name, explicitTypeArguments);
-            break;
-          }
-          const classStatement = calleeType.kind === "named"
-            ? this.classStatementsByName.get(calleeType.name)
-            : undefined;
-          if (classStatement) {
-            this.validateConstructorArity(newExpression, classStatement);
-            result = calleeType;
-            break;
-          }
           if (calleeType.kind === "function") {
             result = calleeType.returnType;
             break;
@@ -1122,18 +1119,6 @@ export class TypeChecker {
 
         if (newExpression.callee.kind === "Identifier") {
           const calleeIdentifier = newExpression.callee as Node & { kind: "Identifier"; name: string };
-          const classStatement = this.classStatementsByName.get(calleeIdentifier.name);
-          if (classStatement) {
-            this.validateConstructorArity(newExpression, classStatement);
-            this.validateNamedTypeArgumentConstraints(
-              calleeIdentifier.name,
-              explicitTypeArguments,
-              calleeIdentifier,
-              scope
-            );
-            result = namedType(calleeIdentifier.name, explicitTypeArguments);
-            break;
-          }
           this.validateNamedTypeArgumentConstraints(
             calleeIdentifier.name,
             explicitTypeArguments,
@@ -1253,6 +1238,12 @@ export class TypeChecker {
               returnType = namedType("Promise", [returnType]);
             }
             if (
+              expectedFunctionType &&
+              !isUnknownType(expectedFunctionType.returnType) &&
+              this.returnValueIsOptional(expectedFunctionType.returnType)
+            ) {
+              returnType = expectedFunctionType.returnType;
+            } else if (
               expectedFunctionType &&
               !isUnknownType(returnType) &&
               !isUnknownType(expectedFunctionType.returnType) &&
@@ -1653,6 +1644,14 @@ export class TypeChecker {
       return true;
     }
 
+    if (targetType.kind === "named" && this.isActiveTypeParameter(targetType.name)) {
+      return true;
+    }
+
+    if (sourceType.kind === "named" && this.isActiveTypeParameter(sourceType.name)) {
+      return true;
+    }
+
     if (targetType.kind === "union") {
       return targetType.types.some((member) => this.isTypeAssignable(sourceType, member));
     }
@@ -1726,6 +1725,9 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "function" && targetType.kind === "function") {
+      if (targetType.parameters.length === 0 && this.returnValueIsOptional(targetType.returnType)) {
+        return true;
+      }
       const targetRequiredCount = targetType.parameters.filter((parameter) => !parameter.optional).length;
       if (sourceType.parameters.length < targetRequiredCount) {
         return false;
@@ -2170,13 +2172,16 @@ export class TypeChecker {
   }
 
   private validateCallArguments(
-    call: CallExpression,
+    call: CallExpression | NewExpression,
     calleeType: AnalysisType & { kind: "function" },
     argumentTypes: AnalysisType[]
   ): void {
     const diagnosticNode = call.callee.kind === "MemberExpression"
       ? (call.callee as MemberExpression).property
-      : call;
+      : call.kind === "CallExpression"
+        ? call
+        : call.callee;
+    const args = call.arguments ?? [];
     const lastParameter = calleeType.parameters[calleeType.parameters.length - 1];
     const restParameter = lastParameter?.rest ? lastParameter : undefined;
     const fixedParameters = restParameter ? calleeType.parameters.slice(0, -1) : calleeType.parameters;
@@ -2197,14 +2202,14 @@ export class TypeChecker {
       for (let index = totalCount; index < providedCount; index += 1) {
         this.issues.push({
           message: `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
-          node: call.arguments[index] ?? call
+          node: args[index] ?? call
         });
       }
     }
 
     const comparableCount = restParameter ? providedCount : Math.min(providedCount, totalCount);
     for (let index = 0; index < comparableCount; index += 1) {
-      const argumentExpression = call.arguments[index];
+      const argumentExpression = args[index];
       const parameter = fixedParameters[index] ?? restParameter;
       if (!parameter) {
         continue;
@@ -2261,6 +2266,221 @@ export class TypeChecker {
           node: node.arguments?.[index] ?? diagnosticNode
         });
       }
+    }
+  }
+
+  private classStatementForNewExpression(newExpression: NewExpression, calleeType: AnalysisType): ClassStatement | undefined {
+    if (calleeType.kind === "named") {
+      const classStatement = this.classStatementsByName.get(calleeType.name);
+      if (classStatement) {
+        return classStatement;
+      }
+    }
+    if (newExpression.callee.kind !== "Identifier") {
+      return undefined;
+    }
+    return this.classStatementsByName.get((newExpression.callee as Identifier).name);
+  }
+
+  private inferConstructedType(
+    newExpression: NewExpression,
+    classStatement: ClassStatement,
+    explicitTypeArguments: AnalysisType[],
+    scope: Scope
+  ): AnalysisType {
+    const typeParameterNames = (classStatement.typeParameters ?? []).map((parameter) => parameter.name.name);
+    const substitutions = new Map<string, AnalysisType>();
+    const explicitTypeParameterNames = new Set<string>();
+    for (let index = 0; index < typeParameterNames.length; index += 1) {
+      const typeParameterName = typeParameterNames[index]!;
+      const explicitTypeArgument = explicitTypeArguments[index];
+      if (explicitTypeArgument) {
+        substitutions.set(typeParameterName, explicitTypeArgument);
+        explicitTypeParameterNames.add(typeParameterName);
+      } else {
+        substitutions.set(typeParameterName, namedType(typeParameterName));
+      }
+    }
+
+    let constructorType = this.constructorFunctionType(classStatement, scope);
+    if (substitutions.size > 0) {
+      constructorType = this.substituteTypeParameters(constructorType, substitutions) as AnalysisType & { kind: "function" };
+    }
+
+    let argumentTypes: AnalysisType[] = [];
+    this.withTypeParameters(typeParameterNames, () => {
+      argumentTypes = this.visitConstructorArgumentsWithContext(newExpression, scope, constructorType);
+    });
+
+    const typeParameterSet = new Set(typeParameterNames);
+    for (let index = 0; index < constructorType.parameters.length && index < argumentTypes.length; index += 1) {
+      this.inferTypeParameterSubstitutions(
+        constructorType.parameters[index]!.type,
+        argumentTypes[index]!,
+        typeParameterSet,
+        explicitTypeParameterNames,
+        substitutions
+      );
+    }
+    this.inferPromiseConstructorTypeArgument(newExpression, classStatement, substitutions, explicitTypeParameterNames);
+
+    const finalConstructorType = this.substituteTypeParameters(
+      this.constructorFunctionType(classStatement, scope),
+      substitutions
+    ) as AnalysisType & { kind: "function" };
+    argumentTypes = this.visitConstructorArgumentsWithContext(newExpression, scope, finalConstructorType);
+    this.validateCallArguments(newExpression, finalConstructorType, argumentTypes);
+
+    const typeArguments = typeParameterNames.map((typeParameterName) => substitutions.get(typeParameterName) ?? namedType(typeParameterName));
+    return namedType(classStatement.name.name, typeArguments);
+  }
+
+  private constructorFunctionType(classStatement: ClassStatement, scope: Scope): AnalysisType & { kind: "function" } {
+    let result: AnalysisType & { kind: "function" } = functionType([], UNKNOWN_TYPE);
+    const typeParameterNames = (classStatement.typeParameters ?? []).map((parameter) => parameter.name.name);
+    this.withTypeParameters(typeParameterNames, () => {
+      const constructorMember = classStatement.members.find(
+        (member): member is ClassMethodMember => member.kind === "ClassMethodMember" && member.name.name === "constructor"
+      );
+      const parameters = constructorMember?.parameters.map((parameter) => ({
+        name: parameter.name,
+        typeAnnotation: parameter.typeAnnotation,
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
+      })) ?? (classStatement.primaryConstructorParameters ?? []).map((parameter) => ({
+        name: parameter.name,
+        typeAnnotation: parameter.typeAnnotation,
+        optional: parameter.defaultValue !== undefined,
+        rest: false
+      }));
+      result = functionType(
+        parameters.map((parameter) => ({
+          name: bindingNameText(parameter.name),
+          type: this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE,
+          optional: parameter.optional,
+          rest: parameter.rest
+        })),
+        namedType(classStatement.name.name, typeParameterNames.map((typeParameterName) => namedType(typeParameterName))),
+        typeParameterNames,
+        this.typeParameterConstraintMap(classStatement.typeParameters ?? [], scope)
+      );
+    });
+    return result;
+  }
+
+  private visitConstructorArgumentsWithContext(
+    newExpression: NewExpression,
+    scope: Scope,
+    constructorType: AnalysisType & { kind: "function" }
+  ): AnalysisType[] {
+    const args = newExpression.arguments ?? [];
+    return args.map((argument, index) => {
+      const expectedParameterType = constructorType.parameters[index]?.type;
+      const contextualExpectedType = expectedParameterType
+        ? this.contextualTypeForExpressionArgument(argument, expectedParameterType)
+        : null;
+      return this.visitExpression(argument, scope, contextualExpectedType ?? undefined);
+    });
+  }
+
+  private inferPromiseConstructorTypeArgument(
+    newExpression: NewExpression,
+    classStatement: ClassStatement,
+    substitutions: Map<string, AnalysisType>,
+    explicitTypeParameterNames: Set<string>
+  ): void {
+    if (classStatement.name.name !== "Promise" || explicitTypeParameterNames.has("T")) {
+      return;
+    }
+    const executor = newExpression.arguments?.[0];
+    if (!executor || !this.isFunctionLikeExpression(executor)) {
+      return;
+    }
+    const parameters = (executor as ArrowFunctionExpression | FunctionExpression).parameters;
+    const resolveParameter = parameters[0];
+    if (!resolveParameter) {
+      return;
+    }
+    const resolveName = bindingNameText(resolveParameter.name);
+    if (!resolveName) {
+      return;
+    }
+    const resolvedTypes: AnalysisType[] = [];
+    this.collectCallArgumentTypes(executor, resolveName, resolvedTypes);
+    if (resolvedTypes.length === 0) {
+      return;
+    }
+    substitutions.set("T", this.combineTypes(resolvedTypes));
+  }
+
+  private collectCallArgumentTypes(expression: Expr, calleeName: string, collected: AnalysisType[]): void {
+    const visitExpression = (candidate: Expr | undefined): void => {
+      if (!candidate) {
+        return;
+      }
+      this.collectCallArgumentTypes(candidate, calleeName, collected);
+    };
+    const visitStatement = (statement: Statement): void => {
+      switch (statement.kind) {
+        case "ExprStatement":
+          visitExpression((statement as ExprStatement).expression);
+          break;
+        case "ReturnStatement":
+          visitExpression((statement as ReturnStatement).expression);
+          break;
+        case "BlockStatement":
+          visitStatements((statement as BlockStatement).body);
+          break;
+        case "IfStatement":
+          visitExpression((statement as IfStatement).condition);
+          visitStatement((statement as IfStatement).thenBranch);
+          if ((statement as IfStatement).elseBranch) {
+            visitStatement((statement as IfStatement).elseBranch!);
+          }
+          break;
+        default:
+          break;
+      }
+    };
+    const visitStatements = (statements: Statement[]): void => {
+      for (const statement of statements) {
+        visitStatement(statement);
+      }
+    };
+
+    switch (expression.kind) {
+      case "CallExpression": {
+        const call = expression as CallExpression;
+        if (call.callee.kind === "Identifier" && (call.callee as Identifier).name === calleeName && call.arguments[0]) {
+          collected.push(this.expressionTypes.get(call.arguments[0]!) ?? UNKNOWN_TYPE);
+        }
+        visitExpression(call.callee);
+        for (const argument of call.arguments) visitExpression(argument);
+        return;
+      }
+      case "ArrowFunctionExpression": {
+        const arrow = expression as ArrowFunctionExpression;
+        if (arrow.body.kind === "BlockStatement") visitStatements((arrow.body as BlockStatement).body);
+        else visitExpression(arrow.body as Expr);
+        return;
+      }
+      case "FunctionExpression":
+        visitStatements((expression as FunctionExpression).body.body);
+        return;
+      case "BinaryExpression":
+        visitExpression((expression as BinaryExpression).left);
+        visitExpression((expression as BinaryExpression).right);
+        return;
+      case "AssignmentExpression":
+        visitExpression((expression as AssignmentExpression).left);
+        visitExpression((expression as AssignmentExpression).right);
+        return;
+      case "MemberExpression":
+        visitExpression((expression as MemberExpression).object);
+        visitExpression((expression as MemberExpression).property);
+        return;
+      default:
+        return;
     }
   }
 
@@ -3259,12 +3479,19 @@ export class TypeChecker {
     parameters: FunctionParameter[],
     expectedFunctionType?: AnalysisType & { kind: "function" }
   ): Scope {
-    const functionScope: Scope = {
+    const existingScope = this.bound.scopeByNode.get(node);
+    const functionScope: Scope = existingScope ?? {
       parent: parentScope,
       node,
       symbols: new Map<string, AnalysisSymbol>(),
       children: []
     };
+    functionScope.parent = parentScope;
+    functionScope.symbols.clear();
+    if (!existingScope) {
+      parentScope.children.push(functionScope);
+      this.bound.scopeByNode.set(node, functionScope);
+    }
     for (let index = 0; index < parameters.length; index += 1) {
       const parameter = parameters[index]!;
       const expectedParameterType = expectedFunctionType?.parameters[index]?.type;
