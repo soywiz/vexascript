@@ -835,24 +835,97 @@ function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location |
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
-  if (!objectType || (objectType.kind !== "named" && objectType.kind !== "array")) {
-    return null;
-  }
-
-  const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
-  const classResolution = resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
-  if (!classResolution) {
+  if (
+    !objectType ||
+    (objectType.kind !== "named" && objectType.kind !== "array" && objectType.kind !== "builtin")
+  ) {
     return null;
   }
 
   const memberName = (memberExpression.property as Identifier).name;
-  const range = classMemberDeclarationRangeByName(classResolution.declaration, memberName);
+
+  // Candidate receiver type names to match against, mirroring the type checker's
+  // extension lookup (e.g. an `int` literal also matches extensions on `number`).
+  const receiverTypeNames =
+    objectType.kind === "array"
+      ? ["Array"]
+      : objectType.name === "int"
+        ? ["int", "number"]
+        : [objectType.name];
+
+  // A member access on a concrete class/interface may resolve to one of its own
+  // members first.
+  if (objectType.kind === "named" || objectType.kind === "array") {
+    const classResolution = resolveTypeDefinitionAcrossFiles(context, receiverTypeNames[0]!);
+    if (classResolution) {
+      const range = classMemberDeclarationRangeByName(classResolution.declaration, memberName);
+      if (range) {
+        return {
+          uri: pathToUri(classResolution.filePath),
+          range
+        };
+      }
+    }
+  }
+
+  // Otherwise the member may be an extension property/method (e.g.
+  // `val number.seconds` or `fun Point.foo()`) declared at the top level of this
+  // or an imported file. These are not class members, so resolve them by
+  // matching the receiver type.
+  for (const receiverTypeName of receiverTypeNames) {
+    const extension = resolveExtensionMemberDefinitionAcrossFiles(context, receiverTypeName, memberName);
+    if (extension) {
+      return extension;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolves a member access (`receiver.member`) to a top-level extension
+ * declaration whose receiver type matches the static type of `receiver`.
+ * Handles both extension properties (`val number.seconds: ...`) and extension
+ * methods (`fun Point.foo(): ...`) declared in the current file or any file the
+ * current document imports.
+ */
+function resolveExtensionMemberDefinitionAcrossFiles(
+  context: ResolveContext,
+  receiverTypeName: string,
+  memberName: string
+): Location | null {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath || !context.session.ast) {
+    return null;
+  }
+
+  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
+  const resolved = resolveTopLevelDeclarationAcrossFiles({
+    ast: context.session.ast,
+    name: memberName,
+    currentFilePath,
+    predicate: (statement): statement is VarStatement | FunctionStatement => {
+      if (statement.kind !== "VarStatement" && statement.kind !== "FunctionStatement") {
+        return false;
+      }
+      return (statement as VarStatement | FunctionStatement).receiverType?.name === receiverTypeName;
+    },
+    sourceRoots: roots,
+    ...(context.getSessionForFilePath
+      ? { getSessionForFilePath: context.getSessionForFilePath }
+      : {})
+  });
+
+  if (!resolved) {
+    return null;
+  }
+
+  const range = nodeToRange(resolved.declaration.name);
   if (!range) {
     return null;
   }
 
   return {
-    uri: pathToUri(classResolution.filePath),
+    uri: pathToUri(resolved.filePath === "" ? currentFilePath : resolved.filePath),
     range
   };
 }
