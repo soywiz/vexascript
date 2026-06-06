@@ -104,6 +104,7 @@ This section is the fast onboarding map for agents and contributors.
   - Function shorthand quick fixes: `compiler/lsp/functionShorthandFixes.ts`
   - Trailing-lambda quick fix (moves a brace lambda written as the last call argument out of the parentheses, e.g. `foo(a, { x -> ... })` to `foo(a) { x -> ... }`): `compiler/lsp/trailingLambdaFixes.ts`
   - Explicit return type quick fix (adds an inferred return type annotation after the parameter list of a function/method declaration that has no explicit return type, e.g. `function add(a, b) { ... }` to `function add(a, b): number { ... }`): `compiler/lsp/returnTypeFixes.ts`
+  - Empty class body quick fix (removes the empty braces from a class that declares no members, e.g. `class TimeSpan(val ms: number) { }` to `class TimeSpan(val ms: number)`): `compiler/lsp/emptyClassBodyFixes.ts`
   - Shared cross-file top-level declaration resolution helpers: `compiler/lsp/declarationResolver.ts`
   - Class/interface resolution helpers: `compiler/lsp/classResolver.ts`
   - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`): `compiler/lsp/importedDeclarations.ts`
