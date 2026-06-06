@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 
@@ -91,10 +92,12 @@ fun demo() {
     const worldSource = "class MyPoint(const x: number) { }\n";
     const helloSource =
       'import { MyPoint } from "./world"\n' +
-      "fun demo() {\n" +
-      "  const point = new MyPoint(1)\n" +
-      "  const inspect = () => point.missing\n" +
-      "}\n";
+      dedent`
+      fun demo() {
+        const point = new MyPoint(1)
+        const inspect = () => point.missing
+      }
+      `;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");

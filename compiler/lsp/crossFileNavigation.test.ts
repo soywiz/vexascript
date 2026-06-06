@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
@@ -77,17 +78,18 @@ describe("cross-file navigation", () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const file = join(root, "point.my");
 
-    const source =
-      "class Point(val x: number, val y: number) {\n" +
-      "  operator+(other: Point): Point {\n" +
-      "    return new Point(this.x + other.x, this.y + other.y)\n" +
-      "  }\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  let p = new Point(1, 2)\n" +
-      "  let q = new Point(3, 4)\n" +
-      "  let r = p + q\n" +
-      "}\n";
+    const source = dedent`
+      class Point(val x: number, val y: number) {
+        operator+(other: Point): Point {
+          return new Point(this.x + other.x, this.y + other.y)
+        }
+      }
+      fun demo() {
+        let p = new Point(1, 2)
+        let q = new Point(3, 4)
+        let r = p + q
+      }
+      `;
 
     await writeFile(file, source, "utf8");
 
@@ -114,9 +116,10 @@ describe("cross-file navigation", () => {
     const other = join(root, "other.my");
     const main = join(root, "main.my");
 
-    const otherSource =
-      "class Point(val x: number, val y: number)\n" +
-      "fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)\n";
+    const otherSource = dedent`
+      class Point(val x: number, val y: number)
+      fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)
+      `;
     const mainSource =
       'import { Point, operator+ } from "./other"\n' +
       "const sum = Point(1, 2) + Point(3, 4)\n";
@@ -212,12 +215,13 @@ describe("cross-file navigation", () => {
     const fileB = join(root, "hello.my");
 
     const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
-    const sourceB =
-      "import { MyPoint as P } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const point = new P()\n" +
-      "  point.x\n" +
-      "}\n";
+    const sourceB = dedent`
+      import { MyPoint as P } from "./world"
+      fun demo() {
+        const point = new P()
+        point.x
+      }
+      `;
 
     await writeFile(fileA, sourceA, "utf8");
     await writeFile(fileB, sourceB, "utf8");
@@ -243,15 +247,16 @@ describe("cross-file navigation", () => {
   it("provides specialized hover info for generic member access", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const file = join(root, "generic.my");
-    const source =
-      "class Map<K, V> {\n" +
-      "  a: K\n" +
-      "  b: V\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  const map = new Map<string, int>()\n" +
-      "  map.a\n" +
-      "}\n";
+    const source = dedent`
+      class Map<K, V> {
+        a: K
+        b: V
+      }
+      fun demo() {
+        const map = new Map<string, int>()
+        map.a
+      }
+      `;
 
     await writeFile(file, source, "utf8");
 
@@ -279,18 +284,20 @@ describe("cross-file navigation", () => {
     const fileA = join(root, "world.my");
     const fileB = join(root, "hello.my");
 
-    const sourceA =
-      "class Base<T> {\n" +
-      "  value: T\n" +
-      "}\n" +
-      "class Child extends Base<string> {\n" +
-      "}\n";
-    const sourceB =
-      "import { Child } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const child = new Child()\n" +
-      "  child.value\n" +
-      "}\n";
+    const sourceA = dedent`
+      class Base<T> {
+        value: T
+      }
+      class Child extends Base<string> {
+      }
+      `;
+    const sourceB = dedent`
+      import { Child } from "./world"
+      fun demo() {
+        const child = new Child()
+        child.value
+      }
+      `;
 
     await writeFile(fileA, sourceA, "utf8");
     await writeFile(fileB, sourceB, "utf8");
@@ -472,19 +479,21 @@ describe("cross-file navigation", () => {
     const fileA = join(root, "world.my");
     const fileB = join(root, "hello.my");
 
-    const sourceA =
-      "class Map<K, V> {\n" +
-      "  a: K\n" +
-      "  b: V\n" +
-      "}\n";
-    const sourceB =
-      "import { Map } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const map = new Map<string, int>()\n" +
-      "  map.a\n" +
-      "  map.a\n" +
-      "  map.b\n" +
-      "}\n";
+    const sourceA = dedent`
+      class Map<K, V> {
+        a: K
+        b: V
+      }
+      `;
+    const sourceB = dedent`
+      import { Map } from "./world"
+      fun demo() {
+        const map = new Map<string, int>()
+        map.a
+        map.a
+        map.b
+      }
+      `;
 
     await writeFile(fileA, sourceA, "utf8");
     await writeFile(fileB, sourceB, "utf8");
@@ -676,10 +685,11 @@ describe("cross-file navigation", () => {
     const fileB = join(root, "b.my");
 
     const sourceA = "class Base\n";
-    const sourceB =
-      "import { Base } from \"./a\"\n" +
-      "class Child implements Base {\n" +
-      "}\n";
+    const sourceB = dedent`
+      import { Base } from "./a"
+      class Child implements Base {
+      }
+      `;
 
     await writeFile(fileA, sourceA, "utf8");
     await writeFile(fileB, sourceB, "utf8");
@@ -728,17 +738,19 @@ describe("cross-file navigation", () => {
     const fileA = join(root, "world.my");
     const fileB = join(root, "hello.my");
 
-    const sourceA =
-      "interface Readable {\n" +
-      "  say(): int\n" +
-      "}\n";
-    const sourceB =
-      "import { Readable } from \"./world\"\n" +
-      "class Map implements Readable {\n" +
-      "  say(): int {\n" +
-      "    return 1\n" +
-      "  }\n" +
-      "}\n";
+    const sourceA = dedent`
+      interface Readable {
+        say(): int
+      }
+      `;
+    const sourceB = dedent`
+      import { Readable } from "./world"
+      class Map implements Readable {
+        say(): int {
+          return 1
+        }
+      }
+      `;
 
     await writeFile(fileA, sourceA, "utf8");
     await writeFile(fileB, sourceB, "utf8");

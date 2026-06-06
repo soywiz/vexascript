@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { SymbolKind } from "vscode-languageserver/node.js";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -11,18 +12,19 @@ import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 
 describe("lsp symbols", () => {
   it("builds hierarchical document symbols", () => {
-    const source =
-      "class Point(val x: int, val y: int) {\n" +
-      "  move(dx: int, dy: int) {\n" +
-      "    return dx + dy\n" +
-      "  }\n" +
-      "  get label(): string {\n" +
-      "    return \"point\"\n" +
-      "  }\n" +
-      "}\n" +
-      "fun demo() {}\n" +
-      "let a = 1\n" +
-      "let b = 2, c = 3\n";
+    const source = dedent`
+      class Point(val x: int, val y: int) {
+        move(dx: int, dy: int) {
+          return dx + dy
+        }
+        get label(): string {
+          return "point"
+        }
+      }
+      fun demo() {}
+      let a = 1
+      let b = 2, c = 3
+      `;
     const ast = parseFile(tokenizeReader(source));
 
     const symbols = createDocumentSymbols(ast);
@@ -35,10 +37,11 @@ describe("lsp symbols", () => {
 
 
   it("builds document symbols for exported declarations", () => {
-    const ast = parseFile(tokenizeReader(
-      "export class Point { move() {} }\n" +
-      "export fun demo() {}\n" +
-      "export const value = 1\n"
+    const ast = parseFile(tokenizeReader(dedent`
+      export class Point { move() {} }
+      export fun demo() {}
+      export const value = 1
+      `
     ));
 
     const symbols = createDocumentSymbols(ast);

@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   AnalysisSessionCache,
@@ -9,12 +10,13 @@ import {
 
 describe("lsp analysis session", () => {
   it("builds analysis even when parser recovered from syntax errors", () => {
-    const source =
-      "let = 1\n" +
-      "let ok = 1\n" +
-      "fun demo() {\n" +
-      "  return ok\n" +
-      "}\n";
+    const source = dedent`
+      let = 1
+      let ok = 1
+      fun demo() {
+        return ok
+      }
+      `;
 
     const analysis = buildAnalysisForSource(source);
     expect(analysis).not.toBeNull();

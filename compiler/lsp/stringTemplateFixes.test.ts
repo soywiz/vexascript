@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createStringTemplateCodeActions } from "./stringTemplateFixes";
 
@@ -36,12 +37,13 @@ function applyEdit(
 
 describe("string template quick fixes", () => {
   it("converts string concatenation chains into template literals", () => {
-    const source =
-      "class Rectangle {\n" +
-      "  describe() {\n" +
-      "    return \"Rectangle(\" + this.width + \"x\" + this.height + \")\"\n" +
-      "  }\n" +
-      "}\n";
+    const source = dedent`
+      class Rectangle {
+        describe() {
+          return "Rectangle(" + this.width + "x" + this.height + ")"
+        }
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const actions = createStringTemplateCodeActions({
@@ -55,12 +57,13 @@ describe("string template quick fixes", () => {
     expect(actions[0]?.title).toBe("Convert string concatenation to template literal");
     const edit = actions[0]?.edit?.changes?.[URI]?.[0];
     expect(edit?.newText).toBe("`Rectangle(${this.width}x${this.height})`");
-    expect(edit ? applyEdit(source, edit) : source).toBe(
-      "class Rectangle {\n" +
-        "  describe() {\n" +
-        "    return `Rectangle(${this.width}x${this.height})`\n" +
-        "  }\n" +
-        "}\n"
+    expect(edit ? applyEdit(source, edit) : source).toBe(dedent`
+      class Rectangle {
+        describe() {
+          return \`Rectangle(\${this.width}x\${this.height})\`
+        }
+      }
+      `
     );
   });
 

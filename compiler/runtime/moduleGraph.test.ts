@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { bundleModuleGraph } from "./moduleGraph";
 
 function withTempProject(files: Record<string, string>, run: (dir: string) => void): void {
@@ -41,8 +42,10 @@ describe("bundleModuleGraph", () => {
     withTempProject(
       {
         "other.my":
-          "class Point(val x: number, val y: number)\n" +
-          "fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)\n",
+          dedent`
+          class Point(val x: number, val y: number)
+          fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)
+          `,
         "main.my":
           'import { Point, operator+ } from "./other"\n\n' +
           "const sum = Point(1, 2) + Point(3, 4)\n"
