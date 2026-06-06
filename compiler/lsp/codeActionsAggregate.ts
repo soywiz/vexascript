@@ -15,6 +15,7 @@ import { createReturnTypeCodeActions } from "./returnTypeFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
 import { createStringTemplateCodeActions } from "./stringTemplateFixes";
 import { createTrailingLambdaCodeActions } from "./trailingLambdaFixes";
+import { createEmptyClassBodyCodeActions } from "./emptyClassBodyFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
 
@@ -104,6 +105,15 @@ export function collectCodeActions(params: CollectCodeActionsParams): CodeAction
 
   actions.push(
     ...createTrailingLambdaCodeActions({
+      uri,
+      ast,
+      text,
+      position: range.start
+    })
+  );
+
+  actions.push(
+    ...createEmptyClassBodyCodeActions({
       uri,
       ast,
       text,
