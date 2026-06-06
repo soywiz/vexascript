@@ -4,7 +4,6 @@ import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { typeToString } from "compiler/analysis/types";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
-  getEcmaScriptRuntimeProgram,
   isEcmaScriptRuntimeNode
 } from "compiler/runtime/ecmascriptDeclarations";
 import type {
@@ -20,7 +19,6 @@ import type {
   ConditionalExpression,
   CommaExpression,
   DoWhileStatement,
-  ExportStatement,
   ExprStatement,
   ForStatement,
   FunctionStatement,
@@ -46,6 +44,13 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
+import {
+  findTopLevelDeclarationInProgram,
+  isClassStatement,
+  resolveTopLevelDeclarationAcrossFiles,
+  topLevelDeclarationNames
+} from "./declarationResolver";
+import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
 import {
@@ -173,39 +178,11 @@ function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: str
 }
 
 function findTopLevelDeclarationByName(ast: Program, name: string): Statement | null {
-  for (const statement of ast.body) {
-    if (statement.kind === "ClassStatement") {
-      const classStatement = statement as ClassStatement;
-      if (classStatement.name.name === name) {
-        return classStatement;
-      }
-    }
-    if (statement.kind === "InterfaceStatement") {
-      const interfaceStatement = statement as InterfaceStatement;
-      if (interfaceStatement.name.name === name) {
-        return interfaceStatement;
-      }
-    }
-    if (statement.kind === "FunctionStatement") {
-      const functionStatement = statement as FunctionStatement;
-      if (functionStatement.name.name === name) {
-        return functionStatement;
-      }
-    }
-    if (statement.kind === "VarStatement") {
-      const variableStatement = statement as VarStatement;
-      if (
-        variableStatement.declarations &&
-        variableStatement.declarations.some((declaration) => bindingIdentifiers(declaration.name).some((identifier) => identifier.name === name))
-      ) {
-        return variableStatement;
-      }
-      if (bindingIdentifiers(variableStatement.name).some((identifier) => identifier.name === name)) {
-        return variableStatement;
-      }
-    }
-  }
-  return null;
+  return findTopLevelDeclarationInProgram(
+    ast,
+    name,
+    (statement): statement is Statement => topLevelDeclarationNames(statement).includes(name)
+  );
 }
 
 function declarationRangeForName(statement: Statement, name: string) {
@@ -295,9 +272,7 @@ function resolveExternalDeclarationLocation(
       continue;
     }
     for (const targetStatement of targetSession.ast.body) {
-      const declaration = targetStatement.kind === "ExportStatement"
-        ? (targetStatement as ExportStatement).declaration
-        : targetStatement;
+      const declaration = unwrapExportedDeclaration(targetStatement);
       if (declaration && declarationDeclaresNode(declaration, symbolNode)) {
         const range = declarationRangeForName(declaration, symbolName);
         if (!range) {
@@ -538,14 +513,6 @@ function classMemberInfoByName(
   return null;
 }
 
-function classDeclarationByName(ast: Program, className: string): ClassStatement | null {
-  const declaration = findTopLevelDeclarationByName(ast, className);
-  if (!declaration || declaration.kind !== "ClassStatement") {
-    return null;
-  }
-  return declaration as ClassStatement;
-}
-
 function resolveClassDefinitionAcrossFiles(
   context: ResolveContext,
   className: string
@@ -555,63 +522,27 @@ function resolveClassDefinitionAcrossFiles(
     return null;
   }
 
-  const localClass = classDeclarationByName(context.session.ast, className);
-  if (localClass) {
-    return {
-      classStatement: localClass,
-      filePath: currentFilePath
-    };
-  }
-
-  for (const statement of context.session.ast.body) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    if (!importStatement.specifiers.some((specifier) => specifier.imported.name === className)) {
-      continue;
-    }
-    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
-    if (!targetFilePath) {
-      continue;
-    }
-    const targetSession = getSessionForFilePath(targetFilePath, context);
-    if (!targetSession?.ast) {
-      continue;
-    }
-    const targetClass = classDeclarationByName(targetSession.ast, className);
-    if (targetClass) {
-      return {
-        classStatement: targetClass,
-        filePath: targetFilePath
-      };
-    }
-  }
-
-  const runtimeClass = classDeclarationByName(getEcmaScriptRuntimeProgram(), className);
-  if (runtimeClass) {
-    return {
-      classStatement: runtimeClass,
-      filePath: getEcmaScriptRuntimeDeclarationFilePath()
-    };
-  }
-
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
-  for (const filePath of scanProjectMyFiles(roots)) {
-    const targetSession = getSessionForFilePath(filePath, context);
-    if (!targetSession?.ast) {
-      continue;
-    }
-    const targetClass = classDeclarationByName(targetSession.ast, className);
-    if (targetClass) {
-      return {
-        classStatement: targetClass,
-        filePath
-      };
-    }
+  const resolved = resolveTopLevelDeclarationAcrossFiles({
+    ast: context.session.ast,
+    name: className,
+    currentFilePath,
+    predicate: isClassStatement,
+    includeRuntime: true,
+    sourceRoots: roots,
+    ...(context.getSessionForFilePath
+      ? { getSessionForFilePath: context.getSessionForFilePath }
+      : {})
+  });
+
+  if (!resolved) {
+    return null;
   }
 
-  return null;
+  return {
+    classStatement: resolved.declaration,
+    filePath: resolved.filePath === "" ? getEcmaScriptRuntimeDeclarationFilePath() : resolved.filePath
+  };
 }
 
 function findMemberExpressionAtPosition(

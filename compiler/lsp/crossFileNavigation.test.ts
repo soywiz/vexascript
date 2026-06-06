@@ -206,6 +206,40 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves aliased imported class member definitions through the shared declaration resolver", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const fileA = join(root, "world.my");
+    const fileB = join(root, "hello.my");
+
+    const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
+    const sourceB =
+      "import { MyPoint as P } from \"./world\"\n" +
+      "fun demo() {\n" +
+      "  const point = new P()\n" +
+      "  point.x\n" +
+      "}\n";
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const location = resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(fileB).toString(),
+      line: 3,
+      character: 8,
+      session: sessionB,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(fileA).toString(),
+      range: {
+        start: { line: 0, character: 20 },
+        end: { line: 0, character: 21 }
+      }
+    });
+  });
+
   it("provides specialized hover info for generic member access", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const file = join(root, "generic.my");

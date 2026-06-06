@@ -1,7 +1,6 @@
 import type {
   ClassStatement,
   EnumStatement,
-  ExportStatement,
   FunctionStatement,
   ImportStatement,
   InterfaceStatement,
@@ -12,6 +11,8 @@ import type {
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { topLevelDeclarationNames } from "./declarationResolver";
+import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 
 /**
  * Top-level declarations that contribute a named type and whose members the
@@ -38,9 +39,7 @@ export interface CollectImportedDeclarationsContext extends ProjectContext {
 }
 
 function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
-  const candidate = statement.kind === "ExportStatement"
-    ? (statement as ExportStatement).declaration
-    : statement;
+  const candidate = unwrapExportedDeclaration(statement);
   if (!candidate) {
     return null;
   }
@@ -106,7 +105,7 @@ export function collectImportedTypeDeclarations(
       if (!declaration || seen.has(declaration)) {
         continue;
       }
-      if (!wantedNames.has(declaration.name.name)) {
+      if (!topLevelDeclarationNames(declaration).some((name) => wantedNames.has(name))) {
         continue;
       }
       seen.add(declaration);

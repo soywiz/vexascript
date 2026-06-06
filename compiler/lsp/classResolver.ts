@@ -1,6 +1,5 @@
 import { bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Analysis } from "compiler/analysis/Analysis";
-import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { baseTypeName, parseTypeNameShape, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type {
@@ -9,24 +8,25 @@ import type {
   BinaryExpression,
   CallExpression,
   ClassStatement,
-  ExportStatement,
   InterfaceStatement,
   ConditionalExpression,
   Expr,
   FunctionParameter,
   Identifier,
-  ImportStatement,
   MemberExpression,
   NewExpression,
   UnaryExpression,
   UpdateExpression,
   Program
 } from "compiler/ast/ast";
-import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { uriToFilePath } from "./importFixes";
 import {
-  getProjectSessionForFilePath,
-  scanProjectMyFiles,
+  findTopLevelDeclarationInProgram,
+  isClassStatement,
+  isInterfaceStatement,
+  resolveTopLevelDeclarationAcrossFiles
+} from "./declarationResolver";
+import {
   type ProjectContext,
   type ProjectSessionLike
 } from "./projectAnalysis";
@@ -143,13 +143,6 @@ function typeParameterSubstitutions(
   return substitutions;
 }
 
-function getSessionForFilePath(
-  filePath: string,
-  options: ClassResolverOptions
-): ClassResolverSessionLike | null {
-  return getProjectSessionForFilePath(filePath, options);
-}
-
 function classMemberCacheKey(
   className: string,
   memberName: string,
@@ -167,35 +160,7 @@ function interfaceMemberCacheKey(
 }
 
 export function findClassStatementInProgram(ast: Program, className: string): ClassStatement | null {
-  for (const statement of ast.body) {
-    const candidate = statement.kind === "ExportStatement"
-      ? (statement as ExportStatement).declaration
-      : statement;
-    if (candidate?.kind !== "ClassStatement") {
-      continue;
-    }
-    const classStatement = candidate as ClassStatement;
-    if (classStatement.name.name === className) {
-      return classStatement;
-    }
-  }
-  return null;
-}
-
-function findInterfaceStatementInProgram(ast: Program, interfaceName: string): InterfaceStatement | null {
-  for (const statement of ast.body) {
-    const candidate = statement.kind === "ExportStatement"
-      ? (statement as ExportStatement).declaration
-      : statement;
-    if (candidate?.kind !== "InterfaceStatement") {
-      continue;
-    }
-    const interfaceStatement = candidate as InterfaceStatement;
-    if (interfaceStatement.name.name === interfaceName) {
-      return interfaceStatement;
-    }
-  }
-  return null;
+  return findTopLevelDeclarationInProgram(ast, className, isClassStatement);
 }
 
 export function resolveClassStatementAcrossFiles(
@@ -210,79 +175,26 @@ export function resolveClassStatementAcrossFiles(
     return cached;
   }
 
-  const currentFilePath = options.uri ? uriToFilePath(options.uri) : null;
-  const local = findClassStatementInProgram(ast, className);
-  if (local) {
-    const resolved = {
-      classStatement: local,
-      filePath: currentFilePath ?? ""
-    };
-    resolverCache.classStatementByName.set(className, resolved);
-    return resolved;
-  }
+  const resolved = resolveTopLevelDeclarationAcrossFiles({
+    ast,
+    name: className,
+    currentFilePath: options.uri ? uriToFilePath(options.uri) : null,
+    predicate: isClassStatement,
+    includeRuntime: true,
+    sourceRoots: options.sourceRoots ?? [],
+    ...(options.getSessionForFilePath
+      ? { getSessionForFilePath: options.getSessionForFilePath }
+      : {})
+  });
 
-  if (currentFilePath) {
-    for (const statement of ast.body) {
-      if (statement.kind !== "ImportStatement") {
-        continue;
+  const classStatement = resolved
+    ? {
+        classStatement: resolved.declaration,
+        filePath: resolved.filePath
       }
-      const importStatement = statement as ImportStatement;
-      const matchingSpecifier = importStatement.specifiers.find((specifier) =>
-        (specifier.local ?? specifier.imported).name === className
-      );
-      if (!matchingSpecifier) {
-        continue;
-      }
-      const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
-      if (!targetFilePath) {
-        continue;
-      }
-      const targetSession = getSessionForFilePath(targetFilePath, options);
-      if (!targetSession?.ast) {
-        continue;
-      }
-      const targetClass = findClassStatementInProgram(targetSession.ast, matchingSpecifier.imported.name);
-      if (targetClass) {
-        const resolved = {
-          classStatement: targetClass,
-          filePath: targetFilePath
-        };
-        resolverCache.classStatementByName.set(className, resolved);
-        return resolved;
-      }
-    }
-  }
-
-  const runtimeProgram = getEcmaScriptRuntimeProgram();
-  const runtimeLocal = findClassStatementInProgram(runtimeProgram, className);
-  if (runtimeLocal) {
-    const resolved = {
-      classStatement: runtimeLocal,
-      filePath: ""
-    };
-    resolverCache.classStatementByName.set(className, resolved);
-    return resolved;
-  }
-
-  const sourceRoots = options.sourceRoots ?? [];
-  for (const filePath of scanProjectMyFiles(sourceRoots)) {
-    const targetSession = getSessionForFilePath(filePath, options);
-    if (!targetSession?.ast) {
-      continue;
-    }
-    const targetClass = findClassStatementInProgram(targetSession.ast, className);
-    if (targetClass) {
-      const resolved = {
-        classStatement: targetClass,
-        filePath
-      };
-      resolverCache.classStatementByName.set(className, resolved);
-      return resolved;
-    }
-  }
-
-  resolverCache.classStatementByName.set(className, null);
-  return null;
+    : null;
+  resolverCache.classStatementByName.set(className, classStatement);
+  return classStatement;
 }
 
 function resolveInterfaceStatementAcrossFiles(
@@ -296,68 +208,25 @@ function resolveInterfaceStatementAcrossFiles(
     return cached;
   }
 
-  const currentFilePath = options.uri ? uriToFilePath(options.uri) : null;
-  const local = findInterfaceStatementInProgram(ast, interfaceName);
-  if (local) {
-    const resolved = {
-      interfaceStatement: local,
-      filePath: currentFilePath ?? ""
-    };
-    cache.interfaceStatementByName.set(interfaceName, resolved);
-    return resolved;
-  }
+  const resolved = resolveTopLevelDeclarationAcrossFiles({
+    ast,
+    name: interfaceName,
+    currentFilePath: options.uri ? uriToFilePath(options.uri) : null,
+    predicate: isInterfaceStatement,
+    sourceRoots: options.sourceRoots ?? [],
+    ...(options.getSessionForFilePath
+      ? { getSessionForFilePath: options.getSessionForFilePath }
+      : {})
+  });
 
-  if (currentFilePath) {
-    for (const statement of ast.body) {
-      if (statement.kind !== "ImportStatement") {
-        continue;
+  const interfaceStatement = resolved
+    ? {
+        interfaceStatement: resolved.declaration,
+        filePath: resolved.filePath
       }
-      const importStatement = statement as ImportStatement;
-      const matchingSpecifier = importStatement.specifiers.find((specifier) =>
-        (specifier.local ?? specifier.imported).name === interfaceName
-      );
-      if (!matchingSpecifier) {
-        continue;
-      }
-      const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
-      if (!targetFilePath) {
-        continue;
-      }
-      const targetSession = getSessionForFilePath(targetFilePath, options);
-      if (!targetSession?.ast) {
-        continue;
-      }
-      const targetInterface = findInterfaceStatementInProgram(targetSession.ast, matchingSpecifier.imported.name);
-      if (targetInterface) {
-        const resolved = {
-          interfaceStatement: targetInterface,
-          filePath: targetFilePath
-        };
-        cache.interfaceStatementByName.set(interfaceName, resolved);
-        return resolved;
-      }
-    }
-  }
-
-  const sourceRoots = options.sourceRoots ?? [];
-  for (const filePath of scanProjectMyFiles(sourceRoots)) {
-    const targetSession = getSessionForFilePath(filePath, options);
-    if (!targetSession?.ast) {
-      continue;
-    }
-    const targetInterface = findInterfaceStatementInProgram(targetSession.ast, interfaceName);
-    if (targetInterface) {
-      const resolved = {
-        interfaceStatement: targetInterface,
-        filePath
-      };
-      cache.interfaceStatementByName.set(interfaceName, resolved);
-      return resolved;
-    }
-  }
-
-  cache.interfaceStatementByName.set(interfaceName, null);
-  return null;
+    : null;
+  cache.interfaceStatementByName.set(interfaceName, interfaceStatement);
+  return interfaceStatement;
 }
 
 function typeNameFromAnalysisType(type: AnalysisType | undefined): string | null {
