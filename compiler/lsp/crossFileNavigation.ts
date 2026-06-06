@@ -20,6 +20,7 @@ import type {
   ConditionalExpression,
   CommaExpression,
   DoWhileStatement,
+  ExportStatement,
   ExprStatement,
   ForStatement,
   FunctionStatement,
@@ -250,6 +251,76 @@ function getSessionForFilePath(filePath: string, context: ResolveContext): Sessi
   });
 }
 
+/**
+ * Whether `declaration` introduces `symbolNode` as its declared name. The
+ * analysis stores the declaration's name identifier (not the statement) as a
+ * symbol node, so matching is done against the declaration's name node(s).
+ */
+function declarationDeclaresNode(declaration: Statement, symbolNode: unknown): boolean {
+  if (declaration === symbolNode) {
+    return true;
+  }
+  const named = declaration as { name?: unknown };
+  if (named.name === symbolNode) {
+    return true;
+  }
+  if (declaration.kind === "VarStatement") {
+    const variableStatement = declaration as VarStatement;
+    const names = [
+      ...bindingIdentifiers(variableStatement.name),
+      ...(variableStatement.declarations ?? []).flatMap((item) => bindingIdentifiers(item.name))
+    ];
+    return names.some((identifier) => identifier === symbolNode);
+  }
+  return false;
+}
+
+/**
+ * Finds the imported file that owns `symbolNode` and returns a canonical symbol
+ * pointing at the declaration there. Used when a symbol resolved through an
+ * external declaration (e.g. a cross-file operator overload) carries a node that
+ * lives in an imported file rather than the current document. Declarations are
+ * matched by node identity because the analysis registers the very same AST
+ * nodes parsed from the imported file as external declarations.
+ */
+function resolveExternalDeclarationLocation(
+  context: ResolveContext,
+  currentFilePath: string,
+  symbolNode: unknown,
+  symbolName: string
+): CanonicalSymbol | null {
+  const ast = context.session.ast;
+  if (!ast) {
+    return null;
+  }
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const targetFilePath = resolveImportTargetFilePath(currentFilePath, (statement as ImportStatement).from.value);
+    if (!targetFilePath) {
+      continue;
+    }
+    const targetSession = getSessionForFilePath(targetFilePath, context);
+    if (!targetSession?.ast) {
+      continue;
+    }
+    for (const targetStatement of targetSession.ast.body) {
+      const declaration = targetStatement.kind === "ExportStatement"
+        ? (targetStatement as ExportStatement).declaration
+        : targetStatement;
+      if (declaration && declarationDeclaresNode(declaration, symbolNode)) {
+        return {
+          name: symbolName,
+          filePath: targetFilePath,
+          range: declarationRangeForName(declaration, symbolName)
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null {
   const currentFilePath = uriToFilePath(context.uri);
   if (!currentFilePath || !context.session.analysis || !context.session.ast) {
@@ -266,11 +337,29 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
 
   const importBinding = findImportForSymbolNode(context.session.ast, symbolAt.symbol.node);
   if (!importBinding) {
+    if (isEcmaScriptRuntimeNode(symbolAt.symbol.node)) {
+      return {
+        name: symbolAt.symbol.name,
+        filePath: getEcmaScriptRuntimeDeclarationFilePath(),
+        range: definition.range
+      };
+    }
+    // Symbols resolved through external (imported) declarations - e.g. a
+    // cross-file operator overload reached from a `a + b` usage - carry a node
+    // that belongs to the imported file, not the current document. Locate the
+    // owning file so navigation lands there instead of the current file.
+    const externalLocation = resolveExternalDeclarationLocation(
+      context,
+      currentFilePath,
+      symbolAt.symbol.node,
+      symbolAt.symbol.name
+    );
+    if (externalLocation) {
+      return externalLocation;
+    }
     return {
       name: symbolAt.symbol.name,
-      filePath: isEcmaScriptRuntimeNode(symbolAt.symbol.node)
-        ? getEcmaScriptRuntimeDeclarationFilePath()
-        : currentFilePath,
+      filePath: currentFilePath,
       range: definition.range
     };
   }

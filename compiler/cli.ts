@@ -3,6 +3,7 @@ import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { transpile, type TranspileTarget } from "./runtime/transpile";
+import { bundleModuleGraph } from "./runtime/moduleGraph";
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
 import { loadProject } from "./project";
 import { ensureDependencies } from "./deps";
@@ -66,8 +67,10 @@ async function runFile(input: string, target: TranspileTarget = "conservative"):
   if (project && Object.keys(project.dependencies).length > 0) {
     await ensureDependencies(project.projectDir, project.dependencies);
   }
-  const source = await readFile(sourcePath, "utf8");
-  await executeSource(source, sourcePath, target);
+  // Bundle the entry file together with its local module graph so cross-file
+  // references resolve, then execute the combined module.
+  const result = bundleModuleGraph(sourcePath, target);
+  await executeCompiled(result, sourcePath);
 }
 
 async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
@@ -78,6 +81,13 @@ async function executeSource(source: string, sourcePath: string, target: Transpi
     target,
     preserveSourceLineOffsets: true
   });
+  await executeCompiled(result, sourcePath);
+}
+
+async function executeCompiled(
+  result: { code: string; warnings: string[]; errors: string[]; sourceMap?: string },
+  sourcePath: string
+): Promise<void> {
   if (result.errors.length > 0) {
     for (const error of result.errors) {
       console.error(`error: ${error}`);
