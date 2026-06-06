@@ -78,3 +78,16 @@ export function rangeSize(range: NodeRange): number {
   }
   return range.end.character - range.start.character;
 }
+
+export function offsetToPosition(text: string, offset: number): Position {
+  let line = 0;
+  let lineStart = 0;
+  const limit = Math.max(0, Math.min(offset, text.length));
+  for (let index = 0; index < limit; index += 1) {
+    if (text[index] === "\n") {
+      line += 1;
+      lineStart = index + 1;
+    }
+  }
+  return { line, character: limit - lineStart };
+}

@@ -1,7 +1,7 @@
 import type { ClassStatement, Node, Program } from "compiler/ast/ast";
 import { CodeActionKind, type CodeAction } from "vscode-languageserver/node.js";
 import { findNodeAtPosition } from "./nodeSearch";
-import type { Position } from "./ranges";
+import { offsetToPosition, type Position } from "./ranges";
 
 interface OffsetRangedToken {
   value?: string;
@@ -9,19 +9,6 @@ interface OffsetRangedToken {
     start: { offset: number };
     end: { offset: number };
   };
-}
-
-function offsetToPosition(text: string, offset: number): Position {
-  let line = 0;
-  let lineStart = 0;
-  const limit = Math.min(offset, text.length);
-  for (let index = 0; index < limit; index += 1) {
-    if (text[index] === "\n") {
-      line += 1;
-      lineStart = index + 1;
-    }
-  }
-  return { line, character: offset - lineStart };
 }
 
 function isClassStatement(node: Node): node is ClassStatement {

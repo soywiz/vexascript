@@ -1,12 +1,24 @@
 import type {
+  BlockStatement,
+  CatchClause,
+  ClassMethodMember,
+  ClassStatement,
+  DoWhileStatement,
   Expr,
   ExportStatement,
   ForStatement,
+  FunctionStatement,
+  Identifier,
+  IfStatement,
   Node,
   Program,
+  RangeExpression,
   Statement,
+  SwitchStatement,
+  TryStatement,
   UpdateExpression,
-  VarStatement
+  VarStatement,
+  WhileStatement
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 
@@ -66,13 +78,13 @@ function lowerForStatement(statement: ForStatement): ForStatement {
   if (statement.iterationKind === "of" && statement.iterable.kind === "RangeExpression") {
     const iteratorName =
       statement.iterator.kind === "Identifier"
-        ? (statement.iterator as any).name
+        ? (statement.iterator as Identifier).name
         : statement.iterator.kind === "VarStatement"
           ? (bindingIdentifiers((statement.iterator as VarStatement).declarations?.[0]?.name ?? (statement.iterator as VarStatement).name)[0]?.name)
           : null;
 
     if (iteratorName) {
-      const range = statement.iterable as any;
+      const range = statement.iterable as RangeExpression;
       const loweredInitializer: VarStatement = {
         kind: "VarStatement",
         declarationKind: "let",
@@ -119,105 +131,95 @@ function lowerForStatement(statement: ForStatement): ForStatement {
   }, statement);
 }
 
+function lowerBlockStatement(statement: BlockStatement): BlockStatement {
+  return copyNodeBounds({
+    ...statement,
+    body: statement.body.map((child) => lowerStatement(child))
+  }, statement);
+}
+
 function lowerStatement(statement: Statement): Statement {
   switch (statement.kind) {
     case "ExportStatement": {
-      const exportStatement = statement as ExportStatement;
+      const s = statement as ExportStatement;
       return copyNodeBounds({
-        ...exportStatement,
-        ...(exportStatement.declaration ? { declaration: lowerStatement(exportStatement.declaration) } : {})
+        ...s,
+        ...(s.declaration ? { declaration: lowerStatement(s.declaration) } : {})
       }, statement);
     }
     case "ForStatement":
       return lowerForStatement(statement as ForStatement);
     case "BlockStatement":
+      return lowerBlockStatement(statement as BlockStatement);
+    case "FunctionStatement": {
+      const s = statement as FunctionStatement;
       return copyNodeBounds({
-        ...(statement as any),
-        body: (statement as any).body.map((child: Statement) => lowerStatement(child))
-      } as Statement, statement);
-    case "FunctionStatement":
+        ...s,
+        body: lowerBlockStatement(s.body)
+      }, statement);
+    }
+    case "ClassStatement": {
+      const s = statement as ClassStatement;
       return copyNodeBounds({
-        ...(statement as any),
-        body: {
-          ...(statement as any).body,
-          body: (statement as any).body.body.map((child: Statement) => lowerStatement(child))
-        }
-      } as Statement, statement);
-    case "ClassStatement":
-      return copyNodeBounds({
-        ...(statement as any),
-        members: (statement as any).members.map((member: any) => {
+        ...s,
+        members: s.members.map((member) => {
           if (member.kind !== "ClassMethodMember") {
             return { ...member };
           }
+          const method = member as ClassMethodMember;
           return {
-            ...member,
-            body: {
-              ...member.body,
-              body: member.body.body.map((child: Statement) => lowerStatement(child))
-            }
+            ...method,
+            body: lowerBlockStatement(method.body)
           };
         })
-      } as Statement, statement);
-    case "IfStatement":
+      }, statement);
+    }
+    case "IfStatement": {
+      const s = statement as IfStatement;
       return copyNodeBounds({
-        ...(statement as any),
-        thenBranch: lowerStatement((statement as any).thenBranch),
-        ...((statement as any).elseBranch
-          ? {
-              elseBranch: lowerStatement((statement as any).elseBranch)
-            }
-          : {})
-      } as Statement, statement);
-    case "WhileStatement":
-    case "DoWhileStatement":
+        ...s,
+        thenBranch: lowerStatement(s.thenBranch),
+        ...(s.elseBranch ? { elseBranch: lowerStatement(s.elseBranch) } : {})
+      }, statement);
+    }
+    case "WhileStatement": {
+      const s = statement as WhileStatement;
+      return copyNodeBounds({ ...s, body: lowerStatement(s.body) }, statement);
+    }
+    case "DoWhileStatement": {
+      const s = statement as DoWhileStatement;
+      return copyNodeBounds({ ...s, body: lowerStatement(s.body) }, statement);
+    }
+    case "SwitchStatement": {
+      const s = statement as SwitchStatement;
       return copyNodeBounds({
-        ...(statement as any),
-        body: lowerStatement((statement as any).body)
-      } as Statement, statement);
-    case "SwitchStatement":
-      return copyNodeBounds({
-        ...(statement as any),
-        cases: (statement as any).cases.map((switchCase: any) => ({
+        ...s,
+        cases: s.cases.map((switchCase) => ({
           ...switchCase,
-          consequent: switchCase.consequent.map((child: Statement) => lowerStatement(child))
+          consequent: switchCase.consequent.map((child) => lowerStatement(child))
         }))
-      } as Statement, statement);
-    case "TryStatement":
+      }, statement);
+    }
+    case "TryStatement": {
+      const s = statement as TryStatement;
       return copyNodeBounds({
-        ...(statement as any),
-        tryBlock: {
-          ...(statement as any).tryBlock,
-          body: (statement as any).tryBlock.body.map((child: Statement) => lowerStatement(child))
-        },
-        ...((statement as any).catchClause
+        ...s,
+        tryBlock: lowerBlockStatement(s.tryBlock),
+        ...(s.catchClause
           ? {
               catchClause: {
-                ...(statement as any).catchClause,
-                body: {
-                  ...(statement as any).catchClause.body,
-                  body: (statement as any).catchClause.body.body.map((child: Statement) =>
-                    lowerStatement(child)
-                  )
-                }
+                ...(s.catchClause as CatchClause),
+                body: lowerBlockStatement((s.catchClause as CatchClause).body)
               }
             }
           : {}),
-        ...((statement as any).finallyBlock
-          ? {
-              finallyBlock: {
-                ...(statement as any).finallyBlock,
-                body: (statement as any).finallyBlock.body.map((child: Statement) =>
-                  lowerStatement(child)
-                )
-              }
-            }
-          : {})
-      } as Statement, statement);
+        ...(s.finallyBlock ? { finallyBlock: lowerBlockStatement(s.finallyBlock) } : {})
+      }, statement);
+    }
     case "VarStatement":
       return cloneVarStatement(statement as VarStatement) as unknown as Statement;
     default:
-      return copyNodeBounds({ ...(statement as any) } as Statement, statement);
+      return copyNodeBounds({ ...statement }, statement);
   }
 }
 

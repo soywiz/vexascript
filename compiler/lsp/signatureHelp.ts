@@ -42,58 +42,14 @@ import {
   resolveConstructorSignature,
   type ClassResolverOptions
 } from "./classResolver";
-
-interface Position {
-  line: number;
-  character: number;
-}
-
-interface Range {
-  start: Position;
-  end: Position;
-}
+import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
 
 interface InvocationContext {
   callee: Expr;
   arguments: Expr[];
-  range: Range;
+  range: NodeRange;
   activeParameter: number;
   isNewExpression: boolean;
-}
-
-function nodeToRange(node: Node): Range | null {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-  return {
-    start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
-    },
-    end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
-    }
-  };
-}
-
-function comparePosition(a: Position, b: Position): number {
-  if (a.line !== b.line) {
-    return a.line - b.line;
-  }
-  return a.character - b.character;
-}
-
-function containsPosition(range: Range, position: Position): boolean {
-  return comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;
-}
-
-function rangeSize(range: Range): number {
-  const lineSpan = range.end.line - range.start.line;
-  if (lineSpan > 0) {
-    return lineSpan * 100_000 + (range.end.character - range.start.character);
-  }
-  return range.end.character - range.start.character;
 }
 
 function argumentIndexAtPosition(argumentsList: Expr[], position: Position): number {
@@ -138,7 +94,7 @@ function invocationContextForNode(
   node: Node,
   isNewExpression: boolean
 ): InvocationContext | null {
-  const range = nodeToRange(node);
+  const range = nodeRange(node);
   if (!range || !containsPosition(range, position)) {
     return null;
   }

@@ -64,6 +64,7 @@ import {
   type ClassResolverCache,
   type ClassResolverOptions
 } from "./classResolver";
+import { containsPosition, nodeRange, rangeSize } from "./ranges";
 
 const CompletionItemKind = {
   Text: 1,
@@ -635,25 +636,6 @@ function classResolverOptionsFromCompletionOptions(options: CompletionRequestOpt
   };
 }
 
-function nodeRange(node: {
-  firstToken?: { range: { start: { line: number; column: number } } };
-  lastToken?: { range: { end: { line: number; column: number } } };
-}): { start: { line: number; character: number }; end: { line: number; character: number } } | null {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-  return {
-    start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
-    },
-    end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
-    }
-  };
-}
-
 function findIdentifierAtPosition(
   ast: Program,
   line: number,
@@ -666,7 +648,7 @@ function findIdentifierAtPosition(
     }
     const identifier = node as Identifier;
     const range = nodeRange(identifier);
-    if (!range || !rangeContainsPosition(range, { line, character })) {
+    if (!range || !containsPosition(range, { line, character })) {
       return;
     }
     const size = rangeSize(range);
@@ -675,31 +657,6 @@ function findIdentifierAtPosition(
     }
   });
   return best ? best.identifier : null;
-}
-
-function comparePosition(
-  a: { line: number; character: number },
-  b: { line: number; character: number }
-): number {
-  if (a.line !== b.line) {
-    return a.line - b.line;
-  }
-  return a.character - b.character;
-}
-
-function rangeContainsPosition(
-  range: { start: { line: number; character: number }; end: { line: number; character: number } },
-  position: { line: number; character: number }
-): boolean {
-  return comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;
-}
-
-function rangeSize(range: { start: { line: number; character: number }; end: { line: number; character: number } }): number {
-  const lineSpan = range.end.line - range.start.line;
-  if (lineSpan > 0) {
-    return lineSpan * 100000 + (range.end.character - range.start.character);
-  }
-  return range.end.character - range.start.character;
 }
 
 interface ArgumentCompletionContext {
@@ -728,7 +685,7 @@ function findArgumentCompletionContext(
         continue;
       }
       const argumentRange = nodeRange(argument);
-      if (!argumentRange || !rangeContainsPosition(argumentRange, position)) {
+      if (!argumentRange || !containsPosition(argumentRange, position)) {
         continue;
       }
       const size = rangeSize(argumentRange);
