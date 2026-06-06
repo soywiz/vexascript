@@ -21,6 +21,9 @@ class Map<K, V> {
 }
 
 fun demoGenerics() {
+    const array = []
+    array.push(10)
+
     const map = new Map<string, int>()
     map.a
     map.get("id")
