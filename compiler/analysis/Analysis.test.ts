@@ -1489,6 +1489,24 @@ assigned = make()
     expect(messages.some((message) => message.includes("Type 'T' is not assignable"))).toBe(false);
   });
 
+  it("allows empty and unknown[] arrays to be assigned to typed arrays", () => {
+    const source = `fun demo() {
+  const a: int[] = []
+  const b: string[] = []
+  let c: int[]
+  c = []
+  const u: unknown[] = []
+  const d: int[] = u
+}
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.filter((message) => message.includes("is not assignable to type"))).toHaveLength(0);
+  });
+
   it("uses array and object literal context for nested generic call return inference", () => {
     const source = `interface Box {
   value: string

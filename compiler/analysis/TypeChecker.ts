@@ -1796,6 +1796,13 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "array" && targetType.kind === "array") {
+      // An array whose element type is `unknown` (for example the empty array
+      // literal `[]`, or an explicit `unknown[]`) is assignable to any array
+      // type, mirroring how an empty array can be widened to any element type.
+      const element = sourceType.elementType;
+      if (isUnknownType(element) || (element.kind === "builtin" && element.name === "unknown")) {
+        return true;
+      }
       return this.isTypeAssignable(sourceType.elementType, targetType.elementType);
     }
 

@@ -45,7 +45,7 @@ import { walkAst } from "compiler/ast/traversal";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
-import { baseTypeName } from "compiler/analysis/typeNames";
+import { baseTypeName, parseTypeNameShape } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import { compileSource } from "compiler/pipeline/compile";
 import {
@@ -222,6 +222,27 @@ function inferLiteralTypeName(pathSegment: string): string | null {
     return "number";
   }
   return null;
+}
+
+/**
+ * Maps an array type name such as `int[]` to its `Array<int>` alias so member
+ * completion resolves against the declared `class Array<T>`. Nested arrays peel
+ * a single dimension (`int[][]` -> `Array<int[]>`). Returns `null` when the
+ * type is not an array.
+ */
+function arrayTypeNameToArrayAlias(typeName: string): string | null {
+  const shape = parseTypeNameShape(typeName);
+  if (shape.arrayDepth <= 0) {
+    return null;
+  }
+  let elementType =
+    shape.typeArguments.length > 0
+      ? `${shape.baseName}<${shape.typeArguments.join(", ")}>`
+      : shape.baseName;
+  for (let depth = 0; depth < shape.arrayDepth - 1; depth += 1) {
+    elementType += "[]";
+  }
+  return `Array<${elementType}>`;
 }
 
 function extensionReceiverMatches(receiverType: string, objectTypeName: string): boolean {
@@ -1416,9 +1437,11 @@ function buildMemberAccessCompletions(
     return allowRecovery ? buildRecoveredMemberAccessCompletions(line, character, options) : null;
   }
 
+  // Array types (`T[]`) resolve their members from the declared `class Array<T>`.
+  const resolvedClassName = arrayTypeNameToArrayAlias(className) ?? className;
   const classStatement = resolveClassStatementAcrossFiles(
     ast,
-    baseTypeName(className),
+    baseTypeName(resolvedClassName),
     resolverOptions,
     resolverCache
   )?.classStatement;
@@ -1427,7 +1450,7 @@ function buildMemberAccessCompletions(
     ...(classStatement
       ? buildClassMemberCompletionItems(
           classStatement,
-          className,
+          resolvedClassName,
           target.prefix,
           {
             line,
