@@ -154,6 +154,90 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves go-to-definition from a cross-file extension property usage to the imported declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const other = join(root, "other.my");
+    const main = join(root, "main.my");
+
+    const otherSource = dedent`
+      class TimeSpan(val ms: number)
+      val number.seconds: TimeSpan => TimeSpan(this * 1000.0)
+      `;
+    const mainSource =
+      'import { TimeSpan, seconds } from "./other"\n' +
+      "const span = 1.seconds\n";
+
+    await writeFile(other, otherSource, "utf8");
+    await writeFile(main, mainSource, "utf8");
+
+    const uri = pathToFileURL(main).toString();
+    const baseSession = createAnalysisSession(mainSource);
+    const externalDeclarations = collectImportedTypeDeclarations(baseSession.ast!, {
+      uri,
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(mainSource, externalDeclarations);
+
+    // Cursor on `seconds` in `1.seconds`.
+    const location = resolveDefinitionAcrossFiles({
+      uri,
+      line: 1,
+      character: mainSource.split("\n")[1]!.indexOf(".seconds") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(other).toString(),
+      range: {
+        start: { line: 1, character: 11 },
+        end: { line: 1, character: 18 }
+      }
+    });
+  });
+
+  it("resolves go-to-definition from a cross-file extension method usage to the imported declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const other = join(root, "other.my");
+    const main = join(root, "main.my");
+
+    const otherSource = dedent`
+      class Point(val x: number, val y: number)
+      fun Point.magnitude(): number => x
+      `;
+    const mainSource =
+      'import { Point, magnitude } from "./other"\n' +
+      "const m = Point(1, 2).magnitude()\n";
+
+    await writeFile(other, otherSource, "utf8");
+    await writeFile(main, mainSource, "utf8");
+
+    const uri = pathToFileURL(main).toString();
+    const baseSession = createAnalysisSession(mainSource);
+    const externalDeclarations = collectImportedTypeDeclarations(baseSession.ast!, {
+      uri,
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(mainSource, externalDeclarations);
+
+    // Cursor on `magnitude` in `Point(1, 2).magnitude()`.
+    const location = resolveDefinitionAcrossFiles({
+      uri,
+      line: 1,
+      character: mainSource.split("\n")[1]!.indexOf(".magnitude") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(other).toString(),
+      range: {
+        start: { line: 1, character: 10 },
+        end: { line: 1, character: 19 }
+      }
+    });
+  });
+
   it("provides hover info for primary constructor members", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
     const file = join(root, "world.my");
