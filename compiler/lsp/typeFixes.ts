@@ -45,47 +45,12 @@ import {
 } from "./classResolver";
 import { pathToUri } from "./importFixes";
 import { isTypeMismatchDiagnostic, TYPE_MISMATCH_PATTERN } from "./diagnosticCodes";
+import { nodeRange, rangeContains, rangeSize } from "./ranges";
 
 interface FindAssignmentResult {
   assignment: AssignmentExpression;
   range: Range;
   size: number;
-}
-
-function nodeRange(node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } }): Range | null {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-  return {
-    start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
-    },
-    end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
-    }
-  };
-}
-
-function rangeContains(outer: Range, inner: Range): boolean {
-  const startsBefore =
-    outer.start.line < inner.start.line ||
-    (outer.start.line === inner.start.line &&
-      outer.start.character <= inner.start.character);
-  const endsAfter =
-    outer.end.line > inner.end.line ||
-    (outer.end.line === inner.end.line &&
-      outer.end.character >= inner.end.character);
-  return startsBefore && endsAfter;
-}
-
-function rangeSize(range: Range): number {
-  const lineSpan = range.end.line - range.start.line;
-  if (lineSpan > 0) {
-    return lineSpan * 100000 + (range.end.character - range.start.character);
-  }
-  return range.end.character - range.start.character;
 }
 
 function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range): AssignmentExpression | null {

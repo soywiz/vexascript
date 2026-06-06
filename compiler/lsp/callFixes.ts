@@ -39,16 +39,7 @@ import type {
 import { tokenize } from "compiler/parser/tokenizer";
 import { CodeActionKind, type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
 import { getCallDiagnosticKind } from "./diagnosticCodes";
-
-interface Position {
-  line: number;
-  character: number;
-}
-
-interface NodeRange {
-  start: Position;
-  end: Position;
-}
+import { containsPosition, nodeRange, rangeSize, type Position } from "./ranges";
 
 interface CallArgumentMatch {
   call: CallExpression;
@@ -61,36 +52,6 @@ interface CallFixContext {
   functionDeclaration: FunctionStatement;
 }
 
-function nodeRange(node: {
-  firstToken?: { range: { start: { line: number; column: number } } };
-  lastToken?: { range: { end: { line: number; column: number } } };
-}): NodeRange | null {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-  return {
-    start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
-    },
-    end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
-    }
-  };
-}
-
-function comparePosition(a: Position, b: Position): number {
-  if (a.line !== b.line) {
-    return a.line - b.line;
-  }
-  return a.character - b.character;
-}
-
-function containsPosition(range: NodeRange, position: Position): boolean {
-  return comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;
-}
-
 function findCallArgumentAtPosition(program: Program, position: Position): CallArgumentMatch | null {
   let best: { match: CallArgumentMatch; size: number } | undefined;
 
@@ -101,7 +62,7 @@ function findCallArgumentAtPosition(program: Program, position: Position): CallA
       if (!range || !containsPosition(range, position)) {
         continue;
       }
-      const size = (range.end.line - range.start.line) * 100_000 + (range.end.character - range.start.character);
+      const size = rangeSize(range);
       if (!best || size <= best.size) {
         best = { match: { call, argumentIndex: index }, size };
       }
