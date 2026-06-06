@@ -339,3 +339,37 @@ describe("format destructured parameters", () => {
       .toBe("function unpack({\n  id, nested: {\n    value = 1\n  }, ...meta\n}, [first, , ...tail] = values) {\n  return value\n}");
   });
 });
+
+describe("format brace lambdas", () => {
+  it("keeps the parameter header on the same line as the opening brace and breaks after '->'", () => {
+    expect(
+      formatSource(dedent`
+        fun delay(time: TimeSpan) => new Promise { resolve, reject ->
+          setTimeout(resolve, time.ms)
+        }
+      `.trimEnd())
+    ).toBe(dedent`
+      fun delay(time: TimeSpan) => new Promise { resolve, reject ->
+        setTimeout(resolve, time.ms)
+      }
+    `.trimEnd());
+  });
+
+  it("treats '->' as a single token and surrounds it with spaces", () => {
+    expect(formatSource("list.map{it->it*2}")).toBe(
+      "list.map { it ->\n  it * 2\n}"
+    );
+  });
+
+  it("keeps a single-parameter lambda header inline", () => {
+    expect(formatSource("foo(a, b) { x, y -> x + y }")).toBe(
+      "foo(a, b) { x, y ->\n  x + y\n}"
+    );
+  });
+
+  it("does not treat statement blocks as lambda headers", () => {
+    expect(formatSource("function f(a) { return a }")).toBe(
+      "function f(a) {\n  return a\n}"
+    );
+  });
+});
