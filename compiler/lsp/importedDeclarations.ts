@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
 import type {
   ClassStatement,
   EnumStatement,
@@ -13,6 +11,7 @@ import type {
 } from "compiler/ast/ast";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
+import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 
 /**
  * Top-level declarations that contribute a named type and whose members the
@@ -36,21 +35,6 @@ type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement;
 
 export interface CollectImportedDeclarationsContext extends ProjectContext {
   uri?: string;
-}
-
-function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
-  const baseDir = dirname(importerFilePath);
-  const direct = resolve(baseDir, importPath);
-  if (existsSync(direct)) {
-    return direct;
-  }
-  if (!extname(direct)) {
-    const withMyExt = `${direct}.my`;
-    if (existsSync(withMyExt)) {
-      return withMyExt;
-    }
-  }
-  return null;
 }
 
 function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {

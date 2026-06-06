@@ -23,6 +23,9 @@ This section is the fast onboarding map for agents and contributors.
 - Source locations:
   - Shared user-facing source coordinate formatting: `compiler/sourceLocations.ts`
   - Source location tests: `compiler/sourceLocations.test.ts`
+- Module resolution:
+  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` file), used by the semantic project index and the LSP cross-file features: `compiler/moduleResolution.ts`
+  - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
   - Public analysis API: `compiler/analysis/Analysis.ts`
   - Scope/symbol binding: `compiler/analysis/Binder.ts`

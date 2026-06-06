@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
+import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { typeToString } from "compiler/analysis/types";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
@@ -48,7 +48,11 @@ import type {
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
-import { createClassResolverCache, resolveClassMember } from "./classResolver";
+import {
+  classPropertyParameters,
+  createClassResolverCache,
+  resolveClassMember
+} from "./classResolver";
 import {
   getProjectIndex,
   getProjectSessionForFilePath,
@@ -151,21 +155,6 @@ function nodeToRange(node: { firstToken?: { range: { start: { line: number; colu
       character: node.lastToken.range.end.column
     }
   };
-}
-
-function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
-  const baseDir = dirname(importerFilePath);
-  const direct = resolve(baseDir, importPath);
-  if (existsSync(direct)) {
-    return direct;
-  }
-  if (!extname(direct)) {
-    const withMyExt = `${direct}.my`;
-    if (existsSync(withMyExt)) {
-      return withMyExt;
-    }
-  }
-  return null;
 }
 
 function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: string; name: string } | null {
@@ -455,17 +444,6 @@ function rangeContainsPosition(
     return false;
   }
   return true;
-}
-
-function constructorParameterProperties(classStatement: ClassStatement): FunctionParameter[] {
-  return classStatement.members
-    .filter((member) => member.kind === "ClassMethodMember" && member.name.name === "constructor")
-    .flatMap((member) => member.kind === "ClassMethodMember" ? member.parameters : [])
-    .filter((parameter) => parameter.accessModifier !== undefined || parameter.readonly === true);
-}
-
-function classPropertyParameters(classStatement: ClassStatement) {
-  return [...(classStatement.primaryConstructorParameters ?? []), ...constructorParameterProperties(classStatement)];
 }
 
 function classMemberDeclarationRangeByName(

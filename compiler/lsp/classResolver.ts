@@ -1,7 +1,6 @@
 import { bindingNameText } from "compiler/ast/bindingPatterns";
-import { existsSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
+import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { baseTypeName, parseTypeNameShape, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type {
@@ -14,6 +13,7 @@ import type {
   InterfaceStatement,
   ConditionalExpression,
   Expr,
+  FunctionParameter,
   Identifier,
   ImportStatement,
   MemberExpression,
@@ -141,21 +141,6 @@ function typeParameterSubstitutions(
   }
 
   return substitutions;
-}
-
-function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
-  const baseDir = dirname(importerFilePath);
-  const direct = resolve(baseDir, importPath);
-  if (existsSync(direct)) {
-    return direct;
-  }
-  if (!extname(direct)) {
-    const withMyExt = `${direct}.my`;
-    if (existsSync(withMyExt)) {
-      return withMyExt;
-    }
-  }
-  return null;
 }
 
 function getSessionForFilePath(
@@ -415,14 +400,14 @@ function readDocumentationFromIdentifier(identifier: Identifier): string | undef
   return undefined;
 }
 
-function constructorParameterProperties(classStatement: ClassStatement) {
+export function constructorParameterProperties(classStatement: ClassStatement): FunctionParameter[] {
   return classStatement.members
     .filter((member) => member.kind === "ClassMethodMember" && member.name.name === "constructor")
     .flatMap((member) => member.kind === "ClassMethodMember" ? member.parameters : [])
     .filter((parameter) => parameter.accessModifier !== undefined || parameter.readonly === true);
 }
 
-function classPropertyParameters(classStatement: ClassStatement) {
+export function classPropertyParameters(classStatement: ClassStatement) {
   return [...(classStatement.primaryConstructorParameters ?? []), ...constructorParameterProperties(classStatement)];
 }
 

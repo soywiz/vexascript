@@ -58,7 +58,7 @@ import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
 import type { BindingElement, BindingName } from "compiler/ast/ast";
-import { walkAst } from "compiler/ast/traversal";
+import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 
 type Assoc = "left" | "right";
 
@@ -407,7 +407,7 @@ function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, righ
 function collectRuntimeOverloads(program: Program): Map<string, RuntimeOverloadInfo[]> {
   const byName = new Map<string, FunctionStatement[]>();
   for (const statement of program.body) {
-    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    const candidate = unwrapExportedDeclaration(statement);
     if (candidate?.kind !== "FunctionStatement") {
       continue;
     }
@@ -461,7 +461,7 @@ function isOperatorImportName(name: string): boolean {
 function collectClassNames(program: Program): Set<string> {
   const result = new Set<string>();
   for (const statement of program.body) {
-    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    const candidate = unwrapExportedDeclaration(statement);
     if (candidate?.kind === "ClassStatement") {
       result.add((candidate as ClassStatement).name.name);
     }
@@ -472,7 +472,7 @@ function collectClassNames(program: Program): Set<string> {
 function collectJavaScriptImplementations(program: Program): Map<string, JavaScriptImplementationInfo> {
   const result = new Map<string, JavaScriptImplementationInfo>();
   for (const statement of program.body) {
-    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    const candidate = unwrapExportedDeclaration(statement);
     if (candidate?.kind !== "FunctionStatement") {
       continue;
     }
@@ -487,7 +487,7 @@ function collectJavaScriptImplementations(program: Program): Map<string, JavaScr
 function collectOperators(program: Program): Map<string, RuntimeOperatorInfo[]> {
   const result = new Map<string, RuntimeOperatorInfo[]>();
   for (const statement of program.body) {
-    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    const candidate = unwrapExportedDeclaration(statement);
     if (candidate?.kind === "ClassStatement") {
       const classStatement = candidate as ClassStatement;
       for (const member of classStatement.members) {
@@ -525,7 +525,7 @@ function collectOperators(program: Program): Map<string, RuntimeOperatorInfo[]> 
 function collectExtensionMethods(program: Program): Map<string, RuntimeExtensionMethodInfo[]> {
   const result = new Map<string, RuntimeExtensionMethodInfo[]>();
   for (const statement of program.body) {
-    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    const candidate = unwrapExportedDeclaration(statement);
     if (candidate?.kind !== "FunctionStatement") {
       continue;
     }
@@ -555,7 +555,7 @@ function collectExtensionProperties(program: Program): Map<string, string> {
     if (statement.kind === "ImportStatement") {
       for (const specifier of (statement as ImportStatement).specifiers) importedNames.add((specifier.local ?? specifier.imported).name);
     }
-    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    const candidate = unwrapExportedDeclaration(statement);
     if (candidate?.kind === "VarStatement" && (candidate as VarStatement).receiverType) {
       const property = candidate as VarStatement;
       result.set((property.name as Identifier).name, property.receiverType!.name);

@@ -14,6 +14,7 @@ import type {
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { compileSource } from "compiler/pipeline/compile";
+import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 
 export interface ProjectSessionLike {
   ast: Program | null;
@@ -79,21 +80,6 @@ function nodeRange(node: {
       character: node.lastToken.range.end.column
     }
   };
-}
-
-function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string | null {
-  const baseDir = importerFilePath.replace(/[/\\][^/\\]+$/, "");
-  const direct = resolve(baseDir, importPath);
-  if (existsSync(direct)) {
-    return direct;
-  }
-  if (!extname(direct)) {
-    const withMyExt = `${direct}.my`;
-    if (existsSync(withMyExt)) {
-      return withMyExt;
-    }
-  }
-  return null;
 }
 
 function indexFileData(ast: Program | null, filePath: string): IndexedFileData {

@@ -1,6 +1,19 @@
-import type { Node } from "./ast";
+import type { ExportStatement, Node, Statement } from "./ast";
 
 const metadataKeys = new Set(["firstToken", "lastToken"]);
+
+/**
+ * Returns the underlying declaration carried by an `export` statement, or the
+ * statement itself when it is not an export. Useful when collecting top-level
+ * declarations regardless of whether they are exported. Returns `undefined`
+ * for re-export forms (`export { x }`, `export * from ...`) that carry no
+ * inline declaration.
+ */
+export function unwrapExportedDeclaration(statement: Statement): Statement | undefined {
+  return statement.kind === "ExportStatement"
+    ? (statement as ExportStatement).declaration
+    : statement;
+}
 
 function isNode(value: unknown): value is Node {
   return (

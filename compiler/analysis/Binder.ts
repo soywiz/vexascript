@@ -25,28 +25,11 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
-import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE, unionType } from "./types";
+import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE, unionType, BUILTIN_TYPE_NAMES } from "./types";
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
-
-const BUILTIN_TYPE_NAMES = new Set([
-  "int",
-  "number",
-  "string",
-  "boolean",
-  "bigint",
-  "long",
-  "void",
-  "null",
-  "undefined",
-  "any",
-  "unknown",
-  "never",
-  "object",
-  "symbol"
-]);
 
 const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typeof UNKNOWN_TYPE>([
   ["true", builtinType("boolean")],
