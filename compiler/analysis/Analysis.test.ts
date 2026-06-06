@@ -120,6 +120,39 @@ let after = bind`));
 
       expect(messages).toContain("Undefined variable 'x'");
     });
+
+    it("resolves an operator overload declared in an imported file", () => {
+      const externalSource =
+        "class Point(val x: number, val y: number)\n" +
+        "fun Point.operator+(other: Point): Point => Point(x + other.x, y + other.y)\n";
+      const usageSource =
+        'import { Point, operator+ } from "./other"\n' +
+        "val sum = Point(1, 2) + Point(3, 4)\n";
+      const externalDeclarations = parseFile(tokenizeReader(externalSource)).body;
+      const ast = parseFile(tokenizeReader(usageSource));
+      const analysis = new Analysis(ast, { externalDeclarations });
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages.filter((message) => message.includes("Operator '+' is not defined"))).toEqual([]);
+    });
+
+    it("infers the receiver type of an imported class constructor call", () => {
+      // An explicit `import { Point }` must not delete the imported class from the
+      // type tables; the constructor call should resolve to the class type so a
+      // missing operator overload is reported against 'Point' (not 'unknown'),
+      // which is what makes the operator-import quick fix discoverable.
+      const externalSource = "class Point(val x: number, val y: number)\n";
+      const usageSource =
+        'import { Point } from "./other"\n' +
+        "val sum = Point(1, 2) + Point(3, 4)\n";
+      const externalDeclarations = parseFile(tokenizeReader(externalSource)).body;
+      const ast = parseFile(tokenizeReader(usageSource));
+      const analysis = new Analysis(ast, { externalDeclarations });
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages).toContain("Operator '+' is not defined for types 'Point' and 'Point'");
+      expect(messages.some((message) => message.includes("'unknown'"))).toBe(false);
+    });
   });
 
   it("allows yield only inside generator functions", () => {

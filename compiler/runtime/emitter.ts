@@ -394,6 +394,16 @@ function operatorMethodName(operator: BinaryExpression["operator"], parameters: 
   return overloadedFunctionName(baseName, parameters);
 }
 
+/**
+ * Detects an imported operator-overload binding such as `operator+`. These are
+ * synthesized names whose suffix is an operator symbol rather than an
+ * identifier character, so they can never collide with a regular function named
+ * `operatorFoo`.
+ */
+function isOperatorImportName(name: string): boolean {
+  return /^operator[^A-Za-z0-9_]/.test(name);
+}
+
 function collectClassNames(program: Program): Set<string> {
   const result = new Set<string>();
   for (const statement of program.body) {
@@ -1081,10 +1091,18 @@ export function emitStatement(statement: Statement): string {
       if (importStatement.defaultImport) {
         clauses.push(importStatement.defaultImport.name);
       }
+      // Operator overloads (e.g. `import { operator+ }`) are not real runtime
+      // exports: they are installed on the receiver's prototype as a side effect
+      // of loading the module. Drop them from the named bindings while keeping the
+      // module loaded so the prototype patch still runs.
+      const valueSpecifiers = importStatement.specifiers.filter(
+        (specifier) => !isOperatorImportName(specifier.imported.name)
+      );
+      const hadOperatorImport = valueSpecifiers.length !== importStatement.specifiers.length;
       if (importStatement.namespaceImport) {
         clauses.push(`* as ${importStatement.namespaceImport.name}`);
-      } else if (importStatement.specifiers.length > 0) {
-        const names = importStatement.specifiers
+      } else if (valueSpecifiers.length > 0) {
+        const names = valueSpecifiers
           .map((specifier) => {
             const localName = specifier.local?.name ?? specifier.imported.name;
             const receiverType = activeExtensionProperties.get(localName);
@@ -1093,6 +1111,10 @@ export function emitStatement(statement: Statement): string {
           })
           .join(", ");
         clauses.push(`{ ${names} }`);
+      }
+      if (clauses.length === 0) {
+        // Operator-only import (or otherwise empty): keep the side-effecting load.
+        return hadOperatorImport ? `import ${source};` : "";
       }
       return `import ${clauses.join(", ")} from ${source};`;
     }

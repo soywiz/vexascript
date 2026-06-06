@@ -3045,9 +3045,21 @@ export class Parser {
                 break;
             }
 
-            const nameToken = this.tokens.read();
+            let nameToken = this.tokens.read();
             if (nameToken?.type !== "identifier") {
                 this.fail("Expected imported symbol name", this.tokenAt(nameToken));
+            }
+            if (nameToken.value === "operator") {
+                const operatorToken = this.tokens.peek();
+                const overloadedOperator = this.operatorOverloadFromToken(operatorToken);
+                if (overloadedOperator) {
+                    this.tokens.skip();
+                    nameToken = {
+                        ...nameToken,
+                        value: `operator${overloadedOperator}`,
+                        range: { start: nameToken.range.start, end: operatorToken!.range.end }
+                    };
+                }
             }
             const imported = this.buildIdentifierFromToken(nameToken);
             let local: Identifier | undefined;
