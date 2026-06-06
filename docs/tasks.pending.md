@@ -20,12 +20,12 @@ single `BUILTIN_TYPE_NAMES` in `compiler/analysis/types.ts`, shared
 that need their own focused change with tests:
 
 - LSP quick-fix modules (`typeFixes.ts`, `memberFixes.ts`, `callFixes.ts`,
-  `stringTemplateFixes.ts`, `functionShorthandFixes.ts`) each reimplement a
-  ~100-line `visitExpression`/`visitStatement` AST walk plus their own
-  `nodeRange`/`rangeContains`/`rangeSize`/`comparePosition` helpers and local
-  `Position`/`NodeRange` types. These should share a single position/range
-  utility module and a generic "find node at position" visitor (the shared
-  `compiler/ast/traversal.ts` walker can back the latter).
+  `stringTemplateFixes.ts`, `functionShorthandFixes.ts`) still each
+  reimplement a ~100-line `visitExpression`/`visitStatement` AST walk for
+  locating fix targets. They now share `compiler/lsp/ranges.ts` for
+  token-to-LSP range conversion, position comparison, containment, and range
+  sizing; the remaining work is a generic "find node at position" visitor
+  (the shared `compiler/ast/traversal.ts` walker can back it).
 - Cross-file declaration resolution is implemented twice: the semantic
   `TypeChecker` and the LSP `classResolver`/`crossFileNavigation` independently
   walk imports/runtime/project to resolve a type name to its declaration. A

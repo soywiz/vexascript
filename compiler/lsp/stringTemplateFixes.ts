@@ -33,62 +33,10 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import { CodeActionKind, type CodeAction, type Range } from "vscode-languageserver/node.js";
+import { containsPosition, nodeRange, rangeSize, type Position } from "./ranges";
 
-interface Position {
-  line: number;
-  character: number;
-}
-
-interface NodeRange {
-  start: Position;
-  end: Position;
-}
-
-function nodeRange(node: {
-  firstToken?: { range: { start: { line: number; column: number }; end?: { line: number; column: number }; startOffset?: number } };
-  lastToken?: { range: { end: { line: number; column: number } } };
-}): NodeRange | null {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-
-  return {
-    start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
-    },
-    end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
-    }
-  };
-}
-
-function editRange(node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } }): Range | null {
-  const range = nodeRange(node);
-  if (!range) {
-    return null;
-  }
-  return range;
-}
-
-function comparePosition(a: Position, b: Position): number {
-  if (a.line !== b.line) {
-    return a.line - b.line;
-  }
-  return a.character - b.character;
-}
-
-function containsPosition(range: NodeRange, position: Position): boolean {
-  return comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;
-}
-
-function rangeSize(range: NodeRange): number {
-  const lineSpan = range.end.line - range.start.line;
-  if (lineSpan > 0) {
-    return lineSpan * 100_000 + (range.end.character - range.start.character);
-  }
-  return range.end.character - range.start.character;
+function editRange(node: Parameters<typeof nodeRange>[0]): Range | null {
+  return nodeRange(node);
 }
 
 function escapeTemplateText(value: string): string {

@@ -19,6 +19,7 @@ import {
   isMissingMemberDiagnostic,
   MISSING_MEMBER_PATTERN
 } from "./diagnosticCodes";
+import { nodeRange, rangeContains } from "./ranges";
 
 interface ClassResolution {
   classStatement: ClassStatement;
@@ -145,34 +146,6 @@ function normalizeInferredType(type: AnalysisType | undefined): string | null {
     return null;
   }
   return typeName;
-}
-
-function rangeContains(range: Range, candidate: Range): boolean {
-  const startsBefore =
-    range.start.line < candidate.start.line ||
-    (range.start.line === candidate.start.line &&
-      range.start.character <= candidate.start.character);
-  const endsAfter =
-    range.end.line > candidate.end.line ||
-    (range.end.line === candidate.end.line &&
-      range.end.character >= candidate.end.character);
-  return startsBefore && endsAfter;
-}
-
-function nodeRange(node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } }): Range | null {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-  return {
-    start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
-    },
-    end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
-    }
-  };
 }
 
 function inferMissingMemberTypeFromDiagnostic(
