@@ -2,10 +2,12 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, type FunctionType, typeToString } from "compiler/analysis/types";
 import type {
   ArrayLiteral,
+  ArrowFunctionExpression,
   AsExpression,
   AssignmentExpression,
   BinaryExpression,
   CallExpression,
+  FunctionExpression,
   ClassStatement,
   CommaExpression,
   Expr,
@@ -239,6 +241,16 @@ function findBestInvocationContext(
           }
         }
         return;
+      case "ArrowFunctionExpression":
+      case "FunctionExpression": {
+        const body = (expression as ArrowFunctionExpression | FunctionExpression).body;
+        if (body.kind === "BlockStatement") {
+          visitStatement(body as BlockStatement);
+        } else {
+          visitExpression(body as Expr);
+        }
+        return;
+      }
       default:
         return;
     }

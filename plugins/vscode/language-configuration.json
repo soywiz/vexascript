@@ -69,5 +69,24 @@
       "'",
       "'"
     ]
+  ],
+  "indentationRules": {
+    "increaseIndentPattern": "^.*(\\{[^}\"']*|->)\\s*$",
+    "decreaseIndentPattern": "^\\s*\\}"
+  },
+  "onEnterRules": [
+    {
+      "beforeText": "->\\s*$",
+      "afterText": "^\\s*[)\\]}]",
+      "action": {
+        "indent": "indentOutdent"
+      }
+    },
+    {
+      "beforeText": "->\\s*$",
+      "action": {
+        "indent": "indent"
+      }
+    }
   ]
 }

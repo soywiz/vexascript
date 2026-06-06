@@ -58,6 +58,36 @@ describe("signature help", () => {
     });
   });
 
+  it("resolves the innermost call inside a tail/brace lambda argument", () => {
+    const source =
+      "fun inner(a: int, b: int): int {\n" +
+      "  return a + b\n" +
+      "}\n" +
+      "fun outer(callback: (x: int) => void) {\n" +
+      "}\n" +
+      "fun demo() {\n" +
+      "  outer({ value ->\n" +
+      "    inner(1, 2)\n" +
+      "  })\n" +
+      "}\n";
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = createSignatureHelp(session.ast!, session.analysis!, 7, 13);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "inner(a: int, b: int)",
+          parameters: [{ label: "a: int" }, { label: "b: int" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 1
+    });
+  });
+
   it("returns null when cursor is outside invocation", () => {
     const source = "fun demo() {\n  let value = 1\n}\n";
     const session = createAnalysisSession(source);

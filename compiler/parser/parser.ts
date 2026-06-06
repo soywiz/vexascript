@@ -1753,23 +1753,6 @@ export class Parser {
             }
         }
 
-        if (hasExplicitParameterArrow) {
-            const bodyExpression = this.parseAssignment();
-            const closeBrace = this.tokens.read();
-            if (closeBrace?.type !== "symbol" || closeBrace.value !== "}") {
-                this.fail("Expected '}' to close tail lambda", this.tokenAt(closeBrace));
-            }
-            return this.attachNodeBounds(
-                {
-                    kind: "ArrowFunctionExpression",
-                    parameters: explicitParameters,
-                    body: bodyExpression
-                } as ArrowFunctionExpression,
-                openBrace,
-                closeBrace
-            );
-        }
-
         const statements: Statement[] = [];
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
@@ -1810,24 +1793,28 @@ export class Parser {
             openBrace,
             this.getLastReadToken() ?? openBrace
         );
-        const implicitParameter = this.attachNodeBounds(
-            {
-                kind: "FunctionParameter",
-                name: this.attachNodeBounds(
-                    { kind: "Identifier", name: "it" } as Identifier,
-                    openBrace,
-                    openBrace
-                )
-            } as FunctionParameter,
-            openBrace,
-            openBrace
-        );
+        const parameters = hasExplicitParameterArrow
+            ? explicitParameters
+            : [
+                  this.attachNodeBounds(
+                      {
+                          kind: "FunctionParameter",
+                          name: this.attachNodeBounds(
+                              { kind: "Identifier", name: "it" } as Identifier,
+                              openBrace,
+                              openBrace
+                          )
+                      } as FunctionParameter,
+                      openBrace,
+                      openBrace
+                  )
+              ];
         if (block.body.length === 1 && block.body[0]?.kind === "ExprStatement") {
             const expressionBody = (block.body[0] as ExprStatement).expression;
             return this.attachNodeBounds(
                 {
                     kind: "ArrowFunctionExpression",
-                    parameters: [implicitParameter],
+                    parameters,
                     body: expressionBody
                 } as ArrowFunctionExpression,
                 openBrace,
@@ -1837,7 +1824,7 @@ export class Parser {
         return this.attachNodeBounds(
             {
                 kind: "ArrowFunctionExpression",
-                parameters: [implicitParameter],
+                parameters,
                 body: block
             } as ArrowFunctionExpression,
             openBrace,

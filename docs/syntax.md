@@ -386,7 +386,16 @@ Examples:
 
 ### Tail lambdas
 
-MyLang also supports Kotlin/Swift-style tail lambdas after call expressions and brace lambdas inside call argument lists. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The explicit `{ arg1, arg2 -> expression }` form is always a lambda.
+MyLang also supports Kotlin/Swift-style tail lambdas after call expressions and brace lambdas inside call argument lists. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The explicit `{ arg1, arg2 -> ... }` form is always a lambda.
+
+The body after `->` may be a single expression or a sequence of statements. When it contains more than one statement, the lambda has a block body:
+
+```mylang
+new Promise({ resolve, reject ->
+  setTimeout(resolve, time.ms)
+  setTimeout(reject, 1000)
+})
+```
 
 Examples:
 
