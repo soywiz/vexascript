@@ -1194,4 +1194,5 @@ try {
 - When an array literal is checked against an expected tuple type, each tuple element type is used as context for the corresponding array element.
 - Homogeneous arrays infer typed arrays, for example `int[]`.
 - Mixed incompatible arrays fall back to `unknown[]`.
+- An array variable whose element type is still unknown (for example `const array: unknown[] = []` or `let xs = []`) evolves its element type from the first `push`/`unshift` mutation, so `array.push(10)` refines the inferred type of `array` to `int[]`.
 - Object literals checked against an expected object, class, or interface type use matching property types as context for nested generic calls.

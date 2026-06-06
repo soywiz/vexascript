@@ -1020,6 +1020,42 @@ a--
     expect(symbols.get("mixed")?.valueType).toBe("unknown[]");
   });
 
+  it("evolves an unknown array element type from push", () => {
+    const source =
+      "fun demoGenerics() {\n" +
+      "  const array: unknown[] = []\n" +
+      "  array.push(10)\n" +
+      "  return array\n" +
+      "}\n";
+
+    const symbols = symbolsOfVisibleSymbolsAt(source, 3, 5);
+    expect(symbols.get("array")?.valueType).toBe("int[]");
+  });
+
+  it("evolves an implicitly typed empty array from unshift", () => {
+    const source =
+      "fun demo() {\n" +
+      "  let xs = []\n" +
+      "  xs.unshift(\"hello\")\n" +
+      "  return xs\n" +
+      "}\n";
+
+    const symbols = symbolsOfVisibleSymbolsAt(source, 3, 5);
+    expect(symbols.get("xs")?.valueType).toBe("string[]");
+  });
+
+  it("does not evolve an array that already has a known element type", () => {
+    const source =
+      "fun demo() {\n" +
+      "  const nums: int[] = []\n" +
+      "  nums.push(10)\n" +
+      "  return nums\n" +
+      "}\n";
+
+    const symbols = symbolsOfVisibleSymbolsAt(source, 3, 5);
+    expect(symbols.get("nums")?.valueType).toBe("int[]");
+  });
+
   it("resolves builtin and declared class types in annotations and reports unknown types", () => {
     const source =
       "function makePoint(p: Point): int {\n" +

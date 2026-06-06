@@ -129,6 +129,7 @@ Current semantic diagnostics include:
   - return expressions are checked against the nearest function, method, function-expression, or contextual arrow-function return type,
   - diagnostics are attached to the function name/expression, bare `return`, or incompatible return expression as appropriate.
 - Contextual generic function return inference from variable annotations and assignment targets, including nested calls inside array literals and object-literal properties.
+- Evolving array element inference: an array variable whose element type is still unknown (such as `const array: unknown[] = []` or `let xs = []`) refines its element type from the first `push`/`unshift` mutation, so `array.push(10)` updates the variable's inferred type to `int[]`.
 - Invalid control-flow statements:
   - `continue` outside loops,
   - `break` outside loops/switch.
