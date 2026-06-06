@@ -4,6 +4,7 @@ import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
+import dedent from "compiler/utils/dedent";
 
 function namesOfVisibleSymbolsAt(source: string, line: number, character: number): string[] {
   const ast = parseFile(tokenizeReader(source));
@@ -49,16 +50,17 @@ lookup(123)
   });
 
   it("builds nested scopes and exposes function parameters/local variables", () => {
-    const source =
-      "let top = 1\n" +
-      "fun demo(a, b: Num = top) {\n" +
-      "  let inner = a\n" +
-      "  {\n" +
-      "    let deep = inner\n" +
-      "    return deep\n" +
-      "  }\n" +
-      "}\n";
-
+    const source = dedent`
+      let top = 1
+      fun demo(a, b: Num = top) {
+        let inner = a
+        {
+          let deep = inner
+          return deep
+        }
+      }
+    `
+    
     const visible = namesOfVisibleSymbolsAt(source, 5, 6);
     expect(visible).toContain("a");
     expect(visible).toContain("b");
