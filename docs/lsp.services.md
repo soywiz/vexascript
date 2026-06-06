@@ -56,6 +56,7 @@ This document tracks common Language Server Protocol services and their status i
 - Diagnostics include parser and semantic issues, and keep semantic checks enabled after parser recovery.
 - Semantic tokens provide semantic highlighting for keywords, operators, literals, and symbols (`full` + `range`).
 - Formatting supports both full-document and selection/range requests.
+- Formatting keeps `import { ... } from "..."` statements on a single line (wrapping the named bindings one per line, TypeScript-style, only when the line would be too long), groups consecutive imports together by collapsing blank lines between them, and separates the import group from the rest of the code with a single blank line.
 
 ## Recent diagnostic coverage
 

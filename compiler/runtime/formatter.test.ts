@@ -3,6 +3,75 @@ import { expect } from "../test/expect";
 import { formatSource } from "./formatter";
 
 describe("formatSource", () => {
+  it("keeps named imports on a single line", () => {
+    expect(formatSource('import {a,b,c} from "test"')).toBe(
+      'import { a, b, c } from "test"'
+    );
+  });
+
+  it("collapses multi-line named imports back to a single line", () => {
+    expect(formatSource('import {\n  a,\n  b\n} from "test"')).toBe(
+      'import { a, b } from "test"'
+    );
+  });
+
+  it("preserves operator named imports without extra spaces", () => {
+    expect(formatSource('import { Point, operator+, delay } from "./other"')).toBe(
+      'import { Point, operator+, delay } from "./other"'
+    );
+  });
+
+  it("keeps default, namespace, aliased, type and side-effect imports together", () => {
+    const source = [
+      'import * as fs from "fs"',
+      'import React, { useState as useLocalState } from "react"',
+      'import type { Shape } from "./types"',
+      'import "./setup"'
+    ].join("\n");
+    expect(formatSource(source)).toBe(source);
+  });
+
+  it("groups consecutive imports and collapses blank lines between them", () => {
+    expect(
+      formatSource('import { a } from "a"\n\n\nimport { b } from "b"')
+    ).toBe('import { a } from "a"\nimport { b } from "b"');
+  });
+
+  it("separates the import group from the rest of the code with a blank line", () => {
+    expect(formatSource('import { a } from "a"\nconst x=1')).toBe(
+      'import { a } from "a"\n\nconst x = 1'
+    );
+  });
+
+  it("collapses extra blank lines after imports to a single separator", () => {
+    expect(formatSource('import { a } from "a"\n\n\n\nconst x=1')).toBe(
+      'import { a } from "a"\n\nconst x = 1'
+    );
+  });
+
+  it("wraps overly long named imports one per line", () => {
+    const source =
+      'import { aVeryLongName, anotherVeryLongName, yetAnotherLongName, oneMoreLongName } from "./some/very/long/module/path"';
+    expect(formatSource(source)).toBe(
+      "import {\n" +
+        "  aVeryLongName,\n" +
+        "  anotherVeryLongName,\n" +
+        "  yetAnotherLongName,\n" +
+        "  oneMoreLongName,\n" +
+        '} from "./some/very/long/module/path"'
+    );
+  });
+
+  it("preserves an explicit semicolon on an import statement", () => {
+    expect(formatSource('import {a} from "x";')).toBe('import { a } from "x";');
+  });
+
+  it("does not treat dynamic import or import.meta as import statements", () => {
+    expect(formatSource('const dynamic = import("foo")')).toBe(
+      'const dynamic = import("foo")'
+    );
+  });
+
   it("formats runtime namespace declarations", () => {
     expect(formatSource("namespace Tools{export const version=1;}")).toBe(
       "namespace Tools {\n  export const version = 1;\n}"
