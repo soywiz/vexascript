@@ -74,6 +74,7 @@ export interface TypeParameter extends Node {
     kind: "TypeParameter"
     name: Identifier
     constraint?: Identifier
+    defaultType?: Identifier
 }
 
 export interface StringLiteral extends Node {
@@ -404,6 +405,7 @@ export interface InterfacePropertyMember extends Node {
 export interface InterfaceMethodMember extends Node {
     kind: "InterfaceMethodMember"
     name: Identifier
+    typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     returnType?: Identifier
 }
@@ -430,6 +432,7 @@ export interface TypeAliasStatement extends Statement {
 export interface NamespaceStatement extends Statement {
     kind: "NamespaceStatement"
     declared?: boolean
+    globalAugmentation?: boolean
     declarationKind: "namespace" | "module"
     names?: Identifier[]
     externalModuleName?: StringLiteral

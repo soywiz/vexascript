@@ -3,6 +3,7 @@ import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
 
@@ -85,18 +86,19 @@ describe("semantic tokens", () => {
   });
 
   it("highlights keywords like switch/case/default/new/declare", () => {
-    const source =
-      "declare class Console {\n" +
-      "  log(a: number)\n" +
-      "}\n" +
-      "declare var console: Console\n" +
-      "type Element<T> = T extends (infer U)[] ? U : keyof T\n" +
-      "switch (new Console()) {\n" +
-      "  case console:\n" +
-      "    break\n" +
-      "  default:\n" +
-      "    break\n" +
-      "}\n";
+    const source = dedent`
+      declare class Console {
+        log(a: number)
+      }
+      declare var console: Console
+      type Element<T> = T extends (infer U)[] ? U : keyof T
+      switch (new Console()) {
+        case console:
+          break
+        default:
+          break
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const semantic = createSemanticTokens({
@@ -164,9 +166,10 @@ describe("semantic tokens", () => {
   });
 
   it("highlights expanded import bindings", () => {
-    const source =
-      "import React, { useState as useLocalState } from \"react\"\n" +
-      "import * as fs from \"fs\"\n";
+    const source = dedent`
+      import React, { useState as useLocalState } from "react"
+      import * as fs from "fs"
+      `;
     const session = createAnalysisSession(source);
     const semantic = createSemanticTokens({
       text: source,
@@ -216,13 +219,14 @@ describe("semantic tokens", () => {
   });
 
   it("supports range requests", () => {
-    const source =
-      "switch (a) {\n" +
-      "  case 1:\n" +
-      "    break\n" +
-      "  default:\n" +
-      "    break\n" +
-      "}\n";
+    const source = dedent`
+      switch (a) {
+        case 1:
+          break
+        default:
+          break
+      }
+      `;
 
     const semantic = createSemanticTokens({
       text: source,
@@ -241,10 +245,11 @@ describe("semantic tokens", () => {
   });
 
   it("does not fail with parser errors", () => {
-    const source =
-      "asdsa declare class Console {\n" +
-      "declare var console: Console\n" +
-      "switch (new Console()) {\n";
+    const source = dedent`
+      asdsa declare class Console {
+      declare var console: Console
+      switch (new Console()) {
+      `;
     const session = createAnalysisSession(source);
 
     const semantic = createSemanticTokens({
@@ -266,11 +271,12 @@ describe("semantic tokens", () => {
   });
 
   it("highlights soft class keywords extends/implements/override", () => {
-    const source =
-      "class Map<K, V> extends Base<K> implements Iterable<V> {\n" +
-      "  override a: K\n" +
-      "  a: K\n" +
-      "}\n";
+    const source = dedent`
+      class Map<K, V> extends Base<K> implements Iterable<V> {
+        override a: K
+        a: K
+      }
+      `;
     const session = createAnalysisSession(source);
     const semantic = createSemanticTokens({
       text: source,
@@ -291,10 +297,11 @@ describe("semantic tokens", () => {
   });
 
   it("highlights interface as keyword", () => {
-    const source =
-      "interface Readable {\n" +
-      "  say(): number\n" +
-      "}\n";
+    const source = dedent`
+      interface Readable {
+        say(): number
+      }
+      `;
     const session = createAnalysisSession(source);
     const semantic = createSemanticTokens({
       text: source,

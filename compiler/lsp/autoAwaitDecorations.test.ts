@@ -4,18 +4,20 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
 import { collectImportedSymbolTypes } from "./importedDeclarations";
 
 describe("auto-await decorations", () => {
   it("marks lines where a Promise is implicitly awaited inside a sync function", () => {
-    const source =
-      "async fun fetchValue(): Promise<int> { return 1 }\n" +
-      "sync fun main(): void {\n" +
-      "  let x = fetchValue()\n" +
-      "  fetchValue()\n" +
-      "}\n";
+    const source = dedent`
+      async fun fetchValue(): Promise<int> { return 1 }
+      sync fun main(): void {
+        let x = fetchValue()
+        fetchValue()
+      }
+      `;
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -49,12 +51,13 @@ describe("auto-await decorations", () => {
   });
 
   it("emits a single decoration per line even with multiple auto-awaited expressions", () => {
-    const source =
-      "declare function use(a: int, b: int): void\n" +
-      "async fun fetchValue(): Promise<int> { return 1 }\n" +
-      "sync fun main(): void {\n" +
-      "  use(fetchValue(), fetchValue())\n" +
-      "}\n";
+    const source = dedent`
+      declare function use(a: int, b: int): void
+      async fun fetchValue(): Promise<int> { return 1 }
+      sync fun main(): void {
+        use(fetchValue(), fetchValue())
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
@@ -64,12 +67,13 @@ describe("auto-await decorations", () => {
   });
 
   it("does not mark go-protected expressions, local references, or non-sync functions", () => {
-    const source =
-      "async fun fetchValue(): Promise<int> { return 1 }\n" +
-      "sync fun main(): void {\n" +
-      "  let stored = go fetchValue()\n" +
-      "  let alias = stored\n" +
-      "}\n";
+    const source = dedent`
+      async fun fetchValue(): Promise<int> { return 1 }
+      sync fun main(): void {
+        let stored = go fetchValue()
+        let alias = stored
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
@@ -78,15 +82,16 @@ describe("auto-await decorations", () => {
   });
 
   it("marks explicit await expressions in async and sync functions", () => {
-    const source =
-      "async fun fetchValue(): Promise<int> { return 1 }\n" +
-      "async fun usesAsync(): Promise<int> {\n" +
-      "  return await fetchValue()\n" +
-      "}\n" +
-      "sync fun usesSync(): int {\n" +
-      "  let pending = go fetchValue()\n" +
-      "  return await pending\n" +
-      "}\n";
+    const source = dedent`
+      async fun fetchValue(): Promise<int> { return 1 }
+      async fun usesAsync(): Promise<int> {
+        return await fetchValue()
+      }
+      sync fun usesSync(): int {
+        let pending = go fetchValue()
+        return await pending
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
@@ -130,12 +135,13 @@ describe("auto-await decorations", () => {
   });
 
   it("restricts decorations to the requested range", () => {
-    const source =
-      "async fun fetchValue(): Promise<int> { return 1 }\n" +
-      "sync fun main(): void {\n" +
-      "  fetchValue()\n" +
-      "  fetchValue()\n" +
-      "}\n";
+    const source = dedent`
+      async fun fetchValue(): Promise<int> { return 1 }
+      sync fun main(): void {
+        fetchValue()
+        fetchValue()
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!, {

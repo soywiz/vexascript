@@ -21,6 +21,7 @@ import type {
   IfStatement,
   Identifier,
   ImportStatement,
+  InterfaceStatement,
   LabeledStatement,
   MemberExpression,
   NewExpression,
@@ -45,9 +46,10 @@ import { walkAst } from "compiler/ast/traversal";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
-import { baseTypeName } from "compiler/analysis/typeNames";
+import { baseTypeName, parseTypeNameShape } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import { compileSource } from "compiler/pipeline/compile";
+import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import {
   buildExtensionAutoImportSuggestions,
   type AutoImportSuggestion
@@ -222,6 +224,27 @@ function inferLiteralTypeName(pathSegment: string): string | null {
     return "number";
   }
   return null;
+}
+
+/**
+ * Maps an array type name such as `int[]` to its `Array<int>` alias so member
+ * completion resolves against the declared `class Array<T>`. Nested arrays peel
+ * a single dimension (`int[][]` -> `Array<int[]>`). Returns `null` when the
+ * type is not an array.
+ */
+function arrayTypeNameToArrayAlias(typeName: string): string | null {
+  const shape = parseTypeNameShape(typeName);
+  if (shape.arrayDepth <= 0) {
+    return null;
+  }
+  let elementType =
+    shape.typeArguments.length > 0
+      ? `${shape.baseName}<${shape.typeArguments.join(", ")}>`
+      : shape.baseName;
+  for (let depth = 0; depth < shape.arrayDepth - 1; depth += 1) {
+    elementType += "[]";
+  }
+  return `Array<${elementType}>`;
 }
 
 function extensionReceiverMatches(receiverType: string, objectTypeName: string): boolean {
@@ -566,6 +589,38 @@ function buildClassMemberCompletionItems(
     });
   }
 
+  return items;
+}
+
+function buildInterfaceMemberCompletionItems(
+  interfaceStatement: InterfaceStatement,
+  prefix: string
+): CompletionItem[] {
+  const items: CompletionItem[] = [];
+  const seen = new Set<string>();
+  const normalizedPrefix = prefix.trim();
+  for (const member of interfaceStatement.members) {
+    if (normalizedPrefix.length > 0 && !member.name.name.startsWith(normalizedPrefix)) {
+      continue;
+    }
+    if (seen.has(member.name.name)) {
+      continue;
+    }
+    seen.add(member.name.name);
+    if (member.kind === "InterfacePropertyMember") {
+      items.push({
+        label: member.name.name,
+        kind: CompletionItemKind.Field,
+        detail: `Interface property: ${member.typeAnnotation.name}`
+      });
+      continue;
+    }
+    items.push({
+      label: member.name.name,
+      kind: CompletionItemKind.Method,
+      detail: `Interface method: (${member.parameters.map((parameter) => `${bindingIdentifiers(parameter.name)[0]?.name ?? "arg"}: ${parameter.typeAnnotation?.name ?? "unknown"}`).join(", ")}) => ${member.returnType?.name ?? "void"}`
+    });
+  }
   return items;
 }
 
@@ -1416,18 +1471,31 @@ function buildMemberAccessCompletions(
     return allowRecovery ? buildRecoveredMemberAccessCompletions(line, character, options) : null;
   }
 
+  // Array types (`T[]`) resolve their members from the declared `class Array<T>`.
+  const resolvedClassName = arrayTypeNameToArrayAlias(className) ?? className;
   const classStatement = resolveClassStatementAcrossFiles(
     ast,
-    baseTypeName(className),
+    baseTypeName(resolvedClassName),
     resolverOptions,
     resolverCache
   )?.classStatement;
+  const interfaceStatement = resolveTopLevelDeclarationAcrossFiles({
+    ast,
+    name: baseTypeName(resolvedClassName),
+    currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
+    predicate: (statement): statement is InterfaceStatement => statement.kind === "InterfaceStatement",
+    includeRuntime: true,
+    sourceRoots: resolverOptions.sourceRoots ?? [],
+    ...(resolverOptions.getSessionForFilePath
+      ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
+      : {})
+  })?.declaration;
   const items = [
     ...buildExtensionMemberCompletionItems(ast, className, target.prefix, options, analysis),
     ...(classStatement
       ? buildClassMemberCompletionItems(
           classStatement,
-          className,
+          resolvedClassName,
           target.prefix,
           {
             line,
@@ -1440,7 +1508,9 @@ function buildMemberAccessCompletions(
             cache: resolverCache
           }
         )
-      : [])
+      : interfaceStatement
+        ? buildInterfaceMemberCompletionItems(interfaceStatement, target.prefix)
+        : [])
   ];
   if (items.length > 0 || !allowRecovery) {
     return items;

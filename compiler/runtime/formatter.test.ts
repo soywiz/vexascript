@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { formatSource } from "./formatter";
 
 describe("formatSource", () => {
@@ -52,13 +53,14 @@ describe("formatSource", () => {
   it("wraps overly long named imports one per line", () => {
     const source =
       'import { aVeryLongName, anotherVeryLongName, yetAnotherLongName, oneMoreLongName } from "./some/very/long/module/path"';
-    expect(formatSource(source)).toBe(
-      "import {\n" +
-        "  aVeryLongName,\n" +
-        "  anotherVeryLongName,\n" +
-        "  yetAnotherLongName,\n" +
-        "  oneMoreLongName,\n" +
-        '} from "./some/very/long/module/path"'
+    expect(formatSource(source)).toBe(dedent`
+      import {
+        aVeryLongName,
+        anotherVeryLongName,
+        yetAnotherLongName,
+        oneMoreLongName,
+      } from "./some/very/long/module/path"
+    `.trimEnd()
     );
   });
 
@@ -104,14 +106,15 @@ describe("formatSource", () => {
   it("formats class declaration with field, constructor, and method", () => {
     expect(
       formatSource("class Demo { a=10; constructor(){}; demo(){} }")
-    ).toBe(
-      "class Demo {\n" +
-        "  a = 10;\n" +
-        "  constructor() {\n" +
-        "  };\n" +
-        "  demo() {\n" +
-        "  }\n" +
-        "}"
+    ).toBe(dedent`
+      class Demo {
+        a = 10;
+        constructor() {
+        };
+        demo() {
+        }
+      }
+    `.trimEnd()
     );
   });
 
@@ -123,19 +126,19 @@ describe("formatSource", () => {
   it("inserts a blank line between function/class declarations and keeps variable declarations together", () => {
     expect(
       formatSource("let a=1\nlet b=2\nfun a(){}\nclass B{}\nfun c(){}")
-    ).toBe(
-      "let a = 1\n" +
-        "let b = 2\n" +
-        "\n" +
-        "fun a() {\n" +
-        "}\n" +
-        "\n" +
-        "class B {\n" +
-        "}\n" +
-        "\n" +
-        "fun c() {\n" +
-        "}"
-    );
+    ).toBe(dedent`
+      let a = 1
+      let b = 2
+      
+      fun a() {
+      }
+      
+      class B {
+      }
+      
+      fun c() {
+      }
+    `.trimEnd());
   });
 
   it("keeps unicode escape sequences in string literals", () => {
@@ -204,28 +207,28 @@ describe("formatSource", () => {
 
   it("formats switch with case and default", () => {
     expect(formatSource("switch(x){case 1:let y=x;break;default:return 0}"))
-      .toBe(
-        "switch (x) {\n" +
-        "  case 1: let y = x;\n" +
-        "  break;\n" +
-        "  default: return 0\n" +
-        "}"
-      );
+      .toBe(dedent`
+        switch (x) {
+          case 1: let y = x;
+          break;
+          default: return 0
+        }
+      `.trimEnd());
   });
 
   it("formats throw and try/catch/finally statements", () => {
     expect(formatSource("try{throw err}catch(e){throw e}finally{return 0}"))
-      .toBe(
-        "try {\n" +
-        "  throw err\n" +
-        "}\n" +
-        "catch (e) {\n" +
-        "  throw e\n" +
-        "}\n" +
-        "finally {\n" +
-        "  return 0\n" +
-        "}"
-      );
+      .toBe(dedent`
+        try {
+          throw err
+        }
+        catch (e) {
+          throw e
+        }
+        finally {
+          return 0
+        }
+      `.trimEnd());
   });
 
   it("formats chained function calls", () => {
@@ -246,38 +249,38 @@ describe("formatSource", () => {
 
   it("applies binary and unary spacing for plus/minus based on left token", () => {
     expect(
-      formatSource(
-        "val a = 10+2\n" +
-        "val a = b+2\n" +
-        "val a = (10)+2\n" +
-        "val a = +10\n" +
-        "val a = -10"
-      )
-    ).toBe(
-      "val a = 10 + 2\n" +
-      "val a = b + 2\n" +
-      "val a = (10) + 2\n" +
-      "val a = +10\n" +
-      "val a = -10"
-    );
+      formatSource(dedent`
+        val a = 10+2
+        val a = b+2
+        val a = (10)+2
+        val a = +10
+        val a = -10
+      `.trimEnd())
+    ).toBe(dedent`
+      val a = 10 + 2
+      val a = b + 2
+      val a = (10) + 2
+      val a = +10
+      val a = -10
+    `.trimEnd());
   });
 
   it("keeps variable declarations grouped and separates function/class declarations with a blank line", () => {
     expect(
-      formatSource(
-        "var a=10\n" +
-        "var b=20\n" +
-        "fun test()\n" +
-        "class Demo()"
-      )
-    ).toBe(
-      "var a = 10\n" +
-      "var b = 20\n" +
-      "\n" +
-      "fun test()\n" +
-      "\n" +
-      "class Demo()"
-    );
+      formatSource(dedent`
+        var a=10
+        var b=20
+        fun test()
+        class Demo()
+      `.trimEnd())
+    ).toBe(dedent`
+      var a = 10
+      var b = 20
+      
+      fun test()
+      
+      class Demo()
+    `.trimEnd());
   });
 
   it("preserves one blank line when the input contains extra consecutive newlines", () => {
@@ -287,16 +290,16 @@ describe("formatSource", () => {
 
   it("does not insert extra blank lines for regular consecutive statements", () => {
     expect(
-      formatSource(
-        "var b = 20 = 2;\n" +
-        "val a = 10 + 2\n" +
-        "val a = +10"
-      )
-    ).toBe(
-      "var b = 20 = 2;\n" +
-      "val a = 10 + 2\n" +
-      "val a = +10"
-    );
+      formatSource(dedent`
+        var b = 20 = 2;
+        val a = 10 + 2
+        val a = +10
+      `.trimEnd())
+    ).toBe(dedent`
+      var b = 20 = 2;
+      val a = 10 + 2
+      val a = +10
+    `.trimEnd());
   });
 
   it("keeps scientific notation literals without splitting exponent sign", () => {

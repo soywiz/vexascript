@@ -37,7 +37,15 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
   ["false", builtinType("boolean")],
   ["null", builtinType("null")],
   ["undefined", builtinType("undefined")],
-  ["console", UNKNOWN_TYPE]
+  ["console", UNKNOWN_TYPE],
+  ["setTimeout", functionType([
+    { name: "code", type: functionType([], builtinType("void")) },
+    { name: "time", type: builtinType("number") }
+  ], builtinType("int"))],
+  ["setInterval", functionType([
+    { name: "code", type: functionType([], builtinType("void")) },
+    { name: "time", type: builtinType("number") }
+  ], builtinType("int"))]
 ]);
 
 function symbolOffset(node: Node): number {
@@ -177,6 +185,10 @@ export class Binder {
 
       if (statement.kind === "NamespaceStatement") {
         const namespaceStatement = statement as NamespaceStatement;
+        if (namespaceStatement.globalAugmentation) {
+          this.bindGlobalDeclarations(namespaceStatement.body.body, scope, declaredOffsetOverride);
+          continue;
+        }
         const name = namespaceStatement.names?.[0];
         if (name) {
           const symbolType = namedType(name.name);
@@ -311,6 +323,11 @@ export class Binder {
         return;
       case "NamespaceStatement": {
         const namespaceStatement = statement as NamespaceStatement;
+        if (namespaceStatement.globalAugmentation) {
+          this.bindGlobalDeclarations(namespaceStatement.body.body, scope);
+          this.bindStatements(namespaceStatement.body.body, scope);
+          return;
+        }
         const namespaceScope = this.createScope(scope, namespaceStatement);
         this.bindGlobalDeclarations(namespaceStatement.body.body, namespaceScope);
         this.bindStatements(namespaceStatement.body.body, namespaceScope);

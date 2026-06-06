@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,13 +10,14 @@ import { createSignatureHelp } from "./signatureHelp";
 
 describe("signature help", () => {
   it("provides function signature and active parameter index", () => {
-    const source =
-      "fun sum(a: int, b: int): int {\n" +
-      "  return a + b\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  return sum(1, 2)\n" +
-      "}\n";
+    const source = dedent`
+      fun sum(a: int, b: int): int {
+        return a + b
+      }
+      fun demo() {
+        return sum(1, 2)
+      }
+      `;
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -35,11 +37,12 @@ describe("signature help", () => {
   });
 
   it("provides constructor signature for new expressions", () => {
-    const source =
-      "class Point(val x: int, val y: int)\n" +
-      "fun demo() {\n" +
-      "  return new Point(1, 2)\n" +
-      "}\n";
+    const source = dedent`
+      class Point(val x: int, val y: int)
+      fun demo() {
+        return new Point(1, 2)
+      }
+      `;
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -59,17 +62,18 @@ describe("signature help", () => {
   });
 
   it("resolves the innermost call inside a tail/brace lambda argument", () => {
-    const source =
-      "fun inner(a: int, b: int): int {\n" +
-      "  return a + b\n" +
-      "}\n" +
-      "fun outer(callback: (x: int) => void) {\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  outer({ value ->\n" +
-      "    inner(1, 2)\n" +
-      "  })\n" +
-      "}\n";
+    const source = dedent`
+      fun inner(a: int, b: int): int {
+        return a + b
+      }
+      fun outer(callback: (x: int) => void) {
+      }
+      fun demo() {
+        outer({ value ->
+          inner(1, 2)
+        })
+      }
+      `;
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -102,19 +106,21 @@ describe("signature help", () => {
     const worldFile = join(root, "world.my");
     const helloFile = join(root, "hello.my");
 
-    const worldSource =
-      "class Logger {\n" +
-      "  /**\n" +
-      "   * Writes a number in the output stream.\n" +
-      "   */\n" +
-      "  log(value: number): int { return 0 }\n" +
-      "}\n";
-    const helloSource =
-      "import { Logger } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const logger = new Logger()\n" +
-      "  logger.log(1)\n" +
-      "}\n";
+    const worldSource = dedent`
+      class Logger {
+        /**
+         * Writes a number in the output stream.
+         */
+        log(value: number): int { return 0 }
+      }
+      `;
+    const helloSource = dedent`
+      import { Logger } from "./world"
+      fun demo() {
+        const logger = new Logger()
+        logger.log(1)
+      }
+      `;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -148,14 +154,15 @@ describe("signature help", () => {
   });
 
   it("specializes generic method signature help from instantiated type", () => {
-    const source =
-      "class Map<K, V> {\n" +
-      "  get(key: K): V { }\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  const map = new Map<string, int>()\n" +
-      "  map.get(\"id\")\n" +
-      "}\n";
+    const source = dedent`
+      class Map<K, V> {
+        get(key: K): V { }
+      }
+      fun demo() {
+        const map = new Map<string, int>()
+        map.get("id")
+      }
+      `;
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -175,16 +182,17 @@ describe("signature help", () => {
   });
 
   it("specializes signature help for inherited generic methods", () => {
-    const source =
-      "class Base<T> {\n" +
-      "  get(key: T): T { }\n" +
-      "}\n" +
-      "class Child extends Base<string> {\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  const child = new Child()\n" +
-      "  child.get(\"id\")\n" +
-      "}\n";
+    const source = dedent`
+      class Base<T> {
+        get(key: T): T { }
+      }
+      class Child extends Base<string> {
+      }
+      fun demo() {
+        const child = new Child()
+        child.get("id")
+      }
+      `;
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();

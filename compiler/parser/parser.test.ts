@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { ParseError, Parser, getProgramRecoveryMarkers, parseExpression, parseFile, parseProgram, parseStatement } from "./parser";
 import { tokenizeReader } from "./tokenizer";
 
@@ -1155,7 +1156,8 @@ describe("parseExpression", () => {
         const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="] as const;
 
         for (const operator of operators) {
-            expect(parseExpression(tokenizeReader(`a ${operator} 1`))).toEqual({
+            expect(parseExpression(tokenizeReader(`a ${operator} 1
+`))).toEqual({
                 kind: "AssignmentExpression",
                 operator,
                 left: { kind: "Identifier", name: "a" },
@@ -1168,7 +1170,8 @@ describe("parseExpression", () => {
         const operators = ["<<", ">>", ">>>"] as const;
 
         for (const operator of operators) {
-            expect(parseExpression(tokenizeReader(`a ${operator} 1`))).toEqual({
+            expect(parseExpression(tokenizeReader(`a ${operator} 1
+`))).toEqual({
                 kind: "BinaryExpression",
                 operator,
                 left: { kind: "Identifier", name: "a" },
@@ -2794,12 +2797,12 @@ describe("parseStatement", () => {
     });
 
     it("parses additional ambient declaration forms", () => {
-        const program = parseFile(tokenizeReader(
-            "declare type Id = string;\n" +
-            "declare abstract class Service { abstract run(id: Id): void }\n" +
-            "export declare const service: Service;\n" +
-            "export declare function create(id: Id): Service;"
-        ), { language: "typescript" });
+        const program = parseFile(tokenizeReader(dedent`
+            declare type Id = string;
+            declare abstract class Service { abstract run(id: Id): void }
+            export declare const service: Service;
+            export declare function create(id: Id): Service;
+        `.trimEnd()), { language: "typescript" });
 
         expect(program.body).toMatchObject([
             { kind: "TypeAliasStatement", declared: true, name: { name: "Id" }, targetType: { name: "string" } },
@@ -2877,6 +2880,36 @@ describe("parseStatement", () => {
                             name: { kind: "Identifier", name: "version" },
                             typeAnnotation: { kind: "Identifier", name: "string" }
                         }
+                    }
+                ]
+            }
+        });
+    });
+
+    it("parses declare global augmentations in typescript mode", () => {
+        expect(
+            parseStatement(tokenizeReader("declare global {\ninterface Iterator<T> {}\ndeclare var Iterator: IteratorConstructor\n}"), { language: "typescript" })
+        ).toEqual({
+            kind: "NamespaceStatement",
+            declared: true,
+            globalAugmentation: true,
+            declarationKind: "namespace",
+            body: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "InterfaceStatement",
+                        declared: true,
+                        name: { kind: "Identifier", name: "Iterator" },
+                        typeParameters: [{ kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }],
+                        members: []
+                    },
+                    {
+                        kind: "VarStatement",
+                        declared: true,
+                        declarationKind: "var",
+                        name: { kind: "Identifier", name: "Iterator" },
+                        typeAnnotation: { kind: "Identifier", name: "IteratorConstructor" }
                     }
                 ]
             }
@@ -3945,16 +3978,17 @@ describe("Parser (with recovery)", () => {
     });
 
     it("recovers from malformed nested if statements inside switch cases", () => {
-        const parser = new Parser(tokenizeReader(
-            "switch (x) {\n" +
-            "  case 1:\n" +
-            "    if (ok) { let bad = ; }\n" +
-            "    let keep = 1\n" +
-            "    break\n" +
-            "  default:\n" +
-            "    let fallback = 2\n" +
-            "}\n" +
-            "let after = 3\n"
+        const parser = new Parser(tokenizeReader(dedent`
+            switch (x) {
+              case 1:
+                if (ok) { let bad = ; }
+                let keep = 1
+                break
+              default:
+                let fallback = 2
+            }
+            let after = 3
+            `
         ));
         const ast = parser.parseFile();
 
@@ -4001,12 +4035,13 @@ describe("Parser (with recovery)", () => {
     });
 
     it("recovers from broken for headers and keeps following statements", () => {
-        const parser = new Parser(tokenizeReader(
-            "{\n" +
-            "  for (let i = ; i < 2; i += 1) let bad = i\n" +
-            "  let ok = 1\n" +
-            "}\n" +
-            "let after = 2\n"
+        const parser = new Parser(tokenizeReader(dedent`
+            {
+              for (let i = ; i < 2; i += 1) let bad = i
+              let ok = 1
+            }
+            let after = 2
+            `
         ));
         const ast = parser.parseFile();
 
@@ -4032,12 +4067,13 @@ describe("Parser (with recovery)", () => {
     });
 
     it("recovers from malformed chained calls and parses subsequent statements", () => {
-        const parser = new Parser(tokenizeReader(
-            "{\n" +
-            "  target.run(1, ).next(;\n" +
-            "  let ok = 1\n" +
-            "}\n" +
-            "let done = 2\n"
+        const parser = new Parser(tokenizeReader(dedent`
+            {
+              target.run(1, ).next(;
+              let ok = 1
+            }
+            let done = 2
+            `
         ));
         const ast = parser.parseFile();
 
@@ -4052,11 +4088,13 @@ describe("Parser (with recovery)", () => {
     });
 
     it("recovers malformed statement separators by skipping to the next '}' or newline", () => {
-        const parser = new Parser(tokenizeReader(
-            "asdsa declare class Console {\n" +
-            "  log(a: number)\n" +
-            "}\n\n" +
-            "declare var console: Console\n"
+        const parser = new Parser(tokenizeReader(dedent`
+            asdsa declare class Console {
+              log(a: number)
+            }
+            
+            declare var console: Console
+            `
         ));
         const ast = parser.parseFile();
 
@@ -4085,12 +4123,13 @@ describe("Parser (with recovery)", () => {
     });
 
     it("recovers incomplete member access before newline and keeps following declarations", () => {
-        const parser = new Parser(tokenizeReader(
-            "fun demo() {\n" +
-            "  const result: Point = value\n" +
-            "  return result.\n" +
-            "}\n" +
-            "class Point(val x: int, val y: int)\n"
+        const parser = new Parser(tokenizeReader(dedent`
+            fun demo() {
+              const result: Point = value
+              return result.
+            }
+            class Point(val x: int, val y: int)
+            `
         ));
         const ast = parser.parseFile();
 
@@ -4121,12 +4160,13 @@ describe("Parser (with recovery)", () => {
     });
 
     it("recovers separator errors across newline-heavy continuations until a likely statement start", () => {
-        const parser = new Parser(tokenizeReader(
-            "{ let a = 1 let b =\n" +
-            "  +\n" +
-            "  2\n" +
-            "  let c = 3\n" +
-            "}\n"
+        const parser = new Parser(tokenizeReader(dedent`
+            { let a = 1 let b =
+              +
+              2
+              let c = 3
+            }
+            `
         ));
         const ast = parser.parseFile();
 
@@ -4201,7 +4241,8 @@ describe("parse enum declarations", () => {
     it("parses async functions, generator functions, yield, and this parameters", () => {
         const program = parseFile(tokenizeReader(`async function load(this: Loader, id: string) { return await fetch(id) }
 function* ids() { yield 1; yield* more }
-class Store { async save(this: Store) { return await persist(this) }; *values() { yield 1 } }`));
+class Store { async save(this: Store) { return await persist(this) }; *values() { yield 1 } }
+`));
 
         expect(program.body[0]).toMatchObject({
             kind: "FunctionStatement",
@@ -4237,7 +4278,8 @@ class Store { async save(this: Store) { return await persist(this) }; *values() 
 sync fun fetchValue(): int { return 2 }
 class Store { sync save(): int { return 3 } }
 let arrow = sync () => { return 4 }
-let expr = sync function(): int { return 5 }`));
+let expr = sync function(): int { return 5 }
+`));
 
         expect(program.body[0]).toMatchObject({
             kind: "FunctionStatement",
@@ -4274,7 +4316,8 @@ let expr = sync function(): int { return 5 }`));
         const program = parseFile(tokenizeReader(`let go = 5
 let total = go + 1
 let result = go
-go = 7`));
+go = 7
+`));
         expect(program.body[0]).toMatchObject({ kind: "VarStatement", initializer: { kind: "IntLiteral", value: 5 } });
         expect(program.body[1]).toMatchObject({
             kind: "VarStatement",

@@ -4,6 +4,7 @@ import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
+import dedent from "compiler/utils/dedent";
 
 function namesOfVisibleSymbolsAt(source: string, line: number, character: number): string[] {
   const ast = parseFile(tokenizeReader(source));
@@ -37,10 +38,11 @@ describe("Analysis", () => {
   });
 
   it("uses ambient function signatures and exported ambient declarations during analysis", () => {
-    const source = `declare type Id = string
-export declare function lookup(id: Id): int
-lookup(123)
-`;
+    const source = dedent`
+      declare type Id = string
+      export declare function lookup(id: Id): int
+      lookup(123)
+    `;
     const ast = parseFile(tokenizeReader(source), { language: "typescript" });
     const analysis = new Analysis(ast);
 
@@ -49,16 +51,17 @@ lookup(123)
   });
 
   it("builds nested scopes and exposes function parameters/local variables", () => {
-    const source =
-      "let top = 1\n" +
-      "fun demo(a, b: Num = top) {\n" +
-      "  let inner = a\n" +
-      "  {\n" +
-      "    let deep = inner\n" +
-      "    return deep\n" +
-      "  }\n" +
-      "}\n";
-
+    const source = dedent`
+      let top = 1
+      fun demo(a, b: Num = top) {
+        let inner = a
+        {
+          let deep = inner
+          return deep
+        }
+      }
+    `
+    
     const visible = namesOfVisibleSymbolsAt(source, 5, 6);
     expect(visible).toContain("a");
     expect(visible).toContain("b");
@@ -79,13 +82,15 @@ let after = bind`));
   });
 
   it("does not leak function locals outside the function scope", () => {
-    const source =
-      "let top = 1\n" +
-      "fun demo(a) {\n" +
-      "  let inner = a\n" +
-      "  return inner\n" +
-      "}\n" +
-      "let after = top\n";
+    const source = dedent`
+      let top = 1
+      fun demo(a) {
+        let inner = a
+        return inner
+      }
+      let after = top
+      
+`;
 
     const visible = namesOfVisibleSymbolsAt(source, 5, 4);
     expect(visible).toContain("top");
@@ -97,9 +102,11 @@ let after = bind`));
 
   describe("cross-file extension methods (externalDeclarations)", () => {
     const otherFileSource = "class Point(val x: number, val y: number)\n";
-    const mainSource =
-      "fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)\n" +
-      "fun Point.distanceTo(other: Point): number => this.x - other.x + (this.y - other.y)\n";
+    const mainSource = dedent`
+      fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)
+      fun Point.distanceTo(other: Point): number => this.x - other.x + (this.y - other.y)
+      
+`;
 
     it("resolves the implicit receiver and members of an imported class", () => {
       const externalDeclarations = parseFile(tokenizeReader(otherFileSource)).body;
@@ -122,9 +129,11 @@ let after = bind`));
     });
 
     it("resolves an operator overload declared in an imported file", () => {
-      const externalSource =
-        "class Point(val x: number, val y: number)\n" +
-        "fun Point.operator+(other: Point): Point => Point(x + other.x, y + other.y)\n";
+      const externalSource = dedent`
+        class Point(val x: number, val y: number)
+        fun Point.operator+(other: Point): Point => Point(x + other.x, y + other.y)
+        
+`;
       const usageSource =
         'import { Point, operator+ } from "./other"\n' +
         "val sum = Point(1, 2) + Point(3, 4)\n";
@@ -156,22 +165,24 @@ let after = bind`));
   });
 
   it("allows yield only inside generator functions", () => {
-    const source =
-      "function* ok() {\n" +
-      "  yield 1\n" +
-      "  yield* []\n" +
-      "}\n" +
-      "function bad() {\n" +
-      "  yield 2\n" +
-      "}\n" +
-      "class Store {\n" +
-      "  *values() {\n" +
-      "    yield 3\n" +
-      "  }\n" +
-      "  async save() {\n" +
-      "    yield 4\n" +
-      "  }\n" +
-      "}\n";
+    const source = dedent`
+      function* ok() {
+        yield 1
+        yield* []
+      }
+      function bad() {
+        yield 2
+      }
+      class Store {
+        *values() {
+          yield 3
+        }
+        async save() {
+          yield 4
+        }
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -181,6 +192,70 @@ let after = bind`));
     expect(messages.filter((message) => message === "The 'yield' keyword is only allowed inside generator functions")).toHaveLength(2);
   });
 
+  it("allows await only at top level and inside async or sync functions", () => {
+    const source = dedent`
+      declare function promised(): Promise<int>
+      await promised()
+      async function okAsync() {
+        await promised()
+      }
+      sync function okSync(): int {
+        await promised()
+        return 1
+      }
+      function badNormal() {
+        await promised()
+      }
+      function* badGenerator() {
+        await promised()
+      }
+      class Service {
+        async okMethod() {
+          await promised()
+        }
+        badMethod() {
+          await promised()
+        }
+      }
+      
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    const awaitMessage = "The 'await' keyword is only allowed inside async or sync functions or at the top level";
+    expect(messages).toContain(awaitMessage);
+    expect(messages.filter((message) => message === awaitMessage)).toHaveLength(3);
+  });
+
+  it("allows the go operator only inside async-like (async or sync) functions", () => {
+    const source = dedent`
+      declare function promised(): Promise<int>
+      sync function okSync(): int {
+        let p: Promise<int> = go promised()
+        return 1
+      }
+      async function okAsync() {
+        let p: Promise<int> = go promised()
+      }
+      function badNormal() {
+        let p: Promise<int> = go promised()
+      }
+      let top: Promise<int> = go promised()
+
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    const goMessage = "The 'go' operator is only allowed inside async or sync functions";
+    expect(messages).toContain(goMessage);
+    // Only the normal function and the top-level use are errors; sync and async are allowed.
+    expect(messages.filter((message) => message === goMessage)).toHaveLength(2);
+  });
+
   it("uses the final comma expression operand as the expression type", () => {
     const ast = parseFile(tokenizeReader("let value: string = (1, \"ok\")"));
     const analysis = new Analysis(ast);
@@ -188,7 +263,8 @@ let after = bind`));
   });
 
   it("checks TypeScript angle-bracket assertions like as assertions", () => {
-    const ast = parseFile(tokenizeReader(`let value: string = <string>unknownValue\nlet unsafe = <number>"oops"`));
+    const ast = parseFile(tokenizeReader(`let value: string = <string>unknownValue\nlet unsafe = <number>"oops"
+`));
     const analysis = new Analysis(ast);
     const messages = analysis.getIssues().map((issue) => issue.message);
 
@@ -197,17 +273,19 @@ let after = bind`));
   });
 
   it("resolves keyof, typeof type queries, and indexed access types semantically", () => {
-    const source =
-      "interface Person {\n" +
-      "  name: string\n" +
-      "  age: int\n" +
-      "}\n" +
-      "let person: Person = { name: \"Ada\", age: 36 }\n" +
-      "let key: keyof Person = \"name\"\n" +
-      "let copiedName: typeof person.name = \"Ada\"\n" +
-      "let indexedName: Person[\"name\"] = \"Grace\"\n" +
-      "let indexedNames: Person[\"name\"][] = [\"Grace\"]\n" +
-      "let indexedValue: Person[keyof Person] = 1\n";
+    const source = dedent`
+      interface Person {
+        name: string
+        age: int
+      }
+      let person: Person = { name: "Ada", age: 36 }
+      let key: keyof Person = "name"
+      let copiedName: typeof person.name = "Ada"
+      let indexedName: Person["name"] = "Grace"
+      let indexedNames: Person["name"][] = ["Grace"]
+      let indexedValue: Person[keyof Person] = 1
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -215,9 +293,11 @@ let after = bind`));
   });
 
   it("reports missing properties in indexed access type annotations", () => {
-    const source =
-      "interface Person { name: string }\n" +
-      "let value: Person[\"missing\"] = \"Ada\"\n";
+    const source = dedent`
+      interface Person { name: string }
+      let value: Person["missing"] = "Ada"
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -227,11 +307,13 @@ let after = bind`));
   });
 
   it("reports semantic errors for unresolved variables in scope", () => {
-    const source =
-      "let top = 1\n" +
-      "fun demo(a) {\n" +
-      "  return a + missing + obj.prop + obj[dynamic]\n" +
-      "}\n";
+    const source = dedent`
+      let top = 1
+      fun demo(a) {
+        return a + missing + obj.prop + obj[dynamic]
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -245,16 +327,18 @@ let after = bind`));
   });
 
   it("infers regular expression literals, sparse array holes, and duplicate switch defaults", () => {
-    const source =
-      "declare class RegExp {}\n" +
-      "let re: RegExp = /a+/g\n" +
-      "let values: (int | undefined)[] = [1, , 3]\n" +
-      "switch (values[0]) {\n" +
-      "  default:\n" +
-      "    break\n" +
-      "  default:\n" +
-      "    break\n" +
-      "}\n";
+    const source = dedent`
+      declare class RegExp {}
+      let re: RegExp = /a+/g
+      let values: (int | undefined)[] = [1, , 3]
+      switch (values[0]) {
+        default:
+          break
+        default:
+          break
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -266,20 +350,22 @@ let after = bind`));
   });
 
   it("reports switch case fallthrough unless control flow exits before the next case", () => {
-    const source = `switch (value) {
-  case 1:
-    let one = value
-  case 2:
-    break
-  case 3:
-    if (value > 0) {
-      return
-    } else {
-      throw value
-    }
-  default:
-    let other = value
-}`;
+    const source = dedent`
+      switch (value) {
+        case 1:
+          let one = value
+        case 2:
+          break
+        case 3:
+          if (value > 0) {
+            return
+          } else {
+            throw value
+          }
+        default:
+          let other = value
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -290,18 +376,20 @@ let after = bind`));
   });
 
   it("reports semantic errors for illegal break/continue usage", () => {
-    const source =
-      "break\n" +
-      "continue\n" +
-      "switch (x) {\n" +
-      "  case 1:\n" +
-      "    break\n" +
-      "    continue\n" +
-      "}\n" +
-      "while (x) {\n" +
-      "  continue\n" +
-      "  break\n" +
-      "}\n";
+    const source = dedent`
+      break
+      continue
+      switch (x) {
+        case 1:
+          break
+          continue
+      }
+      while (x) {
+        continue
+        break
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -314,16 +402,18 @@ let after = bind`));
   });
 
   it("validates labeled break and continue targets", () => {
-    const source =
-      "outer: while (ok) {\n" +
-      "  continue outer\n" +
-      "  break outer\n" +
-      "}\n" +
-      "blockLabel: {\n" +
-      "  break blockLabel\n" +
-      "  continue blockLabel\n" +
-      "}\n" +
-      "break missingLabel\n";
+    const source = dedent`
+      outer: while (ok) {
+        continue outer
+        break outer
+      }
+      blockLabel: {
+        break blockLabel
+        continue blockLabel
+      }
+      break missingLabel
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -336,24 +426,26 @@ let after = bind`));
   });
 
   it("requires every reachable path in non-void functions and methods to return", () => {
-    const source = `function complete(flag: boolean): int {
-  if (flag) {
-    return 1
-  } else {
-    return 2
-  }
-}
-function incomplete(flag: boolean): int {
-  if (flag) return 1
-}
-class Calculator {
-  choose(flag: boolean): string {
-    if (flag) return "yes"
-  }
-  fail(): int {
-    throw "failure"
-  }
-}`;
+    const source = dedent`
+      function complete(flag: boolean): int {
+        if (flag) {
+          return 1
+        } else {
+          return 2
+        }
+      }
+      function incomplete(flag: boolean): int {
+        if (flag) return 1
+      }
+      class Calculator {
+        choose(flag: boolean): string {
+          if (flag) return "yes"
+        }
+        fail(): int {
+          throw "failure"
+        }
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     const missingReturnIssues = analysis.getIssues().filter(
@@ -369,21 +461,23 @@ class Calculator {
   });
 
   it("checks return values against the nearest function return type", () => {
-    const source = `function wrong(): int {
-  return "bad"
-}
-function missingValue(): string {
-  return
-}
-function wrongVoid(): void {
-  return 1
-}
-function outer(): string {
-  function inner(): int {
-    return "inner bad"
-  }
-  return "ok"
-}`;
+    const source = dedent`
+      function wrong(): int {
+        return "bad"
+      }
+      function missingValue(): string {
+        return
+      }
+      function wrongVoid(): void {
+        return 1
+      }
+      function outer(): string {
+        function inner(): int {
+          return "inner bad"
+        }
+        return "ok"
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     const issues = analysis.getIssues();
@@ -416,19 +510,21 @@ function outer(): string {
   });
 
   it("accepts awaited and non-awaited return values in async functions with Promise return types", () => {
-    const source = `declare function promisedInt(): Promise<int>
-async function goodValue(): Promise<int> {
-  return 10
-}
-async function goodPromise(): Promise<int> {
-  return promisedInt()
-}
-async function bad(): Promise<int> {
-  return "bad"
-}
-async function empty(): Promise<void> {
-  return
-}`;
+    const source = dedent`
+      declare function promisedInt(): Promise<int>
+      async function goodValue(): Promise<int> {
+        return 10
+      }
+      async function goodPromise(): Promise<int> {
+        return promisedInt()
+      }
+      async function bad(): Promise<int> {
+        return "bad"
+      }
+      async function empty(): Promise<void> {
+        return
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     const issues = analysis.getIssues();
@@ -442,20 +538,22 @@ async function empty(): Promise<void> {
   });
 
   it("unwraps Promise values in await expressions and preserves non-Promise values", () => {
-    const source = `declare function promisedInt(): Promise<int>
-declare function plainInt(): int
-
-async function consumePromise() {
-  let value: int = await promisedInt()
-}
-
-async function consumePlain() {
-  let value: int = await plainInt()
-}
-
-async function wrongAwaitedType() {
-  let value: string = await promisedInt()
-}`;
+    const source = dedent`
+      declare function promisedInt(): Promise<int>
+      declare function plainInt(): int
+      
+      async function consumePromise() {
+        let value: int = await promisedInt()
+      }
+      
+      async function consumePlain() {
+        let value: int = await plainInt()
+      }
+      
+      async function wrongAwaitedType() {
+        let value: string = await promisedInt()
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     const issues = analysis.getIssues();
@@ -471,11 +569,13 @@ async function wrongAwaitedType() {
   });
 
   it("infers Promise return types from async function returns", () => {
-    const source = `async function inferred(flag: boolean) {
-  if (flag) return 10
-  return 20
-}
-let expectsPromise: (flag: boolean) => Promise<int> = inferred`;
+    const source = dedent`
+      async function inferred(flag: boolean) {
+        if (flag) return 10
+        return 20
+      }
+      let expectsPromise: (flag: boolean) => Promise<int> = inferred
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -484,15 +584,19 @@ let expectsPromise: (flag: boolean) => Promise<int> = inferred`;
 
 
   it("contextually types Promise constructor executors and infers resolved values", () => {
-    const okSource = `let promise: Promise<int> = new Promise((resolve, reject) => {
-  resolve(123)
-})`;
+    const okSource = dedent`
+      let promise: Promise<int> = new Promise((resolve, reject) => {
+        resolve(123)
+      })
+    `;
     const okAnalysis = new Analysis(parseFile(tokenizeReader(okSource)));
     expect(okAnalysis.getIssues().map((issue) => issue.message)).toEqual([]);
 
-    const mismatchSource = `let promise: Promise<string> = new Promise((resolve, reject) => {
-  resolve(123)
-})`;
+    const mismatchSource = dedent`
+      let promise: Promise<string> = new Promise((resolve, reject) => {
+        resolve(123)
+      })
+    `;
     const mismatchAnalysis = new Analysis(parseFile(tokenizeReader(mismatchSource)));
     expect(mismatchAnalysis.getIssues().map((issue) => issue.message)).toContain(
       "Type 'Promise<int>' is not assignable to type 'Promise<string>'"
@@ -500,10 +604,12 @@ let expectsPromise: (flag: boolean) => Promise<int> = inferred`;
   });
 
   it("validates Promise constructor and resolver arity", () => {
-    const source = `let missing = new Promise()
-let extra = new Promise((resolve, reject) => {
-  resolve(1, 2)
-})`;
+    const source = dedent`
+      let missing = new Promise()
+      let extra = new Promise((resolve, reject) => {
+        resolve(1, 2)
+      })
+    `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual(expect.arrayContaining([
       "Expected at least 1 argument(s), but got 0",
@@ -514,16 +620,18 @@ let extra = new Promise((resolve, reject) => {
 
 
   it("auto-wraps non-Promise annotations on async functions as Promise<T>", () => {
-    const source = `async function inferred(): number {
-  return 10
-}
-class Box {
-  async load(): string {
-    return "x"
-  }
-}
-let a: () => Promise<number> = inferred
-let b: () => Promise<string> = () => new Box().load()`;
+    const source = dedent`
+      async function inferred(): number {
+        return 10
+      }
+      class Box {
+        async load(): string {
+          return "x"
+        }
+      }
+      let a: () => Promise<number> = inferred
+      let b: () => Promise<string> = () => new Box().load()
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -531,16 +639,18 @@ let b: () => Promise<string> = () => new Box().load()`;
   });
 
   it("treats sync functions as Promise<T> producers without requiring a Promise annotation", () => {
-    const source = `sync function inferred(): number {
-  return 10
-}
-class Box {
-  sync load(): string {
-    return "x"
-  }
-}
-let a: () => Promise<number> = inferred
-let b: () => Promise<string> = () => new Box().load()`;
+    const source = dedent`
+      sync function inferred(): number {
+        return 10
+      }
+      class Box {
+        sync load(): string {
+          return "x"
+        }
+      }
+      let a: () => Promise<number> = inferred
+      let b: () => Promise<string> = () => new Box().load()
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -548,12 +658,14 @@ let b: () => Promise<string> = () => new Box().load()`;
   });
 
   it("auto-awaits Promise-typed bindings inside sync functions while go preserves the Promise", () => {
-    const source = `sync fun fetchValue(): int { return 1 }
-sync fun main(): int {
-  let x = fetchValue()
-  let p: Promise<int> = go fetchValue()
-  return x + 10
-}`;
+    const source = dedent`
+      sync fun fetchValue(): int { return 1 }
+      sync fun main(): int {
+        let x = fetchValue()
+        let p: Promise<int> = go fetchValue()
+        return x + 10
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -561,10 +673,12 @@ sync fun main(): int {
   });
 
   it("observes auto-awaited sync results as their unwrapped type", () => {
-    const source = `sync fun fetchValue(): int { return 1 }
-sync fun main(): void {
-  let s: string = fetchValue()
-}`;
+    const source = dedent`
+      sync fun fetchValue(): int { return 1 }
+      sync fun main(): void {
+        let s: string = fetchValue()
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -574,15 +688,17 @@ sync fun main(): void {
   });
 
   it("auto-awaits Promise-typed subexpressions in argument and member positions", () => {
-    const source = `declare function use(value: int): void
-class Box { value(): int { return 1 } }
-sync fun fetchValue(): int { return 1 }
-sync fun fetchBox(): Box { return Box() }
-sync fun main(): void {
-  use(fetchValue())
-  use(fetchValue() + 1)
-  use(fetchBox().value())
-}`;
+    const source = dedent`
+      declare function use(value: int): void
+      class Box { value(): int { return 1 } }
+      sync fun fetchValue(): int { return 1 }
+      sync fun fetchBox(): Box { return Box() }
+      sync fun main(): void {
+        use(fetchValue())
+        use(fetchValue() + 1)
+        use(fetchBox().value())
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -590,12 +706,14 @@ sync fun main(): void {
   });
 
   it("keeps the Promise type of local variables instead of auto-awaiting references", () => {
-    const source = `async fun demo2(): Promise<int> { return 10 }
-sync fun demo(): void {
-  let stored = go demo2()
-  let alias: Promise<int> = stored
-  let plain: int = stored
-}`;
+    const source = dedent`
+      async fun demo2(): Promise<int> { return 10 }
+      sync fun demo(): void {
+        let stored = go demo2()
+        let alias: Promise<int> = stored
+        let plain: int = stored
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -607,11 +725,13 @@ sync fun demo(): void {
   });
 
   it("keeps the Promise type when go opts out, even in argument positions", () => {
-    const source = `declare function use(value: int): void
-sync fun fetchValue(): int { return 1 }
-sync fun main(): void {
-  use(go fetchValue())
-}`;
+    const source = dedent`
+      declare function use(value: int): void
+      sync fun fetchValue(): int { return 1 }
+      sync fun main(): void {
+        use(go fetchValue())
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
@@ -621,13 +741,15 @@ sync fun main(): void {
   });
 
   it("checks contextual function-expression and arrow-function returns", () => {
-    const source = `let arrow: (flag: boolean) => int = (flag) => {
-  if (flag) return 1
-}
-let expression: () => string = function(): string {
-  return 1
-}
-let concise: () => int = () => "bad"`;
+    const source = dedent`
+      let arrow: (flag: boolean) => int = (flag) => {
+        if (flag) return 1
+      }
+      let expression: () => string = function(): string {
+        return 1
+      }
+      let concise: () => int = () => "bad"
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     const issues = analysis.getIssues();
@@ -645,33 +767,37 @@ let concise: () => int = () => "bad"`;
   });
 
   it("recognizes exhaustive switch and try/catch return paths", () => {
-    const source = `function viaSwitch(value: int): string {
-  switch (value) {
-    case 1:
-      return "one"
-    default:
-      return "other"
-  }
-}
-function viaTry(flag: boolean): int {
-  try {
-    if (flag) return 1
-    throw "bad"
-  } catch (error) {
-    return 2
-  }
-}`;
+    const source = dedent`
+      function viaSwitch(value: int): string {
+        switch (value) {
+          case 1:
+            return "one"
+          default:
+            return "other"
+        }
+      }
+      function viaTry(flag: boolean): int {
+        try {
+          if (flag) return 1
+          throw "bad"
+        } catch (error) {
+          return 2
+        }
+      }
+    `;
 
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     expect(analysis.getIssues()).toEqual([]);
   });
 
   it("checks with statement object expressions and bodies", () => {
-    const source =
-      "let scope = { value: 1 }\n" +
-      "with (scope) {\n" +
-      "  let inner: int = \"bad\"\n" +
-      "}\n";
+    const source = dedent`
+      let scope = { value: 1 }
+      with (scope) {
+        let inner: int = "bad"
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -681,16 +807,18 @@ function viaTry(flag: boolean): int {
   });
 
   it("binds catch parameter in try/catch scope and validates throw expressions", () => {
-    const source =
-      "fun demo() {\n" +
-      "  try {\n" +
-      "    throw missing\n" +
-      "  } catch (err) {\n" +
-      "    throw err\n" +
-      "  } finally {\n" +
-      "    return 0\n" +
-      "  }\n" +
-      "}\n";
+    const source = dedent`
+      fun demo() {
+        try {
+          throw missing
+        } catch (err) {
+          throw err
+        } finally {
+          return 0
+        }
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -701,16 +829,18 @@ function viaTry(flag: boolean): int {
   });
 
   it("resolves class/function symbols declared later in the same scope", () => {
-    const source =
-      "fun demo() {\n" +
-      "  const a = new Point(1, 2)\n" +
-      "  return makePoint(a)\n" +
-      "}\n" +
-      "class Point {\n" +
-      "}\n" +
-      "fun makePoint(value) {\n" +
-      "  return value\n" +
-      "}\n";
+    const source = dedent`
+      fun demo() {
+        const a = new Point(1, 2)
+        return makePoint(a)
+      }
+      class Point {
+      }
+      fun makePoint(value) {
+        return value
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -721,14 +851,16 @@ function viaTry(flag: boolean): int {
   });
 
   it("allows forward references only from global scope declarations", () => {
-    const source =
-      "fun demo() {\n" +
-      "  while (zz) {\n" +
-      "    break\n" +
-      "  }\n" +
-      "  return zz\n" +
-      "}\n" +
-      "var zz = true\n";
+    const source = dedent`
+      fun demo() {
+        while (zz) {
+          break
+        }
+        return zz
+      }
+      var zz = true
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -738,11 +870,13 @@ function viaTry(flag: boolean): int {
   });
 
   it("requires local variables to be declared before use inside function scope", () => {
-    const source =
-      "fun demo() {\n" +
-      "  return localValue\n" +
-      "  let localValue = 1\n" +
-      "}\n";
+    const source = dedent`
+      fun demo() {
+        return localValue
+        let localValue = 1
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -770,9 +904,11 @@ function viaTry(flag: boolean): int {
   });
 
   it("reports incompatible assignment types", () => {
-    const source =
-      "var a = 10\n" +
-      "a = \"test\"\n";
+    const source = dedent`
+      var a = 10
+      a = "test"
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -782,18 +918,20 @@ function viaTry(flag: boolean): int {
   });
 
   it("checks union, intersection, literal, and tuple type annotations", () => {
-    const source =
-      "interface Named { name: string }\n" +
-      "interface Aged { age: int }\n" +
-      "let person: Named & Aged = { name: \"Ada\", age: 1 }\n" +
-      "let incomplete: Named & Aged = { name: \"Ada\" }\n" +
-      "let maybe: string | int = 1\n" +
-      "maybe = \"ok\"\n" +
-      "maybe = false\n" +
-      "let status: \"ready\" | \"done\" = \"ready\"\n" +
-      "status = \"bad\"\n" +
-      "let pair: [string, int] = [\"age\", 1]\n" +
-      "pair = [2, \"wrong\"]\n";
+    const source = dedent`
+      interface Named { name: string }
+      interface Aged { age: int }
+      let person: Named & Aged = { name: "Ada", age: 1 }
+      let incomplete: Named & Aged = { name: "Ada" }
+      let maybe: string | int = 1
+      maybe = "ok"
+      maybe = false
+      let status: "ready" | "done" = "ready"
+      status = "bad"
+      let pair: [string, int] = ["age", 1]
+      pair = [2, "wrong"]
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -808,11 +946,12 @@ function viaTry(flag: boolean): int {
 
 
   it("keeps nested unions inside object type annotations", () => {
-    const source = `type Result = { value: string | int }
-let numeric: Result = { value: 1 }
-let textual: Result = { value: "ok" }
-let invalid: Result = { value: true }
-`;
+    const source = dedent`
+      type Result = { value: string | int }
+      let numeric: Result = { value: 1 }
+      let textual: Result = { value: "ok" }
+      let invalid: Result = { value: true }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -824,11 +963,12 @@ let invalid: Result = { value: true }
   });
 
   it("checks function and object type literal annotations", () => {
-    const source = `let mapper: (value: int) => string = (value: int) => "ok"
-let badMapper: (value: int) => string = (value: int) => value
-let point: { x: int; label?: string } = { x: 1 }
-let badPoint: { x: int; label: string } = { x: 1, label: 2 }
-`;
+    const source = dedent`
+      let mapper: (value: int) => string = (value: int) => "ok"
+      let badMapper: (value: int) => string = (value: int) => value
+      let point: { x: int; label?: string } = { x: 1 }
+      let badPoint: { x: int; label: string } = { x: 1, label: 2 }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -842,11 +982,13 @@ let badPoint: { x: int; label: string } = { x: 1, label: 2 }
   });
 
   it("reports reassignment of const/val variables", () => {
-    const source =
-      "const point = 1\n" +
-      "point = 2\n" +
-      "val count = 1\n" +
-      "count += 1\n";
+    const source = dedent`
+      const point = 1
+      point = 2
+      val count = 1
+      count += 1
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -857,9 +999,11 @@ let badPoint: { x: int; label: string } = { x: 1, label: 2 }
   });
 
   it("reports update expressions on const/val variables", () => {
-    const source =
-      "const n = 1\n" +
-      "n++\n";
+    const source = dedent`
+      const n = 1
+      n++
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -869,12 +1013,13 @@ let badPoint: { x: int; label: string } = { x: 1, label: 2 }
   });
 
   it("reports incompatible assignment types for class members", () => {
-    const source = `class Point(val y: int)
-fun demo() {
-  const point = new Point(1)
-  point.y = "test"
-}
-`;
+    const source = dedent`
+      class Point(val y: int)
+      fun demo() {
+        const point = new Point(1)
+        point.y = "test"
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -884,12 +1029,13 @@ fun demo() {
   });
 
   it("allows prefix and postfix update expressions on identifiers", () => {
-    const source = `var a: int = 10
-++a
---a
-a++
-a--
-`;
+    const source = dedent`
+      var a: int = 10
+      ++a
+      --a
+      a++
+      a--
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -899,11 +1045,13 @@ a--
   });
 
   it("supports multiple declarations in a single var statement", () => {
-    const source =
-      "val a = 10 * 2, lol = true\n" +
-      "fun demo() {\n" +
-      "  return lol\n" +
-      "}\n";
+    const source = dedent`
+      val a = 10 * 2, lol = true
+      fun demo() {
+        return lol
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -913,11 +1061,13 @@ a--
   });
 
   it("introduces MyLang for-in iterator variable in loop scope", () => {
-    const source =
-      "let iterable = data\n" +
-      "for (value in iterable) {\n" +
-      "  return value\n" +
-      "}\n";
+    const source = dedent`
+      let iterable = data
+      for (value in iterable) {
+        return value
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -927,16 +1077,18 @@ a--
   });
 
   it("infers expression and variable types, including function signature types", () => {
-    const source =
-      "val a = 10\n" +
-      "val b = a + 20\n" +
-      "val s = \"hello\"\n" +
-      "function hello(x: int): int {\n" +
-      "  return x + b\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  return s\n" +
-      "}\n";
+    const source = dedent`
+      val a = 10
+      val b = a + 20
+      val s = "hello"
+      function hello(x: int): int {
+        return x + b
+      }
+      fun demo() {
+        return s
+      }
+      
+`;
 
     const symbols = symbolsOfVisibleSymbolsAt(source, 7, 3);
 
@@ -947,12 +1099,14 @@ a--
   });
 
   it("infers typed arrays from literal element types", () => {
-    const source =
-      "let nums = [1, 2, 3]\n" +
-      "let mixed = [1, \"x\"]\n" +
-      "fun demo() {\n" +
-      "  return nums\n" +
-      "}\n";
+    const source = dedent`
+      let nums = [1, 2, 3]
+      let mixed = [1, "x"]
+      fun demo() {
+        return nums
+      }
+      
+`;
 
     const symbols = symbolsOfVisibleSymbolsAt(source, 3, 3);
     expect(symbols.get("nums")?.valueType).toBe("int[]");
@@ -960,15 +1114,17 @@ a--
   });
 
   it("resolves builtin and declared class types in annotations and reports unknown types", () => {
-    const source =
-      "function makePoint(p: Point): int {\n" +
-      "  return 1\n" +
-      "}\n" +
-      "class Point {\n" +
-      "}\n" +
-      "fun bad(v: MissingType) {\n" +
-      "  return v\n" +
-      "}\n";
+    const source = dedent`
+      function makePoint(p: Point): int {
+        return 1
+      }
+      class Point {
+      }
+      fun bad(v: MissingType) {
+        return v
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1006,10 +1162,12 @@ a--
   });
 
   it("binds and checks declarations nested inside export statements", () => {
-    const source =
-      "export class Point\n" +
-      "export const p: Point = new Point()\n" +
-      "let again = new Point()\n";
+    const source = dedent`
+      export class Point
+      export const p: Point = new Point()
+      let again = new Point()
+      
+`;
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
     const messages = analysis.getIssues().map((issue) => issue.message);
@@ -1021,11 +1179,13 @@ a--
   });
 
   it("resolves symbols introduced by import statements", () => {
-    const source =
-      "import { Point } from \"./a\"\n" +
-      "fun demo() {\n" +
-      "  return new Point()\n" +
-      "}\n";
+    const source = dedent`
+      import { Point } from "./a"
+      fun demo() {
+        return new Point()
+      }
+      
+`;
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
     const messages = analysis.getIssues().map((issue) => issue.message);
@@ -1034,15 +1194,17 @@ a--
   });
 
   it("resolves symbols introduced by default, namespace, and aliased imports", () => {
-    const source =
-      "import React from \"react\"\n" +
-      "import * as fs from \"fs\"\n" +
-      "import { Point as LocalPoint } from \"./a\"\n" +
-      "fun demo() {\n" +
-      "  React\n" +
-      "  fs\n" +
-      "  return new LocalPoint()\n" +
-      "}\n";
+    const source = dedent`
+      import React from "react"
+      import * as fs from "fs"
+      import { Point as LocalPoint } from "./a"
+      fun demo() {
+        React
+        fs
+        return new LocalPoint()
+      }
+      
+`;
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
     const messages = analysis.getIssues().map((issue) => issue.message);
@@ -1053,21 +1215,25 @@ a--
   });
 
   it("infers imported class instance type from new expressions", () => {
-    const source =
-      "import { MyPoint } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const point = new MyPoint()\n" +
-      "  return point\n" +
-      "}\n";
+    const source = dedent`
+      import { MyPoint } from "./world"
+      fun demo() {
+        const point = new MyPoint()
+        return point
+      }
+      
+`;
     const symbols = symbolsOfVisibleSymbolsAt(source, 3, 10);
 
     expect(symbols.get("point")?.valueType).toBe("MyPoint");
   });
 
   it("infers class instance types when classes are called without new", () => {
-    const source =
-      "class Point(val x: int)\n" +
-      "let point = Point(1)\n";
+    const source = dedent`
+      class Point(val x: int)
+      let point = Point(1)
+      
+`;
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
     const symbols = symbolsOfVisibleSymbolsAt(source, 1, 4);
@@ -1077,12 +1243,14 @@ a--
   });
 
   it("reports missing constructor arguments for class calls and new expressions", () => {
-    const source =
-      "class Point(val x: number, val y: number)\n" +
-      "fun demo() {\n" +
-      "  new Point()\n" +
-      "  Point()\n" +
-      "}\n";
+    const source = dedent`
+      class Point(val x: number, val y: number)
+      fun demo() {
+        new Point()
+        Point()
+      }
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1092,18 +1260,22 @@ a--
   });
 
   it("infers class type for new expressions", () => {
-    const source =
-      "class Point\n" +
-      "let p = new Point()\n";
+    const source = dedent`
+      class Point
+      let p = new Point()
+      
+`;
     const symbols = symbolsOfVisibleSymbolsAt(source, 1, 5);
 
     expect(symbols.get("p")?.valueType).toBe("Point");
   });
 
   it("infers number type for decimal and scientific literals", () => {
-    const source =
-      "let a = 10.573\n" +
-      "let b = 10e-3\n";
+    const source = dedent`
+      let a = 10.573
+      let b = 10e-3
+      
+`;
     const symbols = symbolsOfVisibleSymbolsAt(source, 1, 5);
 
     expect(symbols.get("a")?.valueType).toBe("number");
@@ -1111,10 +1283,12 @@ a--
   });
 
   it("infers numeric separator and non-decimal literal types", () => {
-    const source =
-      "let a = 1_000\n" +
-      "let b = 0xff\n" +
-      "let c = 0xfn\n";
+    const source = dedent`
+      let a = 1_000
+      let b = 0xff
+      let c = 0xfn
+      
+`;
     const symbols = symbolsOfVisibleSymbolsAt(source, 2, 5);
 
     expect(symbols.get("a")?.valueType).toBe("int");
@@ -1123,13 +1297,15 @@ a--
   });
 
   it("infers bigint and long literal and arithmetic types", () => {
-    const source =
-      "let a = 10n\n" +
-      "let b = 20n\n" +
-      "let c = a + b\n" +
-      "let x = 10L\n" +
-      "let y = 20L\n" +
-      "let z = x + y\n";
+    const source = dedent`
+      let a = 10n
+      let b = 20n
+      let c = a + b
+      let x = 10L
+      let y = 20L
+      let z = x + y
+      
+`;
     const symbols = symbolsOfVisibleSymbolsAt(source, 5, 5);
 
     expect(symbols.get("a")?.valueType).toBe("bigint");
@@ -1139,11 +1315,13 @@ a--
   });
 
   it("infers dedicated primitive literal node types", () => {
-    const source =
-      "let t = true\n" +
-      "let f = false\n" +
-      "let n = null\n" +
-      "let u = undefined\n";
+    const source = dedent`
+      let t = true
+      let f = false
+      let n = null
+      let u = undefined
+      
+`;
     const symbols = symbolsOfVisibleSymbolsAt(source, 3, 5);
 
     expect(symbols.get("t")?.valueType).toBe("boolean");
@@ -1153,15 +1331,17 @@ a--
   });
 
   it("resolves pending TypeScript primitive type annotations with assignability semantics", () => {
-    const source =
-      "declare function makeSymbol(): symbol\n" +
-      "declare function fail(): never\n" +
-      "let flexible: any = \"Ada\"\n" +
-      "let strict: int = flexible\n" +
-      "let opaque: unknown = 1\n" +
-      "let record: object = { a: 1 }\n" +
-      "let token: symbol = makeSymbol()\n" +
-      "let recovered: number = fail()\n";
+    const source = dedent`
+      declare function makeSymbol(): symbol
+      declare function fail(): never
+      let flexible: any = "Ada"
+      let strict: int = flexible
+      let opaque: unknown = 1
+      let record: object = { a: 1 }
+      let token: symbol = makeSymbol()
+      let recovered: number = fail()
+      
+`;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1170,14 +1350,16 @@ a--
   });
 
   it("infers types for ternary, nullish coalescing, relational keywords, and unary word operators", () => {
-    const source =
-      "let a = true ? 1 : 2\n" +
-      "let b = maybe ?? 10\n" +
-      "let c = item in obj\n" +
-      "let d = item instanceof Point\n" +
-      "let e = typeof a\n" +
-      "let f = void a\n" +
-      "let g = delete obj.key\n";
+    const source = dedent`
+      let a = true ? 1 : 2
+      let b = maybe ?? 10
+      let c = item in obj
+      let d = item instanceof Point
+      let e = typeof a
+      let f = void a
+      let g = delete obj.key
+      
+`;
     const symbols = symbolsOfVisibleSymbolsAt(source, 6, 5);
 
     expect(symbols.get("a")?.valueType).toBe("int");
@@ -1190,19 +1372,20 @@ a--
   });
 
   it("reports semantic error for unknown class members", () => {
-    const source = `class MyPoint(val y: int) {
-  sum(): int {
-    return y
-  }
-}
-
-fun demo() {
-  const point = new MyPoint(1)
-  point.y
-  point.sum()
-  point.xx
-}
-`;
+    const source = dedent`
+      class MyPoint(val y: int) {
+        sum(): int {
+          return y
+        }
+      }
+      
+      fun demo() {
+        const point = new MyPoint(1)
+        point.y
+        point.sum()
+        point.xx
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1214,15 +1397,16 @@ fun demo() {
   });
 
   it("reports call argument type and arity mismatches, with int->number and long->bigint assignability", () => {
-    const source = `fun test2(a: number, b: bigint, c: string) {
-}
-fun demo() {
-  test2(1, 10L, "ok")
-  test2("hello", 10, "ok")
-  test2(1, 10L)
-  test2(1, 10L, "ok", 42)
-}
-`;
+    const source = dedent`
+      fun test2(a: number, b: bigint, c: string) {
+      }
+      fun demo() {
+        test2(1, 10L, "ok")
+        test2("hello", 10, "ok")
+        test2(1, 10L)
+        test2(1, 10L, "ok", 42)
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1240,21 +1424,22 @@ fun demo() {
   });
 
   it("supports assignability between compatible function types beyond strict equality", () => {
-    const source = `fun target(a: number): int {
-  return 1
-}
-fun compatible(a: int, b?: int): int {
-  return a
-}
-fun incompatible(a: string): int {
-  return 1
-}
-fun demo() {
-  let fn = target
-  fn = compatible
-  fn = incompatible
-}
-`;
+    const source = dedent`
+      fun target(a: number): int {
+        return 1
+      }
+      fun compatible(a: int, b?: int): int {
+        return a
+      }
+      fun incompatible(a: string): int {
+        return 1
+      }
+      fun demo() {
+        let fn = target
+        fn = compatible
+        fn = incompatible
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1269,15 +1454,16 @@ fun demo() {
   });
 
   it("infers object literal shapes and validates named-type members structurally", () => {
-    const source = `class Pair(val x: int, val y: int)
-fun sum(pair: Pair): int {
-  return pair.x + pair.y
-}
-fun demo() {
-  let pair: Pair = { x: 1, y: 2 }
-  return sum({ x: 3, y: 4 })
-}
-`;
+    const source = dedent`
+      class Pair(val x: int, val y: int)
+      fun sum(pair: Pair): int {
+        return pair.x + pair.y
+      }
+      fun demo() {
+        let pair: Pair = { x: 1, y: 2 }
+        return sum({ x: 3, y: 4 })
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1288,12 +1474,13 @@ fun demo() {
   });
 
   it("infers object method types and checks method bodies", () => {
-    const source = `fun demo() {
-  let calc = { add(a: int, b: int): int { return a + b } }
-  let value: int = calc.add(1, 2)
-  let bad: string = calc.add(1, 2)
-}
-`;
+    const source = dedent`
+      fun demo() {
+        let calc = { add(a: int, b: int): int { return a + b } }
+        let value: int = calc.add(1, 2)
+        let bad: string = calc.add(1, 2)
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1304,11 +1491,12 @@ fun demo() {
   });
 
   it("reports missing members for inferred object literal shapes", () => {
-    const source = `fun demo() {
-  let pair = { x: 1, y: 2 }
-  return pair.z
-}
-`;
+    const source = dedent`
+      fun demo() {
+        let pair = { x: 1, y: 2 }
+        return pair.z
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1318,14 +1506,15 @@ fun demo() {
   });
 
   it("infers shorthand and spread object literal shapes and checks spread operands", () => {
-    const source = `fun demo() {
-  let a = 1
-  let base = { name: "Ada" }
-  let merged = { a, ...base, name: "Grace" }
-  let age: int = merged.name
-  let invalid = { ...a }
-}
-`;
+    const source = dedent`
+      fun demo() {
+        let a = 1
+        let base = { name: "Ada" }
+        let merged = { a, ...base, name: "Grace" }
+        let age: int = merged.name
+        let invalid = { ...a }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1337,12 +1526,13 @@ fun demo() {
   });
 
   it("propagates array element type through iterator and computed assignment", () => {
-    const source = `let nums = [1, 2, 3]
-for (value in nums) {
-  let s: string = value
-}
-nums[0] = "x"
-`;
+    const source = dedent`
+      let nums = [1, 2, 3]
+      for (value in nums) {
+        let s: string = value
+      }
+      nums[0] = "x"
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1353,8 +1543,9 @@ nums[0] = "x"
   });
 
   it("adds nested-expression context for type mismatches", () => {
-    const source = `let value: int = 1 + "x"
-`;
+    const source = dedent`
+      let value: int = 1 + "x"
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1367,13 +1558,14 @@ nums[0] = "x"
   });
 
   it("specializes explicit generic function calls", () => {
-    const source = `fun identity<T>(value: T): T {
-  return value
-}
-let ok: string = identity<string>("hello")
-let wrongReturn: number = identity<string>("hello")
-let wrongArgument = identity<number>("hello")
-`;
+    const source = dedent`
+      fun identity<T>(value: T): T {
+        return value
+      }
+      let ok: string = identity<string>("hello")
+      let wrongReturn: number = identity<string>("hello")
+      let wrongArgument = identity<number>("hello")
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1385,17 +1577,18 @@ let wrongArgument = identity<number>("hello")
   });
 
   it("infers generic function type arguments from call arguments", () => {
-    const source = `fun identity<T>(value: T): T {
-  return value
-}
-fun first<T>(items: T[]): T {
-  return items[0]
-}
-let okString: string = identity("hello")
-let wrongString: int = identity("hello")
-let okArray: int = first([1, 2, 3])
-let wrongArray: string = first([1, 2, 3])
-`;
+    const source = dedent`
+      fun identity<T>(value: T): T {
+        return value
+      }
+      fun first<T>(items: T[]): T {
+        return items[0]
+      }
+      let okString: string = identity("hello")
+      let wrongString: int = identity("hello")
+      let okArray: int = first([1, 2, 3])
+      let wrongArray: string = first([1, 2, 3])
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1407,17 +1600,18 @@ let wrongArray: string = first([1, 2, 3])
   });
 
   it("infers generic function type arguments from contextual return types", () => {
-    const source = `fun make<T>(): T {
-}
-fun empty<T>(): T[] {
-}
-let text: string = make()
-let numbers: int[] = empty()
-let badExplicit: string = make<number>()
-let badArray: int[] = empty<string>()
-let assigned: string
-assigned = make()
-`;
+    const source = dedent`
+      fun make<T>(): T {
+      }
+      fun empty<T>(): T[] {
+      }
+      let text: string = make()
+      let numbers: int[] = empty()
+      let badExplicit: string = make<number>()
+      let badArray: int[] = empty<string>()
+      let assigned: string
+      assigned = make()
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1428,17 +1622,37 @@ assigned = make()
     expect(messages.some((message) => message.includes("Type 'T' is not assignable"))).toBe(false);
   });
 
+  it("allows empty and unknown[] arrays to be assigned to typed arrays", () => {
+    const source = dedent`
+      fun demo() {
+        const a: int[] = []
+        const b: string[] = []
+        let c: int[]
+        c = []
+        const u: unknown[] = []
+        const d: int[] = u
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.filter((message) => message.includes("is not assignable to type"))).toHaveLength(0);
+  });
+
   it("uses array and object literal context for nested generic call return inference", () => {
-    const source = `interface Box {
-  value: string
-}
-fun make<T>(): T {
-}
-let values: string[] = [make()]
-let boxed: Box = { value: make() }
-let badValues: int[] = [make<string>()]
-let badBox: Box = { value: make<number>() }
-`;
+    const source = dedent`
+      interface Box {
+        value: string
+      }
+      fun make<T>(): T {
+      }
+      let values: string[] = [make()]
+      let boxed: Box = { value: make() }
+      let badValues: int[] = [make<string>()]
+      let badBox: Box = { value: make<number>() }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1450,15 +1664,16 @@ let badBox: Box = { value: make<number>() }
   });
 
   it("contextually types function arguments before generic call inference", () => {
-    const source = `interface Mapper<T, U> {
-  map(item: T): U
-}
-fun mapValue<T, U>(value: T, mapper: Mapper<T, U>): U {
-}
-let okNumber: number = mapValue(1, { map: item => 1 })
-let okText: string = mapValue("hello", { map: item => "ok" })
-let wrongArgument = mapValue(1, { map: item => item.missing })
-`;
+    const source = dedent`
+      interface Mapper<T, U> {
+        map(item: T): U
+      }
+      fun mapValue<T, U>(value: T, mapper: Mapper<T, U>): U {
+      }
+      let okNumber: number = mapValue(1, { map: item => 1 })
+      let okText: string = mapValue("hello", { map: item => "ok" })
+      let wrongArgument = mapValue(1, { map: item => item.missing })
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1475,11 +1690,12 @@ let wrongArgument = mapValue(1, { map: item => item.missing })
   });
 
   it("keeps explicit generic function type arguments authoritative over inference", () => {
-    const source = `fun identity<T>(value: T): T {
-  return value
-}
-let wrongArgument = identity<number>("hello")
-`;
+    const source = dedent`
+      fun identity<T>(value: T): T {
+        return value
+      }
+      let wrongArgument = identity<number>("hello")
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1489,18 +1705,19 @@ let wrongArgument = identity<number>("hello")
   });
 
   it("resolves generic type aliases in annotations and member access", () => {
-    const source = `class Box<T> {
-  value: T
-}
-type Text = string
-type TextBox = Box<Text>
-type Boxed<T> = Box<T>
-let ok: Text = "hello"
-let bad: Text = 1
-let box: Boxed<Text> = new Box<string>()
-let value: string = box.value
-let wrongValue: int = box.value
-`;
+    const source = dedent`
+      class Box<T> {
+        value: T
+      }
+      type Text = string
+      type TextBox = Box<Text>
+      type Boxed<T> = Box<T>
+      let ok: Text = "hello"
+      let bad: Text = 1
+      let box: Boxed<Text> = new Box<string>()
+      let value: string = box.value
+      let wrongValue: int = box.value
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1513,11 +1730,12 @@ let wrongValue: int = box.value
   });
 
   it("accepts mapped and conditional aliases conservatively", () => {
-    const source = `type Optional<T> = { [K in keyof T]?: T[K] }
-type Element<T> = T extends (infer U)[] ? U : T
-let optional: Optional<{ name: string }> = { name: "Ada" }
-let element: Element<string[]> = "Ada"
-`;
+    const source = dedent`
+      type Optional<T> = { [K in keyof T]?: T[K] }
+      type Element<T> = T extends (infer U)[] ? U : T
+      let optional: Optional<{ name: string }> = { name: "Ada" }
+      let element: Element<string[]> = "Ada"
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1527,16 +1745,17 @@ let element: Element<string[]> = "Ada"
   });
 
   it("supports generic type annotations in classes and interfaces", () => {
-    const source = `interface PairStore<K, V> {
-  keys: K[]
-  values: V[]
-}
-
-class Map<K, V> implements PairStore<K, V> {
-  keys: K[]
-  values: V[]
-}
-`;
+    const source = dedent`
+      interface PairStore<K, V> {
+        keys: K[]
+        values: V[]
+      }
+      
+      class Map<K, V> implements PairStore<K, V> {
+        keys: K[]
+        values: V[]
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1546,16 +1765,17 @@ class Map<K, V> implements PairStore<K, V> {
   });
 
   it("accepts class extends/implements with generic type arguments", () => {
-    const source = `class Base<T> {
-  value: T
-}
-interface Readable<T> {
-  value: T
-}
-class Child<T> extends Base<T> implements Readable<T> {
-  value: T
-}
-`;
+    const source = dedent`
+      class Base<T> {
+        value: T
+      }
+      interface Readable<T> {
+        value: T
+      }
+      class Child<T> extends Base<T> implements Readable<T> {
+        value: T
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1565,15 +1785,16 @@ class Child<T> extends Base<T> implements Readable<T> {
   });
 
   it("does not treat generic type arguments in 'new' expressions as runtime identifiers", () => {
-    const source = `class Map<K, V> {
-  a: K
-  b: V
-}
-fun demo() {
-  const map: boolean = new Map<string, string>()
-  map
-}
-`;
+    const source = dedent`
+      class Map<K, V> {
+        a: K
+        b: V
+      }
+      fun demo() {
+        const map: boolean = new Map<string, string>()
+        map
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1584,22 +1805,23 @@ fun demo() {
   });
 
   it("treats class accessors as typed properties and validates accessor parameters", () => {
-    const source = `class Box {
-  get value(): string {
-    return "ok"
-  }
-  set value(next: string) {
-  }
-  get bad(value: string): string {
-    return value
-  }
-  set missing() {
-  }
-}
-let box: Box
-const ok: string = box.value
-const fail: int = box.value
-`;
+    const source = dedent`
+      class Box {
+        get value(): string {
+          return "ok"
+        }
+        set value(next: string) {
+        }
+        get bad(value: string): string {
+          return value
+        }
+        set missing() {
+        }
+      }
+      let box: Box
+      const ok: string = box.value
+      const fail: int = box.value
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1612,15 +1834,16 @@ const fail: int = box.value
   });
 
   it("treats getter shorthand members as typed properties", () => {
-    const source = `class Rect {
-  width: number
-  height: number
-  area: number => this.width * this.height
-}
-let rect: Rect
-const ok: number = rect.area
-const fail: string = rect.area
-`;
+    const source = dedent`
+      class Rect {
+        width: number
+        height: number
+        area: number => this.width * this.height
+      }
+      let rect: Rect
+      const ok: number = rect.area
+      const fail: string = rect.area
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1631,16 +1854,17 @@ const fail: string = rect.area
   });
 
   it("resolves class member types from generic specifics", () => {
-    const source = `class Map<K, V> {
-  a: K
-  b: V
-}
-fun demo() {
-  const map: Map<string, int> = new Map<string, int>()
-  const ok: string = map.a
-  const fail: int = map.a
-}
-`;
+    const source = dedent`
+      class Map<K, V> {
+        a: K
+        b: V
+      }
+      fun demo() {
+        const map: Map<string, int> = new Map<string, int>()
+        const ok: string = map.a
+        const fail: int = map.a
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1651,17 +1875,18 @@ fun demo() {
   });
 
   it("resolves generic class method signatures from specifics", () => {
-    const source = `class Map<K, V> {
-  get(key: K): V {
-  }
-}
-fun demo() {
-  const map: Map<string, int> = new Map<string, int>()
-  const ok: int = map.get("id")
-  const badArg: int = map.get(1)
-  const badReturn: string = map.get("id")
-}
-`;
+    const source = dedent`
+      class Map<K, V> {
+        get(key: K): V {
+        }
+      }
+      fun demo() {
+        const map: Map<string, int> = new Map<string, int>()
+        const ok: int = map.get("id")
+        const badArg: int = map.get(1)
+        const badReturn: string = map.get("id")
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1674,17 +1899,18 @@ fun demo() {
   });
 
   it("resolves inherited members from generic extends specifics", () => {
-    const source = `class Base<T> {
-  value: T
-}
-class Child extends Base<string> {
-}
-fun demo() {
-  const child = new Child()
-  const ok: string = child.value
-  const bad: int = child.value
-}
-`;
+    const source = dedent`
+      class Base<T> {
+        value: T
+      }
+      class Child extends Base<string> {
+      }
+      fun demo() {
+        const child = new Child()
+        const ok: string = child.value
+        const bad: int = child.value
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1695,21 +1921,22 @@ fun demo() {
   });
 
   it("resolves members from generic interfaces through extends and implements", () => {
-    const source = `interface Readable<T> {
-  read(): T
-}
-interface NamedReadable<T> extends Readable<T> {
-}
-class Reader implements NamedReadable<string> {
-  read(): string {
-  }
-}
-fun demo() {
-  const reader = new Reader()
-  const ok: string = reader.read()
-  const bad: int = reader.read()
-}
-`;
+    const source = dedent`
+      interface Readable<T> {
+        read(): T
+      }
+      interface NamedReadable<T> extends Readable<T> {
+      }
+      class Reader implements NamedReadable<string> {
+        read(): string {
+        }
+      }
+      fun demo() {
+        const reader = new Reader()
+        const ok: string = reader.read()
+        const bad: int = reader.read()
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1720,24 +1947,25 @@ fun demo() {
   });
 
   it("validates constrained generic type arguments on declarations and calls", () => {
-    const source = `interface Entity {
-  id: string
-}
-class User implements Entity {
-  id: string
-}
-class Box<T extends Entity> {
-  value: T
-}
-fun readId<T extends Entity>(value: T): string {
-}
-fun demo() {
-  const okBox: Box<User> = new Box<User>()
-  const badBox: Box<string> = new Box<string>()
-  const ok = readId(new User())
-  const bad = readId("nope")
-}
-`;
+    const source = dedent`
+      interface Entity {
+        id: string
+      }
+      class User implements Entity {
+        id: string
+      }
+      class Box<T extends Entity> {
+        value: T
+      }
+      fun readId<T extends Entity>(value: T): string {
+      }
+      fun demo() {
+        const okBox: Box<User> = new Box<User>()
+        const badBox: Box<string> = new Box<string>()
+        const ok = readId(new User())
+        const bad = readId("nope")
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1750,12 +1978,13 @@ fun demo() {
   });
 
   it("reports missing properties when class does not satisfy implemented interface", () => {
-    const source = `interface Readable {
-  value: string
-}
-class Reader implements Readable {
-}
-`;
+    const source = dedent`
+      interface Readable {
+        value: string
+      }
+      class Reader implements Readable {
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1767,14 +1996,15 @@ class Reader implements Readable {
   });
 
   it("reports incompatible property types in implemented interface contracts", () => {
-    const source = `interface Store {
-  save(value: string): string
-}
-class NumberStore implements Store {
-  save(value: int): int {
-  }
-}
-`;
+    const source = dedent`
+      interface Store {
+        save(value: string): string
+      }
+      class NumberStore implements Store {
+        save(value: int): int {
+        }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1786,14 +2016,15 @@ class NumberStore implements Store {
   });
 
   it("reports optionality mismatch in implemented interface method parameters", () => {
-    const source = `interface Runner {
-  run(step: int): int
-}
-class BadRunner implements Runner {
-  run(step?: int): int {
-  }
-}
-`;
+    const source = dedent`
+      interface Runner {
+        run(step: int): int
+      }
+      class BadRunner implements Runner {
+        run(step?: int): int {
+        }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1805,14 +2036,15 @@ class BadRunner implements Runner {
   });
 
   it("assumes void return type for interface methods without explicit return annotation", () => {
-    const source = `interface Runner {
-  run(step: int)
-}
-class BadRunner implements Runner {
-  run(step: int): int {
-  }
-}
-`;
+    const source = dedent`
+      interface Runner {
+        run(step: int)
+      }
+      class BadRunner implements Runner {
+        run(step: int): int {
+        }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1824,14 +2056,15 @@ class BadRunner implements Runner {
   });
 
   it("accepts class methods without explicit return type when interface method implies void", () => {
-    const source = `interface Runner {
-  run(step: int)
-}
-class GoodRunner implements Runner {
-  run(step: int) {
-  }
-}
-`;
+    const source = dedent`
+      interface Runner {
+        run(step: int)
+      }
+      class GoodRunner implements Runner {
+        run(step: int) {
+        }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1843,15 +2076,16 @@ class GoodRunner implements Runner {
   });
 
   it("accepts getter shorthand members for implemented interface properties", () => {
-    const source = `interface Shape {
-  area: number
-}
-class Rectangle implements Shape {
-  width: number
-  height: number
-  area: number => this.width * this.height
-}
-`;
+    const source = dedent`
+      interface Shape {
+        area: number
+      }
+      class Rectangle implements Shape {
+        width: number
+        height: number
+        area: number => this.width * this.height
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1863,11 +2097,12 @@ class Rectangle implements Shape {
   });
 
   it("resolves lambda parameters inside lambda scope", () => {
-    const source = `declare function apply(fn): int
-let x = apply((a, b, c) => a + b + c)
-let y = apply(function(a: int, b: int, c: int) { return a + b + c })
-let z = apply(callable { a, b, c -> a + b + c })
-`;
+    const source = dedent`
+      declare function apply(fn): int
+      let x = apply((a, b, c) => a + b + c)
+      let y = apply(function(a: int, b: int, c: int) { return a + b + c })
+      let z = apply(callable { a, b, c -> a + b + c })
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1879,15 +2114,16 @@ let z = apply(callable { a, b, c -> a + b + c })
   });
 
   it("loads ECMAScript runtime declarations as ambient globals", () => {
-    const source = `fun demo() {
-  let values = [1, 2]
-  values.includes(1)
-  values.join(",")
-  let scores = new Map<string, number>()
-  scores.set("ada", Math.max(1, 2))
-  console.log(JSON.stringify(scores))
-}
-`;
+    const source = dedent`
+      fun demo() {
+        let values = [1, 2]
+        values.includes(1)
+        values.join(",")
+        let scores = new Map<string, number>()
+        scores.set("ada", Math.max(1, 2))
+        console.log(JSON.stringify(scores))
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1897,13 +2133,14 @@ let z = apply(callable { a, b, c -> a + b + c })
   });
 
   it("uses declared Array<T> members for T[] alias member resolution", () => {
-    const source = `declare class Array<T> {
-  map<R>(mapper: (item: T) => T): Array<R>
-}
-fun demo() {
-  [1,2,3,4].map { it * 2 }
-}
-`;
+    const source = dedent`
+      declare class Array<T> {
+        map<R>(mapper: (item: T) => T): Array<R>
+      }
+      fun demo() {
+        [1,2,3,4].map { it * 2 }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1914,11 +2151,12 @@ fun demo() {
   });
 
   it("does not require return paths for methods declared inside ambient classes", () => {
-    const source = `declare class MathConstructor {
-  abs(x: number): number
-  ceil(x: number): number
-}
-`;
+    const source = dedent`
+      declare class MathConstructor {
+        abs(x: number): number
+        ceil(x: number): number
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1931,10 +2169,11 @@ fun demo() {
 
 
   it("uses TypeScript as assertions as semantic target types", () => {
-    const source = `let unknownValue: unknown = "Ada"
-let name: string = unknownValue as string
-let unsafe = true as string
-`;
+    const source = dedent`
+      let unknownValue: unknown = "Ada"
+      let name: string = unknownValue as string
+      let unsafe = true as string
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1945,10 +2184,11 @@ let unsafe = true as string
   });
 
   it("narrows nullable unions with TypeScript non-null assertions", () => {
-    const source = `let maybeName: string | null | undefined = "Ada"
-let name: string = maybeName!
-let stillMaybe: string = maybeName
-`;
+    const source = dedent`
+      let maybeName: string | null | undefined = "Ada"
+      let name: string = maybeName!
+      let stillMaybe: string = maybeName
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1961,9 +2201,10 @@ let stillMaybe: string = maybeName
   });
 
   it("treats const assertions as erased assertions that keep the expression type", () => {
-    const source = `let values = [1, 2] as const
-let count: number = 1 as const
-`;
+    const source = dedent`
+      let values = [1, 2] as const
+      let count: number = 1 as const
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1972,19 +2213,20 @@ let count: number = 1 as const
   });
 
   it("binds super in derived class methods for inherited member semantics", () => {
-    const source = `class Base {
-  label(): string { return "base" }
-}
-class Child extends Base {
-  label(): string {
-    return super.label()
-  }
-  mismatch(): number {
-    let value: number = super.label()
-    return value
-  }
-}
-`;
+    const source = dedent`
+      class Base {
+        label(): string { return "base" }
+      }
+      class Child extends Base {
+        label(): string {
+          return super.label()
+        }
+        mismatch(): number {
+          let value: number = super.label()
+          return value
+        }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -1995,24 +2237,25 @@ class Child extends Base {
   });
 
   it("validates private and protected class member access", () => {
-    const source = `class Base {
-  private secret: string
-  protected token: string
-  read() {
-    return this.secret
-  }
-}
-class Child extends Base {
-  readToken() {
-    return this.token
-  }
-}
-let base: Base
-let child: Child
-base.secret
-base.token
-child.token
-`;
+    const source = dedent`
+      class Base {
+        private secret: string
+        protected token: string
+        read() {
+          return this.secret
+        }
+      }
+      class Child extends Base {
+        readToken() {
+          return this.token
+        }
+      }
+      let base: Base
+      let child: Child
+      base.secret
+      base.token
+      child.token
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2024,19 +2267,20 @@ child.token
   });
 
   it("analyzes constructor parameter properties as typed readonly members", () => {
-    const source = `
-class User {
-  constructor(public readonly id: string, private age: int) {}
-  birthday() {
-    this.age = this.age + 1
-    this.id = "changed"
-  }
-}
-let user = new User("a", 1)
-let id: string = user.id
-let hidden = user.age
-let bad: int = user.id
-`;
+    const source = dedent`
+      
+      class User {
+        constructor(public readonly id: string, private age: int) {}
+        birthday() {
+          this.age = this.age + 1
+          this.id = "changed"
+        }
+      }
+      let user = new User("a", 1)
+      let id: string = user.id
+      let hidden = user.age
+      let bad: int = user.id
+    `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
     expect(analysis.getIssues().map((issue) => issue.message)).toContain("Cannot assign to readonly member 'id'");
@@ -2045,20 +2289,21 @@ let bad: int = user.id
   });
 
   it("validates readonly and abstract class member semantics", () => {
-    const source = `abstract class Base {
-  public readonly id: string
-  abstract run(): void
-  constructor() {
-    this.id = "init"
-  }
-  rename() {
-    this.id = "next"
-  }
-}
-class Bad {
-  abstract missing(): void
-}
-`;
+    const source = dedent`
+      abstract class Base {
+        public readonly id: string
+        abstract run(): void
+        constructor() {
+          this.id = "init"
+        }
+        rename() {
+          this.id = "next"
+        }
+      }
+      class Bad {
+        abstract missing(): void
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2070,25 +2315,26 @@ class Bad {
   });
 
   it("validates override usage and compatibility against base members", () => {
-    const source = `class Base {
-  value: string
-  read(v: int): string {
-  }
-}
-class Child extends Base {
-  override value: string
-  override read(v: int): string {
-  }
-}
-class NoBase {
-  override name: string
-}
-class Wrong extends Base {
-  override missing: int
-  override read(v: string): string {
-  }
-}
-`;
+    const source = dedent`
+      class Base {
+        value: string
+        read(v: int): string {
+        }
+      }
+      class Child extends Base {
+        override value: string
+        override read(v: int): string {
+        }
+      }
+      class NoBase {
+        override name: string
+      }
+      class Wrong extends Base {
+        override missing: int
+        override read(v: string): string {
+        }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2107,10 +2353,11 @@ class Wrong extends Base {
   });
 
   it("reports class method signatures without body as semantic errors", () => {
-    const source = `class Demo {
-  say(): number
-}
-`;
+    const source = dedent`
+      class Demo {
+        say(): number
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2121,12 +2368,13 @@ class Wrong extends Base {
   });
 
   it("attaches missing implements contract errors to class name node", () => {
-    const source = `interface Readable {
-  say(): number
-}
-class Map implements Readable {
-}
-`;
+    const source = dedent`
+      interface Readable {
+        say(): number
+      }
+      class Map implements Readable {
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2140,14 +2388,15 @@ class Map implements Readable {
   });
 
   it("attaches incompatible implements contract errors to member name node", () => {
-    const source = `interface Readable {
-  say(): number
-}
-class Map implements Readable {
-  say(): string {
-  }
-}
-`;
+    const source = dedent`
+      interface Readable {
+        say(): number
+      }
+      class Map implements Readable {
+        say(): string {
+        }
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2160,21 +2409,22 @@ class Map implements Readable {
     expect((issue?.node as { kind: string; name?: string }).name).toBe("say");
   });
   it("checks rest parameters, spread arguments, and optional access types", () => {
-    const source = `fun collect(label: string, ...values: int[]): int {
-  return values[0]
-}
-let numbers: int[] = [1, 2, 3]
-let moreNumbers = [0, ...numbers]
-let ok: int = collect("ok", 1, 2, ...numbers)
-let bad = collect("bad", "wrong")
-interface MaybeRunner {
-  run(): int
-}
-let maybe: MaybeRunner | undefined
-let optionalCall = maybe?.run()
-let optionalElement = numbers?.[0]
-let badOptional: int = optionalCall
-`;
+    const source = dedent`
+      fun collect(label: string, ...values: int[]): int {
+        return values[0]
+      }
+      let numbers: int[] = [1, 2, 3]
+      let moreNumbers = [0, ...numbers]
+      let ok: int = collect("ok", 1, 2, ...numbers)
+      let bad = collect("bad", "wrong")
+      interface MaybeRunner {
+        run(): int
+      }
+      let maybe: MaybeRunner | undefined
+      let optionalCall = maybe?.run()
+      let optionalElement = numbers?.[0]
+      let badOptional: int = optionalCall
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2189,11 +2439,12 @@ let badOptional: int = optionalCall
   });
 
   it("supports variadic runtime Console methods", () => {
-    const source = `console.log(42, 10, "ok")
-console.error("boom", 1)
-console.warn()
-console.info(true, false)
-`;
+    const source = dedent`
+      console.log(42, 10, "ok")
+      console.error("boom", 1)
+      console.warn()
+      console.info(true, false)
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2203,12 +2454,13 @@ console.info(true, false)
   });
 
   it("requires rest parameters to use array types", () => {
-    const source = `declare class Console {
-  log(...a: any)
-}
-fun collect(...values: string) {
-}
-`;
+    const source = dedent`
+      declare class Console {
+        log(...a: any)
+      }
+      fun collect(...values: string) {
+      }
+    `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
@@ -2219,10 +2471,12 @@ fun collect(...values: string) {
   });
 
   it("binds every identifier introduced by nested destructuring declarations", () => {
-    const source = "let { id, name: displayName, nested: { value = 1 }, ...rest } = source\n" +
-      "const [first, , third = 3, ...tail] = values\n" +
-      "displayName; value; rest; first; third; tail\n" +
-      "first = 4";
+    const source = dedent`
+      let { id, name: displayName, nested: { value = 1 }, ...rest } = source
+      const [first, , third = 3, ...tail] = values
+      displayName; value; rest; first; third; tail
+      first = 4
+    `.trimEnd();
     const ast = parseFile(tokenizeReader(source));
     const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
 
@@ -2255,12 +2509,13 @@ describe("enum semantic analysis", () => {
     expect(messages).toContain("Property 'Missing' does not exist on type 'Direction'");
   });
   it("resolves unqualified members inside classes and extension members", () => {
-    const source = `class Counter(val value: int) {
-  increment(amount: int): int { return value + amount }
-}
-fun Counter.doubled(): int { return value + value }
-val Counter.next => increment(1)
-`;
+    const source = dedent`
+      class Counter(val value: int) {
+        increment(amount: int): int { return value + amount }
+      }
+      fun Counter.doubled(): int { return value + value }
+      val Counter.next => increment(1)
+    `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
     expect(analysis.getIssues()).toEqual([]);
@@ -2284,28 +2539,29 @@ val Counter.next => increment(1)
   });
 
   it("checks explicit type annotations on extension properties", () => {
-    const ok = new Analysis(parseFile(tokenizeReader(
-      "class Duration(val value: number)\n" +
-      "val number.milliseconds: Duration => Duration(this)\n" +
-      "val duration: Duration = 10.milliseconds"
-    )));
+    const ok = new Analysis(parseFile(tokenizeReader(dedent`
+      class Duration(val value: number)
+      val number.milliseconds: Duration => Duration(this)
+      val duration: Duration = 10.milliseconds
+    `.trimEnd())));
     expect(ok.getIssues()).toEqual([]);
 
-    const mismatch = new Analysis(parseFile(tokenizeReader(
-      "class Duration(val value: number)\n" +
-      "val number.milliseconds: Duration => this"
-    )));
+    const mismatch = new Analysis(parseFile(tokenizeReader(dedent`
+      class Duration(val value: number)
+      val number.milliseconds: Duration => this
+    `.trimEnd())));
     expect(mismatch.getIssues().map((issue) => issue.message)).toContain(
       "Type 'number' is not assignable to type 'Duration'"
     );
   });
 
   it("infers number for mixed int and number multiplication", () => {
-    const source = `let a: number = 1
-let b: int = 2
-let leftMixed = a * b
-let rightMixed = b * a
-`;
+    const source = dedent`
+      let a: number = 1
+      let b: int = 2
+      let leftMixed = a * b
+      let rightMixed = b * a
+    `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     const symbols = new Map(analysis.getVisibleSymbolsAt(3, 0).map((symbol) => [symbol.name, symbol]));
 
@@ -2316,29 +2572,31 @@ let rightMixed = b * a
 
 
   it("contextually interprets ambiguous brace arguments as lambdas or object literals", () => {
-    const source = `interface Options { it: int }
-declare function transform(fn: (value: int) => int): int
-declare function consume(options: Options): int
-let it = 4
-let doubled = transform({ it })
-let incremented = transform({ value -> value + 1 })
-let consumed = consume({ it })
-`;
+    const source = dedent`
+      interface Options { it: int }
+      declare function transform(fn: (value: int) => int): int
+      declare function consume(options: Options): int
+      let it = 4
+      let doubled = transform({ it })
+      let incremented = transform({ value -> value + 1 })
+      let consumed = consume({ it })
+    `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     expect(analysis.getIssues()).toEqual([]);
   });
 
   it("smart-casts identifiers in if and else branches for type and range checks", () => {
-    const source = `class Cat { meow(): int { return 1 } }
-class Dog { bark(): int { return 2 } }
-fun speak(value: Cat | Dog) {
-  if (value is Cat) { value.meow() } else { value.bark() }
-  if (value instanceof Dog) { value.bark() } else { value.meow() }
-}
-fun classify(value: string | int) {
-  if (value in 0 ... 10) { let numberValue: int = value } else { let textValue: string = value }
-}
-`;
+    const source = dedent`
+      class Cat { meow(): int { return 1 } }
+      class Dog { bark(): int { return 2 } }
+      fun speak(value: Cat | Dog) {
+        if (value is Cat) { value.meow() } else { value.bark() }
+        if (value instanceof Dog) { value.bark() } else { value.meow() }
+      }
+      fun classify(value: string | int) {
+        if (value in 0 ... 10) { let numberValue: int = value } else { let textValue: string = value }
+      }
+    `;
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
     expect(analysis.getIssues()).toEqual([]);
   });

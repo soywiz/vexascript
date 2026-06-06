@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
 import type { Range } from "vscode-languageserver/node.js";
@@ -44,13 +45,30 @@ describe("collectCodeActions aggregator", () => {
     expect(titles).toContain("Replace 'let' with 'const'");
   });
 
+  it("offers an explicit return type quick fix", () => {
+    const source = "function add(a: number, b: number) {\n  return a + b\n}\n";
+    const session = createAnalysisSession(source);
+    const actions = collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(0, 34),
+      diagnostics: [],
+      sourceRoots: []
+    });
+    const titles = actions.map((action) => action.title);
+    expect(titles).toContain("Add explicit return type ': number'");
+  });
+
   it("offers a string-concatenation to template-literal quick fix", () => {
-    const source =
-      "class Rectangle {\n" +
-      "  describe() {\n" +
-      "    return \"Rectangle(\" + this.width + \"x\" + this.height + \")\"\n" +
-      "  }\n" +
-      "}\n";
+    const source = dedent`
+      class Rectangle {
+        describe() {
+          return "Rectangle(" + this.width + "x" + this.height + ")"
+        }
+      }
+      `;
     const session = createAnalysisSession(source);
     const actions = collectCodeActions({
       uri: URI,

@@ -22,6 +22,7 @@ import type {
   TypeParameter,
   FunctionStatement,
   InterfaceStatement,
+  InterfaceMethodMember,
   IfStatement,
   Identifier,
   ImportStatement,
@@ -114,11 +115,14 @@ export class TypeChecker {
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
   private readonly activeTypeAliasNames: Set<string> = new Set();
   private readonly generatorFunctionStack: boolean[] = [];
-  // Tracks whether the function currently being checked participates in pervasive auto-await.
-  // Both `sync` and `async` functions are async-like and auto-await Promise-typed expressions;
-  // plain functions do not. The stack handles nesting (a plain function nested in an async one
-  // does not auto-await).
-  private readonly autoAwaitFunctionStack: boolean[] = [];
+  private readonly syncFunctionStack: boolean[] = [];
+  // Tracks whether the innermost enclosing function is async-like (declared `async` or `sync`).
+  // `await` is permitted in those bodies, and they participate in pervasive auto-await of
+  // Promise-typed expressions. Plain functions do not (the stack handles nesting).
+  private readonly asyncLikeFunctionStack: boolean[] = [];
+  private readonly assignabilityChecksInProgress: Set<string> = new Set();
+  private readonly analysisTypeIds: WeakMap<object, number> = new WeakMap();
+  private nextAnalysisTypeId = 1;
 
   constructor(
     private readonly program: Program,
@@ -189,17 +193,35 @@ export class TypeChecker {
     }
   }
 
-  private isInsideAutoAwaitFunction(): boolean {
-    return this.autoAwaitFunctionStack[this.autoAwaitFunctionStack.length - 1] === true;
+  // True when traversal is inside a function whose innermost enclosing function is
+  // async-like (declared `async` or `sync`). `await` is permitted in those bodies.
+  private isInsideAsyncLikeFunction(): boolean {
+    return this.asyncLikeFunctionStack[this.asyncLikeFunctionStack.length - 1] === true;
   }
 
-  private withAutoAwaitFunction<T>(isAutoAwait: boolean, run: () => T): T {
-    this.autoAwaitFunctionStack.push(isAutoAwait);
+  private withAsyncLikeFunction<T>(isAsyncLike: boolean, run: () => T): T {
+    this.asyncLikeFunctionStack.push(isAsyncLike);
     try {
       return run();
     } finally {
-      this.autoAwaitFunctionStack.pop();
+      this.asyncLikeFunctionStack.pop();
     }
+  }
+
+  private withSyncFunction<T>(isSync: boolean, run: () => T): T {
+    this.syncFunctionStack.push(isSync);
+    try {
+      return run();
+    } finally {
+      this.syncFunctionStack.pop();
+    }
+  }
+
+  // True when traversal is inside any function body rather than module/global scope.
+  // Every function visit pushes onto the sync-function stack, so a non-empty stack
+  // means an enclosing function exists.
+  private isInsideFunction(): boolean {
+    return this.syncFunctionStack.length > 0;
   }
 
   // A `sync` function is internally an async function: it is emitted as `async`, returns a
@@ -242,6 +264,12 @@ export class TypeChecker {
         return;
       case "NamespaceStatement": {
         const namespaceStatement = statement as NamespaceStatement;
+        if (namespaceStatement.globalAugmentation) {
+          for (const bodyStatement of namespaceStatement.body.body) {
+            this.visitStatement(bodyStatement, scope, flow);
+          }
+          return;
+        }
         const namespaceScope = this.scopeFor(namespaceStatement, scope);
         for (const bodyStatement of namespaceStatement.body.body) {
           this.visitStatement(bodyStatement, namespaceScope, flow);
@@ -486,7 +514,7 @@ export class TypeChecker {
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
     const isAsyncLike = this.isAsyncLike(statement);
-    this.withGeneratorFunction(statement.generator === true, () => this.withAutoAwaitFunction(this.isAsyncLike(statement), () => {
+    this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => this.withAsyncLikeFunction(isAsyncLike, () => {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
       this.withTypeParameters(typeParameterNames, () => {
         const declaredReturnType = this.resolveTypeAnnotation(statement.returnType, scope);
@@ -542,7 +570,7 @@ export class TypeChecker {
           this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, isAsyncLike);
         }
       });
-    }));
+    })));
   }
 
   private visitEnumStatement(statement: EnumStatement, scope: Scope): void {
@@ -612,7 +640,7 @@ export class TypeChecker {
         }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
         const methodIsAsyncLike = this.isAsyncLike(method);
-        this.withGeneratorFunction(method.generator === true, () => this.withAutoAwaitFunction(this.isAsyncLike(method), () => {
+        this.withGeneratorFunction(method.generator === true, () => this.withSyncFunction(method.sync === true, () => this.withAsyncLikeFunction(methodIsAsyncLike, () => {
           this.withTypeParameters(methodTypeParameterNames, () => {
             const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
             if (methodIsAsyncLike) {
@@ -671,7 +699,7 @@ export class TypeChecker {
               this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike);
             }
           });
-        }));
+        })));
       }
 
       this.validateOverrideMembers(statement);
@@ -1109,6 +1137,66 @@ export class TypeChecker {
           break;
         }
 
+        const constructorInterfaceType = this.interfaceConstructorTypeForNewExpression(newExpression, calleeType);
+        if (constructorInterfaceType) {
+          const typeParameterNames = constructorInterfaceType.typeParameters ?? [];
+          const substitutions = new Map<string, AnalysisType>();
+          const explicitTypeParameterNames = new Set<string>();
+          for (let index = 0; index < typeParameterNames.length; index += 1) {
+            const typeParameterName = typeParameterNames[index]!;
+            const explicitTypeArgument = explicitTypeArguments[index];
+            if (explicitTypeArgument) {
+              substitutions.set(typeParameterName, explicitTypeArgument);
+              explicitTypeParameterNames.add(typeParameterName);
+            } else {
+              substitutions.set(typeParameterName, namedType(typeParameterName));
+            }
+          }
+          const isPromiseConstructor =
+            newExpression.callee.kind === "Identifier" &&
+            (newExpression.callee as Identifier).name === "Promise";
+          if (isPromiseConstructor) {
+            this.inferPromiseConstructorTypeArgumentFromExecutor(
+              newExpression,
+              substitutions,
+              explicitTypeParameterNames
+            );
+          }
+          let provisionalConstructorType = this.substituteTypeParameters(
+            constructorInterfaceType,
+            substitutions
+          ) as AnalysisType & { kind: "function" };
+          let argumentTypes = this.visitConstructorArgumentsWithContext(
+            newExpression,
+            scope,
+            provisionalConstructorType
+          );
+          if (!isPromiseConstructor) {
+            const typeParameterSet = new Set(typeParameterNames);
+            for (let index = 0; index < provisionalConstructorType.parameters.length && index < argumentTypes.length; index += 1) {
+              this.inferTypeParameterSubstitutions(
+                provisionalConstructorType.parameters[index]!.type,
+                argumentTypes[index]!,
+                typeParameterSet,
+                explicitTypeParameterNames,
+                substitutions
+              );
+            }
+          }
+          const finalConstructorType = this.substituteTypeParameters(
+            constructorInterfaceType,
+            substitutions
+          ) as AnalysisType & { kind: "function" };
+          argumentTypes = this.visitConstructorArgumentsWithContext(
+            newExpression,
+            scope,
+            finalConstructorType
+          );
+          this.validateCallArguments(newExpression, finalConstructorType, argumentTypes);
+          result = finalConstructorType.returnType;
+          break;
+        }
+
         for (const argument of newExpression.arguments ?? []) {
           this.visitExpression(argument, scope);
         }
@@ -1159,11 +1247,33 @@ export class TypeChecker {
           break;
         }
         if (unary.operator === "await") {
+          // `await` is allowed at module/global scope and inside async or sync functions,
+          // but not inside normal functions or normal (non-async) generators.
+          if (this.isInsideFunction() && !this.isInsideAsyncLikeFunction()) {
+            this.issues.push({
+              message: "The 'await' keyword is only allowed inside async or sync functions or at the top level",
+              node: expression,
+              code: ANALYSIS_ISSUE_CODES.AWAIT_OUTSIDE_ASYNC
+            });
+            result = UNKNOWN_TYPE;
+            break;
+          }
           result = this.unwrapPromiseType(argumentType) ?? argumentType;
           break;
         }
         if (unary.operator === "go") {
-          // `go expr` opts out of sync auto-await and yields the underlying Promise unchanged.
+          // `go expr` opts out of pervasive auto-await and yields the underlying Promise unchanged.
+          // It is only meaningful inside async-like (async or sync) functions, where auto-await
+          // happens: not in normal functions, and not at the top level.
+          if (!this.isInsideAsyncLikeFunction()) {
+            this.issues.push({
+              message: "The 'go' operator is only allowed inside async or sync functions",
+              node: expression,
+              code: ANALYSIS_ISSUE_CODES.GO_OUTSIDE_SYNC
+            });
+            result = UNKNOWN_TYPE;
+            break;
+          }
           result = argumentType;
           break;
         }
@@ -1209,7 +1319,7 @@ export class TypeChecker {
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
         const arrowIsAsyncLike = this.isAsyncLike(arrow);
-        this.withGeneratorFunction(false, () => this.withAutoAwaitFunction(this.isAsyncLike(arrow), () => {
+        this.withGeneratorFunction(false, () => this.withSyncFunction(arrow.sync === true, () => this.withAsyncLikeFunction(arrowIsAsyncLike, () => {
           if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
             result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
             return;
@@ -1258,13 +1368,13 @@ export class TypeChecker {
             }
           }
           result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
-        }));
+        })));
         break;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
         const fnIsAsyncLike = this.isAsyncLike(fn);
-        this.withGeneratorFunction(fn.generator === true, () => this.withAutoAwaitFunction(fnIsAsyncLike, () => {
+        this.withGeneratorFunction(fn.generator === true, () => this.withSyncFunction(fn.sync === true, () => this.withAsyncLikeFunction(fnIsAsyncLike, () => {
           const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
           const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
           const declaredReturnType = this.resolveTypeAnnotation(fn.returnType, functionScope);
@@ -1291,7 +1401,7 @@ export class TypeChecker {
           );
           this.reportMissingReturnPath(fn.body, returnType, fn.name ?? fn, fnIsAsyncLike);
           result = this.buildFunctionType(fn.parameters, returnType, functionScope);
-        }));
+        })));
         break;
       }
       case "Identifier":
@@ -1357,7 +1467,7 @@ export class TypeChecker {
     // `suppressAutoAwait`.
     if (
       !suppressAutoAwait &&
-      this.isInsideAutoAwaitFunction() &&
+      this.isInsideAsyncLikeFunction() &&
       !this.isGoExpression(expression) &&
       !this.isLocalValueReference(expression, scope) &&
       result.kind === "named" &&
@@ -1645,6 +1755,12 @@ export class TypeChecker {
   }
 
   private isTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {
+    const assignabilityKey = `${this.analysisTypeId(sourceType)}=>${this.analysisTypeId(targetType)}`;
+    if (this.assignabilityChecksInProgress.has(assignabilityKey)) {
+      return true;
+    }
+    this.assignabilityChecksInProgress.add(assignabilityKey);
+    try {
     if (isSameType(sourceType, targetType)) {
       return true;
     }
@@ -1756,6 +1872,13 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "array" && targetType.kind === "array") {
+      // An array whose element type is `unknown` (for example the empty array
+      // literal `[]`, or an explicit `unknown[]`) is assignable to any array
+      // type, mirroring how an empty array can be widened to any element type.
+      const element = sourceType.elementType;
+      if (isUnknownType(element) || (element.kind === "builtin" && element.name === "unknown")) {
+        return true;
+      }
       return this.isTypeAssignable(sourceType.elementType, targetType.elementType);
     }
 
@@ -1798,6 +1921,15 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "named" && targetType.kind === "named") {
+      if (sourceType.name === targetType.name) {
+        const sourceTypeArguments = sourceType.typeArguments ?? [];
+        const targetTypeArguments = targetType.typeArguments ?? [];
+        if (sourceTypeArguments.length === targetTypeArguments.length) {
+          return sourceTypeArguments.every((sourceArgument, index) =>
+            isSameType(sourceArgument, targetTypeArguments[index]!)
+          );
+        }
+      }
       return this.isNamedTypeStructurallyAssignable(sourceType, targetType);
     }
 
@@ -1810,6 +1942,21 @@ export class TypeChecker {
     }
 
     return false;
+    } finally {
+      this.assignabilityChecksInProgress.delete(assignabilityKey);
+    }
+  }
+
+  private analysisTypeId(type: AnalysisType): number {
+    const objectType = type as object;
+    const existingId = this.analysisTypeIds.get(objectType);
+    if (existingId !== undefined) {
+      return existingId;
+    }
+    const newId = this.nextAnalysisTypeId;
+    this.nextAnalysisTypeId += 1;
+    this.analysisTypeIds.set(objectType, newId);
+    return newId;
   }
 
   private isNamedTypeStructurallyAssignable(
@@ -1867,6 +2014,102 @@ export class TypeChecker {
         continue;
       }
       constraints[typeParameter.name.name] = this.resolveTypeAnnotation(typeParameter.constraint, scope) ?? UNKNOWN_TYPE;
+    }
+    return Object.keys(constraints).length > 0 ? constraints : undefined;
+  }
+
+  private typeFromAnnotationLooseWithTypeParameters(
+    typeAnnotation: Identifier | undefined,
+    localTypeParameterNames: readonly string[]
+  ): AnalysisType | undefined {
+    if (!typeAnnotation) {
+      return undefined;
+    }
+    return this.typeFromTypeNameLooseWithTypeParameters(typeAnnotation.name, new Set(localTypeParameterNames));
+  }
+
+  private typeFromTypeNameLooseWithTypeParameters(
+    typeName: string | undefined,
+    localTypeParameterNames: ReadonlySet<string>
+  ): AnalysisType | undefined {
+    if (!typeName) {
+      return undefined;
+    }
+    const functionType = this.functionTypeFromAnnotationText(typeName);
+    if (functionType) {
+      return functionType;
+    }
+    if (this.looksLikeFunctionTypeAnnotation(typeName)) {
+      return UNKNOWN_TYPE;
+    }
+    const objectType = this.objectTypeFromAnnotationText(typeName);
+    if (objectType) {
+      return objectType;
+    }
+    const computedType = this.typeFromComputedTypeNameLoose(typeName);
+    if (computedType) {
+      return computedType;
+    }
+    const normalizedTypeName = typeName.trim();
+    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
+    if (unionParts.length > 1) {
+      return unionType(unionParts.map((part) => this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames) ?? UNKNOWN_TYPE));
+    }
+    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
+    if (intersectionParts.length > 1) {
+      return intersectionType(intersectionParts.map((part) => this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames) ?? UNKNOWN_TYPE));
+    }
+    if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
+      const tupleBody = normalizedTypeName.slice(1, -1).trim();
+      return tupleType(
+        tupleBody.length === 0
+          ? []
+          : splitTopLevelTypeText(tupleBody, ",").map((part) =>
+            this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames) ?? UNKNOWN_TYPE
+          )
+      );
+    }
+    const parsed = parseTypeNameShape(normalizedTypeName);
+    const resolvedTypeArguments = parsed.typeArguments.map((typeArgument) =>
+      this.typeFromTypeNameLooseWithTypeParameters(typeArgument, localTypeParameterNames) ?? UNKNOWN_TYPE
+    );
+    if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
+      let resolved: AnalysisType = builtinType(parsed.baseName as BuiltinTypeName);
+      for (let i = 0; i < parsed.arrayDepth; i += 1) {
+        resolved = arrayType(resolved);
+      }
+      return resolved;
+    }
+    if (localTypeParameterNames.has(parsed.baseName) || this.isActiveTypeParameter(parsed.baseName)) {
+      let resolved: AnalysisType = namedType(parsed.baseName, resolvedTypeArguments);
+      for (let i = 0; i < parsed.arrayDepth; i += 1) {
+        resolved = arrayType(resolved);
+      }
+      return resolved;
+    }
+    if (this.typeAliasStatementsByName.has(parsed.baseName) || this.interfaceStatementsByName.has(parsed.baseName) || this.classStatementsByName.has(parsed.baseName) || this.enumStatementsByName.has(parsed.baseName) || this.namespaceStatementsByName.has(parsed.baseName)) {
+      let resolved: AnalysisType = namedType(parsed.baseName, resolvedTypeArguments);
+      for (let i = 0; i < parsed.arrayDepth; i += 1) {
+        resolved = arrayType(resolved);
+      }
+      return this.expandTypeAliases(resolved);
+    }
+    return this.typeFromTypeNameLoose(typeName);
+  }
+
+  private typeParameterConstraintMapLoose(
+    typeParameters: TypeParameter[],
+    localTypeParameterNames: readonly string[]
+  ): Record<string, AnalysisType> | undefined {
+    const constraints: Record<string, AnalysisType> = {};
+    for (const typeParameter of typeParameters) {
+      if (!typeParameter.constraint) {
+        continue;
+      }
+      constraints[typeParameter.name.name] = this.typeFromAnnotationLooseWithTypeParameters(
+        typeParameter.constraint,
+        localTypeParameterNames
+      ) ?? UNKNOWN_TYPE;
     }
     return Object.keys(constraints).length > 0 ? constraints : undefined;
   }
@@ -2373,6 +2616,82 @@ export class TypeChecker {
     return result;
   }
 
+  private interfaceConstructorTypeForNewExpression(
+    newExpression: NewExpression,
+    calleeType: AnalysisType
+  ): (AnalysisType & { kind: "function" }) | null {
+    const preferredInterfaceName = calleeType.kind === "named"
+      ? calleeType.name
+      : newExpression.callee.kind === "Identifier"
+        ? (newExpression.callee as Identifier).name
+        : null;
+    if (!preferredInterfaceName) {
+      return null;
+    }
+    const candidateNames = [preferredInterfaceName];
+    if (newExpression.callee.kind === "Identifier") {
+      candidateNames.push(`${(newExpression.callee as Identifier).name}Constructor`);
+    }
+    let constructorMember: InterfaceMethodMember | undefined;
+    let constructorInterfaceName: string | null = null;
+    for (const candidateName of candidateNames) {
+      const interfaceStatement = this.interfaceStatementsByName.get(candidateName);
+      if (!interfaceStatement) {
+        continue;
+      }
+      const candidateConstructor = interfaceStatement.members.find(
+        (member): member is InterfaceMethodMember =>
+          member.kind === "InterfaceMethodMember" && member.name.name === "constructor"
+      );
+      if (candidateConstructor) {
+        constructorMember = candidateConstructor;
+        constructorInterfaceName = candidateName;
+        break;
+      }
+    }
+    if (!constructorMember) {
+      return null;
+    }
+    const typeParameterNames = (constructorMember.typeParameters ?? []).map((parameter) => parameter.name.name);
+    if (constructorInterfaceName === "PromiseConstructor") {
+      return functionType(
+        [{
+          name: "executor",
+          type: functionType(
+            [
+              {
+                name: "resolve",
+                type: functionType([{ name: "arg1", type: namedType("T") }], builtinType("void"))
+              },
+              {
+                name: "reject",
+                type: functionType([{ name: "arg1", type: namedType("Error") }], builtinType("void"))
+              }
+            ],
+            builtinType("void")
+          )
+        }],
+        namedType("Promise", [namedType("T")]),
+        ["T"]
+      );
+    }
+    let result: AnalysisType & { kind: "function" } = functionType([], UNKNOWN_TYPE);
+    this.withTypeParameters(typeParameterNames, () => {
+      result = functionType(
+        constructorMember.parameters.map((parameter) => ({
+          name: bindingNameText(parameter.name),
+          type: this.typeFromAnnotationLooseWithTypeParameters(parameter.typeAnnotation, typeParameterNames) ?? UNKNOWN_TYPE,
+          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
+        })),
+        this.typeFromAnnotationLooseWithTypeParameters(constructorMember.returnType, typeParameterNames) ?? UNKNOWN_TYPE,
+        typeParameterNames,
+        this.typeParameterConstraintMapLoose(constructorMember.typeParameters ?? [], typeParameterNames)
+      );
+    });
+    return result;
+  }
+
   private visitConstructorArgumentsWithContext(
     newExpression: NewExpression,
     scope: Scope,
@@ -2395,6 +2714,17 @@ export class TypeChecker {
     explicitTypeParameterNames: Set<string>
   ): void {
     if (classStatement.name.name !== "Promise" || explicitTypeParameterNames.has("T")) {
+      return;
+    }
+    this.inferPromiseConstructorTypeArgumentFromExecutor(newExpression, substitutions, explicitTypeParameterNames);
+  }
+
+  private inferPromiseConstructorTypeArgumentFromExecutor(
+    newExpression: NewExpression,
+    substitutions: Map<string, AnalysisType>,
+    explicitTypeParameterNames: Set<string>
+  ): void {
+    if (explicitTypeParameterNames.has("T")) {
       return;
     }
     const executor = newExpression.arguments?.[0];
@@ -2457,7 +2787,8 @@ export class TypeChecker {
       case "CallExpression": {
         const call = expression as CallExpression;
         if (call.callee.kind === "Identifier" && (call.callee as Identifier).name === calleeName && call.arguments[0]) {
-          collected.push(this.expressionTypes.get(call.arguments[0]!) ?? UNKNOWN_TYPE);
+          const argument = call.arguments[0]!;
+          collected.push(this.expressionTypes.get(argument) ?? this.visitExpression(argument, this.bound.rootScope));
         }
         visitExpression(call.callee);
         for (const argument of call.arguments) visitExpression(argument);
@@ -3765,8 +4096,23 @@ export class TypeChecker {
         const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
         if (candidate?.kind !== "NamespaceStatement") continue;
         const namespaceStatement = candidate as NamespaceStatement;
-        const name = namespaceStatement.names?.[0]?.name;
-        if (name) this.namespaceStatementsByName.set(name, namespaceStatement);
+        if (!namespaceStatement.globalAugmentation) {
+          const name = namespaceStatement.names?.[0]?.name;
+          if (name) {
+            const existing = this.namespaceStatementsByName.get(name);
+            if (!existing) {
+              this.namespaceStatementsByName.set(name, namespaceStatement);
+            } else {
+              this.namespaceStatementsByName.set(name, {
+                ...existing,
+                body: {
+                  ...existing.body,
+                  body: [...existing.body.body, ...namespaceStatement.body.body]
+                }
+              });
+            }
+          }
+        }
         visit(namespaceStatement.body.body);
       }
     };
@@ -3898,7 +4244,27 @@ export class TypeChecker {
         continue;
       }
       const interfaceStatement = candidate as InterfaceStatement;
-      this.interfaceStatementsByName.set(interfaceStatement.name.name, interfaceStatement);
+      const existing = this.interfaceStatementsByName.get(interfaceStatement.name.name);
+      if (!existing) {
+        this.interfaceStatementsByName.set(interfaceStatement.name.name, interfaceStatement);
+        continue;
+      }
+      const merged: InterfaceStatement = {
+        ...existing,
+        members: [...existing.members, ...interfaceStatement.members],
+      };
+      const mergedTypeParameters = existing.typeParameters ?? interfaceStatement.typeParameters;
+      if (mergedTypeParameters) {
+        merged.typeParameters = mergedTypeParameters;
+      }
+      const mergedExtendsTypes = [
+        ...(existing.extendsTypes ?? []),
+        ...(interfaceStatement.extendsTypes ?? [])
+      ];
+      if (mergedExtendsTypes.length > 0) {
+        merged.extendsTypes = mergedExtendsTypes;
+      }
+      this.interfaceStatementsByName.set(interfaceStatement.name.name, merged);
     }
   }
 
@@ -4319,18 +4685,25 @@ export class TypeChecker {
         continue;
       }
 
-      const returnType = this.typeFromAnnotationLoose(interfaceMember.returnType) ?? builtinType("void");
-      members.set(
-        interfaceMember.name.name,
-        this.substituteTypeParameters(functionType(
+      const methodTypeParameterNames = (interfaceMember.typeParameters ?? []).map((parameter) => parameter.name.name);
+      const availableTypeParameterNames = [...substitutions.keys(), ...methodTypeParameterNames];
+      let methodType: AnalysisType = functionType([], builtinType("void"));
+      this.withTypeParameters(methodTypeParameterNames, () => {
+        methodType = functionType(
           interfaceMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: bindingNameText(parameter.name),
-            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+            type: this.typeFromAnnotationLooseWithTypeParameters(parameter.typeAnnotation, availableTypeParameterNames) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
             rest: parameter.rest === true
           })),
-          returnType
-        ), substitutions)
+          this.typeFromAnnotationLooseWithTypeParameters(interfaceMember.returnType, availableTypeParameterNames) ?? builtinType("void"),
+          methodTypeParameterNames,
+          this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
+        );
+      });
+      members.set(
+        interfaceMember.name.name,
+        this.substituteTypeParameters(methodType, substitutions)
       );
     }
 
@@ -4723,6 +5096,14 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "function") {
+      const substitutedConstraints = sourceType.typeParameterConstraints
+        ? Object.fromEntries(
+          Object.entries(sourceType.typeParameterConstraints).map(([name, constraint]) => [
+            name,
+            this.substituteTypeParameters(constraint, substitutions)
+          ])
+        )
+        : undefined;
       return functionType(
         sourceType.parameters.map((parameter) => ({
           name: parameter.name,
@@ -4732,8 +5113,20 @@ export class TypeChecker {
         })),
         this.substituteTypeParameters(sourceType.returnType, substitutions),
         sourceType.typeParameters,
-        sourceType.typeParameterConstraints
+        substitutedConstraints
       );
+    }
+
+    if (sourceType.kind === "union") {
+      return unionType(sourceType.types.map((type) => this.substituteTypeParameters(type, substitutions)));
+    }
+
+    if (sourceType.kind === "intersection") {
+      return intersectionType(sourceType.types.map((type) => this.substituteTypeParameters(type, substitutions)));
+    }
+
+    if (sourceType.kind === "tuple") {
+      return tupleType(sourceType.elements.map((element) => this.substituteTypeParameters(element, substitutions)));
     }
 
     return sourceType;

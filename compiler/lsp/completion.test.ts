@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { createAnalysisSession } from "./analysisSession";
@@ -35,12 +36,13 @@ function sourceWithCursor(source: string): {
 
 describe("createCompletionItemsForPosition", () => {
   it("includes in-scope variables and parameters inside function body", () => {
-    const { source, line, character } = sourceWithCursor(
-      "let top = 1\n" +
-      "fun demo(a, b: int) {\n" +
-      "  let inner = a\n" +
-      "  ^^^return inner\n" +
-      "}\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      let top = 1
+      fun demo(a, b: int) {
+        let inner = a
+        ^^^return inner
+      }
+      `
     );
     const ast = parseFile(tokenizeReader(source));
     const items = createCompletionItemsForPosition(ast, line, character);
@@ -59,10 +61,11 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers contextually typed Promise executor parameters", () => {
-    const { source, line, character } = sourceWithCursor(
-      "let promise = new Promise((resolve, reject) => {\n" +
-      "  ^^^resolve(1)\n" +
-      "})\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      let promise = new Promise((resolve, reject) => {
+        ^^^resolve(1)
+      })
+      `
     );
     const ast = parseFile(tokenizeReader(source));
     const items = createCompletionItemsForPosition(ast, line, character);
@@ -137,11 +140,12 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers local extension members for numeric literal member access", () => {
-    const { source, line, character } = sourceWithCursor(
-      "class TimeSpan(val ms: number)\n" +
-      "val number.milliseconds => TimeSpan(this)\n" +
-      "val number.seconds => TimeSpan(this * 1000)\n" +
-      "10.^^^\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      class TimeSpan(val ms: number)
+      val number.milliseconds => TimeSpan(this)
+      val number.seconds => TimeSpan(this * 1000)
+      10.^^^
+      `
     );
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
@@ -155,10 +159,11 @@ describe("createCompletionItemsForPosition", () => {
     const durationFile = join(root, "duration.my");
     const consumerFile = join(root, "consumer.my");
     await writeFile(
-      durationFile,
-      "class TimeSpan(val ms: number)\n" +
-        "export val number.milliseconds => TimeSpan(this)\n" +
-        "export val number.seconds => TimeSpan(this * 1000)\n",
+      durationFile, dedent`
+      class TimeSpan(val ms: number)
+      export val number.milliseconds => TimeSpan(this)
+      export val number.seconds => TimeSpan(this * 1000)
+      `,
       "utf8"
     );
     const { source, line, character } = sourceWithCursor("10.^^^\n");
@@ -171,10 +176,11 @@ describe("createCompletionItemsForPosition", () => {
       sourceRoots: [root],
       getSessionForFilePath: (filePath) => {
         if (filePath === durationFile) {
-          return createAnalysisSession(
-            "class TimeSpan(val ms: number)\n" +
-              "export val number.milliseconds => TimeSpan(this)\n" +
-              "export val number.seconds => TimeSpan(this * 1000)\n"
+          return createAnalysisSession(dedent`
+            class TimeSpan(val ms: number)
+            export val number.milliseconds => TimeSpan(this)
+            export val number.seconds => TimeSpan(this * 1000)
+            `
           );
         }
         return filePath === consumerFile ? session : null;
@@ -190,10 +196,11 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("resolves chained members after extension properties", () => {
-    const { source, line, character } = sourceWithCursor(
-      "class TimeSpan(val ms: number)\n" +
-      "val number.seconds => TimeSpan(this * 1000)\n" +
-      "10.seconds.^^^\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      class TimeSpan(val ms: number)
+      val number.seconds => TimeSpan(this * 1000)
+      10.seconds.^^^
+      `
     );
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
@@ -203,10 +210,11 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers constructor properties inside template interpolation", () => {
-    const source =
-      "class TimeSpan(val ms: number) {\n" +
-      "  toString() => `${m}`\n" +
-      "}\n";
+    const source = dedent`
+      class TimeSpan(val ms: number) {
+        toString() => \`\${m}\`
+      }
+      `;
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, 1, 20, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
@@ -216,10 +224,11 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers constructor properties inside empty template interpolation", () => {
-    const source =
-      "class TimeSpan(val ms: number) {\n" +
-      "  toString() => `${}`\n" +
-      "}\n";
+    const source = dedent`
+      class TimeSpan(val ms: number) {
+        toString() => \`\${}\`
+      }
+      `;
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, 1, 18, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
@@ -229,12 +238,13 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("resolves member completions from explicitly typed variables", () => {
-    const { source, line, character } = sourceWithCursor(
-      "fun demo() {\n" +
-      "  const result: Point = value\n" +
-      "  return result.^^^\n" +
-      "}\n" +
-      "class Point(val x: int, val y: int)\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun demo() {
+        const result: Point = value
+        return result.^^^
+      }
+      class Point(val x: int, val y: int)
+      `
     );
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
@@ -245,16 +255,17 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("prioritizes class member completions for member access", () => {
-    const { source, line, character } = sourceWithCursor(
-      "class Point(val x: int, val y: int) {\n" +
-      "  sum() {\n" +
-      "    return 0\n" +
-      "  }\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  const point = new Point(1, 2)\n" +
-      "  point.^^^x\n" +
-      "}\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Point(val x: int, val y: int) {
+        sum() {
+          return 0
+        }
+      }
+      fun demo() {
+        const point = new Point(1, 2)
+        point.^^^x
+      }
+      `
     );
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -276,11 +287,53 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("point");
   });
 
+  it("offers Array<T> members for array-typed variable member access", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      declare class Array<T> {
+        length: number
+        push(item: T): number
+        map<R>(callback: (value: T) => R): Array<R>
+      }
+      fun demo() {
+        const items: int[] = []
+        items.^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect([...byLabel.keys()]).toContain("push");
+    expect([...byLabel.keys()]).toContain("map");
+    expect([...byLabel.keys()]).toContain("length");
+    expect(byLabel.get("push")?.detail).toBe("Class method: (item: int) => number");
+  });
+
+  it("offers Array<T> members for unknown[] member access", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      declare class Array<T> {
+        push(item: T): number
+      }
+      fun demo() {
+        const items: unknown[] = []
+        items.^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("push");
+  });
+
   it("includes constructor parameter properties in member completion", () => {
-    const { source, line, character } = sourceWithCursor(
-      "class User { constructor(public id: string, readonly age: int) {} }\n" +
-      "let user = new User(\"a\", 1)\n" +
-      "user.^^^id\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      class User { constructor(public id: string, readonly age: int) {} }
+      let user = new User("a", 1)
+      user.^^^id
+      `
     );
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
@@ -291,14 +344,15 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("prioritizes primary constructor properties ahead of methods in member completion", () => {
-    const { source, line, character } = sourceWithCursor(
-      "class Point(val x: number, val y: number) {\n" +
-      "  operator+(other: Point): Point => Point(x + other.x, y + other.y)\n" +
-      "  operator*(scale: number): Point => Point(x * scale, y * scale)\n" +
-      "}\n" +
-      "fun demo(point: Point) {\n" +
-      "  point.^^^\n" +
-      "}\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Point(val x: number, val y: number) {
+        operator+(other: Point): Point => Point(x + other.x, y + other.y)
+        operator*(scale: number): Point => Point(x * scale, y * scale)
+      }
+      fun demo(point: Point) {
+        point.^^^
+      }
+      `
     );
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
@@ -308,14 +362,15 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("keeps operator member completions visible and edits member access safely", () => {
-    const { source, line, character } = sourceWithCursor(
-      "class Point(val x: number, val y: number) {\n" +
-      "  operator+(other: Point): Point => Point(x + other.x, y + other.y)\n" +
-      "  operator*(scale: number): Point => Point(x * scale, y * scale)\n" +
-      "}\n" +
-      "fun demo(point: Point) {\n" +
-      "  point.^^^\n" +
-      "}\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Point(val x: number, val y: number) {
+        operator+(other: Point): Point => Point(x + other.x, y + other.y)
+        operator*(scale: number): Point => Point(x * scale, y * scale)
+      }
+      fun demo(point: Point) {
+        point.^^^
+      }
+      `
     );
     const session = createAnalysisSession(source);
     const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
@@ -344,13 +399,14 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("resolves member completions for chained member access", () => {
-    const { source, line, character } = sourceWithCursor(
-      "class Point(val x: int, val y: int)\n" +
-      "class Holder(val point: Point)\n" +
-      "fun demo() {\n" +
-      "  const holder = new Holder(new Point(1, 2))\n" +
-      "  holder.point.^^^x\n" +
-      "}\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Point(val x: int, val y: int)
+      class Holder(val point: Point)
+      fun demo() {
+        const holder = new Holder(new Point(1, 2))
+        holder.point.^^^x
+      }
+      `
     );
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -372,16 +428,17 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("resolves specialized generic member types in completion details", () => {
-    const { source, line, character } = sourceWithCursor(
-      "class Map<K, V> {\n" +
-      "  a: K\n" +
-      "  b: V\n" +
-      "  get(key: K): V { }\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  const map = new Map<string, int>()\n" +
-      "  map.^^^a\n" +
-      "}\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Map<K, V> {
+        a: K
+        b: V
+        get(key: K): V { }
+      }
+      fun demo() {
+        const map = new Map<string, int>()
+        map.^^^a
+      }
+      `
     );
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -402,18 +459,19 @@ describe("createCompletionItemsForPosition", () => {
 
   it("includes inherited generic members in completion details", () => {
     const { source, valueLine, valueCharacter } = (() => {
-      const first = sourceWithCursor(
-        "class Base<T> {\n" +
-        "  value: T\n" +
-        "  getValue(): T { }\n" +
-        "}\n" +
-        "class Child extends Base<string> {\n" +
-        "}\n" +
-        "fun demo() {\n" +
-        "  const child = new Child()\n" +
-        "  child.^^^v\n" +
-        "  child.g\n" +
-        "}\n"
+      const first = sourceWithCursor(dedent`
+        class Base<T> {
+          value: T
+          getValue(): T { }
+        }
+        class Child extends Base<string> {
+        }
+        fun demo() {
+          const child = new Child()
+          child.^^^v
+          child.g
+        }
+        `
       );
       return {
         source: first.source,
@@ -421,18 +479,19 @@ describe("createCompletionItemsForPosition", () => {
         valueCharacter: first.character
       };
     })();
-    const { line: methodLine, character: methodCharacter } = sourceWithCursor(
-      "class Base<T> {\n" +
-      "  value: T\n" +
-      "  getValue(): T { }\n" +
-      "}\n" +
-      "class Child extends Base<string> {\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  const child = new Child()\n" +
-      "  child.v\n" +
-      "  child.^^^g\n" +
-      "}\n"
+    const { line: methodLine, character: methodCharacter } = sourceWithCursor(dedent`
+      class Base<T> {
+        value: T
+        getValue(): T { }
+      }
+      class Child extends Base<string> {
+      }
+      fun demo() {
+        const child = new Child()
+        child.v
+        child.^^^g
+      }
+      `
     );
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -463,15 +522,16 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("ranks in-scope symbols by nearest scope distance", () => {
-    const { source, line, character } = sourceWithCursor(
-      "let top = 1\n" +
-      "fun demo() {\n" +
-      "  let outer = 2\n" +
-      "  {\n" +
-      "    let inner = 3\n" +
-      "    ^^^inn\n" +
-      "  }\n" +
-      "}\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      let top = 1
+      fun demo() {
+        let outer = 2
+        {
+          let inner = 3
+          ^^^inn
+        }
+      }
+      `
     );
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -494,15 +554,16 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("ranks call-argument completions by expected parameter type relevance", () => {
-    const { source, line, character } = sourceWithCursor(
-      "fun takesNumber(value: number) {\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  let exact: number = 2\n" +
-      "  let count: int = 1\n" +
-      "  let text: string = \"a\"\n" +
-      "  takesNumber(^^^ex)\n" +
-      "}\n"
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun takesNumber(value: number) {
+      }
+      fun demo() {
+        let exact: number = 2
+        let count: int = 1
+        let text: string = "a"
+        takesNumber(^^^ex)
+      }
+      `
     );
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();

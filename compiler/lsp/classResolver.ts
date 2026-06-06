@@ -1,4 +1,4 @@
-import { bindingNameText } from "compiler/ast/bindingPatterns";
+import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName, parseTypeNameShape, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
@@ -16,6 +16,8 @@ import type {
   MemberExpression,
   NewExpression,
   NonNullExpression,
+  VarDeclarator,
+  VarStatement,
   UnaryExpression,
   UpdateExpression,
   Program
@@ -27,6 +29,7 @@ import {
   isInterfaceStatement,
   resolveTopLevelDeclarationAcrossFiles
 } from "./declarationResolver";
+import { walkAst } from "compiler/ast/traversal";
 import {
   type ProjectContext,
   type ProjectSessionLike
@@ -241,6 +244,57 @@ function typeNameFromAnalysisType(type: AnalysisType | undefined): string | null
     return typeToString(type);
   }
   return typeToString(type);
+}
+
+function explicitTypeNameFromNewExpression(newExpression: NewExpression): string | null {
+  if (newExpression.callee.kind !== "Identifier") {
+    return null;
+  }
+  const baseName = (newExpression.callee as Identifier).name;
+  const typeArguments = (newExpression.typeArguments ?? []).map((typeArgument) => typeArgument.name);
+  if (typeArguments.length > 0) {
+    return `${baseName}<${typeArguments.join(", ")}>`;
+  }
+  return baseName;
+}
+
+function inferredTypeNameLosesGenericArguments(typeName: string | null): boolean {
+  if (!typeName) {
+    return true;
+  }
+  return /<\s*any(?:\s*,\s*any)*\s*>$/.test(typeName);
+}
+
+function declaredInitializerTypeName(
+  declarationNode: Identifier,
+  ast: Program
+): string | null {
+  let resolvedTypeName: string | null = null;
+  walkAst(ast, (node) => {
+    if (resolvedTypeName !== null || node.kind !== "VarStatement") {
+      return;
+    }
+    const varStatement = node as VarStatement;
+    const candidates = varStatement.declarations?.length
+      ? varStatement.declarations
+      : [varStatement];
+    for (const candidate of candidates) {
+      const bindingName = candidate.kind === "VarDeclarator"
+        ? (candidate as VarDeclarator).name
+        : (candidate as VarStatement).name;
+      const initializer = candidate.kind === "VarDeclarator"
+        ? (candidate as VarDeclarator).initializer
+        : (candidate as VarStatement).initializer;
+      if (!bindingIdentifiers(bindingName).some((identifier) => identifier === declarationNode)) {
+        continue;
+      }
+      resolvedTypeName = initializer?.kind === "NewExpression"
+        ? explicitTypeNameFromNewExpression(initializer as NewExpression)
+        : null;
+      break;
+    }
+  });
+  return resolvedTypeName;
 }
 
 function readDocumentationFromIdentifier(identifier: Identifier): string | undefined {
@@ -853,7 +907,7 @@ export function resolveExpressionTypeName(
   options: ClassResolverOptions
 ): string | null {
   const direct = typeNameFromAnalysisType(analysis.getExpressionTypes().get(expression));
-  if (direct && direct !== "unknown") {
+  if (direct && direct !== "unknown" && !(expression.kind === "Identifier" && inferredTypeNameLosesGenericArguments(direct))) {
     return direct;
   }
 
@@ -876,20 +930,18 @@ export function resolveExpressionTypeName(
       return null;
     }
     const symbol = analysis.getSymbolAt(firstToken.range.start.line, firstToken.range.start.column)?.symbol;
-    return typeNameFromAnalysisType(symbol?.type);
+    const symbolTypeName = typeNameFromAnalysisType(symbol?.type);
+    if (!inferredTypeNameLosesGenericArguments(symbolTypeName)) {
+      return symbolTypeName;
+    }
+    if (symbol?.node.kind === "Identifier") {
+      return declaredInitializerTypeName(symbol.node as Identifier, ast) ?? symbolTypeName;
+    }
+    return symbolTypeName;
   }
 
   if (expression.kind === "NewExpression") {
-    const newExpression = expression as NewExpression;
-    if (newExpression.callee.kind === "Identifier") {
-      const baseName = (newExpression.callee as Identifier).name;
-      const typeArguments = (newExpression.typeArguments ?? []).map((typeArgument) => typeArgument.name);
-      if (typeArguments.length > 0) {
-        return `${baseName}<${typeArguments.join(", ")}>`;
-      }
-      return baseName;
-    }
-    return null;
+    return explicitTypeNameFromNewExpression(expression as NewExpression);
   }
 
   if (expression.kind === "CallExpression") {

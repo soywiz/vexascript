@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "compiler/analysis/Analysis";
@@ -84,17 +85,18 @@ describe("lsp navigation", () => {
   });
 
   it("provides hover and definition for operator uses that resolve to class overloads", () => {
-    const source =
-      "class Point(val x: number, val y: number) {\n" +
-      "  operator+(other: Point): Point {\n" +
-      "    return new Point(this.x + other.x, this.y + other.y)\n" +
-      "  }\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  let p = new Point(1, 2)\n" +
-      "  let q = new Point(3, 4)\n" +
-      "  let r = p + q\n" +
-      "}\n";
+    const source = dedent`
+      class Point(val x: number, val y: number) {
+        operator+(other: Point): Point {
+          return new Point(this.x + other.x, this.y + other.y)
+        }
+      }
+      fun demo() {
+        let p = new Point(1, 2)
+        let q = new Point(3, 4)
+        let r = p + q
+      }
+      `;
     const analysis = analysisOf(source);
 
     const hover = createHover(analysis, 8, 12);
@@ -118,16 +120,17 @@ describe("lsp navigation", () => {
   });
 
   it("provides hover and definition for extension operator uses", () => {
-    const source =
-      "class Point(val x: number, val y: number)\n" +
-      "fun Point.operator+(other: Point): Point {\n" +
-      "  return new Point(this.x + other.x, this.y + other.y)\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  let p = new Point(1, 2)\n" +
-      "  let q = new Point(3, 4)\n" +
-      "  let r = p + q\n" +
-      "}\n";
+    const source = dedent`
+      class Point(val x: number, val y: number)
+      fun Point.operator+(other: Point): Point {
+        return new Point(this.x + other.x, this.y + other.y)
+      }
+      fun demo() {
+        let p = new Point(1, 2)
+        let q = new Point(3, 4)
+        let r = p + q
+      }
+      `;
     const analysis = analysisOf(source);
 
     const hover = createHover(analysis, 7, 12);
