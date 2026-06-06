@@ -8,11 +8,13 @@ import {
 } from "compiler/runtime/ecmascriptDeclarations";
 import type {
   ArrayLiteral,
+  ArrowFunctionExpression,
   AsExpression,
   AssignmentExpression,
   BinaryExpression,
   BlockStatement,
   CallExpression,
+  FunctionExpression,
   Expr,
   ClassStatement,
   InterfaceStatement,
@@ -682,6 +684,22 @@ function findMemberExpressionAtPosition(
           }
         }
         return;
+      case "ArrowFunctionExpression": {
+        const body = (expression as ArrowFunctionExpression).body;
+        if (body.kind === "BlockStatement") {
+          for (const child of (body as BlockStatement).body) {
+            visitStatement(child);
+          }
+        } else {
+          visitExpression(body as Expr);
+        }
+        return;
+      }
+      case "FunctionExpression":
+        for (const child of (expression as FunctionExpression).body.body) {
+          visitStatement(child);
+        }
+        return;
       default:
         return;
     }
@@ -1093,6 +1111,22 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
           } else {
             visitExpression(property.value);
           }
+        }
+        return;
+      case "ArrowFunctionExpression": {
+        const body = (expression as ArrowFunctionExpression).body;
+        if (body.kind === "BlockStatement") {
+          for (const child of (body as BlockStatement).body) {
+            visitStatement(child);
+          }
+        } else {
+          visitExpression(body as Expr);
+        }
+        return;
+      }
+      case "FunctionExpression":
+        for (const child of (expression as FunctionExpression).body.body) {
+          visitStatement(child);
         }
         return;
       default:
