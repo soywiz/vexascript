@@ -64,6 +64,8 @@ function* ids() {
 
 In `async` functions, return expressions are checked against the inner `Promise<T>` value type, so both `return 10` and `return Promise.resolve(10)` are valid for `Promise<int>`. `await expr` evaluates to `T` when `expr` has type `Promise<T>`; otherwise `await` preserves the original type. When no return type is annotated, the inferred return type is `Promise<T>`. If an `async` function has an explicit return type annotation, it must be `Promise<...>`.
 
+`await` is only allowed at the top level (module/global scope) and inside `async` or `sync` functions. Using `await` inside a normal (non-`async`/`sync`) function or a normal generator is a semantic error (`AWAIT_OUTSIDE_ASYNC`).
+
 ### `sync` functions (implicit await)
 
 The `sync` modifier declares a function that behaves like `async` internally (it is emitted as a JavaScript `async function` and may use `await`), but with two ergonomic differences:
@@ -114,6 +116,8 @@ sync fun main(): void {
 ```
 
 `go` is contextual: it only acts as the no-await operator when an operand follows on the same line. Otherwise it remains a normal identifier, so existing code using `go` as a variable or function name keeps working.
+
+Because `go` only has meaning where implicit auto-await happens, it is only allowed inside `sync` functions. Using `go` inside a normal or `async` function, or at the top level, is a semantic error (`GO_OUTSIDE_SYNC`).
 
 A TypeScript `this` parameter may appear first in a function-like parameter list for type analysis. It is erased during JavaScript emission:
 

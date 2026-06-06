@@ -115,6 +115,7 @@ export class TypeChecker {
   private readonly activeTypeAliasNames: Set<string> = new Set();
   private readonly generatorFunctionStack: boolean[] = [];
   private readonly syncFunctionStack: boolean[] = [];
+  private readonly asyncLikeFunctionStack: boolean[] = [];
 
   constructor(
     private readonly program: Program,
@@ -196,6 +197,28 @@ export class TypeChecker {
     } finally {
       this.syncFunctionStack.pop();
     }
+  }
+
+  // True when traversal is inside a function whose innermost enclosing function is
+  // async-like (declared `async` or `sync`). `await` is permitted in those bodies.
+  private isInsideAsyncLikeFunction(): boolean {
+    return this.asyncLikeFunctionStack[this.asyncLikeFunctionStack.length - 1] === true;
+  }
+
+  private withAsyncLikeFunction<T>(isAsyncLike: boolean, run: () => T): T {
+    this.asyncLikeFunctionStack.push(isAsyncLike);
+    try {
+      return run();
+    } finally {
+      this.asyncLikeFunctionStack.pop();
+    }
+  }
+
+  // True when traversal is inside any function body rather than module/global scope.
+  // Every function visit pushes onto the sync-function stack, so a non-empty stack
+  // means an enclosing function exists.
+  private isInsideFunction(): boolean {
+    return this.syncFunctionStack.length > 0;
   }
 
   // A `sync` function is internally an async function: it is emitted as `async`, returns a
@@ -482,7 +505,7 @@ export class TypeChecker {
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
     const isAsyncLike = this.isAsyncLike(statement);
-    this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => {
+    this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => this.withAsyncLikeFunction(isAsyncLike, () => {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
       this.withTypeParameters(typeParameterNames, () => {
         const declaredReturnType = this.resolveTypeAnnotation(statement.returnType, scope);
@@ -538,7 +561,7 @@ export class TypeChecker {
           this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, isAsyncLike);
         }
       });
-    }));
+    })));
   }
 
   private visitEnumStatement(statement: EnumStatement, scope: Scope): void {
@@ -608,7 +631,7 @@ export class TypeChecker {
         }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
         const methodIsAsyncLike = this.isAsyncLike(method);
-        this.withGeneratorFunction(method.generator === true, () => this.withSyncFunction(method.sync === true, () => {
+        this.withGeneratorFunction(method.generator === true, () => this.withSyncFunction(method.sync === true, () => this.withAsyncLikeFunction(methodIsAsyncLike, () => {
           this.withTypeParameters(methodTypeParameterNames, () => {
             const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
             if (methodIsAsyncLike) {
@@ -667,7 +690,7 @@ export class TypeChecker {
               this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike);
             }
           });
-        }));
+        })));
       }
 
       this.validateOverrideMembers(statement);
@@ -1155,11 +1178,33 @@ export class TypeChecker {
           break;
         }
         if (unary.operator === "await") {
+          // `await` is allowed at module/global scope and inside async or sync functions,
+          // but not inside normal functions or normal (non-async) generators.
+          if (this.isInsideFunction() && !this.isInsideAsyncLikeFunction()) {
+            this.issues.push({
+              message: "The 'await' keyword is only allowed inside async or sync functions or at the top level",
+              node: expression,
+              code: ANALYSIS_ISSUE_CODES.AWAIT_OUTSIDE_ASYNC
+            });
+            result = UNKNOWN_TYPE;
+            break;
+          }
           result = this.unwrapPromiseType(argumentType) ?? argumentType;
           break;
         }
         if (unary.operator === "go") {
           // `go expr` opts out of sync auto-await and yields the underlying Promise unchanged.
+          // It is only meaningful inside sync functions: not in normal or async functions, and
+          // not at the top level.
+          if (!this.isInsideSyncFunction()) {
+            this.issues.push({
+              message: "The 'go' operator is only allowed inside sync functions",
+              node: expression,
+              code: ANALYSIS_ISSUE_CODES.GO_OUTSIDE_SYNC
+            });
+            result = UNKNOWN_TYPE;
+            break;
+          }
           result = argumentType;
           break;
         }
@@ -1205,7 +1250,7 @@ export class TypeChecker {
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
         const arrowIsAsyncLike = this.isAsyncLike(arrow);
-        this.withGeneratorFunction(false, () => this.withSyncFunction(arrow.sync === true, () => {
+        this.withGeneratorFunction(false, () => this.withSyncFunction(arrow.sync === true, () => this.withAsyncLikeFunction(arrowIsAsyncLike, () => {
           if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
             result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
             return;
@@ -1254,13 +1299,13 @@ export class TypeChecker {
             }
           }
           result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
-        }));
+        })));
         break;
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
         const fnIsAsyncLike = this.isAsyncLike(fn);
-        this.withGeneratorFunction(fn.generator === true, () => this.withSyncFunction(fn.sync === true, () => {
+        this.withGeneratorFunction(fn.generator === true, () => this.withSyncFunction(fn.sync === true, () => this.withAsyncLikeFunction(fnIsAsyncLike, () => {
           const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
           const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
           const declaredReturnType = this.resolveTypeAnnotation(fn.returnType, functionScope);
@@ -1287,7 +1332,7 @@ export class TypeChecker {
           );
           this.reportMissingReturnPath(fn.body, returnType, fn.name ?? fn, fnIsAsyncLike);
           result = this.buildFunctionType(fn.parameters, returnType, functionScope);
-        }));
+        })));
         break;
       }
       case "Identifier":

@@ -181,6 +181,65 @@ let after = bind`));
     expect(messages.filter((message) => message === "The 'yield' keyword is only allowed inside generator functions")).toHaveLength(2);
   });
 
+  it("allows await only at top level and inside async or sync functions", () => {
+    const source =
+      "declare function promised(): Promise<int>\n" +
+      "await promised()\n" +
+      "async function okAsync() {\n" +
+      "  await promised()\n" +
+      "}\n" +
+      "sync function okSync(): int {\n" +
+      "  await promised()\n" +
+      "  return 1\n" +
+      "}\n" +
+      "function badNormal() {\n" +
+      "  await promised()\n" +
+      "}\n" +
+      "function* badGenerator() {\n" +
+      "  await promised()\n" +
+      "}\n" +
+      "class Service {\n" +
+      "  async okMethod() {\n" +
+      "    await promised()\n" +
+      "  }\n" +
+      "  badMethod() {\n" +
+      "    await promised()\n" +
+      "  }\n" +
+      "}\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    const awaitMessage = "The 'await' keyword is only allowed inside async or sync functions or at the top level";
+    expect(messages).toContain(awaitMessage);
+    expect(messages.filter((message) => message === awaitMessage)).toHaveLength(3);
+  });
+
+  it("allows the go operator only inside sync functions", () => {
+    const source =
+      "declare function promised(): Promise<int>\n" +
+      "sync function okSync(): int {\n" +
+      "  let p: Promise<int> = go promised()\n" +
+      "  return 1\n" +
+      "}\n" +
+      "async function badAsync() {\n" +
+      "  let p: Promise<int> = go promised()\n" +
+      "}\n" +
+      "function badNormal() {\n" +
+      "  let p: Promise<int> = go promised()\n" +
+      "}\n" +
+      "let top: Promise<int> = go promised()\n";
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    const goMessage = "The 'go' operator is only allowed inside sync functions";
+    expect(messages).toContain(goMessage);
+    expect(messages.filter((message) => message === goMessage)).toHaveLength(3);
+  });
+
   it("uses the final comma expression operand as the expression type", () => {
     const ast = parseFile(tokenizeReader("let value: string = (1, \"ok\")"));
     const analysis = new Analysis(ast);
