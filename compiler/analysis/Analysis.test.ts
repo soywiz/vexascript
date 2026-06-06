@@ -265,6 +265,30 @@ let after = bind`));
     expect(messages.some((message) => message.includes("undefined") && message.includes("assignable"))).toBe(false);
   });
 
+  it("reports switch case fallthrough unless control flow exits before the next case", () => {
+    const source = `switch (value) {
+  case 1:
+    let one = value
+  case 2:
+    break
+  case 3:
+    if (value > 0) {
+      return
+    } else {
+      throw value
+    }
+  default:
+    let other = value
+}`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Switch case falls through to the next case; add 'break', 'return', 'throw', or 'continue' to make control flow explicit");
+    expect(messages.filter((message) => message.includes("falls through"))).toHaveLength(1);
+  });
+
   it("reports semantic errors for illegal break/continue usage", () => {
     const source =
       "break\n" +

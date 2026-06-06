@@ -917,7 +917,7 @@ with (scope) {
 
 ### Switch statements
 
-MyLang supports `switch` statements with `case` and `default` clauses. Semantic analysis reports an error when a switch body contains more than one `default` clause, and LSP diagnostics expose a dedicated duplicate-default diagnostic code.
+MyLang supports `switch` statements with `case` and `default` clauses. Semantic analysis reports an error when a switch body contains more than one `default` clause. It also reports non-empty cases that can fall through to a following case; add an explicit `break`, `return`, `throw`, or `continue` when a case should stop before the next label. LSP diagnostics expose dedicated codes for duplicate defaults and switch fallthrough.
 
 ```mylang
 switch (value) {
@@ -1002,7 +1002,7 @@ if (condition) {
 
 ### Switch / case / default
 
-MyLang supports TypeScript-style `switch` statements with `case` and optional `default`:
+MyLang supports TypeScript-style `switch` statements with `case` and optional `default`. Non-empty cases must end control flow explicitly before the next label:
 
 ```mylang
 switch (value) {

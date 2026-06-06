@@ -781,7 +781,8 @@ export class TypeChecker {
   private visitSwitchStatement(statement: SwitchStatement, scope: Scope, flow: FlowContext): void {
     this.visitExpression(statement.discriminant, scope);
     let sawDefaultCase = false;
-    for (const switchCase of statement.cases) {
+    for (let index = 0; index < statement.cases.length; index++) {
+      const switchCase = statement.cases[index]!;
       if (!switchCase.test) {
         if (sawDefaultCase) {
           this.issues.push({
@@ -791,6 +792,17 @@ export class TypeChecker {
           });
         }
         sawDefaultCase = true;
+      }
+      if (
+        index < statement.cases.length - 1 &&
+        switchCase.consequent.length > 0 &&
+        !this.statementListPreventsSwitchFallthrough(switchCase.consequent)
+      ) {
+        this.issues.push({
+          message: "Switch case falls through to the next case; add 'break', 'return', 'throw', or 'continue' to make control flow explicit",
+          node: switchCase,
+          code: ANALYSIS_ISSUE_CODES.SWITCH_CASE_FALLTHROUGH
+        });
       }
     }
     const switchScope = this.scopeFor(statement, scope);
@@ -808,6 +820,51 @@ export class TypeChecker {
       for (const consequent of switchCase.consequent) {
         this.visitStatement(consequent, caseScope, switchFlow);
       }
+    }
+  }
+
+  private statementListPreventsSwitchFallthrough(statements: Statement[]): boolean {
+    for (const statement of statements) {
+      if (this.statementPreventsSwitchFallthrough(statement)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private statementPreventsSwitchFallthrough(statement: Statement): boolean {
+    switch (statement.kind) {
+      case "BreakStatement":
+      case "ContinueStatement":
+      case "ReturnStatement":
+      case "ThrowStatement":
+        return true;
+      case "BlockStatement":
+        return this.statementListPreventsSwitchFallthrough((statement as BlockStatement).body);
+      case "IfStatement": {
+        const conditional = statement as IfStatement;
+        return (
+          conditional.elseBranch !== undefined &&
+          this.statementPreventsSwitchFallthrough(conditional.thenBranch) &&
+          this.statementPreventsSwitchFallthrough(conditional.elseBranch)
+        );
+      }
+      case "TryStatement": {
+        const tryStatement = statement as TryStatement;
+        if (tryStatement.finallyBlock && this.statementPreventsSwitchFallthrough(tryStatement.finallyBlock)) {
+          return true;
+        }
+        return (
+          this.statementPreventsSwitchFallthrough(tryStatement.tryBlock) &&
+          (tryStatement.catchClause === undefined || this.statementPreventsSwitchFallthrough(tryStatement.catchClause.body))
+        );
+      }
+      case "WithStatement":
+        return this.statementPreventsSwitchFallthrough((statement as WithStatement).body);
+      case "LabeledStatement":
+        return this.statementPreventsSwitchFallthrough((statement as LabeledStatement).body);
+      default:
+        return false;
     }
   }
 
