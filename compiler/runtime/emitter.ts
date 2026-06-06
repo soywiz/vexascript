@@ -96,6 +96,14 @@ interface RuntimeOverloadInfo {
 
 interface RuntimeOperatorInfo extends RuntimeOverloadInfo {
   operator: BinaryExpression["operator"];
+  // Extension operators (declared as `fun Receiver.operator+`) are emitted as
+  // standalone receiver-mangled functions and called as `name(left, right)`,
+  // while class operators stay prototype methods called as `left.name(right)`.
+  extension: boolean;
+}
+
+interface RuntimeExtensionMethodInfo extends RuntimeOverloadInfo {
+  name: string;
 }
 
 interface JavaScriptImplementationInfo {
@@ -105,6 +113,7 @@ interface JavaScriptImplementationInfo {
 
 let activeProgramOverloads: Map<string, RuntimeOverloadInfo[]> = new Map();
 let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
+let activeExtensionMethods: Map<string, RuntimeExtensionMethodInfo[]> = new Map();
 let activeExtensionProperties: Map<string, string> = new Map();
 let activeClassNames: Set<string> = new Set();
 let activeJavaScriptImplementations: Map<string, JavaScriptImplementationInfo> = new Map();
@@ -320,7 +329,7 @@ function emitJavaScriptImplementationCall(call: CallExpression): string | null {
   return emitted;
 }
 
-function resolveOperatorMethodName(binary: BinaryExpression): string | null {
+function resolveOperatorMethod(binary: BinaryExpression): RuntimeOperatorInfo | null {
   const leftType = activeExpressionTypes?.get(binary.left as unknown as Node);
   if (leftType?.kind !== "named") {
     return null;
@@ -330,8 +339,41 @@ function resolveOperatorMethodName(binary: BinaryExpression): string | null {
     return null;
   }
   const rightType = typeMangleName(activeExpressionTypes?.get(binary.right as unknown as Node));
-  return operators.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, [rightType]))?.emittedName
-    ?? operators.find((candidate) => candidate.hasBody)?.emittedName
+  return operators.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, [rightType]))
+    ?? operators.find((candidate) => candidate.hasBody)
+    ?? null;
+}
+
+function extensionReceiverTypeName(type: AnalysisType | undefined): string | null {
+  if (type?.kind === "named") {
+    return type.name;
+  }
+  if (type?.kind === "builtin") {
+    return type.name === "int" ? "number" : type.name;
+  }
+  return null;
+}
+
+function resolveExtensionMethodCall(call: CallExpression): string | null {
+  if (call.optional === true || call.callee.kind !== "MemberExpression") {
+    return null;
+  }
+  const member = call.callee as MemberExpression;
+  if (member.computed || member.optional || member.property.kind !== "Identifier") {
+    return null;
+  }
+  const receiverType = extensionReceiverTypeName(activeExpressionTypes?.get(member.object));
+  if (!receiverType) {
+    return null;
+  }
+  const methodName = (member.property as Identifier).name;
+  const methods = activeExtensionMethods.get(receiverType)?.filter((candidate) => candidate.name === methodName);
+  if (!methods || methods.length === 0) {
+    return null;
+  }
+  const argumentTypes = call.arguments.map((argument) => typeMangleName(activeExpressionTypes?.get(argument as unknown as Node)));
+  return methods.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))?.emittedName
+    ?? methods.find((candidate) => candidate.hasBody)?.emittedName
     ?? null;
 }
 
@@ -389,9 +431,21 @@ function collectRuntimeOverloads(program: Program): Map<string, RuntimeOverloadI
   return result;
 }
 
+function operatorBaseName(operator: BinaryExpression["operator"]): string {
+  return OPERATOR_METHOD_NAMES[operator] ?? `operator$${sanitizeManglePart(operator)}`;
+}
+
 function operatorMethodName(operator: BinaryExpression["operator"], parameters: FunctionParameter[]): string {
-  const baseName = OPERATOR_METHOD_NAMES[operator] ?? `operator$${sanitizeManglePart(operator)}`;
-  return overloadedFunctionName(baseName, parameters);
+  return overloadedFunctionName(operatorBaseName(operator), parameters);
+}
+
+/**
+ * Runtime name for an extension member (method or operator). The receiver type
+ * is mangled at the front so the name is self-describing, e.g.
+ * `fun Point.operator+(other: Point)` becomes `Point$$operator$plus$$Point`.
+ */
+function extensionMethodRuntimeName(receiverType: string, baseName: string, parameters: FunctionParameter[]): string {
+  return `${sanitizeManglePart(receiverType)}$$${overloadedFunctionName(baseName, parameters)}`;
 }
 
 /**
@@ -445,7 +499,8 @@ function collectOperators(program: Program): Map<string, RuntimeOperatorInfo[]> 
           operator: method.operator!,
           emittedName: operatorMethodName(method.operator!, method.parameters),
           parameterTypes: method.parameters.map(parameterTypeName),
-          hasBody: method.missingBody !== true
+          hasBody: method.missingBody !== true,
+          extension: false
         };
         result.set(classStatement.name.name, [...(result.get(classStatement.name.name) ?? []), info]);
       }
@@ -456,12 +511,35 @@ function collectOperators(program: Program): Map<string, RuntimeOperatorInfo[]> 
       }
       const info: RuntimeOperatorInfo = {
         operator: fn.operator,
-        emittedName: operatorMethodName(fn.operator, fn.parameters),
-        parameterTypes: fn.parameters.map(parameterTypeName),
-        hasBody: fn.missingBody !== true
+        emittedName: extensionMethodRuntimeName(fn.receiverType.name, operatorBaseName(fn.operator), fn.parameters),
+        parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+        hasBody: fn.missingBody !== true,
+        extension: true
       };
       result.set(fn.receiverType.name, [...(result.get(fn.receiverType.name) ?? []), info]);
     }
+  }
+  return result;
+}
+
+function collectExtensionMethods(program: Program): Map<string, RuntimeExtensionMethodInfo[]> {
+  const result = new Map<string, RuntimeExtensionMethodInfo[]>();
+  for (const statement of program.body) {
+    const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    if (candidate?.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = candidate as FunctionStatement;
+    if (!fn.receiverType || fn.operator) {
+      continue;
+    }
+    const info: RuntimeExtensionMethodInfo = {
+      name: fn.name.name,
+      emittedName: extensionMethodRuntimeName(fn.receiverType.name, fn.name.name, fn.parameters),
+      parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+      hasBody: fn.missingBody !== true
+    };
+    result.set(fn.receiverType.name, [...(result.get(fn.receiverType.name) ?? []), info]);
   }
   return result;
 }
@@ -608,9 +686,11 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
 
         const leftText = maybeWrap(emitExpression(binary.left, precedence, "left"), leftChildNeedsWrap);
         const rightText = maybeWrap(emitExpression(binary.right, precedence, "right"), rightChildNeedsWrap);
-        const operatorMethodName = resolveOperatorMethodName(binary);
-        if (operatorMethodName) {
-          return `${leftText}.${operatorMethodName}(${rightText})`;
+        const operatorMethod = resolveOperatorMethod(binary);
+        if (operatorMethod) {
+          return operatorMethod.extension
+            ? `${operatorMethod.emittedName}(${leftText}, ${rightText})`
+            : `${leftText}.${operatorMethod.emittedName}(${rightText})`;
         }
         const typedIntegerBinary = emitTypedIntegerBinary(binary, leftText, rightText);
         if (typedIntegerBinary) {
@@ -662,6 +742,13 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const javaScriptImplementation = emitJavaScriptImplementationCall(call);
         if (javaScriptImplementation) {
           return javaScriptImplementation;
+        }
+        const extensionMethodName = resolveExtensionMethodCall(call);
+        if (extensionMethodName) {
+          const member = call.callee as MemberExpression;
+          const receiverText = emitExpression(member.object, PREC_MEMBER, "left");
+          const callArguments = [receiverText, ...call.arguments.map((argument) => emitListElement(argument))];
+          return `${extensionMethodName}(${callArguments.join(", ")})`;
         }
         const overloadedName = resolveOverloadedFunctionCall(call);
         const calleeText = overloadedName ?? emitExpression(call.callee, PREC_MEMBER, "left");
@@ -1091,10 +1178,11 @@ export function emitStatement(statement: Statement): string {
       if (importStatement.defaultImport) {
         clauses.push(importStatement.defaultImport.name);
       }
-      // Operator overloads (e.g. `import { operator+ }`) are not real runtime
-      // exports: they are installed on the receiver's prototype as a side effect
-      // of loading the module. Drop them from the named bindings while keeping the
-      // module loaded so the prototype patch still runs.
+      // Operator overloads (e.g. `import { operator+ }`) have no matching named
+      // export: the operator is emitted in its source module as a standalone
+      // receiver-mangled function and call sites reference that mangled name
+      // directly (resolved across files via the bundled module graph). Drop the
+      // operator binding from the named imports while keeping the module loaded.
       const valueSpecifiers = importStatement.specifiers.filter(
         (specifier) => !isOperatorImportName(specifier.imported.name)
       );
@@ -1139,8 +1227,20 @@ export function emitStatement(statement: Statement): string {
         return "";
       }
       if (fn.receiverType) {
-        const emittedName = fn.operator ? operatorMethodName(fn.operator, fn.parameters) : fn.name.name;
-        return `${fn.receiverType.name}.prototype.${emittedName} = ${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)};`;
+        // Extension methods/operators are emitted as standalone receiver-mangled
+        // functions whose first parameter is the receiver (`$this`). Implicit
+        // member references and `this` inside the body resolve to `$this`.
+        const baseName = fn.operator ? operatorBaseName(fn.operator) : fn.name.name;
+        const emittedName = extensionMethodRuntimeName(fn.receiverType.name, baseName, fn.parameters);
+        const visibleParameters = emitFunctionParameters(fn.parameters);
+        const parameterList = visibleParameters.length > 0 ? `$this, ${visibleParameters}` : "$this";
+        const previousExtensionThis = activeExtensionThis;
+        activeExtensionThis = true;
+        try {
+          return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${parameterList}) ${emitBlock(fn.body)}`;
+        } finally {
+          activeExtensionThis = previousExtensionThis;
+        }
       }
       const overloads = activeProgramOverloads.get(fn.name.name);
       const emittedName = overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name;
@@ -1269,6 +1369,7 @@ export function emitProgramStatements(
   const previous = activeExpressionTypes;
   const previousOverloads = activeProgramOverloads;
   const previousOperators = activeOperators;
+  const previousExtensionMethods = activeExtensionMethods;
   const previousExtensionProperties = activeExtensionProperties;
   const previousClassNames = activeClassNames;
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
@@ -1279,6 +1380,7 @@ export function emitProgramStatements(
   activeAutoAwaitExpressions = autoAwaitExpressions;
   activeProgramOverloads = collectRuntimeOverloads(contextProgram);
   activeOperators = collectOperators(contextProgram);
+  activeExtensionMethods = collectExtensionMethods(contextProgram);
   activeExtensionProperties = collectExtensionProperties(contextProgram);
   activeClassNames = collectClassNames(contextProgram);
   activeJavaScriptImplementations = collectJavaScriptImplementations(contextProgram);
@@ -1290,6 +1392,7 @@ export function emitProgramStatements(
     activeExpressionTypes = previous;
     activeProgramOverloads = previousOverloads;
     activeOperators = previousOperators;
+    activeExtensionMethods = previousExtensionMethods;
     activeExtensionProperties = previousExtensionProperties;
     activeClassNames = previousClassNames;
     activeJavaScriptImplementations = previousJavaScriptImplementations;

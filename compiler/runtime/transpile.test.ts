@@ -384,8 +384,12 @@ describe("transpile", () => {
     const result = transpile(source);
 
     expect(result.errors).toEqual([]);
-    expect(result.code).toContain("Point.prototype.operator$plus$$Point = function(other) {");
-    expect(result.code).toContain("let c = a.operator$plus$$Point(b);");
+    // Extension operators are emitted as standalone receiver-mangled functions
+    // whose first parameter is the receiver, and binary expressions lower to a
+    // plain call rather than a prototype method call.
+    expect(result.code).toContain("function Point$$operator$plus$$Point($this, other) {");
+    expect(result.code).toContain("return new Point($this.x + other.x, $this.y + other.y);");
+    expect(result.code).toContain("let c = Point$$operator$plus$$Point(a, b);");
   });
 
   it("resolves cross-file classes and operators from externalDeclarations", () => {
@@ -404,7 +408,7 @@ describe("transpile", () => {
 
     expect(result.errors).toEqual([]);
     expect(result.code).toContain(
-      "const sum = new Point(1, 2).operator$plus$$Point(new Point(3, 4));"
+      "const sum = Point$$operator$plus$$Point(new Point(1, 2), new Point(3, 4));"
     );
   });
 
@@ -420,8 +424,24 @@ val Counter.next => increment(1)`;
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("return this.value + amount;");
     expect(result.code).toContain("identity(value) {\nreturn value;");
-    expect(result.code).toContain("return this.value + this.value;");
+    // Named extension methods are emitted as standalone receiver-mangled
+    // functions with a `$this` receiver parameter.
+    expect(result.code).toContain("function Counter$$doubled$$void($this) {");
+    expect(result.code).toContain("return $this.value + $this.value;");
     expect(result.code).toContain("const Counter$$next = ($this) => $this.increment(1);");
+  });
+
+  it("lowers named extension method calls to standalone receiver-mangled functions", () => {
+    const source = `class Counter(val value: int) {}
+fun Counter.plus(amount: int): int { return value + amount }
+let counter = new Counter(5)
+let total = counter.plus(2)`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("function Counter$$plus$$int($this, amount) {");
+    expect(result.code).toContain("return $this.value + amount;");
+    expect(result.code).toContain("let total = Counter$$plus$$int(counter, 2);");
   });
 
   it("lowers int multiplication and division to 32-bit JavaScript operations", () => {
