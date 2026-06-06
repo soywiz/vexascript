@@ -13,6 +13,7 @@ import { uriToFilePath } from "./importFixes";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
+import type { AnalysisType } from "compiler/analysis/types";
 
 /**
  * Top-level declarations that contribute a named type and whose members the
@@ -110,6 +111,53 @@ export function collectImportedTypeDeclarations(
       }
       seen.add(declaration);
       result.push(declaration);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Resolves the types of values imported by a document's `import { ... } from "..."`
+ * statements, keyed by the local name they are bound to. The type is taken from
+ * the imported file's own analysis, so it reflects inferred return types (e.g. a
+ * function whose body returns a `Promise`). Intended to be passed to `Analysis`
+ * as `importedSymbolTypes` so cross-file calls resolve their value type and
+ * participate in pervasive auto-await.
+ */
+export function collectImportedSymbolTypes(
+  ast: Program,
+  context: CollectImportedDeclarationsContext
+): Map<string, AnalysisType> {
+  const result = new Map<string, AnalysisType>();
+  const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
+  if (!currentFilePath) {
+    return result;
+  }
+
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    if (importStatement.specifiers.length === 0) {
+      continue;
+    }
+    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
+    if (!targetFilePath) {
+      continue;
+    }
+    const targetSession = getProjectSessionForFilePath(targetFilePath, context);
+    const targetAnalysis = targetSession?.analysis;
+    if (!targetAnalysis) {
+      continue;
+    }
+    for (const specifier of importStatement.specifiers) {
+      const localName = (specifier.local ?? specifier.imported).name;
+      const importedType = targetAnalysis.getTopLevelSymbolType(specifier.imported.name);
+      if (importedType) {
+        result.set(localName, importedType);
+      }
     }
   }
 

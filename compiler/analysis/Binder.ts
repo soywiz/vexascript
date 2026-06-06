@@ -55,7 +55,8 @@ export class Binder {
 
   constructor(
     private readonly program: Program,
-    private readonly externalDeclarations: Statement[] = []
+    private readonly externalDeclarations: Statement[] = [],
+    private readonly importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map()
   ) {
     this.rootScope = this.createScope(undefined, program);
   }
@@ -159,12 +160,16 @@ export class Binder {
         }
         for (const specifier of importStatement.specifiers) {
           const local = specifier.local ?? specifier.imported;
+          // Prefer a cross-file resolved type when the importer provided one, so
+          // imported values (e.g. functions returning a Promise) keep their type
+          // instead of degrading to `unknown`.
+          const resolvedType = this.importedSymbolTypes.get(local.name) ?? UNKNOWN_TYPE;
           this.declare(scope, {
             name: local.name,
-            kind: "variable",
+            kind: resolvedType.kind === "function" ? "function" : "variable",
             node: local,
-            type: UNKNOWN_TYPE,
-            valueType: typeToString(UNKNOWN_TYPE)
+            type: resolvedType,
+            valueType: typeToString(resolvedType)
           }, declaredOffsetOverride);
         }
         continue;

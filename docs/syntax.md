@@ -68,6 +68,8 @@ In `async` functions, return expressions are checked against the inner `Promise<
 
 Inside the body of any async-like function — both `async` and `sync` — **any** subexpression whose type is `Promise<T>` is **automatically awaited** wherever it is used as a value, and its observed type becomes `T`. This applies everywhere — expression statements, variable initializers, assignment right-hand sides, call arguments, operands, array/object elements, and member receivers. Writing `await` explicitly is still allowed and behaves the same; the implicit await simply makes it unnecessary in most positions. Use the `go` operator (see below) to opt out and keep the underlying `Promise<T>`.
 
+This works for Promise-returning functions imported from other files too, including functions whose `Promise` return type is inferred from their body rather than annotated — the imported value's type is resolved from its declaring file, so calling it inside an async-like function auto-awaits just like a local call.
+
 ```mylang
 async fun main(): Promise<void> {
   let x = fetchValue()                 // let x = await fetchValue();   -> x: int

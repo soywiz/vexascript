@@ -43,6 +43,14 @@ export interface AnalysisOptions {
    * to the analyzed program.
    */
   externalDeclarations?: Statement[];
+  /**
+   * Resolved types for imported symbols, keyed by the local name they are bound
+   * to in this program (e.g. `delay` from `import { delay } from "./other"`).
+   * They let cross-file value imports — in particular functions whose return
+   * type is inferred from their body — participate in type resolution and
+   * pervasive auto-await, instead of being treated as `unknown`.
+   */
+  importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
 }
 
 export class Analysis {
@@ -55,7 +63,7 @@ export class Analysis {
 
   constructor(program: Program, options: AnalysisOptions = {}) {
     const externalDeclarations = options.externalDeclarations ?? [];
-    const bound = new Binder(program, externalDeclarations).bind();
+    const bound = new Binder(program, externalDeclarations, options.importedSymbolTypes).bind();
     this.rootScope = bound.rootScope;
 
     const checked = new TypeChecker(program, bound, externalDeclarations).check();
@@ -95,6 +103,16 @@ export class Analysis {
 
   getAutoAwaitExpressions(): ReadonlySet<Node> {
     return this.autoAwaitExpressions;
+  }
+
+  /**
+   * Returns the resolved type of a top-level (module-scope) symbol declared in
+   * this program, or `undefined` if no such symbol exists. Used to resolve the
+   * type of a value imported from this file into another file, including the
+   * inferred return type of functions without an explicit return annotation.
+   */
+  getTopLevelSymbolType(name: string): AnalysisType | undefined {
+    return this.rootScope.symbols.get(name)?.type;
   }
 
   getImplicitReceiverIdentifiers(): ReadonlySet<Node> {

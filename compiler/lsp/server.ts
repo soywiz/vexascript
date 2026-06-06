@@ -16,7 +16,7 @@ import { createDocumentDiagnosticReport } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
-import { collectImportedTypeDeclarations } from "./importedDeclarations";
+import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
 import { buildAutoImportSuggestions } from "./importFixes";
 import { collectCodeActions } from "./codeActionsAggregate";
 import {
@@ -59,13 +59,17 @@ const connection = createConnection(ProposedFeatures.all, process.stdin, process
 const documents = new TextDocuments(LspTextDocument);
 const analysisSessions = new AnalysisSessionCache((document, baseSession) => {
   if (!baseSession.ast) {
-    return [];
+    return { externalDeclarations: [], importedSymbolTypes: new Map() };
   }
-  return collectImportedTypeDeclarations(baseSession.ast, {
+  const context = {
     uri: document.uri,
     sourceRoots,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments
-  });
+  };
+  return {
+    externalDeclarations: collectImportedTypeDeclarations(baseSession.ast, context),
+    importedSymbolTypes: collectImportedSymbolTypes(baseSession.ast, context)
+  };
 });
 let sourceRoots: string[] = [];
 let projectIndex: ProjectIndex = getProjectIndex([]);

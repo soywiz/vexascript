@@ -1,5 +1,6 @@
 import type { Analysis, AnalysisIssue } from "compiler/analysis/Analysis";
 import type { Program, Statement } from "compiler/ast/ast";
+import type { AnalysisType } from "compiler/analysis/types";
 import type { ParseIssue } from "compiler/parser/parser";
 import type { TokenizeError } from "compiler/parser/tokenizer";
 import { compileSource } from "compiler/pipeline/compile";
@@ -16,9 +17,10 @@ export interface AnalysisSession {
 
 export function createAnalysisSession(
   source: string,
-  externalDeclarations: Statement[] = []
+  externalDeclarations: Statement[] = [],
+  importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map()
 ): AnalysisSession {
-  const artifacts = compileSource(source, {}, { externalDeclarations });
+  const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes });
   return {
     ast: artifacts.ast,
     parserErrors: artifacts.parserIssues,
@@ -39,10 +41,15 @@ export function buildAnalysisForSource(source: string): Analysis | null {
  * single-file analysis is built (without externals) so the resolver can inspect
  * the document's import statements.
  */
+export interface ResolvedExternals {
+  externalDeclarations: Statement[];
+  importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
+}
+
 export type ExternalDeclarationsResolver = (
   document: TextDocument,
   session: AnalysisSession
-) => Statement[];
+) => ResolvedExternals;
 
 export class AnalysisSessionCache {
   private readonly cache = new Map<string, { version: number; session: AnalysisSession }>();
@@ -56,9 +63,11 @@ export class AnalysisSessionCache {
     }
 
     const baseSession = createAnalysisSession(document.getText());
-    const externalDeclarations = this.resolveExternalDeclarations?.(document, baseSession) ?? [];
-    const session = externalDeclarations.length > 0
-      ? createAnalysisSession(document.getText(), externalDeclarations)
+    const resolved = this.resolveExternalDeclarations?.(document, baseSession);
+    const externalDeclarations = resolved?.externalDeclarations ?? [];
+    const importedSymbolTypes = resolved?.importedSymbolTypes ?? new Map();
+    const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0
+      ? createAnalysisSession(document.getText(), externalDeclarations, importedSymbolTypes)
       : baseSession;
     this.cache.set(document.uri, { version: document.version, session });
     return session;
