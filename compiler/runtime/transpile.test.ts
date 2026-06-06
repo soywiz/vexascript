@@ -412,6 +412,48 @@ describe("transpile", () => {
     );
   });
 
+  it("rewrites cross-file extension operator imports to emitted runtime names", () => {
+    const declarationSource = [
+      "export class Point(val x: number, val y: number)",
+      "export fun Point.operator+(other: Point): Point => Point(x + other.x, y + other.y)"
+    ].join("\n");
+    const externalDeclarations = compileSource(declarationSource).ast!.body;
+
+    const source = [
+      'import { Point, operator+ } from "./other"',
+      "const sum = Point(1, 2) + Point(3, 4)"
+    ].join("\n");
+
+    const result = transpile(source, { target: "conservative", externalDeclarations });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('import { Point, Point$$operator$plus$$Point } from "./other";');
+    expect(result.code).toContain(
+      "const sum = Point$$operator$plus$$Point(new Point(1, 2), new Point(3, 4));"
+    );
+  });
+
+  it("rewrites cross-file extension method imports to emitted runtime names", () => {
+    const declarationSource = [
+      "export class Point(val x: number, val y: number)",
+      "export fun Point.distanceTo(other: Point): number => x - other.x + (y - other.y)"
+    ].join("\n");
+    const externalDeclarations = compileSource(declarationSource).ast!.body;
+
+    const source = [
+      'import { Point, distanceTo } from "./other"',
+      "const distance = Point(1, 2).distanceTo(Point(3, 4))"
+    ].join("\n");
+
+    const result = transpile(source, { target: "conservative", externalDeclarations });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('import { Point, Point$$distanceTo$$Point } from "./other";');
+    expect(result.code).toContain(
+      "const distance = Point$$distanceTo$$Point(new Point(1, 2), new Point(3, 4));"
+    );
+  });
+
   it("qualifies unqualified class and extension members with their receiver", () => {
     const source = `class Counter(val value: int) {
   increment(amount: int): int { return value + amount }

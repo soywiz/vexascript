@@ -106,6 +106,11 @@ interface RuntimeExtensionMethodInfo extends RuntimeOverloadInfo {
   name: string;
 }
 
+interface RuntimeImportedExtensionInfo {
+  importedName: string;
+  runtimeName: string;
+}
+
 interface JavaScriptImplementationInfo {
   template: string;
   parameters: FunctionParameter[];
@@ -546,6 +551,36 @@ function collectExtensionMethods(program: Program): Map<string, RuntimeExtension
 
 function extensionPropertyRuntimeName(receiverType: string, propertyName: string): string {
   return `${sanitizeManglePart(receiverType)}$$${sanitizeManglePart(propertyName)}`;
+}
+
+function collectImportedExtensionRuntimeNames(): RuntimeImportedExtensionInfo[] {
+  const result: RuntimeImportedExtensionInfo[] = [];
+  for (const operators of activeOperators.values()) {
+    for (const operator of operators) {
+      if (operator.extension) {
+        result.push({ importedName: `operator${operator.operator}`, runtimeName: operator.emittedName });
+      }
+    }
+  }
+  for (const methods of activeExtensionMethods.values()) {
+    for (const method of methods) {
+      result.push({ importedName: method.name, runtimeName: method.emittedName });
+    }
+  }
+  return result;
+}
+
+function importedExtensionRuntimeNames(importedName: string): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const extension of collectImportedExtensionRuntimeNames()) {
+    if (extension.importedName !== importedName || seen.has(extension.runtimeName)) {
+      continue;
+    }
+    seen.add(extension.runtimeName);
+    names.push(extension.runtimeName);
+  }
+  return names;
 }
 
 function collectExtensionProperties(
@@ -1181,30 +1216,35 @@ export function emitStatement(statement: Statement): string {
       if (importStatement.defaultImport) {
         clauses.push(importStatement.defaultImport.name);
       }
-      // Operator overloads (e.g. `import { operator+ }`) have no matching named
-      // export: the operator is emitted in its source module as a standalone
-      // receiver-mangled function and call sites reference that mangled name
-      // directly (resolved across files via the bundled module graph). Drop the
-      // operator binding from the named imports while keeping the module loaded.
-      const valueSpecifiers = importStatement.specifiers.filter(
-        (specifier) => !isOperatorImportName(specifier.imported.name)
-      );
-      const hadOperatorImport = valueSpecifiers.length !== importStatement.specifiers.length;
+      const namedImports: string[] = [];
+      for (const specifier of importStatement.specifiers) {
+        const extensionRuntimeNames = importedExtensionRuntimeNames(specifier.imported.name);
+        if (extensionRuntimeNames.length > 0) {
+          namedImports.push(...extensionRuntimeNames);
+          continue;
+        }
+
+        const localName = specifier.local?.name ?? specifier.imported.name;
+        const receiverType = activeExtensionProperties.get(localName);
+        if (receiverType) {
+          const importedName = extensionPropertyRuntimeName(receiverType, specifier.imported.name);
+          namedImports.push(specifier.local ? `${importedName} as ${specifier.local.name}` : importedName);
+          continue;
+        }
+
+        if (!isOperatorImportName(specifier.imported.name)) {
+          namedImports.push(specifier.local ? `${specifier.imported.name} as ${specifier.local.name}` : specifier.imported.name);
+        }
+      }
+      const hadOperatorImport = importStatement.specifiers.some((specifier) => isOperatorImportName(specifier.imported.name));
       if (importStatement.namespaceImport) {
         clauses.push(`* as ${importStatement.namespaceImport.name}`);
-      } else if (valueSpecifiers.length > 0) {
-        const names = valueSpecifiers
-          .map((specifier) => {
-            const localName = specifier.local?.name ?? specifier.imported.name;
-            const receiverType = activeExtensionProperties.get(localName);
-            const importedName = receiverType ? extensionPropertyRuntimeName(receiverType, specifier.imported.name) : specifier.imported.name;
-            return specifier.local ? `${importedName} as ${specifier.local.name}` : importedName;
-          })
-          .join(", ");
-        clauses.push(`{ ${names} }`);
+      } else if (namedImports.length > 0) {
+        clauses.push(`{ ${namedImports.join(", ")} }`);
       }
       if (clauses.length === 0) {
-        // Operator-only import (or otherwise empty): keep the side-effecting load.
+        // Operator-only import without cross-file declaration context: keep the
+        // side-effecting load so bundled/local-module emission keeps working.
         return hadOperatorImport ? `import ${source};` : "";
       }
       return `import ${clauses.join(", ")} from ${source};`;
