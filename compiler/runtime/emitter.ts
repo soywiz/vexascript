@@ -33,6 +33,7 @@ import type {
   MemberExpression,
   NewExpression,
   NamespaceStatement,
+  NonNullExpression,
   ObjectLiteral,
   ObjectProperty,
   ObjectSpreadProperty,
@@ -223,6 +224,8 @@ function expressionPrecedence(expression: Expr): number {
       return PREC_ASSIGNMENT;
     case "AsExpression":
       return PREC_RELATIONAL;
+    case "NonNullExpression":
+      return PREC_UPDATE;
     case "ConditionalExpression":
       return PREC_CONDITIONAL;
     case "BinaryExpression":
@@ -750,6 +753,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "AsExpression":
         return emitExpression((expression as AsExpression).expression, parentPrecedence, side);
+      case "NonNullExpression":
+        return emitExpression((expression as NonNullExpression).expression, parentPrecedence, side);
       case "ConditionalExpression": {
         const conditional = expression as ConditionalExpression;
         const test = emitExpression(conditional.test, PREC_CONDITIONAL, "left");
@@ -772,7 +777,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
             ? `${objectText}?.[${emitExpression(member.property)}]`
             : `${objectText}[${emitExpression(member.property)}]`;
         }
-        const access = member.optional ? "?." : member.nonNullAsserted ? "!." : ".";
+        const access = member.optional ? "?." : ".";
         return `${objectText}${access}${emitExpression(member.property, PREC_MEMBER, "right")}`;
       }
       case "CallExpression": {

@@ -29,6 +29,7 @@ import type {
   BlockStatement,
   ExprStatement,
   NewExpression,
+  NonNullExpression,
   Node,
   Program,
   Statement
@@ -200,6 +201,9 @@ function findBestInvocationContext(
         return;
       case "AsExpression":
         visitExpression((expression as AsExpression).expression);
+        return;
+      case "NonNullExpression":
+        visitExpression((expression as NonNullExpression).expression);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

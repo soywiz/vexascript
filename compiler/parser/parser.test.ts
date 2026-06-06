@@ -229,6 +229,23 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for TypeScript non-null assertions", () => {
+        expect(parseExpression(tokenizeReader("value!"))).toEqual({
+            kind: "NonNullExpression",
+            expression: { kind: "Identifier", name: "value" }
+        });
+        expect(parseExpression(tokenizeReader("maybe!.name!"))).toEqual({
+            kind: "NonNullExpression",
+            expression: {
+                kind: "MemberExpression",
+                object: { kind: "Identifier", name: "maybe" },
+                property: { kind: "Identifier", name: "name" },
+                computed: false,
+                nonNullAsserted: true
+            }
+        });
+    });
+
     it("builds an AST for TypeScript angle-bracket assertions", () => {
         expect(parseExpression(tokenizeReader("<string>value"))).toEqual({
             kind: "AsExpression",

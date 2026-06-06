@@ -51,6 +51,7 @@ import {
     MemberExpression,
     NewExpression,
     NamespaceStatement,
+    NonNullExpression,
     NullLiteral,
     ObjectBindingPattern,
     ArrayBindingPattern,
@@ -2147,6 +2148,15 @@ export class Parser {
                     nonNullAsserted: token.value === "!." ? true : undefined
                 } as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, property);
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "!" && !this.hasLineBreakBetween(expr.lastToken, token)) {
+                this.tokens.skip();
+                expr = this.attachNodeBounds({
+                    kind: "NonNullExpression",
+                    expression: expr
+                } as NonNullExpression, expr.firstToken, token);
                 continue;
             }
 

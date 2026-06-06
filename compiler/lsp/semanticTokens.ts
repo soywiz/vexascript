@@ -29,6 +29,7 @@ import type {
   MemberExpression,
   NamespaceStatement,
   NewExpression,
+  NonNullExpression,
   ObjectLiteral,
   ObjectProperty,
   Program,
@@ -577,6 +578,9 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         markTypeAnnotation(kinds, assertion.typeAnnotation);
         return;
       }
+      case "NonNullExpression":
+        visitExpression((expression as NonNullExpression).expression);
+        return;
       case "BinaryExpression": {
         const binary = expression as BinaryExpression;
         visitExpression(binary.left);
