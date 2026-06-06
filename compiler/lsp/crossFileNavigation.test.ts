@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import { createAnalysisSession } from "./analysisSession";
+import { collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveDefinitionAcrossFiles,
   resolveMemberHoverAcrossFiles,
@@ -104,6 +105,47 @@ describe("cross-file navigation", () => {
       range: {
         start: { line: 1, character: 2 },
         end: { line: 1, character: 11 }
+      }
+    });
+  });
+
+  it("resolves go-to-definition from a cross-file operator usage to the imported declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const other = join(root, "other.my");
+    const main = join(root, "main.my");
+
+    const otherSource =
+      "class Point(val x: number, val y: number)\n" +
+      "fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)\n";
+    const mainSource =
+      'import { Point, operator+ } from "./other"\n' +
+      "const sum = Point(1, 2) + Point(3, 4)\n";
+
+    await writeFile(other, otherSource, "utf8");
+    await writeFile(main, mainSource, "utf8");
+
+    const uri = pathToFileURL(main).toString();
+    const baseSession = createAnalysisSession(mainSource);
+    const externalDeclarations = collectImportedTypeDeclarations(baseSession.ast!, {
+      uri,
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(mainSource, externalDeclarations);
+
+    // Cursor on the `+` operator of `Point(1, 2) + Point(3, 4)`.
+    const location = resolveDefinitionAcrossFiles({
+      uri,
+      line: 1,
+      character: mainSource.split("\n")[1]!.indexOf(") + ") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(other).toString(),
+      range: {
+        start: { line: 1, character: 10 },
+        end: { line: 1, character: 19 }
       }
     });
   });
