@@ -20,6 +20,7 @@ import type {
   FunctionStatement,
   IfStatement,
   Identifier,
+  ImportStatement,
   LabeledStatement,
   MemberExpression,
   NewExpression,
@@ -247,11 +248,18 @@ function inferExtensionReturnTypeName(
         return typeName;
       }
     }
-    if (variable.initializer?.kind === "CallExpression" && variable.initializer.callee.kind === "Identifier") {
-      return variable.initializer.callee.name;
+    const initializer = variable.initializer;
+    if (initializer?.kind === "CallExpression") {
+      const call = initializer as CallExpression;
+      if (call.callee.kind === "Identifier") {
+        return (call.callee as Identifier).name;
+      }
     }
-    if (variable.initializer?.kind === "NewExpression" && variable.initializer.callee.kind === "Identifier") {
-      return variable.initializer.callee.name;
+    if (initializer?.kind === "NewExpression") {
+      const newExpression = initializer as NewExpression;
+      if (newExpression.callee.kind === "Identifier") {
+        return (newExpression.callee as Identifier).name;
+      }
     }
     return null;
   }
@@ -265,7 +273,7 @@ function collectAvailableExtensionMembers(
   ast: Program,
   objectTypeName: string,
   options: CompletionRequestOptions,
-  analysis?: Analysis | null
+  analysis: Analysis | null = null
 ): ExtensionMemberCompletionCandidate[] {
   const currentFilePath = options.uri?.startsWith("file://")
     ? fileURLToPath(options.uri)
@@ -326,7 +334,8 @@ function collectAvailableExtensionMembers(
     if (statement.kind !== "ImportStatement") {
       continue;
     }
-    for (const specifier of statement.specifiers) {
+    const importStatement = statement as ImportStatement;
+    for (const specifier of importStatement.specifiers) {
       importedNames.add((specifier.local ?? specifier.imported).name);
     }
   }
@@ -339,7 +348,8 @@ function collectAvailableExtensionMembers(
     if (statement.kind !== "ImportStatement") {
       continue;
     }
-    const targetFilePath = resolveImportTargetFilePath(currentFilePath, statement.from.value);
+    const importStatement = statement as ImportStatement;
+    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
     const importedSession = options.getSessionForFilePath(targetFilePath);
     const importedAst = importedSession?.ast;
     const importedAnalysis = importedSession?.analysis ?? null;

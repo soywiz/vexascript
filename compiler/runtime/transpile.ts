@@ -5,7 +5,7 @@ import {
 } from "compiler/pipeline/compile";
 import { basename } from "node:path";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
-import { emitProgramStatements } from "./emitter";
+import { createEmitProgramRuntimeContext, emitProgramStatements } from "./emitter";
 import { lowerProgram } from "./lowering";
 import type { Program, Statement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
@@ -137,59 +137,63 @@ function sourceLinesForEmittedStatement(statement: Statement, emittedStatement: 
   return lines;
 }
 
-function emitProgramWithLineMap(
-  program: Program,
-  expressionTypes: ReadonlyMap<Node, AnalysisType>,
-  implicitReceiverIdentifiers: ReadonlySet<Node>,
-  autoAwaitExpressions: ReadonlySet<Node>,
-  contextProgram: Program = program
-): { emitted: string; sourceLinesByGeneratedLine: number[] } {
-  const sourceLinesByGeneratedLine: number[] = [];
-  const emittedStatements = emitProgramStatements(program, expressionTypes, contextProgram, implicitReceiverIdentifiers, autoAwaitExpressions);
-
-  let emittedIndex = 0;
-  for (const statement of program.body) {
-    const candidate = emittedStatements[emittedIndex];
-    if (!candidate) {
-      break;
-    }
-    const emittedRaw = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, contextProgram, implicitReceiverIdentifiers, autoAwaitExpressions);
-    const emittedStatement = emittedRaw.length > 0 ? emittedRaw[0]! : "";
-    if (emittedStatement.trim().length <= 0) {
-      continue;
-    }
-    sourceLinesByGeneratedLine.push(...sourceLinesForEmittedStatement(statement, emittedStatement));
-    emittedIndex += 1;
-  }
-
-  const emitted = emittedStatements.join("\n");
-  return { emitted, sourceLinesByGeneratedLine };
+interface EmittedStatementSegment {
+  statement: Statement;
+  emitted: string;
 }
 
-function emitProgramWithSourceLineOffsets(
+function emitProgramStatementSegments(
   program: Program,
   expressionTypes: ReadonlyMap<Node, AnalysisType>,
   implicitReceiverIdentifiers: ReadonlySet<Node>,
   autoAwaitExpressions: ReadonlySet<Node>,
   contextProgram: Program = program
-): string {
+): EmittedStatementSegment[] {
+  const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes);
+  const segments: EmittedStatementSegment[] = [];
+
+  for (const statement of program.body) {
+    const emittedSingle = emitProgramStatements(
+      { ...program, body: [statement] },
+      expressionTypes,
+      contextProgram,
+      implicitReceiverIdentifiers,
+      autoAwaitExpressions,
+      runtimeContext
+    );
+    const emittedStatement = emittedSingle.length > 0 ? emittedSingle[0]! : "";
+    if (emittedStatement.trim().length > 0) {
+      segments.push({ statement, emitted: emittedStatement });
+    }
+  }
+
+  return segments;
+}
+
+function emitSegmentsWithLineMap(
+  segments: EmittedStatementSegment[]
+): { emitted: string; sourceLinesByGeneratedLine: number[] } {
+  const sourceLinesByGeneratedLine = segments.flatMap(({ statement, emitted }) =>
+    sourceLinesForEmittedStatement(statement, emitted)
+  );
+  return {
+    emitted: segments.map(({ emitted }) => emitted).join("\n"),
+    sourceLinesByGeneratedLine
+  };
+}
+
+function emitSegmentsWithSourceLineOffsets(segments: EmittedStatementSegment[]): string {
   const lines: string[] = [];
   let generatedLine = 0;
 
-  for (const statement of program.body) {
-    const emittedSingle = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, contextProgram, implicitReceiverIdentifiers, autoAwaitExpressions);
-    if (emittedSingle.length <= 0) {
-      continue;
-    }
-
+  for (const { statement, emitted } of segments) {
     const sourceStartLine = statement.firstToken?.range.start.line ?? generatedLine;
     while (generatedLine < sourceStartLine) {
       lines.push("");
       generatedLine += 1;
     }
 
-    const emittedStatement = emittedSingle[0] ?? "";
-    const emittedLines = emittedStatement.split("\n");
+    const emittedLines = emitted.split("\n");
     lines.push(...emittedLines);
     generatedLine += emittedLines.length;
   }
@@ -267,15 +271,16 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const expressionTypes = artifacts.analysis.getExpressionTypes();
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
   const autoAwaitExpressions = artifacts.analysis.getAutoAwaitExpressions();
-  const { emitted, sourceLinesByGeneratedLine } = emitProgramWithLineMap(
+  const emittedSegments = emitProgramStatementSegments(
     programForEmission,
     expressionTypes,
     implicitReceiverIdentifiers,
     autoAwaitExpressions,
     contextProgram
   );
+  const { emitted, sourceLinesByGeneratedLine } = emitSegmentsWithLineMap(emittedSegments);
   const emittedWithOffsets = options.preserveSourceLineOffsets
-    ? emitProgramWithSourceLineOffsets(programForEmission, expressionTypes, implicitReceiverIdentifiers, autoAwaitExpressions, contextProgram)
+    ? emitSegmentsWithSourceLineOffsets(emittedSegments)
     : emitted;
   const code = options.preserveSourceLineOffsets
     ? ensureTrailingSemicolonPreservingLines(emittedWithOffsets)
