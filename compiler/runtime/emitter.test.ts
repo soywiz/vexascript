@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { emitProgram } from "./emitter";
@@ -102,7 +103,8 @@ describe("emitProgram", () => {
     const program = parseFile(tokenizeReader(`async function load(this: Loader, id: string) { return await fetch(id) }
 function* ids() { yield 1; yield* more }
 class Store { async save(this: Store) { return await persist(this) }; *values() { yield 1 } }
-let worker = async function* work(this: Loader) { yield await next() }`));
+let worker = async function* work(this: Loader) { yield await next() }
+`));
     const emitted = emitProgram(program);
 
     expect(emitted).toContain("async function load(id) {");
@@ -121,7 +123,8 @@ sync fun fetchValue(): int { return 2 }
 class Store { sync save(): int { return 3 } }
 let arrow = sync () => { return 4 }
 let expr = sync function(): int { return 5 }
-let promise = go fetchValue()`));
+let promise = go fetchValue()
+`));
     const emitted = emitProgram(program);
 
     expect(emitted).toContain("async function load(id) {");
@@ -178,10 +181,12 @@ let promise = go fetchValue()`));
   });
 
   it("erases declarations that use keyof, typeof, and indexed access types", () => {
-    const source =
-      "type PersonName = Person[\"name\"]\n" +
-      "let key: keyof Person = \"name\"\n" +
-      "let name: typeof key = key\n";
+    const source = dedent`
+      type PersonName = Person["name"]
+      let key: keyof Person = "name"
+      let name: typeof key = key
+      
+`;
 
     expect(emitProgram(parseFile(tokenizeReader(source)))).toBe(
       "let key = \"name\";\nlet name = key;"
@@ -297,7 +302,8 @@ let promise = go fetchValue()`));
     const emitted = emitProgram(parseFile(tokenizeReader(`class Demo {
   private static count: int = 0
   public readonly name: string
-}`)));
+}
+`)));
 
     expect(emitted).toContain("static count = 0;");
     expect(emitted).toContain("name;");
@@ -316,13 +322,14 @@ let promise = go fetchValue()`));
 
   it("emits TypeScript-style lambda and function expressions", () => {
     const program = parseFile(
-      tokenizeReader(
-        "let a = [1,2,3,4].map(x => 10)\n" +
-        "let b = [1,2,3,4].map((it) => 10)\n" +
-        "let c = [1,2,3,4].map(function(it: number) { return 10 })\n" +
-        "let d = [1,2,3,4].map { it }\n" +
-        "let e = [1,2,3,4].map() { it }\n" +
-        "let f = [1,2,3,4].map { a: number, b: number, c: number -> a + b + c }"
+      tokenizeReader(dedent`
+        let a = [1,2,3,4].map(x => 10)
+        let b = [1,2,3,4].map((it) => 10)
+        let c = [1,2,3,4].map(function(it: number) { return 10 })
+        let d = [1,2,3,4].map { it }
+        let e = [1,2,3,4].map() { it }
+        let f = [1,2,3,4].map { a: number, b: number, c: number -> a + b + c }
+      `.trimEnd()
       )
     );
     const emitted = emitProgram(program);
@@ -336,12 +343,12 @@ let promise = go fetchValue()`));
   });
 
   it("emits function and method shorthand bodies as regular JavaScript returns", () => {
-    const program = parseFile(tokenizeReader(
-      "fun double(value: int): int => value * 2\n" +
-      "class Point {\n" +
-      "  operator*(other: Point): Point => Point(x * other.x, y * other.y)\n" +
-      "}"
-    ));
+    const program = parseFile(tokenizeReader(dedent`
+      fun double(value: int): int => value * 2
+      class Point {
+        operator*(other: Point): Point => Point(x * other.x, y * other.y)
+      }
+    `.trimEnd()));
     const emitted = emitProgram(program);
 
     expect(emitted).toContain("function double(value) {");
@@ -350,11 +357,11 @@ let promise = go fetchValue()`));
     expect(emitted).toContain("return new Point(x * other.x, y * other.y);");
   });
   it("emits optional call, optional element access, spread expressions, and rest parameters", () => {
-    const program = parseFile(tokenizeReader(
-      "fun collect(...values: int[]) { return values }\n" +
-      "let result = fn?.(...values)\n" +
-      "let item = result?.[0]"
-    ));
+    const program = parseFile(tokenizeReader(dedent`
+      fun collect(...values: int[]) { return values }
+      let result = fn?.(...values)
+      let item = result?.[0]
+    `.trimEnd()));
     const emitted = emitProgram(program);
 
     expect(emitted).toContain("function collect(...values) {");
@@ -365,10 +372,10 @@ let promise = go fetchValue()`));
   it("emits object and array destructuring declarations", () => {
     const program = parseFile(tokenizeReader("let { id, name: displayName, nested: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
 
-    expect(emitProgram(program)).toBe(
-      "let { id, name: displayName, nested: { value = 1 }, ...rest } = source;\n" +
-      "const [first, , third = 3, ...tail] = values;"
-    );
+    expect(emitProgram(program)).toBe(dedent`
+      let { id, name: displayName, nested: { value = 1 }, ...rest } = source;
+      const [first, , third = 3, ...tail] = values;
+    `.trimEnd());
     expect(emitProgram(parseFile(tokenizeReader("let [first, ,] = values")))).toBe("let [first, ,] = values;");
   });
 

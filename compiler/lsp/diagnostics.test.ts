@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { createAnalysisSession } from "./analysisSession";
 import { collectDiagnostics, collectDiagnosticsFromSession, createDocumentDiagnosticReport } from "./diagnostics";
@@ -12,9 +13,10 @@ function diagnosticsFor(source: string) {
 
 describe("lsp diagnostics", () => {
   it("keeps semantic analysis enabled after recoverable parser errors", () => {
-    const source =
-      "let = 1\n" +
-      "let ok = missing\n";
+    const source = dedent`
+      let = 1
+      let ok = missing
+      `;
 
     const diagnostics = diagnosticsFor(source);
     const parserMessages = diagnostics
@@ -58,13 +60,14 @@ describe("lsp diagnostics", () => {
   });
 
   it("assigns a semantic diagnostic code to duplicate switch defaults", () => {
-    const diagnostics = diagnosticsFor(
-      "switch (value) {\n" +
-      "  default:\n" +
-      "    break\n" +
-      "  default:\n" +
-      "    break\n" +
-      "}\n"
+    const diagnostics = diagnosticsFor(dedent`
+      switch (value) {
+        default:
+          break
+        default:
+          break
+      }
+      `
     );
 
     expect(
@@ -128,10 +131,11 @@ function empty(): int {
   });
 
   it("anchors member-call arity diagnostics on the member name", () => {
-    const diagnostics = diagnosticsFor(
-      "fun demo() {\n" +
-      "  Math.floor()\n" +
-      "}\n"
+    const diagnostics = diagnosticsFor(dedent`
+      fun demo() {
+        Math.floor()
+      }
+      `
     );
 
     const missingArgument = diagnostics.find(
@@ -142,10 +146,11 @@ function empty(): int {
   });
 
   it("assigns a semantic diagnostic code when yield appears outside generator functions", () => {
-    const diagnostics = diagnosticsFor(
-      "function bad() {\n" +
-      "  yield 1\n" +
-      "}\n"
+    const diagnostics = diagnosticsFor(dedent`
+      function bad() {
+        yield 1
+      }
+      `
     );
 
     expect(
@@ -154,14 +159,15 @@ function empty(): int {
   });
 
   it("anchors undefined operator diagnostics on the operator token", () => {
-    const source =
-      "class Point(val x: number, val y: number) {\n" +
-      "  operator+(other: Point): Point {\n" +
-      "    return new Point(this.x + other.x, this.y + other.y)\n" +
-      "  }\n" +
-      "}\n" +
-      "let b: unknown = undefined\n" +
-      "let result: Point = b / Point(1, 3)\n";
+    const source = dedent`
+      class Point(val x: number, val y: number) {
+        operator+(other: Point): Point {
+          return new Point(this.x + other.x, this.y + other.y)
+        }
+      }
+      let b: unknown = undefined
+      let result: Point = b / Point(1, 3)
+      `;
 
     const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
     const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
@@ -190,11 +196,12 @@ function empty(): int {
   });
 
   it("does not report missing return diagnostics for ambient class methods", () => {
-    const diagnostics = diagnosticsFor(
-      "declare class MathConstructor {\n" +
-      "  abs(x: number): number\n" +
-      "  ceil(x: number): number\n" +
-      "}\n"
+    const diagnostics = diagnosticsFor(dedent`
+      declare class MathConstructor {
+        abs(x: number): number
+        ceil(x: number): number
+      }
+      `
     );
 
     expect(
@@ -203,9 +210,10 @@ function empty(): int {
   });
 
   it("assigns readonly-reassignment diagnostic code for const/val writes", () => {
-    const source =
-      "const point = 1\n" +
-      "point = 2\n";
+    const source = dedent`
+      const point = 1
+      point = 2
+      `;
 
     const diagnostics = diagnosticsFor(source);
     expect(
@@ -214,25 +222,27 @@ function empty(): int {
   });
 
   it("does not report parser or semantic diagnostics for keyof, typeof, and indexed access types", () => {
-    const source =
-      "interface Person { name: string; age: int }\n" +
-      "let person: Person = { name: \"Ada\", age: 36 }\n" +
-      "let key: keyof Person = \"name\"\n" +
-      "let name: typeof person.name = \"Ada\"\n" +
-      "let age: Person[\"age\"] = 36\n";
+    const source = dedent`
+      interface Person { name: string; age: int }
+      let person: Person = { name: "Ada", age: 36 }
+      let key: keyof Person = "name"
+      let name: typeof person.name = "Ada"
+      let age: Person["age"] = 36
+      `;
 
     expect(diagnosticsFor(source)).toEqual([]);
   });
 
   it("assigns typed implements diagnostic codes and metadata", () => {
-    const source =
-      "interface Reader {\n" +
-      "  say(a: number)\n" +
-      "}\n" +
-      "class Map implements Reader {\n" +
-      "  say() {\n" +
-      "  }\n" +
-      "}\n";
+    const source = dedent`
+      interface Reader {
+        say(a: number)
+      }
+      class Map implements Reader {
+        say() {
+        }
+      }
+      `;
 
     const diagnostics = diagnosticsFor(source);
     const incompatible = diagnostics.find(

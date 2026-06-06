@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
 
@@ -36,12 +37,13 @@ function applyEdit(
 
 describe("function shorthand quick fixes", () => {
   it("converts a single-return class method to '=>' shorthand", () => {
-    const source =
-      "class Point {\n" +
-      "  operator*(other: Point): Point {\n" +
-      "    return Point(x * other.x, y * other.y)\n" +
-      "  }\n" +
-      "}\n";
+    const source = dedent`
+      class Point {
+        operator*(other: Point): Point {
+          return Point(x * other.x, y * other.y)
+        }
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const actions = createFunctionShorthandCodeActions({
@@ -55,18 +57,20 @@ describe("function shorthand quick fixes", () => {
     expect(actions[0]?.title).toBe("Convert single-return body to '=>' shorthand");
     const edit = actions[0]?.edit?.changes?.[URI]?.[0];
     expect(edit?.newText).toBe(" => Point(x * other.x, y * other.y)");
-    expect(edit ? applyEdit(source, edit) : source).toBe(
-      "class Point {\n" +
-        "  operator*(other: Point) => Point(x * other.x, y * other.y)\n" +
-        "}\n"
+    expect(edit ? applyEdit(source, edit) : source).toBe(dedent`
+      class Point {
+        operator*(other: Point) => Point(x * other.x, y * other.y)
+      }
+      `
     );
   });
 
   it("converts a single-return function declaration to '=>' shorthand", () => {
-    const source =
-      "fun demo(value: int): int {\n" +
-      "  return value + 1\n" +
-      "}\n";
+    const source = dedent`
+      fun demo(value: int): int {
+        return value + 1
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const actions = createFunctionShorthandCodeActions({
@@ -79,14 +83,15 @@ describe("function shorthand quick fixes", () => {
     expect(actions).toHaveLength(1);
     const edit = actions[0]?.edit?.changes?.[URI]?.[0];
     expect(edit?.newText).toBe(" => value + 1");
-    expect(edit ? applyEdit(source, edit) : source).toBe("fun demo(value: int) => value + 1\n");
+    expect(edit ? applyEdit(source, edit) : source).toBe("fun demo(value: int) => value + 1");
   });
 
   it("converts '=>' shorthand back to a full body with return", () => {
-    const source =
-      "class Point {\n" +
-      "  operator*(other: Point): Point => Point(x * other.x, y * other.y)\n" +
-      "}\n";
+    const source = dedent`
+      class Point {
+        operator*(other: Point): Point => Point(x * other.x, y * other.y)
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const actions = createFunctionShorthandCodeActions({
@@ -99,22 +104,24 @@ describe("function shorthand quick fixes", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0]?.title).toBe("Convert '=>' shorthand to full body");
     const edit = actions[0]?.edit?.changes?.[URI]?.[0];
-    expect(edit ? applyEdit(source, edit) : source).toBe(
-      "class Point {\n" +
-        "  operator*(other: Point): Point {\n" +
-        "    return Point(x * other.x, y * other.y)\n" +
-        "  }\n" +
-        "}\n"
+    expect(edit ? applyEdit(source, edit) : source).toBe(dedent`
+      class Point {
+        operator*(other: Point): Point {
+          return Point(x * other.x, y * other.y)
+        }
+      }
+      `
     );
   });
 
   it("converts a full getter accessor to getter shorthand", () => {
-    const source =
-      "class Rect {\n" +
-      "  get area(): number {\n" +
-      "    return this.width * this.height\n" +
-      "  }\n" +
-      "}\n";
+    const source = dedent`
+      class Rect {
+        get area(): number {
+          return this.width * this.height
+        }
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const actions = createFunctionShorthandCodeActions({
@@ -127,18 +134,20 @@ describe("function shorthand quick fixes", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0]?.title).toBe("Convert full accessor to getter shorthand");
     const edit = actions[0]?.edit?.changes?.[URI]?.[0];
-    expect(edit ? applyEdit(source, edit) : source).toBe(
-      "class Rect {\n" +
-        "  area: number => this.width * this.height\n" +
-        "}\n"
+    expect(edit ? applyEdit(source, edit) : source).toBe(dedent`
+      class Rect {
+        area: number => this.width * this.height
+      }
+      `
     );
   });
 
   it("converts getter shorthand back to a full accessor", () => {
-    const source =
-      "class Rect {\n" +
-      "  area: number => this.width * this.height\n" +
-      "}\n";
+    const source = dedent`
+      class Rect {
+        area: number => this.width * this.height
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const actions = createFunctionShorthandCodeActions({
@@ -151,21 +160,23 @@ describe("function shorthand quick fixes", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0]?.title).toBe("Convert getter shorthand to full accessor");
     const edit = actions[0]?.edit?.changes?.[URI]?.[0];
-    expect(edit ? applyEdit(source, edit) : source).toBe(
-      "class Rect {\n" +
-        "  get area(): number {\n" +
-        "    return this.width * this.height\n" +
-        "  }\n" +
-        "}\n"
+    expect(edit ? applyEdit(source, edit) : source).toBe(dedent`
+      class Rect {
+        get area(): number {
+          return this.width * this.height
+        }
+      }
+      `
     );
   });
 
   it("does not offer shorthand when the body has more than one statement", () => {
-    const source =
-      "fun demo() {\n" +
-      "  let value = 1\n" +
-      "  return value\n" +
-      "}\n";
+    const source = dedent`
+      fun demo() {
+        let value = 1
+        return value
+      }
+      `;
 
     const session = createAnalysisSession(source);
     const actions = createFunctionShorthandCodeActions({

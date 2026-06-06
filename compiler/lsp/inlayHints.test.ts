@@ -1,19 +1,22 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createInlayHints } from "./inlayHints";
 
 describe("inlay hints", () => {
   it("provides inferred type hints and parameter name hints", () => {
     const source =
-      "class Box {\n" +
-      "  fun size(a: int) {\n" +
-      "    return 1\n" +
-      "  }\n" +
-      "}\n" +
-      "fun sum(a: int, b: int) {\n" +
-      "  return a + b\n" +
-      "}\n";
+dedent`
+      class Box {
+        fun size(a: int) {
+          return 1
+        }
+      }
+      fun sum(a: int, b: int) {
+        return a + b
+      }
+      `;
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
@@ -44,10 +47,12 @@ describe("inlay hints", () => {
 
   it("provides constructor parameter name hints for new expressions", () => {
     const source =
-      "class Point(val x: int, val y: int)\n" +
-      "fun demo() {\n" +
-      "  const point = new Point(1, 2)\n" +
-      "}\n";
+dedent`
+      class Point(val x: int, val y: int)
+      fun demo() {
+        const point = new Point(1, 2)
+      }
+      `;
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();

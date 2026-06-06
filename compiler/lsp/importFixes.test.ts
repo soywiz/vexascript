@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
 import {
@@ -186,10 +187,11 @@ describe("import quick fixes", () => {
     const durationFile = join(root, "duration.my");
     const consumerFile = join(root, "consumer.my");
     await writeFile(
-      durationFile,
-      "export val number.milliseconds => this\n" +
-        "export val string.milliseconds => this\n" +
-        "export fun number.ms(): int { return this }\n",
+      durationFile, dedent`
+      export val number.milliseconds => this
+      export val string.milliseconds => this
+      export fun number.ms(): int { return this }
+      `,
       "utf8"
     );
     const source = "10.\n";

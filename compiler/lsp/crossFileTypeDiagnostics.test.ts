@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import dedent from "compiler/utils/dedent";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,19 +14,23 @@ describe("cross-file type diagnostics", () => {
     const worldFile = join(root, "world.my");
     const helloFile = join(root, "hello.my");
 
-    const worldSource =
-      "class Logger {\n" +
-      "  log(value: number, text: string): int { return 0 }\n" +
-      "}\n";
-    const helloSource =
-      "import { Logger } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const logger = new Logger()\n" +
-      "  logger.log(1, \"ok\")\n" +
-      "  logger.log(\"bad\", 10)\n" +
-      "  logger.log(1)\n" +
-      "  logger.log(1, \"ok\", 2)\n" +
-      "}\n";
+    const worldSource = dedent`
+      class Logger {
+        log(value: number, text: string): int { return 0 }
+      }
+      
+`;
+    const helloSource = dedent`
+      import { Logger } from "./world"
+      fun demo() {
+        const logger = new Logger()
+        logger.log(1, "ok")
+        logger.log("bad", 10)
+        logger.log(1)
+        logger.log(1, "ok", 2)
+      }
+      
+`;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -58,21 +63,24 @@ describe("cross-file type diagnostics", () => {
 
     await writeFile(worldFile, "class Point(val x: number, val y: number)\n", "utf8");
     await writeFile(
-      helloFile,
-      "import { Point } from \"./world\"\n" +
-        "fun demo() {\n" +
-        "  new Point()\n" +
-        "  Point()\n" +
-        "}\n",
+      helloFile, dedent`
+      import { Point } from "./world"
+      fun demo() {
+        new Point()
+        Point()
+      }
+      
+`,
       "utf8"
     );
 
-    const session = createAnalysisSession(
-      "import { Point } from \"./world\"\n" +
-        "fun demo() {\n" +
-        "  new Point()\n" +
-        "  Point()\n" +
-        "}\n"
+    const session = createAnalysisSession(dedent`
+      import { Point } from "./world"
+      fun demo() {
+        new Point()
+        Point()
+      }
+      `
     );
     const diagnostics = collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
@@ -91,12 +99,14 @@ describe("cross-file type diagnostics", () => {
     const helloFile = join(root, "hello.my");
 
     const worldSource = "class Logger {\n  log(value: number): int { return 0 }\n}\n";
-    const helloSource =
-      "import { Logger } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const logger = new Logger()\n" +
-      "  logger.log()\n" +
-      "}\n";
+    const helloSource = dedent`
+      import { Logger } from "./world"
+      fun demo() {
+        const logger = new Logger()
+        logger.log()
+      }
+      
+`;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -115,14 +125,16 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("does not duplicate same-file member-call arity diagnostics already reported by analysis", () => {
-    const source =
-      "class Logger {\n" +
-      "  log(value: number): int { return 0 }\n" +
-      "}\n" +
-      "fun demo() {\n" +
-      "  const logger = new Logger()\n" +
-      "  logger.log()\n" +
-      "}\n";
+    const source = dedent`
+      class Logger {
+        log(value: number): int { return 0 }
+      }
+      fun demo() {
+        const logger = new Logger()
+        logger.log()
+      }
+      
+`;
 
     const session = createAnalysisSession(source);
     const diagnostics = collectCrossFileTypeDiagnostics({
@@ -142,12 +154,14 @@ describe("cross-file type diagnostics", () => {
     const helloFile = join(root, "hello.my");
 
     const worldSource = "class Logger(val level: number)\n";
-    const helloSource =
-      "import { Logger } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const logger = new Logger(1)\n" +
-      "  logger.level(10)\n" +
-      "}\n";
+    const helloSource = dedent`
+      import { Logger } from "./world"
+      fun demo() {
+        const logger = new Logger(1)
+        logger.level(10)
+      }
+      
+`;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -169,14 +183,16 @@ describe("cross-file type diagnostics", () => {
     const helloFile = join(root, "hello.my");
 
     const worldSource = "class Logger {\n  log(...values: number[]): int { return 0 }\n}\n";
-    const helloSource =
-      "import { Logger } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const logger = new Logger()\n" +
-      "  logger.log()\n" +
-      "  logger.log(1, 2, 3)\n" +
-      "  logger.log(1, \"bad\")\n" +
-      "}\n";
+    const helloSource = dedent`
+      import { Logger } from "./world"
+      fun demo() {
+        const logger = new Logger()
+        logger.log()
+        logger.log(1, 2, 3)
+        logger.log(1, "bad")
+      }
+      
+`;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -201,12 +217,14 @@ describe("cross-file type diagnostics", () => {
     const helloFile = join(root, "hello.my");
 
     const worldSource = "class Point(val y: int)\n";
-    const helloSource =
-      "import { Point } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const point = new Point(1)\n" +
-      "  point.y = \"test\"\n" +
-      "}\n";
+    const helloSource = dedent`
+      import { Point } from "./world"
+      fun demo() {
+        const point = new Point(1)
+        point.y = "test"
+      }
+      
+`;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -227,18 +245,22 @@ describe("cross-file type diagnostics", () => {
     const worldFile = join(root, "world.my");
     const helloFile = join(root, "hello.my");
 
-    const worldSource =
-      "class Map<K, V> {\n" +
-      "  get(key: K): V { }\n" +
-      "}\n";
-    const helloSource =
-      "import { Map } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const map = new Map<string, int>()\n" +
-      "  const ok: int = map.get(\"id\")\n" +
-      "  const badArg: int = map.get(1)\n" +
-      "  const badReturn: string = map.get(\"id\")\n" +
-      "}\n";
+    const worldSource = dedent`
+      class Map<K, V> {
+        get(key: K): V { }
+      }
+      
+`;
+    const helloSource = dedent`
+      import { Map } from "./world"
+      fun demo() {
+        const map = new Map<string, int>()
+        const ok: int = map.get("id")
+        const badArg: int = map.get(1)
+        const badReturn: string = map.get("id")
+      }
+      
+`;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -261,19 +283,23 @@ describe("cross-file type diagnostics", () => {
     const worldFile = join(root, "world.my");
     const helloFile = join(root, "hello.my");
 
-    const worldSource =
-      "class Base<T> {\n" +
-      "  get(key: T): T { }\n" +
-      "}\n" +
-      "class Child extends Base<string> {\n" +
-      "}\n";
-    const helloSource =
-      "import { Child } from \"./world\"\n" +
-      "fun demo() {\n" +
-      "  const child = new Child()\n" +
-      "  const ok: string = child.get(\"id\")\n" +
-      "  const badArg: string = child.get(1)\n" +
-      "}\n";
+    const worldSource = dedent`
+      class Base<T> {
+        get(key: T): T { }
+      }
+      class Child extends Base<string> {
+      }
+      
+`;
+    const helloSource = dedent`
+      import { Child } from "./world"
+      fun demo() {
+        const child = new Child()
+        const ok: string = child.get("id")
+        const badArg: string = child.get(1)
+      }
+      
+`;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -297,12 +323,13 @@ describe("cross-file type diagnostics", () => {
     const helloFile = join(root, "hello.my");
 
     const worldSource = "class Logger { log(value: number): int { return 0 } }\n";
-    const helloSource =
-      'import { Logger } from "./world"\n' +
-      "fun demo() {\n" +
-      "  const logger = new Logger()\n" +
-      '  const invoke = () => logger.log("bad")\n' +
-      "}\n";
+    const helloSource = dedent`
+      import { Logger } from "./world"
+      fun demo() {
+        const logger = new Logger()
+        const invoke = () => logger.log("bad")
+      }
+    `.trimEnd() + "\n";
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
