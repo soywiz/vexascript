@@ -35,8 +35,8 @@ export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
       exports.push({
         name: entry.declaration.name,
         kind: entry.declaration.kind,
-        receiverType: entry.declaration.receiverType,
-        memberKind: entry.declaration.memberKind,
+        ...(entry.declaration.receiverType !== undefined ? { receiverType: entry.declaration.receiverType } : {}),
+        ...(entry.declaration.memberKind !== undefined ? { memberKind: entry.declaration.memberKind } : {}),
         filePath: entry.filePath
       });
     }

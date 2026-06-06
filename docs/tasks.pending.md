@@ -26,20 +26,11 @@ that need their own focused change with tests:
   `Position`/`NodeRange` types. These should share a single position/range
   utility module and a generic "find node at position" visitor (the shared
   `compiler/ast/traversal.ts` walker can back the latter).
-- The emitter recomputes its runtime metadata collections
-  (`collectRuntimeOverloads`, `collectOperators`, `collectExtensionMethods`,
-  `collectExtensionProperties`, `collectClassNames`,
-  `collectJavaScriptImplementations`) on every `emitProgramStatements` call, so
-  per-statement line-map emission re-traverses the whole program many times.
-  These should be computed once per transpile and threaded through the emitter.
 - Cross-file declaration resolution is implemented twice: the semantic
   `TypeChecker` and the LSP `classResolver`/`crossFileNavigation` independently
   walk imports/runtime/project to resolve a type name to its declaration. A
   shared "resolve declaration across files" abstraction would remove the
   divergence risk.
-- `transpile.ts` `emitProgramWithLineMap` and `emitProgramWithSourceLineOffsets`
-  share a near-identical per-statement emission loop that should be unified
-  behind a single helper with a line-offset strategy.
 
 ## Transpilation and Runtime
 

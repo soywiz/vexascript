@@ -548,7 +548,10 @@ function extensionPropertyRuntimeName(receiverType: string, propertyName: string
   return `${sanitizeManglePart(receiverType)}$$${sanitizeManglePart(propertyName)}`;
 }
 
-function collectExtensionProperties(program: Program): Map<string, string> {
+function collectExtensionProperties(
+  program: Program,
+  expressionTypes: ReadonlyMap<Node, AnalysisType> | undefined = activeExpressionTypes
+): Map<string, string> {
   const result = new Map<string, string>();
   const importedNames = new Set<string>();
   for (const statement of program.body) {
@@ -577,7 +580,7 @@ function collectExtensionProperties(program: Program): Map<string, string> {
       return;
     }
 
-    const objectType = activeExpressionTypes?.get(member.object);
+    const objectType = expressionTypes?.get(member.object);
     if (objectType?.kind === "builtin") {
       result.set(name, objectType.name === "int" ? "number" : objectType.name);
     } else if (objectType?.kind === "named") {
@@ -1359,12 +1362,36 @@ export function emitProgram(
   return emitProgramStatements(program, expressionTypes, program, implicitReceiverIdentifiers, autoAwaitExpressions).join("\n");
 }
 
+interface EmitProgramRuntimeContext {
+  overloads: Map<string, RuntimeOverloadInfo[]>;
+  operators: Map<string, RuntimeOperatorInfo[]>;
+  extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
+  extensionProperties: Map<string, string>;
+  classNames: Set<string>;
+  javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
+}
+
+export function createEmitProgramRuntimeContext(
+  contextProgram: Program,
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>
+): EmitProgramRuntimeContext {
+  return {
+    overloads: collectRuntimeOverloads(contextProgram),
+    operators: collectOperators(contextProgram),
+    extensionMethods: collectExtensionMethods(contextProgram),
+    extensionProperties: collectExtensionProperties(contextProgram, expressionTypes),
+    classNames: collectClassNames(contextProgram),
+    javaScriptImplementations: collectJavaScriptImplementations(contextProgram)
+  };
+}
+
 export function emitProgramStatements(
   program: Program,
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
   contextProgram: Program = program,
   implicitReceiverIdentifiers: ReadonlySet<Node> = new Set(),
-  autoAwaitExpressions: ReadonlySet<Node> = new Set()
+  autoAwaitExpressions: ReadonlySet<Node> = new Set(),
+  runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes)
 ): string[] {
   const previous = activeExpressionTypes;
   const previousOverloads = activeProgramOverloads;
@@ -1378,12 +1405,12 @@ export function emitProgramStatements(
   activeExpressionTypes = expressionTypes;
   activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
   activeAutoAwaitExpressions = autoAwaitExpressions;
-  activeProgramOverloads = collectRuntimeOverloads(contextProgram);
-  activeOperators = collectOperators(contextProgram);
-  activeExtensionMethods = collectExtensionMethods(contextProgram);
-  activeExtensionProperties = collectExtensionProperties(contextProgram);
-  activeClassNames = collectClassNames(contextProgram);
-  activeJavaScriptImplementations = collectJavaScriptImplementations(contextProgram);
+  activeProgramOverloads = runtimeContext.overloads;
+  activeOperators = runtimeContext.operators;
+  activeExtensionMethods = runtimeContext.extensionMethods;
+  activeExtensionProperties = runtimeContext.extensionProperties;
+  activeClassNames = runtimeContext.classNames;
+  activeJavaScriptImplementations = runtimeContext.javaScriptImplementations;
   try {
     return program.body
       .map((statement) => emitStatement(statement))

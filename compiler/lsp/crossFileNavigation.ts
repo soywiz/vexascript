@@ -299,10 +299,14 @@ function resolveExternalDeclarationLocation(
         ? (targetStatement as ExportStatement).declaration
         : targetStatement;
       if (declaration && declarationDeclaresNode(declaration, symbolNode)) {
+        const range = declarationRangeForName(declaration, symbolName);
+        if (!range) {
+          continue;
+        }
         return {
           name: symbolName,
           filePath: targetFilePath,
-          range: declarationRangeForName(declaration, symbolName)
+          range
         };
       }
     }
