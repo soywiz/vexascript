@@ -116,6 +116,9 @@ export class TypeChecker {
   private readonly activeTypeAliasNames: Set<string> = new Set();
   private readonly generatorFunctionStack: boolean[] = [];
   private readonly syncFunctionStack: boolean[] = [];
+  // Tracks whether the innermost enclosing function is async-like (declared `async` or `sync`).
+  // `await` is permitted in those bodies, and they participate in pervasive auto-await of
+  // Promise-typed expressions. Plain functions do not (the stack handles nesting).
   private readonly asyncLikeFunctionStack: boolean[] = [];
   private readonly assignabilityChecksInProgress: Set<string> = new Set();
   private readonly analysisTypeIds: WeakMap<object, number> = new WeakMap();
@@ -190,19 +193,6 @@ export class TypeChecker {
     }
   }
 
-  private isInsideSyncFunction(): boolean {
-    return this.syncFunctionStack[this.syncFunctionStack.length - 1] === true;
-  }
-
-  private withSyncFunction<T>(isSync: boolean, run: () => T): T {
-    this.syncFunctionStack.push(isSync);
-    try {
-      return run();
-    } finally {
-      this.syncFunctionStack.pop();
-    }
-  }
-
   // True when traversal is inside a function whose innermost enclosing function is
   // async-like (declared `async` or `sync`). `await` is permitted in those bodies.
   private isInsideAsyncLikeFunction(): boolean {
@@ -215,6 +205,21 @@ export class TypeChecker {
       return run();
     } finally {
       this.asyncLikeFunctionStack.pop();
+    }
+  }
+
+  // True when the innermost enclosing function is `sync`. Auto-await and the `go` opt-out are only
+  // meaningful inside `sync` functions (Kotlin-suspend-like); `async` behaves like TypeScript.
+  private isInsideSyncFunction(): boolean {
+    return this.syncFunctionStack[this.syncFunctionStack.length - 1] === true;
+  }
+
+  private withSyncFunction<T>(isSync: boolean, run: () => T): T {
+    this.syncFunctionStack.push(isSync);
+    try {
+      return run();
+    } finally {
+      this.syncFunctionStack.pop();
     }
   }
 
@@ -1460,12 +1465,13 @@ export class TypeChecker {
         break;
     }
 
-    // Pervasive auto-await: inside a `sync` function body, any expression that evaluates to a
-    // Promise is implicitly awaited wherever it is used as a value (call arguments, operands,
-    // initializers, ...). Callers (and tooling such as hover/inlay hints) observe the unwrapped
-    // value type, while the set of auto-awaited nodes tells the emitter where to insert `await`.
-    // `go expr` opts out (it is never added here), and positions such as `await`/`go` operands,
-    // `.then`-style member receivers and `return` expressions pass `suppressAutoAwait`.
+    // Pervasive auto-await: inside a `sync` function body (Kotlin-suspend-like), any expression
+    // that evaluates to a Promise is implicitly awaited wherever it is used as a value (call
+    // arguments, operands, initializers, ...). `async` functions behave like TypeScript and require
+    // explicit `await`. Callers (and tooling such as hover/inlay hints) observe the unwrapped value
+    // type, while the set of auto-awaited nodes tells the emitter where to insert `await`. `go expr`
+    // opts out (it is never added here), and positions such as `await`/`go` operands, `.then`-style
+    // member receivers and `return` expressions pass `suppressAutoAwait`.
     if (
       !suppressAutoAwait &&
       this.isInsideSyncFunction() &&

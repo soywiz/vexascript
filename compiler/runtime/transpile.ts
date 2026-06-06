@@ -70,6 +70,12 @@ export interface TranspileOptions {
    * properties referencing imported declarations lower correctly.
    */
   externalDeclarations?: Statement[];
+  /**
+   * Resolved types for imported values, keyed by their local name. Lets
+   * cross-file functions (including those whose return type is inferred from
+   * their body) participate in type resolution and pervasive auto-await.
+   */
+  importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -226,7 +232,8 @@ function createSourceMap(
 
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
   const externalDeclarations = options.externalDeclarations ?? [];
-  const artifacts = compileSource(source, {}, { externalDeclarations });
+  const importedSymbolTypes = options.importedSymbolTypes ?? new Map();
+  const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes });
   const errors: string[] = [];
 
   if (artifacts.tokenizeError) {

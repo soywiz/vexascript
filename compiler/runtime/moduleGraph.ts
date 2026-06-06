@@ -8,6 +8,9 @@ import type {
 } from "compiler/ast/ast";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
+import { compileSource } from "compiler/pipeline/compile";
+import type { Analysis } from "compiler/analysis/Analysis";
+import type { AnalysisType } from "compiler/analysis/types";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
 /**
@@ -111,6 +114,7 @@ function stripBundledImports(code: string): string {
 
 export function bundleModuleGraph(entryFilePath: string, target: TranspileTarget): TranspileResult {
   const emittedByPath = new Map<string, string>();
+  const analysisByPath = new Map<string, Analysis | null>();
   const order: string[] = [];
   const inProgress = new Set<string>();
   const errors: string[] = [];
@@ -127,24 +131,43 @@ export function bundleModuleGraph(entryFilePath: string, target: TranspileTarget
     const ast = parsed.ast;
 
     const externalDeclarations: Statement[] = [];
+    const importedSymbolTypes = new Map<string, AnalysisType>();
     if (ast) {
       for (const { statement, targetPath } of localImportSpecifiers(ast, filePath)) {
         visit(targetPath);
         const dependencyParsed = parseSource(readFileSync(targetPath, "utf8"));
-        if (!dependencyParsed.ast) {
-          continue;
+        if (dependencyParsed.ast) {
+          const importedNames = new Set(
+            statement.specifiers.map((specifier) => specifier.imported.name)
+          );
+          externalDeclarations.push(...collectImportedDeclarations(dependencyParsed.ast, importedNames));
         }
-        const importedNames = new Set(
-          statement.specifiers.map((specifier) => specifier.imported.name)
-        );
-        externalDeclarations.push(...collectImportedDeclarations(dependencyParsed.ast, importedNames));
+        // Resolve imported value types (e.g. functions returning a Promise) from
+        // the dependency's analysis so cross-file calls participate in auto-await.
+        const dependencyAnalysis = analysisByPath.get(targetPath);
+        if (dependencyAnalysis) {
+          for (const specifier of statement.specifiers) {
+            const importedType = dependencyAnalysis.getTopLevelSymbolType(specifier.imported.name);
+            if (importedType) {
+              importedSymbolTypes.set((specifier.local ?? specifier.imported).name, importedType);
+            }
+          }
+        }
       }
     }
+
+    // Store this module's analysis (resolved with its own cross-file types) so
+    // modules that import from it can read their imported value types.
+    analysisByPath.set(
+      filePath,
+      compileSource(source, {}, { externalDeclarations, importedSymbolTypes }).analysis
+    );
 
     const result = transpile(source, {
       sourceFilePath: filePath,
       target,
-      externalDeclarations
+      externalDeclarations,
+      importedSymbolTypes
     });
     errors.push(...result.errors);
     warnings.push(...result.warnings);

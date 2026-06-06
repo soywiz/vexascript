@@ -38,6 +38,33 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("auto-awaits a Promise-returning function imported from another file", () => {
+    withTempProject(
+      {
+        "dep.my":
+          "class TimeSpan(val ms: number) {}\n" +
+          "val number.seconds => TimeSpan(this * 1000.0)\n" +
+          "fun delay(time: TimeSpan) => new Promise((resolve, reject) => { setTimeout(resolve, time.ms) })\n",
+        "main.my":
+          'import { delay, seconds } from "./dep"\n' +
+          "sync fun demo() {\n" +
+          "  delay(1.seconds)\n" +
+          "  delay(2.seconds)\n" +
+          "}\n" +
+          "demo()\n"
+      },
+      (dir) => {
+        const result = bundleModuleGraph(join(dir, "main.my"), "optimized");
+
+        expect(result.errors).toEqual([]);
+        // The imported `delay` returns a Promise (inferred cross-file), so each
+        // call inside the async function is implicitly awaited.
+        expect(result.code).toContain("await delay(number$$seconds(1));");
+        expect(result.code).toContain("await delay(number$$seconds(2));");
+      }
+    );
+  });
+
   it("lowers cross-file operator overloads using the imported declaration", () => {
     withTempProject(
       {

@@ -314,8 +314,26 @@ describe("transpile", () => {
     expect(result.code).toContain("let p = fetchValue();");
     expect(result.code).toContain("use(fetchValue());");
     expect(result.code).not.toContain("await fetchValue()");
-    // Nested non-sync functions do not auto-await.
+    // Nested plain (non-async-like) functions do not auto-await.
     expect(result.code).toContain("let r = fetchValue();");
+  });
+
+  it("does not auto-await inside async functions (async behaves like TypeScript)", () => {
+    const source = [
+      "async fun fetchValue(): Promise<int> { return 1 }",
+      "async fun main(): Promise<void> {",
+      "  let x = fetchValue()",
+      "  fetchValue()",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    // Auto-await is a `sync`-only feature; `async` requires explicit `await`, so no implicit
+    // `await` is inserted here.
+    expect(result.code).toContain("let x = fetchValue();");
+    expect(result.code).not.toContain("await fetchValue()");
   });
 
   it("does not auto-await bare local variable or parameter references", () => {

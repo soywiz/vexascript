@@ -243,7 +243,7 @@ let after = bind`));
         let p: Promise<int> = go promised()
       }
       let top: Promise<int> = go promised()
-      
+
 `;
 
     const ast = parseFile(tokenizeReader(source));
