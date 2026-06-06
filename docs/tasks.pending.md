@@ -17,16 +17,14 @@ single `BUILTIN_TYPE_NAMES` in `compiler/analysis/types.ts`, shared
 `classPropertyParameters`/`constructorParameterProperties` exported from
 `compiler/lsp/classResolver.ts`, `unwrapExportedDeclaration` in
 `compiler/ast/traversal.ts`, and shared LSP quick-fix target lookup via
-`compiler/lsp/nodeSearch.ts` backed by `compiler/ast/traversal.ts`). Future
-quick fixes should use `nodeSearch.ts`/`walkAst` instead of adding bespoke
-recursive visitors. The remaining items below are larger refactors that need
-their own focused change with tests:
-
-- Cross-file declaration resolution is implemented twice: the semantic
-  `TypeChecker` and the LSP `classResolver`/`crossFileNavigation` independently
-  walk imports/runtime/project to resolve a type name to its declaration. A
-  shared "resolve declaration across files" abstraction would remove the
-  divergence risk.
+`compiler/lsp/nodeSearch.ts` backed by `compiler/ast/traversal.ts`, and shared
+cross-file top-level declaration resolution via
+`compiler/lsp/declarationResolver.ts`). Future quick fixes should use
+`nodeSearch.ts`/`walkAst` instead of adding bespoke recursive visitors, and LSP
+features that need top-level declarations across imports/runtime/project files
+should use `declarationResolver.ts` instead of open-coding import walks. The
+remaining items below are larger refactors that need their own focused change
+with tests:
 
 ## Transpilation and Runtime
 
