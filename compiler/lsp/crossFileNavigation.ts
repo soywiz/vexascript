@@ -47,7 +47,6 @@ import type {
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import {
   findTopLevelDeclarationInProgram,
-  isClassStatement,
   resolveTopLevelDeclarationAcrossFiles,
   topLevelDeclarationNames
 } from "./declarationResolver";
@@ -107,6 +106,8 @@ interface ClassMemberInfo {
   typeLabel: string;
   sourceKind: "primary-constructor" | "field" | "method";
 }
+
+type TypeLikeDeclaration = ClassStatement | InterfaceStatement;
 
 function localReferencesFromContext(
   context: ResolveContext,
@@ -427,9 +428,22 @@ function rangeContainsPosition(
 }
 
 function classMemberDeclarationRangeByName(
-  classStatement: ClassStatement,
+  classStatement: TypeLikeDeclaration,
   memberName: string
 ): { start: { line: number; character: number }; end: { line: number; character: number } } | null {
+  if (classStatement.kind === "InterfaceStatement") {
+    for (const member of classStatement.members) {
+      if (member.name.name !== memberName) {
+        continue;
+      }
+      const range = nodeToRange(member.name);
+      if (range) {
+        return range;
+      }
+    }
+    return null;
+  }
+
   for (const parameter of classPropertyParameters(classStatement)) {
     if (bindingNameText(parameter.name) !== memberName) {
       continue;
@@ -468,9 +482,36 @@ function functionTypeLabelFromParameters(
 }
 
 function classMemberInfoByName(
-  classStatement: ClassStatement,
+  classStatement: TypeLikeDeclaration,
   memberName: string
 ): ClassMemberInfo | null {
+  if (classStatement.kind === "InterfaceStatement") {
+    for (const member of classStatement.members) {
+      if (member.name.name !== memberName) {
+        continue;
+      }
+      const range = nodeToRange(member.name);
+      if (!range) {
+        return null;
+      }
+      if (member.kind === "InterfacePropertyMember") {
+        return {
+          memberName,
+          range,
+          typeLabel: member.typeAnnotation.name,
+          sourceKind: "field"
+        };
+      }
+      return {
+        memberName,
+        range,
+        typeLabel: functionTypeLabelFromParameters(member.parameters, member.returnType?.name),
+        sourceKind: "method"
+      };
+    }
+    return null;
+  }
+
   for (const parameter of classPropertyParameters(classStatement)) {
     if (bindingNameText(parameter.name) !== memberName) {
       continue;
@@ -514,10 +555,10 @@ function classMemberInfoByName(
   return null;
 }
 
-function resolveClassDefinitionAcrossFiles(
+function resolveTypeDefinitionAcrossFiles(
   context: ResolveContext,
-  className: string
-): { classStatement: ClassStatement; filePath: string } | null {
+  typeName: string
+): { declaration: TypeLikeDeclaration; filePath: string } | null {
   const currentFilePath = uriToFilePath(context.uri);
   if (!currentFilePath || !context.session.ast) {
     return null;
@@ -526,9 +567,10 @@ function resolveClassDefinitionAcrossFiles(
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
   const resolved = resolveTopLevelDeclarationAcrossFiles({
     ast: context.session.ast,
-    name: className,
+    name: typeName,
     currentFilePath,
-    predicate: isClassStatement,
+    predicate: (statement): statement is TypeLikeDeclaration =>
+      statement.kind === "ClassStatement" || statement.kind === "InterfaceStatement",
     includeRuntime: true,
     sourceRoots: roots,
     ...(context.getSessionForFilePath
@@ -541,7 +583,7 @@ function resolveClassDefinitionAcrossFiles(
   }
 
   return {
-    classStatement: resolved.declaration,
+    declaration: resolved.declaration,
     filePath: resolved.filePath === "" ? getEcmaScriptRuntimeDeclarationFilePath() : resolved.filePath
   };
 }
@@ -798,13 +840,13 @@ function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location |
   }
 
   const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
-  const classResolution = resolveClassDefinitionAcrossFiles(context, resolvedClassName);
+  const classResolution = resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
 
   const memberName = (memberExpression.property as Identifier).name;
-  const range = classMemberDeclarationRangeByName(classResolution.classStatement, memberName);
+  const range = classMemberDeclarationRangeByName(classResolution.declaration, memberName);
   if (!range) {
     return null;
   }
@@ -889,13 +931,13 @@ function resolveCanonicalMemberSymbol(context: ResolveContext): CanonicalMemberS
   }
 
   const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
-  const classResolution = resolveClassDefinitionAcrossFiles(context, resolvedClassName);
+  const classResolution = resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
 
   const memberName = (memberExpression.property as Identifier).name;
-  const memberInfo = classMemberInfoByName(classResolution.classStatement, memberName);
+  const memberInfo = classMemberInfoByName(classResolution.declaration, memberName);
   if (!memberInfo) {
     return null;
   }
@@ -1230,38 +1272,41 @@ export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | 
   }
 
   const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
-  const classResolution = resolveClassDefinitionAcrossFiles(context, resolvedClassName);
+  const classResolution = resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
 
   const memberName = (memberExpression.property as Identifier).name;
-  const resolvedMember = resolveClassMember(
-    classResolution.classStatement,
-    memberName,
-    objectType.kind === "array" ? `Array<${typeToString(objectType.elementType)}>` : typeToString(objectType),
-    {
-      ast: context.session.ast,
-      options: {
-        uri: context.uri,
-        sourceRoots: context.sourceRoots,
-        ...(context.getSessionForFilePath
-          ? { getSessionForFilePath: context.getSessionForFilePath }
-          : {})
-      },
-      cache: createClassResolverCache()
-    }
-  );
-  if (!resolvedMember) {
+  const resolvedMember = classResolution.declaration.kind === "ClassStatement"
+    ? resolveClassMember(
+      classResolution.declaration,
+      memberName,
+      objectType.kind === "array" ? `Array<${typeToString(objectType.elementType)}>` : typeToString(objectType),
+      {
+        ast: context.session.ast,
+        options: {
+          uri: context.uri,
+          sourceRoots: context.sourceRoots,
+          ...(context.getSessionForFilePath
+            ? { getSessionForFilePath: context.getSessionForFilePath }
+            : {})
+        },
+        cache: createClassResolverCache()
+      }
+    )
+    : null;
+  const fallbackMember = classMemberInfoByName(classResolution.declaration, memberName);
+  if (!resolvedMember && !fallbackMember) {
     return null;
   }
-  const prefix = resolvedMember.kind === "method" ? "method" : "member";
+  const prefix = (resolvedMember?.kind ?? (fallbackMember?.sourceKind === "method" ? "method" : "field")) === "method" ? "method" : "member";
 
   const memberRange = nodeToRange(memberExpression.property) ?? nodeToRange(memberExpression);
   return {
     contents: {
       kind: "plaintext",
-      value: `${prefix} ${typeToString(objectType)}.${memberName}: ${resolvedMember.typeName}`
+      value: `${prefix} ${typeToString(objectType)}.${memberName}: ${resolvedMember?.typeName ?? fallbackMember!.typeLabel}`
     },
     ...(memberRange ? { range: memberRange } : {})
   };

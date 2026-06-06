@@ -6,6 +6,7 @@ import { walkAst } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
 
 export const ECMASCRIPT_RUNTIME_DECLARATION_FILE_NAME = "ecmascript.d.my";
+export const TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME = "es2025.d.ts";
 
 interface CachedRuntimeProgram {
   filePath: string;
@@ -21,12 +22,12 @@ function currentDirectory(): string {
 }
 
 export function getEcmaScriptRuntimeDeclarationFilePath(): string {
-  const bundledPath = resolve(currentDirectory(), ECMASCRIPT_RUNTIME_DECLARATION_FILE_NAME);
+  const bundledPath = resolve(currentDirectory(), TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME);
   if (existsSync(bundledPath)) {
     return bundledPath;
   }
 
-  return resolve(process.cwd(), "compiler", "runtime", ECMASCRIPT_RUNTIME_DECLARATION_FILE_NAME);
+  return resolve(process.cwd(), "compiler", "runtime", TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME);
 }
 
 function collectNodes(root: Program): WeakSet<object> {
@@ -37,7 +38,7 @@ function collectNodes(root: Program): WeakSet<object> {
 
 function parseRuntimeProgram(filePath: string): Program {
   const source = readFileSync(filePath, "utf8");
-  const parsed = parseSource(source);
+  const parsed = parseSource(source, { language: "typescript" });
   const errors = [
     ...parsed.parserIssues.map((issue) => issue.message),
     ...(parsed.tokenizeError ? [parsed.tokenizeError.message] : []),
@@ -45,7 +46,7 @@ function parseRuntimeProgram(filePath: string): Program {
   ];
   if (!parsed.ast || errors.length > 0) {
     throw new Error(
-      `Embedded ECMAScript runtime declarations must parse without errors: ${errors.join("; ")}`
+      `Embedded TypeScript runtime declarations must parse without errors: ${errors.join("; ")}`
     );
   }
   return parsed.ast;

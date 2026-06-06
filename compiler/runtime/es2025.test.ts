@@ -8,16 +8,16 @@ function readBundledRuntime(): string {
 }
 
 describe("bundled es2025 runtime declarations", () => {
-  it("inlines the full transitive TypeScript lib chain into one file", () => {
+  it("provides a parser-compatible TypeScript runtime surface", () => {
     const source = readBundledRuntime();
 
     expect(source).not.toContain('/// <reference lib="');
     expect(source).toContain("interface Array<T>");
     expect(source).toContain("interface PromiseConstructor");
-    expect(source).toContain("try<T, U extends unknown[]>");
+    expect(source).toContain("try<T, U extends unknown[]>(callbackFn: (...args: U) => T | PromiseLike<T>, ...args: U): Promise<Awaited<T>>;");
   });
 
-  it("does not pull browser host libs into the bundle", () => {
+  it("stays focused on runtime globals rather than browser host libs", () => {
     const source = readBundledRuntime();
 
     expect(source).not.toContain("interface Document");

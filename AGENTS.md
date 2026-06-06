@@ -38,8 +38,7 @@ This section is the fast onboarding map for agents and contributors.
   - Analysis issue codes/contracts: `compiler/analysis/issueCodes.ts`
   - Analysis tests: `compiler/analysis/Analysis.test.ts`
 - Embedded runtime declarations:
-  - Current ambient runtime declarations consumed by the compiler: `compiler/runtime/ecmascript.d.my`, `compiler/runtime/ecmascriptDeclarations.ts`
-  - Bundled TypeScript ECMAScript declarations for future TypeScript declaration-file runtime consumption: `compiler/runtime/es2025.d.ts`
+  - Current ambient runtime declarations consumed by the compiler from bundled TypeScript declarations: `compiler/runtime/es2025.d.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
   - Bundled TypeScript DOM declarations for future TypeScript declaration-file runtime consumption: `compiler/runtime/dom.d.ts`
 - Emitter / transpilation:
   - Lowering pass boundary: `compiler/runtime/lowering.ts`

@@ -196,48 +196,69 @@ export function tupleType(elements: AnalysisType[]): TupleType {
 }
 
 export function typeToString(type: AnalysisType): string {
-  switch (type.kind) {
-    case "unknown":
-      return "unknown";
-    case "builtin":
-      return type.name;
-    case "named":
-      if (!type.typeArguments || type.typeArguments.length === 0) {
+  return typeToStringInternal(type, new Set<object>());
+}
+
+function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
+  let trackedObject: object | undefined;
+  if (typeof type === "object" && type !== null) {
+    if (seen.has(type as object)) {
+      if (type.kind === "named") {
         return type.name;
       }
-      return `${type.name}<${type.typeArguments.map((argument) => typeToString(argument)).join(", ")}>`;
-    case "function": {
-      const typeParameterPrefix = type.typeParameters && type.typeParameters.length > 0
-        ? `<${type.typeParameters.map((parameter) => {
-            const constraint = type.typeParameterConstraints?.[parameter];
-            return constraint ? `${parameter} extends ${typeToString(constraint)}` : parameter;
-          }).join(", ")}>`
-        : "";
-      return `${typeParameterPrefix}(${type.parameters
-        .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${typeToString(parameter.type)}`)
-        .join(", ")}) => ${typeToString(type.returnType)}`;
+      return type.kind;
     }
-    case "array":
-      return `${typeToString(type.elementType)}[]`;
-    case "object":
-      if (Object.keys(type.properties).length === 0) {
-        return "object";
+    trackedObject = type as object;
+    seen.add(trackedObject);
+  }
+  try {
+    switch (type.kind) {
+      case "unknown":
+        return "unknown";
+      case "builtin":
+        return type.name;
+      case "named":
+        if (!type.typeArguments || type.typeArguments.length === 0) {
+          return type.name;
+        }
+        return `${type.name}<${type.typeArguments.map((argument) => typeToStringInternal(argument, seen)).join(", ")}>`;
+      case "function": {
+        const typeParameterPrefix = type.typeParameters && type.typeParameters.length > 0
+          ? `<${type.typeParameters.map((parameter) => {
+              const constraint = type.typeParameterConstraints?.[parameter];
+              return constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter;
+            }).join(", ")}>`
+          : "";
+        return `${typeParameterPrefix}(${type.parameters
+          .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${typeToStringInternal(parameter.type, seen)}`)
+          .join(", ")}) => ${typeToStringInternal(type.returnType, seen)}`;
       }
-      return `{ ${Object.entries(type.properties)
-        .map(([name, propertyType]) => `${name}: ${typeToString(propertyType)}`)
-        .join(", ")} }`;
-    case "range":
-      return `range<${typeToString(type.elementType)}>`;
-    case "union":
-      return type.types.map((member) => typeToString(member)).join(" | ");
-    case "intersection":
-      return type.types.map((member) => typeToString(member)).join(" & ");
-    case "literal":
-      return type.base === "string" ? JSON.stringify(type.value) : String(type.value);
-    case "tuple":
-      return `[${type.elements.map((element) => typeToString(element)).join(", ")}]`;
-    default:
-      return "unknown";
+      case "array":
+        return `${typeToStringInternal(type.elementType, seen)}[]`;
+      case "object":
+        if (Object.keys(type.properties).length === 0) {
+          return "object";
+        }
+        return `{ ${Object.entries(type.properties)
+          .map(([name, propertyType]) => `${name}: ${typeToStringInternal(propertyType, seen)}`)
+          .join(", ")} }`;
+      case "range":
+        return `range<${typeToStringInternal(type.elementType, seen)}>`;
+      case "union":
+        return type.types.map((member) => typeToStringInternal(member, seen)).join(" | ");
+      case "intersection":
+        return type.types.map((member) => typeToStringInternal(member, seen)).join(" & ");
+      case "literal":
+        return type.base === "string" ? JSON.stringify(type.value) : String(type.value);
+      case "tuple":
+        return `[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
+      default:
+        return "unknown";
+    }
+  } finally {
+    if (trackedObject) {
+      seen.delete(trackedObject);
+    }
   }
 }
 
@@ -246,6 +267,28 @@ export function isUnknownType(type: AnalysisType): boolean {
 }
 
 export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
+  return isSameTypeInternal(a, b, new WeakMap<object, WeakSet<object>>());
+}
+
+function isSameTypeInternal(
+  a: AnalysisType,
+  b: AnalysisType,
+  seenPairs: WeakMap<object, WeakSet<object>>
+): boolean {
+  if (a === b) {
+    return true;
+  }
+
+  const seenTargets = seenPairs.get(a as object);
+  if (seenTargets?.has(b as object)) {
+    return true;
+  }
+  if (seenTargets) {
+    seenTargets.add(b as object);
+  } else {
+    seenPairs.set(a as object, new WeakSet([b as object]));
+  }
+
   if (a.kind !== b.kind) {
     return false;
   }
@@ -264,7 +307,7 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
       return false;
     }
     for (let i = 0; i < aArgs.length; i += 1) {
-      if (!isSameType(aArgs[i]!, bArgs[i]!)) {
+      if (!isSameTypeInternal(aArgs[i]!, bArgs[i]!, seenPairs)) {
         return false;
       }
     }
@@ -276,11 +319,11 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
   }
 
   if (a.kind === "array" && b.kind === "array") {
-    return isSameType(a.elementType, b.elementType);
+    return isSameTypeInternal(a.elementType, b.elementType, seenPairs);
   }
 
   if (a.kind === "range" && b.kind === "range") {
-    return isSameType(a.elementType, b.elementType);
+    return isSameTypeInternal(a.elementType, b.elementType, seenPairs);
   }
 
   if (a.kind === "object" && b.kind === "object") {
@@ -296,7 +339,7 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
       const key = aKeys[i]!;
       const aProperty = a.properties[key];
       const bProperty = b.properties[key];
-      if (!aProperty || !bProperty || !isSameType(aProperty, bProperty)) {
+      if (!aProperty || !bProperty || !isSameTypeInternal(aProperty, bProperty, seenPairs)) {
         return false;
       }
     }
@@ -307,14 +350,14 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
     if (a.types.length !== b.types.length) {
       return false;
     }
-    return a.types.every((aType, index) => isSameType(aType, b.types[index]!));
+    return a.types.every((aType, index) => isSameTypeInternal(aType, b.types[index]!, seenPairs));
   }
 
   if (a.kind === "intersection" && b.kind === "intersection") {
     if (a.types.length !== b.types.length) {
       return false;
     }
-    return a.types.every((aType, index) => isSameType(aType, b.types[index]!));
+    return a.types.every((aType, index) => isSameTypeInternal(aType, b.types[index]!, seenPairs));
   }
 
   if (a.kind === "literal" && b.kind === "literal") {
@@ -325,7 +368,7 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
     if (a.elements.length !== b.elements.length) {
       return false;
     }
-    return a.elements.every((element, index) => isSameType(element, b.elements[index]!));
+    return a.elements.every((element, index) => isSameTypeInternal(element, b.elements[index]!, seenPairs));
   }
 
   if (a.kind === "function" && b.kind === "function") {
@@ -339,11 +382,11 @@ export function isSameType(a: AnalysisType, b: AnalysisType): boolean {
       if ((a.parameters[i]!.rest ?? false) !== (b.parameters[i]!.rest ?? false)) {
         return false;
       }
-      if (!isSameType(a.parameters[i]!.type, b.parameters[i]!.type)) {
+      if (!isSameTypeInternal(a.parameters[i]!.type, b.parameters[i]!.type, seenPairs)) {
         return false;
       }
     }
-    return isSameType(a.returnType, b.returnType);
+    return isSameTypeInternal(a.returnType, b.returnType, seenPairs);
   }
 
   return typeToString(a) === typeToString(b);

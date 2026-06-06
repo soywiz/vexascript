@@ -2886,6 +2886,36 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses declare global augmentations in typescript mode", () => {
+        expect(
+            parseStatement(tokenizeReader("declare global {\ninterface Iterator<T> {}\ndeclare var Iterator: IteratorConstructor\n}"), { language: "typescript" })
+        ).toEqual({
+            kind: "NamespaceStatement",
+            declared: true,
+            globalAugmentation: true,
+            declarationKind: "namespace",
+            body: {
+                kind: "BlockStatement",
+                body: [
+                    {
+                        kind: "InterfaceStatement",
+                        declared: true,
+                        name: { kind: "Identifier", name: "Iterator" },
+                        typeParameters: [{ kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }],
+                        members: []
+                    },
+                    {
+                        kind: "VarStatement",
+                        declared: true,
+                        declarationKind: "var",
+                        name: { kind: "Identifier", name: "Iterator" },
+                        typeAnnotation: { kind: "Identifier", name: "IteratorConstructor" }
+                    }
+                ]
+            }
+        });
+    });
+
     it("rejects string-named namespaces in typescript mode", () => {
         expect(() =>
             parseStatement(tokenizeReader('declare namespace "pixi.js" {}'), { language: "typescript" })

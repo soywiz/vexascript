@@ -21,6 +21,7 @@ import type {
   IfStatement,
   Identifier,
   ImportStatement,
+  InterfaceStatement,
   LabeledStatement,
   MemberExpression,
   NewExpression,
@@ -48,6 +49,7 @@ import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import { baseTypeName, parseTypeNameShape } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import { compileSource } from "compiler/pipeline/compile";
+import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import {
   buildExtensionAutoImportSuggestions,
   type AutoImportSuggestion
@@ -587,6 +589,38 @@ function buildClassMemberCompletionItems(
     });
   }
 
+  return items;
+}
+
+function buildInterfaceMemberCompletionItems(
+  interfaceStatement: InterfaceStatement,
+  prefix: string
+): CompletionItem[] {
+  const items: CompletionItem[] = [];
+  const seen = new Set<string>();
+  const normalizedPrefix = prefix.trim();
+  for (const member of interfaceStatement.members) {
+    if (normalizedPrefix.length > 0 && !member.name.name.startsWith(normalizedPrefix)) {
+      continue;
+    }
+    if (seen.has(member.name.name)) {
+      continue;
+    }
+    seen.add(member.name.name);
+    if (member.kind === "InterfacePropertyMember") {
+      items.push({
+        label: member.name.name,
+        kind: CompletionItemKind.Field,
+        detail: `Interface property: ${member.typeAnnotation.name}`
+      });
+      continue;
+    }
+    items.push({
+      label: member.name.name,
+      kind: CompletionItemKind.Method,
+      detail: `Interface method: (${member.parameters.map((parameter) => `${bindingIdentifiers(parameter.name)[0]?.name ?? "arg"}: ${parameter.typeAnnotation?.name ?? "unknown"}`).join(", ")}) => ${member.returnType?.name ?? "void"}`
+    });
+  }
   return items;
 }
 
@@ -1445,6 +1479,17 @@ function buildMemberAccessCompletions(
     resolverOptions,
     resolverCache
   )?.classStatement;
+  const interfaceStatement = resolveTopLevelDeclarationAcrossFiles({
+    ast,
+    name: baseTypeName(resolvedClassName),
+    currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
+    predicate: (statement): statement is InterfaceStatement => statement.kind === "InterfaceStatement",
+    includeRuntime: true,
+    sourceRoots: resolverOptions.sourceRoots ?? [],
+    ...(resolverOptions.getSessionForFilePath
+      ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
+      : {})
+  })?.declaration;
   const items = [
     ...buildExtensionMemberCompletionItems(ast, className, target.prefix, options, analysis),
     ...(classStatement
@@ -1463,7 +1508,9 @@ function buildMemberAccessCompletions(
             cache: resolverCache
           }
         )
-      : [])
+      : interfaceStatement
+        ? buildInterfaceMemberCompletionItems(interfaceStatement, target.prefix)
+        : [])
   ];
   if (items.length > 0 || !allowRecovery) {
     return items;
