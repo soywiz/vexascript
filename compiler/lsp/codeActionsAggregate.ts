@@ -11,6 +11,7 @@ import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createAutoImportCodeActions } from "./importFixes";
 import { createCallFixCodeActions } from "./callFixes";
 import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
+import { createReturnTypeCodeActions } from "./returnTypeFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
 import { createStringTemplateCodeActions } from "./stringTemplateFixes";
 import { createTrailingLambdaCodeActions } from "./trailingLambdaFixes";
@@ -79,6 +80,16 @@ export function collectCodeActions(params: CollectCodeActionsParams): CodeAction
       ast,
       text,
       position: range.start
+    })
+  );
+
+  actions.push(
+    ...createReturnTypeCodeActions({
+      uri,
+      ast,
+      analysis,
+      position: range.start,
+      options: { uri, sourceRoots, ...crossFile }
     })
   );
 

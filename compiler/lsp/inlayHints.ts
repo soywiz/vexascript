@@ -64,7 +64,7 @@ function inRange(
   return true;
 }
 
-function pickFunctionReturnTypeFromBody(
+export function pickFunctionReturnTypeFromBody(
   body: Statement[],
   analysis: Analysis,
   ast: Program,
