@@ -41,10 +41,6 @@ pnpm run cli tokens example.my
 pnpm test
 ```
 
-```bash
-pnpm test:watch
-```
-
 MyLang test files use the `.test.my` suffix and have inline `test` and `assert` helpers available without imports:
 
 ```my
