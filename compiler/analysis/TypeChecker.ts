@@ -140,6 +140,10 @@ export class TypeChecker {
     this.collectEnumStatements(runtimeProgram.body);
     this.collectInterfaceStatements(runtimeProgram.body);
     this.collectTypeAliasStatements(runtimeProgram.body);
+    // An explicit import shadows the ambient runtime declaration of the same
+    // name. Drop the runtime declarations first so the imported (external)
+    // declarations registered below win, instead of being deleted by this pass.
+    this.removeRuntimeDeclarationsShadowedByImports(program);
     // Imported (cross-file) declarations are registered for name/member
     // resolution only. They are never visited or re-checked because the
     // statement walk only traverses this program's body. Local declarations are
@@ -151,7 +155,6 @@ export class TypeChecker {
     // Imported extension operator overloads (e.g. `import { operator+ }`) are
     // registered so a cross-file operator like `a + b` resolves to the overload.
     this.collectExtensionOperators({ kind: "Program", body: [...externalDeclarations] } as Program);
-    this.removeRuntimeDeclarationsShadowedByImports(program);
     this.collectClassStatements(program.body);
     this.collectExtensionOperators(program);
     this.collectExtensionMethods(program);
