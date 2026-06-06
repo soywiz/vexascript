@@ -1,38 +1,12 @@
 import type { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
+import { walkAst } from "compiler/ast/traversal";
 import type {
-  ArrayLiteral,
-  AsExpression,
   AssignmentExpression,
-  BinaryExpression,
-  BlockStatement,
-  CallExpression,
   ClassStatement,
-  ConditionalExpression,
-  CommaExpression,
-  DoWhileStatement,
-  Expr,
-  ExprStatement,
-  ForStatement,
-  FunctionStatement,
   Identifier,
-  IfStatement,
-  LabeledStatement,
   MemberExpression,
-  NewExpression,
-  ObjectLiteral,
-  Program,
-  RangeExpression,
-  ReturnStatement,
-  Statement,
-  SwitchStatement,
-  ThrowStatement,
-  TryStatement,
-  UnaryExpression,
-  UpdateExpression,
-  VarStatement,
-  WhileStatement,
-  WithStatement
+  Program
 } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "vscode-languageserver/node.js";
@@ -56,7 +30,12 @@ interface FindAssignmentResult {
 function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range): AssignmentExpression | null {
   let best: FindAssignmentResult | null = null;
 
-  const consider = (assignment: AssignmentExpression): void => {
+  walkAst(ast, (node) => {
+    if (node.kind !== "AssignmentExpression") {
+      return;
+    }
+
+    const assignment = node as AssignmentExpression;
     const rightRange = nodeRange(assignment.right);
     if (!rightRange || !rangeContains(diagnosticRange, rightRange)) {
       return;
@@ -69,208 +48,10 @@ function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range):
     if (!best || size <= best.size) {
       best = { assignment, range: assignmentRange, size };
     }
-  };
-
-  const visitExpression = (expression: Expr): void => {
-    switch (expression.kind) {
-      case "AssignmentExpression": {
-        const assignment = expression as AssignmentExpression;
-        consider(assignment);
-        visitExpression(assignment.left);
-        visitExpression(assignment.right);
-        return;
-      }
-      case "CallExpression":
-        visitExpression((expression as CallExpression).callee);
-        for (const argument of (expression as CallExpression).arguments) {
-          visitExpression(argument);
-        }
-        return;
-      case "MemberExpression":
-        visitExpression((expression as MemberExpression).object);
-        if ((expression as MemberExpression).computed) {
-          visitExpression((expression as MemberExpression).property);
-        }
-        return;
-      case "NewExpression":
-        visitExpression((expression as NewExpression).callee);
-        for (const argument of (expression as NewExpression).arguments ?? []) {
-          visitExpression(argument);
-        }
-        return;
-      case "CommaExpression":
-        for (const child of (expression as CommaExpression).expressions) {
-          visitExpression(child);
-        }
-        return;
-      case "AsExpression":
-        visitExpression((expression as AsExpression).expression);
-        return;
-      case "BinaryExpression":
-        visitExpression((expression as BinaryExpression).left);
-        visitExpression((expression as BinaryExpression).right);
-        return;
-      case "RangeExpression":
-        visitExpression((expression as RangeExpression).start);
-        visitExpression((expression as RangeExpression).end);
-        return;
-      case "ConditionalExpression":
-        visitExpression((expression as ConditionalExpression).test);
-        visitExpression((expression as ConditionalExpression).consequent);
-        visitExpression((expression as ConditionalExpression).alternate);
-        return;
-      case "UnaryExpression":
-      case "UpdateExpression":
-        visitExpression((expression as UnaryExpression | UpdateExpression).argument);
-        return;
-      case "ArrayLiteral":
-        for (const element of (expression as ArrayLiteral).elements) {
-          visitExpression(element);
-        }
-        return;
-      case "ObjectLiteral":
-        for (const property of (expression as ObjectLiteral).properties) {
-          if (property.kind === "ObjectSpreadProperty") {
-            visitExpression(property.argument);
-          } else {
-            visitExpression(property.value);
-          }
-        }
-        return;
-      default:
-        return;
-    }
-  };
-
-  const visitStatement = (statement: Statement): void => {
-    switch (statement.kind) {
-      case "VarStatement":
-        if ((statement as VarStatement).declarations?.length) {
-          for (const declaration of (statement as VarStatement).declarations ?? []) {
-            if (declaration.initializer) {
-              visitExpression(declaration.initializer);
-            }
-          }
-        } else if ((statement as VarStatement).initializer) {
-          visitExpression((statement as VarStatement).initializer!);
-        }
-        return;
-      case "ExprStatement":
-        visitExpression((statement as ExprStatement).expression);
-        return;
-      case "ReturnStatement":
-        if ((statement as ReturnStatement).expression) {
-          visitExpression((statement as ReturnStatement).expression!);
-        }
-        return;
-      case "ThrowStatement":
-        visitExpression((statement as ThrowStatement).expression);
-        return;
-      case "BlockStatement":
-        for (const child of (statement as BlockStatement).body) {
-          visitStatement(child);
-        }
-        return;
-      case "FunctionStatement":
-        for (const child of (statement as FunctionStatement).body.body) {
-          visitStatement(child);
-        }
-        return;
-      case "ClassStatement":
-        for (const member of (statement as ClassStatement).members) {
-          if (member.kind === "ClassFieldMember" && member.initializer) {
-            visitExpression(member.initializer);
-          } else if (member.kind === "ClassMethodMember") {
-            for (const child of member.body.body) {
-              visitStatement(child);
-            }
-          }
-        }
-        return;
-      case "IfStatement":
-        visitExpression((statement as IfStatement).condition);
-        visitStatement((statement as IfStatement).thenBranch);
-        if ((statement as IfStatement).elseBranch) {
-          visitStatement((statement as IfStatement).elseBranch!);
-        }
-        return;
-      case "WhileStatement":
-        visitExpression((statement as WhileStatement).condition);
-        visitStatement((statement as WhileStatement).body);
-        return;
-      case "WithStatement":
-        visitExpression((statement as WithStatement).object);
-        visitStatement((statement as WithStatement).body);
-        return;
-      case "LabeledStatement":
-        visitStatement((statement as LabeledStatement).body);
-        return;
-      case "DoWhileStatement":
-        visitStatement((statement as DoWhileStatement).body);
-        visitExpression((statement as DoWhileStatement).condition);
-        return;
-      case "ForStatement":
-        if ((statement as ForStatement).initializer?.kind === "VarStatement") {
-          visitStatement((statement as ForStatement).initializer as Statement);
-        } else if ((statement as ForStatement).initializer) {
-          visitExpression((statement as ForStatement).initializer as Expr);
-        }
-        if ((statement as ForStatement).iterator?.kind === "VarStatement") {
-          visitStatement((statement as ForStatement).iterator as Statement);
-        } else if ((statement as ForStatement).iterator?.kind !== "Identifier" && (statement as ForStatement).iterator) {
-          visitExpression((statement as ForStatement).iterator as Expr);
-        }
-        if ((statement as ForStatement).iterable) {
-          visitExpression((statement as ForStatement).iterable!);
-        }
-        if ((statement as ForStatement).condition) {
-          visitExpression((statement as ForStatement).condition!);
-        }
-        if ((statement as ForStatement).update) {
-          visitExpression((statement as ForStatement).update!);
-        }
-        visitStatement((statement as ForStatement).body);
-        return;
-      case "SwitchStatement":
-        visitExpression((statement as SwitchStatement).discriminant);
-        for (const switchCase of (statement as SwitchStatement).cases) {
-          if (switchCase.test) {
-            visitExpression(switchCase.test);
-          }
-          for (const child of switchCase.consequent) {
-            visitStatement(child);
-          }
-        }
-        return;
-      case "TryStatement":
-        for (const child of (statement as TryStatement).tryBlock.body) {
-          visitStatement(child);
-        }
-        if ((statement as TryStatement).catchClause) {
-          for (const child of (statement as TryStatement).catchClause!.body.body) {
-            visitStatement(child);
-          }
-        }
-        if ((statement as TryStatement).finallyBlock) {
-          for (const child of (statement as TryStatement).finallyBlock!.body) {
-            visitStatement(child);
-          }
-        }
-        return;
-      default:
-        return;
-    }
-  };
-
-  for (const statement of ast.body) {
-    visitStatement(statement);
-  }
+  });
 
   const resolvedBest = best as FindAssignmentResult | null;
-  if (resolvedBest) {
-    return resolvedBest.assignment;
-  }
-  return null;
+  return resolvedBest?.assignment ?? null;
 }
 
 function buildMemberTypeEdit(
