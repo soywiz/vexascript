@@ -299,7 +299,7 @@ class Counter(val value: int) {
 }
 ```
 
-The same implicit receiver lookup is available inside extension methods and extension properties. Extension methods emit implicit members with `this.`, while extension-property arrow functions use their generated receiver parameter:
+The same implicit receiver lookup is available inside extension methods and extension properties. Extension members are emitted as standalone receiver-mangled functions whose first parameter is the receiver (`$this`), so both implicit members and `this` resolve to that generated receiver parameter:
 
 ```my
 fun Counter.doubled(): int { return value + value }
@@ -320,14 +320,22 @@ class Point(val x: number, val y: number) {
 let c = a + b // emits as a.operator$plus$$Point(b) when a is Point
 ```
 
-Binary operators may also be declared as extension methods by placing the receiver type before `.operator`. Extension operators are installed on the receiver prototype and participate in the same type-directed lowering:
+Binary operators may also be declared as extension methods by placing the receiver type before `.operator`. Unlike class operators (which stay prototype methods), extension members — operators, named methods and properties — are emitted as standalone functions whose mangled runtime name begins with the receiver type and whose first argument is the receiver. They participate in the same type-directed lowering:
 
 ```my
 fun Point.operator+(other: Point): Point {
   return new Point(this.x + other.x, this.y + other.y)
 }
 
-let c = a + b // emits as a.operator$plus$$Point(b)
+let c = a + b // emits as Point$$operator$plus$$Point(a, b)
+```
+
+Named extension methods follow the same scheme, so a call lowers to a plain function call with the receiver passed first:
+
+```my
+fun Counter.doubled(): int { return value + value }
+
+let n = counter.doubled() // emits as Counter$$doubled$$void(counter)
 ```
 
 ### Extension properties

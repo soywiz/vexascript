@@ -51,9 +51,9 @@ describe("bundleModuleGraph", () => {
         const result = bundleModuleGraph(join(dir, "main.my"), "conservative");
 
         expect(result.errors).toEqual([]);
-        expect(result.code).toContain("Point.prototype.operator$plus$$Point = function(other)");
+        expect(result.code).toContain("function Point$$operator$plus$$Point($this, other)");
         expect(result.code).toContain(
-          "const sum = new Point(1, 2).operator$plus$$Point(new Point(3, 4));"
+          "const sum = Point$$operator$plus$$Point(new Point(1, 2), new Point(3, 4));"
         );
       }
     );
