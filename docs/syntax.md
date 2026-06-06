@@ -1153,9 +1153,10 @@ try {
 
 ### Builtin types and assignability
 
-- Builtin types: `int`, `number`, `string`, `boolean`, `bigint`, `long`, `void`, `null`, `undefined`, `any`, `unknown`, `never`, `object`, `symbol`.
+- Builtin types: `int`, `number`, `numeric`, `string`, `boolean`, `bigint`, `long`, `void`, `null`, `undefined`, `any`, `unknown`, `never`, `object`, `symbol`.
 - `int` is assignable to `number`.
 - `long` is assignable to `bigint`.
+- `numeric` is the common supertype of the integer family (`int`/`number`) and the big-integer family (`long`/`bigint`); `int`, `number`, `long`, and `bigint` are all assignable to `numeric`. The numeric tower is `numeric -> number -> int` and `numeric -> bigint -> long`.
 - `any` is assignable to and from all types.
 - `never` is assignable to all types.
 - All types are assignable to `unknown`.
@@ -1195,6 +1196,7 @@ try {
 - When an array literal is checked against an expected array type, that element type is used as context for nested generic calls.
 - When an array literal is checked against an expected tuple type, each tuple element type is used as context for the corresponding array element.
 - Homogeneous arrays infer typed arrays, for example `int[]`.
+- Mixed element types unify to their common supertype. Members of the numeric tower unify to `numeric`, so `[10, 10L]` (an `int` and a `long`) infers `numeric[]`.
 - Mixed incompatible arrays fall back to `unknown[]`.
 - An array variable whose element type is still unknown (for example `const array: unknown[] = []` or `let xs = []`) evolves its element type from the first `push`/`unshift` mutation, so `array.push(10)` refines the inferred type of `array` to `int[]`.
 - Object literals checked against an expected object, class, or interface type use matching property types as context for nested generic calls.

@@ -38,6 +38,7 @@ import {
 const BUILTIN_TYPE_NAMES = new Set([
   "int",
   "number",
+  "numeric",
   "string",
   "boolean",
   "bigint",
@@ -895,6 +896,12 @@ export function isTypeAssignableByName(sourceType: string, targetType: string): 
     return true;
   }
   if (sourceType === "long" && targetType === "bigint") {
+    return true;
+  }
+  if (
+    targetType === "numeric" &&
+    (sourceType === "int" || sourceType === "number" || sourceType === "long" || sourceType === "bigint")
+  ) {
     return true;
   }
   return false;
