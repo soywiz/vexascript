@@ -1109,7 +1109,7 @@ let after = bind`));
 
     const symbols = symbolsOfVisibleSymbolsAt(source, 3, 3);
     expect(symbols.get("nums")?.valueType).toBe("int[]");
-    expect(symbols.get("mixed")?.valueType).toBe("unknown[]");
+    expect(symbols.get("mixed")?.valueType).toBe("any[]");
   });
 
   it("unifies the integer and big-integer numeric families to numeric in array literals", () => {
@@ -1117,19 +1117,22 @@ let after = bind`));
       let mixedNumeric = [10, 10L]
       let intsAndDecimals = [1, 2.5]
       let longsAndBigints = [10L, 10n]
+      let incompatible = [10, "string"]
       fun demo() {
         return mixedNumeric
       }
 
 `;
 
-    const symbols = symbolsOfVisibleSymbolsAt(source, 4, 3);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 5, 3);
     // `int` (10) and `long` (10L) share the common supertype `numeric`.
     expect(symbols.get("mixedNumeric")?.valueType).toBe("numeric[]");
     // `int` widens to `number`, both within the integer family.
     expect(symbols.get("intsAndDecimals")?.valueType).toBe("number[]");
     // `long` widens to `bigint`, both within the big-integer family.
     expect(symbols.get("longsAndBigints")?.valueType).toBe("bigint[]");
+    // Genuinely incompatible elements fall back to `any[]`, not `unknown[]`.
+    expect(symbols.get("incompatible")?.valueType).toBe("any[]");
   });
 
   it("evolves an unknown array element type from push", () => {

@@ -3987,8 +3987,9 @@ export class TypeChecker {
    * Computes the most specific common supertype of two types for type
    * unification (for example, when inferring the element type of an array
    * literal). When neither type is assignable to the other but both belong to
-   * the numeric tower, the common supertype is `numeric`. Otherwise it falls
-   * back to `unknown`.
+   * the numeric tower, the common supertype is `numeric`. Otherwise, when the
+   * types are genuinely incompatible (for example `int` and `string`), it falls
+   * back to `any` so the resulting array stays usable.
    */
   private commonSupertype(a: AnalysisType, b: AnalysisType): AnalysisType {
     if (this.isTypeAssignable(a, b)) {
@@ -4000,7 +4001,7 @@ export class TypeChecker {
     if (this.isNumericFamilyType(a) && this.isNumericFamilyType(b)) {
       return builtinType("numeric");
     }
-    return UNKNOWN_TYPE;
+    return builtinType("any");
   }
 
   private contextualLiteralType(literal: AnalysisType, expectedType?: AnalysisType): AnalysisType | null {

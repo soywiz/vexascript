@@ -1197,6 +1197,6 @@ try {
 - When an array literal is checked against an expected tuple type, each tuple element type is used as context for the corresponding array element.
 - Homogeneous arrays infer typed arrays, for example `int[]`.
 - Mixed element types unify to their common supertype. Members of the numeric tower unify to `numeric`, so `[10, 10L]` (an `int` and a `long`) infers `numeric[]`.
-- Mixed incompatible arrays fall back to `unknown[]`.
+- Mixed incompatible arrays (with no common supertype, for example `[10, "string"]`) fall back to `any[]`.
 - An array variable whose element type is still unknown (for example `const array: unknown[] = []` or `let xs = []`) evolves its element type from the first `push`/`unshift` mutation, so `array.push(10)` refines the inferred type of `array` to `int[]`.
 - Object literals checked against an expected object, class, or interface type use matching property types as context for nested generic calls.
