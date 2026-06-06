@@ -229,14 +229,14 @@ let after = bind`));
     expect(messages.filter((message) => message === awaitMessage)).toHaveLength(3);
   });
 
-  it("allows the go operator only inside async-like (async or sync) functions", () => {
+  it("allows the go operator only inside sync functions", () => {
     const source = dedent`
       declare function promised(): Promise<int>
       sync function okSync(): int {
         let p: Promise<int> = go promised()
         return 1
       }
-      async function okAsync() {
+      async function badAsync() {
         let p: Promise<int> = go promised()
       }
       function badNormal() {
@@ -250,10 +250,9 @@ let after = bind`));
     const analysis = new Analysis(ast);
     const messages = analysis.getIssues().map((issue) => issue.message);
 
-    const goMessage = "The 'go' operator is only allowed inside async or sync functions";
+    const goMessage = "The 'go' operator is only allowed inside sync functions";
     expect(messages).toContain(goMessage);
-    // Only the normal function and the top-level use are errors; sync and async are allowed.
-    expect(messages.filter((message) => message === goMessage)).toHaveLength(2);
+    expect(messages.filter((message) => message === goMessage)).toHaveLength(3);
   });
 
   it("uses the final comma expression operand as the expression type", () => {

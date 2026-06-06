@@ -47,7 +47,7 @@ describe("bundleModuleGraph", () => {
           "fun delay(time: TimeSpan) => new Promise((resolve, reject) => { setTimeout(resolve, time.ms) })\n",
         "main.my":
           'import { delay, seconds } from "./dep"\n' +
-          "async fun demo() {\n" +
+          "sync fun demo() {\n" +
           "  delay(1.seconds)\n" +
           "  delay(2.seconds)\n" +
           "}\n" +

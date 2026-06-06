@@ -32,7 +32,7 @@ describe("auto-await decorations", () => {
     expect(decorations[0]!.message).toContain("Implicit await");
   });
 
-  it("marks lines where a Promise is implicitly awaited inside an async function", () => {
+  it("does not auto-await inside an async function (async behaves like TypeScript)", () => {
     const source =
       "async fun fetchValue(): Promise<int> { return 1 }\n" +
       "async fun main(): Promise<void> {\n" +
@@ -46,8 +46,8 @@ describe("auto-await decorations", () => {
       end: { line: 20, character: 0 }
     });
 
-    expect(decorations.map((decoration) => decoration.range.start.line)).toEqual([2, 3]);
-    expect(decorations[0]!.message).toContain("Implicit await");
+    // Auto-await is a `sync`-only feature; `async` requires explicit `await`.
+    expect(decorations).toEqual([]);
   });
 
   it("emits a single decoration per line even with multiple auto-awaited expressions", () => {
@@ -114,7 +114,7 @@ describe("auto-await decorations", () => {
       "fun delay(time: TimeSpan) => new Promise((resolve, reject) => { setTimeout(resolve, time.ms) })\n";
     const mainSource =
       "import { delay, seconds } from \"./dep\"\n" +
-      "async fun demo() {\n" +
+      "sync fun demo() {\n" +
       "  delay(1.seconds)\n" +
       "  delay(2.seconds)\n" +
       "}\n";

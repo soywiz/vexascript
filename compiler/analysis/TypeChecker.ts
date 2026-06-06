@@ -208,6 +208,12 @@ export class TypeChecker {
     }
   }
 
+  // True when the innermost enclosing function is `sync`. Auto-await and the `go` opt-out are only
+  // meaningful inside `sync` functions (Kotlin-suspend-like); `async` behaves like TypeScript.
+  private isInsideSyncFunction(): boolean {
+    return this.syncFunctionStack[this.syncFunctionStack.length - 1] === true;
+  }
+
   private withSyncFunction<T>(isSync: boolean, run: () => T): T {
     this.syncFunctionStack.push(isSync);
     try {
@@ -1262,12 +1268,12 @@ export class TypeChecker {
           break;
         }
         if (unary.operator === "go") {
-          // `go expr` opts out of pervasive auto-await and yields the underlying Promise unchanged.
-          // It is only meaningful inside async-like (async or sync) functions, where auto-await
-          // happens: not in normal functions, and not at the top level.
-          if (!this.isInsideAsyncLikeFunction()) {
+          // `go expr` opts out of sync auto-await and yields the underlying Promise unchanged.
+          // It is only meaningful inside sync functions: not in normal or async functions, and
+          // not at the top level.
+          if (!this.isInsideSyncFunction()) {
             this.issues.push({
-              message: "The 'go' operator is only allowed inside async or sync functions",
+              message: "The 'go' operator is only allowed inside sync functions",
               node: expression,
               code: ANALYSIS_ISSUE_CODES.GO_OUTSIDE_SYNC
             });
@@ -1458,16 +1464,16 @@ export class TypeChecker {
         break;
     }
 
-    // Pervasive auto-await: inside an async-like (`async` or `sync`) function body, any expression
+    // Pervasive auto-await: inside a `sync` function body (Kotlin-suspend-like), any expression
     // that evaluates to a Promise is implicitly awaited wherever it is used as a value (call
-    // arguments, operands, initializers, ...). Callers (and tooling such as hover/inlay hints)
-    // observe the unwrapped value type, while the set of auto-awaited nodes tells the emitter where
-    // to insert `await`. `go expr` opts out (it is never added here), and positions such as
-    // `await`/`go` operands, `.then`-style member receivers and `return` expressions pass
-    // `suppressAutoAwait`.
+    // arguments, operands, initializers, ...). `async` functions behave like TypeScript and require
+    // explicit `await`. Callers (and tooling such as hover/inlay hints) observe the unwrapped value
+    // type, while the set of auto-awaited nodes tells the emitter where to insert `await`. `go expr`
+    // opts out (it is never added here), and positions such as `await`/`go` operands, `.then`-style
+    // member receivers and `return` expressions pass `suppressAutoAwait`.
     if (
       !suppressAutoAwait &&
-      this.isInsideAsyncLikeFunction() &&
+      this.isInsideSyncFunction() &&
       !this.isGoExpression(expression) &&
       !this.isLocalValueReference(expression, scope) &&
       result.kind === "named" &&

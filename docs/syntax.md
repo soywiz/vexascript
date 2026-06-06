@@ -66,23 +66,14 @@ In `async` functions, return expressions are checked against the inner `Promise<
 
 `await` is only allowed at the top level (module/global scope) and inside `async` or `sync` functions. Using `await` inside a normal (non-`async`/`sync`) function or a normal generator is a semantic error (`AWAIT_OUTSIDE_ASYNC`).
 
-### Pervasive auto-await (`async` and `sync` functions)
-
-Inside the body of any async-like function — both `async` and `sync` — **any** subexpression whose type is `Promise<T>` is **automatically awaited** wherever it is used as a value, and its observed type becomes `T`. This applies everywhere — expression statements, variable initializers, assignment right-hand sides, call arguments, operands, array/object elements, and member receivers. Writing `await` explicitly is still allowed and behaves the same; the implicit await simply makes it unnecessary in most positions. Use the `go` operator (see below) to opt out and keep the underlying `Promise<T>`.
-
-This works for Promise-returning functions imported from other files too, including functions whose `Promise` return type is inferred from their body rather than annotated — the imported value's type is resolved from its declaring file, so calling it inside an async-like function auto-awaits just like a local call.
-
-```mylang
-async fun main(): Promise<void> {
-  let x = fetchValue()                 // let x = await fetchValue();   -> x: int
-  fetchValue()                         // await fetchValue();
-  use(fetchValue(), fetchValue() + 1)  // use(await fetchValue(), (await fetchValue()) + 1);
-}
-```
+`async` functions behave exactly like TypeScript: Promise-typed expressions are **not** implicitly awaited, so you write `await` explicitly. Pervasive auto-await is exclusive to `sync` functions (described below), which model Kotlin-style suspend functions.
 
 ### `sync` functions (implicit await)
 
-The `sync` modifier declares a function that behaves like `async` internally (it is emitted as a JavaScript `async function` and may use `await`), but with one ergonomic difference: the return type is written **without** the `Promise<...>` wrapper. `sync fun load(): Response` is internally an async function returning `Promise<Response>`; from the outside (and from other functions) the call is observed as `Promise<Response>`, so it participates in auto-await just like any other Promise. The pervasive auto-await described above applies identically to `sync` and `async` bodies.
+The `sync` modifier declares a function that behaves like `async` internally (it is emitted as a JavaScript `async function` and may use `await`), but with two ergonomic differences:
+
+- The return type is written **without** the `Promise<...>` wrapper. `sync fun load(): Response` is internally an async function returning `Promise<Response>`; from the outside (and from other functions) the call is observed as `Promise<Response>`, so it participates in auto-await just like any other Promise.
+- Inside a `sync` function body, **any** subexpression whose type is `Promise<T>` is **automatically awaited** wherever it is used as a value, and its observed type becomes `T`. This applies everywhere — expression statements, variable initializers, assignment right-hand sides, call arguments, operands, array/object elements, and member receivers. This also works for Promise-returning functions imported from other files, including functions whose `Promise` return type is inferred from their body rather than annotated — the imported value's type is resolved from its declaring file, so calling it inside a `sync` function auto-awaits just like a local call.
 
 ```mylang
 sync fun fetchValue(): int {
@@ -128,7 +119,7 @@ sync fun main(): void {
 
 `go` is contextual: it only acts as the no-await operator when an operand follows on the same line. Otherwise it remains a normal identifier, so existing code using `go` as a variable or function name keeps working.
 
-Because `go` only has meaning where implicit auto-await happens, it is only allowed inside async-like (`async` or `sync`) functions. Using `go` inside a normal function or at the top level is a semantic error (`GO_OUTSIDE_SYNC`).
+Because `go` only has meaning where implicit auto-await happens, it is only allowed inside `sync` functions. Using `go` inside a normal or `async` function, or at the top level, is a semantic error (`GO_OUTSIDE_SYNC`).
 
 A TypeScript `this` parameter may appear first in a function-like parameter list for type analysis. It is erased during JavaScript emission:
 
