@@ -26,6 +26,7 @@ import type {
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE, unionType, BUILTIN_TYPE_NAMES } from "./types";
+import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText } from "./typeNames";
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
@@ -743,9 +744,100 @@ export class Binder {
     const typeName =
       typeAnnotation.kind === "TypeReference" ? typeAnnotation.name.name : typeAnnotation.name;
 
-    if (BUILTIN_TYPE_NAMES.has(typeName)) {
-      return builtinType(typeName as BuiltinTypeName);
+    const functionAnnotation = this.functionTypeFromAnnotationText(typeName);
+    if (functionAnnotation) {
+      return functionAnnotation;
     }
-    return namedType(typeName);
+
+    const parsed = parseTypeNameShape(typeName);
+    if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
+      return builtinType(parsed.baseName as BuiltinTypeName);
+    }
+    return namedType(
+      parsed.baseName,
+      parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
+    );
+  }
+
+  private typeFromTypeNameLoose(typeName: string): AnalysisType {
+    const functionAnnotation = this.functionTypeFromAnnotationText(typeName);
+    if (functionAnnotation) {
+      return functionAnnotation;
+    }
+    const parsed = parseTypeNameShape(typeName);
+    if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
+      return builtinType(parsed.baseName as BuiltinTypeName);
+    }
+    return namedType(
+      parsed.baseName,
+      parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
+    );
+  }
+
+  private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {
+    const parsed = this.parseFunctionTypeAnnotation(typeName);
+    if (!parsed) {
+      return null;
+    }
+    return functionType(
+      parsed.parameters.map((parameter) => ({
+        name: parameter.name,
+        type: this.typeFromTypeNameLoose(parameter.typeName),
+        ...(parameter.optional ? { optional: true } : {}),
+        ...(parameter.rest ? { rest: true } : {})
+      })),
+      this.typeFromTypeNameLoose(parsed.returnTypeName)
+    );
+  }
+
+  private parseFunctionTypeAnnotation(typeName: string): {
+    parameters: Array<{ name: string; typeName: string; optional?: boolean; rest?: boolean }>;
+    returnTypeName: string;
+  } | null {
+    const trimmed = typeName.trim();
+    if (!trimmed.startsWith("(")) {
+      return null;
+    }
+    const closeParenIndex = findMatchingTypeDelimiter(trimmed, 0, "(", ")");
+    if (closeParenIndex < 0) {
+      return null;
+    }
+    const afterParameters = trimmed.slice(closeParenIndex + 1).trimStart();
+    if (!afterParameters.startsWith("=>")) {
+      return null;
+    }
+    const parameterBody = trimmed.slice(1, closeParenIndex).trim();
+    const parameters = parameterBody.length === 0
+      ? []
+      : splitTopLevelDelimitedTypeText(parameterBody).map((part, index) => {
+          let text = part.trim();
+          let rest = false;
+          if (text.startsWith("...")) {
+            rest = true;
+            text = text.slice(3).trim();
+          }
+          const colonIndex = findTopLevelTypeCharacter(text, ":");
+          if (colonIndex < 0) {
+            return {
+              name: `arg${index + 1}`,
+              typeName: text.length > 0 ? text : "unknown",
+              ...(rest ? { rest: true } : {})
+            };
+          }
+          let name = text.slice(0, colonIndex).trim();
+          const nestedTypeName = text.slice(colonIndex + 1).trim();
+          let optional = false;
+          if (name.endsWith("?")) {
+            optional = true;
+            name = name.slice(0, -1).trim();
+          }
+          return {
+            name: name.length > 0 ? name : `arg${index + 1}`,
+            typeName: nestedTypeName.length > 0 ? nestedTypeName : "unknown",
+            ...(optional ? { optional: true } : {}),
+            ...(rest ? { rest: true } : {})
+          };
+        });
+    return { parameters, returnTypeName: afterParameters.slice(2).trim() };
   }
 }
