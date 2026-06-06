@@ -1,3 +1,4 @@
+import { Point, seconds, TimeSpan, operator+, delay } from "./other"
 declare class Console {
     log(...a: any[])
 }
@@ -23,23 +24,6 @@ fun demoGenerics() {
     const map = new Map<string, int>()
     map.a
     map.get("id")
-}
-
-class Point(val x: number, val y: number)
-
-fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)
-fun Point.operator-(other: Point) => Point(x - other.x, y - other.y)
-
-class TimeSpan(val ms: number) {
-}
-
-val number.seconds => TimeSpan(this * 1000.0)
-val number.milliseconds => TimeSpan(this)
-
-fun delay(time: TimeSpan) {
-  return new Promise({ resolve, reject ->
-    setTimeout(resolve, time.ms)
-  })
 }
 
 console.log("[a]")

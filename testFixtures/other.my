@@ -1,1 +1,18 @@
 // temp
+class Point(val x: number, val y: number)
+
+class TimeSpan(val ms: number) {
+}
+
+val number.seconds => TimeSpan(this * 1000.0)
+val number.milliseconds => TimeSpan(this)
+
+
+fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)
+fun Point.operator-(other: Point) => Point(x - other.x, y - other.y)
+
+fun delay(time: TimeSpan) {
+  return new Promise({ resolve, reject ->
+    setTimeout(resolve, time.ms)
+  })
+}
