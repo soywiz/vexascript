@@ -1948,6 +1948,12 @@ export class TypeChecker {
       return true;
     }
 
+    // `numeric` is the common supertype of the integer (`int`/`number`) and
+    // big-integer (`long`/`bigint`) numeric families.
+    if (this.isNumericType(targetType) && this.isNumericFamilyType(sourceType)) {
+      return true;
+    }
+
     return false;
     } finally {
       this.assignabilityChecksInProgress.delete(assignabilityKey);
@@ -3961,6 +3967,43 @@ export class TypeChecker {
       (type.kind === "literal" && type.base === "number");
   }
 
+  private isNumericType(type: AnalysisType): boolean {
+    return type.kind === "builtin" && type.name === "numeric";
+  }
+
+  /**
+   * Whether a type belongs to the numeric tower rooted at `numeric`:
+   * `numeric` itself, the integer family (`int`/`number` and numeric literals)
+   * and the big-integer family (`long`/`bigint`).
+   */
+  private isNumericFamilyType(type: AnalysisType): boolean {
+    return this.isNumericType(type) ||
+      this.isNumberType(type) ||
+      this.isLongType(type) ||
+      this.isBigIntType(type);
+  }
+
+  /**
+   * Computes the most specific common supertype of two types for type
+   * unification (for example, when inferring the element type of an array
+   * literal). When neither type is assignable to the other but both belong to
+   * the numeric tower, the common supertype is `numeric`. Otherwise, when the
+   * types are genuinely incompatible (for example `int` and `string`), it falls
+   * back to `any` so the resulting array stays usable.
+   */
+  private commonSupertype(a: AnalysisType, b: AnalysisType): AnalysisType {
+    if (this.isTypeAssignable(a, b)) {
+      return b;
+    }
+    if (this.isTypeAssignable(b, a)) {
+      return a;
+    }
+    if (this.isNumericFamilyType(a) && this.isNumericFamilyType(b)) {
+      return builtinType("numeric");
+    }
+    return builtinType("any");
+  }
+
   private contextualLiteralType(literal: AnalysisType, expectedType?: AnalysisType): AnalysisType | null {
     if (!expectedType || literal.kind !== "literal") {
       return null;
@@ -4008,15 +4051,7 @@ export class TypeChecker {
         continue;
       }
 
-      if (this.isTypeAssignable(currentType, inferredElementType)) {
-        continue;
-      }
-      if (this.isTypeAssignable(inferredElementType, currentType)) {
-        inferredElementType = currentType;
-        continue;
-      }
-
-      inferredElementType = UNKNOWN_TYPE;
+      inferredElementType = this.commonSupertype(inferredElementType, currentType);
     }
 
     return arrayType(inferredElementType ?? UNKNOWN_TYPE);

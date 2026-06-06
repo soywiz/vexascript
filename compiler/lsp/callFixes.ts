@@ -235,6 +235,7 @@ function toTypeAnnotation(type: AnalysisType | undefined): string | null {
     if (
       type.name === "int" ||
       type.name === "number" ||
+      type.name === "numeric" ||
       type.name === "string" ||
       type.name === "boolean" ||
       type.name === "bigint" ||

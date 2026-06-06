@@ -161,6 +161,7 @@ const KEYWORDS = new Set([
   "instanceof",
   "int",
   "number",
+  "numeric",
   "string",
   "boolean",
   "bigint",

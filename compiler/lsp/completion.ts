@@ -106,6 +106,7 @@ const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "debugger", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "int", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "number", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
+  { label: "numeric", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "bigint", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "long", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
   { label: "string", kind: CompletionItemKind.Keyword, detail: "Builtin type" },
@@ -999,6 +1000,12 @@ function isAssignableTypeName(sourceType: string, targetType: string): boolean {
     return true;
   }
   if (sourceType === "long" && targetType === "bigint") {
+    return true;
+  }
+  if (
+    targetType === "numeric" &&
+    (sourceType === "int" || sourceType === "number" || sourceType === "long" || sourceType === "bigint")
+  ) {
     return true;
   }
   return false;

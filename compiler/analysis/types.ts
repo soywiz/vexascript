@@ -1,6 +1,7 @@
 export type BuiltinTypeName =
   | "int"
   | "number"
+  | "numeric"
   | "string"
   | "boolean"
   | "bigint"
@@ -23,6 +24,7 @@ export type BuiltinTypeName =
 export const BUILTIN_TYPE_NAMES: ReadonlySet<string> = new Set<BuiltinTypeName>([
   "int",
   "number",
+  "numeric",
   "string",
   "boolean",
   "bigint",
@@ -114,6 +116,7 @@ export const UNKNOWN_TYPE: AnalysisType = { kind: "unknown" };
 export const BUILTIN_TYPES: Record<BuiltinTypeName, BuiltinType> = {
   int: { kind: "builtin", name: "int" },
   number: { kind: "builtin", name: "number" },
+  numeric: { kind: "builtin", name: "numeric" },
   string: { kind: "builtin", name: "string" },
   boolean: { kind: "builtin", name: "boolean" },
   bigint: { kind: "builtin", name: "bigint" },
