@@ -12,6 +12,7 @@ interface GenericAngleClassification {
 }
 
 const INDENT = "  ";
+const IMPORT_PRINT_WIDTH = 80;
 
 const MULTI_CHAR_SYMBOLS = [
   ">>>=",
@@ -643,6 +644,261 @@ function detectGenericAngleRoles(tokens: FormatToken[]): GenericAngleClassificat
   return { emittedOverrides, roles, inside };
 }
 
+interface CollectedImportStatement {
+  stmt: FormatToken[];
+  hasSemicolon: boolean;
+  endIndex: number;
+}
+
+function isImportStatementStart(tokens: FormatToken[], index: number): boolean {
+  const token = tokens[index];
+  if (!token || token.type !== "identifier" || token.value !== "import") {
+    return false;
+  }
+  const next = nextNonNewlineToken(tokens, index);
+  if (!next) {
+    return false;
+  }
+  // `import.meta` and dynamic `import(...)` are expressions, not import statements.
+  if (next.type === "symbol" && (next.value === "." || next.value === "(")) {
+    return false;
+  }
+  return true;
+}
+
+function collectImportStatement(tokens: FormatToken[], start: number): CollectedImportStatement | null {
+  const stmt: FormatToken[] = [];
+  let specifierIndex = -1;
+  let cursor = start;
+  while (cursor < tokens.length) {
+    const token = tokens[cursor];
+    if (!token) {
+      cursor += 1;
+      continue;
+    }
+    if (token.type === "newline") {
+      cursor += 1;
+      continue;
+    }
+    // Comments inside an import statement are rare; fall back to generic formatting
+    // so their content is preserved rather than dropped.
+    if (token.type === "commentLine" || token.type === "commentBlock") {
+      return null;
+    }
+    if (token.type === "string") {
+      stmt.push(token);
+      specifierIndex = cursor;
+      break;
+    }
+    // A terminator before the module specifier means this is not a well-formed import.
+    if (token.type === "symbol" && token.value === ";") {
+      return null;
+    }
+    stmt.push(token);
+    cursor += 1;
+  }
+
+  if (specifierIndex < 0) {
+    return null;
+  }
+
+  let endIndex = specifierIndex;
+  let hasSemicolon = false;
+  for (let look = specifierIndex + 1; look < tokens.length; look += 1) {
+    const token = tokens[look];
+    if (!token) {
+      continue;
+    }
+    if (token.type === "newline") {
+      break;
+    }
+    if (token.type === "symbol" && token.value === ";") {
+      hasSemicolon = true;
+      endIndex = look;
+    }
+    break;
+  }
+
+  return { stmt, hasSemicolon, endIndex };
+}
+
+function renderImportItem(itemTokens: FormatToken[]): string {
+  let text = "";
+  let sawOperatorKeyword = false;
+  for (let index = 0; index < itemTokens.length; index += 1) {
+    const token = itemTokens[index];
+    if (!token) {
+      continue;
+    }
+    if (text === "") {
+      text += token.value;
+    } else if (sawOperatorKeyword) {
+      // Operator names such as `operator+` keep their symbols attached.
+      text += token.value;
+    } else {
+      text += ` ${token.value}`;
+    }
+    if (token.type === "identifier" && token.value === "operator") {
+      sawOperatorKeyword = true;
+    }
+  }
+  return text;
+}
+
+function renderImportClauseOutside(tokens: FormatToken[]): string {
+  let out = "";
+  for (const token of tokens) {
+    if (token.type === "symbol" && token.value === ",") {
+      out = `${out.replace(/\s+$/g, "")}, `;
+      continue;
+    }
+    if (out === "" || out.endsWith(" ")) {
+      out += token.value;
+    } else {
+      out += ` ${token.value}`;
+    }
+  }
+  return out;
+}
+
+function splitImportNamedItems(innerTokens: FormatToken[]): FormatToken[][] {
+  const items: FormatToken[][] = [];
+  let current: FormatToken[] = [];
+  for (const token of innerTokens) {
+    if (token.type === "symbol" && token.value === ",") {
+      if (current.length > 0) {
+        items.push(current);
+      }
+      current = [];
+      continue;
+    }
+    current.push(token);
+  }
+  if (current.length > 0) {
+    items.push(current);
+  }
+  return items;
+}
+
+function formatImportStatementText(collected: CollectedImportStatement): string {
+  const { stmt, hasSemicolon } = collected;
+  const semicolon = hasSemicolon ? ";" : "";
+  const specifier = stmt[stmt.length - 1];
+  if (!specifier) {
+    return "";
+  }
+
+  let clauseStartIndex = 1;
+  const second = stmt[1];
+  const isType =
+    !!second &&
+    second.type === "identifier" &&
+    second.value === "type" &&
+    !(stmt[2]?.type === "identifier" && stmt[2].value === "from");
+  if (isType) {
+    clauseStartIndex = 2;
+  }
+  const typePrefix = isType ? "type " : "";
+
+  let fromIndex = -1;
+  for (let index = clauseStartIndex; index < stmt.length - 1; index += 1) {
+    const token = stmt[index];
+    if (token && token.type === "identifier" && token.value === "from") {
+      fromIndex = index;
+      break;
+    }
+  }
+
+  // Side-effect import: `import "module"`.
+  if (fromIndex < 0) {
+    return `import ${specifier.value}${semicolon}`;
+  }
+
+  const clauseTokens = stmt.slice(clauseStartIndex, fromIndex);
+  let braceOpen = -1;
+  let braceClose = -1;
+  for (let index = 0; index < clauseTokens.length; index += 1) {
+    const token = clauseTokens[index];
+    if (token && token.type === "symbol" && token.value === "{") {
+      braceOpen = index;
+      break;
+    }
+  }
+  if (braceOpen >= 0) {
+    let depth = 0;
+    for (let index = braceOpen; index < clauseTokens.length; index += 1) {
+      const token = clauseTokens[index];
+      if (token && token.type === "symbol" && token.value === "{") {
+        depth += 1;
+      } else if (token && token.type === "symbol" && token.value === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          braceClose = index;
+          break;
+        }
+      }
+    }
+  }
+
+  if (braceOpen < 0 || braceClose < 0) {
+    // No named imports (default and/or namespace only): always a single line.
+    const clause = renderImportClauseOutside(clauseTokens);
+    return `import ${typePrefix}${clause} from ${specifier.value}${semicolon}`;
+  }
+
+  const beforeBrace = clauseTokens.slice(0, braceOpen);
+  const innerTokens = clauseTokens.slice(braceOpen + 1, braceClose);
+  const afterBrace = clauseTokens.slice(braceClose + 1);
+  const items = splitImportNamedItems(innerTokens).map(renderImportItem);
+  const beforeText = renderImportClauseOutside(beforeBrace);
+  const afterText = renderImportClauseOutside(afterBrace);
+  const namedBlock = items.length > 0 ? `{ ${items.join(", ")} }` : "{}";
+  const clause = `${beforeText}${namedBlock}${afterText ? ` ${afterText}` : ""}`;
+  const singleLine = `import ${typePrefix}${clause} from ${specifier.value}${semicolon}`;
+
+  if (items.length === 0 || singleLine.length <= IMPORT_PRINT_WIDTH) {
+    return singleLine;
+  }
+
+  // Too long: wrap the named bindings one per line, TypeScript-style.
+  const bracePrefix = `import ${typePrefix}${beforeText}{`;
+  const suffix = `}${afterText ? ` ${afterText}` : ""} from ${specifier.value}${semicolon}`;
+  const lines = [bracePrefix];
+  for (const item of items) {
+    lines.push(`${INDENT}${item},`);
+  }
+  lines.push(suffix);
+  return lines.join("\n");
+}
+
+interface FormattedImportBlock {
+  text: string;
+  count: number;
+  endIndex: number;
+}
+
+function formatImportBlock(tokens: FormatToken[], start: number): FormattedImportBlock | null {
+  const lines: string[] = [];
+  let cursor = start;
+  while (cursor < tokens.length && isImportStatementStart(tokens, cursor)) {
+    const collected = collectImportStatement(tokens, cursor);
+    if (!collected) {
+      break;
+    }
+    lines.push(formatImportStatementText(collected));
+    cursor = collected.endIndex + 1;
+    // Collapse any blank lines between consecutive imports so the group stays together.
+    while (cursor < tokens.length && tokens[cursor]?.type === "newline") {
+      cursor += 1;
+    }
+  }
+
+  if (lines.length === 0) {
+    return null;
+  }
+  return { text: lines.join("\n"), count: lines.length, endIndex: cursor };
+}
+
 export function formatSource(source: string): string {
   const tokens = tokenizeForFormatting(source);
   const { emittedOverrides: genericEmittedOverrides, roles: genericAngleRoles, inside: genericInsideTokens } = detectGenericAngleRoles(tokens);
@@ -710,6 +966,38 @@ export function formatSource(source: string): string {
     const token = tokens[index];
     if (!token) {
       continue;
+    }
+
+    if (
+      atLineStart &&
+      indentLevel === 0 &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      bindingBraceDepth === 0 &&
+      isImportStatementStart(tokens, index)
+    ) {
+      const block = formatImportBlock(tokens, index);
+      if (block) {
+        result = result.replace(/[ \t]+$/g, "");
+        result += block.text;
+        if (!result.endsWith("\n")) {
+          result += "\n";
+        }
+        // Always separate the import group from the rest of the code with one blank line.
+        if (block.endIndex < tokens.length) {
+          result += "\n";
+        }
+        atLineStart = true;
+        previousEmitted = undefined;
+        previousSignificant = undefined;
+        significantBeforePrevious = undefined;
+        // Suppress the declaration-spacing rule for the first line after imports,
+        // since the blank line separator was already emitted.
+        previousTopLevelLineKind = undefined;
+        currentTopLevelLineKind = undefined;
+        index = block.endIndex - 1;
+        continue;
+      }
     }
 
     if (token.type === "newline") {
