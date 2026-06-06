@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import { transpile } from "./transpile";
+import { compileSource } from "compiler/pipeline/compile";
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -385,6 +386,26 @@ describe("transpile", () => {
     expect(result.errors).toEqual([]);
     expect(result.code).toContain("Point.prototype.operator$plus$$Point = function(other) {");
     expect(result.code).toContain("let c = a.operator$plus$$Point(b);");
+  });
+
+  it("resolves cross-file classes and operators from externalDeclarations", () => {
+    const declarationSource = [
+      "class Point(val x: number, val y: number) {}",
+      "fun Point.operator+(other: Point): Point => Point(x + other.x, y + other.y)"
+    ].join("\n");
+    const externalDeclarations = compileSource(declarationSource).ast!.body;
+
+    const source = [
+      'import { Point, operator+ } from "./other"',
+      "const sum = Point(1, 2) + Point(3, 4)"
+    ].join("\n");
+
+    const result = transpile(source, { target: "conservative", externalDeclarations });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain(
+      "const sum = new Point(1, 2).operator$plus$$Point(new Point(3, 4));"
+    );
   });
 
   it("qualifies unqualified class and extension members with their receiver", () => {

@@ -62,6 +62,14 @@ export interface TranspileOptions {
   outputFilePath?: string;
   target?: TranspileTarget;
   preserveSourceLineOffsets?: boolean;
+  /**
+   * Top-level declarations imported from other files (classes, interfaces,
+   * enums, type aliases, extension methods/operators/properties and functions).
+   * They are fed to the analyzer for cross-file name/member/operator resolution
+   * and to the emitter as additional context so calls, operators and extension
+   * properties referencing imported declarations lower correctly.
+   */
+  externalDeclarations?: Statement[];
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -133,10 +141,11 @@ function emitProgramWithLineMap(
   program: Program,
   expressionTypes: ReadonlyMap<Node, AnalysisType>,
   implicitReceiverIdentifiers: ReadonlySet<Node>,
-  autoAwaitExpressions: ReadonlySet<Node>
+  autoAwaitExpressions: ReadonlySet<Node>,
+  contextProgram: Program = program
 ): { emitted: string; sourceLinesByGeneratedLine: number[] } {
   const sourceLinesByGeneratedLine: number[] = [];
-  const emittedStatements = emitProgramStatements(program, expressionTypes, program, implicitReceiverIdentifiers, autoAwaitExpressions);
+  const emittedStatements = emitProgramStatements(program, expressionTypes, contextProgram, implicitReceiverIdentifiers, autoAwaitExpressions);
 
   let emittedIndex = 0;
   for (const statement of program.body) {
@@ -144,7 +153,7 @@ function emitProgramWithLineMap(
     if (!candidate) {
       break;
     }
-    const emittedRaw = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, program, implicitReceiverIdentifiers, autoAwaitExpressions);
+    const emittedRaw = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, contextProgram, implicitReceiverIdentifiers, autoAwaitExpressions);
     const emittedStatement = emittedRaw.length > 0 ? emittedRaw[0]! : "";
     if (emittedStatement.trim().length <= 0) {
       continue;
@@ -161,13 +170,14 @@ function emitProgramWithSourceLineOffsets(
   program: Program,
   expressionTypes: ReadonlyMap<Node, AnalysisType>,
   implicitReceiverIdentifiers: ReadonlySet<Node>,
-  autoAwaitExpressions: ReadonlySet<Node>
+  autoAwaitExpressions: ReadonlySet<Node>,
+  contextProgram: Program = program
 ): string {
   const lines: string[] = [];
   let generatedLine = 0;
 
   for (const statement of program.body) {
-    const emittedSingle = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, program, implicitReceiverIdentifiers, autoAwaitExpressions);
+    const emittedSingle = emitProgramStatements({ ...program, body: [statement] }, expressionTypes, contextProgram, implicitReceiverIdentifiers, autoAwaitExpressions);
     if (emittedSingle.length <= 0) {
       continue;
     }
@@ -211,7 +221,8 @@ function createSourceMap(
 }
 
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
-  const artifacts = compileSource(source);
+  const externalDeclarations = options.externalDeclarations ?? [];
+  const artifacts = compileSource(source, {}, { externalDeclarations });
   const errors: string[] = [];
 
   if (artifacts.tokenizeError) {
@@ -246,6 +257,13 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
 
   const target = options.target ?? "optimized";
   const programForEmission = target === "conservative" ? artifacts.ast : lowerProgram(artifacts.ast);
+  // Emission collects classes, operator overloads and extension properties from
+  // a context program. Including the imported declarations lets the emitter
+  // lower calls (`Point(...)` -> `new Point(...)`), operators and extension
+  // properties that resolve to cross-file declarations.
+  const contextProgram: Program = externalDeclarations.length > 0
+    ? { ...programForEmission, body: [...externalDeclarations, ...programForEmission.body] }
+    : programForEmission;
   const expressionTypes = artifacts.analysis.getExpressionTypes();
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
   const autoAwaitExpressions = artifacts.analysis.getAutoAwaitExpressions();
@@ -253,10 +271,11 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     programForEmission,
     expressionTypes,
     implicitReceiverIdentifiers,
-    autoAwaitExpressions
+    autoAwaitExpressions,
+    contextProgram
   );
   const emittedWithOffsets = options.preserveSourceLineOffsets
-    ? emitProgramWithSourceLineOffsets(programForEmission, expressionTypes, implicitReceiverIdentifiers, autoAwaitExpressions)
+    ? emitProgramWithSourceLineOffsets(programForEmission, expressionTypes, implicitReceiverIdentifiers, autoAwaitExpressions, contextProgram)
     : emitted;
   const code = options.preserveSourceLineOffsets
     ? ensureTrailingSemicolonPreservingLines(emittedWithOffsets)
