@@ -22,6 +22,7 @@ const MULTI_CHAR_SYMBOLS = [
   ">>=",
   ">>>",
   "=>",
+  "->",
   "&&=",
   "||=",
   "??=",
@@ -56,7 +57,7 @@ const BINARY_OPERATORS = new Set([
   "...",
   "<", ">", "<=", ">=",
   "==", "!=", "===", "!==",
-  "=>",
+  "=>", "->",
   "&", "|", "^", "&&", "||",
   "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=", "&=", "|=", "&&=", "||="
   , "??="
@@ -64,6 +65,14 @@ const BINARY_OPERATORS = new Set([
 ]);
 
 const CONTROL_KEYWORDS_WITH_PAREN = new Set(["if", "for", "while", "with", "switch", "catch"]);
+// Keywords that may begin a statement inside a block body. When a `{` block opens
+// with one of these, it is a statement block rather than a lambda parameter header.
+const STATEMENT_LEADING_KEYWORDS = new Set([
+  "if", "for", "while", "with", "switch", "catch", "do", "try", "return", "throw",
+  "break", "continue", "let", "var", "val", "const", "function", "fun", "class",
+  "enum", "interface", "type", "async", "sync", "await", "yield", "new", "delete",
+  "void", "typeof", "import", "export", "case", "default", "else"
+]);
 const VARIABLE_DECLARATION_KEYWORDS = new Set(["let", "var", "val", "const"]);
 
 function isIdentifierStart(ch: string): boolean {
@@ -465,6 +474,50 @@ function shouldSpaceBefore(
   }
 
   return false;
+}
+
+// Detects whether the block opened by `{` at `openBraceIndex` is a brace lambda
+// with an explicit parameter header (e.g. `{ resolve, reject -> ... }`). Returns
+// the index of the header-terminating `->` token, or -1 when the block is not a
+// parameter-headed lambda. Mirrors the parser's tail-lambda detection: the header
+// must start with an identifier and reach a `->` at the brace's own nesting level.
+function lambdaHeaderArrowIndex(tokens: FormatToken[], openBraceIndex: number): number {
+  let firstIndex = openBraceIndex + 1;
+  while (firstIndex < tokens.length && tokens[firstIndex]?.type === "newline") {
+    firstIndex += 1;
+  }
+  const firstToken = tokens[firstIndex];
+  if (firstToken?.type !== "identifier" || STATEMENT_LEADING_KEYWORDS.has(firstToken.value)) {
+    return -1;
+  }
+
+  let nestedDelimiters = 0;
+  for (let index = openBraceIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token || token.type !== "symbol") {
+      continue;
+    }
+    if (token.value === "(" || token.value === "[" || token.value === "{") {
+      nestedDelimiters += 1;
+      continue;
+    }
+    if (token.value === ")" || token.value === "]" || token.value === "}") {
+      if (nestedDelimiters === 0) {
+        return -1;
+      }
+      nestedDelimiters -= 1;
+      continue;
+    }
+    if (nestedDelimiters === 0) {
+      if (token.value === ";") {
+        return -1;
+      }
+      if (token.value === "->") {
+        return index;
+      }
+    }
+  }
+  return -1;
 }
 
 function nextNonNewlineToken(tokens: FormatToken[], index: number): FormatToken | undefined {
@@ -910,6 +963,9 @@ export function formatSource(source: string): string {
   let bracketDepth = 0;
   let bindingBraceDepth = 0;
   let awaitingVariableBinding = false;
+  // Indices of `->` tokens that terminate a brace-lambda parameter header. The
+  // header is kept on the same line as `{`; the body break is emitted after the `->`.
+  const lambdaHeaderArrows = new Set<number>();
 
   let previousEmitted: FormatToken | undefined;
   let previousSignificant: FormatToken | undefined;
@@ -1123,6 +1179,11 @@ export function formatSource(source: string): string {
     significantBeforePrevious = previousSignificant;
     previousSignificant = token;
 
+    if (token.type === "symbol" && token.value === "->" && lambdaHeaderArrows.has(index)) {
+      writeNewline();
+      continue;
+    }
+
     if (token.type === "symbol") {
       if (token.value === "{" && (awaitingVariableBinding || bindingBraceDepth > 0)) {
         bindingBraceDepth += 1;
@@ -1131,6 +1192,14 @@ export function formatSource(source: string): string {
       }
       if (token.value === "{") {
         indentLevel += 1;
+        const arrowIndex = lambdaHeaderArrowIndex(tokens, index);
+        if (arrowIndex >= 0) {
+          // Keep the lambda parameter header (e.g. `resolve, reject ->`) on the
+          // same line as the opening brace; the body break happens after `->`.
+          lambdaHeaderArrows.add(arrowIndex);
+          result += " ";
+          continue;
+        }
         writeNewline();
         continue;
       }
