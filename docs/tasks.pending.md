@@ -8,6 +8,39 @@ This document tracks the current technical backlog for MyLang.
 
 All current high-priority semantic analysis backlog items are implemented.
 
+## Architecture and Maintainability
+
+The following duplication/coupling gaps were identified during an architecture
+review. The low-risk, behavior-preserving consolidations have already been
+applied (shared `compiler/moduleResolution.ts` for local import resolution, a
+single `BUILTIN_TYPE_NAMES` in `compiler/analysis/types.ts`, shared
+`classPropertyParameters`/`constructorParameterProperties` exported from
+`compiler/lsp/classResolver.ts`, and `unwrapExportedDeclaration` in
+`compiler/ast/traversal.ts`). The remaining items below are larger refactors
+that need their own focused change with tests:
+
+- LSP quick-fix modules (`typeFixes.ts`, `memberFixes.ts`, `callFixes.ts`,
+  `stringTemplateFixes.ts`, `functionShorthandFixes.ts`) each reimplement a
+  ~100-line `visitExpression`/`visitStatement` AST walk plus their own
+  `nodeRange`/`rangeContains`/`rangeSize`/`comparePosition` helpers and local
+  `Position`/`NodeRange` types. These should share a single position/range
+  utility module and a generic "find node at position" visitor (the shared
+  `compiler/ast/traversal.ts` walker can back the latter).
+- The emitter recomputes its runtime metadata collections
+  (`collectRuntimeOverloads`, `collectOperators`, `collectExtensionMethods`,
+  `collectExtensionProperties`, `collectClassNames`,
+  `collectJavaScriptImplementations`) on every `emitProgramStatements` call, so
+  per-statement line-map emission re-traverses the whole program many times.
+  These should be computed once per transpile and threaded through the emitter.
+- Cross-file declaration resolution is implemented twice: the semantic
+  `TypeChecker` and the LSP `classResolver`/`crossFileNavigation` independently
+  walk imports/runtime/project to resolve a type name to its declaration. A
+  shared "resolve declaration across files" abstraction would remove the
+  divergence risk.
+- `transpile.ts` `emitProgramWithLineMap` and `emitProgramWithSourceLineOffsets`
+  share a near-identical per-statement emission loop that should be unified
+  behind a single helper with a line-offset strategy.
+
 ## Transpilation and Runtime
 
 - Cross-file extension members (operators and named methods) resolve to their

@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type {
-  ExportStatement,
   Identifier,
   ImportStatement,
   Program,
   Statement
 } from "compiler/ast/ast";
+import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
@@ -44,9 +44,7 @@ function resolveLocalModulePath(importerFilePath: string, importPath: string): s
 }
 
 function declarationName(statement: Statement): string | null {
-  const candidate = statement.kind === "ExportStatement"
-    ? (statement as ExportStatement).declaration
-    : statement;
+  const candidate = unwrapExportedDeclaration(statement);
   if (!candidate) {
     return null;
   }
@@ -55,13 +53,6 @@ function declarationName(statement: Statement): string | null {
     return (named.name as Identifier).name;
   }
   return null;
-}
-
-function unwrapDeclaration(statement: Statement): Statement | null {
-  const candidate = statement.kind === "ExportStatement"
-    ? (statement as ExportStatement).declaration
-    : statement;
-  return candidate ?? null;
 }
 
 /**
@@ -76,7 +67,7 @@ function collectImportedDeclarations(dependencyAst: Program, importedNames: Set<
     if (!name || !importedNames.has(name)) {
       continue;
     }
-    const declaration = unwrapDeclaration(statement);
+    const declaration = unwrapExportedDeclaration(statement);
     if (declaration) {
       result.push(declaration);
     }

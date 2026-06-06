@@ -66,6 +66,7 @@ import type {
 import {
   type AnalysisType,
   type BuiltinTypeName,
+  BUILTIN_TYPE_NAMES,
   UNKNOWN_TYPE,
   arrayType,
   builtinType,
@@ -99,22 +100,6 @@ export class TypeChecker {
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
-  private static readonly BUILTIN_TYPE_NAMES = new Set([
-    "int",
-    "number",
-    "string",
-    "boolean",
-    "bigint",
-    "long",
-    "void",
-    "null",
-    "undefined",
-    "any",
-    "unknown",
-    "never",
-    "object",
-    "symbol"
-  ]);
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
   private readonly extensionMethodsByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
@@ -2613,7 +2598,7 @@ export class TypeChecker {
       this.resolveTypeNameText(typeArgument, node, scope, false)
     );
 
-    if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
+    if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolvedBase = builtinType(
         parsed.baseName as BuiltinTypeName
       );
@@ -4278,7 +4263,7 @@ export class TypeChecker {
 
     const parsed = parseTypeNameShape(typeAnnotation.name);
     let resolvedBase: AnalysisType;
-    if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
+    if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolvedBase = builtinType(
         parsed.baseName as BuiltinTypeName
       );
@@ -4315,7 +4300,7 @@ export class TypeChecker {
 
     const parsed = parseTypeNameShape(typeName);
     let resolved: AnalysisType;
-    if (TypeChecker.BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
+    if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolved = builtinType(
         parsed.baseName as BuiltinTypeName
       );

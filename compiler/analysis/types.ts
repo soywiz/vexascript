@@ -14,6 +14,29 @@ export type BuiltinTypeName =
   | "object"
   | "symbol";
 
+/**
+ * Runtime set of the built-in type names listed in {@link BuiltinTypeName}.
+ * Shared single source of truth so the binder, type checker and tooling all
+ * agree on which type names are intrinsic and should not be resolved as
+ * user-declared classes/interfaces.
+ */
+export const BUILTIN_TYPE_NAMES: ReadonlySet<string> = new Set<BuiltinTypeName>([
+  "int",
+  "number",
+  "string",
+  "boolean",
+  "bigint",
+  "long",
+  "void",
+  "null",
+  "undefined",
+  "any",
+  "unknown",
+  "never",
+  "object",
+  "symbol"
+]);
+
 export interface UnknownType {
   kind: "unknown";
 }

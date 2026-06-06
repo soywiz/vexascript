@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
-import type { Node } from "./ast";
-import { childNodes, walkAst } from "./traversal";
+import type { ExportStatement, Node, Statement } from "./ast";
+import { childNodes, unwrapExportedDeclaration, walkAst } from "./traversal";
 
 describe("AST traversal", () => {
   it("walks structural child nodes in source property order without visiting token metadata", () => {
@@ -50,5 +50,26 @@ describe("AST traversal", () => {
     walkAst(root, (node) => visited.push(node.kind));
 
     expect(visited).toEqual(["Program", "Identifier"]);
+  });
+});
+
+describe("unwrapExportedDeclaration", () => {
+  it("returns the inner declaration of an export statement", () => {
+    const declaration = { kind: "FunctionStatement" } as unknown as Statement;
+    const exportStatement = { kind: "ExportStatement", declaration } as unknown as ExportStatement;
+
+    expect(unwrapExportedDeclaration(exportStatement)).toBe(declaration);
+  });
+
+  it("returns the statement itself when it is not an export", () => {
+    const statement = { kind: "ClassStatement" } as unknown as Statement;
+
+    expect(unwrapExportedDeclaration(statement)).toBe(statement);
+  });
+
+  it("returns undefined for re-export statements without an inline declaration", () => {
+    const reExport = { kind: "ExportStatement" } as unknown as ExportStatement;
+
+    expect(unwrapExportedDeclaration(reExport)).toBeUndefined();
   });
 });
