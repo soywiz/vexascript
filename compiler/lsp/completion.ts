@@ -288,7 +288,14 @@ function arrayTypeNameToArrayAlias(typeName: string): string | null {
 }
 
 function extensionReceiverMatches(receiverType: string, objectTypeName: string): boolean {
-  const normalized = baseTypeName(objectTypeName);
+  // Array-shaped types (`int[]`, `Array<int>`) resolve their extension members
+  // against the `Array` receiver, so `[].extensionMember` and `someArray.method()`
+  // surface generic `Array<T>` extensions.
+  const shape = parseTypeNameShape(objectTypeName);
+  if (shape.arrayDepth > 0 && receiverType === "Array") {
+    return true;
+  }
+  const normalized = shape.baseName;
   return receiverType === normalized || (normalized === "int" && receiverType === "number");
 }
 

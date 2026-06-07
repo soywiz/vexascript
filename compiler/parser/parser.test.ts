@@ -1741,6 +1741,44 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses a generic extension method on a generic receiver", () => {
+        expect(parseStatement(tokenizeReader("fun <T> Array<T>.demo(): int { return length }"))).toEqual({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            name: { kind: "Identifier", name: "demo" },
+            receiverType: { kind: "Identifier", name: "Array" },
+            receiverTypeArguments: [{ kind: "Identifier", name: "T" }],
+            typeParameters: [
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+            ],
+            parameters: [],
+            returnType: { kind: "Identifier", name: "int" },
+            body: {
+                kind: "BlockStatement",
+                body: [{ kind: "ReturnStatement", expression: { kind: "Identifier", name: "length" } }]
+            }
+        });
+    });
+
+    it("parses a generic extension property on a generic receiver", () => {
+        expect(parseStatement(tokenizeReader("val <T> Array<T>.doubledLength => length * 2"))).toEqual({
+            kind: "VarStatement",
+            declarationKind: "val",
+            receiverType: { kind: "Identifier", name: "Array" },
+            receiverTypeArguments: [{ kind: "Identifier", name: "T" }],
+            typeParameters: [
+                { kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }
+            ],
+            name: { kind: "Identifier", name: "doubledLength" },
+            initializer: {
+                kind: "BinaryExpression",
+                operator: "*",
+                left: { kind: "Identifier", name: "length" },
+                right: { kind: "IntLiteral", value: 2 }
+            }
+        });
+    });
+
     it("parses a generic function statement", () => {
         expect(parseStatement(tokenizeReader("fun identity<T>(value: T): T { return value }"))).toEqual({
             kind: "FunctionStatement",

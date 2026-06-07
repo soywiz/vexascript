@@ -138,6 +138,20 @@ console.log(result.y)
 
     expect(logs).toEqual([[4], [6]]);
   });
+  it("executes generic extension methods and properties on Array receivers", () => {
+    const source = `fun <T> Array<T>.second(): T { return this[1] }
+val <T> Array<T>.doubledLength => length * 2
+let xs = [10, 20, 30]
+console.log(xs.second())
+console.log(xs.doubledLength)
+console.log([].doubledLength)
+`;
+
+    const logs = executeTranspiled(source);
+
+    expect(logs).toEqual([[20], [6], [0]]);
+  });
+
   it("executes nested object and array destructuring declarations", () => {
     const source = `let { id, name: displayName, nested: { value = 4 }, ...rest } = { id: 1, name: "Ada", nested: {}, extra: 7 }
 const [first, , third = 3, ...tail] = [10, 20]

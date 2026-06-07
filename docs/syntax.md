@@ -383,6 +383,22 @@ val duration = 10.milliseconds
 
 At JavaScript runtime, declarations and imports are mangled with the receiver type. For example, `number.milliseconds` is exported as `number$$milliseconds`, and `10.milliseconds` is lowered to `number$$milliseconds(10)`.
 
+### Generic extension methods and properties
+
+Extension methods and extension properties can be generic. Type parameters are written before the receiver type, and the receiver itself may carry type arguments — including built-in collection types such as `Array<T>`:
+
+```my
+fun <T> Array<T>.second(): T { return this[1] }
+val <T> Array<T>.doubledLength => length * 2
+
+let xs = [10, 20, 30]
+let value = xs.second()        // 20
+let total = xs.doubledLength   // 6
+let empty = [].doubledLength   // 0
+```
+
+The receiver's base type name drives runtime mangling (the type arguments are erased), so `Array<T>` extensions are emitted as `Array$$...` functions and resolve for any array value, including array literals like `[]`. Inside the body, implicit member access resolves against the receiver type's members; for `Array<T>` receivers this includes built-in members such as `length`.
+
 ### Generic function declarations
 
 Function declarations support generic type parameters, and explicit generic type arguments on calls specialize parameter and return types:

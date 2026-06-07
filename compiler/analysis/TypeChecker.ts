@@ -4252,14 +4252,21 @@ export class TypeChecker {
     }
   }
 
-  private resolveExtensionPropertyType(objectType: AnalysisType, propertyName: string): AnalysisType | null {
+  private extensionReceiverNames(objectType: AnalysisType): string[] {
     const receiverNames: string[] = [];
     if (objectType.kind === "builtin") {
       receiverNames.push(objectType.name);
       if (objectType.name === "int") receiverNames.push("number");
     } else if (objectType.kind === "named") {
       receiverNames.push(objectType.name);
+    } else if (objectType.kind === "array" || objectType.kind === "tuple") {
+      receiverNames.push("Array");
     }
+    return receiverNames;
+  }
+
+  private resolveExtensionPropertyType(objectType: AnalysisType, propertyName: string): AnalysisType | null {
+    const receiverNames = this.extensionReceiverNames(objectType);
     for (const receiverName of receiverNames) {
       const type = this.extensionPropertiesByReceiver.get(receiverName)?.get(propertyName);
       if (type) return type;
@@ -4273,13 +4280,7 @@ export class TypeChecker {
     if (propertyType) {
       return propertyType;
     }
-    const receiverNames: string[] = [];
-    if (objectType.kind === "builtin") {
-      receiverNames.push(objectType.name);
-      if (objectType.name === "int") receiverNames.push("number");
-    } else if (objectType.kind === "named") {
-      receiverNames.push(objectType.name);
-    }
+    const receiverNames = this.extensionReceiverNames(objectType);
     for (const receiverName of receiverNames) {
       const methodType = this.extensionMethodsByReceiver.get(receiverName)?.get(memberName);
       if (methodType) return methodType;
