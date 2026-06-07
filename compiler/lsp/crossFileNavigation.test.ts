@@ -937,4 +937,51 @@ describe("cross-file navigation", () => {
     expect(lineText).toContain("map");
   });
 
+  it("resolves go-to-definition on import path string to the imported file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-import-path-"));
+    const fileA = join(root, "a.my");
+    const fileB = join(root, "b.my");
+
+    await writeFile(fileA, "class Foo\n", "utf8");
+    await writeFile(fileB, `import { Foo } from "./a"\n`, "utf8");
+
+    const sessionB = createAnalysisSession(`import { Foo } from "./a"\n`);
+    // cursor on the "./a" string (line 0, character 21 is inside the string)
+    const location = resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(fileB).toString(),
+      line: 0,
+      character: 21,
+      session: sessionB,
+      sourceRoots: [root]
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(fileA).toString(),
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+    });
+  });
+
+  it("resolves hover on import path string shows resolved file path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-import-hover-"));
+    const fileA = join(root, "a.my");
+    const fileB = join(root, "b.my");
+
+    await writeFile(fileA, "class Foo\n", "utf8");
+    await writeFile(fileB, `import { Foo } from "./a"\n`, "utf8");
+
+    const { resolveImportPathHover } = await import("./crossFileNavigation");
+    const sessionB = createAnalysisSession(`import { Foo } from "./a"\n`);
+    const hover = resolveImportPathHover({
+      uri: pathToFileURL(fileB).toString(),
+      line: 0,
+      character: 21,
+      session: sessionB,
+      sourceRoots: [root]
+    });
+
+    expect(hover).not.toBeNull();
+    expect(hover?.contents).toMatchObject({ kind: "plaintext" });
+    expect((hover?.contents as { value: string }).value).toContain(fileA);
+  });
+
 });

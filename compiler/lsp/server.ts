@@ -27,6 +27,7 @@ import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import {
   resolveDefinitionAcrossFiles,
   resolveMemberHoverAcrossFiles,
+  resolveImportPathHover,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
@@ -390,6 +391,18 @@ connection.onHover((params) => {
   const session = analysisSessions.getForDocument(doc);
   if (!session.analysis || !session.ast) {
     return null;
+  }
+
+  const importHover = resolveImportPathHover({
+    uri: params.textDocument.uri,
+    line: params.position.line,
+    character: params.position.character,
+    session,
+    sourceRoots,
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+  });
+  if (importHover) {
+    return importHover;
   }
 
   for (const character of candidateCharacters(params.position.character)) {

@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
-import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { typeToString } from "compiler/analysis/types";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
@@ -1334,7 +1334,84 @@ function resolveMemberReferencesAcrossFiles(
   return locations;
 }
 
+function findImportStringLiteralAtPosition(
+  ast: Program,
+  line: number,
+  character: number
+): ImportStatement | null {
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") continue;
+    const importStatement = statement as ImportStatement;
+    const fromRange = nodeRange(importStatement.from);
+    if (fromRange && containsPosition(fromRange, { line, character })) {
+      return importStatement;
+    }
+  }
+  return null;
+}
+
+function resolveImportPathDefinition(context: ResolveContext): Location | null {
+  if (!context.session.ast) return null;
+  const importStatement = findImportStringLiteralAtPosition(
+    context.session.ast,
+    context.line,
+    context.character
+  );
+  if (!importStatement) return null;
+
+  const importerFilePath = uriToFilePath(context.uri);
+  if (!importerFilePath) return null;
+  const importPath = importStatement.from.value;
+
+  const resolvedPath =
+    resolveImportTargetFilePath(importerFilePath, importPath) ??
+    resolveNodeModulesTypingsPath(importerFilePath, importPath);
+  if (!resolvedPath) return null;
+
+  return {
+    uri: pathToUri(resolvedPath),
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+  };
+}
+
+export function resolveImportPathHover(context: ResolveContext): Hover | null {
+  if (!context.session.ast) return null;
+  const importStatement = findImportStringLiteralAtPosition(
+    context.session.ast,
+    context.line,
+    context.character
+  );
+  if (!importStatement) return null;
+
+  const importerFilePath = uriToFilePath(context.uri);
+  if (!importerFilePath) return null;
+  const importPath = importStatement.from.value;
+
+  const resolvedPath =
+    resolveImportTargetFilePath(importerFilePath, importPath) ??
+    resolveNodeModulesTypingsPath(importerFilePath, importPath);
+
+  const fromRange = nodeRange(importStatement.from);
+  const rangeOpts = fromRange ? { range: fromRange } : {};
+
+  if (!resolvedPath) {
+    return {
+      contents: { kind: "plaintext", value: `module: ${importPath} (unresolved)` },
+      ...rangeOpts
+    };
+  }
+  return {
+    contents: { kind: "plaintext", value: `module: ${resolvedPath}` },
+    ...rangeOpts
+  };
+}
+
 export function resolveDefinitionAcrossFiles(context: ResolveContext): Location | null {
+  const importPathDefinition = resolveImportPathDefinition(context);
+  if (importPathDefinition) {
+    return importPathDefinition;
+  }
+
   const memberDefinition = resolveMemberDefinitionAcrossFiles(context);
   if (memberDefinition) {
     return memberDefinition;
