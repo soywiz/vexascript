@@ -431,4 +431,11 @@ describe("emit embedded XML / JSX", () => {
       'const c = React.createElement(React.Fragment, null, React.createElement("input", { "data-id": "5" }));'
     );
   });
+
+  it("honors a configurable jsxFactory and jsxFragmentFactory", () => {
+    const ast = parseFile(tokenizeReader("val d = <><span/></>", { jsx: true }), { language: "mylang" });
+    expect(emitProgram(ast, undefined, undefined, undefined, { jsxFactory: "h", jsxFragmentFactory: "Fragment" })).toBe(
+      'const d = h(Fragment, null, h("span", null));'
+    );
+  });
 });

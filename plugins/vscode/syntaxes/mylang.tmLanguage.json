@@ -12,6 +12,9 @@
       "include": "#regexps"
     },
     {
+      "include": "#jsx"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -177,6 +180,161 @@
         {
           "name": "string.regexp.mylang",
           "match": "/(?:\\\\.|\\[(?:\\\\.|[^\\]\\\\])*\\]|[^/\\\\\\r\\n])+/[A-Za-z]*"
+        }
+      ]
+    },
+    "jsx": {
+      "patterns": [
+        {
+          "include": "#jsx-fragment"
+        },
+        {
+          "include": "#jsx-self-closing-element"
+        },
+        {
+          "include": "#jsx-paired-element"
+        }
+      ]
+    },
+    "jsx-fragment": {
+      "name": "meta.jsx.fragment.mylang",
+      "begin": "(?<![\\w)\\]])(<)(>)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.mylang"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.end.mylang"
+        }
+      },
+      "end": "(</)(>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.mylang"
+        },
+        "2": {
+          "name": "punctuation.definition.tag.end.mylang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#jsx-children"
+        }
+      ]
+    },
+    "jsx-self-closing-element": {
+      "name": "meta.tag.self-closing.mylang",
+      "begin": "(?<![\\w)\\]])(<)([_$A-Za-z][-_$A-Za-z0-9.]*)(?=[^<>]*/>)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.mylang"
+        },
+        "2": {
+          "name": "entity.name.tag.mylang"
+        }
+      },
+      "end": "(/>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.end.mylang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#jsx-attributes"
+        }
+      ]
+    },
+    "jsx-paired-element": {
+      "name": "meta.tag.mylang",
+      "begin": "(?<![\\w)\\]])(<)([_$A-Za-z][-_$A-Za-z0-9.]*)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.mylang"
+        },
+        "2": {
+          "name": "entity.name.tag.mylang"
+        }
+      },
+      "end": "(</)([_$A-Za-z][-_$A-Za-z0-9.]*)?\\s*(>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.mylang"
+        },
+        "2": {
+          "name": "entity.name.tag.mylang"
+        },
+        "3": {
+          "name": "punctuation.definition.tag.end.mylang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#jsx-attributes"
+        },
+        {
+          "name": "punctuation.definition.tag.end.mylang",
+          "match": ">"
+        },
+        {
+          "include": "#jsx-children"
+        }
+      ]
+    },
+    "jsx-children": {
+      "patterns": [
+        {
+          "include": "#jsx-fragment"
+        },
+        {
+          "include": "#jsx-self-closing-element"
+        },
+        {
+          "include": "#jsx-paired-element"
+        },
+        {
+          "include": "#jsx-expression"
+        }
+      ]
+    },
+    "jsx-attributes": {
+      "patterns": [
+        {
+          "match": "([_$A-Za-z][-_$A-Za-z0-9]*)(?=\\s*=)",
+          "name": "entity.other.attribute-name.mylang"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.mylang"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#jsx-expression"
+        }
+      ]
+    },
+    "jsx-expression": {
+      "name": "meta.embedded.expression.mylang",
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.mylang"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.mylang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#jsx-expression"
+        },
+        {
+          "include": "$self"
         }
       ]
     }

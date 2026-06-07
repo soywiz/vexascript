@@ -5,7 +5,7 @@ import {
 } from "compiler/pipeline/compile";
 import { basename } from "node:path";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
-import { createEmitProgramRuntimeContext, emitProgramStatements } from "./emitter";
+import { createEmitProgramRuntimeContext, emitProgramStatements, type EmitOptions } from "./emitter";
 import { lowerProgram } from "./lowering";
 import type { Program, Statement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
@@ -76,6 +76,16 @@ export interface TranspileOptions {
    * their body) participate in type resolution and pervasive auto-await.
    */
   importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
+  /**
+   * Callee used to lower embedded XML/JSX elements. Defaults to
+   * `React.createElement`; set to `h` (Preact) or a custom factory as needed.
+   */
+  jsxFactory?: string;
+  /**
+   * Expression used for JSX fragments (`<>...</>`). Defaults to
+   * `React.Fragment`.
+   */
+  jsxFragmentFactory?: string;
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -153,9 +163,10 @@ function emitProgramStatementSegments(
   expressionTypes: ReadonlyMap<Node, AnalysisType>,
   implicitReceiverIdentifiers: ReadonlySet<Node>,
   autoAwaitExpressions: ReadonlySet<Node>,
-  contextProgram: Program = program
+  contextProgram: Program = program,
+  emitOptions: EmitOptions = {}
 ): EmittedStatementSegment[] {
-  const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes);
+  const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions);
   const segments: EmittedStatementSegment[] = [];
 
   for (const statement of program.body) {
@@ -283,7 +294,11 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     expressionTypes,
     implicitReceiverIdentifiers,
     autoAwaitExpressions,
-    contextProgram
+    contextProgram,
+    {
+      ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
+      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+    }
   );
   const { emitted, sourceLinesByGeneratedLine } = emitSegmentsWithLineMap(emittedSegments);
   const emittedWithOffsets = options.preserveSourceLineOffsets

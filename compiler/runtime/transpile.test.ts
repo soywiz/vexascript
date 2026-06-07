@@ -646,4 +646,19 @@ c.value`;
     expect(result.code).toContain("new Point(1, 2)");
   });
 
+  it("transpiles embedded XML/JSX to the default React runtime", () => {
+    const result = transpile("const view = <div>hi</div>\n");
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('React.createElement("div", null, "hi")');
+  });
+
+  it("honors configurable jsxFactory and jsxFragmentFactory options", () => {
+    const result = transpile("const view = <><span/></>\n", {
+      jsxFactory: "h",
+      jsxFragmentFactory: "Fragment"
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('h(Fragment, null, h("span", null))');
+  });
+
 });
