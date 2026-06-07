@@ -8,6 +8,11 @@ import { format, toAstPreview, tokenize } from "./runtime/tooling";
 import { loadProject } from "./project";
 import { ensureDependencies } from "./deps";
 
+/** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
+export class DiagnosticError extends Error {
+  constructor() { super("Compilation failed"); this.name = "DiagnosticError"; }
+}
+
 function printDiagnostic(diag: TranspileDiagnostic, useColor: boolean): void {
   const c = useColor
     ? {
@@ -156,7 +161,7 @@ async function executeCompiled(
 ): Promise<void> {
   if (result.errors.length > 0) {
     printDiagnostics(result, sourcePath);
-    throw new Error(`Compilation failed for ${sourcePath}`);
+    throw new DiagnosticError();
   }
   const inlineSourceMap = result.sourceMap
     ? `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(result.sourceMap, "utf8").toString("base64")}`
@@ -349,7 +354,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
     const existsOnDisk = await stat(resolve(process.cwd(), firstArg)).then(() => true, () => false);
     if (looksLikeFile || existsOnDisk) {
-      await createProgram().parseAsync([argv[0], argv[1], "run", ...argv.slice(2)]);
+      await createProgram().parseAsync([argv[0]!, argv[1]!, "run", ...argv.slice(2)]);
       return;
     }
   }
@@ -367,7 +372,9 @@ const isDirectExecution =
 
 if (isDirectExecution) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    if (!(error instanceof DiagnosticError)) {
+      console.error(error instanceof Error ? error.message : String(error));
+    }
     process.exit(1);
   });
 }

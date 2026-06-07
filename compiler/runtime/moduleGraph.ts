@@ -11,6 +11,8 @@ import { parseSource } from "compiler/pipeline/parse";
 import { compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
+import { namedType } from "compiler/analysis/types";
+import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
 /**
@@ -78,6 +80,83 @@ function collectImportedDeclarations(dependencyAst: Program, importedNames: Set<
   return result;
 }
 
+/**
+ * Detects `export = X` in a .d.ts AST (represented as a bare ExprStatement
+ * with an Identifier) and returns the exported name, mirroring the LSP logic.
+ */
+function detectDtsDefaultExportName(ast: Program): string | null {
+  for (const stmt of ast.body) {
+    if (stmt.kind === "ExprStatement") {
+      const expr = (stmt as { expression?: { kind?: string; name?: string } }).expression;
+      if (expr?.kind === "Identifier" && expr.name) return expr.name;
+    }
+  }
+  // Fall back to first top-level namespace that shares a name with a top-level
+  // function — the common dual function+namespace pattern (e.g. moment).
+  const functionNames = new Set<string>();
+  for (const stmt of ast.body) {
+    if (stmt.kind === "FunctionStatement") {
+      const name = (stmt as { name?: { name?: string } }).name?.name;
+      if (name) functionNames.add(name);
+    }
+  }
+  for (const stmt of ast.body) {
+    if (stmt.kind === "NamespaceStatement") {
+      const name = (stmt as { names?: { name: string }[] }).names?.[0]?.name;
+      if (name && functionNames.has(name)) return name;
+    }
+  }
+  return null;
+}
+
+/**
+ * Loads the .d.ts typings for every bare-specifier import in `ast` and merges
+ * their declarations into `externalDeclarations` and their default-export types
+ * into `importedSymbolTypes`. This gives the CLI type-checker the same npm
+ * package information the LSP already has.
+ */
+function collectNodeModulesTypings(
+  ast: Program,
+  importerFilePath: string,
+  externalDeclarations: Statement[],
+  importedSymbolTypes: Map<string, AnalysisType>
+): void {
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") continue;
+    const importStatement = statement as ImportStatement;
+    const specifier = importStatement.from.value;
+    if (specifier.startsWith(".") || specifier.startsWith("/")) continue;
+
+    const typingsPath = resolveNodeModulesTypingsPath(importerFilePath, specifier);
+    if (!typingsPath || !existsSync(typingsPath)) continue;
+
+    const source = readFileSync(typingsPath, "utf8");
+    const parsed = parseSource(source, { language: "typescript" });
+    if (!parsed.ast) continue;
+
+    // All top-level declarations become externalDeclarations so the type
+    // checker can resolve named types (interfaces, namespaces, etc.).
+    for (const decl of parsed.ast.body) {
+      externalDeclarations.push(decl);
+    }
+
+    // Assign a named type to default / namespace / named imports so member
+    // access (e.g. moment.parseZone(...).format(1)) resolves properly.
+    const defaultExportName = detectDtsDefaultExportName(parsed.ast) ?? specifier;
+    const exportType = namedType(defaultExportName);
+    if (importStatement.defaultImport) {
+      importedSymbolTypes.set(importStatement.defaultImport.name, exportType);
+    }
+    if (importStatement.namespaceImport) {
+      importedSymbolTypes.set(importStatement.namespaceImport.name, exportType);
+    }
+    for (const s of importStatement.specifiers) {
+      const localName = (s.local ?? s.imported).name;
+      importedSymbolTypes.set(localName, exportType);
+    }
+  }
+}
+
 function localImportSpecifiers(ast: Program, importerFilePath: string): { statement: ImportStatement; targetPath: string }[] {
   const imports: { statement: ImportStatement; targetPath: string }[] = [];
   for (const statement of ast.body) {
@@ -133,6 +212,7 @@ export function bundleModuleGraph(entryFilePath: string, target: TranspileTarget
     const externalDeclarations: Statement[] = [];
     const importedSymbolTypes = new Map<string, AnalysisType>();
     if (ast) {
+      collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes);
       for (const { statement, targetPath } of localImportSpecifiers(ast, filePath)) {
         visit(targetPath);
         const dependencyParsed = parseSource(readFileSync(targetPath, "utf8"));

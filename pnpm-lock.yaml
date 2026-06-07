@@ -11,6 +11,9 @@ importers:
       commander:
         specifier: ^13.1.0
         version: 13.1.0
+      source-map:
+        specifier: ^0.7.6
+        version: 0.7.6
       vscode-languageserver:
         specifier: ^9.0.1
         version: 9.0.1
@@ -355,6 +358,10 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  source-map@0.7.6:
+    resolution: {integrity: sha512-i5uvt8C3ikiWeNZSVZNWcfZPItFQOsYTUAOkcUPGd8DqDy1uOUikjt5dG+uRlwyvR108Fb9DOd4GvXfT0N2/uQ==}
+    engines: {node: '>= 12'}
+
   tsx@4.22.4:
     resolution: {integrity: sha512-X8EX+XV4QR5xCsrgxaED954zTDfY8KqlDtskKEL0cHhyS/P8b4IFOvGDQpsC9Q1XnLq915wEfwwY/zzskCtmhg==}
     engines: {node: '>=18.0.0'}
@@ -599,6 +606,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  source-map@0.7.6: {}
 
   tsx@4.22.4:
     dependencies:
