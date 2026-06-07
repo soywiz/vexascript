@@ -1,5 +1,5 @@
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { readdir, readFile, stat, writeFile, unlink } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { transpile, type TranspileDiagnostic, type TranspileTarget } from "./runtime/transpile";
@@ -104,11 +104,29 @@ async function buildFile(
   }
 }
 
+async function loadPackageJsonDeps(dir: string): Promise<Record<string, string> | null> {
+  const pkgPath = resolve(dir, "package.json");
+  try {
+    const raw = await readFile(pkgPath, "utf8");
+    const parsed = JSON.parse(raw) as { dependencies?: Record<string, string> };
+    return parsed.dependencies ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   if (project && Object.keys(project.dependencies).length > 0) {
     await ensureDependencies(project.projectDir, project.dependencies);
+  } else {
+    // Fall back to package.json in the source file's directory
+    const sourceDir = dirname(sourcePath);
+    const pkgDeps = await loadPackageJsonDeps(sourceDir);
+    if (pkgDeps && Object.keys(pkgDeps).length > 0) {
+      await ensureDependencies(sourceDir, pkgDeps);
+    }
   }
   // Bundle the entry file together with its local module graph so cross-file
   // references resolve, then execute the combined module.
@@ -139,8 +157,15 @@ async function executeCompiled(
     ? `\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(result.sourceMap, "utf8").toString("base64")}`
     : "";
   const jsToExecute = `${result.code}${inlineSourceMap}\n//# sourceURL=${sourcePath}`;
-  const moduleUrl = `data:text/javascript;base64,${Buffer.from(jsToExecute, "utf8").toString("base64")}`;
-  await import(moduleUrl);
+  // Write a temp file next to the source so Node.js resolves node_modules from
+  // the source's directory when the compiled code contains bare specifier imports.
+  const tmpPath = resolve(dirname(sourcePath), `.mylang-run-${process.pid}-${Date.now()}.mjs`);
+  try {
+    await writeFile(tmpPath, jsToExecute, "utf8");
+    await import(pathToFileURL(tmpPath).href);
+  } finally {
+    await unlink(tmpPath).catch(() => undefined);
+  }
 
   if (result.warnings.length > 0) {
     for (const warning of result.warnings) {
