@@ -43,7 +43,7 @@ export const CALL_TOO_FEW_ARGUMENTS_PATTERN = /^Expected at least [0-9]+ argumen
 export const CALL_TOO_MANY_ARGUMENTS_PATTERN = /^Expected at most [0-9]+ argument\(s\), but got [0-9]+$/;
 export const CALL_UNEXPECTED_ARGUMENT_PATTERN = /^Unexpected argument [0-9]+; function expects at most [0-9]+ argument\(s\)$/;
 export const CALL_ARGUMENT_TYPE_MISMATCH_PATTERN = /^Argument [0-9]+ of type '.+' is not assignable to parameter '.+' of type '.+'$/;
-export const UNKNOWN_TYPE_PATTERN = /^Unknown type '.+'. Expected builtin type \(int, number, string, boolean, bigint, long, void\) or declared class\/interface(?:\/type parameter)?$/;
+export const UNKNOWN_TYPE_PATTERN = /^Unknown type '(.+?)'\. Expected builtin type \(int, number, string, boolean, bigint, long, void\) or declared class\/interface(?:\/type parameter)?$/;
 export const READONLY_REASSIGNMENT_PATTERN = /^Cannot assign to '([A-Za-z_][A-Za-z0-9_]*)' because it is a constant$/;
 export const IMPLEMENTS_MISSING_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is missing$/;
 export const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is of type '(.+)' but expected '(.+)'$/;
@@ -152,6 +152,16 @@ export function isMissingMemberDiagnostic(diagnostic: Diagnostic): boolean {
   return (
     diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.MISSING_MEMBER) ||
     MISSING_MEMBER_PATTERN.test(diagnostic.message)
+  );
+}
+
+export function isUnknownTypeDiagnostic(diagnostic: Diagnostic): boolean {
+  if (diagnostic.source !== "mylang-sema") {
+    return false;
+  }
+  return (
+    diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.UNKNOWN_TYPE) ||
+    UNKNOWN_TYPE_PATTERN.test(diagnostic.message)
   );
 }
 
