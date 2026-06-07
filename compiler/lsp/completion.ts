@@ -218,6 +218,44 @@ function parseMemberAccessTarget(
   };
 }
 
+/**
+ * Lenient member-access detection that, unlike {@link parseMemberAccessTarget},
+ * does not require the receiver to be a plain identifier-dot chain. It only
+ * locates the member-access dot and the partially typed member name, so the
+ * receiver type can be resolved from the analyzed expression types instead of
+ * from textual symbol lookups. This is what enables member completion after
+ * complex receivers such as calls (e.g. `fetch(...).arrayBuffer`).
+ */
+function findMemberAccessDot(
+  text: string | undefined,
+  line: number,
+  character: number
+): { dotCharacter: number; receiverEndCharacter: number; prefix: string } | null {
+  if (!text) {
+    return null;
+  }
+  const lines = text.split("\n");
+  const lineText = lines[line];
+  if (lineText === undefined) {
+    return null;
+  }
+  const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
+  const uptoCursor = lineText.slice(0, clampedCharacter);
+  const match = /\.\s*([A-Za-z_][A-Za-z0-9_]*)?$/.exec(uptoCursor);
+  if (!match) {
+    return null;
+  }
+  const dotCharacter = match.index;
+  // The receiver must end with a value-producing token so that we are looking at
+  // a member access rather than, for example, a decimal point in a number.
+  const beforeDot = uptoCursor.slice(0, dotCharacter).replace(/\s+$/, "");
+  const lastChar = beforeDot[beforeDot.length - 1];
+  if (!lastChar || !/[A-Za-z0-9_)\]"'`]/.test(lastChar)) {
+    return null;
+  }
+  return { dotCharacter, receiverEndCharacter: beforeDot.length, prefix: match[1] ?? "" };
+}
+
 function inferLiteralTypeName(pathSegment: string): string | null {
   if (/^\d+$/.test(pathSegment)) {
     return "int";
@@ -1402,39 +1440,18 @@ function buildNamespaceMemberCompletionItems(namespaceStatement: NamespaceStatem
   return items;
 }
 
-function buildMemberAccessCompletions(
+function buildMemberCompletionItemsForType(
   ast: Program,
   analysis: Analysis,
+  className: string,
+  prefix: string,
   line: number,
-  character: number,
+  dotCharacter: number,
+  prefixEndCharacter: number,
   options: CompletionRequestOptions,
-  allowRecovery = true
-): CompletionItem[] | null {
-  const target = parseMemberAccessTarget(options.text, line, character);
-  if (!target) {
-    return null;
-  }
-
-  const resolverOptions = classResolverOptionsFromCompletionOptions(options);
-  const resolverCache = createClassResolverCache();
-  const pathSegments = target.objectPath.split(".");
-  const namespaceStatement = findNamespaceByPath(ast, pathSegments);
-  if (namespaceStatement) {
-    return buildNamespaceMemberCompletionItems(namespaceStatement, target.prefix);
-  }
-  const className = resolveTypeNameFromPath(
-    ast,
-    analysis,
-    pathSegments,
-    line,
-    target.objectStartCharacter,
-    resolverOptions,
-    resolverCache
-  );
-  if (!className) {
-    return allowRecovery ? buildRecoveredMemberAccessCompletions(line, character, options) : null;
-  }
-
+  resolverOptions: ClassResolverOptions,
+  resolverCache: ClassResolverCache
+): CompletionItem[] {
   // Array types (`T[]`) resolve their members from the declared `class Array<T>`.
   const resolvedClassName = arrayTypeNameToArrayAlias(className) ?? className;
   const classStatement = resolveClassStatementAcrossFiles(
@@ -1454,17 +1471,17 @@ function buildMemberAccessCompletions(
       ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
       : {})
   })?.declaration;
-  const items = [
-    ...buildExtensionMemberCompletionItems(ast, className, target.prefix, options, analysis),
+  return [
+    ...buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis),
     ...(classStatement
       ? buildClassMemberCompletionItems(
           classStatement,
           resolvedClassName,
-          target.prefix,
+          prefix,
           {
             line,
-            dotCharacter: target.memberAccessStartCharacter,
-            prefixEndCharacter: character
+            dotCharacter,
+            prefixEndCharacter
           },
           {
             ast,
@@ -1473,13 +1490,88 @@ function buildMemberAccessCompletions(
           }
         )
       : interfaceStatement
-        ? buildInterfaceMemberCompletionItems(interfaceStatement, target.prefix)
+        ? buildInterfaceMemberCompletionItems(interfaceStatement, prefix)
         : [])
   ];
-  if (items.length > 0 || !allowRecovery) {
-    return items;
+}
+
+function buildMemberAccessCompletions(
+  ast: Program,
+  analysis: Analysis,
+  line: number,
+  character: number,
+  options: CompletionRequestOptions,
+  allowRecovery = true
+): CompletionItem[] | null {
+  const resolverOptions = classResolverOptionsFromCompletionOptions(options);
+  const resolverCache = createClassResolverCache();
+
+  const target = parseMemberAccessTarget(options.text, line, character);
+  if (target) {
+    const pathSegments = target.objectPath.split(".");
+    const namespaceStatement = findNamespaceByPath(ast, pathSegments);
+    if (namespaceStatement) {
+      return buildNamespaceMemberCompletionItems(namespaceStatement, target.prefix);
+    }
+    const className = resolveTypeNameFromPath(
+      ast,
+      analysis,
+      pathSegments,
+      line,
+      target.objectStartCharacter,
+      resolverOptions,
+      resolverCache
+    );
+    if (className) {
+      const items = buildMemberCompletionItemsForType(
+        ast,
+        analysis,
+        className,
+        target.prefix,
+        line,
+        target.memberAccessStartCharacter,
+        character,
+        options,
+        resolverOptions,
+        resolverCache
+      );
+      if (items.length > 0 || !allowRecovery) {
+        return items;
+      }
+      return buildRecoveredMemberAccessCompletions(line, character, options);
+    }
   }
-  return buildRecoveredMemberAccessCompletions(line, character, options);
+
+  // The receiver is a complex expression (such as a call like `fetch(...)`) or
+  // identifier-based resolution failed. Resolve its type from the analyzed
+  // expression types, which already reflect sync-function auto-await
+  // (`Promise<T>` is observed as `T`).
+  const dot = findMemberAccessDot(options.text, line, character);
+  if (dot) {
+    const receiverTypeName = analysis.getReceiverTypeNameEndingAt(line, dot.receiverEndCharacter);
+    if (receiverTypeName && receiverTypeName !== "unknown") {
+      const items = buildMemberCompletionItemsForType(
+        ast,
+        analysis,
+        receiverTypeName,
+        dot.prefix,
+        line,
+        dot.dotCharacter,
+        character,
+        options,
+        resolverOptions,
+        resolverCache
+      );
+      if (items.length > 0) {
+        return items;
+      }
+    }
+  }
+
+  if (!target && !dot) {
+    return null;
+  }
+  return allowRecovery ? buildRecoveredMemberAccessCompletions(line, character, options) : null;
 }
 
 function recoverSourceForMemberAccessCompletion(
@@ -1487,7 +1579,8 @@ function recoverSourceForMemberAccessCompletion(
   line: number,
   character: number
 ): string | null {
-  const target = parseMemberAccessTarget(text, line, character);
+  const target =
+    parseMemberAccessTarget(text, line, character) ?? findMemberAccessDot(text, line, character);
   if (!target) {
     return null;
   }

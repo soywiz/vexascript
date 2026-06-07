@@ -328,6 +328,63 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("push");
   });
 
+  it("offers members on an auto-awaited call receiver inside a sync function", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      declare class Response {
+        arrayBuffer(): Promise<ArrayBuffer>
+      }
+      declare fun fetch(url: string): Promise<Response>
+      sync fun demo() {
+        fetch("https://hello.world/demo.txt").array^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("arrayBuffer");
+    // The general identifier fallback (in-scope classes such as Array) must not
+    // leak in when the receiver type is known.
+    expect(labels).not.toContain("Array");
+  });
+
+  it("offers members after a bare dot on an auto-awaited call receiver inside a sync function", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      declare class Response {
+        arrayBuffer(): Promise<ArrayBuffer>
+      }
+      declare fun fetch(url: string): Promise<Response>
+      sync fun demo() {
+        fetch("https://hello.world/demo.txt").^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("arrayBuffer");
+  });
+
+  it("offers members on a chained method-call receiver", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Builder {
+        self(): Builder
+        value(): int
+      }
+      fun demo(builder: Builder) {
+        builder.self().val^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("value");
+  });
+
   it("includes constructor parameter properties in member completion", () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class User { constructor(public id: string, readonly age: int) {} }
