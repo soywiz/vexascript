@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
-import { getNodeModuleTypings } from "./nodeModulesTypings";
+import { getNodeModuleTypings, findNodeModuleMemberLocation } from "./nodeModulesTypings";
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
@@ -130,6 +130,27 @@ describe("node_modules typings resolution", () => {
     const symbol = richSession.analysis?.getTopLevelSymbolType("pkg");
     expect(symbol?.kind).toBe("named");
     expect((symbol as { name?: string })?.name).toBe("pkg");
+  });
+
+  it("findNodeModuleMemberLocation finds a member inside a namespace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    await makePackageWithTypings(root, "pkg", MINI_DTS);
+
+    const importerPath = join(root, "main.my");
+
+    const result = findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "helper");
+    expect(result).not.toBeNull();
+    expect(result?.typingsPath).toContain("index.d.ts");
+    expect(result?.range.start.line).toBeGreaterThanOrEqual(0);
+  });
+
+  it("findNodeModuleMemberLocation returns null for non-existent member", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    await makePackageWithTypings(root, "pkg", MINI_DTS);
+
+    const importerPath = join(root, "main.my");
+    const result = findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "nonExistent");
+    expect(result).toBeNull();
   });
 
   it("resolves namespace members from node_modules typings for member access hover", async () => {

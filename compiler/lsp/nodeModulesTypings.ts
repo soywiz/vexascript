@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import type { ExprStatement, FunctionStatement, Identifier, Program, Statement } from "compiler/ast/ast";
+import type { ExprStatement, FunctionStatement, Identifier, InterfaceStatement, NamespaceStatement, Program, Statement } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import { nodeRange } from "./ranges";
+import type { Range } from "vscode-languageserver";
 
 export interface NodeModuleTypings {
   /** All top-level declarations from the .d.ts (for externalDeclarations). */
@@ -112,4 +114,117 @@ export function getNodeModuleTypings(
 
   cache.set(typingsPath, { typingsPath, mtimeMs, result });
   return result;
+}
+
+export interface NodeModuleMemberLocation {
+  typingsPath: string;
+  range: Range;
+}
+
+/**
+ * Searches recursively through `statements` (including inside namespace bodies)
+ * for a declaration named `typeName`, then within it finds the member named
+ * `memberName`. Returns the file location if found.
+ *
+ * This enables go-to-definition for members of types declared in node_modules
+ * .d.ts files (e.g. `moment.parseZone` or `Moment.format`).
+ */
+export function findNodeModuleMemberLocation(
+  importerFilePath: string,
+  packageName: string,
+  typeName: string,
+  memberName: string
+): NodeModuleMemberLocation | null {
+  const typingsPath = resolveNodeModulesTypingsPath(importerFilePath, packageName);
+  if (!typingsPath) return null;
+
+  const typings = getNodeModuleTypings(importerFilePath, packageName);
+  if (!typings) return null;
+
+  const range = findMemberRangeInStatements(typings.declarations, typeName, memberName);
+  if (!range) return null;
+
+  return { typingsPath, range };
+}
+
+/**
+ * Searches `statements` (recursing into namespace bodies) for a type named
+ * `typeName`, then looks for `memberName` within it. Returns the range of the
+ * member declaration, or null if not found.
+ */
+function findMemberRangeInStatements(
+  statements: Statement[],
+  typeName: string,
+  memberName: string
+): Range | null {
+  for (const stmt of statements) {
+    const candidate =
+      stmt.kind === "ExportStatement"
+        ? (stmt as { declaration?: Statement }).declaration ?? stmt
+        : stmt;
+
+    // Namespace: if name matches, look for member inside it
+    if (candidate.kind === "NamespaceStatement") {
+      const ns = candidate as NamespaceStatement;
+      const name = ns.names?.[0]?.name;
+      if (name === typeName) {
+        const memberRange = findMemberInNamespaceBody(ns.body.body, memberName);
+        if (memberRange) return memberRange;
+      }
+      // Recurse into nested namespaces regardless of name match
+      const nested = findMemberRangeInStatements(ns.body.body, typeName, memberName);
+      if (nested) return nested;
+    }
+
+    // Interface: if name matches, look for member inside it
+    if (candidate.kind === "InterfaceStatement") {
+      const iface = candidate as InterfaceStatement;
+      if (iface.name.name === typeName) {
+        for (const member of iface.members) {
+          if (member.name.name === memberName) {
+            const range = nodeRange(member.name);
+            if (range) return range;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function findMemberInNamespaceBody(
+  body: Statement[],
+  memberName: string
+): Range | null {
+  for (const child of body) {
+    const decl =
+      child.kind === "ExportStatement"
+        ? (child as { declaration?: Statement }).declaration ?? child
+        : child;
+
+    if (decl.kind === "FunctionStatement") {
+      const fn = decl as FunctionStatement;
+      if (fn.name?.name === memberName) {
+        const range = nodeRange(fn.name);
+        if (range) return range;
+      }
+    } else if (decl.kind === "InterfaceStatement") {
+      const iface = decl as InterfaceStatement;
+      if (iface.name.name === memberName) {
+        const range = nodeRange(iface.name);
+        if (range) return range;
+      }
+    } else if (decl.kind === "NamespaceStatement") {
+      const ns = decl as NamespaceStatement;
+      const name = ns.names?.[0]?.name;
+      if (name === memberName) {
+        const nameNode = ns.names?.[0];
+        if (nameNode) {
+          const range = nodeRange(nameNode as Parameters<typeof nodeRange>[0]);
+          if (range) return range;
+        }
+      }
+    }
+  }
+  return null;
 }
