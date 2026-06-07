@@ -66,6 +66,7 @@ import {
   getProjectSessionForFilePath,
   scanProjectMyFiles
 } from "./projectAnalysis";
+import { findNodeModuleMemberLocation } from "./nodeModulesTypings";
 
 interface SessionLike {
   ast: Program | null;
@@ -864,6 +865,49 @@ function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location |
     const extension = resolveExtensionMemberDefinitionAcrossFiles(context, receiverTypeName, memberName);
     if (extension) {
       return extension;
+    }
+  }
+
+  // Fallback: look for the member in node_modules .d.ts declarations. This
+  // handles types whose namespace/interface is declared in a package's type
+  // definitions rather than a local .my file.
+  const nodeModulesDefinition = resolveNodeModulesMemberDefinition(
+    context,
+    receiverTypeNames[0]!,
+    memberName
+  );
+  if (nodeModulesDefinition) {
+    return nodeModulesDefinition;
+  }
+
+  return null;
+}
+
+/**
+ * Searches node_modules .d.ts files (reachable via bare-specifier imports in
+ * the current file) for a member named `memberName` on a type named `typeName`.
+ * Returns the location within the .d.ts file if found.
+ */
+function resolveNodeModulesMemberDefinition(
+  context: ResolveContext,
+  typeName: string,
+  memberName: string
+): Location | null {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath || !context.session.ast) return null;
+
+  for (const stmt of context.session.ast.body) {
+    if (stmt.kind !== "ImportStatement") continue;
+    const importStmt = stmt as ImportStatement;
+    const from = importStmt.from.value;
+    if (from.startsWith(".") || from.startsWith("/")) continue;
+
+    const location = findNodeModuleMemberLocation(currentFilePath, from, typeName, memberName);
+    if (location) {
+      return {
+        uri: pathToUri(location.typingsPath),
+        range: location.range
+      };
     }
   }
   return null;

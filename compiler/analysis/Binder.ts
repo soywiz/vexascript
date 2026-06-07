@@ -156,21 +156,23 @@ export class Binder {
       if (statement.kind === "ImportStatement") {
         const importStatement = statement as ImportStatement;
         if (importStatement.defaultImport) {
+          const resolvedType = this.importedSymbolTypes.get(importStatement.defaultImport.name) ?? UNKNOWN_TYPE;
           this.declare(scope, {
             name: importStatement.defaultImport.name,
-            kind: "variable",
+            kind: resolvedType.kind === "function" ? "function" : "variable",
             node: importStatement.defaultImport,
-            type: UNKNOWN_TYPE,
-            valueType: typeToString(UNKNOWN_TYPE)
+            type: resolvedType,
+            valueType: typeToString(resolvedType)
           }, declaredOffsetOverride);
         }
         if (importStatement.namespaceImport) {
+          const resolvedType = this.importedSymbolTypes.get(importStatement.namespaceImport.name) ?? UNKNOWN_TYPE;
           this.declare(scope, {
             name: importStatement.namespaceImport.name,
-            kind: "variable",
+            kind: resolvedType.kind === "function" ? "function" : "variable",
             node: importStatement.namespaceImport,
-            type: UNKNOWN_TYPE,
-            valueType: typeToString(UNKNOWN_TYPE)
+            type: resolvedType,
+            valueType: typeToString(resolvedType)
           }, declaredOffsetOverride);
         }
         for (const specifier of importStatement.specifiers) {
