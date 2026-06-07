@@ -174,7 +174,7 @@ let promise = go fetchValue()
 
   it("erases TypeScript type assertions during emission", () => {
     expect(emitProgram(parseFile(tokenizeReader("let name = value as string")))).toBe("let name = value;");
-    expect(emitProgram(parseFile(tokenizeReader("let name = <string>value")))).toBe("let name = value;");
+    expect(emitProgram(parseFile(tokenizeReader("let name = <string>value", { jsx: false }), { language: "typescript" }))).toBe("let name = value;");
     expect(emitProgram(parseFile(tokenizeReader("let values = [1, 2] as const")))).toBe("let values = [1, 2];");
     expect(emitProgram(parseFile(tokenizeReader("let name = value!")))).toBe("let name = value;");
     expect(emitProgram(parseFile(tokenizeReader("let length = maybe!.name!.length")))).toBe("let length = maybe.name.length;");
@@ -406,5 +406,29 @@ describe("emit destructured parameters", () => {
   it("preserves object, array, nested, default, and rest parameter patterns", () => {
     const program = parseFile(tokenizeReader("function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail] = values) { return value }"));
     expect(emitProgram(program)).toBe("function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail] = values) {\nreturn value;\n}");
+  });
+});
+
+describe("emit embedded XML / JSX", () => {
+  function emit(src: string): string {
+    return emitProgram(parseFile(tokenizeReader(src, { jsx: true }), { language: "mylang" }));
+  }
+
+  it("emits intrinsic elements with attributes and children via React.createElement", () => {
+    expect(emit('val a = <div class="x" id={y}>hi {name}</div>')).toBe(
+      'const a = React.createElement("div", { class: "x", id: y }, "hi ", name);'
+    );
+  });
+
+  it("emits component and dotted tags as references and spreads/boolean attributes", () => {
+    expect(emit("val b = <Foo.Bar a={1} disabled {...rest}><Baz/></Foo.Bar>")).toBe(
+      "const b = React.createElement(Foo.Bar, { a: 1, disabled: true, ...rest }, React.createElement(Baz, null));"
+    );
+  });
+
+  it("emits fragments and quotes non-identifier attribute names", () => {
+    expect(emit('val c = <><input data-id="5" /></>')).toBe(
+      'const c = React.createElement(React.Fragment, null, React.createElement("input", { "data-id": "5" }));'
+    );
   });
 });

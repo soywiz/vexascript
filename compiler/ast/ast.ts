@@ -574,6 +574,57 @@ export interface TryStatement extends Statement {
     finallyBlock?: BlockStatement
 }
 
+/**
+ * Embedded XML/JSX support. MyLang always enables it; TypeScript enables it via
+ * the `jsx` parser option. An element such as `<div class="x">{value}</div>`
+ * parses into a `JsxElement`, a fragment `<>...</>` into a `JsxFragment`.
+ */
+export interface JsxElement extends Node {
+    kind: "JsxElement"
+    /** Raw tag-name text, e.g. `div` or `Foo.Bar`. */
+    tagName: string
+    /**
+     * Reference expression for component tags (uppercase first letter or a
+     * dotted name). Intrinsic lowercase tags (`div`, `span`) leave this
+     * undefined so they are emitted as string literals and never resolved as
+     * identifiers during semantic analysis.
+     */
+    reference?: Expr
+    attributes: JsxAttributeLike[]
+    children: JsxChild[]
+    selfClosing: boolean
+}
+
+export interface JsxFragment extends Node {
+    kind: "JsxFragment"
+    children: JsxChild[]
+}
+
+export interface JsxAttribute extends Node {
+    kind: "JsxAttribute"
+    name: string
+    value?: StringLiteral | JsxExpressionContainer
+}
+
+export interface JsxSpreadAttribute extends Node {
+    kind: "JsxSpreadAttribute"
+    expression: Expr
+}
+
+export type JsxAttributeLike = JsxAttribute | JsxSpreadAttribute;
+
+export interface JsxExpressionContainer extends Node {
+    kind: "JsxExpressionContainer"
+    expression: Expr
+}
+
+export interface JsxText extends Node {
+    kind: "JsxText"
+    value: string
+}
+
+export type JsxChild = JsxElement | JsxFragment | JsxExpressionContainer | JsxText;
+
 export interface Program extends Node {
     kind: "Program"
     body: Statement[]

@@ -1,5 +1,5 @@
 interface FormatToken {
-  type: "identifier" | "number" | "string" | "regexp" | "commentLine" | "commentBlock" | "symbol" | "newline";
+  type: "identifier" | "number" | "string" | "regexp" | "commentLine" | "commentBlock" | "symbol" | "jsx" | "newline";
   value: string;
 }
 
@@ -161,6 +161,118 @@ function readFormatRegExpLiteral(source: string, start: number): number {
   return start + 1;
 }
 
+function skipFormatString(source: string, start: number): number {
+  const quote = charAtOrEmpty(source, start);
+  let index = start + 1;
+  while (index < source.length) {
+    const ch = charAtOrEmpty(source, index);
+    if (ch === "\\") {
+      index += 2;
+      continue;
+    }
+    if (ch === quote) {
+      return index + 1;
+    }
+    index += 1;
+  }
+  return index;
+}
+
+// Skips a balanced `{ ... }` block (used for JSX expression containers),
+// ignoring braces that appear inside string/template literals.
+function skipFormatBraces(source: string, start: number): number {
+  let index = start;
+  let depth = 0;
+  while (index < source.length) {
+    const ch = charAtOrEmpty(source, index);
+    if (ch === '"' || ch === "'" || ch === "`") {
+      index = skipFormatString(source, index);
+      continue;
+    }
+    if (ch === "{") {
+      depth += 1;
+      index += 1;
+      continue;
+    }
+    if (ch === "}") {
+      depth -= 1;
+      index += 1;
+      if (depth === 0) {
+        return index;
+      }
+      continue;
+    }
+    index += 1;
+  }
+  return index;
+}
+
+/**
+ * Scans a complete embedded XML/JSX element starting at `<` and returns the
+ * index just past its closing tag. The formatter captures the element verbatim
+ * so its internal layout is preserved rather than reflowed.
+ */
+function readFormatJsx(source: string, start: number): number {
+  let index = start;
+  let depth = 0;
+  while (index < source.length) {
+    const ch = charAtOrEmpty(source, index);
+    if (ch === "<") {
+      if (charAtOrEmpty(source, index + 1) === "/") {
+        // Closing tag.
+        index += 2;
+        while (index < source.length && charAtOrEmpty(source, index) !== ">") {
+          index += 1;
+        }
+        if (index < source.length) {
+          index += 1;
+        }
+        depth -= 1;
+        if (depth <= 0) {
+          return index;
+        }
+        continue;
+      }
+      // Opening tag (or fragment `<>`).
+      index += 1;
+      let selfClosing = false;
+      while (index < source.length) {
+        const c = charAtOrEmpty(source, index);
+        if (c === '"' || c === "'") {
+          index = skipFormatString(source, index);
+          continue;
+        }
+        if (c === "{") {
+          index = skipFormatBraces(source, index);
+          continue;
+        }
+        if (c === "/" && charAtOrEmpty(source, index + 1) === ">") {
+          selfClosing = true;
+          index += 2;
+          break;
+        }
+        if (c === ">") {
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+      if (!selfClosing) {
+        depth += 1;
+      } else if (depth === 0) {
+        return index;
+      }
+      continue;
+    }
+    if (ch === "{") {
+      index = skipFormatBraces(source, index);
+      continue;
+    }
+    index += 1;
+  }
+  return index;
+}
+
 function tokenizeForFormatting(source: string): FormatToken[] {
   const tokens: FormatToken[] = [];
   let i = 0;
@@ -217,6 +329,19 @@ function tokenizeForFormatting(source: string): FormatToken[] {
       const end = readFormatRegExpLiteral(source, i);
       if (end > i + 1) {
         tokens.push({ type: "regexp", value: source.slice(i, end) });
+        i = end;
+        continue;
+      }
+    }
+
+    if (
+      ch === "<" &&
+      formatTokenAllowsRegExpLiteral(previousSignificantFormatToken(tokens)) &&
+      (isIdentifierStart(charAtOrEmpty(source, i + 1)) || charAtOrEmpty(source, i + 1) === ">")
+    ) {
+      const end = readFormatJsx(source, i);
+      if (end > i) {
+        tokens.push({ type: "jsx", value: source.slice(i, end) });
         i = end;
         continue;
       }
@@ -307,7 +432,7 @@ function isWordLike(token: FormatToken | undefined): boolean {
   if (!token) {
     return false;
   }
-  return token.type === "identifier" || token.type === "number" || token.type === "string" || token.type === "regexp";
+  return token.type === "identifier" || token.type === "number" || token.type === "string" || token.type === "regexp" || token.type === "jsx";
 }
 
 function isMemberOperator(token: FormatToken | undefined): boolean {

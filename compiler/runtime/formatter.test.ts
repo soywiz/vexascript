@@ -373,3 +373,27 @@ describe("format brace lambdas", () => {
     );
   });
 });
+
+describe("format embedded XML / JSX", () => {
+  it("preserves a JSX element while normalizing surrounding code", () => {
+    expect(formatSource('val   a=<div class="x" id={y}>hi {name}</div>')).toBe(
+      'val a = <div class="x" id={y}>hi {name}</div>'
+    );
+  });
+
+  it("preserves nested and component elements", () => {
+    expect(formatSource("val b   =   <Foo.Bar a={1}><Baz/></Foo.Bar>")).toBe(
+      "val b = <Foo.Bar a={1}><Baz/></Foo.Bar>"
+    );
+  });
+
+  it("preserves JSX returned from a function body", () => {
+    expect(formatSource("fun render(){\nreturn <ul>{items}</ul>\n}")).toBe(
+      "fun render() {\n  return <ul>{items}</ul>\n}"
+    );
+  });
+
+  it("does not treat a less-than comparison as JSX", () => {
+    expect(formatSource("val c = a < b")).toBe("val c = a < b");
+  });
+});

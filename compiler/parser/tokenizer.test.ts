@@ -331,4 +331,91 @@ describe("tokenizer", () => {
         ]);
     })
 
+    describe("embedded XML / JSX", () => {
+        function jsxTokens(input: string) {
+            return tokenize(input, { jsx: true })
+                .filter((token) => token.type !== "eof")
+                .map(({ type, value }) => ({ type, value }));
+        }
+
+        it("tokenizes a self-closing element with attributes", () => {
+            expect(jsxTokens('val x = <div class="a" id={y} />')).toStrictEqual([
+                { type: "identifier", value: "val" },
+                { type: "identifier", value: "x" },
+                { type: "symbol", value: "=" },
+                { type: "symbol", value: "<" },
+                { type: "identifier", value: "div" },
+                { type: "identifier", value: "class" },
+                { type: "symbol", value: "=" },
+                { type: "string", value: "a" },
+                { type: "identifier", value: "id" },
+                { type: "symbol", value: "=" },
+                { type: "symbol", value: "{" },
+                { type: "identifier", value: "y" },
+                { type: "symbol", value: "}" },
+                { type: "symbol", value: "/" },
+                { type: "symbol", value: ">" }
+            ]);
+        });
+
+        it("tokenizes element text content as jsxText, including hazardous characters", () => {
+            expect(jsxTokens("return <p>it's 100% done</p>")).toStrictEqual([
+                { type: "identifier", value: "return" },
+                { type: "symbol", value: "<" },
+                { type: "identifier", value: "p" },
+                { type: "symbol", value: ">" },
+                { type: "jsxText", value: "it's 100% done" },
+                { type: "symbol", value: "<" },
+                { type: "symbol", value: "/" },
+                { type: "identifier", value: "p" },
+                { type: "symbol", value: ">" }
+            ]);
+        });
+
+        it("tokenizes nested elements and expression containers", () => {
+            expect(jsxTokens("return <ul>{items}<li>x</li></ul>")).toStrictEqual([
+                { type: "identifier", value: "return" },
+                { type: "symbol", value: "<" },
+                { type: "identifier", value: "ul" },
+                { type: "symbol", value: ">" },
+                { type: "symbol", value: "{" },
+                { type: "identifier", value: "items" },
+                { type: "symbol", value: "}" },
+                { type: "symbol", value: "<" },
+                { type: "identifier", value: "li" },
+                { type: "symbol", value: ">" },
+                { type: "jsxText", value: "x" },
+                { type: "symbol", value: "<" },
+                { type: "symbol", value: "/" },
+                { type: "identifier", value: "li" },
+                { type: "symbol", value: ">" },
+                { type: "symbol", value: "<" },
+                { type: "symbol", value: "/" },
+                { type: "identifier", value: "ul" },
+                { type: "symbol", value: ">" }
+            ]);
+        });
+
+        it("does not treat less-than between operands as JSX", () => {
+            expect(jsxTokens("a < b")).toStrictEqual([
+                { type: "identifier", value: "a" },
+                { type: "symbol", value: "<" },
+                { type: "identifier", value: "b" }
+            ]);
+        });
+
+        it("keeps less-than as a plain symbol when JSX is disabled", () => {
+            expect(
+                tokenize("return <div>", { jsx: false })
+                    .filter((token) => token.type !== "eof")
+                    .map(({ type, value }) => ({ type, value }))
+            ).toStrictEqual([
+                { type: "identifier", value: "return" },
+                { type: "symbol", value: "<" },
+                { type: "identifier", value: "div" },
+                { type: "symbol", value: ">" }
+            ]);
+        });
+    });
+
 })

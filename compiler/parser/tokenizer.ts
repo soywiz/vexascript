@@ -13,7 +13,7 @@ export interface SourceRange {
 }
 
 export interface Token {
-  type: "identifier" | "number" | "string" | "regexp" | "symbol" | "eof";
+  type: "identifier" | "number" | "string" | "regexp" | "symbol" | "jsxText" | "eof";
   value: string;
   index: number;
   range: SourceRange;
@@ -78,6 +78,8 @@ const CODE_U_LOWER = 117; // u
 const CODE_X_LOWER = 120; // x
 const CODE_Z_LOWER = 122; // z
 const CODE_PIPE = 124; // |
+const CODE_LBRACE = 123; // {
+const CODE_RBRACE = 125; // }
 
 function snapshot(reader: StrReader): SourcePosition {
   return {
@@ -855,50 +857,291 @@ function readSymbol(reader: StrReader): string {
   return String.fromCharCode(ch);
 }
 
-export function tokenize(input: string): Token[] {
+export interface TokenizeOptions {
+  /**
+   * When enabled, embedded XML/JSX is recognized: a `<` in expression position
+   * followed by a tag name (or `>` for a fragment) starts a JSX element instead
+   * of a less-than operator. MyLang always tokenizes with this on; TypeScript
+   * mode enables it through the `jsx` parser option.
+   */
+  jsx?: boolean;
+}
+
+export function tokenize(input: string, options: TokenizeOptions = {}): Token[] {
+  const jsxEnabled = options.jsx ?? false;
   const reader = new StrReader(input);
   const tokens: Token[] = [];
   let pendingComments: TokenComment[] = [];
   let previousSignificantToken: Token | undefined;
 
-  while (reader.hasMore) {
-    const code = reader.peekCode();
-    if (isWhitespaceCode(code)) {
+  const pushFragment = (fragment: TokenFragment): Token => {
+    const leadingComments =
+      pendingComments.length > 0 ? pendingComments : fragment.leadingComments;
+    const token: Token = {
+      type: fragment.type,
+      value: fragment.value,
+      index: tokens.length,
+      range: fragment.range,
+      ...(leadingComments && leadingComments.length > 0 ? { leadingComments } : {})
+    };
+    tokens.push(token);
+    previousSignificantToken = token;
+    pendingComments = [];
+    return token;
+  };
+
+  const pushSymbol = (value: string, start: SourcePosition): void => {
+    pushFragment({ type: "symbol", value, range: { start, end: snapshot(reader) } });
+  };
+
+  const skipInlineWhitespace = (): void => {
+    while (reader.hasMore && isWhitespaceCode(reader.peekCode())) {
       advanceCode(reader);
-      continue;
     }
+  };
 
-    const comment = readComment(reader);
-    if (comment) {
-      pendingComments.push(comment);
-      continue;
-    }
-
+  // Reads a single JSX name segment, allowing hyphens for custom elements and
+  // namespaced/data attributes (e.g. `data-id`).
+  const readJsxNameToken = (): void => {
     const start = snapshot(reader);
-    let type: Token["type"];
-    let value: string;
+    let value = "";
+    while (reader.hasMore) {
+      const code = reader.peekCode();
+      if (isIdentifierPartCode(code) || code === CODE_MINUS) {
+        value += String.fromCharCode(advanceCode(reader));
+        continue;
+      }
+      break;
+    }
+    pushFragment({ type: "identifier", value, range: { start, end: snapshot(reader) } });
+  };
+
+  // Reads a (possibly dotted) JSX tag name such as `div` or `Foo.Bar`.
+  const readJsxTagName = (): void => {
+    readJsxNameToken();
+    while (reader.hasMore && reader.peekCode() === CODE_DOT) {
+      const dotStart = snapshot(reader);
+      advanceCode(reader);
+      pushSymbol(".", dotStart);
+      readJsxNameToken();
+    }
+  };
+
+  // Reads `{ ... }` as the open brace, the inner code tokens (which may contain
+  // nested JSX), and the matching close brace.
+  const readJsxExpressionContainer = (): void => {
+    const braceStart = snapshot(reader);
+    advanceCode(reader);
+    pushSymbol("{", braceStart);
+    let depth = 1;
+    while (reader.hasMore) {
+      const code = reader.peekCode();
+      if (isWhitespaceCode(code)) {
+        advanceCode(reader);
+        continue;
+      }
+      const comment = readComment(reader);
+      if (comment) {
+        pendingComments.push(comment);
+        continue;
+      }
+      if (code === CODE_LBRACE) {
+        const start = snapshot(reader);
+        advanceCode(reader);
+        pushSymbol("{", start);
+        depth += 1;
+        continue;
+      }
+      if (code === CODE_RBRACE) {
+        const start = snapshot(reader);
+        advanceCode(reader);
+        depth -= 1;
+        pushSymbol("}", start);
+        if (depth === 0) {
+          return;
+        }
+        continue;
+      }
+      readCodeToken();
+    }
+    throw new TokenizeError("Unterminated JSX expression container", {
+      start: braceStart,
+      end: snapshot(reader)
+    });
+  };
+
+  const readJsxAttributes = (): void => {
+    while (true) {
+      skipInlineWhitespace();
+      if (!reader.hasMore) {
+        throw new TokenizeError("Unterminated JSX opening tag", {
+          start: snapshot(reader),
+          end: snapshot(reader)
+        });
+      }
+      const code = reader.peekCode();
+      if (code === CODE_GT || code === CODE_SLASH) {
+        return;
+      }
+      if (code === CODE_LBRACE) {
+        // Spread attribute `{...expr}`.
+        readJsxExpressionContainer();
+        continue;
+      }
+      readJsxNameToken();
+      skipInlineWhitespace();
+      if (reader.peekCode() === CODE_EQUALS) {
+        const eqStart = snapshot(reader);
+        advanceCode(reader);
+        pushSymbol("=", eqStart);
+        skipInlineWhitespace();
+        const valueCode = reader.peekCode();
+        if (valueCode === CODE_DOUBLE_QUOTE || valueCode === CODE_SINGLE_QUOTE) {
+          const stringStart = snapshot(reader);
+          const value = readEscapedString(reader, valueCode, stringStart);
+          pushFragment({ type: "string", value, range: { start: stringStart, end: snapshot(reader) } });
+        } else if (valueCode === CODE_LBRACE) {
+          readJsxExpressionContainer();
+        } else {
+          throw new TokenizeError("Expected JSX attribute value", {
+            start: snapshot(reader),
+            end: snapshot(reader)
+          });
+        }
+      }
+    }
+  };
+
+  const readJsxClosingTag = (): void => {
+    const ltStart = snapshot(reader);
+    advanceCode(reader);
+    pushSymbol("<", ltStart);
+    const slashStart = snapshot(reader);
+    advanceCode(reader);
+    pushSymbol("/", slashStart);
+    skipInlineWhitespace();
+    if (reader.peekCode() !== CODE_GT) {
+      readJsxTagName();
+      skipInlineWhitespace();
+    }
+    const gtStart = snapshot(reader);
+    if (reader.peekCode() !== CODE_GT) {
+      throw new TokenizeError("Expected '>' to close JSX closing tag", {
+        start: gtStart,
+        end: snapshot(reader)
+      });
+    }
+    advanceCode(reader);
+    pushSymbol(">", gtStart);
+  };
+
+  const readJsxChildren = (): void => {
+    while (true) {
+      const textStart = snapshot(reader);
+      let text = "";
+      while (reader.hasMore) {
+        const code = reader.peekCode();
+        if (code === CODE_LT || code === CODE_LBRACE) {
+          break;
+        }
+        text += String.fromCharCode(advanceCode(reader));
+      }
+      if (text.length > 0) {
+        pushFragment({ type: "jsxText", value: text, range: { start: textStart, end: snapshot(reader) } });
+      }
+      if (!reader.hasMore) {
+        throw new TokenizeError("Unterminated JSX element", {
+          start: textStart,
+          end: snapshot(reader)
+        });
+      }
+      const code = reader.peekCode();
+      if (code === CODE_LBRACE) {
+        readJsxExpressionContainer();
+        continue;
+      }
+      // code === CODE_LT
+      if (peekNextCode(reader) === CODE_SLASH) {
+        readJsxClosingTag();
+        return;
+      }
+      readJsxElement();
+    }
+  };
+
+  const readJsxElement = (): void => {
+    const ltStart = snapshot(reader);
+    advanceCode(reader);
+    pushSymbol("<", ltStart);
+
+    if (reader.peekCode() === CODE_GT) {
+      // Fragment `<>...</>`.
+      const gtStart = snapshot(reader);
+      advanceCode(reader);
+      pushSymbol(">", gtStart);
+      readJsxChildren();
+      return;
+    }
+
+    readJsxTagName();
+    readJsxAttributes();
+
+    if (reader.peekCode() === CODE_SLASH) {
+      const slashStart = snapshot(reader);
+      advanceCode(reader);
+      pushSymbol("/", slashStart);
+      const gtStart = snapshot(reader);
+      if (reader.peekCode() !== CODE_GT) {
+        throw new TokenizeError("Expected '>' to close self-closing JSX element", {
+          start: gtStart,
+          end: snapshot(reader)
+        });
+      }
+      advanceCode(reader);
+      pushSymbol(">", gtStart);
+      return;
+    }
+
+    const gtStart = snapshot(reader);
+    if (reader.peekCode() !== CODE_GT) {
+      throw new TokenizeError("Expected '>' in JSX opening tag", {
+        start: gtStart,
+        end: snapshot(reader)
+      });
+    }
+    advanceCode(reader);
+    pushSymbol(">", gtStart);
+    readJsxChildren();
+  };
+
+  // Reads a single non-trivia token (or JSX element / template expansion).
+  const readCodeToken = (): void => {
+    const code = reader.peekCode();
+    const start = snapshot(reader);
+
+    if (
+      jsxEnabled &&
+      code === CODE_LT &&
+      tokenAllowsRegExpLiteral(previousSignificantToken)
+    ) {
+      const nextCode = peekNextCode(reader);
+      if (isIdentifierStartCode(nextCode) || nextCode === CODE_GT) {
+        readJsxElement();
+        return;
+      }
+    }
 
     if (code === CODE_BACKTICK) {
       const templateFragments = readTemplateAsConcatenation(reader, start);
-      if (templateFragments.length === 0) {
-        continue;
+      for (const fragment of templateFragments) {
+        pushFragment(fragment);
       }
-      for (const [index, fragment] of templateFragments.entries()) {
-        const leadingComments =
-          index === 0 && pendingComments.length > 0
-            ? pendingComments
-            : fragment.leadingComments;
-        const token: Token = {
-          ...fragment,
-          index: tokens.length,
-          ...(leadingComments && leadingComments.length > 0 ? { leadingComments } : {})
-        };
-        tokens.push(token);
-        previousSignificantToken = token;
-      }
-      pendingComments = [];
-      continue;
-    } else if (
+      return;
+    }
+
+    let type: Token["type"];
+    let value: string;
+    if (
       code === CODE_SLASH &&
       peekNextCode(reader) !== CODE_SLASH &&
       peekNextCode(reader) !== CODE_STAR &&
@@ -921,19 +1164,23 @@ export function tokenize(input: string): Token[] {
       value = readSymbol(reader);
     }
 
-    const token: Token = {
-      type,
-      value,
-      index: tokens.length,
-      range: {
-        start,
-        end: snapshot(reader)
-      },
-      ...(pendingComments.length > 0 ? { leadingComments: pendingComments } : {})
-    };
-    tokens.push(token);
-    previousSignificantToken = token;
-    pendingComments = [];
+    pushFragment({ type, value, range: { start, end: snapshot(reader) } });
+  };
+
+  while (reader.hasMore) {
+    const code = reader.peekCode();
+    if (isWhitespaceCode(code)) {
+      advanceCode(reader);
+      continue;
+    }
+
+    const comment = readComment(reader);
+    if (comment) {
+      pendingComments.push(comment);
+      continue;
+    }
+
+    readCodeToken();
   }
 
   const eofPosition = snapshot(reader);
@@ -951,6 +1198,6 @@ export function tokenize(input: string): Token[] {
   return tokens;
 }
 
-export function tokenizeReader(input: string): ListReader<Token> {
-    return new ListReader(tokenize(input))
+export function tokenizeReader(input: string, options: TokenizeOptions = {}): ListReader<Token> {
+    return new ListReader(tokenize(input, options))
 }
