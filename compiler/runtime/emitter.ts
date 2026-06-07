@@ -165,6 +165,21 @@ let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
 // is decided entirely by the analyzer; the emitter just inserts `await` for the flagged nodes.
 let activeAutoAwaitExpressions: ReadonlySet<Node> = new Set();
 
+// Configurable factories used to lower embedded XML/JSX. They default to the
+// classic React runtime but can be overridden per emission (e.g. `h` /
+// `Fragment` for Preact, or a custom `jsx`/`jsxFragmentFactory`).
+export const DEFAULT_JSX_FACTORY = "React.createElement";
+export const DEFAULT_JSX_FRAGMENT_FACTORY = "React.Fragment";
+let activeJsxFactory = DEFAULT_JSX_FACTORY;
+let activeJsxFragmentFactory = DEFAULT_JSX_FRAGMENT_FACTORY;
+
+export interface EmitOptions {
+  /** Callee used for elements, e.g. `React.createElement` (default) or `h`. */
+  jsxFactory?: string;
+  /** Expression used for fragments, e.g. `React.Fragment` (default) or `Fragment`. */
+  jsxFragmentFactory?: string;
+}
+
 function isAsyncEmittedFunction(node: { async?: boolean; sync?: boolean }): boolean {
   return node.async === true || node.sync === true;
 }
@@ -782,12 +797,12 @@ function emitJsxElement(element: JsxElement): string {
   const tag = element.reference ? emitExpression(element.reference) : JSON.stringify(element.tagName);
   const props = emitJsxAttributes(element.attributes);
   const children = emitJsxChildren(element.children);
-  return `React.createElement(${tag}, ${props}${children})`;
+  return `${activeJsxFactory}(${tag}, ${props}${children})`;
 }
 
 function emitJsxFragment(fragment: JsxFragment): string {
   const children = emitJsxChildren(fragment.children);
-  return `React.createElement(React.Fragment, null${children})`;
+  return `${activeJsxFactory}(${activeJsxFragmentFactory}, null${children})`;
 }
 
 function emitJsxAttributes(attributes: JsxAttributeLike[]): string {
@@ -1651,9 +1666,18 @@ export function emitProgram(
   program: Program,
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
   implicitReceiverIdentifiers?: ReadonlySet<Node>,
-  autoAwaitExpressions?: ReadonlySet<Node>
+  autoAwaitExpressions?: ReadonlySet<Node>,
+  options: EmitOptions = {}
 ): string {
-  return emitProgramStatements(program, expressionTypes, program, implicitReceiverIdentifiers, autoAwaitExpressions).join("\n");
+  const runtimeContext = createEmitProgramRuntimeContext(program, expressionTypes, options);
+  return emitProgramStatements(
+    program,
+    expressionTypes,
+    program,
+    implicitReceiverIdentifiers,
+    autoAwaitExpressions,
+    runtimeContext
+  ).join("\n");
 }
 
 interface EmitProgramRuntimeContext {
@@ -1665,11 +1689,14 @@ interface EmitProgramRuntimeContext {
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
+  jsxFactory: string;
+  jsxFragmentFactory: string;
 }
 
 export function createEmitProgramRuntimeContext(
   contextProgram: Program,
-  expressionTypes?: ReadonlyMap<Node, AnalysisType>
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>,
+  options: EmitOptions = {}
 ): EmitProgramRuntimeContext {
   return {
     overloads: collectRuntimeOverloads(contextProgram),
@@ -1679,7 +1706,9 @@ export function createEmitProgramRuntimeContext(
     classNames: collectClassNames(contextProgram),
     parameterNames: collectParameterNames(contextProgram),
     javaScriptImplementations: collectJavaScriptImplementations(contextProgram),
-    jsNames: collectJsNames(contextProgram)
+    jsNames: collectJsNames(contextProgram),
+    jsxFactory: options.jsxFactory ?? DEFAULT_JSX_FACTORY,
+    jsxFragmentFactory: options.jsxFragmentFactory ?? DEFAULT_JSX_FRAGMENT_FACTORY
   };
 }
 
@@ -1702,9 +1731,13 @@ export function emitProgramStatements(
   const previousJsNames = activeJsNames;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
   const previousAutoAwaitExpressions = activeAutoAwaitExpressions;
+  const previousJsxFactory = activeJsxFactory;
+  const previousJsxFragmentFactory = activeJsxFragmentFactory;
   activeExpressionTypes = expressionTypes;
   activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
   activeAutoAwaitExpressions = autoAwaitExpressions;
+  activeJsxFactory = runtimeContext.jsxFactory;
+  activeJsxFragmentFactory = runtimeContext.jsxFragmentFactory;
   activeProgramOverloads = runtimeContext.overloads;
   activeOperators = runtimeContext.operators;
   activeExtensionMethods = runtimeContext.extensionMethods;
@@ -1729,5 +1762,7 @@ export function emitProgramStatements(
     activeJsNames = previousJsNames;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
     activeAutoAwaitExpressions = previousAutoAwaitExpressions;
+    activeJsxFactory = previousJsxFactory;
+    activeJsxFragmentFactory = previousJsxFragmentFactory;
   }
 }

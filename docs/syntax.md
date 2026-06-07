@@ -870,6 +870,14 @@ Embedded XML is transpiled with the classic React runtime: elements become `Reac
 React.createElement("div", { class: "greeting" }, "Hi ", name)
 ```
 
+The element factory and fragment factory are configurable. They default to the classic React runtime (`React.createElement` / `React.Fragment`) but can be overridden through the emitter/transpile options `jsxFactory` and `jsxFragmentFactory`, or the `mylang build` flags `--jsx-factory` and `--jsx-fragment-factory` (for example `--jsx-factory h --jsx-fragment-factory Fragment` for Preact):
+
+```js
+// with --jsx-factory h --jsx-fragment-factory Fragment
+// <><span/></>
+h(Fragment, null, h("span", null))
+```
+
 In TypeScript mode, embedded XML is opt-in through the `jsx` parser option; enabling it disables the angle-bracket cast (matching `.tsx` semantics).
 
 ### Range expressions

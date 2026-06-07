@@ -92,4 +92,32 @@ describe("VS Code extension syntax highlighting", () => {
     expect(regexpPatterns.join(" ")).toContain("/[");
     expect(stringEscapeMatch).toBe("\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})");
   });
+
+  it("includes embedded XML/JSX highlighting patterns", () => {
+    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
+    const grammar = JSON.parse(readFileSync(grammarPath, "utf8")) as {
+      patterns?: Array<{ include?: string }>;
+      repository?: Record<string, unknown>;
+    };
+
+    // JSX must be reachable from the top-level patterns.
+    expect((grammar.patterns ?? []).some((pattern) => pattern.include === "#jsx")).toBe(true);
+
+    const repository = grammar.repository ?? {};
+    for (const key of [
+      "jsx",
+      "jsx-fragment",
+      "jsx-self-closing-element",
+      "jsx-paired-element",
+      "jsx-attributes",
+      "jsx-expression"
+    ]) {
+      expect(Object.prototype.hasOwnProperty.call(repository, key), `grammar repository should define #${key}`).toBe(true);
+    }
+
+    const serialized = JSON.stringify(grammar.repository);
+    // Tag names and attribute names get dedicated scopes.
+    expect(serialized).toContain("entity.name.tag.mylang");
+    expect(serialized).toContain("entity.other.attribute-name.mylang");
+  });
 });

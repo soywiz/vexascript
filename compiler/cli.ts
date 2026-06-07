@@ -28,14 +28,21 @@ export function ensureLspTransportArg(argv: string[]): string[] {
   return [...argv, "--stdio"];
 }
 
-async function buildFile(input: string, out?: string, target: TranspileTarget = "optimized"): Promise<void> {
+async function buildFile(
+  input: string,
+  out?: string,
+  target: TranspileTarget = "optimized",
+  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
+): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
   const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
-    target
+    target,
+    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
+    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
   });
   if (result.errors.length > 0) {
     for (const error of result.errors) {
@@ -202,9 +209,14 @@ function createProgram(): Command {
     .argument("<input>", "Input file")
     .option("-o, --out <file>", "Output file")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
-    .action(async (input: string, opts: { out?: string; target?: string }) => {
+    .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
+    .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
+    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => {
       const target = opts.target === "conservative" ? "conservative" : "optimized";
-      await buildFile(input, opts.out, target);
+      await buildFile(input, opts.out, target, {
+        ...(opts.jsxFactory ? { jsxFactory: opts.jsxFactory } : {}),
+        ...(opts.jsxFragmentFactory ? { jsxFragmentFactory: opts.jsxFragmentFactory } : {})
+      });
     });
 
   program
