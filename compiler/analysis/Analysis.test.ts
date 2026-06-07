@@ -2753,4 +2753,54 @@ describe("named call argument analysis", () => {
     const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
     expect(messages).toContain("Missing required argument for parameter 'port'");
   });
+
+  describe("JSX expression container type checking", () => {
+    it("resolves the type of a variable used inside a JSX attribute expression container", () => {
+      const source = dedent`
+        fun demo() {
+          val greeting: string = "hi"
+          return <div class={greeting}></div>
+        }
+      `;
+      const analysis = new Analysis(parseFile(tokenizeReader(source, { jsx: true })));
+      // line 3 (0-based: 2), column inside `greeting` inside `{greeting}`
+      const hover = analysis.getHoverAt(2, 22);
+      expect(hover?.contents).not.toContain("unknown");
+      expect(hover?.contents).toContain("string");
+    });
+
+    it("reports undefined variable inside a JSX attribute expression container", () => {
+      const source = dedent`
+        fun demo() {
+          return <div class={missing}></div>
+        }
+      `;
+      const messages = new Analysis(parseFile(tokenizeReader(source, { jsx: true }))).getIssues().map((i) => i.message);
+      expect(messages).toContain("Undefined variable 'missing'");
+    });
+
+    it("reports undefined variable inside a JSX child expression container", () => {
+      const source = dedent`
+        fun demo() {
+          return <div>{missing}</div>
+        }
+      `;
+      const messages = new Analysis(parseFile(tokenizeReader(source, { jsx: true }))).getIssues().map((i) => i.message);
+      expect(messages).toContain("Undefined variable 'missing'");
+    });
+
+    it("resolves variables visible inside JSX expression containers for autocomplete", () => {
+      const source = dedent`
+        fun demo() {
+          val myVar: string = "x"
+          return <div class={myVar}></div>
+        }
+      `;
+      const ast = parseFile(tokenizeReader(source, { jsx: true }));
+      const analysis = new Analysis(ast);
+      // Position inside the JSX expression container on line 3 (0-based: 2)
+      const names = analysis.getVisibleSymbolsAt(2, 22).map((s) => s.name);
+      expect(names).toContain("myVar");
+    });
+  });
 });
