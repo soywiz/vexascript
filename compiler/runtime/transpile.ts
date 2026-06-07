@@ -10,11 +10,28 @@ import { lowerProgram } from "./lowering";
 import type { Program, Statement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
+import type { SourceRange } from "compiler/parser/tokenizer";
+import {
+  MYLANG_DIAGNOSTIC_CODES,
+  classifySemanticDiagnosticMessage,
+  mapAnalysisIssueCodeToDiagnosticCode
+} from "compiler/lsp/diagnosticCodes";
+
+export interface TranspileDiagnostic {
+  file: string;
+  line: number;
+  column: number;
+  endColumn: number;
+  code: string;
+  message: string;
+  sourceLine: string;
+}
 
 export interface TranspileResult {
   code: string;
   warnings: string[];
   errors: string[];
+  diagnostics: TranspileDiagnostic[];
   sourceMap?: string;
 }
 
@@ -246,34 +263,55 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const importedSymbolTypes = options.importedSymbolTypes ?? new Map();
   const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes });
   const errors: string[] = [];
+  const diagnostics: TranspileDiagnostic[] = [];
+  const file = options.sourceFilePath ?? "<unknown>";
+  const sourceLines = source.split("\n");
+
+  function makeDiagnostic(message: string, range: SourceRange | null | undefined, code: string): TranspileDiagnostic {
+    const line = (range?.start.line ?? 0) + 1;
+    const column = (range?.start.column ?? 0) + 1;
+    const endColumn = range?.end ? range.end.column + 1 : column + 1;
+    const sourceLine = sourceLines[line - 1] ?? "";
+    return { file, line, column, endColumn, code, message, sourceLine };
+  }
 
   if (artifacts.tokenizeError) {
     errors.push(
       formatMessageAtSourceRange(artifacts.tokenizeError.message, artifacts.tokenizeError.range)
     );
+    diagnostics.push(makeDiagnostic(artifacts.tokenizeError.message, artifacts.tokenizeError.range, MYLANG_DIAGNOSTIC_CODES.TOKENIZE_ERROR));
   }
   if (artifacts.fatalError) {
     errors.push(artifacts.fatalError);
+    diagnostics.push(makeDiagnostic(artifacts.fatalError, null, MYLANG_DIAGNOSTIC_CODES.FATAL_ERROR));
   }
   for (const issue of artifacts.parserIssues) {
     errors.push(formatParseIssue(issue));
+    diagnostics.push(makeDiagnostic(issue.message, issue.token?.range, MYLANG_DIAGNOSTIC_CODES.PARSER_ERROR));
   }
   if (errors.length > 0) {
-    return { code: "", warnings: [], errors };
+    return { code: "", warnings: [], errors, diagnostics };
   }
 
   for (const issue of artifacts.semanticIssues) {
     errors.push(formatSemanticIssue(issue));
+    const range = issue.node.firstToken?.range;
+    const code =
+      mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
+      classifySemanticDiagnosticMessage(issue.message) ??
+      MYLANG_DIAGNOSTIC_CODES.SEMANTIC_ERROR;
+    diagnostics.push(makeDiagnostic(issue.message, range, code));
   }
   if (errors.length > 0) {
-    return { code: "", warnings: [], errors };
+    return { code: "", warnings: [], errors, diagnostics };
   }
 
   if (!artifacts.ast || !artifacts.analysis) {
     return {
       code: "",
       warnings: [],
-      errors: ["Internal error: compilation artifacts are incomplete"]
+      errors: ["Internal error: compilation artifacts are incomplete"],
+      diagnostics: [makeDiagnostic("Internal error: compilation artifacts are incomplete", null, MYLANG_DIAGNOSTIC_CODES.FATAL_ERROR)]
     };
   }
 
@@ -311,6 +349,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     code,
     warnings: [],
     errors: [],
+    diagnostics: [],
     sourceMap: createSourceMap(source, code, sourceLinesByGeneratedLine, options)
   };
 }

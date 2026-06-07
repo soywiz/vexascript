@@ -184,5 +184,5 @@ export function bundleModuleGraph(entryFilePath: string, target: TranspileTarget
     .filter((chunk) => chunk.trim().length > 0)
     .join("\n");
 
-  return { code, warnings, errors };
+  return { code, warnings, errors, diagnostics: [] };
 }

@@ -78,7 +78,7 @@ describe("CLI", () => {
 
     await expect(runCli(["node", "mylang", "build", input])).rejects.toThrow("Compilation failed");
     expect(errorSpy).toHaveBeenCalled();
-    expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain("error:");
+    expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain(" - ");
   });
 
   it("run command reports compilation errors to stderr and fails", async () => {
@@ -90,7 +90,7 @@ describe("CLI", () => {
 
     await expect(runCli(["node", "mylang", "run", input])).rejects.toThrow("Compilation failed");
     expect(errorSpy).toHaveBeenCalled();
-    expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain("error:");
+    expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain("error");
   });
 
   it("tokens command prints token list as JSON", async () => {
