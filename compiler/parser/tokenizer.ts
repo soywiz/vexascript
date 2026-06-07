@@ -988,6 +988,12 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
         readJsxExpressionContainer();
         continue;
       }
+      if (!isIdentifierStartCode(code)) {
+        throw new TokenizeError("Unexpected character in JSX opening tag", {
+          start: snapshot(reader),
+          end: snapshot(reader)
+        });
+      }
       readJsxNameToken();
       skipInlineWhitespace();
       if (reader.peekCode() === CODE_EQUALS) {
