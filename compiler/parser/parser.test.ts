@@ -156,6 +156,50 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses named call arguments as NamedArgument nodes", () => {
+        expect(parseExpression(tokenizeReader('fetch(url: "https://hello.world")'))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "fetch" },
+            arguments: [
+                {
+                    kind: "NamedArgument",
+                    name: { kind: "Identifier", name: "url" },
+                    value: { kind: "StringLiteral", value: "https://hello.world" }
+                }
+            ]
+        });
+    });
+
+    it("parses a mix of positional and named call arguments", () => {
+        expect(parseExpression(tokenizeReader("connect(host, port: 8080)"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "connect" },
+            arguments: [
+                { kind: "Identifier", name: "host" },
+                {
+                    kind: "NamedArgument",
+                    name: { kind: "Identifier", name: "port" },
+                    value: { kind: "IntLiteral", value: 8080 }
+                }
+            ]
+        });
+    });
+
+    it("does not treat a ternary argument as a named argument", () => {
+        expect(parseExpression(tokenizeReader("fn(cond ? a : b)"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "fn" },
+            arguments: [
+                {
+                    kind: "ConditionalExpression",
+                    test: { kind: "Identifier", name: "cond" },
+                    consequent: { kind: "Identifier", name: "a" },
+                    alternate: { kind: "Identifier", name: "b" }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for optional call, optional element access, spread expressions, and rest parameters", () => {
         expect(parseExpression(tokenizeReader("fn?.(...args)"))).toEqual({
             kind: "CallExpression",

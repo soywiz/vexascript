@@ -64,7 +64,7 @@ import {
   type ClassResolverCache,
   type ClassResolverOptions
 } from "./classResolver";
-import { containsPosition, nodeRange, rangeSize } from "./ranges";
+import { comparePosition, containsPosition, nodeRange, rangeSize } from "./ranges";
 
 const CompletionItemKind = {
   Text: 1,
@@ -946,6 +946,84 @@ function findArgumentCompletionContext(
   return bestContext;
 }
 
+interface NamedArgumentCallContext {
+  callee: Expr;
+  isNew: boolean;
+}
+
+/**
+ * Finds the innermost call or `new` expression whose argument list encloses the
+ * cursor, so named-argument completions can offer the callee's parameter names.
+ * Unlike {@link findArgumentCompletionContext}, it does not require an existing
+ * argument at the cursor, so it also works for empty (`fetch(|)`) and partially
+ * typed (`fetch(ur|)`) argument lists. The cursor must sit past the callee so we
+ * are inside the parentheses rather than on the callee itself.
+ */
+function findNamedArgumentCallContext(
+  ast: Program,
+  line: number,
+  character: number
+): NamedArgumentCallContext | null {
+  const position = { line, character };
+  let best: NamedArgumentCallContext | null = null;
+  let bestSize: number | null = null;
+
+  walkAst(ast, (node) => {
+    if (node.kind !== "CallExpression" && node.kind !== "NewExpression") {
+      return;
+    }
+    const callLike = node as CallExpression | NewExpression;
+    const range = nodeRange(callLike);
+    if (!range || !containsPosition(range, position)) {
+      return;
+    }
+    const calleeRange = nodeRange(callLike.callee);
+    if (calleeRange && comparePosition(position, calleeRange.end) <= 0) {
+      return;
+    }
+    const size = rangeSize(range);
+    if (bestSize === null || size <= bestSize) {
+      best = { callee: callLike.callee, isNew: node.kind === "NewExpression" };
+      bestSize = size;
+    }
+  });
+
+  return best;
+}
+
+function buildNamedArgumentCompletionItems(
+  ast: Program,
+  analysis: Analysis,
+  line: number,
+  character: number,
+  options: CompletionRequestOptions
+): CompletionItem[] {
+  const context = findNamedArgumentCallContext(ast, line, character);
+  if (!context) {
+    return [];
+  }
+  const resolverOptions = classResolverOptionsFromCompletionOptions(options);
+  const signature = context.isNew
+    ? resolveConstructorSignature(context.callee, analysis, ast, resolverOptions)
+    : resolveCallableSignature(context.callee, analysis, ast, resolverOptions);
+  const parameters = signature?.parameters ?? [];
+  const items: CompletionItem[] = [];
+  for (const parameter of parameters) {
+    if (parameter.rest) {
+      continue;
+    }
+    items.push({
+      label: `${parameter.name}:`,
+      kind: CompletionItemKind.Field,
+      detail: `Named argument: ${parameter.typeName}`,
+      filterText: parameter.name,
+      insertText: `${parameter.name}: `,
+      sortText: `0-${parameter.name}`
+    });
+  }
+  return items;
+}
+
 function inferExpectedTypeForPosition(
   ast: Program,
   analysis: Analysis,
@@ -1695,6 +1773,25 @@ export function createCompletionItemsForPosition(
 
   const items: CompletionItem[] = [];
   const seenLabels = new Set<string>();
+
+  // Named-argument suggestions (`url:`) are offered alongside the in-scope
+  // symbols whenever the cursor is inside a call's argument list, ranked above
+  // ordinary symbols so they surface first.
+  const namedArgumentItems = buildNamedArgumentCompletionItems(
+    ast,
+    resolvedAnalysis,
+    line,
+    character,
+    options
+  );
+  for (const item of namedArgumentItems) {
+    if (seenLabels.has(item.label)) {
+      continue;
+    }
+    seenLabels.add(item.label);
+    items.push(item);
+  }
+
   for (let index = 0; index < rankedSymbols.length; index += 1) {
     const entry = rankedSymbols[index]!;
     const symbol = entry.symbol;

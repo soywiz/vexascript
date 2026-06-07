@@ -610,4 +610,40 @@ c.value`;
     expect(result.code).not.toContain("Color");
   });
 
+  it("emits named call arguments in the callee's positional order", () => {
+    const source = [
+      "fun connect(host: string, port: number) {}",
+      'connect(port: 8080, host: "localhost")'
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('connect("localhost", 8080)');
+  });
+
+  it("supports mixing positional and named call arguments", () => {
+    const source = [
+      "fun connect(host: string, port: number) {}",
+      'connect("localhost", port: 8080)'
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('connect("localhost", 8080)');
+  });
+
+  it("reorders named constructor arguments for new expressions", () => {
+    const source = [
+      "class Point(val x: number, val y: number)",
+      "val p = new Point(y: 2, x: 1)"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("new Point(1, 2)");
+  });
+
 });

@@ -2670,3 +2670,41 @@ describe("destructured parameter analysis", () => {
     }
   });
 });
+
+describe("named call argument analysis", () => {
+  it("accepts named arguments matched to their parameters", () => {
+    const source = [
+      "fun connect(host: string, port: number) {}",
+      'connect(port: 8080, host: "localhost")'
+    ].join("\n");
+    const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
+    expect(messages).toEqual([]);
+  });
+
+  it("reports a type mismatch on a named argument value", () => {
+    const source = [
+      "fun connect(host: string, port: number) {}",
+      'connect(host: "localhost", port: "nope")'
+    ].join("\n");
+    const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
+    expect(messages).toContain("Argument of type 'string' is not assignable to parameter 'port' of type 'number'");
+  });
+
+  it("reports an unknown named argument", () => {
+    const source = [
+      "fun connect(host: string, port: number) {}",
+      'connect(host: "localhost", protocol: "https")'
+    ].join("\n");
+    const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
+    expect(messages).toContain("No parameter named 'protocol'");
+  });
+
+  it("reports a missing required parameter when using named arguments", () => {
+    const source = [
+      "fun connect(host: string, port: number) {}",
+      'connect(host: "localhost")'
+    ].join("\n");
+    const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
+    expect(messages).toContain("Missing required argument for parameter 'port'");
+  });
+});
