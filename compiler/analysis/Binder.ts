@@ -274,6 +274,17 @@ export class Binder {
 
       if (statement.kind === "InterfaceStatement") {
         const interfaceStatement = statement as InterfaceStatement;
+        // An interface only contributes to the type space. When a value symbol
+        // already exists for the same name (for example `declare var Date:
+        // DateConstructor` paired with `interface Date`), keep that value
+        // symbol so member access on the value resolves against its declared
+        // type (e.g. `Date.now()` on `DateConstructor`). Otherwise a later
+        // `interface Date` merge would clobber the constructor value type with
+        // the instance interface type.
+        const existing = scope.symbols.get(interfaceStatement.name.name);
+        if (existing && (existing.kind === "variable" || existing.kind === "function")) {
+          continue;
+        }
         const symbolType = namedType(interfaceStatement.name.name);
         this.declare(scope, {
           name: interfaceStatement.name.name,

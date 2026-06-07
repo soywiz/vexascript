@@ -2190,6 +2190,41 @@ let after = bind`));
     expect(messages).toEqual([]);
   });
 
+  it("resolves static constructor members on ambient runtime globals", () => {
+    const source = dedent`
+      fun demo() {
+        console.log(Date.now())
+        console.log(Date.parse("2024-01-01"))
+        let d = new Date()
+        console.log(d.getTime())
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
+  it("does not let a later interface merge clobber a declare var value type", () => {
+    const source = dedent`
+      interface Widget { paint(): void }
+      declare var Widget: WidgetConstructor
+      interface WidgetConstructor { create(): Widget }
+      interface Widget { resize(): void }
+      fun demo() {
+        Widget.create()
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("uses declared Array<T> members for T[] alias member resolution", () => {
     const source = dedent`
       declare class Array<T> {
