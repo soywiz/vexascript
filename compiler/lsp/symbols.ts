@@ -6,6 +6,8 @@ import type {
   SymbolInformation
 } from "vscode-languageserver/node.js";
 import { getProjectIndex, getProjectSessionForFilePath } from "./projectAnalysis";
+import { pathToUri } from "./importFixes";
+import { nodeRange, type TokenBackedNode } from "./ranges";
 
 const SymbolKind = {
   File: 1,
@@ -36,33 +38,6 @@ const SymbolKind = {
   TypeParameter: 26
 } as const;
 
-function pathToUri(path: string): string {
-  return path.startsWith("/")
-    ? `file://${path}`
-    : `file:///${path.replace(/\\/g, "/")}`;
-}
-
-interface NodeWithTokens {
-  firstToken?: { range: { start: { line: number; column: number } } };
-  lastToken?: { range: { end: { line: number; column: number } } };
-}
-
-function nodeToRange(node: NodeWithTokens) {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-  return {
-    start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
-    },
-    end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
-    }
-  };
-}
-
 function symbolKindForTopLevel(kind: "class" | "function" | "variable"): SymbolInformation["kind"] {
   if (kind === "class") {
     return SymbolKind.Class;
@@ -87,8 +62,8 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
     const statement = topLevelSymbolStatement(originalStatement);
     if (statement.kind === "ClassStatement") {
       const classStatement = statement as ClassStatement;
-      const classRange = nodeToRange(statement);
-      const nameRange = nodeToRange(classStatement.name);
+      const classRange = nodeRange(statement);
+      const nameRange = nodeRange(classStatement.name);
       if (!classRange || !nameRange) {
         continue;
       }
@@ -96,8 +71,8 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
       const children: DocumentSymbol[] = [];
       for (const member of classStatement.members) {
         if (member.kind === "ClassFieldMember") {
-          const memberRange = nodeToRange(member);
-          const memberNameRange = nodeToRange(member.name);
+          const memberRange = nodeRange(member);
+          const memberNameRange = nodeRange(member.name);
           if (!memberRange || !memberNameRange) {
             continue;
           }
@@ -110,8 +85,8 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
           continue;
         }
 
-        const methodRange = nodeToRange(member);
-        const methodNameRange = nodeToRange(member.name);
+        const methodRange = nodeRange(member);
+        const methodNameRange = nodeRange(member.name);
         if (!methodRange || !methodNameRange) {
           continue;
         }
@@ -135,8 +110,8 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
 
     if (statement.kind === "FunctionStatement") {
       const functionStatement = statement as FunctionStatement;
-      const functionRange = nodeToRange(statement);
-      const functionNameRange = nodeToRange(functionStatement.name);
+      const functionRange = nodeRange(statement);
+      const functionNameRange = nodeRange(functionStatement.name);
       if (!functionRange || !functionNameRange) {
         continue;
       }
@@ -153,16 +128,16 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
       const variableStatement = statement as VarStatement;
       if (variableStatement.declarations && variableStatement.declarations.length > 0) {
         for (const declaration of variableStatement.declarations) {
-          const declarationRange = nodeToRange(declaration);
+          const declarationRange = nodeRange(declaration);
           for (const identifier of bindingIdentifiers(declaration.name)) {
-            const nameRange = nodeToRange(identifier);
+            const nameRange = nodeRange(identifier);
             if (declarationRange && nameRange) symbols.push({ name: identifier.name, kind: SymbolKind.Variable, range: declarationRange, selectionRange: nameRange });
           }
         }
       } else {
-        const declarationRange = nodeToRange(statement);
+        const declarationRange = nodeRange(statement);
         for (const identifier of bindingIdentifiers(variableStatement.name)) {
-          const nameRange = nodeToRange(identifier);
+          const nameRange = nodeRange(identifier);
           if (declarationRange && nameRange) symbols.push({ name: identifier.name, kind: SymbolKind.Variable, range: declarationRange, selectionRange: nameRange });
         }
       }
@@ -185,13 +160,13 @@ function collectTopLevelSymbolInformation(
   const push = (
     name: string,
     kind: "class" | "function" | "variable",
-    locationNode: NodeWithTokens,
+    locationNode: TokenBackedNode,
     containerName?: string
   ) => {
     if (!matches(name)) {
       return;
     }
-    const range = nodeToRange(locationNode);
+    const range = nodeRange(locationNode);
     if (!range) {
       return;
     }

@@ -7,7 +7,7 @@ import type {
 } from "compiler/ast/ast";
 import { CodeActionKind, type CodeAction, type TextEdit } from "vscode-languageserver/node.js";
 import { findNodeAtPosition } from "./nodeSearch";
-import type { Position } from "./ranges";
+import { offsetToPosition, type Position } from "./ranges";
 
 interface RangedToken {
   value?: string;
@@ -28,19 +28,6 @@ function tokenStartPosition(token: RangedToken): Position {
 
 function tokenEndPosition(token: RangedToken): Position {
   return { line: token.range.end.line, character: token.range.end.column };
-}
-
-function offsetToPosition(text: string, offset: number): Position {
-  let line = 0;
-  let lineStart = 0;
-  const limit = Math.min(offset, text.length);
-  for (let index = 0; index < limit; index += 1) {
-    if (text[index] === "\n") {
-      line += 1;
-      lineStart = index + 1;
-    }
-  }
-  return { line, character: offset - lineStart };
 }
 
 function isBraceLambda(node: Node | undefined): node is ArrowFunctionExpression {

@@ -53,6 +53,7 @@ import {
   type SemanticTokens,
   type SemanticTokensLegend
 } from "vscode-languageserver/node.js";
+import { comparePosition, type Position } from "./ranges";
 
 class SimpleSemanticTokensBuilder {
   private readonly data: number[] = [];
@@ -218,11 +219,6 @@ const OPERATOR_SYMBOLS = new Set([
   ":",
   "..."
 ]);
-
-interface Position {
-  line: number;
-  character: number;
-}
 
 interface DocumentRange {
   start: Position;
@@ -740,16 +736,6 @@ function tokenTypeFromAnalysis(token: Token, analysis: Analysis): TokenTypeName 
     default:
       return "variable";
   }
-}
-
-function comparePosition(left: Position, right: Position): number {
-  if (left.line !== right.line) {
-    return left.line < right.line ? -1 : 1;
-  }
-  if (left.character !== right.character) {
-    return left.character < right.character ? -1 : 1;
-  }
-  return 0;
 }
 
 function intersectsRange(tokenRange: SourceRange, queryRange?: DocumentRange): boolean {

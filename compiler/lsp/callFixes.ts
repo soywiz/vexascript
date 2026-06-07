@@ -23,7 +23,7 @@ import type {
 import { tokenize } from "compiler/parser/tokenizer";
 import { CodeActionKind, type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
 import { getCallDiagnosticKind } from "./diagnosticCodes";
-import { containsPosition, nodeRange, rangeSize, type Position } from "./ranges";
+import { containsPosition, nodeRange, offsetToPosition, rangeSize, type Position } from "./ranges";
 
 interface CallArgumentMatch {
   call: CallExpression;
@@ -293,22 +293,6 @@ function findFunctionParens(functionStatement: FunctionStatement, text: string):
   }
 
   return null;
-}
-
-function offsetToPosition(text: string, offset: number): Position {
-  let line = 0;
-  let character = 0;
-  const clampedOffset = Math.max(0, Math.min(offset, text.length));
-  for (let index = 0; index < clampedOffset; index += 1) {
-    const ch = text[index];
-    if (ch === "\n") {
-      line += 1;
-      character = 0;
-    } else {
-      character += 1;
-    }
-  }
-  return { line, character };
 }
 
 function rangeAtOffset(text: string, offset: number): Range {

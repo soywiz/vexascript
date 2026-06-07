@@ -55,6 +55,7 @@ import {
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
+import { containsPosition, nodeRange } from "./ranges";
 import {
   classPropertyParameters,
   createClassResolverCache,
@@ -150,21 +151,6 @@ function localRenameWorkspaceEdit(context: ResolveContext, newName: string): Wor
   };
 }
 
-function nodeToRange(node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } }) {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-  return {
-    start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
-    },
-    end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
-    }
-  };
-}
 
 function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: string; name: string } | null {
   for (const statement of ast.body) {
@@ -195,21 +181,21 @@ function declarationRangeForName(statement: Statement, name: string) {
     if (variableStatement.declarations && variableStatement.declarations.length > 0) {
       for (const declaration of variableStatement.declarations) {
         const identifier = bindingIdentifiers(declaration.name).find((item) => item.name === name);
-        if (identifier) return nodeToRange(identifier);
+        if (identifier) return nodeRange(identifier);
       }
     }
-    return nodeToRange(bindingIdentifiers(variableStatement.name).find((item) => item.name === name) ?? variableStatement.name);
+    return nodeRange(bindingIdentifiers(variableStatement.name).find((item) => item.name === name) ?? variableStatement.name);
   }
   if (statement.kind === "ClassStatement") {
-    return nodeToRange((statement as ClassStatement).name);
+    return nodeRange((statement as ClassStatement).name);
   }
   if (statement.kind === "InterfaceStatement") {
-    return nodeToRange((statement as InterfaceStatement).name);
+    return nodeRange((statement as InterfaceStatement).name);
   }
   if (statement.kind === "FunctionStatement") {
-    return nodeToRange((statement as FunctionStatement).name);
+    return nodeRange((statement as FunctionStatement).name);
   }
-  return nodeToRange(statement);
+  return nodeRange(statement);
 }
 
 function getSessionForFilePath(filePath: string, context: ResolveContext): SessionLike | null {
@@ -412,22 +398,6 @@ function findMatchingImportSpecifierPositions(
   return positions;
 }
 
-function rangeContainsPosition(
-  range: { start: { line: number; character: number }; end: { line: number; character: number } },
-  line: number,
-  character: number
-): boolean {
-  if (line < range.start.line || line > range.end.line) {
-    return false;
-  }
-  if (line === range.start.line && character < range.start.character) {
-    return false;
-  }
-  if (line === range.end.line && character > range.end.character) {
-    return false;
-  }
-  return true;
-}
 
 function classMemberDeclarationRangeByName(
   classStatement: TypeLikeDeclaration,
@@ -438,7 +408,7 @@ function classMemberDeclarationRangeByName(
       if (member.name.name !== memberName) {
         continue;
       }
-      const range = nodeToRange(member.name);
+      const range = nodeRange(member.name);
       if (range) {
         return range;
       }
@@ -450,7 +420,7 @@ function classMemberDeclarationRangeByName(
     if (bindingNameText(parameter.name) !== memberName) {
       continue;
     }
-    const range = nodeToRange(parameter.name);
+    const range = nodeRange(parameter.name);
     if (range) {
       return range;
     }
@@ -460,7 +430,7 @@ function classMemberDeclarationRangeByName(
     if (member.name.name !== memberName) {
       continue;
     }
-    const range = nodeToRange(member.name);
+    const range = nodeRange(member.name);
     if (range) {
       return range;
     }
@@ -492,7 +462,7 @@ function classMemberInfoByName(
       if (member.name.name !== memberName) {
         continue;
       }
-      const range = nodeToRange(member.name);
+      const range = nodeRange(member.name);
       if (!range) {
         return null;
       }
@@ -518,7 +488,7 @@ function classMemberInfoByName(
     if (bindingNameText(parameter.name) !== memberName) {
       continue;
     }
-    const range = nodeToRange(parameter.name);
+    const range = nodeRange(parameter.name);
     if (!range) {
       return null;
     }
@@ -534,7 +504,7 @@ function classMemberInfoByName(
     if (member.name.name !== memberName) {
       continue;
     }
-    const range = nodeToRange(member.name);
+    const range = nodeRange(member.name);
     if (!range) {
       return null;
     }
@@ -601,8 +571,8 @@ function findMemberExpressionAtPosition(
     if (member.computed || member.property.kind !== "Identifier") {
       return;
     }
-    const propertyRange = nodeToRange(member.property);
-    if (!propertyRange || !rangeContainsPosition(propertyRange, line, character)) {
+    const propertyRange = nodeRange(member.property);
+    if (!propertyRange || !containsPosition(propertyRange, { line, character })) {
       return;
     }
     const size =
@@ -937,7 +907,7 @@ function resolveExtensionMemberDefinitionAcrossFiles(
     return null;
   }
 
-  const range = nodeToRange(resolved.declaration.name);
+  const range = nodeRange(resolved.declaration.name);
   if (!range) {
     return null;
   }
@@ -960,7 +930,7 @@ function findClassMemberDeclarationAtPosition(
     const classStatement = statement as ClassStatement;
     for (const parameter of classPropertyParameters(classStatement)) {
       const member = classMemberInfoByName(classStatement, bindingNameText(parameter.name));
-      if (!member || !rangeContainsPosition(member.range, line, character)) {
+      if (!member || !containsPosition(member.range, { line, character })) {
         continue;
       }
       return {
@@ -970,7 +940,7 @@ function findClassMemberDeclarationAtPosition(
     }
     for (const classMember of classStatement.members) {
       const member = classMemberInfoByName(classStatement, classMember.name.name);
-      if (!member || !rangeContainsPosition(member.range, line, character)) {
+      if (!member || !containsPosition(member.range, { line, character })) {
         continue;
       }
       return {
@@ -1309,7 +1279,7 @@ function resolveMemberReferencesAcrossFiles(
       if (objectClassName !== memberSymbol.className) {
         continue;
       }
-      const range = nodeToRange(member.property);
+      const range = nodeRange(member.property);
       if (!range) {
         continue;
       }
@@ -1409,7 +1379,7 @@ export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | 
   }
   const prefix = (resolvedMember?.kind ?? (fallbackMember?.sourceKind === "method" ? "method" : "field")) === "method" ? "method" : "member";
 
-  const memberRange = nodeToRange(memberExpression.property) ?? nodeToRange(memberExpression);
+  const memberRange = nodeRange(memberExpression.property) ?? nodeRange(memberExpression);
   return {
     contents: {
       kind: "plaintext",
