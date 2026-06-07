@@ -118,9 +118,19 @@ export class Analysis {
   getImplicitReceiverIdentifiers(): ReadonlySet<Node> {
     return new Set(
       this.identifierResolutions
-        .filter((resolution) => resolution.symbol.implicitReceiver === true)
+        .filter((resolution) => resolution.symbol.implicitReceiver === true && !resolution.symbol.implicitReceiverClassName)
         .map((resolution) => resolution.identifier)
     );
+  }
+
+  getStaticImplicitReceiverIdentifiers(): ReadonlyMap<Node, string> {
+    const result = new Map<Node, string>();
+    for (const resolution of this.identifierResolutions) {
+      if (resolution.symbol.implicitReceiver === true && resolution.symbol.implicitReceiverClassName) {
+        result.set(resolution.identifier, resolution.symbol.implicitReceiverClassName);
+      }
+    }
+    return result;
   }
 
   getSymbolAt(line: number, character: number): AnalysisSymbolMatch | null {

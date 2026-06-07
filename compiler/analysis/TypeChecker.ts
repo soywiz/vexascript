@@ -615,11 +615,14 @@ export class TypeChecker {
       for (const member of statement.members) {
         if (member.kind === "ClassFieldMember") {
           const field = member as ClassFieldMember;
-          if (field.typeAnnotation) {
-            this.resolveTypeAnnotation(field.typeAnnotation, classScope);
-          }
+          const annotationType = field.typeAnnotation
+            ? this.resolveTypeAnnotation(field.typeAnnotation, classScope)
+            : undefined;
           if (field.initializer) {
-            this.visitExpression(field.initializer, classScope);
+            const inferredType = this.visitExpression(field.initializer, classScope);
+            if (!annotationType) {
+              this.updateSymbolType(classScope, field.name.name, inferredType);
+            }
           }
           continue;
         }
@@ -1168,7 +1171,7 @@ export class TypeChecker {
           break;
         }
 
-        const constructorInterfaceType = this.interfaceConstructorTypeForNewExpression(newExpression, calleeType);
+        const constructorInterfaceType = this.interfaceConstructorTypeForNewExpression(newExpression, calleeType, scope);
         if (constructorInterfaceType) {
           const typeParameterNames = constructorInterfaceType.typeParameters ?? [];
           const substitutions = new Map<string, AnalysisType>();
@@ -1985,10 +1988,17 @@ export class TypeChecker {
       return true;
     }
 
+    if (sourceType.kind === "array" && targetType.kind === "named") {
+      return this.isTypeAssignable(namedType("Array", [sourceType.elementType]), targetType);
+    }
+
     if (sourceType.kind === "named" && targetType.kind === "named") {
       if (sourceType.name === targetType.name) {
         const sourceTypeArguments = sourceType.typeArguments ?? [];
         const targetTypeArguments = targetType.typeArguments ?? [];
+        if (targetTypeArguments.length === 0) {
+          return true;
+        }
         if (sourceTypeArguments.length === targetTypeArguments.length) {
           return sourceTypeArguments.every((sourceArgument, index) =>
             isSameType(sourceArgument, targetTypeArguments[index]!)
@@ -2811,7 +2821,8 @@ export class TypeChecker {
 
   private interfaceConstructorTypeForNewExpression(
     newExpression: NewExpression,
-    calleeType: AnalysisType
+    calleeType: AnalysisType,
+    scope: Scope
   ): (AnalysisType & { kind: "function" }) | null {
     const preferredInterfaceName = calleeType.kind === "named"
       ? calleeType.name
@@ -2825,26 +2836,27 @@ export class TypeChecker {
     if (newExpression.callee.kind === "Identifier") {
       candidateNames.push(`${(newExpression.callee as Identifier).name}Constructor`);
     }
-    let constructorMember: InterfaceMethodMember | undefined;
+    let constructorMembers: InterfaceMethodMember[] = [];
     let constructorInterfaceName: string | null = null;
     for (const candidateName of candidateNames) {
       const interfaceStatement = this.interfaceStatementsByName.get(candidateName);
       if (!interfaceStatement) {
         continue;
       }
-      const candidateConstructor = interfaceStatement.members.find(
+      const candidates = interfaceStatement.members.filter(
         (member): member is InterfaceMethodMember =>
           member.kind === "InterfaceMethodMember" && member.name.name === "constructor"
       );
-      if (candidateConstructor) {
-        constructorMember = candidateConstructor;
+      if (candidates.length > 0) {
+        constructorMembers = candidates;
         constructorInterfaceName = candidateName;
         break;
       }
     }
-    if (!constructorMember) {
+    if (constructorMembers.length === 0) {
       return null;
     }
+    const constructorMember = this.selectBestConstructorOverload(constructorMembers, newExpression, scope);
     const typeParameterNames = (constructorMember.typeParameters ?? []).map((parameter) => parameter.name.name);
     if (constructorInterfaceName === "PromiseConstructor") {
       return functionType(
@@ -2883,6 +2895,40 @@ export class TypeChecker {
       );
     });
     return result;
+  }
+
+  private selectBestConstructorOverload(
+    overloads: InterfaceMethodMember[],
+    newExpression: NewExpression,
+    scope: Scope
+  ): InterfaceMethodMember {
+    if (overloads.length === 1) {
+      return overloads[0]!;
+    }
+    const argTypes = (newExpression.arguments ?? []).map((arg) => this.visitExpression(arg, scope));
+    for (const overload of overloads) {
+      const typeParamNames = (overload.typeParameters ?? []).map((p) => p.name.name);
+      const params = overload.parameters.map((p) => ({
+        type: this.typeFromAnnotationLooseWithTypeParameters(p.typeAnnotation, typeParamNames) ?? UNKNOWN_TYPE,
+        optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
+        rest: p.rest === true
+      }));
+      const restParam = params[params.length - 1]?.rest ? params[params.length - 1] : undefined;
+      const fixedParams = restParam ? params.slice(0, -1) : params;
+      const requiredCount = fixedParams.filter((p) => !p.optional).length;
+      if (argTypes.length < requiredCount) continue;
+      if (!restParam && argTypes.length > fixedParams.length) continue;
+      const allMatch = argTypes.every((argType, index) => {
+        const param = fixedParams[index] ?? restParam;
+        if (!param) return false;
+        const paramType = restParam && index >= fixedParams.length
+          ? this.restParameterElementType(restParam.type)
+          : param.type;
+        return isUnknownType(paramType) || isUnknownType(argType) || this.isTypeAssignable(argType, paramType);
+      });
+      if (allMatch) return overload;
+    }
+    return overloads[0]!;
   }
 
   private visitConstructorArgumentsWithContext(
@@ -3732,6 +3778,26 @@ export class TypeChecker {
     if (type.kind === "tuple" && /^\d+$/.test(propertyName)) {
       return type.elements[Number(propertyName)] ?? null;
     }
+    if (type.kind === "builtin") {
+      const boxedName = this.boxedInterfaceNameForBuiltin(type.name);
+      if (boxedName) {
+        return this.resolveNamedTypeMembers(namedType(boxedName))?.get(propertyName) ?? null;
+      }
+    }
+    if (type.kind === "literal") {
+      const boxedName = this.boxedInterfaceNameForBuiltin(type.base);
+      if (boxedName) {
+        return this.resolveNamedTypeMembers(namedType(boxedName))?.get(propertyName) ?? null;
+      }
+    }
+    return null;
+  }
+
+  private boxedInterfaceNameForBuiltin(name: string): string | null {
+    if (name === "int" || name === "number" || name === "numeric") return "Number";
+    if (name === "string") return "String";
+    if (name === "boolean") return "Boolean";
+    if (name === "bigint" || name === "long") return "BigInt";
     return null;
   }
 
@@ -4816,6 +4882,10 @@ export class TypeChecker {
       return this.resolveNamedTypeMembers(type);
     }
     if (type.kind === "builtin" && type.name !== "any" && type.name !== "unknown") {
+      const boxedName = this.boxedInterfaceNameForBuiltin(type.name);
+      if (boxedName) {
+        return this.resolveNamedTypeMembers(namedType(boxedName)) ?? new Map();
+      }
       return new Map();
     }
     return null;
@@ -4904,7 +4974,11 @@ export class TypeChecker {
 
       for (const classMember of classStatement.members) {
         if (classMember.kind === "ClassFieldMember") {
-          const fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation) ?? UNKNOWN_TYPE;
+          let fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation);
+          if (!fieldType) {
+            const classScope = this.bound.scopeByNode.get(classStatement);
+            fieldType = classScope?.symbols.get(classMember.name.name)?.type ?? UNKNOWN_TYPE;
+          }
           members.set(
             classMember.name.name,
             this.substituteTypeParameters(fieldType, substitutions)
@@ -4912,7 +4986,13 @@ export class TypeChecker {
           continue;
         }
 
-        const rawReturnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
+        let rawReturnType = this.typeFromAnnotationLoose(classMember.returnType);
+        if (!rawReturnType && classMember.accessorKind === "get") {
+          const classScope = this.bound.scopeByNode.get(classStatement);
+          const symbolType = classScope?.symbols.get(classMember.name.name)?.type;
+          rawReturnType = symbolType?.kind === "function" ? symbolType.returnType : undefined;
+        }
+        rawReturnType ??= builtinType("void");
         const returnType = this.isAsyncLike(classMember) && !this.getAsyncReturnValueType(rawReturnType)
           ? namedType("Promise", [rawReturnType])
           : rawReturnType;
