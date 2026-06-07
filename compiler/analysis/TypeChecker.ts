@@ -152,6 +152,13 @@ export class TypeChecker {
     this.collectInterfaceStatements(externalDeclarations);
     this.collectTypeAliasStatements(externalDeclarations);
     this.collectNamespaceStatements({ kind: "Program", body: [...externalDeclarations] } as Program);
+    // Also collect declarations nested inside namespace bodies so types like
+    // `moment.Moment` (declared as `namespace moment { interface Moment }`) are
+    // available for member resolution when referenced as namedType("Moment").
+    const nestedFromExternals = this.collectNestedNamespaceDeclarations(externalDeclarations);
+    this.collectClassStatements(nestedFromExternals);
+    this.collectInterfaceStatements(nestedFromExternals);
+    this.collectTypeAliasStatements(nestedFromExternals);
     // Imported extension operator overloads (e.g. `import { operator+ }`) are
     // registered so a cross-file operator like `a + b` resolves to the overload.
     this.collectExtensionOperators({ kind: "Program", body: [...externalDeclarations] } as Program);
@@ -4474,6 +4481,28 @@ export class TypeChecker {
       }
     };
     visit(program.body);
+  }
+
+  /**
+   * Recursively collects all declarations nested inside namespace bodies from
+   * the given statement list. Used to make types declared inside namespaces
+   * (e.g. `interface Moment` inside `namespace moment`) available for member
+   * resolution when referenced as plain named types.
+   */
+  private collectNestedNamespaceDeclarations(statements: readonly Statement[]): Statement[] {
+    const result: Statement[] = [];
+    const visit = (stmts: readonly Statement[]): void => {
+      for (const stmt of stmts) {
+        const candidate = stmt.kind === "ExportStatement" ? (stmt as ExportStatement).declaration : stmt;
+        if (candidate?.kind === "NamespaceStatement") {
+          const ns = candidate as NamespaceStatement;
+          result.push(...ns.body.body);
+          visit(ns.body.body);
+        }
+      }
+    };
+    visit(statements);
+    return result;
   }
 
   private collectClassStatements(statements: readonly Statement[]): void {
