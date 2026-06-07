@@ -292,12 +292,12 @@ describe("parseExpression", () => {
     });
 
     it("builds an AST for TypeScript angle-bracket assertions", () => {
-        expect(parseExpression(tokenizeReader("<string>value"))).toEqual({
+        expect(parseExpression(tokenizeReader("<string>value"), { language: "typescript" })).toEqual({
             kind: "AsExpression",
             expression: { kind: "Identifier", name: "value" },
             typeAnnotation: { kind: "Identifier", name: "string" }
         });
-        expect(parseExpression(tokenizeReader("<string[]>value"))).toEqual({
+        expect(parseExpression(tokenizeReader("<string[]>value"), { language: "typescript" })).toEqual({
             kind: "AsExpression",
             expression: { kind: "Identifier", name: "value" },
             typeAnnotation: { kind: "Identifier", name: "string[]" }
@@ -4529,6 +4529,78 @@ describe("JavaScript implementation annotations", () => {
             name: { name: "assert" },
             jsName: "assertJs",
             jsInline: "if (!cond) throw new Error()"
+        });
+    });
+
+    describe("embedded XML / JSX", () => {
+        function jsxExpression(input: string) {
+            return parseExpression(tokenizeReader(input, { jsx: true }), { language: "mylang" });
+        }
+
+        it("parses an element with attributes, text and expression children", () => {
+            expect(jsxExpression('<div class="x">hi {name}</div>')).toMatchObject({
+                kind: "JsxElement",
+                tagName: "div",
+                selfClosing: false,
+                attributes: [
+                    { kind: "JsxAttribute", name: "class", value: { kind: "StringLiteral", value: "x" } }
+                ],
+                children: [
+                    { kind: "JsxText", value: "hi " },
+                    { kind: "JsxExpressionContainer", expression: { kind: "Identifier", name: "name" } }
+                ]
+            });
+        });
+
+        it("parses self-closing elements and boolean attributes", () => {
+            expect(jsxExpression("<input disabled />")).toMatchObject({
+                kind: "JsxElement",
+                tagName: "input",
+                selfClosing: true,
+                attributes: [{ kind: "JsxAttribute", name: "disabled", value: undefined }],
+                children: []
+            });
+        });
+
+        it("treats component and dotted tags as references but not intrinsic tags", () => {
+            expect(jsxExpression("<Foo.Bar/>")).toMatchObject({
+                kind: "JsxElement",
+                tagName: "Foo.Bar",
+                reference: {
+                    kind: "MemberExpression",
+                    object: { kind: "Identifier", name: "Foo" },
+                    property: { kind: "Identifier", name: "Bar" }
+                }
+            });
+            expect(jsxExpression("<div/>")).not.toHaveProperty("reference");
+        });
+
+        it("parses spread attributes and fragments", () => {
+            expect(jsxExpression("<><span {...props}/></>")).toMatchObject({
+                kind: "JsxFragment",
+                children: [
+                    {
+                        kind: "JsxElement",
+                        tagName: "span",
+                        attributes: [
+                            { kind: "JsxSpreadAttribute", expression: { kind: "Identifier", name: "props" } }
+                        ]
+                    }
+                ]
+            });
+        });
+
+        it("reports an error when closing tags do not match", () => {
+            const reader = tokenizeReader("<div></span>", { jsx: true });
+            const parser = new Parser(reader, { language: "mylang" });
+            parser.parseExpression();
+            expect(parser.errors.length).toBeGreaterThan(0);
+        });
+
+        it("does not enable JSX casts in TypeScript mode by default", () => {
+            expect(parseExpression(tokenizeReader("<string>value", { jsx: false }), { language: "typescript" })).toMatchObject({
+                kind: "AsExpression"
+            });
         });
     });
 });

@@ -129,12 +129,11 @@ function bind(this: Loader, id: string): string {
 }
 ```
 
-Type assertions with `as Type`, angle-bracket assertions, const assertions, and non-null assertions are parsed and erased during JavaScript emission. Const assertions keep the analyzed expression type without attempting to resolve `const` as a named type. Non-null assertions remove `null` and `undefined` from the analyzed expression type without changing runtime output:
+Type assertions with `as Type`, const assertions, and non-null assertions are parsed and erased during JavaScript emission. Const assertions keep the analyzed expression type without attempting to resolve `const` as a named type. Non-null assertions remove `null` and `undefined` from the analyzed expression type without changing runtime output. The angle-bracket cast `<Type>value` is TypeScript-only because MyLang reserves `<` for embedded XML/JSX:
 
 ```mylang
 let name = value as string
 let precise = [1, 2] as const
-let other = <string>value
 let definitelyName = maybeName!
 ```
 
@@ -838,13 +837,40 @@ let matcher: RegExp = /a[0-9]+/gi
 
 ### Type assertions
 
-MyLang supports TypeScript-style `value as TypeName` and angle-bracket `<TypeName>value` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
+MyLang supports TypeScript-style `value as TypeName` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
 
 ```mylang
 let value: unknown = readValue()
 let name: string = value as string
-let count: number = <number>rawCount
 ```
+
+The angle-bracket cast form `<TypeName>value` is **not** available in MyLang, because `<` always begins an embedded XML/JSX element (see [Embedded XML / JSX](#embedded-xml--jsx)). The angle-bracket cast remains available only when the parser runs in TypeScript mode with JSX disabled (the default for `.d.ts`-style consumption).
+
+### Embedded XML / JSX
+
+MyLang supports embedding XML directly in expressions, exactly like JSX/TSX. There is a single MyLang mode and it always enables this: a `<` in expression position that is followed by a tag name (or `>` for a fragment) starts an element instead of a less-than operator.
+
+```mylang
+val greeting = <div class="greeting" id={userId}>Hello {name}!</div>
+val list = <ul>{items.map((item) => <li key={item.id}>{item.name}</li>)}</ul>
+val fragment = <><Header/><Body {...props}/></>
+```
+
+Supported features mirror JSX/TSX:
+
+- Intrinsic elements with a lowercase tag name (`<div>`) and component/dotted tags (`<Foo>`, `<Foo.Bar>`).
+- Self-closing elements (`<input/>`), fragments (`<>...</>`), and nested elements.
+- Attributes: string values (`class="x"`), expression containers (`value={expr}`), boolean shorthand (`disabled`), and spread attributes (`{...props}`).
+- Children: text (with JSX whitespace normalization), expression containers (`{expr}`), and nested elements.
+
+Embedded XML is transpiled with the classic React runtime: elements become `React.createElement(...)` calls and fragments use `React.Fragment`. Intrinsic lowercase tags are emitted as string literals; component and dotted tags are emitted as references.
+
+```js
+// <div class="greeting">Hi {name}</div>
+React.createElement("div", { class: "greeting" }, "Hi ", name)
+```
+
+In TypeScript mode, embedded XML is opt-in through the `jsx` parser option; enabling it disables the angle-bracket cast (matching `.tsx` semantics).
 
 ### Range expressions
 

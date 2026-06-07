@@ -26,6 +26,14 @@ import type {
   FunctionStatement,
   Identifier,
   IfStatement,
+  JsxElement,
+  JsxFragment,
+  JsxAttribute,
+  JsxAttributeLike,
+  JsxSpreadAttribute,
+  JsxExpressionContainer,
+  JsxChild,
+  JsxText,
   LabeledStatement,
   ImportStatement,
   IntLiteral,
@@ -761,6 +769,64 @@ function emitListElement(expression: Expr): string {
   return expression.kind === "CommaExpression" ? `(${text})` : text;
 }
 
+function isPlainIdentifierName(name: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+}
+
+/**
+ * Emits embedded XML/JSX using the classic React runtime
+ * (`React.createElement` / `React.Fragment`). Intrinsic lowercase tags become
+ * string literals; component tags emit their reference expression.
+ */
+function emitJsxElement(element: JsxElement): string {
+  const tag = element.reference ? emitExpression(element.reference) : JSON.stringify(element.tagName);
+  const props = emitJsxAttributes(element.attributes);
+  const children = emitJsxChildren(element.children);
+  return `React.createElement(${tag}, ${props}${children})`;
+}
+
+function emitJsxFragment(fragment: JsxFragment): string {
+  const children = emitJsxChildren(fragment.children);
+  return `React.createElement(React.Fragment, null${children})`;
+}
+
+function emitJsxAttributes(attributes: JsxAttributeLike[]): string {
+  if (attributes.length === 0) {
+    return "null";
+  }
+  const pieces = attributes.map((attribute) => {
+    if (attribute.kind === "JsxSpreadAttribute") {
+      return `...${emitExpression((attribute as JsxSpreadAttribute).expression)}`;
+    }
+    const jsxAttribute = attribute as JsxAttribute;
+    const key = isPlainIdentifierName(jsxAttribute.name) ? jsxAttribute.name : JSON.stringify(jsxAttribute.name);
+    if (!jsxAttribute.value) {
+      return `${key}: true`;
+    }
+    if (jsxAttribute.value.kind === "StringLiteral") {
+      return `${key}: ${JSON.stringify((jsxAttribute.value as StringLiteral).value)}`;
+    }
+    return `${key}: ${emitExpression((jsxAttribute.value as JsxExpressionContainer).expression)}`;
+  });
+  return `{ ${pieces.join(", ")} }`;
+}
+
+function emitJsxChildren(children: JsxChild[]): string {
+  const parts: string[] = [];
+  for (const child of children) {
+    if (child.kind === "JsxText") {
+      parts.push(JSON.stringify((child as JsxText).value));
+    } else if (child.kind === "JsxExpressionContainer") {
+      parts.push(emitExpression((child as JsxExpressionContainer).expression));
+    } else if (child.kind === "JsxElement") {
+      parts.push(emitJsxElement(child as JsxElement));
+    } else if (child.kind === "JsxFragment") {
+      parts.push(emitJsxFragment(child as JsxFragment));
+    }
+  }
+  return parts.length > 0 ? `, ${parts.join(", ")}` : "";
+}
+
 /**
  * Resolves the positional parameter names of a call's callee so named
  * arguments can be reordered. Top-level functions and class constructors come
@@ -1058,6 +1124,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const name = fn.name ? ` ${fn.name.name}` : "";
         return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
       }
+      case "JsxElement":
+        return emitJsxElement(expression as JsxElement);
+      case "JsxFragment":
+        return emitJsxFragment(expression as JsxFragment);
       default:
         return "undefined";
     }

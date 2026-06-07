@@ -74,11 +74,13 @@ describe("semantic tokens", () => {
 
   it("highlights angle-bracket assertion type names", () => {
     const source = "let value = <Point>raw\n";
-    const session = createAnalysisSession(source);
+    // Angle-bracket casts are TypeScript-only (MyLang reserves `<...>` for JSX).
+    const ast = parseFile(tokenizeReader(source, { jsx: false }), { language: "typescript" });
+    const analysis = new Analysis(ast);
     const semantic = createSemanticTokens({
       text: source,
-      ast: session.ast,
-      analysis: session.analysis
+      ast,
+      analysis
     });
 
     const decoded = decodeTokens(source, semantic.data);

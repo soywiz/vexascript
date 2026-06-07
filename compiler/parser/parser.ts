@@ -38,6 +38,14 @@ import {
     FunctionParameter,
     FunctionStatement,
     Identifier,
+    JsxElement,
+    JsxFragment,
+    JsxAttribute,
+    JsxAttributeLike,
+    JsxSpreadAttribute,
+    JsxExpressionContainer,
+    JsxChild,
+    JsxText,
     InterfaceMember,
     InterfaceMethodMember,
     InterfacePropertyMember,
@@ -124,10 +132,41 @@ const BINARY_OPERATOR_INFO: Record<InfixOperator, { precedence: number; assoc: B
     "**": { precedence: 12, assoc: "right" }
 };
 
+/**
+ * Applies JSX whitespace normalization to raw element text: whitespace runs that
+ * span a line break collapse, leading/trailing blank lines are removed, and the
+ * surviving lines are joined with single spaces. Text without a line break keeps
+ * its inner spacing intact (matching JSX/TSX semantics).
+ */
+export function normalizeJsxText(raw: string): string {
+    const lines = raw.split(/\r\n|\n|\r/);
+    const pieces: string[] = [];
+    for (let i = 0; i < lines.length; i += 1) {
+        let line = lines[i] ?? "";
+        if (i !== 0) {
+            line = line.replace(/^[ \t]+/, "");
+        }
+        if (i !== lines.length - 1) {
+            line = line.replace(/[ \t]+$/, "");
+        }
+        if (line.length > 0) {
+            pieces.push(line);
+        }
+    }
+    return pieces.join(" ");
+}
+
 export type ParseLanguage = "mylang" | "typescript";
 
 export interface ParserOptions {
     language?: ParseLanguage;
+    /**
+     * Enables embedded XML/JSX and, when true, disables the `<Type>expr`
+     * angle-bracket cast. Only meaningful in TypeScript mode: MyLang always
+     * behaves as if `jsx` were on (one mode that supports embedding XML). In
+     * TypeScript mode it defaults to off so the angle-bracket cast keeps working.
+     */
+    jsx?: boolean;
 }
 
 export interface ParseIssue {
@@ -159,10 +198,16 @@ export class ParseError extends Error {
 export class Parser {
     public errors: ParseIssue[] = [];
     public readonly language: ParseLanguage;
+    /**
+     * Effective JSX mode. MyLang always supports embedding XML; TypeScript
+     * opts in through `jsx`. When on, the `<Type>expr` cast is disabled.
+     */
+    public readonly jsx: boolean;
     private readonly recoveryMarkers: ParseRecoveryMarker[] = [];
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "mylang";
+        this.jsx = this.language !== "typescript" ? true : (options.jsx ?? false);
     }
 
     parseExpression(): Expr | null {
@@ -2607,9 +2652,16 @@ export class Parser {
     }
 
     private parseUnary(): Expr {
-        const angleBracketAssertion = this.tryParseAngleBracketTypeAssertion();
-        if (angleBracketAssertion) {
-            return angleBracketAssertion;
+        if (this.jsx) {
+            const token = this.tokens.peek();
+            if (token?.type === "symbol" && token.value === "<") {
+                return this.parseJsxElementOrFragment();
+            }
+        } else {
+            const angleBracketAssertion = this.tryParseAngleBracketTypeAssertion();
+            if (angleBracketAssertion) {
+                return angleBracketAssertion;
+            }
         }
 
         const token = this.tokens.peek();
@@ -2734,6 +2786,231 @@ export class Parser {
             }
             throw error;
         }
+    }
+
+    // --- Embedded XML / JSX ---------------------------------------------------
+
+    private parseJsxElementOrFragment(): Expr {
+        const open = this.tokens.read(); // '<'
+
+        const next = this.tokens.peek();
+        if (next?.type === "symbol" && next.value === ">") {
+            this.tokens.skip(); // '>'
+            const children = this.parseJsxChildren();
+            this.consumeJsxClosingTag(null);
+            const close = this.getLastReadToken();
+            return this.attachNodeBounds(
+                { kind: "JsxFragment", children } as JsxFragment,
+                open,
+                close ?? open
+            );
+        }
+
+        const { text: tagName, reference } = this.parseJsxName();
+        const attributes = this.parseJsxAttributes();
+
+        const afterAttributes = this.tokens.read();
+        if (afterAttributes?.type === "symbol" && afterAttributes.value === "/") {
+            const gt = this.tokens.read();
+            if (!(gt?.type === "symbol" && gt.value === ">")) {
+                this.fail("Expected '>' to close self-closing JSX element", this.tokenAt(gt));
+            }
+            return this.attachNodeBounds(
+                {
+                    kind: "JsxElement",
+                    tagName,
+                    ...(reference ? { reference } : {}),
+                    attributes,
+                    children: [],
+                    selfClosing: true
+                } as JsxElement,
+                open,
+                gt
+            );
+        }
+        if (!(afterAttributes?.type === "symbol" && afterAttributes.value === ">")) {
+            this.fail("Expected '>' in JSX opening tag", this.tokenAt(afterAttributes));
+        }
+
+        const children = this.parseJsxChildren();
+        this.consumeJsxClosingTag(tagName);
+        const close = this.getLastReadToken();
+        return this.attachNodeBounds(
+            {
+                kind: "JsxElement",
+                tagName,
+                ...(reference ? { reference } : {}),
+                attributes,
+                children,
+                selfClosing: false
+            } as JsxElement,
+            open,
+            close ?? open
+        );
+    }
+
+    private consumeJsxClosingTag(expectedTagName: string | null): void {
+        const closeLt = this.tokens.read();
+        if (!(closeLt?.type === "symbol" && closeLt.value === "<")) {
+            this.fail("Expected JSX closing tag", this.tokenAt(closeLt));
+        }
+        const slash = this.tokens.read();
+        if (!(slash?.type === "symbol" && slash.value === "/")) {
+            this.fail("Expected '/' in JSX closing tag", this.tokenAt(slash));
+        }
+        if (expectedTagName !== null) {
+            const { text } = this.parseJsxName();
+            if (text !== expectedTagName) {
+                this.fail(`JSX closing tag </${text}> does not match opening tag <${expectedTagName}>`, this.tokenAt(closeLt));
+            }
+        }
+        const gt = this.tokens.read();
+        if (!(gt?.type === "symbol" && gt.value === ">")) {
+            this.fail("Expected '>' to close JSX closing tag", this.tokenAt(gt));
+        }
+    }
+
+    private parseJsxName(): { text: string; reference?: Expr } {
+        const first = this.tokens.read();
+        if (first?.type !== "identifier") {
+            this.fail("Expected JSX tag name", this.tokenAt(first));
+        }
+        const segments = [first.value];
+        let text = first.value;
+        let reference: Expr = this.buildIdentifierFromToken(first);
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+            this.tokens.skip();
+            const part = this.tokens.read();
+            if (part?.type !== "identifier") {
+                this.fail("Expected identifier after '.' in JSX tag name", this.tokenAt(part));
+            }
+            segments.push(part.value);
+            text += "." + part.value;
+            const property = this.buildIdentifierFromToken(part);
+            reference = this.attachNodeBounds(
+                { kind: "MemberExpression", object: reference, property, computed: false } as MemberExpression,
+                first,
+                part
+            );
+        }
+        const isComponent = /^[A-Z]/.test(first.value) || segments.length > 1;
+        return isComponent ? { text, reference } : { text };
+    }
+
+    private parseJsxAttributes(): JsxAttributeLike[] {
+        const attributes: JsxAttributeLike[] = [];
+        while (true) {
+            const token = this.tokens.peek();
+            if (token?.type === "symbol" && (token.value === ">" || token.value === "/")) {
+                break;
+            }
+            if (token?.type === "symbol" && token.value === "{") {
+                const openBrace = this.tokens.read();
+                const dots = this.tokens.read();
+                if (!(dots?.type === "symbol" && dots.value === "...")) {
+                    this.fail("Expected '...' in JSX spread attribute", this.tokenAt(dots));
+                }
+                const expression = this.parseAssignment();
+                const closeBrace = this.tokens.read();
+                if (!(closeBrace?.type === "symbol" && closeBrace.value === "}")) {
+                    this.fail("Expected '}' to close JSX spread attribute", this.tokenAt(closeBrace));
+                }
+                attributes.push(this.attachNodeBounds(
+                    { kind: "JsxSpreadAttribute", expression } as JsxSpreadAttribute,
+                    openBrace,
+                    closeBrace
+                ));
+                continue;
+            }
+            const nameToken = this.tokens.read();
+            if (nameToken?.type !== "identifier") {
+                this.fail("Expected JSX attribute name", this.tokenAt(nameToken));
+            }
+            let value: JsxAttribute["value"];
+            let lastToken: Token = nameToken;
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+                this.tokens.skip();
+                const valueToken = this.tokens.peek();
+                if (valueToken?.type === "string") {
+                    this.tokens.skip();
+                    value = this.attachNodeBounds(
+                        { kind: "StringLiteral", value: valueToken.value } as StringLiteral,
+                        valueToken,
+                        valueToken
+                    );
+                    lastToken = valueToken;
+                } else if (valueToken?.type === "symbol" && valueToken.value === "{") {
+                    const container = this.parseJsxExpressionContainer();
+                    value = container;
+                    lastToken = container.lastToken ?? valueToken;
+                } else {
+                    this.fail("Expected JSX attribute value", this.tokenAt(valueToken));
+                }
+            }
+            attributes.push(this.attachNodeBounds(
+                { kind: "JsxAttribute", name: nameToken.value, ...(value ? { value } : {}) } as JsxAttribute,
+                nameToken,
+                lastToken
+            ));
+        }
+        return attributes;
+    }
+
+    private parseJsxExpressionContainer(): JsxExpressionContainer {
+        const open = this.tokens.read(); // '{'
+        const expression = this.parseAssignment();
+        const close = this.tokens.read();
+        if (!(close?.type === "symbol" && close.value === "}")) {
+            this.fail("Expected '}' to close JSX expression", this.tokenAt(close));
+        }
+        return this.attachNodeBounds(
+            { kind: "JsxExpressionContainer", expression } as JsxExpressionContainer,
+            open,
+            close
+        );
+    }
+
+    private parseJsxChildren(): JsxChild[] {
+        const children: JsxChild[] = [];
+        while (true) {
+            const token = this.tokens.peek();
+            if (!token || token.type === "eof") {
+                this.fail("Unterminated JSX element", this.tokenAt(token));
+            }
+            if (token.type === "jsxText") {
+                this.tokens.skip();
+                const normalized = normalizeJsxText(token.value);
+                if (normalized.length > 0) {
+                    children.push(this.attachNodeBounds(
+                        { kind: "JsxText", value: normalized } as JsxText,
+                        token,
+                        token
+                    ));
+                }
+                continue;
+            }
+            if (token.type === "symbol" && token.value === "{") {
+                const after = this.peekToken(1);
+                if (after?.type === "symbol" && after.value === "}") {
+                    // Empty/comment-only expression container: `{}` or `{/* ... */}`.
+                    this.tokens.skip();
+                    this.tokens.skip();
+                    continue;
+                }
+                children.push(this.parseJsxExpressionContainer());
+                continue;
+            }
+            if (token.type === "symbol" && token.value === "<") {
+                const after = this.peekToken(1);
+                if (after?.type === "symbol" && after.value === "/") {
+                    break;
+                }
+                children.push(this.parseJsxElementOrFragment() as JsxChild);
+                continue;
+            }
+            this.fail("Unexpected token in JSX children", this.tokenAt(token));
+        }
+        return children;
     }
 
     /**

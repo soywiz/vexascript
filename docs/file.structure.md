@@ -113,7 +113,6 @@ This section is the fast onboarding map for agents and contributors.
 ### Docs and Specs
 
 - Supported syntax: `docs/syntax.md`
-- Pending syntax roadmap: `docs/syntax.pending.md`
 - Pending technical tasks/backlog: `docs/tasks.pending.md`
 - LSP services status: `docs/lsp.services.md`
 - Semantic analysis spec: `docs/semantic.spec.md`

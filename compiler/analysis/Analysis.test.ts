@@ -263,7 +263,7 @@ let after = bind`));
 
   it("checks TypeScript angle-bracket assertions like as assertions", () => {
     const ast = parseFile(tokenizeReader(`let value: string = <string>unknownValue\nlet unsafe = <number>"oops"
-`));
+`, { jsx: false }), { language: "typescript" });
     const analysis = new Analysis(ast);
     const messages = analysis.getIssues().map((issue) => issue.message);
 

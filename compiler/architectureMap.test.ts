@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "./test/expect";
 
-const architectureMap = readFileSync("AGENTS.md", "utf8");
+const ARCHITECTURE_MAP_FILE = "docs/file.structure.md";
+const architectureMap = readFileSync(ARCHITECTURE_MAP_FILE, "utf8");
 const architectureMapSection = extractArchitectureMapSection(architectureMap);
 
 const architecturePathReferencePattern = /`([^`]+\.(?:ts|js|json|md|my|d\.ts))`/g;
@@ -11,10 +12,11 @@ const ignoredProjectDirectories = new Set([".git", "dist", "node_modules"]);
 
 function extractArchitectureMapSection(markdown: string): string {
   const startIndex = markdown.indexOf("## Architecture Map");
-  const endIndex = markdown.indexOf("### Maintenance Rule");
+  const maintenanceRuleIndex = markdown.indexOf("### Maintenance Rule");
+  const endIndex = maintenanceRuleIndex >= 0 ? maintenanceRuleIndex : markdown.length;
 
-  expect(startIndex, "AGENTS.md should contain an Architecture Map section").toBeGreaterThanOrEqual(0);
-  expect(endIndex, "AGENTS.md should contain a Maintenance Rule after the Architecture Map").toBeGreaterThan(startIndex);
+  expect(startIndex, `${ARCHITECTURE_MAP_FILE} should contain an Architecture Map section`).toBeGreaterThanOrEqual(0);
+  expect(endIndex, `${ARCHITECTURE_MAP_FILE} should contain an Architecture Map body`).toBeGreaterThan(startIndex);
 
   return markdown.slice(startIndex, endIndex);
 }
