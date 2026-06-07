@@ -68,7 +68,7 @@ async function buildFile(
   }
 }
 
-async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
+export async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   if (project && Object.keys(project.dependencies).length > 0) {
