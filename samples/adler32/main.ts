@@ -1,0 +1,34 @@
+class Adler32 {
+  static BASE = 65521
+  private checksum: number = 1
+  get value() { return this.checksum }
+
+  update(data: Uint8Array) {
+    let s1 = this.checksum & 0xffff;
+    let s2 = this.checksum >>> 16;
+    let len = data.length
+    let off = 0
+    while (len > 0) {
+      let n = 3800;
+      if (n > len) {
+        n = len;
+      }
+      len -= n;
+      while (--n >= 0) {
+        s1 += (data[off++] & 0xFF);
+        s2 += s1;
+      }
+      s1 %= Adler32.BASE;
+      s2 %= Adler32.BASE;
+    }
+    this.checksum = (s2 << 16) | s1;
+  }
+}
+
+const adler = new Adler32()
+console.log(adler.value.toString(16))
+adler.update(new Uint8Array([65, 66, 67, 68]))
+console.log(adler.value.toString(16))
+// expected output:
+// 1
+// 298010b
