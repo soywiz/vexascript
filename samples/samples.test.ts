@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { it, describe } from "node:test";
 import { expect } from "../compiler/test/expect";
 import { runFile } from "../compiler/cli";
+import { spawnSync } from "node:child_process";
 
 async function hookOutput(callback: () => Promise<void>) {
     const lines = [] as string[]
@@ -23,8 +24,16 @@ describe("samples test", async () => {
     for (const file of readdirSync(rootDir)) {
         const rfile = `${rootDir}/${file}`
         const rexpected = `${rfile}/expected.txt`
+        const rpackageJson = `${rfile}/package.json`
+        const rnodeModules = `${rfile}/node_modules`
+
         if (!statSync(rfile).isDirectory()) continue
         if (!existsSync(rexpected)) continue
+        if (existsSync(rpackageJson) && !existsSync(rnodeModules)) {
+            // pnpm install
+            spawnSync("pnpm", ["install"], { cwd: rfile })
+        }
+
         it(`sample ${file}`, async () => {
             //console.log(rfile)
 
