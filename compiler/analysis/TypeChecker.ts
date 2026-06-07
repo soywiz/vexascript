@@ -4899,6 +4899,64 @@ export class TypeChecker {
     return this.resolveNamedTypeMembers(namedType("Array", [type.elementType]));
   }
 
+  /** Returns the declared name of a statement, or null if it has none. */
+  private declarationMemberName(statement: Statement): string | null {
+    if (statement.kind === "FunctionStatement") return (statement as FunctionStatement).name?.name ?? null;
+    if (statement.kind === "VarStatement") {
+      const v = statement as VarStatement;
+      const ids = v.declarations?.length
+        ? v.declarations.flatMap((d) => bindingIdentifiers(d.name))
+        : bindingIdentifiers(v.name);
+      return ids[0]?.name ?? null;
+    }
+    if (statement.kind === "ClassStatement") return (statement as ClassStatement).name.name;
+    if (statement.kind === "EnumStatement") return (statement as EnumStatement).name.name;
+    if (statement.kind === "NamespaceStatement") return (statement as NamespaceStatement).names?.[0]?.name ?? null;
+    if (statement.kind === "InterfaceStatement") return (statement as InterfaceStatement).name.name;
+    return null;
+  }
+
+  /**
+   * Derives the type of a named member from an exported declaration when there
+   * is no bound scope available (e.g. namespace comes from an external .d.ts).
+   * Falls back to UNKNOWN_TYPE for unrecognised patterns.
+   */
+  private memberTypeFromExternalDeclaration(declaration: Statement, memberName: string): AnalysisType {
+    const candidate =
+      declaration.kind === "ExportStatement"
+        ? (declaration as ExportStatement).declaration
+        : declaration;
+    if (!candidate) return UNKNOWN_TYPE;
+
+    if (candidate.kind === "FunctionStatement") {
+      const fn = candidate as FunctionStatement;
+      const returnType = this.typeFromAnnotationLoose(fn.returnType) ?? UNKNOWN_TYPE;
+      const params = (fn.parameters ?? []).map((p) => ({
+        name: typeof p.name === "object" && "name" in p.name ? (p.name as { name: string }).name : memberName,
+        type: this.typeFromAnnotationLoose(p.typeAnnotation) ?? UNKNOWN_TYPE,
+        optional: p.optional ?? false,
+        rest: p.rest ?? false,
+      }));
+      return functionType(params, returnType);
+    }
+    if (candidate.kind === "VarStatement") {
+      const v = candidate as VarStatement;
+      return this.typeFromAnnotationLoose(v.typeAnnotation) ?? UNKNOWN_TYPE;
+    }
+    if (candidate.kind === "ClassStatement") {
+      return namedType((candidate as ClassStatement).name.name);
+    }
+    if (candidate.kind === "NamespaceStatement") {
+      const ns = candidate as NamespaceStatement;
+      const name = ns.names?.[0]?.name;
+      return name ? namedType(name) : UNKNOWN_TYPE;
+    }
+    if (candidate.kind === "EnumStatement") {
+      return namedType((candidate as EnumStatement).name.name);
+    }
+    return UNKNOWN_TYPE;
+  }
+
   private resolveNamedTypeMembers(type: AnalysisType & { kind: "named" }): Map<string, AnalysisType> | null {
     const cacheKey = typeToString(type);
     if (this.namedTypeMembersCache.has(cacheKey)) {
@@ -4925,22 +4983,41 @@ export class TypeChecker {
       const scope = this.bound.scopeByNode.get(namespaceStatement);
       const members = new Map<string, AnalysisType>();
       for (const child of namespaceStatement.body.body) {
-        if (child.kind !== "ExportStatement") continue;
-        const exported = child as ExportStatement;
-        const names: string[] = [];
-        if (exported.declaration?.kind === "VarStatement") {
-          const variable = exported.declaration as VarStatement;
-          if (variable.declarations?.length) {
-            for (const declaration of variable.declarations) names.push(...bindingIdentifiers(declaration.name).map((identifier) => identifier.name));
-          } else {
-            names.push(...bindingIdentifiers(variable.name).map((identifier) => identifier.name));
+        if (scope) {
+          // Local namespace with a bound scope: only exported members are visible.
+          if (child.kind !== "ExportStatement") continue;
+          const exported = child as ExportStatement;
+          const names: string[] = [];
+          if (exported.declaration?.kind === "VarStatement") {
+            const variable = exported.declaration as VarStatement;
+            if (variable.declarations?.length) {
+              for (const declaration of variable.declarations) names.push(...bindingIdentifiers(declaration.name).map((identifier) => identifier.name));
+            } else {
+              names.push(...bindingIdentifiers(variable.name).map((identifier) => identifier.name));
+            }
+          } else if (exported.declaration?.kind === "FunctionStatement" || exported.declaration?.kind === "ClassStatement" || exported.declaration?.kind === "EnumStatement" || exported.declaration?.kind === "NamespaceStatement") {
+            const declaration = exported.declaration as FunctionStatement | ClassStatement | EnumStatement | NamespaceStatement;
+            names.push(declaration.kind === "NamespaceStatement" ? declaration.names?.[0]?.name ?? "" : declaration.name.name);
           }
-        } else if (exported.declaration?.kind === "FunctionStatement" || exported.declaration?.kind === "ClassStatement" || exported.declaration?.kind === "EnumStatement" || exported.declaration?.kind === "NamespaceStatement") {
-          const declaration = exported.declaration as FunctionStatement | ClassStatement | EnumStatement | NamespaceStatement;
-          names.push(declaration.kind === "NamespaceStatement" ? declaration.names?.[0]?.name ?? "" : declaration.name.name);
+          for (const specifier of exported.specifiers ?? []) names.push(specifier.exported.name);
+          for (const name of names.filter(Boolean)) members.set(name, scope.symbols.get(name)?.type ?? UNKNOWN_TYPE);
+        } else {
+          // External namespace (e.g. from node_modules .d.ts): no bound scope.
+          // In ambient .d.ts context all direct declarations are implicitly
+          // accessible, so process both ExportStatement children and bare
+          // declarations without requiring an explicit export keyword.
+          const declaration =
+            child.kind === "ExportStatement" ? (child as ExportStatement).declaration ?? child : child;
+          const memberType = this.memberTypeFromExternalDeclaration(declaration, "");
+          if (memberType.kind === "unknown") continue;
+          const name = this.declarationMemberName(declaration);
+          if (name) members.set(name, memberType);
+          if (child.kind === "ExportStatement") {
+            for (const specifier of (child as ExportStatement).specifiers ?? []) {
+              members.set(specifier.exported.name, UNKNOWN_TYPE);
+            }
+          }
         }
-        for (const specifier of exported.specifiers ?? []) names.push(specifier.exported.name);
-        for (const name of names.filter(Boolean)) members.set(name, scope?.symbols.get(name)?.type ?? UNKNOWN_TYPE);
       }
       return members;
     }

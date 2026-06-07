@@ -131,4 +131,24 @@ describe("node_modules typings resolution", () => {
     expect(symbol?.kind).toBe("named");
     expect((symbol as { name?: string })?.name).toBe("pkg");
   });
+
+  it("resolves namespace members from node_modules typings for member access hover", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    await makePackageWithTypings(root, "pkg", MINI_DTS);
+
+    const mainPath = join(root, "main.my");
+    const source = `import pkg from "pkg"\npkg.helper()\n`;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const symbolTypes = collectImportedSymbolTypes(session.ast!, ctx);
+    const declarations = collectImportedTypeDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, declarations, symbolTypes);
+
+    // `pkg.helper` should resolve to a function type (not unknown)
+    const hover = richSession.analysis?.getHoverAt(1, 5);
+    expect(hover?.contents).not.toContain("unknown");
+    expect(hover?.contents).toContain("Result");
+  });
 });
