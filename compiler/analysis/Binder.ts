@@ -673,6 +673,7 @@ export class Binder {
         }, -1);
       }
     }
+    const className = statement.name.name;
     for (const member of statement.members) {
       if (member.kind === "ClassFieldMember") {
         const fieldType = this.typeFromAnnotationLoose(member.typeAnnotation) ?? UNKNOWN_TYPE;
@@ -682,6 +683,7 @@ export class Binder {
           node: member.name,
           isReadonly: member.readonly === true,
           implicitReceiver: true,
+          ...(member.static === true ? { implicitReceiverClassName: className } : {}),
           type: fieldType,
           valueType: typeToString(fieldType)
         }, -1);
@@ -694,6 +696,7 @@ export class Binder {
           kind: "variable",
           node: member.name,
           implicitReceiver: true,
+          ...(member.static === true ? { implicitReceiverClassName: className } : {}),
           type: propertyType,
           valueType: typeToString(propertyType)
         }, -1);
@@ -706,6 +709,7 @@ export class Binder {
           kind: "variable",
           node: member.name,
           implicitReceiver: true,
+          ...(member.static === true ? { implicitReceiverClassName: className } : {}),
           type: propertyType,
           valueType: typeToString(propertyType)
         }, -1);
@@ -726,6 +730,7 @@ export class Binder {
         kind: "method",
         node: member.name,
         implicitReceiver: true,
+        ...(member.static === true ? { implicitReceiverClassName: className } : {}),
         type: methodType,
         valueType: typeToString(methodType)
       }, -1);

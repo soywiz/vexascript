@@ -13,6 +13,7 @@ export interface AnalysisSymbol {
   declaredOffset: number;
   isReadonly?: boolean;
   implicitReceiver?: boolean;
+  implicitReceiverClassName?: string;
   type?: AnalysisType;
   valueType?: AnalysisValueType;
 }

@@ -181,7 +181,8 @@ function emitProgramStatementSegments(
   implicitReceiverIdentifiers: ReadonlySet<Node>,
   autoAwaitExpressions: ReadonlySet<Node>,
   contextProgram: Program = program,
-  emitOptions: EmitOptions = {}
+  emitOptions: EmitOptions = {},
+  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
 ): EmittedStatementSegment[] {
   const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions);
   const segments: EmittedStatementSegment[] = [];
@@ -193,7 +194,8 @@ function emitProgramStatementSegments(
       contextProgram,
       implicitReceiverIdentifiers,
       autoAwaitExpressions,
-      runtimeContext
+      runtimeContext,
+      staticImplicitReceiverIdentifiers
     );
     const emittedStatement = emittedSingle.length > 0 ? emittedSingle[0]! : "";
     if (emittedStatement.trim().length > 0) {
@@ -326,6 +328,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     : programForEmission;
   const expressionTypes = artifacts.analysis.getExpressionTypes();
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
+  const staticImplicitReceiverIdentifiers = artifacts.analysis.getStaticImplicitReceiverIdentifiers();
   const autoAwaitExpressions = artifacts.analysis.getAutoAwaitExpressions();
   const emittedSegments = emitProgramStatementSegments(
     programForEmission,
@@ -336,7 +339,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     {
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
-    }
+    },
+    staticImplicitReceiverIdentifiers
   );
   const { emitted, sourceLinesByGeneratedLine } = emitSegmentsWithLineMap(emittedSegments);
   const emittedWithOffsets = options.preserveSourceLineOffsets

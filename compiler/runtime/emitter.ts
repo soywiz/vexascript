@@ -140,6 +140,7 @@ let activeJavaScriptImplementations: Map<string, JavaScriptImplementationInfo> =
 let activeJsNames: Map<string, string> = new Map();
 let activeExtensionThis = false;
 let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
+let activeStaticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map();
 
 const PREC_COMMA = 1;
 const PREC_ASSIGNMENT = 2;
@@ -746,6 +747,10 @@ function collectExtensionProperties(
 function emitIdentifier(identifier: Identifier): string {
   if (activeExtensionThis && identifier.name === "this") {
     return "$this";
+  }
+  const staticClassName = activeStaticImplicitReceiverIdentifiers.get(identifier);
+  if (staticClassName) {
+    return `${staticClassName}.${identifier.name}`;
   }
   if (activeImplicitReceiverIdentifiers.has(identifier)) {
     return `${activeExtensionThis ? "$this" : "this"}.${identifier.name}`;
@@ -1718,7 +1723,8 @@ export function emitProgramStatements(
   contextProgram: Program = program,
   implicitReceiverIdentifiers: ReadonlySet<Node> = new Set(),
   autoAwaitExpressions: ReadonlySet<Node> = new Set(),
-  runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes)
+  runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
+  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
 ): string[] {
   const previous = activeExpressionTypes;
   const previousOverloads = activeProgramOverloads;
@@ -1730,11 +1736,13 @@ export function emitProgramStatements(
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
   const previousJsNames = activeJsNames;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
+  const previousStaticImplicitReceiverIdentifiers = activeStaticImplicitReceiverIdentifiers;
   const previousAutoAwaitExpressions = activeAutoAwaitExpressions;
   const previousJsxFactory = activeJsxFactory;
   const previousJsxFragmentFactory = activeJsxFragmentFactory;
   activeExpressionTypes = expressionTypes;
   activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
+  activeStaticImplicitReceiverIdentifiers = staticImplicitReceiverIdentifiers;
   activeAutoAwaitExpressions = autoAwaitExpressions;
   activeJsxFactory = runtimeContext.jsxFactory;
   activeJsxFragmentFactory = runtimeContext.jsxFragmentFactory;
@@ -1761,6 +1769,7 @@ export function emitProgramStatements(
     activeJavaScriptImplementations = previousJavaScriptImplementations;
     activeJsNames = previousJsNames;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
+    activeStaticImplicitReceiverIdentifiers = previousStaticImplicitReceiverIdentifiers;
     activeAutoAwaitExpressions = previousAutoAwaitExpressions;
     activeJsxFactory = previousJsxFactory;
     activeJsxFragmentFactory = previousJsxFragmentFactory;
