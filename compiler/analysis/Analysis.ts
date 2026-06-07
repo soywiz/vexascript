@@ -270,6 +270,35 @@ export class Analysis {
     };
   }
 
+  /**
+   * Resolves the type name of the receiver expression that ends exactly at the
+   * given position, which is where the member-access dot sits. This relies on
+   * the analyzed expression types, so it transparently reflects sync-function
+   * auto-await (a call returning `Promise<T>` is observed here as `T`) and any
+   * other complex receiver such as a call or parenthesized expression. Used by
+   * completion to resolve members after receivers that are not plain identifier
+   * chains. When several expressions end at the same position (e.g. an
+   * identifier nested in a member expression), the outermost (largest) one is
+   * returned.
+   */
+  getReceiverTypeNameEndingAt(line: number, character: number): string | null {
+    let best: { type: AnalysisType; size: number } | null = null;
+    for (const [node, type] of this.expressionTypes) {
+      const range = this.nodeToRange(node);
+      if (!range) {
+        continue;
+      }
+      if (range.end.line !== line || range.end.character !== character) {
+        continue;
+      }
+      const size = this.rangeSize(range);
+      if (!best || size > best.size) {
+        best = { type, size };
+      }
+    }
+    return best ? typeToString(best.type) : null;
+  }
+
   getOperatorSymbolAt(line: number, character: number): AnalysisSymbolMatch | null {
     let best: AnalysisSymbolMatch | null = null;
     for (const resolution of this.operatorResolutions) {
