@@ -41,7 +41,12 @@ function printDiagnostics(result: { errors: string[]; diagnostics?: TranspileDia
     }
   } else {
     for (const error of result.errors) {
-      console.error(`${file}: error: ${error}`);
+      const atMatch = error.match(/^(.*) at (\d+:\d+)$/);
+      if (atMatch) {
+        console.error(`${file}:${atMatch[2]} error: ${atMatch[1]}`);
+      } else {
+        console.error(`${file}: error: ${error}`);
+      }
     }
   }
 }
