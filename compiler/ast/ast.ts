@@ -321,6 +321,8 @@ export interface VarStatement extends Statement {
     declarationKind: VariableDeclarationKind
     name: BindingName
     receiverType?: Identifier
+    receiverTypeArguments?: Identifier[]
+    typeParameters?: TypeParameter[]
     typeAnnotation?: Identifier
     initializer?: Expr
     declarations?: VarDeclarator[]
@@ -344,6 +346,7 @@ export interface FunctionStatement extends Statement {
     jsInline?: string
     name: Identifier
     receiverType?: Identifier
+    receiverTypeArguments?: Identifier[]
     operator?: BinaryExpression["operator"]
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]

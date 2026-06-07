@@ -366,6 +366,9 @@ function extensionReceiverTypeName(type: AnalysisType | undefined): string | nul
   if (type?.kind === "builtin") {
     return type.name === "int" ? "number" : type.name;
   }
+  if (type?.kind === "array" || type?.kind === "tuple") {
+    return "Array";
+  }
   return null;
 }
 
@@ -710,6 +713,8 @@ function collectExtensionProperties(
       result.set(name, objectType.name === "int" ? "number" : objectType.name);
     } else if (objectType?.kind === "named") {
       result.set(name, objectType.name);
+    } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
+      result.set(name, "Array");
     }
   });
   return result;

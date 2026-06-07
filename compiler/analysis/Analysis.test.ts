@@ -2596,6 +2596,17 @@ describe("enum semantic analysis", () => {
     expect(imported.getIssues()).toEqual([]);
   });
 
+  it("resolves generic extension methods and properties on Array receivers", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      fun <T> Array<T>.second(): T { return this[1] }
+      val <T> Array<T>.doubledLength => length * 2
+      let xs: int[] = [10, 20, 30]
+      let value: int = xs.second()
+      let total: number = xs.doubledLength
+    `.trimEnd())));
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("checks explicit type annotations on extension properties", () => {
     const ok = new Analysis(parseFile(tokenizeReader(dedent`
       class Duration(val value: number)
