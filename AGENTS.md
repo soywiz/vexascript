@@ -144,28 +144,21 @@ This section is the fast onboarding map for agents and contributors.
 
 - We follow TDD (Test-Driven Development).
 - Every new feature must include tests in the same change.
-- The official test suite runs with Vitest.
+- The official test suite runs with node tests.
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
 - Before closing any task, the full test suite must pass.
 - For UI-facing changes (Monaco plugin, browser flows, visual interactions), validate the final behavior in a real browser before handing off. Use Playwright or another browser automation path when available, and treat that browser check as part of completion rather than an optional extra.
 - If tests fail, they must be fixed before finishing the task.
-- Skipping tests is allowed only as a last resort in exceptional cases; overusing skips weakens the suite and is not acceptable.
 - If requirements change, update tests to match the new expected behavior instead of preserving outdated assertions.
 
 ## Language policy
 
-- All code and documentation must be written in English.
-- All repository-facing artifacts must be written in English, including pull requests, commit messages, issue descriptions, code comments, and any other persistent project communication, even if the conversation with the user happens in another language such as Spanish.
+- Everything, including all code, documentation, messages, issue descriptions, etc. must be written in English.
 
 ## Documentation policy
 
 - Supported language syntax documentation lives in `docs/syntax.md`.
-- Pending TypeScript syntax roadmap lives in `docs/syntax.pending.md`.
-- Technical backlog and pending implementation tasks live in `docs/tasks.pending.md`.
 - Every time new language syntax support is added, `docs/syntax.md` must be updated in the same change.
-- Every time a pending syntax item is implemented, `docs/syntax.pending.md` must be updated in the same change (remove or mark the implemented item).
-- Every time new missing syntax is identified, `docs/syntax.pending.md` must be updated in the same change.
-- Every time a significant architectural or tooling gap is identified, `docs/tasks.pending.md` must be updated in the same change.
 
 ## Commands
 
