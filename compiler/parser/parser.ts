@@ -241,7 +241,7 @@ export class Parser {
     parseStatementOrThrow(): Statement {
         const token = this.tokens.peek();
         if (token?.type === "symbol" && token.value === "@") {
-            return this.parseAnnotatedFunctionStatement();
+            return this.parseAnnotatedStatement();
         }
         if (this.isTypeScriptExportAssignmentStart()) {
             return this.parseTypeScriptExportAssignmentStatement();
@@ -352,28 +352,38 @@ export class Parser {
         );
     }
 
-    private parseAnnotatedFunctionStatement(): FunctionStatement {
+    private parseAnnotatedStatement(): Statement {
         const atToken = this.tokens.read();
         const annotationName = this.tokens.read();
-        if (annotationName?.type !== "identifier" || annotationName.value !== "JsImpl") {
-            this.fail("Expected 'JsImpl' annotation", this.tokenAt(annotationName));
+        if (annotationName?.type !== "identifier" || (annotationName.value !== "JsInline" && annotationName.value !== "JsName")) {
+            this.fail("Expected 'JsInline' or 'JsName' annotation", this.tokenAt(annotationName));
         }
+        const name = annotationName.value;
         const openParen = this.tokens.read();
         if (openParen?.type !== "symbol" || openParen.value !== "(") {
-            this.fail("Expected '(' after '@JsImpl'", this.tokenAt(openParen));
+            this.fail(`Expected '(' after '@${name}'`, this.tokenAt(openParen));
         }
-        const implementation = this.tokens.read();
-        if (implementation?.type !== "string") {
-            this.fail("Expected a JavaScript string in '@JsImpl'", this.tokenAt(implementation));
+        const argument = this.tokens.read();
+        if (argument?.type !== "string") {
+            this.fail(`Expected a string in '@${name}'`, this.tokenAt(argument));
         }
         const closeParen = this.tokens.read();
         if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-            this.fail("Expected ')' after '@JsImpl' implementation", this.tokenAt(closeParen));
+            this.fail(`Expected ')' after '@${name}' argument`, this.tokenAt(closeParen));
         }
 
-        const functionStatement = this.parseFunctionStatement();
-        functionStatement.jsImpl = implementation.value;
-        return this.attachNodeBounds(functionStatement, atToken, functionStatement.lastToken ?? closeParen);
+        // Annotations stack: the inner statement may itself be annotated, so we
+        // recurse through `parseStatementOrThrow` and attach onto the result.
+        const statement = this.parseStatementOrThrow();
+        if (name === "JsInline") {
+            if (statement.kind !== "FunctionStatement") {
+                this.fail("'@JsInline' can only be applied to a function declaration", this.tokenAt(annotationName));
+            }
+            (statement as FunctionStatement).jsInline = argument.value;
+        } else {
+            statement.jsName = argument.value;
+        }
+        return this.attachNodeBounds(statement, atToken, statement.lastToken ?? closeParen);
     }
 
     parseFileOrThrow(): Program {
