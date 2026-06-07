@@ -218,6 +218,7 @@ function resolveInterfaceStatementAcrossFiles(
     name: interfaceName,
     currentFilePath: options.uri ? uriToFilePath(options.uri) : null,
     predicate: isInterfaceStatement,
+    includeRuntime: true,
     sourceRoots: options.sourceRoots ?? [],
     ...(options.getSessionForFilePath
       ? { getSessionForFilePath: options.getSessionForFilePath }
@@ -664,6 +665,33 @@ export function resolveClassMember(
       cache: context.cache ?? createClassResolverCache()
     },
     new Set<string>(),
+    new Set<string>()
+  );
+}
+
+export function resolveInterfaceMember(
+  interfaceStatement: InterfaceStatement,
+  memberName: string,
+  objectTypeName?: string,
+  context?: ResolveClassMemberContext
+): ResolvedClassMember | null {
+  if (!context) {
+    const substitutions = typeParameterSubstitutions(
+      interfaceStatement.typeParameters ?? [],
+      objectTypeName
+    );
+    return resolveInterfaceOwnMember(interfaceStatement, memberName, substitutions);
+  }
+
+  return resolveInterfaceMemberRecursive(
+    interfaceStatement,
+    memberName,
+    objectTypeName,
+    {
+      ast: context.ast,
+      options: context.options,
+      cache: context.cache ?? createClassResolverCache()
+    },
     new Set<string>()
   );
 }
@@ -1125,31 +1153,50 @@ export function resolveCallableSignature(
   }
 
   const resolverCache = createClassResolverCache();
+  const memberName = (member.property as Identifier).name;
+  const memberContext = { ast, options, cache: resolverCache };
+
   const classResolution = resolveClassStatementAcrossFiles(
     ast,
     parsedObjectType.baseName,
     options,
     resolverCache
   );
-  if (!classResolution) {
-    return null;
-  }
-
-  const memberResolution = resolveClassMember(
-    classResolution.classStatement,
-    (member.property as Identifier).name,
-    objectTypeName ?? undefined,
-    {
-      ast,
-      options,
-      cache: resolverCache
+  if (classResolution) {
+    const memberResolution = resolveClassMember(
+      classResolution.classStatement,
+      memberName,
+      objectTypeName ?? undefined,
+      memberContext
+    );
+    if (memberResolution && memberResolution.kind === "method" && memberResolution.signature) {
+      return memberResolution.signature;
     }
-  );
-  if (!memberResolution || memberResolution.kind !== "method" || !memberResolution.signature) {
-    return null;
   }
 
-  return memberResolution.signature;
+  // The receiver may be typed by an interface rather than a class. This covers
+  // ambient runtime globals such as `Math` and constructor objects like `Date`
+  // (typed `declare var Date: DateConstructor`), whose static-style members
+  // live on the (constructor) interface.
+  const interfaceResolution = resolveInterfaceStatementAcrossFiles(
+    ast,
+    parsedObjectType.baseName,
+    options,
+    resolverCache
+  );
+  if (interfaceResolution) {
+    const memberResolution = resolveInterfaceMember(
+      interfaceResolution.interfaceStatement,
+      memberName,
+      objectTypeName ?? undefined,
+      memberContext
+    );
+    if (memberResolution && memberResolution.kind === "method" && memberResolution.signature) {
+      return memberResolution.signature;
+    }
+  }
+
+  return null;
 }
 
 export function resolveConstructorSignature(

@@ -3013,6 +3013,59 @@ export class Parser {
         return children;
     }
 
+    /**
+     * Attempts to parse a generic receiver's type argument list for an extension
+     * declaration, e.g. the `<T>` in `fun <T> Array<T>.demo()` or
+     * `val <T> Array<T>.doubledLength => ...`. Only succeeds when the `<...>`
+     * group is immediately followed by a `.` (the extension-member dot), so it
+     * never consumes the type parameter list of a regular generic function such
+     * as `fun foo<T>()`. Returns the parsed type arguments, or `null` (restoring
+     * the token position) when the lookahead does not match.
+     */
+    private tryParseReceiverTypeArguments(): Identifier[] | null {
+        const startOffset = this.tokens.offset;
+        const startItems = this.tokens.items.slice();
+        const open = this.tokens.peek();
+        if (!(open?.type === "symbol" && open.value === "<")) {
+            return null;
+        }
+
+        this.tokens.skip();
+        const typeArguments: Identifier[] = [];
+        try {
+            while (this.tokens.hasMore) {
+                typeArguments.push(this.parseTypeAnnotationNode());
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && separator.value === ",") {
+                    this.tokens.skip();
+                    continue;
+                }
+                if (this.consumeGenericCloseAngle()) {
+                    break;
+                }
+                this.tokens.offset = startOffset;
+                this.tokens.items = startItems;
+                return null;
+            }
+        } catch (error) {
+            this.tokens.offset = startOffset;
+            this.tokens.items = startItems;
+            if (error instanceof ParseError) {
+                return null;
+            }
+            throw error;
+        }
+
+        const next = this.tokens.peek();
+        if (!(next?.type === "symbol" && next.value === ".")) {
+            this.tokens.offset = startOffset;
+            this.tokens.items = startItems;
+            return null;
+        }
+
+        return typeArguments;
+    }
+
     private tryParseInvocationTypeArguments(): Identifier[] | null {
         const startOffset = this.tokens.offset;
         const startItems = this.tokens.items.slice();
@@ -3138,6 +3191,80 @@ export class Parser {
         return left;
     }
 
+    /**
+     * Attempts to parse the head of an extension property declaration:
+     * `<Receiver>[<TypeArgs>].<name>[: Type] =>`. Returns `null` (restoring the
+     * token position) when the upcoming tokens are a regular variable
+     * declaration. Any leading type parameters (`val <T> ...`) must be consumed
+     * by the caller before invoking this method.
+     */
+    private tryParseExtensionPropertyHead(): {
+        receiverType: Identifier;
+        receiverTypeArguments?: Identifier[];
+        name: Identifier;
+        typeAnnotation?: Identifier;
+    } | null {
+        const startOffset = this.tokens.offset;
+        const startItems = this.tokens.items.slice();
+        const restore = (): null => {
+            this.tokens.offset = startOffset;
+            this.tokens.items = startItems;
+            return null;
+        };
+
+        const receiverToken = this.tokens.peek();
+        if (receiverToken?.type !== "identifier") {
+            return null;
+        }
+        this.tokens.skip();
+
+        let receiverTypeArguments: Identifier[] | undefined;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+            const parsed = this.tryParseReceiverTypeArguments();
+            if (!parsed) {
+                return restore();
+            }
+            receiverTypeArguments = parsed;
+        }
+
+        const dot = this.tokens.peek();
+        if (!(dot?.type === "symbol" && dot.value === ".")) {
+            return restore();
+        }
+        this.tokens.skip();
+
+        const nameToken = this.tokens.read();
+        if (nameToken?.type !== "identifier") {
+            return restore();
+        }
+
+        let typeAnnotation: Identifier | undefined;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            this.tokens.skip();
+            try {
+                typeAnnotation = this.parseTypeAnnotationNode();
+            } catch (error) {
+                if (error instanceof ParseError) {
+                    return restore();
+                }
+                throw error;
+            }
+        }
+
+        const arrow = this.tokens.peek();
+        if (!(arrow?.type === "symbol" && arrow.value === "=>")) {
+            return restore();
+        }
+        this.tokens.skip();
+
+        return {
+            receiverType: this.buildIdentifierFromToken(receiverToken),
+            ...(receiverTypeArguments ? { receiverTypeArguments } : {}),
+            name: this.buildIdentifierFromToken(nameToken),
+            ...(typeAnnotation ? { typeAnnotation } : {})
+        };
+    }
+
     private parseVarStatement(): VarStatement {
         const declarationKeyword = this.tokens.read();
         if (
@@ -3147,44 +3274,34 @@ export class Parser {
             this.fail("Expected variable declaration statement", this.tokenAt(declarationKeyword));
         }
 
-        const firstName = this.tokens.peek();
-        const dot = this.peekToken(1);
-        const extensionName = this.peekToken(2);
-        const maybeColon = this.peekToken(3);
-        const arrow = this.peekToken(3);
-        if (
-            firstName?.type === "identifier" &&
-            dot?.type === "symbol" && dot.value === "." &&
-            extensionName?.type === "identifier" &&
-            (
-                (arrow?.type === "symbol" && arrow.value === "=>") ||
-                (maybeColon?.type === "symbol" && maybeColon.value === ":")
-            )
-        ) {
-            this.tokens.skip();
-            this.tokens.skip();
-            this.tokens.skip();
-            let typeAnnotation: Identifier | undefined;
-            if (maybeColon?.type === "symbol" && maybeColon.value === ":") {
-                this.tokens.skip();
-                typeAnnotation = this.parseTypeAnnotationNode();
-            }
-            const extensionArrow = this.tokens.read();
-            if (extensionArrow?.type !== "symbol" || extensionArrow.value !== "=>") {
-                this.fail("Expected '=>' before extension property body", this.tokenAt(extensionArrow));
-            }
+        // Leading type parameters introduce a generic extension property, e.g.
+        // `val <T> Array<T>.doubledLength => length * 2`. A regular variable
+        // declaration can never begin with `<`, so their presence forces the
+        // extension-property form.
+        const leadingTypeParameters = this.parseTypeParameterList();
+        const extensionHead = this.tryParseExtensionPropertyHead();
+        if (extensionHead) {
             const initializer = this.parseAssignment();
             const statement: VarStatement = {
                 kind: "VarStatement",
                 declarationKind: declarationKeyword.value as VariableDeclarationKind,
-                receiverType: this.buildIdentifierFromToken(firstName),
-                name: this.buildIdentifierFromToken(extensionName),
+                receiverType: extensionHead.receiverType,
+                name: extensionHead.name,
                 initializer
             };
-            if (typeAnnotation) {
-                statement.typeAnnotation = typeAnnotation;
+            if (extensionHead.receiverTypeArguments && extensionHead.receiverTypeArguments.length > 0) {
+                statement.receiverTypeArguments = extensionHead.receiverTypeArguments;
+            }
+            if (leadingTypeParameters.length > 0) {
+                statement.typeParameters = leadingTypeParameters;
+            }
+            if (extensionHead.typeAnnotation) {
+                statement.typeAnnotation = extensionHead.typeAnnotation;
             }
             return this.attachNodeBounds(statement, declarationKeyword, initializer.lastToken ?? this.getLastReadToken() ?? declarationKeyword);
+        }
+        if (leadingTypeParameters.length > 0) {
+            this.fail("Expected an extension property declaration after type parameters", this.tokenAt());
         }
 
         const declarations: VarDeclarator[] = [];
@@ -3832,14 +3949,26 @@ export class Parser {
             isGeneratorFunction = true;
         }
 
+        // Leading type parameters introduce a generic extension declaration, e.g.
+        // `fun <T> Array<T>.demo()`. They are merged with any type parameters that
+        // appear after the method name.
+        const leadingTypeParameters = this.parseTypeParameterList();
+
         const firstNameToken = this.tokens.read();
         if (firstNameToken?.type !== "identifier") {
             this.fail("Expected function name after declaration keyword", this.tokenAt(firstNameToken));
         }
 
         let receiverType: Identifier | undefined;
+        let receiverTypeArguments: Identifier[] | undefined;
         let overloadedOperator: OverloadableOperator | undefined;
         let nameToken = firstNameToken;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+            const parsedReceiverTypeArguments = this.tryParseReceiverTypeArguments();
+            if (parsedReceiverTypeArguments) {
+                receiverTypeArguments = parsedReceiverTypeArguments;
+            }
+        }
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
             this.tokens.skip();
             receiverType = this.buildIdentifierFromToken(firstNameToken);
@@ -3862,7 +3991,7 @@ export class Parser {
             }
         }
 
-        const typeParameters = this.parseTypeParameterList();
+        const typeParameters = [...leadingTypeParameters, ...this.parseTypeParameterList()];
 
         const openParen = this.tokens.read();
         if (openParen?.type !== "symbol" || openParen.value !== "(") {
@@ -3911,6 +4040,9 @@ export class Parser {
         };
         if (receiverType) {
             statement.receiverType = receiverType;
+        }
+        if (receiverTypeArguments && receiverTypeArguments.length > 0) {
+            statement.receiverTypeArguments = receiverTypeArguments;
         }
         if (overloadedOperator) {
             statement.operator = overloadedOperator;

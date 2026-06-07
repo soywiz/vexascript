@@ -8,18 +8,14 @@
     "mylang": "dist/mylang.js"
   },
   "scripts": {
-    "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.js",
     "cli": "pnpm --silent build && node dist/mylang.js",
-    "vscodeext:install": "pnpm --dir plugins/vscode install",
-    "vscodeext:launch": "pnpm vscodeext:install && pnpm build && code --new-window --extensionDevelopmentPath=./plugins/vscode .",
-    "vscodeext:launch:insiders": "pnpm vscodeext:install && pnpm build && code-insiders --new-window --extensionDevelopmentPath=./plugins/vscode .",
-    "ide": "pnpm vscodeext:launch",
+
+    "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.js",
     "test": "tsc --noEmit && tsx --test --test-reporter spec",
     "coverage": "tsx --test --experimental-test-coverage",
-    "monaco:install": "CI=true pnpm --dir plugins/monaco install --no-frozen-lockfile",
-    "monaco:dev": "pnpm --dir plugins/monaco dev",
-    "monaco:build": "pnpm --dir plugins/monaco build",
-    "monaco:start": "pnpm monaco:build && pnpm --dir plugins/monaco start"
+
+    "code": "code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
+    "monaco": "pnpm --dir plugins/monaco start"
   },
   "dependencies": {
     "commander": "^13.1.0",

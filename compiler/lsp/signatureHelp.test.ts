@@ -61,6 +61,38 @@ describe("signature help", () => {
     });
   });
 
+  it("provides signature help for static members on ambient runtime constructors", () => {
+    const source = dedent`
+      fun script() {
+        Date.parse("2024-01-01")
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = createSignatureHelp(session.ast!, session.analysis!, 1, 13);
+    expect(help?.signatures[0]?.label).toEqual("parse(s: string)");
+    expect(help?.signatures[0]?.parameters).toEqual([{ label: "s: string" }]);
+    expect(help?.activeParameter).toEqual(0);
+  });
+
+  it("provides signature help for members on ambient runtime interface globals", () => {
+    const source = dedent`
+      fun script() {
+        Math.max(1, 2)
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = createSignatureHelp(session.ast!, session.analysis!, 1, 11);
+    expect(help?.signatures[0]?.label).toEqual("max(values: number[])");
+  });
+
   it("resolves the innermost call inside a tail/brace lambda argument", () => {
     const source = dedent`
       fun inner(a: int, b: int): int {

@@ -199,6 +199,21 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toEqual(expect.arrayContaining(["milliseconds", "seconds"]));
   });
 
+  it("offers generic Array extension members for array member access", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun <T> Array<T>.second(): T { return this[1] }
+      val <T> Array<T>.doubledLength => length * 2
+      let xs = [1, 2, 3]
+      xs.^^^
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["second", "doubledLength"]));
+  });
+
   it("offers auto-imported extension members for numeric literal member access", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-completion-"));
     const durationFile = join(root, "duration.my");

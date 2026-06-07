@@ -60,6 +60,7 @@ export class Binder {
   private readonly scopeByNode: WeakMap<Node, Scope> = new WeakMap();
   private readonly rootScope: Scope;
   private readonly classStatementsByName = new Map<string, ClassStatement>();
+  private readonly interfaceStatementsByName = new Map<string, InterfaceStatement[]>();
 
   constructor(
     private readonly program: Program,
@@ -74,6 +75,12 @@ export class Binder {
     // declarations override them on name clashes.
     this.collectClassStatements(this.externalDeclarations);
     this.collectClassStatements(this.program.body);
+    // Interface declarations (including ambient runtime types such as `Array`)
+    // feed implicit receiver member access inside extension methods/properties,
+    // e.g. the `length` reference in `val <T> Array<T>.doubledLength => length`.
+    this.collectInterfaceStatements(getEcmaScriptRuntimeProgram().body);
+    this.collectInterfaceStatements(this.externalDeclarations);
+    this.collectInterfaceStatements(this.program.body);
     this.bindBuiltins();
     this.bindGlobalDeclarations(getEcmaScriptRuntimeProgram().body, this.rootScope, -1);
     this.bindGlobalDeclarations(this.program.body, this.rootScope);
@@ -267,6 +274,17 @@ export class Binder {
 
       if (statement.kind === "InterfaceStatement") {
         const interfaceStatement = statement as InterfaceStatement;
+        // An interface only contributes to the type space. When a value symbol
+        // already exists for the same name (for example `declare var Date:
+        // DateConstructor` paired with `interface Date`), keep that value
+        // symbol so member access on the value resolves against its declared
+        // type (e.g. `Date.now()` on `DateConstructor`). Otherwise a later
+        // `interface Date` merge would clobber the constructor value type with
+        // the instance interface type.
+        const existing = scope.symbols.get(interfaceStatement.name.name);
+        if (existing && (existing.kind === "variable" || existing.kind === "function")) {
+          continue;
+        }
         const symbolType = namedType(interfaceStatement.name.name);
         this.declare(scope, {
           name: interfaceStatement.name.name,
@@ -563,10 +581,64 @@ export class Binder {
     }
   }
 
+  private collectInterfaceStatements(statements: Statement[]): void {
+    for (const statement of statements) {
+      const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+      if (candidate?.kind === "InterfaceStatement") {
+        const interfaceStatement = candidate as InterfaceStatement;
+        const existing = this.interfaceStatementsByName.get(interfaceStatement.name.name) ?? [];
+        existing.push(interfaceStatement);
+        this.interfaceStatementsByName.set(interfaceStatement.name.name, existing);
+      }
+    }
+  }
+
   private declareReceiverMembers(scope: Scope, receiverName: string): void {
     const classStatement = this.classStatementsByName.get(receiverName);
     if (classStatement) {
       this.declareClassMembers(scope, classStatement);
+      return;
+    }
+    const interfaceStatements = this.interfaceStatementsByName.get(receiverName);
+    if (interfaceStatements) {
+      for (const interfaceStatement of interfaceStatements) {
+        this.declareInterfaceMembers(scope, interfaceStatement);
+      }
+    }
+  }
+
+  private declareInterfaceMembers(scope: Scope, statement: InterfaceStatement): void {
+    for (const member of statement.members) {
+      if (member.kind === "InterfacePropertyMember") {
+        const propertyType = this.typeFromAnnotationLoose(member.typeAnnotation) ?? UNKNOWN_TYPE;
+        this.declare(scope, {
+          name: member.name.name,
+          kind: "variable",
+          node: member.name,
+          implicitReceiver: true,
+          type: propertyType,
+          valueType: typeToString(propertyType)
+        }, -1);
+        continue;
+      }
+      const methodType = functionType(
+        member.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+          name: bindingNameText(parameter.name),
+          type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
+        })),
+        this.typeFromAnnotationLoose(member.returnType) ?? UNKNOWN_TYPE,
+        member.typeParameters?.map((parameter) => parameter.name.name)
+      );
+      this.declare(scope, {
+        name: member.name.name,
+        kind: "method",
+        node: member.name,
+        implicitReceiver: true,
+        type: methodType,
+        valueType: typeToString(methodType)
+      }, -1);
     }
   }
 
