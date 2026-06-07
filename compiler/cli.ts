@@ -2,11 +2,49 @@ import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
-import { transpile, type TranspileTarget } from "./runtime/transpile";
+import { transpile, type TranspileDiagnostic, type TranspileTarget } from "./runtime/transpile";
 import { bundleModuleGraph } from "./runtime/moduleGraph";
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
 import { loadProject } from "./project";
 import { ensureDependencies } from "./deps";
+
+function printDiagnostic(diag: TranspileDiagnostic, useColor: boolean): void {
+  const c = useColor
+    ? {
+        cyan: "\x1b[36m",
+        red: "\x1b[1;31m",
+        gray: "\x1b[90m",
+        yellow: "\x1b[33m",
+        reset: "\x1b[0m"
+      }
+    : { cyan: "", red: "", gray: "", yellow: "", reset: "" };
+
+  const location = `${diag.file}:${diag.line}:${diag.column}`;
+  const header = `${c.cyan}${location}${c.reset} - ${c.red}error${c.reset} ${c.gray}${diag.code}${c.reset}: ${diag.message}`;
+  console.error(header);
+
+  if (diag.sourceLine) {
+    const lineNum = String(diag.line);
+    const underlineStart = diag.column - 1;
+    const underlineLen = Math.max(1, diag.endColumn - diag.column);
+    const underline = " ".repeat(lineNum.length + 1 + underlineStart) + "~".repeat(underlineLen);
+    console.error(`${c.yellow}${lineNum}${c.reset} ${diag.sourceLine}`);
+    console.error(`${c.red}${underline}${c.reset}`);
+  }
+}
+
+function printDiagnostics(result: { errors: string[]; diagnostics?: TranspileDiagnostic[] }, file: string): void {
+  const useColor = process.stderr.isTTY ?? false;
+  if (result.diagnostics && result.diagnostics.length > 0) {
+    for (const diag of result.diagnostics) {
+      printDiagnostic(diag, useColor);
+    }
+  } else {
+    for (const error of result.errors) {
+      console.error(`${file}: error: ${error}`);
+    }
+  }
+}
 
 async function runLanguageServer(): Promise<void> {
   await import("./lsp/server");
@@ -45,9 +83,7 @@ async function buildFile(
     ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
   });
   if (result.errors.length > 0) {
-    for (const error of result.errors) {
-      console.error(`error: ${error}`);
-    }
+    printDiagnostics(result, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
 
@@ -96,9 +132,7 @@ async function executeCompiled(
   sourcePath: string
 ): Promise<void> {
   if (result.errors.length > 0) {
-    for (const error of result.errors) {
-      console.error(`error: ${error}`);
-    }
+    printDiagnostics(result, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
   const inlineSourceMap = result.sourceMap
