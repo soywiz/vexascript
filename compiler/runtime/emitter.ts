@@ -123,6 +123,8 @@ let activeExtensionMethods: Map<string, RuntimeExtensionMethodInfo[]> = new Map(
 let activeExtensionProperties: Map<string, string> = new Map();
 let activeClassNames: Set<string> = new Set();
 let activeJavaScriptImplementations: Map<string, JavaScriptImplementationInfo> = new Map();
+// Source-name to final JavaScript-name overrides declared via `@JsName("...")`.
+let activeJsNames: Map<string, string> = new Map();
 let activeExtensionThis = false;
 let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
 
@@ -485,11 +487,45 @@ function collectJavaScriptImplementations(program: Program): Map<string, JavaScr
       continue;
     }
     const fn = candidate as FunctionStatement;
-    if (fn.jsImpl !== undefined) {
-      result.set(fn.name.name, { template: fn.jsImpl, parameters: fn.parameters });
+    if (fn.jsInline !== undefined) {
+      result.set(fn.name.name, { template: fn.jsInline, parameters: fn.parameters });
     }
   }
   return result;
+}
+
+function collectJsNames(program: Program): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const statement of program.body) {
+    const candidate = unwrapExportedDeclaration(statement);
+    if (!candidate) {
+      continue;
+    }
+    // The annotation may sit on the declaration itself or on its `export` wrapper.
+    const jsName = candidate.jsName ?? statement.jsName;
+    if (jsName === undefined) {
+      continue;
+    }
+    if (
+      candidate.kind === "FunctionStatement" ||
+      candidate.kind === "ClassStatement" ||
+      candidate.kind === "EnumStatement" ||
+      candidate.kind === "InterfaceStatement"
+    ) {
+      const named = candidate as unknown as { name: Identifier };
+      result.set(named.name.name, jsName);
+    } else if (candidate.kind === "VarStatement") {
+      const variable = candidate as VarStatement;
+      if (variable.name.kind === "Identifier") {
+        result.set((variable.name as Identifier).name, jsName);
+      }
+    }
+  }
+  return result;
+}
+
+function resolveJsName(name: string): string {
+  return activeJsNames.get(name) ?? name;
 }
 
 function collectOperators(program: Program): Map<string, RuntimeOperatorInfo[]> {
@@ -635,7 +671,7 @@ function emitIdentifier(identifier: Identifier): string {
   if (activeImplicitReceiverIdentifiers.has(identifier)) {
     return `${activeExtensionThis ? "$this" : "this"}.${identifier.name}`;
   }
-  return identifier.name;
+  return resolveJsName(identifier.name);
 }
 
 function eraseTypeArguments(typeName: string): string {
@@ -771,6 +807,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           if (receiverType) {
             return `${extensionPropertyRuntimeName(receiverType, propertyName)}(${objectText})`;
           }
+          // Member property names are not affected by `@JsName`; emit them as-is
+          // rather than routing through identifier renaming.
+          const access = member.optional ? "?." : ".";
+          return `${objectText}${access}${propertyName}`;
         }
         if (member.computed) {
           return member.optional
@@ -931,7 +971,7 @@ function emitBindingElement(element: BindingElement, objectPattern: boolean): st
 }
 
 function emitBindingName(binding: BindingName): string {
-  if (binding.kind === "Identifier") return binding.name;
+  if (binding.kind === "Identifier") return resolveJsName(binding.name);
   if (binding.kind === "ObjectBindingPattern") {
     return `{ ${binding.elements.map((element) => emitBindingElement(element, true)).join(", ")} }`;
   }
@@ -1087,7 +1127,7 @@ function emitEnumStatement(statement: EnumStatement): string {
     return "";
   }
 
-  const name = statement.name.name;
+  const name = resolveJsName(statement.name.name);
   const lines: string[] = [`var ${name};`, `(function (${name}) {`];
   let nextNumericValue = 0;
   for (const member of statement.members) {
@@ -1189,9 +1229,12 @@ export function emitStatement(statement: Statement): string {
       }
       if (exportStatement.specifiers) {
         const names = exportStatement.specifiers
-          .map((specifier) => specifier.local
-            ? `${specifier.local.name} as ${specifier.exported.name}`
-            : specifier.exported.name)
+          .map((specifier) => {
+            // `@JsName` renames the local binding; keep the public exported name
+            // stable and point the export at the renamed local when they differ.
+            const localName = exportStatement.from ? (specifier.local ?? specifier.exported).name : resolveJsName((specifier.local ?? specifier.exported).name);
+            return localName === specifier.exported.name ? specifier.exported.name : `${localName} as ${specifier.exported.name}`;
+          })
           .join(", ");
         const fromClause = exportStatement.from ? ` from ${JSON.stringify(exportStatement.from.value)}` : "";
         return `export { ${names} }${fromClause};`;
@@ -1291,7 +1334,8 @@ export function emitStatement(statement: Statement): string {
         }
       }
       const overloads = activeProgramOverloads.get(fn.name.name);
-      const emittedName = overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name;
+      const emittedName = activeJsNames.get(fn.name.name)
+        ?? (overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name);
       return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
     }
     case "ClassStatement": {
@@ -1308,7 +1352,7 @@ export function emitStatement(statement: Statement): string {
       const extendsClause = classStatement.extendsType
         ? ` extends ${eraseTypeArguments(classStatement.extendsType.name)}`
         : "";
-      return `class ${classStatement.name.name}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
+      return `class ${resolveJsName(classStatement.name.name)}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
     }
     case "NamespaceStatement":
       return emitNamespaceStatement(statement as NamespaceStatement);
@@ -1414,6 +1458,7 @@ interface EmitProgramRuntimeContext {
   extensionProperties: Map<string, string>;
   classNames: Set<string>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
+  jsNames: Map<string, string>;
 }
 
 export function createEmitProgramRuntimeContext(
@@ -1426,7 +1471,8 @@ export function createEmitProgramRuntimeContext(
     extensionMethods: collectExtensionMethods(contextProgram),
     extensionProperties: collectExtensionProperties(contextProgram, expressionTypes),
     classNames: collectClassNames(contextProgram),
-    javaScriptImplementations: collectJavaScriptImplementations(contextProgram)
+    javaScriptImplementations: collectJavaScriptImplementations(contextProgram),
+    jsNames: collectJsNames(contextProgram)
   };
 }
 
@@ -1445,6 +1491,7 @@ export function emitProgramStatements(
   const previousExtensionProperties = activeExtensionProperties;
   const previousClassNames = activeClassNames;
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
+  const previousJsNames = activeJsNames;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
   const previousAutoAwaitExpressions = activeAutoAwaitExpressions;
   activeExpressionTypes = expressionTypes;
@@ -1456,6 +1503,7 @@ export function emitProgramStatements(
   activeExtensionProperties = runtimeContext.extensionProperties;
   activeClassNames = runtimeContext.classNames;
   activeJavaScriptImplementations = runtimeContext.javaScriptImplementations;
+  activeJsNames = runtimeContext.jsNames;
   try {
     return program.body
       .map((statement) => emitStatement(statement))
@@ -1468,6 +1516,7 @@ export function emitProgramStatements(
     activeExtensionProperties = previousExtensionProperties;
     activeClassNames = previousClassNames;
     activeJavaScriptImplementations = previousJavaScriptImplementations;
+    activeJsNames = previousJsNames;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
     activeAutoAwaitExpressions = previousAutoAwaitExpressions;
   }

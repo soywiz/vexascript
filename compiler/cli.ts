@@ -108,9 +108,9 @@ async function executeCompiled(
   }
 }
 
-const TEST_RUNTIME_SOURCE = `@JsImpl("((function test() { call() })())")
+const TEST_RUNTIME_SOURCE = `@JsInline("((function test() { call() })())")
 fun test(call: any)
-@JsImpl("if (!cond) throw new Error(message)")
+@JsInline("if (!cond) throw new Error(message)")
 fun assert(cond: boolean, message: string = "assert failed")
 `;
 

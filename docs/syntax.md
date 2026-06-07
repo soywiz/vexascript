@@ -271,16 +271,33 @@ Signature-only overload declarations may be written without a body and are omitt
 
 ### Inline JavaScript implementations
 
-A bodyless function may use `@JsImpl` to provide a trusted JavaScript template that is inserted at each direct call site. Parameter identifiers in the template are replaced with the emitted call arguments. When an argument is omitted, its declared default value is used; otherwise it is replaced with `undefined`.
+A bodyless function may use `@JsInline` to provide a trusted JavaScript template that is inserted at each direct call site. Parameter identifiers in the template are replaced with the emitted call arguments. When an argument is omitted, its declared default value is used; otherwise it is replaced with `undefined`.
 
 ```my
-@JsImpl("if (!cond) throw new Error(message)")
+@JsInline("if (!cond) throw new Error(message)")
 fun assert(cond: boolean, message: string = "assert failed")
 
 assert(value > 0)
 ```
 
 The annotated declaration itself is omitted from JavaScript output. Templates are raw JavaScript and are responsible for being valid in every context where the function is called.
+
+### Custom JavaScript names
+
+The `@JsName("...")` annotation overrides the final JavaScript name of a declaration. It can be applied to functions, classes, enums, interfaces and variables. The source name is still used inside MyLang, but JavaScript emission uses the supplied name for both the declaration and every reference to it:
+
+```my
+@JsName("rgba")
+class Color(val r: int, val g: int, val b: int, val a: int)
+
+@JsName("clamp01")
+function clampUnit(value: number): number { return Math.max(0, Math.min(1, value)) }
+
+val white = Color(255, 255, 255, 255)  // emits as new rgba(255, 255, 255, 255)
+clampUnit(2)                           // emits as clamp01(2)
+```
+
+Member property names are not affected by `@JsName`; only the renamed declaration and references to it are rewritten. Annotations stack, so `@JsName` and `@JsInline` may be combined on the same declaration.
 
 ### Test files
 
@@ -292,7 +309,7 @@ test(() => {
 })
 ```
 
-`test` invokes its callback, and `assert` throws an `Error` when its condition is false. The helpers are implemented with `@JsImpl`, so test execution does not require additional runtime files.
+`test` invokes its callback, and `assert` throws an `Error` when its condition is false. The helpers are implemented with `@JsInline`, so test execution does not require additional runtime files.
 
 ### Implicit member access
 

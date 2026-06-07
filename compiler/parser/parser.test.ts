@@ -4403,14 +4403,50 @@ describe("destructured parameters", () => {
 });
 
 describe("JavaScript implementation annotations", () => {
-    it("parses @JsImpl on bodyless functions", () => {
-        const program = parseFile(tokenizeReader('@JsImpl("if (!cond) throw new Error(message)")\nfun assert(cond: boolean, message: string = "assert failed")'));
+    it("parses @JsInline on bodyless functions", () => {
+        const program = parseFile(tokenizeReader('@JsInline("if (!cond) throw new Error(message)")\nfun assert(cond: boolean, message: string = "assert failed")'));
 
         expect(program.body[0]).toMatchObject({
             kind: "FunctionStatement",
             name: { name: "assert" },
             missingBody: true,
-            jsImpl: "if (!cond) throw new Error(message)"
+            jsInline: "if (!cond) throw new Error(message)"
+        });
+    });
+
+    it("rejects @JsInline on non-function declarations", () => {
+        expect(() => parseFile(tokenizeReader('@JsInline("noop")\nclass Foo {}'))).toThrow();
+    });
+
+    it("parses @JsName on functions, classes and variables", () => {
+        const fn = parseFile(tokenizeReader('@JsName("clamp01")\nfunction clampUnit(value: number): number { return value }'));
+        expect(fn.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { name: "clampUnit" },
+            jsName: "clamp01"
+        });
+
+        const cls = parseFile(tokenizeReader('@JsName("rgba")\nclass Color(val r: int)'));
+        expect(cls.body[0]).toMatchObject({
+            kind: "ClassStatement",
+            name: { name: "Color" },
+            jsName: "rgba"
+        });
+
+        const variable = parseFile(tokenizeReader('@JsName("PI_JS")\nval pi = 3.14'));
+        expect(variable.body[0]).toMatchObject({
+            kind: "VarStatement",
+            jsName: "PI_JS"
+        });
+    });
+
+    it("stacks @JsName and @JsInline on the same function", () => {
+        const program = parseFile(tokenizeReader('@JsName("assertJs")\n@JsInline("if (!cond) throw new Error()")\nfun assert(cond: boolean)'));
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { name: "assert" },
+            jsName: "assertJs",
+            jsInline: "if (!cond) throw new Error()"
         });
     });
 });

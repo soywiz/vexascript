@@ -569,10 +569,10 @@ if (cat is Cat) { transform({ it }) }
     expect(result.code).toContain("cat instanceof Cat");
   });
 
-  it("inlines @JsImpl functions and substitutes arguments and defaults", () => {
-    const source = `@JsImpl("((function test() { call() })())")
+  it("inlines @JsInline functions and substitutes arguments and defaults", () => {
+    const source = `@JsInline("((function test() { call() })())")
 fun test(call: any)
-@JsImpl("if (!cond) throw new Error(message)")
+@JsInline("if (!cond) throw new Error(message)")
 fun assert(cond: boolean, message: string = "assert failed")
 test(() => { assert(1 == 1) })`;
 
@@ -580,6 +580,34 @@ test(() => { assert(1 == 1) })`;
 
     expect(result.errors).toEqual([]);
     expect(result.code).toBe('((function test() { (() => {\nif (!(1 == 1)) throw new Error(("assert failed"));\n})() })());');
+  });
+
+  it("renames declarations and references with @JsName", () => {
+    const source = `@JsName("clamp01")
+function clampUnit(value: number): number { return value }
+clampUnit(2)`;
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("function clamp01(value)");
+    expect(result.code).toContain("clamp01(2);");
+    expect(result.code).not.toContain("clampUnit");
+  });
+
+  it("renames classes with @JsName without touching member access", () => {
+    const source = `@JsName("rgba")
+class Color(val value: int)
+val c = new Color(1)
+c.value`;
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("class rgba");
+    expect(result.code).toContain("new rgba(1)");
+    expect(result.code).toContain("c.value");
+    expect(result.code).not.toContain("Color");
   });
 
 });

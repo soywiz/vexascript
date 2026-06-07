@@ -11,6 +11,10 @@ export interface Expr extends Node {
 }
 
 export interface Statement extends Node {
+    // Final JavaScript name supplied via the `@JsName("...")` annotation. When
+    // present, JavaScript emission uses this name for the declaration and every
+    // reference to it instead of the source name.
+    jsName?: string
 }
 
 export type VariableDeclarationKind = "let" | "var" | "val" | "const";
@@ -325,7 +329,7 @@ export interface FunctionStatement extends Statement {
     sync?: boolean
     generator?: boolean
     missingBody?: boolean
-    jsImpl?: string
+    jsInline?: string
     name: Identifier
     receiverType?: Identifier
     operator?: BinaryExpression["operator"]
