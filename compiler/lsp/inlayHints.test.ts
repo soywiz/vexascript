@@ -71,4 +71,58 @@ dedent`
     expect(labels).toContain("x: ");
     expect(labels).toContain("y: ");
   });
+
+  it("does not emit parameter hints for arguments already passed by name", () => {
+    const source =
+dedent`
+      fun connect(host: string, port: number) {}
+      fun demo() {
+        connect(port: 8080, host: "localhost")
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const hints = createInlayHints(
+      session.ast!,
+      session.analysis!,
+      {
+        start: { line: 0, character: 0 },
+        end: { line: 20, character: 0 }
+      }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).not.toContain("host: ");
+    expect(labels).not.toContain("port: ");
+  });
+
+  it("emits hints only for positional arguments when mixed with named ones", () => {
+    const source =
+dedent`
+      fun connect(host: string, port: number) {}
+      fun demo() {
+        connect("localhost", port: 8080)
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const hints = createInlayHints(
+      session.ast!,
+      session.analysis!,
+      {
+        start: { line: 0, character: 0 },
+        end: { line: 20, character: 0 }
+      }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain("host: ");
+    expect(labels).not.toContain("port: ");
+  });
 });

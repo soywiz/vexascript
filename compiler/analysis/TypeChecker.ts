@@ -30,6 +30,7 @@ import type {
   IntLiteral,
   MemberExpression,
   MissingExpression,
+  NamedArgument,
   NewExpression,
   NamespaceStatement,
   NonNullExpression,
@@ -1027,6 +1028,12 @@ export class TypeChecker {
         result = this.removeNullishFromType(this.visitExpression(nonNull.expression, scope));
         break;
       }
+      case "NamedArgument": {
+        // A named call argument (`name: value`) carries the type of its value;
+        // matching it to the target parameter happens during call validation.
+        result = this.visitExpression((expression as NamedArgument).value, scope, expectedType);
+        break;
+      }
       case "ConditionalExpression": {
         const conditional = expression as ConditionalExpression;
         this.visitExpression(conditional.test, scope);
@@ -1092,23 +1099,36 @@ export class TypeChecker {
           const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
             this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
           );
+          const hasNamedArguments = call.arguments.some((argument) => argument.kind === "NamedArgument");
+          // Named arguments are written in any order; reorder their types into
+          // the callee's positional parameter order so generic inference and
+          // argument validation operate as if the call were positional.
+          const inferenceArgumentTypes = hasNamedArguments
+            ? this.reorderNamedArgumentTypes(call.arguments, argumentTypes, callableType)
+            : argumentTypes;
           const firstPassCalleeType = this.instantiateFunctionType(
             callableType,
             explicitTypeArguments,
-            argumentTypes,
+            inferenceArgumentTypes,
             expectedType
           );
-          const contextualArgumentTypes = this.applyCallArgumentContext(
-            call,
-            scope,
-            firstPassCalleeType,
-            argumentTypes
-          );
+          const contextualArgumentTypes = hasNamedArguments
+            ? inferenceArgumentTypes
+            : this.applyCallArgumentContext(
+                call,
+                scope,
+                firstPassCalleeType,
+                argumentTypes
+              );
           const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
             ? firstPassCalleeType
             : this.instantiateFunctionType(callableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
           this.validateFunctionTypeArgumentConstraints(callableType, instantiatedCalleeType, call);
-          this.validateCallArguments(call, instantiatedCalleeType, contextualArgumentTypes);
+          if (hasNamedArguments) {
+            this.validateNamedCallArguments(call, instantiatedCalleeType, argumentTypes);
+          } else {
+            this.validateCallArguments(call, instantiatedCalleeType, contextualArgumentTypes);
+          }
           this.evolveArrayElementTypeFromMutation(call, scope, contextualArgumentTypes);
           result = this.resolveOptionalAccessType(
             instantiatedCalleeType.returnType,
@@ -2496,6 +2516,128 @@ export class TypeChecker {
       if (argumentExpression) {
         this.reportNestedMismatchContext(comparableArgumentType, expectedType, argumentExpression);
       }
+    }
+  }
+
+  /**
+   * Reorders the written-order argument types of a call that uses named
+   * arguments into the callee's positional parameter order. Positional
+   * arguments fill parameters left to right; named arguments target the
+   * parameter matching their name. Slots without a provided value keep
+   * `UNKNOWN_TYPE`. Used to feed generic inference as if the call were
+   * positional.
+   */
+  private reorderNamedArgumentTypes(
+    args: Expr[],
+    argumentTypes: AnalysisType[],
+    calleeType: AnalysisType & { kind: "function" }
+  ): AnalysisType[] {
+    const parameterNames = calleeType.parameters.map((parameter) => parameter.name);
+    const ordered: AnalysisType[] = parameterNames.map(() => UNKNOWN_TYPE);
+    let positionalIndex = 0;
+    for (let index = 0; index < args.length; index += 1) {
+      const argument = args[index]!;
+      const argumentType = argumentTypes[index] ?? UNKNOWN_TYPE;
+      if (argument.kind === "NamedArgument") {
+        const parameterIndex = parameterNames.indexOf((argument as NamedArgument).name.name);
+        if (parameterIndex >= 0) {
+          ordered[parameterIndex] = argumentType;
+        }
+        continue;
+      }
+      if (positionalIndex < ordered.length) {
+        ordered[positionalIndex] = argumentType;
+      }
+      positionalIndex += 1;
+    }
+    return ordered;
+  }
+
+  /**
+   * Validates a call whose arguments include named arguments. Each named
+   * argument is matched to the parameter sharing its name; positional
+   * arguments fill parameters left to right. Reports unknown parameter names,
+   * duplicate assignments, missing required parameters and per-argument type
+   * mismatches.
+   */
+  private validateNamedCallArguments(
+    call: CallExpression,
+    calleeType: AnalysisType & { kind: "function" },
+    argumentTypes: AnalysisType[]
+  ): void {
+    const parameters = calleeType.parameters;
+    const parameterIndexByName = new Map<string, number>();
+    parameters.forEach((parameter, index) => parameterIndexByName.set(parameter.name, index));
+    const lastParameter = parameters[parameters.length - 1];
+    const restParameter = lastParameter?.rest ? lastParameter : undefined;
+    const provided = new Set<number>();
+    let positionalIndex = 0;
+
+    for (let index = 0; index < call.arguments.length; index += 1) {
+      const argument = call.arguments[index]!;
+      const argumentType = argumentTypes[index] ?? UNKNOWN_TYPE;
+      let parameterIndex: number;
+      let parameter: (typeof parameters)[number] | undefined;
+
+      if (argument.kind === "NamedArgument") {
+        const name = (argument as NamedArgument).name.name;
+        const resolvedIndex = parameterIndexByName.get(name);
+        if (resolvedIndex === undefined) {
+          this.issues.push({
+            message: `No parameter named '${name}'`,
+            node: (argument as NamedArgument).name
+          });
+          continue;
+        }
+        parameterIndex = resolvedIndex;
+        parameter = parameters[resolvedIndex];
+      } else {
+        parameterIndex = positionalIndex;
+        parameter = parameters[positionalIndex] ?? restParameter;
+        positionalIndex += 1;
+      }
+
+      if (parameter !== restParameter && provided.has(parameterIndex)) {
+        this.issues.push({
+          message: `Parameter '${parameter?.name ?? String(parameterIndex)}' specified more than once`,
+          node: argument
+        });
+      }
+      provided.add(parameterIndex);
+
+      if (!parameter) {
+        continue;
+      }
+      const valueNode = argument.kind === "NamedArgument" ? (argument as NamedArgument).value : argument;
+      const comparableArgumentType = valueNode.kind === "SpreadExpression"
+        ? this.spreadArgumentElementType(argumentType)
+        : argumentType;
+      const expectedType = parameter.type;
+      if (isUnknownType(expectedType) || isUnknownType(comparableArgumentType)) {
+        continue;
+      }
+      if (this.isTypeAssignable(comparableArgumentType, expectedType)) {
+        continue;
+      }
+      this.issues.push({
+        message: `Argument of type '${typeToString(comparableArgumentType)}' is not assignable to parameter '${parameter.name}' of type '${typeToString(expectedType)}'`,
+        node: valueNode
+      });
+      this.reportNestedMismatchContext(comparableArgumentType, expectedType, valueNode);
+    }
+
+    const diagnosticNode = call.callee.kind === "MemberExpression"
+      ? (call.callee as MemberExpression).property
+      : call;
+    for (let index = 0; index < parameters.length; index += 1) {
+      const parameter = parameters[index]!;
+      if (parameter.optional || parameter.rest || provided.has(index)) {
+        continue;
+      }
+      this.issues.push({
+        message: `Missing required argument for parameter '${parameter.name}'`,
+        node: diagnosticNode
+      });
     }
   }
 

@@ -31,6 +31,7 @@ import type {
   IntLiteral,
   LongLiteral,
   MemberExpression,
+  NamedArgument,
   NewExpression,
   NamespaceStatement,
   NonNullExpression,
@@ -122,6 +123,10 @@ let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
 let activeExtensionMethods: Map<string, RuntimeExtensionMethodInfo[]> = new Map();
 let activeExtensionProperties: Map<string, string> = new Map();
 let activeClassNames: Set<string> = new Set();
+// Parameter names (in declaration order) keyed by callable name (top-level
+// functions and class constructors), used to reorder named call arguments
+// (`fetch(url: ...)`) into the callee's positional parameter order.
+let activeParameterNames: Map<string, string[]> = new Map();
 let activeJavaScriptImplementations: Map<string, JavaScriptImplementationInfo> = new Map();
 // Source-name to final JavaScript-name overrides declared via `@JsName("...")`.
 let activeJsNames: Map<string, string> = new Map();
@@ -479,6 +484,52 @@ function collectClassNames(program: Program): Set<string> {
   return result;
 }
 
+function parameterBindingName(name: BindingName | undefined): string | null {
+  return name?.kind === "Identifier" ? (name as Identifier).name : null;
+}
+
+function functionParameterNames(parameters: FunctionParameter[]): string[] {
+  return parameters
+    .filter((parameter) => parameter.thisParameter !== true)
+    .map((parameter) => parameterBindingName(parameter.name))
+    .filter((name): name is string => name !== null);
+}
+
+function collectParameterNames(program: Program): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const statement of program.body) {
+    const candidate = unwrapExportedDeclaration(statement);
+    if (candidate?.kind === "FunctionStatement") {
+      const fn = candidate as FunctionStatement;
+      // Skip extension functions: their receiver shifts the positional layout.
+      if (fn.receiverType || result.has(fn.name.name)) {
+        continue;
+      }
+      result.set(fn.name.name, functionParameterNames(fn.parameters));
+    } else if (candidate?.kind === "ClassStatement") {
+      const classStatement = candidate as ClassStatement;
+      if (result.has(classStatement.name.name)) {
+        continue;
+      }
+      const primaryNames = (classStatement.primaryConstructorParameters ?? [])
+        .map((parameter) => parameterBindingName(parameter.name))
+        .filter((name): name is string => name !== null);
+      if (primaryNames.length > 0) {
+        result.set(classStatement.name.name, primaryNames);
+        continue;
+      }
+      const constructor = classStatement.members.find(
+        (member): member is ClassMethodMember =>
+          member.kind === "ClassMethodMember" && member.name.name === "constructor"
+      );
+      if (constructor) {
+        result.set(classStatement.name.name, functionParameterNames(constructor.parameters));
+      }
+    }
+  }
+  return result;
+}
+
 function collectJavaScriptImplementations(program: Program): Map<string, JavaScriptImplementationInfo> {
   const result = new Map<string, JavaScriptImplementationInfo>();
   for (const statement of program.body) {
@@ -698,8 +749,83 @@ function emitListElement(expression: Expr): string {
   if (expression.kind === "ArrayHole") {
     return "";
   }
+  if (expression.kind === "NamedArgument") {
+    return emitListElement((expression as NamedArgument).value);
+  }
   const text = emitExpression(expression);
   return expression.kind === "CommaExpression" ? `(${text})` : text;
+}
+
+/**
+ * Resolves the positional parameter names of a call's callee so named
+ * arguments can be reordered. Top-level functions and class constructors come
+ * from the collected parameter-name map; any other callable (methods, locals
+ * holding a function value) is resolved from its analyzed function type.
+ */
+function resolveCalleeParameterNames(callee: Expr): string[] | null {
+  if (callee.kind === "Identifier") {
+    const fromDeclarations = activeParameterNames.get((callee as Identifier).name);
+    if (fromDeclarations) {
+      return fromDeclarations;
+    }
+  }
+  const calleeType = activeExpressionTypes?.get(callee as unknown as Node);
+  if (calleeType?.kind === "function") {
+    return calleeType.parameters.map((parameter) => parameter.name);
+  }
+  return null;
+}
+
+/**
+ * Emits a call's argument list, reordering named arguments (`name: value`)
+ * into the callee's positional parameter order. Positional arguments fill
+ * parameters left to right; named arguments target the parameter sharing their
+ * name; unfilled leading slots become `undefined`. When the parameter order
+ * cannot be resolved, named argument values are emitted in written order.
+ */
+function emitCallArgumentTexts(callee: Expr, args: Expr[]): string[] {
+  if (!args.some((argument) => argument.kind === "NamedArgument")) {
+    return args.map((argument) => emitListElement(argument));
+  }
+  const parameterNames = resolveCalleeParameterNames(callee);
+  if (!parameterNames) {
+    return args.map((argument) => emitListElement(argument));
+  }
+  const slots: (string | undefined)[] = parameterNames.map(() => undefined);
+  const extra: string[] = [];
+  let positionalIndex = 0;
+  for (const argument of args) {
+    if (argument.kind === "NamedArgument") {
+      const named = argument as NamedArgument;
+      const parameterIndex = parameterNames.indexOf(named.name.name);
+      const text = emitListElement(named.value);
+      if (parameterIndex >= 0) {
+        slots[parameterIndex] = text;
+      } else {
+        extra.push(text);
+      }
+      continue;
+    }
+    const text = emitListElement(argument);
+    if (positionalIndex < slots.length) {
+      slots[positionalIndex] = text;
+    } else {
+      extra.push(text);
+    }
+    positionalIndex += 1;
+  }
+  let lastFilledSlot = -1;
+  for (let index = 0; index < slots.length; index += 1) {
+    if (slots[index] !== undefined) {
+      lastFilledSlot = index;
+    }
+  }
+  const ordered: string[] = [];
+  for (let index = 0; index <= lastFilledSlot; index += 1) {
+    ordered.push(slots[index] ?? "undefined");
+  }
+  ordered.push(...extra);
+  return ordered;
 }
 
 function emitObjectPropertyKey(property: ObjectProperty): string {
@@ -830,12 +956,12 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (extensionMethodName) {
           const member = call.callee as MemberExpression;
           const receiverText = emitExpression(member.object, PREC_MEMBER, "left");
-          const callArguments = [receiverText, ...call.arguments.map((argument) => emitListElement(argument))];
+          const callArguments = [receiverText, ...emitCallArgumentTexts(call.callee, call.arguments)];
           return `${extensionMethodName}(${callArguments.join(", ")})`;
         }
         const overloadedName = resolveOverloadedFunctionCall(call);
         const calleeText = overloadedName ?? emitExpression(call.callee, PREC_MEMBER, "left");
-        const argumentsText = call.arguments.map((argument) => emitListElement(argument)).join(", ");
+        const argumentsText = emitCallArgumentTexts(call.callee, call.arguments).join(", ");
         const isClassCall =
           call.optional !== true &&
           call.callee.kind === "Identifier" &&
@@ -848,7 +974,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const newExpression = expression as NewExpression;
         const calleeText = emitExpression(newExpression.callee, PREC_MEMBER, "left");
         if (newExpression.arguments) {
-          return `new ${calleeText}(${newExpression.arguments.map((argument) => emitListElement(argument)).join(", ")})`;
+          return `new ${calleeText}(${emitCallArgumentTexts(newExpression.callee, newExpression.arguments).join(", ")})`;
         }
         return `new ${calleeText}`;
       }
@@ -880,6 +1006,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "SpreadExpression":
         return `...${emitExpression((expression as SpreadExpression).argument, PREC_UNARY, "right")}`;
+      case "NamedArgument":
+        // Reached only when a named argument is emitted outside a call's
+        // argument list; emit its value so the output stays valid.
+        return emitExpression((expression as NamedArgument).value, parentPrecedence, side);
       case "ArrayLiteral":
         return `[${(expression as ArrayLiteral).elements.map((element) => emitListElement(element)).join(", ")}]`;
       case "ObjectLiteral": {
@@ -1457,6 +1587,7 @@ interface EmitProgramRuntimeContext {
   extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
   extensionProperties: Map<string, string>;
   classNames: Set<string>;
+  parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
 }
@@ -1471,6 +1602,7 @@ export function createEmitProgramRuntimeContext(
     extensionMethods: collectExtensionMethods(contextProgram),
     extensionProperties: collectExtensionProperties(contextProgram, expressionTypes),
     classNames: collectClassNames(contextProgram),
+    parameterNames: collectParameterNames(contextProgram),
     javaScriptImplementations: collectJavaScriptImplementations(contextProgram),
     jsNames: collectJsNames(contextProgram)
   };
@@ -1490,6 +1622,7 @@ export function emitProgramStatements(
   const previousExtensionMethods = activeExtensionMethods;
   const previousExtensionProperties = activeExtensionProperties;
   const previousClassNames = activeClassNames;
+  const previousParameterNames = activeParameterNames;
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
   const previousJsNames = activeJsNames;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
@@ -1502,6 +1635,7 @@ export function emitProgramStatements(
   activeExtensionMethods = runtimeContext.extensionMethods;
   activeExtensionProperties = runtimeContext.extensionProperties;
   activeClassNames = runtimeContext.classNames;
+  activeParameterNames = runtimeContext.parameterNames;
   activeJavaScriptImplementations = runtimeContext.javaScriptImplementations;
   activeJsNames = runtimeContext.jsNames;
   try {
@@ -1515,6 +1649,7 @@ export function emitProgramStatements(
     activeExtensionMethods = previousExtensionMethods;
     activeExtensionProperties = previousExtensionProperties;
     activeClassNames = previousClassNames;
+    activeParameterNames = previousParameterNames;
     activeJavaScriptImplementations = previousJavaScriptImplementations;
     activeJsNames = previousJsNames;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;

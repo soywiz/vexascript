@@ -75,6 +75,51 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("reject")?.detail).toBe("In-scope parameter: (arg1: Error) => void");
   });
 
+  it("suggests named arguments inside an empty call argument list", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun connect(host: string, port: number) {}
+      connect(^^^)
+      `
+    );
+    const ast = parseFile(tokenizeReader(source));
+    const items = createCompletionItemsForPosition(ast, line, character);
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.has("host:")).toBe(true);
+    expect(byLabel.has("port:")).toBe(true);
+    expect(byLabel.get("host:")?.insertText).toBe("host: ");
+    expect(byLabel.get("host:")?.filterText).toBe("host");
+    expect(byLabel.get("host:")?.detail).toBe("Named argument: string");
+  });
+
+  it("suggests named arguments for new expressions", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Point(val x: number, val y: number)
+      val p = new Point(^^^)
+      `
+    );
+    const ast = parseFile(tokenizeReader(source));
+    const items = createCompletionItemsForPosition(ast, line, character);
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.has("x:")).toBe(true);
+    expect(byLabel.has("y:")).toBe(true);
+  });
+
+  it("does not suggest named arguments outside of a call argument list", () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun connect(host: string, port: number) {}
+      ^^^connect
+      `
+    );
+    const ast = parseFile(tokenizeReader(source));
+    const items = createCompletionItemsForPosition(ast, line, character);
+    const labels = items.map((item) => item.label);
+
+    expect(labels).not.toContain("host:");
+    expect(labels).not.toContain("port:");
+  });
+
   it("keeps keyword completions available", () => {
     const labels = createKeywordOnlyCompletionItems().map((item) => item.label);
     expect(labels).toContain("fn");

@@ -883,6 +883,24 @@ collect("label", ...values)
 factory<string, number>(arg1, arg2)
 ```
 
+#### Named arguments
+
+Call and `new` arguments may be passed by parameter name using `name: value`.
+Named arguments can be written in any order and freely mixed with leading
+positional arguments; the compiler reorders them into the callee's positional
+parameter order when emitting JavaScript. Editor completion suggests the
+available parameter names (for example `url:`) inside an argument list.
+
+```mylang
+fun connect(host: string, port: number) {}
+
+connect(port: 8080, host: "localhost")   // reordered to connect("localhost", 8080)
+connect("localhost", port: 8080)          // positional + named
+
+class Point(val x: number, val y: number)
+let point = Point(y: 2, x: 1)             // reordered to new Point(1, 2)
+```
+
 ### Class instantiation and new expressions
 
 A declared class can be called directly to instantiate it. `ClassName(arguments)` is equivalent to `new ClassName(arguments)`:

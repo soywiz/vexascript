@@ -186,6 +186,18 @@ export interface SpreadExpression extends Node {
     argument: Expr
 }
 
+/**
+ * A named call argument such as `url` in `fetch(url: "https://example.com")`.
+ * It wraps the argument value together with the parameter name it targets so
+ * the type checker can validate it against the matching parameter and the
+ * emitter can reorder it into the callee's positional parameter order.
+ */
+export interface NamedArgument extends Node {
+    kind: "NamedArgument"
+    name: Identifier
+    value: Expr
+}
+
 export interface UnaryExpression extends Node {
     kind: "UnaryExpression"
     operator: "+" | "-" | "!" | "~" | "typeof" | "void" | "delete" | "await" | "yield" | "yield*" | "go"

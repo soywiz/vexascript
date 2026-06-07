@@ -303,26 +303,7 @@ function pushParameterHintsForCall(
     return;
   }
 
-  const comparableCount = Math.min(call.arguments.length, signature.parameters.length);
-  for (let index = 0; index < comparableCount; index += 1) {
-    const argument = call.arguments[index];
-    const parameter = signature.parameters[index];
-    if (!argument?.firstToken || !parameter) {
-      continue;
-    }
-    const position = {
-      line: argument.firstToken.range.start.line,
-      character: argument.firstToken.range.start.column
-    };
-    if (!inRange(position.line, position.character, range)) {
-      continue;
-    }
-    hints.push({
-      position,
-      kind: InlayHintKind.Parameter,
-      label: `${parameter.name}: `
-    });
-  }
+  pushArgumentParameterHints(call.arguments, signature.parameters, range, hints);
 }
 
 function pushParameterHintsForNewExpression(
@@ -338,12 +319,30 @@ function pushParameterHintsForNewExpression(
     return;
   }
 
-  const args = expression.arguments ?? [];
-  const comparableCount = Math.min(args.length, signature.parameters.length);
-  for (let index = 0; index < comparableCount; index += 1) {
-    const argument = args[index];
-    const parameter = signature.parameters[index];
-    if (!argument?.firstToken || !parameter) {
+  pushArgumentParameterHints(expression.arguments ?? [], signature.parameters, range, hints);
+}
+
+/**
+ * Pushes parameter-name inlay hints for a call/`new` argument list. Named
+ * arguments (`key: value`) are skipped because the parameter name is already
+ * written in the source; positional arguments are matched to parameters by
+ * their running positional index, mirroring how named and positional arguments
+ * are reordered during emission.
+ */
+function pushArgumentParameterHints(
+  args: Expr[],
+  parameters: { name: string }[],
+  range: Range,
+  hints: InlayHint[]
+): void {
+  let positionalIndex = 0;
+  for (const argument of args) {
+    if (argument.kind === "NamedArgument") {
+      continue;
+    }
+    const parameter = parameters[positionalIndex];
+    positionalIndex += 1;
+    if (!argument.firstToken || !parameter) {
       continue;
     }
     const position = {
@@ -410,6 +409,9 @@ export function createInlayHints(
         return;
       case "NonNullExpression":
         visitExpression((expression as NonNullExpression).expression);
+        return;
+      case "NamedArgument":
+        visitExpression((expression as unknown as { value: Expr }).value);
         return;
       case "BinaryExpression":
         visitExpression((expression as BinaryExpression).left);

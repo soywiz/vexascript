@@ -60,6 +60,7 @@ import {
     ObjectLiteralProperty,
     ObjectProperty,
     ObjectSpreadProperty,
+    NamedArgument,
     Program,
     RangeExpression,
     RegExpLiteral,
@@ -2547,6 +2548,37 @@ export class Parser {
         }
     }
 
+    /**
+     * Parses a named call argument of the form `name: value`. Returns `null`
+     * when the upcoming tokens are not a named argument (an identifier directly
+     * followed by `:`), so the caller can fall back to a positional argument.
+     * A leading `identifier :` is unambiguous in argument position: positional
+     * expressions never start that way (ternaries begin with `cond ?`).
+     */
+    private tryParseNamedArgument(): NamedArgument | null {
+        const nameToken = this.tokens.peek();
+        const colonToken = this.peekToken(1);
+        if (
+            nameToken?.type !== "identifier" ||
+            colonToken?.type !== "symbol" ||
+            colonToken.value !== ":"
+        ) {
+            return null;
+        }
+        this.tokens.skip();
+        this.tokens.skip();
+        const value = this.parseAssignment();
+        return this.attachNodeBounds(
+            {
+                kind: "NamedArgument",
+                name: this.buildIdentifierFromToken(nameToken),
+                value
+            } as NamedArgument,
+            nameToken,
+            value.lastToken ?? this.getLastReadToken() ?? nameToken
+        );
+    }
+
     private parseCallArgumentList(): { args: Expr[]; close: Token } {
         const open = this.tokens.read();
         if (open?.type !== "symbol" || open.value !== "(") {
@@ -2556,7 +2588,8 @@ export class Parser {
 
         if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
             while (this.tokens.hasMore) {
-                args.push(this.looksLikeCallLambdaArgument() ? this.parseCallLambdaArgument() : this.parseAssignment());
+                const namedArgument = this.tryParseNamedArgument();
+                args.push(namedArgument ?? (this.looksLikeCallLambdaArgument() ? this.parseCallLambdaArgument() : this.parseAssignment()));
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
                     this.tokens.skip();
