@@ -404,6 +404,10 @@ describe("tokenizer", () => {
             ]);
         });
 
+        it("throws on unexpected character in JSX opening tag (no infinite loop)", () => {
+            expect(() => jsxTokens("fun demo() {\n  return <d\n}")).toThrow("Unexpected character in JSX opening tag");
+        });
+
         it("keeps less-than as a plain symbol when JSX is disabled", () => {
             expect(
                 tokenize("return <div>", { jsx: false })
