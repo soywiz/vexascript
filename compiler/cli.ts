@@ -344,11 +344,14 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   }
 
   const knownCommands = new Set(["build", "run", "test", "tokens", "ast", "format"]);
-  // If the first positional argument is not a known command, treat it as a file to run
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
-    await createProgram().parseAsync([argv[0], argv[1], "run", ...argv.slice(2)]);
-    return;
+    const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
+    const existsOnDisk = await stat(resolve(process.cwd(), firstArg)).then(() => true, () => false);
+    if (looksLikeFile || existsOnDisk) {
+      await createProgram().parseAsync([argv[0], argv[1], "run", ...argv.slice(2)]);
+      return;
+    }
   }
 
   await createProgram().parseAsync(argv);
