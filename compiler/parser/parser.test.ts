@@ -4597,6 +4597,89 @@ describe("JavaScript implementation annotations", () => {
             expect(parser.errors.length).toBeGreaterThan(0);
         });
 
+        it("reports an error for a corrupted expression inside a child container", () => {
+            const reader = tokenizeReader("<div>{=}</div>", { jsx: true });
+            const parser = new Parser(reader, { language: "mylang" });
+            parser.parseExpression();
+            expect(parser.errors.length).toBeGreaterThan(0);
+        });
+
+        it("reports an error for a corrupted expression in a JSX attribute value", () => {
+            const reader = tokenizeReader("<div attr={=} />", { jsx: true });
+            const parser = new Parser(reader, { language: "mylang" });
+            parser.parseExpression();
+            expect(parser.errors.length).toBeGreaterThan(0);
+        });
+
+        it("reports an error when a JSX attribute opens a brace without spread dots", () => {
+            const reader = tokenizeReader("<div {props} />", { jsx: true });
+            const parser = new Parser(reader, { language: "mylang" });
+            parser.parseExpression();
+            expect(parser.errors.length).toBeGreaterThan(0);
+            expect(parser.errors[0]?.message).toContain("'...'");
+        });
+
+        it("reports an error for a corrupted expression inside a spread attribute", () => {
+            const reader = tokenizeReader("<div {...=} />", { jsx: true });
+            const parser = new Parser(reader, { language: "mylang" });
+            parser.parseExpression();
+            expect(parser.errors.length).toBeGreaterThan(0);
+        });
+
+        it("throws an unterminated-element error when a JSX element has no closing tag", () => {
+            expect(() => {
+                const reader = tokenizeReader("<div>hello", { jsx: true });
+                const parser = new Parser(reader, { language: "mylang" });
+                parser.parseExpression();
+            }).toThrow("Unterminated");
+        });
+
+        it("reports an error for a corrupted expression inside a nested JSX child", () => {
+            const reader = tokenizeReader("<outer><inner>{=}</inner></outer>", { jsx: true });
+            const parser = new Parser(reader, { language: "mylang" });
+            parser.parseExpression();
+            expect(parser.errors.length).toBeGreaterThan(0);
+        });
+
+        it("recovers from a corrupted child expression and continues parsing the next statement", () => {
+            const parser = new Parser(
+                tokenizeReader("let x = <div>{=}</div>; let ok = 1;", { jsx: true }),
+                { language: "mylang" }
+            );
+            const ast = parser.parseFile();
+            expect(parser.errors.length).toBeGreaterThan(0);
+            expect(ast.body[ast.body.length - 1]).toMatchObject({
+                kind: "VarStatement",
+                name: { kind: "Identifier", name: "ok" }
+            });
+        });
+
+        it("recovers from a corrupted attribute value expression and continues parsing the next statement", () => {
+            const parser = new Parser(
+                tokenizeReader("let x = <div attr={=} />; let ok = 1;", { jsx: true }),
+                { language: "mylang" }
+            );
+            const ast = parser.parseFile();
+            expect(parser.errors.length).toBeGreaterThan(0);
+            expect(ast.body[ast.body.length - 1]).toMatchObject({
+                kind: "VarStatement",
+                name: { kind: "Identifier", name: "ok" }
+            });
+        });
+
+        it("recovers from a mismatched JSX closing tag and continues parsing the next statement", () => {
+            const parser = new Parser(
+                tokenizeReader("let x = <div></span>; let ok = 1;", { jsx: true }),
+                { language: "mylang" }
+            );
+            const ast = parser.parseFile();
+            expect(parser.errors.length).toBeGreaterThan(0);
+            expect(ast.body[ast.body.length - 1]).toMatchObject({
+                kind: "VarStatement",
+                name: { kind: "Identifier", name: "ok" }
+            });
+        });
+
         it("does not enable JSX casts in TypeScript mode by default", () => {
             expect(parseExpression(tokenizeReader("<string>value", { jsx: false }), { language: "typescript" })).toMatchObject({
                 kind: "AsExpression"
