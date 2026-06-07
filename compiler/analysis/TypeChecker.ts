@@ -53,7 +53,11 @@ import type {
   UpdateExpression,
   VarStatement,
   WhileStatement,
-  WithStatement
+  WithStatement,
+  JsxElement,
+  JsxFragment,
+  JsxExpressionContainer,
+  JsxSpreadAttribute
 } from "compiler/ast/ast";
 import { bindingElements, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Node } from "compiler/ast/ast";
@@ -1480,6 +1484,40 @@ export class TypeChecker {
       case "UndefinedLiteral":
         result = builtinType("undefined");
         break;
+      case "JsxExpressionContainer":
+        result = this.visitExpression((expression as JsxExpressionContainer).expression, scope);
+        break;
+      case "JsxElement": {
+        const jsxElement = expression as JsxElement;
+        if (jsxElement.reference) this.visitExpression(jsxElement.reference, scope);
+        for (const attr of jsxElement.attributes) {
+          if (attr.kind === "JsxSpreadAttribute") {
+            this.visitExpression((attr as JsxSpreadAttribute).expression, scope);
+          } else if (attr.kind === "JsxAttribute" && attr.value?.kind === "JsxExpressionContainer") {
+            this.visitExpression((attr.value as JsxExpressionContainer).expression, scope);
+          }
+        }
+        for (const child of jsxElement.children) {
+          if (child.kind === "JsxExpressionContainer") {
+            this.visitExpression((child as JsxExpressionContainer).expression, scope);
+          } else if (child.kind === "JsxElement" || child.kind === "JsxFragment") {
+            this.visitExpression(child, scope);
+          }
+        }
+        result = namedType("JSX.Element");
+        break;
+      }
+      case "JsxFragment": {
+        for (const child of (expression as JsxFragment).children) {
+          if (child.kind === "JsxExpressionContainer") {
+            this.visitExpression((child as JsxExpressionContainer).expression, scope);
+          } else if (child.kind === "JsxElement" || child.kind === "JsxFragment") {
+            this.visitExpression(child, scope);
+          }
+        }
+        result = namedType("JSX.Element");
+        break;
+      }
       default:
         result = UNKNOWN_TYPE;
         break;
