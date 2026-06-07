@@ -10,9 +10,11 @@ import { getProjectIndex } from "./projectAnalysis";
 import {
   isUndefinedVariableDiagnostic,
   isMissingMemberDiagnostic,
+  isUnknownTypeDiagnostic,
   isOperatorNotDefinedDiagnostic,
   UNDEFINED_VARIABLE_PATTERN,
   MISSING_MEMBER_PATTERN,
+  UNKNOWN_TYPE_PATTERN,
   OPERATOR_NOT_DEFINED_PATTERN
 } from "./diagnosticCodes";
 
@@ -47,6 +49,16 @@ export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
   return exports;
 }
 
+/**
+ * Reduces a type-name string (which may include generic arguments, array
+ * suffixes, or member access) to the leading identifier that could be imported,
+ * e.g. `TimeSpan<int>[]` -> `TimeSpan`.
+ */
+function baseTypeIdentifier(typeName: string): string | null {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(typeName.trim());
+  return match?.[1] ?? null;
+}
+
 function extractImportableSymbols(diagnostics: Diagnostic[]): string[] {
   const names = new Set<string>();
   for (const diagnostic of diagnostics) {
@@ -54,13 +66,19 @@ function extractImportableSymbols(diagnostics: Diagnostic[]): string[] {
       ? UNDEFINED_VARIABLE_PATTERN
       : isMissingMemberDiagnostic(diagnostic)
         ? MISSING_MEMBER_PATTERN
-        : null;
+        : isUnknownTypeDiagnostic(diagnostic)
+          ? UNKNOWN_TYPE_PATTERN
+          : null;
     if (!pattern) continue;
     const match = pattern.exec(diagnostic.message);
     if (!match) {
       continue;
     }
-    const symbolName = match[1];
+    const captured = match[1];
+    if (!captured) {
+      continue;
+    }
+    const symbolName = pattern === UNKNOWN_TYPE_PATTERN ? baseTypeIdentifier(captured) : captured;
     if (symbolName) {
       names.add(symbolName);
     }

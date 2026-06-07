@@ -29,6 +29,18 @@ function undefinedVariableDiagnostic(name: string): Diagnostic {
   };
 }
 
+function unknownTypeDiagnostic(typeName: string): Diagnostic {
+  return {
+    severity: 1,
+    source: "mylang-sema",
+    message: `Unknown type '${typeName}'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface`,
+    range: {
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 1 }
+    }
+  };
+}
+
 function operatorNotDefinedDiagnostic(operator: string, leftType: string, rightType: string): Diagnostic {
   return {
     severity: 1,
@@ -108,6 +120,30 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toEqual([]);
+  });
+
+  it("suggests import for a class used in a type annotation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
+    const worldFile = join(root, "world.my");
+    const helloFile = join(root, "hello.my");
+
+    await writeFile(worldFile, "class TimeSpan(val ms: number)\n", "utf8");
+    const sourceHello = "fun delay(time: TimeSpan) => time.ms\n";
+    await writeFile(helloFile, sourceHello, "utf8");
+
+    const sessionHello = createAnalysisSession(sourceHello);
+    const actions = createAutoImportCodeActions({
+      uri: pathToFileURL(helloFile).toString(),
+      ast: sessionHello.ast,
+      diagnostics: [unknownTypeDiagnostic("TimeSpan")],
+      sourceRoots: [root]
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Import 'TimeSpan' from './world'");
+    expect(actions[0]?.edit?.changes?.[pathToFileURL(helloFile).toString()]?.[0]?.newText).toBe(
+      'import { TimeSpan } from "./world"\n'
+    );
   });
 
   it("suggests importing an extension operator overload for an undefined operator", async () => {
