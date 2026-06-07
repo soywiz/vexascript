@@ -65,6 +65,7 @@ import {
   type ClassResolverOptions
 } from "./classResolver";
 import { comparePosition, containsPosition, nodeRange, rangeSize } from "./ranges";
+import { getNodeModuleTypings } from "./nodeModulesTypings";
 
 const CompletionItemKind = {
   Text: 1,
@@ -1478,6 +1479,33 @@ function resolveTypeNameFromPath(
   return currentTypeName;
 }
 
+function findNodeModuleNamespaceForTypeName(
+  ast: Program,
+  typeName: string,
+  importerFilePath: string
+): NamespaceStatement | null {
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") continue;
+    const importStatement = statement as ImportStatement;
+    if (importStatement.from.value.startsWith(".")) continue;
+    const typings = getNodeModuleTypings(importerFilePath, importStatement.from.value);
+    if (!typings || typings.defaultExportName !== typeName) continue;
+    for (const decl of typings.declarations) {
+      const candidate =
+        decl.kind === "ExportStatement"
+          ? (decl as { declaration?: Statement }).declaration ?? decl
+          : decl;
+      if (
+        candidate.kind === "NamespaceStatement" &&
+        (candidate as NamespaceStatement).names?.[0]?.name === typeName
+      ) {
+        return candidate as NamespaceStatement;
+      }
+    }
+  }
+  return null;
+}
+
 function findNamespaceByPath(ast: Program, path: string[]): NamespaceStatement | null {
   let statements: Statement[] = ast.body;
   let found: NamespaceStatement | null = null;
@@ -1594,7 +1622,12 @@ function buildMemberAccessCompletions(
   const target = parseMemberAccessTarget(options.text, line, character);
   if (target) {
     const pathSegments = target.objectPath.split(".");
-    const namespaceStatement = findNamespaceByPath(ast, pathSegments);
+    const importerFilePath = options.uri ? fileURLToPath(options.uri) : null;
+    const namespaceStatement =
+      findNamespaceByPath(ast, pathSegments) ??
+      (importerFilePath && pathSegments.length === 1 && pathSegments[0]
+        ? findNodeModuleNamespaceForTypeName(ast, pathSegments[0], importerFilePath)
+        : null);
     if (namespaceStatement) {
       return buildNamespaceMemberCompletionItems(namespaceStatement, target.prefix);
     }

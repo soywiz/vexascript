@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createAnalysisSession } from "./analysisSession";
 import { createSignatureHelp } from "./signatureHelp";
+import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 
 describe("signature help", () => {
   it("provides function signature and active parameter index", () => {
@@ -241,5 +242,48 @@ describe("signature help", () => {
       activeSignature: 0,
       activeParameter: 0
     });
+  });
+
+  it("provides signature help for members of a node_modules namespace", async () => {
+    const MINI_DTS = dedent`
+      declare function pkg(x: string): pkg.Result;
+      declare namespace pkg {
+        interface Result {
+          value(): string;
+        }
+        export function helper(input: string, count: number): Result;
+      }
+      export = pkg;
+    `;
+    const root = await mkdtemp(join(tmpdir(), "mylang-sig-nm-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(join(pkgDir, "index.d.ts"), MINI_DTS, "utf8");
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", typings: "./index.d.ts" }),
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.my");
+    // line 1 (0-based), character 16 = inside the call parentheses
+    const source = `import pkg from "pkg"\npkg.helper("x", 1)\n`;
+    await writeFile(mainPath, source, "utf8");
+
+    const ctx = { uri: pathToFileURL(mainPath).href, sourceRoots: [root], getSessionForFilePath: () => null };
+    const baseSession = createAnalysisSession(source);
+    const declarations = collectImportedTypeDeclarations(baseSession.ast!, ctx);
+    const symbolTypes = collectImportedSymbolTypes(baseSession.ast!, ctx);
+    const session = createAnalysisSession(source, declarations, symbolTypes);
+
+    const help = createSignatureHelp(session.ast!, session.analysis!, 1, 16, ctx);
+    expect(help).not.toBeNull();
+    expect(help!.signatures[0]!.label).toBe("helper(input: string, count: number)");
+    expect(help!.signatures[0]!.parameters).toEqual([
+      { label: "input: string" },
+      { label: "count: number" }
+    ]);
+    expect(help!.activeSignature).toBe(0);
+    expect(help!.activeParameter).toBe(1);
   });
 });

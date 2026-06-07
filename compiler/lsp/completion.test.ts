@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,6 +12,7 @@ import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
 } from "./completion";
+import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 
 function sourceWithCursor(source: string): {
   source: string;
@@ -700,5 +701,49 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(symbolLabels.indexOf("exact")).toBeLessThan(symbolLabels.indexOf("count"));
     expect(symbolLabels.indexOf("count")).toBeLessThan(symbolLabels.indexOf("text"));
+  });
+
+  it("offers members from a node_modules namespace when typing obj.^^^", async () => {
+    const MINI_DTS = dedent`
+      declare function pkg(x: string): pkg.Result;
+      declare namespace pkg {
+        interface Result {
+          value(): string;
+        }
+        export function helper(): Result;
+        export function parse(input: string): Result;
+      }
+      export = pkg;
+    `;
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-nm-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(join(pkgDir, "index.d.ts"), MINI_DTS, "utf8");
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", typings: "./index.d.ts" }),
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.my");
+    const { source, line, character } = sourceWithCursor(dedent`
+      import pkg from "pkg"
+      pkg.^^^
+    `);
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const ctx = { uri: pathToFileURL(mainPath).href, sourceRoots: [root], getSessionForFilePath: () => null };
+    const declarations = collectImportedTypeDeclarations(baseSession.ast!, ctx);
+    const symbolTypes = collectImportedSymbolTypes(baseSession.ast!, ctx);
+    const session = createAnalysisSession(source, declarations, symbolTypes);
+
+    const items = createCompletionItemsForPosition(
+      session.ast!, line, character, session.analysis!, [],
+      { text: source, uri: ctx.uri }
+    );
+    const labels = items.map((item) => item.label);
+    expect(labels).toContain("helper");
+    expect(labels).toContain("parse");
   });
 });

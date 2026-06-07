@@ -8,7 +8,10 @@ import type {
   BinaryExpression,
   CallExpression,
   ClassStatement,
+  FunctionStatement,
+  ImportStatement,
   InterfaceStatement,
+  NamespaceStatement,
   ConditionalExpression,
   Expr,
   FunctionParameter,
@@ -16,12 +19,14 @@ import type {
   MemberExpression,
   NewExpression,
   NonNullExpression,
+  Statement,
   VarDeclarator,
   VarStatement,
   UnaryExpression,
   UpdateExpression,
   Program
 } from "compiler/ast/ast";
+import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { uriToFilePath } from "./importFixes";
 import {
   findTopLevelDeclarationInProgram,
@@ -1104,6 +1109,67 @@ export function resolveExpressionTypeName(
   return memberResolution.typeName;
 }
 
+function findNodeModuleNamespaceBody(
+  ast: Program,
+  typeName: string,
+  importerFilePath: string
+): Statement[] | null {
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") continue;
+    const importStatement = statement as ImportStatement;
+    if (importStatement.from.value.startsWith(".")) continue;
+    const typings = getNodeModuleTypings(importerFilePath, importStatement.from.value);
+    if (!typings || typings.defaultExportName !== typeName) continue;
+    for (const decl of typings.declarations) {
+      const candidate =
+        decl.kind === "ExportStatement"
+          ? (decl as { declaration?: Statement }).declaration ?? decl
+          : decl;
+      if (
+        candidate.kind === "NamespaceStatement" &&
+        (candidate as NamespaceStatement).names?.[0]?.name === typeName
+      ) {
+        return (candidate as NamespaceStatement).body.body;
+      }
+    }
+  }
+  return null;
+}
+
+function resolveNodeModuleNamespaceFunctionSignature(
+  ast: Program,
+  typeName: string,
+  memberName: string,
+  importerFilePath: string
+): ResolvedFunctionSignature | null {
+  const nsBody = findNodeModuleNamespaceBody(ast, typeName, importerFilePath);
+  if (!nsBody) return null;
+
+  for (const bodyStmt of nsBody) {
+    const candidate =
+      bodyStmt.kind === "ExportStatement"
+        ? (bodyStmt as { declaration?: Statement }).declaration ?? bodyStmt
+        : bodyStmt;
+    if (candidate.kind !== "FunctionStatement") continue;
+    const fn = candidate as FunctionStatement;
+    if (fn.name?.name !== memberName) continue;
+    const parameters: ResolvedParameter[] = fn.parameters
+      .filter((p) => !p.thisParameter)
+      .map((p) => ({
+        name: bindingNameText(p.name),
+        typeName: p.typeAnnotation?.name ?? "unknown",
+        optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
+        rest: p.rest === true
+      }));
+    return {
+      name: memberName,
+      parameters,
+      returnTypeName: fn.returnType?.name ?? "unknown"
+    };
+  }
+  return null;
+}
+
 export function resolveCallableSignature(
   callee: Expr,
   analysis: Analysis,
@@ -1194,6 +1260,18 @@ export function resolveCallableSignature(
     if (memberResolution && memberResolution.kind === "method" && memberResolution.signature) {
       return memberResolution.signature;
     }
+  }
+
+  // Fallback: look for the member in a node_modules namespace declaration.
+  const importerFilePath = options.uri ? uriToFilePath(options.uri) : null;
+  if (importerFilePath) {
+    const nodeModuleSig = resolveNodeModuleNamespaceFunctionSignature(
+      ast,
+      parsedObjectType.baseName,
+      memberName,
+      importerFilePath
+    );
+    if (nodeModuleSig) return nodeModuleSig;
   }
 
   return null;
