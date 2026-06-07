@@ -14,6 +14,8 @@ import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { AnalysisType } from "compiler/analysis/types";
+import { namedType } from "compiler/analysis/types";
+import { getNodeModuleTypings } from "./nodeModulesTypings";
 
 /**
  * Top-level declarations that contribute a named type and whose members the
@@ -85,15 +87,29 @@ export function collectImportedTypeDeclarations(
       continue;
     }
     const importStatement = statement as ImportStatement;
+    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
+    if (!targetFilePath) {
+      // Bare specifier — load all declarations from node_modules typings so
+      // named types (namespaces, interfaces) resolve for member access.
+      const nodeModuleTypings = getNodeModuleTypings(currentFilePath, importStatement.from.value);
+      if (nodeModuleTypings) {
+        for (const targetStatement of nodeModuleTypings.declarations) {
+          // For node_modules .d.ts files, include all top-level declarations
+          // (namespaces, functions, interfaces, classes) without filtering so
+          // member resolution works for named types like `moment.parseZone`.
+          if (!seen.has(targetStatement as ImportableDeclaration)) {
+            seen.add(targetStatement as ImportableDeclaration);
+            result.push(targetStatement);
+          }
+        }
+      }
+      continue;
+    }
+
     const wantedNames = new Set(
       importStatement.specifiers.map((specifier) => specifier.imported.name)
     );
     if (wantedNames.size === 0) {
-      continue;
-    }
-
-    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
-    if (!targetFilePath) {
       continue;
     }
     const targetSession = getProjectSessionForFilePath(targetFilePath, context);
@@ -140,11 +156,27 @@ export function collectImportedSymbolTypes(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    if (importStatement.specifiers.length === 0) {
-      continue;
-    }
     const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
     if (!targetFilePath) {
+      // Bare specifier — assign a named type from node_modules typings so that
+      // default/namespace/named imports resolve their members in hover/completion.
+      const nodeModuleTypings = getNodeModuleTypings(currentFilePath, importStatement.from.value);
+      if (nodeModuleTypings?.defaultExportName) {
+        const exportType = namedType(nodeModuleTypings.defaultExportName);
+        if (importStatement.defaultImport) {
+          result.set(importStatement.defaultImport.name, exportType);
+        }
+        if (importStatement.namespaceImport) {
+          result.set(importStatement.namespaceImport.name, exportType);
+        }
+        for (const specifier of importStatement.specifiers) {
+          const localName = (specifier.local ?? specifier.imported).name;
+          result.set(localName, exportType);
+        }
+      }
+      continue;
+    }
+    if (importStatement.specifiers.length === 0) {
       continue;
     }
     const targetSession = getProjectSessionForFilePath(targetFilePath, context);
