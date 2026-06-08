@@ -22,6 +22,8 @@ export function createMyLangMonacoTheme(): MonacoStandaloneThemeData {
       { token: "comment.doc", foreground: "9CDC8C", fontStyle: "italic" },
       { token: "keyword.declaration", foreground: "569CD6" },
       { token: "keyword.control", foreground: "C586C0" },
+      { token: "tag", foreground: "D4D4D4" },
+      { token: "attribute.name", foreground: "9CDCFE" },
     ],
     colors: {
       "editorGutter.background": "#1e1e1e",

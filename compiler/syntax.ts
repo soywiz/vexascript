@@ -30,6 +30,7 @@ export interface PortableMonarchRule {
   match: string;
   token: string;
   next?: string;
+  switchTo?: string;
   cases?: Record<string, string>;
 }
 
@@ -73,6 +74,8 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\/\/\/.*$`, token: "comment.doc" },
         { match: String.raw`\/\/.*$`, token: "comment" },
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
+        { match: String.raw`<>`, token: "tag", next: "@jsx_children" },
+        { match: String.raw`<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
@@ -86,6 +89,39 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\*\/`, token: "comment", next: "@pop" },
         { match: String.raw`[/*]`, token: "comment" },
       ],
+      jsx_tag: [
+        { match: String.raw`\s+`, token: "" },
+        { match: String.raw`\/>`, token: "tag", next: "@pop" },
+        { match: String.raw`>`, token: "tag", switchTo: "@jsx_children" },
+        { match: String.raw`[A-Za-z_$][\w$:-]*(?=\s*=)`, token: "attribute.name" },
+        { match: String.raw`=`, token: "operator" },
+        { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
+        { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
+        { match: String.raw`\{`, token: "delimiter.bracket", next: "@jsx_expression" },
+      ],
+      jsx_children: [
+        { match: String.raw`<\/>`, token: "tag", next: "@pop" },
+        { match: String.raw`</[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*>`, token: "tag", next: "@pop" },
+        { match: String.raw`<>`, token: "tag", next: "@jsx_children" },
+        { match: String.raw`<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
+        { match: String.raw`\{`, token: "delimiter.bracket", next: "@jsx_expression" },
+        { match: String.raw`[^<{]+`, token: "" },
+      ],
+      jsx_expression: [
+        { match: String.raw`\{`, token: "delimiter.bracket", next: "@jsx_expression" },
+        { match: String.raw`\}`, token: "delimiter.bracket", next: "@pop" },
+        { match: String.raw`<>`, token: "tag", next: "@jsx_children" },
+        { match: String.raw`<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
+        { match: String.raw`\/\/.*$`, token: "comment" },
+        { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
+        { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
+        { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
+        { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
+        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
+        { match: String.raw`[{}()\[\]]`, token: "delimiter" },
+        { match: String.raw`[;,.]`, token: "delimiter" },
+        { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },
+      ],
     },
   };
 }
@@ -98,6 +134,7 @@ export function createPortableLanguageConfiguration(): PortableLanguageConfigura
       { open: "{", close: "}" },
       { open: "[", close: "]" },
       { open: "(", close: ")" },
+      { open: "<", close: ">", notIn: ["string", "comment"] },
       { open: "\"", close: "\"", notIn: ["string"] },
       { open: "'", close: "'", notIn: ["string"] },
     ],
@@ -105,6 +142,7 @@ export function createPortableLanguageConfiguration(): PortableLanguageConfigura
       { open: "{", close: "}" },
       { open: "[", close: "]" },
       { open: "(", close: ")" },
+      { open: "<", close: ">" },
       { open: "\"", close: "\"" },
       { open: "'", close: "'" },
     ],
@@ -250,7 +288,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       },
       "jsx-attributes": {
         patterns: [
-          { match: "([_$A-Za-z][-_$A-Za-z0-9]*)(?=\\s*=)", name: "entity.other.attribute-name.mylang" },
+          { match: "([_$A-Za-z][-_:$A-Za-z0-9]*)(?=\\s*=)", name: "entity.other.attribute-name.mylang" },
           { match: "=", name: "keyword.operator.assignment.mylang" },
           { include: "#strings" },
           { include: "#jsx-expression" },
