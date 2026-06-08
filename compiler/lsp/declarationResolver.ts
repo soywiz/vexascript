@@ -126,7 +126,12 @@ export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>
       const targetFilePath = await resolveImportTargetFilePath(
         options.currentFilePath,
         importStatement.from.value,
-        { vfs: options.vfs }
+        {
+          vfs: options.vfs,
+          ...(options.getSessionForFilePath
+            ? { getSessionForFilePath: options.getSessionForFilePath }
+            : {})
+        }
       );
       if (!targetFilePath) {
         continue;

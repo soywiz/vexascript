@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { resolveImportTargetFilePath } from "./moduleResolution";
+import { compileSource } from "./pipeline/compile";
 import type { Vfs, VfsDirEntry, VfsStat } from "./vfs";
 
 
@@ -79,6 +80,22 @@ describe("resolveImportTargetFilePath", () => {
     const vfs = new MemoryVfs(new Set([target]));
 
     expect(await resolveImportTargetFilePath(importer, "./Point", { vfs })).toBe(target);
+  });
+
+  it("resolves unsaved open sessions when a target is not visible through the VFS", async () => {
+    const importer = resolve("/virtual/main.my");
+    const target = resolve("/virtual/Point.my");
+    const vfs = new MemoryVfs(new Set());
+    const targetSession = compileSource("class Point");
+
+    expect(
+      await resolveImportTargetFilePath(importer, "./Point", {
+        vfs,
+        getSessionForFilePath: (filePath) => filePath === target
+          ? { ast: targetSession.ast }
+          : null
+      })
+    ).toBe(target);
   });
 
 });

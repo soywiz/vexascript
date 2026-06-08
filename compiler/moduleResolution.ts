@@ -14,18 +14,44 @@ export function candidateImportTargetFilePaths(
 /**
  * Resolve an import path (as written in an `import ... from "<path>"` statement)
  * relative to the importing file, returning the absolute path to the target
- * module on disk or `null` when it cannot be located.
+ * module or `null` when it cannot be located.
  *
  * Resolution order:
- *  1. The path resolved directly against the importer's directory, if it exists.
+ *  1. The path resolved directly against the importer's directory, if it exists
+ *     in the VFS or in an open editor/LSP session.
  *  2. The same path with a `.my` extension appended, when the import omits an
  *     explicit extension.
  *
  * This is the shared resolver used by the semantic project index and the LSP
- * cross-file features so they all agree on how local module paths map to files.
+ * cross-file features so they all agree on how local module paths map to files,
+ * including unsaved editor documents that are not yet readable through a VFS.
  */
+export interface ModuleResolutionSessionLike {
+  ast?: unknown | null;
+}
+
 export interface ModuleResolutionOptions {
   vfs?: Vfs | undefined;
+  getSessionForFilePath?: (
+    (filePath: string) => ModuleResolutionSessionLike | null | Promise<ModuleResolutionSessionLike | null>
+  ) | undefined;
+}
+
+async function hasImportTarget(
+  candidate: string,
+  vfs: Vfs,
+  getSessionForFilePath?: ModuleResolutionOptions["getSessionForFilePath"]
+): Promise<boolean> {
+  if (await vfs.fileExists(candidate)) {
+    return true;
+  }
+
+  if (!getSessionForFilePath) {
+    return false;
+  }
+
+  const session = await getSessionForFilePath(candidate);
+  return session?.ast != null;
 }
 
 export async function resolveImportTargetFilePath(
@@ -35,7 +61,7 @@ export async function resolveImportTargetFilePath(
 ): Promise<string | null> {
   const vfs = options.vfs ?? localVfs;
   for (const candidate of candidateImportTargetFilePaths(importerFilePath, importPath)) {
-    if (await vfs.fileExists(candidate)) {
+    if (await hasImportTarget(candidate, vfs, options.getSessionForFilePath)) {
       return candidate;
     }
   }

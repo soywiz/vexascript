@@ -10,7 +10,7 @@ import type {
 } from "compiler/ast/ast";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
-import { candidateImportTargetFilePaths, resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { AnalysisType } from "compiler/analysis/types";
@@ -72,17 +72,12 @@ async function resolveImportTargetInContext(
   importPath: string,
   context: ProjectContext
 ): Promise<string | null> {
-  const diskPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs: context.vfs });
-  if (diskPath || !context.getSessionForFilePath) {
-    return diskPath;
-  }
-  for (const candidate of candidateImportTargetFilePaths(importerFilePath, importPath)) {
-    const session = await context.getSessionForFilePath(candidate);
-    if (session?.ast) {
-      return candidate;
-    }
-  }
-  return null;
+  return resolveImportTargetFilePath(importerFilePath, importPath, {
+    vfs: context.vfs,
+    ...(context.getSessionForFilePath
+      ? { getSessionForFilePath: context.getSessionForFilePath }
+      : {})
+  });
 }
 
 function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
