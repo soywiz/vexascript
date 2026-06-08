@@ -29,6 +29,31 @@ describe("parseExpression", () => {
         );
     });
 
+    it("parses anonymous interface call signatures in TypeScript declarations", () => {
+        const ast = parseFile(
+            tokenizeReader("interface BigIntConstructor {\n  (value: bigint | boolean | number | string): bigint;\n}"),
+            { language: "typescript" }
+        );
+
+        expect(ast.body[0]).toMatchObject({
+            kind: "InterfaceStatement",
+            name: { name: "BigIntConstructor" },
+            members: [
+                {
+                    kind: "InterfaceMethodMember",
+                    name: { name: "call" },
+                    parameters: [
+                        {
+                            name: { kind: "Identifier", name: "value" },
+                            typeAnnotation: { name: "bigint | boolean | number | string" }
+                        }
+                    ],
+                    returnType: { name: "bigint" }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for numeric separators and non-decimal literals", () => {
         expect(parseExpression(tokenizeReader("1_000"))).toEqual(
             { kind: "IntLiteral", value: 1000 }

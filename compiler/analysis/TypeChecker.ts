@@ -1154,6 +1154,13 @@ export class TypeChecker {
           );
           break;
         }
+        if (!isUnknownType(calleeType)) {
+          this.issues.push({
+            message: `Type '${this.typeToDiagnosticLabel(calleeType)}' is not callable`,
+            node: call.callee,
+            code: ANALYSIS_ISSUE_CODES.TYPE_NOT_CALLABLE
+          });
+        }
         result = UNKNOWN_TYPE;
         break;
       }
@@ -1250,6 +1257,11 @@ export class TypeChecker {
             result = calleeType.returnType;
             break;
           }
+          this.issues.push({
+            message: `Type '${this.typeToDiagnosticLabel(calleeType)}' is not constructable`,
+            node: newExpression.callee,
+            code: ANALYSIS_ISSUE_CODES.TYPE_NOT_CONSTRUCTABLE
+          });
           result = calleeType;
           break;
         }
@@ -2465,11 +2477,84 @@ export class TypeChecker {
     if (type.kind === "function") {
       return type;
     }
+    if (type.kind === "named") {
+      const interfaceCallable = this.interfaceCallableTypeForNamedType(type, argumentTypes);
+      if (interfaceCallable) {
+        return interfaceCallable;
+      }
+    }
     if (type.kind !== "union") {
       return null;
     }
     const callableMembers = type.types.filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function");
     return callableMembers.find((member) => this.isCallableMatch(member, argumentTypes)) ?? callableMembers[0] ?? null;
+  }
+
+  private interfaceCallableTypeForNamedType(
+    type: AnalysisType & { kind: "named" },
+    argumentTypes: AnalysisType[]
+  ): (AnalysisType & { kind: "function" }) | null {
+    const overloads = this.collectInterfaceCallableOverloads(type);
+    if (overloads.length === 0) {
+      return null;
+    }
+    return overloads.find((member) => this.isCallableMatch(member, argumentTypes)) ?? overloads[0] ?? null;
+  }
+
+  private collectInterfaceCallableOverloads(
+    type: AnalysisType & { kind: "named" },
+    visited = new Set<string>()
+  ): Array<AnalysisType & { kind: "function" }> {
+    const cacheKey = typeToString(type);
+    if (visited.has(cacheKey)) {
+      return [];
+    }
+    visited.add(cacheKey);
+
+    const interfaceStatement = this.interfaceStatementsByName.get(type.name);
+    if (!interfaceStatement) {
+      return [];
+    }
+
+    const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
+    const overloads: Array<AnalysisType & { kind: "function" }> = [];
+
+    for (const interfaceMember of interfaceStatement.members) {
+      if (interfaceMember.kind !== "InterfaceMethodMember" || interfaceMember.name.name !== "call") {
+        continue;
+      }
+
+      const methodTypeParameterNames = (interfaceMember.typeParameters ?? []).map((parameter) => parameter.name.name);
+      const availableTypeParameterNames = [...substitutions.keys(), ...methodTypeParameterNames];
+      let methodType: AnalysisType & { kind: "function" } = functionType([], builtinType("void"));
+      this.withTypeParameters(methodTypeParameterNames, () => {
+        methodType = functionType(
+          interfaceMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+            name: bindingNameText(parameter.name),
+            type: this.typeFromAnnotationLooseWithTypeParameters(parameter.typeAnnotation, availableTypeParameterNames) ?? UNKNOWN_TYPE,
+            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            rest: parameter.rest === true
+          })),
+          this.typeFromAnnotationLooseWithTypeParameters(interfaceMember.returnType, availableTypeParameterNames) ?? builtinType("void"),
+          methodTypeParameterNames,
+          this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
+        );
+      });
+      overloads.push(this.substituteTypeParameters(methodType, substitutions) as AnalysisType & { kind: "function" });
+    }
+
+    for (const parentType of interfaceStatement.extendsTypes ?? []) {
+      const resolvedParentType = this.substituteTypeParameters(
+        this.typeFromTypeNameLoose(parentType.name),
+        substitutions
+      );
+      if (resolvedParentType.kind !== "named") {
+        continue;
+      }
+      overloads.push(...this.collectInterfaceCallableOverloads(resolvedParentType, visited));
+    }
+
+    return overloads;
   }
 
   private isCallableMatch(calleeType: AnalysisType & { kind: "function" }, argumentTypes: AnalysisType[]): boolean {

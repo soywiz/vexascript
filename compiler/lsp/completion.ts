@@ -291,6 +291,26 @@ function declarationNameRangeContainsPosition(identifier: Identifier, line: numb
   return !!range && containsPosition(range, { line, character });
 }
 
+function isTextualDeclarationNamePosition(
+  text: string | undefined,
+  line: number,
+  character: number
+): boolean {
+  if (!text) {
+    return false;
+  }
+
+  const lineText = text.split("\n")[line] ?? "";
+  const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
+  const uptoCursor = lineText.slice(0, clampedCharacter);
+
+  return [
+    /^\s*fun\s+[A-Za-z_][A-Za-z0-9_]*$/u,
+    /^\s*(?:let|val|var|const)\s+[A-Za-z_][A-Za-z0-9_]*$/u,
+    /^\s*(?:class|interface|namespace)\s+[A-Za-z_][A-Za-z0-9_]*$/u,
+  ].some((pattern) => pattern.test(uptoCursor));
+}
+
 function isDeclarationNamePosition(ast: Program, line: number, character: number): boolean {
   const matchesBinding = (identifier: Identifier): boolean =>
     declarationNameRangeContainsPosition(identifier, line, character);
@@ -1944,7 +1964,9 @@ export async function createCompletionItemsForPosition(
 
   const items: CompletionItem[] = [];
   const seenLabels = new Set<string>();
-  const suppressExistingSymbolCompletions = isDeclarationNamePosition(ast, line, character);
+  const suppressExistingSymbolCompletions =
+    isDeclarationNamePosition(ast, line, character) ||
+    isTextualDeclarationNamePosition(options.text, line, character);
 
   // Named-argument suggestions (`url:`) are offered alongside the in-scope
   // symbols whenever the cursor is inside a call's argument list, ranked above

@@ -70,6 +70,20 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("demo2");
   });
 
+  it("does not suggest existing symbols while typing an incomplete function declaration name", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Point(val x: number, val y: number)
+
+      fun poin^^^
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).not.toContain("Point");
+    expect(labels).not.toContain("PromiseConstructor");
+  });
+
   it("does not suggest existing symbols while typing a parameter name", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       let shared = 1

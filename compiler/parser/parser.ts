@@ -1270,7 +1270,7 @@ export class Parser {
         if (!token) {
             return false;
         }
-        if (token.type === "symbol" && (token.value === "[" || token.value === "(" || token.value === "<")) {
+        if (token.type === "symbol" && (token.value === "[" || token.value === "<")) {
             return true;
         }
         if (token.type === "identifier" && token.value === "readonly" && next?.type === "symbol" && next.value === "[") {
@@ -5045,6 +5045,38 @@ export class Parser {
                 continue;
             }
 
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+                const openParen = this.tokens.read()!;
+                const parameters = this.parseFunctionParameters();
+                const closeParen = this.tokens.read();
+                if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                    this.fail("Expected ')' after interface call signature parameters", this.tokenAt(closeParen));
+                }
+
+                let returnType: Identifier | undefined;
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                    this.tokens.skip();
+                    returnType = this.parseTypeAnnotationNode();
+                }
+
+                const memberName = this.attachNodeBounds(
+                    { kind: "Identifier", name: "call" } as Identifier,
+                    openParen,
+                    openParen
+                );
+                const member: InterfaceMethodMember = {
+                    kind: "InterfaceMethodMember",
+                    name: memberName,
+                    parameters
+                };
+                if (returnType) {
+                    member.returnType = returnType;
+                }
+                members.push(this.attachNodeBounds(member, openParen, this.getLastReadToken() ?? openParen));
+                this.consumeStatementSeparator("block", this.getLastReadToken());
+                continue;
+            }
+
             if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "readonly") {
                 this.tokens.skip();
             }
@@ -5135,7 +5167,7 @@ export class Parser {
         if (!token) {
             return false;
         }
-        if (token.type === "symbol" && (token.value === "[" || token.value === "(" || token.value === "<")) {
+        if (token.type === "symbol" && (token.value === "[" || token.value === "<")) {
             return true;
         }
         if (token.type === "identifier" && token.value === "readonly" && next?.type === "symbol" && next.value === "[") {

@@ -81,6 +81,22 @@ let after = bind`));
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("treats ambient callable interfaces as invocable values", () => {
+    const source = dedent`
+      fun demo() {
+        val test: int = 10
+        val result = BigInt(test)
+        return result
+      }
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(3, 15).map((symbol) => [symbol.name, symbol]));
+
+    expect(symbols.get("result")?.valueType).toBe("bigint");
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("does not leak function locals outside the function scope", () => {
     const source = dedent`
       let top = 1
@@ -1479,6 +1495,37 @@ let after = bind`));
     expect(messages).toContain("Expected at least 3 argument(s), but got 2");
     expect(messages).toContain("Expected at most 3 argument(s), but got 4");
     expect(messages).toContain("Unexpected argument 4; function expects at most 3 argument(s)");
+  });
+
+  it("reports calling non-callable values instead of silently resolving to unknown", () => {
+    const source = dedent`
+      fun demo(): bigint {
+        val test: int = 10
+        test()
+        return BigInt(test)
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'int' is not callable");
+  });
+
+  it("reports constructing non-constructable values instead of silently resolving to unknown", () => {
+    const source = dedent`
+      fun demo() {
+        val test: int = 1
+        new test()
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'int' is not constructable");
   });
 
   it("supports assignability between compatible function types beyond strict equality", () => {
