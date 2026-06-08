@@ -45,6 +45,8 @@ This section is the fast onboarding map for agents and contributors.
   - Local module-graph bundling for execution (resolves and inlines a `.my` entry file together with its transitively imported local modules so cross-file classes/operators/extension properties resolve at run time): `compiler/runtime/moduleGraph.ts`
   - Module-graph bundling tests: `compiler/runtime/moduleGraph.test.ts`
   - Runtime tooling helpers: `compiler/runtime/tooling.ts`
+  - MyLang test-file discovery/orchestration and inline test helpers used by the CLI test command: `compiler/runtime/testRunner.ts`
+  - Test-runner orchestration tests: `compiler/runtime/testRunner.test.ts`
   - Transpile tests: `compiler/runtime/transpile.test.ts`
   - Runtime integration tests: `compiler/runtime/runtime.integration.test.ts`
 - Formatter:
@@ -66,6 +68,7 @@ This section is the fast onboarding map for agents and contributors.
 - CLI:
   - CLI entrypoint and commands: `compiler/cli.ts`
   - CLI tests: `compiler/cli.test.ts`
+  - `test` command delegates test-file discovery and helper injection to `compiler/runtime/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
   - `syntax` command prints embedded MyLang syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Monaco browser plugin (project root: `plugins/monaco/`):
   - Static Monaco demo entrypoint: `plugins/monaco/src/main.ts`

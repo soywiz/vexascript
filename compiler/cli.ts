@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, writeFile, unlink } from "node:fs/promises";
+import { readFile, stat, writeFile, unlink } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Command } from "commander";
@@ -6,6 +6,7 @@ import { transpile, type TranspileDiagnostic, type TranspileTarget } from "./run
 import { bundleModuleGraph } from "./runtime/moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./runtime/ecmascriptDeclarations";
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
+import { runMyLangTests } from "./runtime/testRunner";
 import { loadProject } from "./project";
 import { ensureDependencies } from "./deps";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
@@ -196,53 +197,12 @@ async function executeCompiled(
   }
 }
 
-const TEST_RUNTIME_SOURCE = `@JsInline("((function test() { call() })())")
-fun test(call: any)
-@JsInline("if (!cond) throw new Error(message)")
-fun assert(cond: boolean, message: string = "assert failed")
-`;
-
-const IGNORED_TEST_DIRECTORIES = new Set([".git", "dist", "node_modules"]);
-
-async function discoverTestFiles(path: string): Promise<string[]> {
-  const resolvedPath = resolve(process.cwd(), path);
-  const info = await stat(resolvedPath);
-  if (info.isFile()) {
-    return resolvedPath.endsWith(".test.my") ? [resolvedPath] : [];
-  }
-  if (!info.isDirectory()) {
-    return [];
-  }
-
-  const entries = await readdir(resolvedPath, { withFileTypes: true });
-  const discovered: string[] = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    if (entry.isDirectory() && IGNORED_TEST_DIRECTORIES.has(entry.name)) {
-      continue;
-    }
-    const entryPath = resolve(resolvedPath, entry.name);
-    if (entry.isDirectory()) {
-      discovered.push(...await discoverTestFiles(entryPath));
-    } else if (entry.isFile() && entry.name.endsWith(".test.my")) {
-      discovered.push(entryPath);
-    }
-  }
-  return discovered;
-}
-
 async function runTests(paths: string[]): Promise<void> {
-  const discovered = await Promise.all((paths.length > 0 ? paths : [process.cwd()]).map(discoverTestFiles));
-  const testFiles = [...new Set(discovered.flat())].sort();
-  if (testFiles.length === 0) {
-    throw new Error("No .test.my files found");
-  }
-
-  for (const testFile of testFiles) {
-    const source = await readFile(testFile, "utf8");
-    await executeSource(`${source}\n${TEST_RUNTIME_SOURCE}`, testFile, "conservative");
+  const result = await runMyLangTests(paths, async (source, testFile) => {
+    await executeSource(source, testFile, "conservative");
     console.log(`Passed: ${testFile}`);
-  }
-  console.log(`${testFiles.length} test file${testFiles.length === 1 ? "" : "s"} passed`);
+  });
+  console.log(`${result.testFiles.length} test file${result.testFiles.length === 1 ? "" : "s"} passed`);
 }
 
 async function printTokens(input: string): Promise<void> {
