@@ -14,7 +14,7 @@
 import { createServer } from "http";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFile, writeFile, access } from "fs/promises";
 import express from "express";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -24,7 +24,9 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const WORKSPACE_DIR = resolve(__dirname, "sample");
 const SAMPLE_FILE = resolve(WORKSPACE_DIR, "main.my");
 
-if (!existsSync(SAMPLE_FILE)) {
+try {
+  await access(SAMPLE_FILE);
+} catch {
   console.error(`[error] Sample file not found at ${SAMPLE_FILE}`);
   process.exit(1);
 }
@@ -39,9 +41,9 @@ if (IS_PROD) {
 }
 
 /** Returns the workspace root URI and sample file info for the browser. */
-app.get("/api/workspace", (_req, res) => {
+app.get("/api/workspace", async (_req, res) => {
   try {
-    const content = readFileSync(SAMPLE_FILE, "utf-8");
+    const content = await readFile(SAMPLE_FILE, "utf-8");
     const toFileUri = (p) =>
       "file://" + (p.startsWith("/") ? p : "/" + p.replace(/\\/g, "/"));
     res.json({
@@ -55,14 +57,14 @@ app.get("/api/workspace", (_req, res) => {
 });
 
 /** Persists editor content back to disk. */
-app.post("/api/save", (req, res) => {
+app.post("/api/save", async (req, res) => {
   try {
     const { content } = req.body;
     if (typeof content !== "string") {
       res.status(400).json({ error: "content must be a string" });
       return;
     }
-    writeFileSync(SAMPLE_FILE, content, "utf-8");
+    await writeFile(SAMPLE_FILE, content, "utf-8");
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: String(err) });

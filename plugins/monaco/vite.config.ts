@@ -34,8 +34,12 @@ export default defineConfig({
         replacement: path.resolve(__dirname, "src/browser-stubs/node-url.ts"),
       },
       {
+        find: "node:fs/promises",
+        replacement: path.resolve(__dirname, "src/browser-stubs/node-fs-promises.ts"),
+      },
+      {
         find: "node:fs",
-        replacement: path.resolve(__dirname, "src/browser-stubs/node-fs.ts"),
+        replacement: path.resolve(__dirname, "src/browser-stubs/node-fs-promises.ts"),
       },
     ],
   },

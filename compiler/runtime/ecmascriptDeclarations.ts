@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Node, Program } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
+import { fileExists } from "compiler/utils/io";
 
 export const ECMASCRIPT_RUNTIME_DECLARATION_FILE_NAME = "ecmascript.d.my";
 export const TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME = "es2025.d.ts";
@@ -16,18 +17,23 @@ interface CachedRuntimeProgram {
 }
 
 let cachedRuntimeProgram: CachedRuntimeProgram | null = null;
+const runtimeDeclarationFilePath = await resolveRuntimeDeclarationFilePath();
 
 function currentDirectory(): string {
   return dirname(fileURLToPath(import.meta.url));
 }
 
-export function getEcmaScriptRuntimeDeclarationFilePath(): string {
+async function resolveRuntimeDeclarationFilePath(): Promise<string> {
   const bundledPath = resolve(currentDirectory(), TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME);
-  if (existsSync(bundledPath)) {
+  if (await fileExists(bundledPath)) {
     return bundledPath;
   }
 
   return resolve(process.cwd(), "compiler", "runtime", TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME);
+}
+
+export function getEcmaScriptRuntimeDeclarationFilePath(): string {
+  return runtimeDeclarationFilePath;
 }
 
 function collectNodes(root: Program): WeakSet<object> {
@@ -36,8 +42,7 @@ function collectNodes(root: Program): WeakSet<object> {
   return nodes;
 }
 
-function parseRuntimeProgram(filePath: string): Program {
-  const source = readFileSync(filePath, "utf8");
+function parseRuntimeProgram(source: string): Program {
   const parsed = parseSource(source, { language: "typescript" });
   const errors = [
     ...parsed.parserIssues.map((issue) => issue.message),
@@ -52,25 +57,27 @@ function parseRuntimeProgram(filePath: string): Program {
   return parsed.ast;
 }
 
-export function getEcmaScriptRuntimeProgram(): Program {
-  const filePath = getEcmaScriptRuntimeDeclarationFilePath();
-  const mtimeMs = statSync(filePath).mtimeMs;
-  if (
-    cachedRuntimeProgram &&
-    cachedRuntimeProgram.filePath === filePath &&
-    cachedRuntimeProgram.mtimeMs === mtimeMs
-  ) {
-    return cachedRuntimeProgram.program;
-  }
+async function loadRuntimeProgram(): Promise<CachedRuntimeProgram> {
+  const source = await readFile(runtimeDeclarationFilePath, "utf8");
+  const { mtimeMs } = await stat(runtimeDeclarationFilePath);
+  const program = parseRuntimeProgram(source);
 
-  const program = parseRuntimeProgram(filePath);
-  cachedRuntimeProgram = {
-    filePath,
+  return {
+    filePath: runtimeDeclarationFilePath,
     mtimeMs,
     program,
     nodes: collectNodes(program)
   };
-  return program;
+}
+
+cachedRuntimeProgram = await loadRuntimeProgram();
+
+export function getEcmaScriptRuntimeProgram(): Program {
+  if (cachedRuntimeProgram) {
+    return cachedRuntimeProgram.program;
+  }
+
+  throw new Error("ECMAScript runtime declarations have not been loaded");
 }
 
 /**
@@ -78,7 +85,11 @@ export function getEcmaScriptRuntimeProgram(): Program {
  * immediately after the first successful load.
  */
 export async function ensureEcmaScriptRuntimeProgram(): Promise<Program> {
-  return getEcmaScriptRuntimeProgram();
+  if (!cachedRuntimeProgram) {
+    cachedRuntimeProgram = await loadRuntimeProgram();
+  }
+
+  return cachedRuntimeProgram.program;
 }
 
 export function isEcmaScriptRuntimeNode(node: Node): boolean {
