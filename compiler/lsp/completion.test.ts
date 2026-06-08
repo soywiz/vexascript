@@ -56,6 +56,65 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("reject")?.detail).toBe("In-scope parameter: (arg1: Error) => void");
   });
 
+  it("does not suggest existing symbols while typing a function declaration name", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun demo(): number => 1
+      fun demo2(): number => 2
+      fun de^^^m()
+    `);
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(ast, line, character);
+    const labels = items.map((item) => item.label);
+
+    expect(labels).not.toContain("demo");
+    expect(labels).not.toContain("demo2");
+  });
+
+  it("does not suggest existing symbols while typing a parameter name", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      let shared = 1
+      fun demo(par^^^am: int) {
+        return shared
+      }
+    `);
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(ast, line, character);
+    const labels = items.map((item) => item.label);
+
+    expect(labels).not.toContain("shared");
+    expect(labels).not.toContain("demo");
+  });
+
+  it("does not suggest existing symbols while typing a variable declaration name", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      let shared = 1
+      let val^^^ue = shared
+    `);
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(ast, line, character);
+    const labels = items.map((item) => item.label);
+
+    expect(labels).not.toContain("shared");
+    expect(labels).not.toContain("value");
+  });
+
+  it("does not suggest existing symbols while typing a class member name", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Counter {
+        total: int
+        rea^^^d(): int {
+          return total
+        }
+      }
+    `);
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(ast, line, character);
+    const labels = items.map((item) => item.label);
+
+    expect(labels).not.toContain("total");
+    expect(labels).not.toContain("read");
+  });
+
   it("includes triple-slash documentation comments in in-scope function completions", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       /// searches [sub] in [str]

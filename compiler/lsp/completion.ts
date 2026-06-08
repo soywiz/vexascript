@@ -22,6 +22,7 @@ import type {
   Identifier,
   ImportStatement,
   InterfaceStatement,
+  InterfaceMethodMember,
   LabeledStatement,
   MemberExpression,
   NewExpression,
@@ -283,6 +284,104 @@ function identifierPrefixAtPosition(
   const uptoCursor = lineText.slice(0, Math.max(0, Math.min(character, lineText.length)));
   const match = /[A-Za-z_][A-Za-z0-9_]*$/.exec(uptoCursor);
   return match?.[0] ?? "";
+}
+
+function declarationNameRangeContainsPosition(identifier: Identifier, line: number, character: number): boolean {
+  const range = nodeRange(identifier);
+  return !!range && containsPosition(range, { line, character });
+}
+
+function isDeclarationNamePosition(ast: Program, line: number, character: number): boolean {
+  const matchesBinding = (identifier: Identifier): boolean =>
+    declarationNameRangeContainsPosition(identifier, line, character);
+
+  for (const statement of ast.body) {
+    if (statement.kind === "FunctionStatement") {
+      const fn = statement as FunctionStatement;
+      if (matchesBinding(fn.name)) {
+        return true;
+      }
+      for (const parameter of fn.parameters) {
+        for (const binding of bindingIdentifiers(parameter.name)) {
+          if (matchesBinding(binding)) {
+            return true;
+          }
+        }
+      }
+      continue;
+    }
+
+    if (statement.kind === "VarStatement") {
+      const variable = statement as VarStatement;
+      const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
+      if (bindings.some(matchesBinding)) {
+        return true;
+      }
+      continue;
+    }
+
+    if (statement.kind === "ClassStatement") {
+      const classStatement = statement as ClassStatement;
+      if (matchesBinding(classStatement.name)) {
+        return true;
+      }
+      for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+        for (const binding of bindingIdentifiers(parameter.name)) {
+          if (matchesBinding(binding)) {
+            return true;
+          }
+        }
+      }
+      for (const member of classStatement.members) {
+        if (matchesBinding(member.name)) {
+          return true;
+        }
+        if (member.kind === "ClassMethodMember") {
+          const method = member as ClassMethodMember;
+          for (const parameter of method.parameters) {
+            for (const binding of bindingIdentifiers(parameter.name)) {
+              if (matchesBinding(binding)) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (statement.kind === "InterfaceStatement") {
+      const interfaceStatement = statement as InterfaceStatement;
+      if (matchesBinding(interfaceStatement.name)) {
+        return true;
+      }
+      for (const member of interfaceStatement.members) {
+        if (matchesBinding(member.name)) {
+          return true;
+        }
+        if (member.kind === "InterfaceMethodMember") {
+          const method = member as InterfaceMethodMember;
+          for (const parameter of method.parameters) {
+            for (const binding of bindingIdentifiers(parameter.name)) {
+              if (matchesBinding(binding)) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (statement.kind === "NamespaceStatement") {
+      const namespaceStatement = statement as NamespaceStatement;
+      if ((namespaceStatement.names ?? []).some((name) => matchesBinding(name))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -1845,6 +1944,7 @@ export async function createCompletionItemsForPosition(
 
   const items: CompletionItem[] = [];
   const seenLabels = new Set<string>();
+  const suppressExistingSymbolCompletions = isDeclarationNamePosition(ast, line, character);
 
   // Named-argument suggestions (`url:`) are offered alongside the in-scope
   // symbols whenever the cursor is inside a call's argument list, ranked above
@@ -1864,48 +1964,52 @@ export async function createCompletionItemsForPosition(
     items.push(item);
   }
 
-  for (let index = 0; index < rankedSymbols.length; index += 1) {
-    const entry = rankedSymbols[index]!;
-    const symbol = entry.symbol;
-    seenLabels.add(symbol.name);
-    const documentation =
-      symbol.node.kind === "Identifier"
-        ? readDocumentationFromProgramDeclaration(ast, symbol.node as Identifier)
-        : undefined;
-    items.push({
-      label: symbol.name,
-      kind: symbolKindToCompletionKind(symbol),
-      detail: symbolDetail(symbol),
-      ...(documentation ? { documentation } : {}),
-      sortText: `1-${entry.typeRelevance}-${String(entry.scopeDistance).padStart(4, "0")}-${String(index).padStart(4, "0")}-${symbol.name}`
-    });
+  if (!suppressExistingSymbolCompletions) {
+    for (let index = 0; index < rankedSymbols.length; index += 1) {
+      const entry = rankedSymbols[index]!;
+      const symbol = entry.symbol;
+      seenLabels.add(symbol.name);
+      const documentation =
+        symbol.node.kind === "Identifier"
+          ? readDocumentationFromProgramDeclaration(ast, symbol.node as Identifier)
+          : undefined;
+      items.push({
+        label: symbol.name,
+        kind: symbolKindToCompletionKind(symbol),
+        detail: symbolDetail(symbol),
+        ...(documentation ? { documentation } : {}),
+        sortText: `1-${entry.typeRelevance}-${String(entry.scopeDistance).padStart(4, "0")}-${String(index).padStart(4, "0")}-${symbol.name}`
+      });
+    }
   }
 
-  for (const suggestion of resolvedAutoImportSuggestions) {
-    if (seenLabels.has(suggestion.symbol.name)) {
-      continue;
-    }
-    seenLabels.add(suggestion.symbol.name);
+  if (!suppressExistingSymbolCompletions) {
+    for (const suggestion of resolvedAutoImportSuggestions) {
+      if (seenLabels.has(suggestion.symbol.name)) {
+        continue;
+      }
+      seenLabels.add(suggestion.symbol.name);
 
-    let kind: CompletionItemKind = CompletionItemKind.Variable;
-    if (suggestion.symbol.kind === "class") {
-      kind = CompletionItemKind.Class;
-    } else if (suggestion.symbol.kind === "function") {
-      kind = CompletionItemKind.Function;
-    }
+      let kind: CompletionItemKind = CompletionItemKind.Variable;
+      if (suggestion.symbol.kind === "class") {
+        kind = CompletionItemKind.Class;
+      } else if (suggestion.symbol.kind === "function") {
+        kind = CompletionItemKind.Function;
+      }
 
-    items.push({
-      label: suggestion.symbol.name,
-      kind,
-      detail: `Auto import from ${suggestion.importPath}`,
-      sortText: `8-${suggestion.symbol.name}`,
-      additionalTextEdits: [
-        {
-          range: suggestion.range,
-          newText: `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
-        }
-      ]
-    });
+      items.push({
+        label: suggestion.symbol.name,
+        kind,
+        detail: `Auto import from ${suggestion.importPath}`,
+        sortText: `8-${suggestion.symbol.name}`,
+        additionalTextEdits: [
+          {
+            range: suggestion.range,
+            newText: `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
+          }
+        ]
+      });
+    }
   }
 
   for (let index = 0; index < KEYWORD_COMPLETIONS.length; index += 1) {
