@@ -488,6 +488,17 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(labels).toContain("push");
   });
+  it("offers Array<T> members after chained trailing-lambda calls", async () => {
+    const { source, line, character } = sourceWithCursor(
+      'val res = [1, 2, 3, 4, 5, 6].map { it * 2 }.filter { it % 3 == 0 }.map { "value" }.ma^^^'
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("map");
+    expect(labels).not.toContain("Math");
+  });
 
   it("offers members on an auto-awaited call receiver inside a sync function", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
