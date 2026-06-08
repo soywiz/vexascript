@@ -4,6 +4,7 @@ import type {
   AnalysisIssue,
   AnalysisSymbol,
   IdentifierResolution,
+  JsxAttributeResolution,
   OperatorResolution,
   Scope
 } from "./model";
@@ -57,6 +58,7 @@ export class Analysis {
   private readonly rootScope: Scope;
   private readonly issues: AnalysisIssue[];
   private readonly identifierResolutions: IdentifierResolution[];
+  private readonly jsxAttributeResolutions: JsxAttributeResolution[];
   private readonly operatorResolutions: OperatorResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
   private readonly autoAwaitExpressions: Set<Node>;
@@ -69,6 +71,7 @@ export class Analysis {
     const checked = new TypeChecker(program, bound, externalDeclarations).check();
     this.issues = checked.issues;
     this.identifierResolutions = checked.identifierResolutions;
+    this.jsxAttributeResolutions = checked.jsxAttributeResolutions;
     this.operatorResolutions = checked.operatorResolutions;
     this.expressionTypes = checked.expressionTypes;
     this.autoAwaitExpressions = checked.autoAwaitExpressions;
@@ -136,6 +139,13 @@ export class Analysis {
   getSymbolAt(line: number, character: number): AnalysisSymbolMatch | null {
     for (const resolution of this.identifierResolutions) {
       const range = this.nodeToRange(resolution.identifier);
+      if (range && this.rangeContains(range, line, character)) {
+        return { symbol: resolution.symbol, range };
+      }
+    }
+
+    for (const resolution of this.jsxAttributeResolutions) {
+      const range = this.jsxAttributeNameRange(resolution.attribute);
       if (range && this.rangeContains(range, line, character)) {
         return { symbol: resolution.symbol, range };
       }
@@ -407,6 +417,24 @@ export class Analysis {
       end: {
         line: node.lastToken.range.end.line,
         character: node.lastToken.range.end.column
+      }
+    };
+  }
+
+  private jsxAttributeNameRange(attribute: Node & { kind: "JsxAttribute"; name: string }): AnalysisRange | null {
+    const token = attribute.firstToken;
+    if (!token) {
+      return null;
+    }
+
+    return {
+      start: {
+        line: token.range.start.line,
+        character: token.range.start.column
+      },
+      end: {
+        line: token.range.start.line,
+        character: token.range.start.column + attribute.name.length
       }
     };
   }

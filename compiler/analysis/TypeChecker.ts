@@ -71,6 +71,7 @@ import type {
   CheckedAnalysis,
   FlowContext,
   IdentifierResolution,
+  JsxAttributeResolution,
   OperatorResolution,
   Scope
 } from "./model";
@@ -108,10 +109,12 @@ import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarat
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
   private readonly identifierResolutions: IdentifierResolution[] = [];
+  private readonly jsxAttributeResolutions: JsxAttributeResolution[] = [];
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
+  private readonly functionStatementsByName: Map<string, FunctionStatement> = new Map();
   private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
   private readonly extensionMethodsByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
   private readonly extensionPropertiesByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
@@ -139,6 +142,7 @@ export class TypeChecker {
     externalDeclarations: readonly Statement[] = []
   ) {
     const runtimeProgram = getEcmaScriptRuntimeProgram();
+    this.collectFunctionStatements(runtimeProgram.body);
     this.collectClassStatements(runtimeProgram.body);
     this.collectEnumStatements(runtimeProgram.body);
     this.collectInterfaceStatements(runtimeProgram.body);
@@ -151,6 +155,7 @@ export class TypeChecker {
     // resolution only. They are never visited or re-checked because the
     // statement walk only traverses this program's body. Local declarations are
     // collected afterwards so they win on name clashes.
+    this.collectFunctionStatements(externalDeclarations);
     this.collectClassStatements(externalDeclarations);
     this.collectEnumStatements(externalDeclarations);
     this.collectInterfaceStatements(externalDeclarations);
@@ -166,6 +171,7 @@ export class TypeChecker {
     // Imported extension operator overloads (e.g. `import { operator+ }`) are
     // registered so a cross-file operator like `a + b` resolves to the overload.
     this.collectExtensionOperators({ kind: "Program", body: [...externalDeclarations] } as Program);
+    this.collectFunctionStatements(program.body);
     this.collectClassStatements(program.body);
     this.collectExtensionOperators(program);
     this.collectExtensionMethods(program);
@@ -181,6 +187,7 @@ export class TypeChecker {
     return {
       issues: [...this.issues],
       identifierResolutions: [...this.identifierResolutions],
+      jsxAttributeResolutions: [...this.jsxAttributeResolutions],
       operatorResolutions: [...this.operatorResolutions],
       expressionTypes: this.expressionTypes,
       autoAwaitExpressions: this.autoAwaitExpressions
@@ -3107,6 +3114,11 @@ export class TypeChecker {
         continue;
       }
 
+      const attributeSymbol = this.resolveJsxAttributeSymbol(jsxElement, attribute, expectedType);
+      if (attributeSymbol) {
+        this.jsxAttributeResolutions.push({ attribute, symbol: attributeSymbol });
+      }
+
       if (provided.has(attribute.name)) {
         this.issues.push({
           message: `Parameter '${attribute.name}' specified more than once`,
@@ -3141,6 +3153,53 @@ export class TypeChecker {
         node: jsxElement.reference
       });
     }
+  }
+
+  private resolveJsxAttributeSymbol(
+    jsxElement: JsxElement,
+    attribute: JsxAttribute,
+    expectedType: AnalysisType
+  ): AnalysisSymbol | null {
+    if (!jsxElement.reference || jsxElement.reference.kind !== "Identifier") {
+      return null;
+    }
+
+    const referenceIdentifier = jsxElement.reference as Identifier;
+    const referenceResolution = this.identifierResolutions.find((resolution) => resolution.identifier === referenceIdentifier);
+    const functionStatement = this.functionStatementsByName.get(referenceIdentifier.name);
+    if (!functionStatement || referenceResolution?.symbol.node !== functionStatement.name) {
+      return null;
+    }
+
+    const propsParameter = functionStatement.parameters.find((parameter) => parameter.thisParameter !== true);
+    if (!propsParameter || propsParameter.name.kind !== "ObjectBindingPattern") {
+      return null;
+    }
+
+    const element = propsParameter.name.elements.find((candidate) => {
+      if (candidate.rest === true) {
+        return false;
+      }
+      const propertyName = candidate.propertyName?.name ?? (candidate.name.kind === "Identifier" ? candidate.name.name : undefined);
+      return propertyName === attribute.name;
+    });
+    if (!element) {
+      return null;
+    }
+
+    const declarationNode = element.propertyName ?? (element.name.kind === "Identifier" ? element.name : null);
+    if (!declarationNode) {
+      return null;
+    }
+
+    return {
+      name: attribute.name,
+      kind: "parameter",
+      node: declarationNode,
+      declaredOffset: declarationNode.firstToken?.range.start.offset ?? -1,
+      type: expectedType,
+      valueType: typeToString(expectedType)
+    };
   }
 
   private visitJsxAttributeValues(jsxElement: JsxElement, scope: Scope): void {
@@ -5196,6 +5255,21 @@ export class TypeChecker {
     };
     visit(statements);
     return result;
+  }
+
+  private collectFunctionStatements(statements: readonly Statement[]): void {
+    for (const statement of statements) {
+      const candidate = statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration
+        : statement;
+      if (candidate?.kind !== "FunctionStatement") {
+        continue;
+      }
+      const functionStatement = candidate as FunctionStatement;
+      if (!functionStatement.receiverType) {
+        this.functionStatementsByName.set(functionStatement.name.name, functionStatement);
+      }
+    }
   }
 
   private collectClassStatements(statements: readonly Statement[]): void {
