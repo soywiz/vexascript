@@ -4876,12 +4876,33 @@ export class Parser {
         }
 
         let extendsType: Identifier | undefined;
+        let implementsTypes: Identifier[] | undefined;
+
+        if (this.language === "mylang" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            this.tokens.skip();
+            const colonTypes: Identifier[] = [];
+            while (this.tokens.hasMore) {
+                colonTypes.push(this.parseTypeAnnotationNode());
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && separator.value === ",") {
+                    this.tokens.skip();
+                    continue;
+                }
+                break;
+            }
+            if (colonTypes.length > 0) {
+                extendsType = colonTypes[0];
+                if (colonTypes.length > 1) {
+                    implementsTypes = colonTypes.slice(1);
+                }
+            }
+        }
+
         if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
             this.tokens.skip();
             extendsType = this.parseTypeAnnotationNode();
         }
 
-        let implementsTypes: Identifier[] | undefined;
         if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "implements") {
             this.tokens.skip();
             implementsTypes = [];
