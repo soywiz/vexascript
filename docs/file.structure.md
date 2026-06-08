@@ -71,6 +71,9 @@ This section is the fast onboarding map for agents and contributors.
     compiler's `compiler/lsp/*` feature functions directly and maps them to
     Monaco's `monaco.languages.register*Provider` APIs to reach VS Code feature
     parity): `plugins/monaco/src/compiler-providers.ts`
+  - Shared Monaco provider conversion helpers for preserving LSP diagnostic metadata
+    such as `source`/`code` when adapting Monaco markers to compiler quick-fix
+    inputs: `plugins/monaco/src/providerConversions.ts`
   - Optional LSP-over-Web-Worker path (alternative transport, not wired into the
     default demo): `plugins/monaco/src/lsp-providers.ts`,
     `plugins/monaco/src/compiler-client.ts`, `plugins/monaco/src/lsp-worker.ts`,
