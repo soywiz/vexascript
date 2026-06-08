@@ -1063,6 +1063,26 @@ let after = bind`));
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
   });
 
+  it("reports non-array values used with array destructuring and invalid property delegates", () => {
+    const source = dedent`
+      fun useState(value: number) {
+        return 10
+      }
+
+      fun demo2() {
+        val [value, setValue] = useState(0)
+        var nvalue by useState(0)
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'int' cannot be destructured with an array binding pattern");
+    expect(messages).toContain("Type 'int' is not a valid property delegate; expected a function, tuple, or object with a 'value' property");
+  });
+
   it("infers tuple element types for destructuring and generic tuple returns", () => {
     const source = dedent`
       fun useState<T>(value: T) {
