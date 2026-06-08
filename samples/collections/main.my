@@ -1,0 +1,2 @@
+console.log([1,2,3,4,5,6].map(it => it * 2).filter(it => it % 3 == 0))
+console.log([1,2,3,4,5,6].map { it * 2 }.filter { it % 3 == 0 })

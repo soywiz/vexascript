@@ -12,5 +12,5 @@ function Page({ name : string }) { // destructuring with types
     </html>
 }
 
-const html = "<!doctype html>" + render(<Page name="Carlos" />);
+const html = `<!doctype html>${render(<Page name="Carlos" />)}`;
 console.log(html)

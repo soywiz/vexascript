@@ -30,6 +30,7 @@ console.log(adler.value.toString(16))
 adler.update(new Uint8Array([65, 66, 67, 68]))
 console.log(adler.value.toString(16))
 
+
 // expected output:
 // 1
 // 298010b
