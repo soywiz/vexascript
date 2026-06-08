@@ -39,7 +39,7 @@ describe("CLI", () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "input-target.my");
     const output = join(dir, "output-target.js");
-    await writeFile(input, "for (a of 0 ... 3) console.log(a)", "utf8");
+    await writeFile(input, "for (a of 0 ..< 3) console.log(a)", "utf8");
 
     await runCli(["node", "mylang", "build", input, "--out", output, "--target", "conservative"]);
 
@@ -60,7 +60,7 @@ describe("CLI", () => {
   it("run command supports conservative target mode", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "run-target.my");
-    await writeFile(input, "for (a of 0 ... 3) console.log(a)", "utf8");
+    await writeFile(input, "for (a of 0 ..< 3) console.log(a)", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 

@@ -93,7 +93,7 @@ function lowerForStatement(statement: ForStatement): ForStatement {
       };
       const loweredCondition: Expr = {
         kind: "BinaryExpression",
-        operator: "<",
+        operator: range.exclusive ? "<" : "<=",
         left: { kind: "Identifier", name: iteratorName },
         right: cloneExpression(range.end)
       } as Expr;
