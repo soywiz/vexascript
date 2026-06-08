@@ -184,7 +184,11 @@ function stripBundledImports(code: string): string {
     .join("\n");
 }
 
-export async function bundleModuleGraph(entryFilePath: string, target: TranspileTarget, options: { vfs?: Vfs } = {}): Promise<TranspileResult> {
+export async function bundleModuleGraph(
+  entryFilePath: string,
+  target: TranspileTarget,
+  options: { vfs?: Vfs; jsxFactory?: string; jsxFragmentFactory?: string } = {}
+): Promise<TranspileResult> {
   const vfs = options.vfs ?? localVfs;
   await ensureEcmaScriptRuntimeProgram();
 
@@ -249,7 +253,9 @@ export async function bundleModuleGraph(entryFilePath: string, target: Transpile
       sourceFilePath: filePath,
       target,
       externalDeclarations,
-      importedSymbolTypes
+      importedSymbolTypes,
+      ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
+      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });
     errors.push(...result.errors);
     warnings.push(...result.warnings);

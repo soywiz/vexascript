@@ -49,6 +49,19 @@ describe("CLI", () => {
     );
   });
 
+  it("build command uses JSX factories from mylang.toml", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
+    const input = join(dir, "input-jsx.my");
+    const output = join(dir, "output-jsx.js");
+    await writeFile(join(dir, "mylang.toml"), "[jsx]\nfactory = \"h\"\nfragmentFactory = \"Fragment\"\n", "utf8");
+    await writeFile(input, "const view = <><span>hi</span></>", "utf8");
+
+    await runCli(["node", "mylang", "build", input, "--out", output]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain('h(Fragment, null, h("span", null, "hi"))');
+  });
+
   it("run command executes testFixtures/sample.my", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -67,6 +80,30 @@ describe("CLI", () => {
     await runCli(["node", "mylang", "run", input, "--target", "conservative"]);
 
     expect(logSpy.mock.calls).toEqual([[0], [1], [2]]);
+  });
+
+  it("run command uses JSX factories from mylang.toml", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
+    const input = join(dir, "run-jsx.my");
+    await writeFile(join(dir, "mylang.toml"), "[jsx]\nfactory = \"h\"\nfragmentFactory = \"Fragment\"\n", "utf8");
+    await writeFile(input, [
+      'const Fragment = "fragment"',
+      "fun h(type: any, props: any, child: any = null) {",
+      "  return { type, props, child }",
+      "}",
+      "const view = <><span>hi</span></>",
+      "console.log(view)"
+    ].join("\n"), "utf8");
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "run", input]);
+
+    expect(logSpy.mock.calls[0]?.[0]).toEqual({
+      type: "fragment",
+      props: null,
+      child: { type: "span", props: null, child: "hi" }
+    });
   });
 
   it("build command reports compilation errors to stderr and fails", async () => {
