@@ -18,7 +18,7 @@ import {
   resolveExpressionTypeName
 } from "./classResolver";
 import { pathToUri } from "./importFixes";
-import { isTypeMismatchDiagnostic, TYPE_MISMATCH_PATTERN } from "./diagnosticCodes";
+import { parseTypeMismatchDiagnostic } from "./diagnosticCodes";
 import { nodeRange, rangeContains, rangeSize } from "./ranges";
 
 interface FindAssignmentResult {
@@ -145,17 +145,11 @@ export async function createTypeFixCodeActions(params: {
   const resolverCache = createClassResolverCache();
 
   for (const diagnostic of params.diagnostics) {
-    if (!isTypeMismatchDiagnostic(diagnostic)) {
+    const mismatch = parseTypeMismatchDiagnostic(diagnostic);
+    if (!mismatch || mismatch.sourceType === "unknown") {
       continue;
     }
-    const mismatch = TYPE_MISMATCH_PATTERN.exec(diagnostic.message);
-    if (!mismatch) {
-      continue;
-    }
-    const sourceType = mismatch[1];
-    if (!sourceType || sourceType === "unknown") {
-      continue;
-    }
+    const sourceType = mismatch.sourceType;
 
     const assignment = findAssignmentForDiagnosticRange(params.ast, diagnostic.range);
     if (!assignment || assignment.left.kind !== "MemberExpression") {
