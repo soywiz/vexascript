@@ -2332,6 +2332,43 @@ let after = bind`));
     ).toBe(false);
   });
 
+  it("validates colon interface contracts against own class members", () => {
+    const source = dedent`
+      interface Shape {
+        area: number
+        perimeter: number
+        describe(): string
+      }
+      class Rectangle : Shape {
+        width: number
+        height: number
+        area() => this.width * this.height
+        perimeter() => 2 * (this.width + this.height)
+        describe() => \`Rectangle(\${this.width}x\${this.height})\`
+      }
+      class Circle : Shape {
+        radius: number
+        area => Math.PI * radius * radius
+        perimeter => 2 * Math.PI * radius
+        describe() => \`Circle(r=\${this.radius})\`
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain(
+      "Class 'Rectangle' incorrectly implements interface 'Shape'. Property 'area' is of type '() => number' but expected 'number'"
+    );
+    expect(messages).toContain(
+      "Class 'Rectangle' incorrectly implements interface 'Shape'. Property 'perimeter' is of type '() => number' but expected 'number'"
+    );
+    expect(
+      messages.some((message) => message.includes("Class 'Circle' incorrectly implements interface 'Shape'"))
+    ).toBe(false);
+  });
+
   it("accepts shorthand class methods with explicit return types when implementing interfaces", () => {
     const source = dedent`
       interface Shape {

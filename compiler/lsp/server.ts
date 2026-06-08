@@ -182,7 +182,7 @@ connection.onInitialize((params) => {
       typeDefinitionProvider: true,
       implementationProvider: true,
       documentHighlightProvider: true,
-      codeLensProvider: referenceCodeLensEnabled ? { resolveProvider: false } : undefined,
+      ...(referenceCodeLensEnabled ? { codeLensProvider: { resolveProvider: false } } : {}),
       foldingRangeProvider: true,
       selectionRangeProvider: true,
       linkedEditingRangeProvider: true,
@@ -205,7 +205,7 @@ connection.onInitialize((params) => {
         full: true,
         range: true
       },
-      inlayHintProvider: inlayHintsEnabled ? true : undefined,
+      ...(inlayHintsEnabled ? { inlayHintProvider: true } : {}),
       renameProvider: {
         prepareProvider: true
       }

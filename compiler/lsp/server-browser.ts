@@ -117,7 +117,7 @@ export function startLspInWorker(): void {
       typeDefinitionProvider: true,
       implementationProvider: true,
       documentHighlightProvider: true,
-      codeLensProvider: referenceCodeLensEnabled ? { resolveProvider: false } : undefined,
+      ...(referenceCodeLensEnabled ? { codeLensProvider: { resolveProvider: false } } : {}),
       foldingRangeProvider: true,
       selectionRangeProvider: true,
       linkedEditingRangeProvider: true,
@@ -142,7 +142,7 @@ export function startLspInWorker(): void {
         full: true,
         range: true,
       },
-      inlayHintProvider: inlayHintsEnabled ? true : undefined,
+      ...(inlayHintsEnabled ? { inlayHintProvider: true } : {}),
       renameProvider: { prepareProvider: true },
     },
   };
