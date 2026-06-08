@@ -996,7 +996,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "RangeExpression": {
         const range = expression as RangeExpression;
-        return `(function*(s, e) { for (let n = s; n < e; n++) yield n })(${emitExpression(range.start)}, ${emitExpression(range.end)})`;
+        const cmp = range.exclusive ? "<" : "<=";
+        return `(function*(s, e) { for (let n = s; n ${cmp} e; n++) yield n })(${emitExpression(range.start)}, ${emitExpression(range.end)})`;
       }
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;

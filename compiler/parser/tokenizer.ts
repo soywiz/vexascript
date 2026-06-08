@@ -764,14 +764,18 @@ function readSymbol(reader: StrReader): string {
     advanceCode(reader);
     return "!.";
   }
-  if (
-    ch === CODE_DOT &&
-    next === CODE_DOT &&
-    reader.str.charCodeAt(reader.offset + 1) === CODE_DOT
-  ) {
-    advanceCode(reader);
-    advanceCode(reader);
-    return "...";
+  if (ch === CODE_DOT && next === CODE_DOT) {
+    const afterTwo = reader.str.charCodeAt(reader.offset + 1);
+    if (afterTwo === CODE_DOT) {
+      advanceCode(reader);
+      advanceCode(reader);
+      return "...";
+    }
+    if (afterTwo === CODE_LT) {
+      advanceCode(reader);
+      advanceCode(reader);
+      return "..<";
+    }
   }
   if (ch === CODE_EQUALS && next === CODE_EQUALS) {
     advanceCode(reader);

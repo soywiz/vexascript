@@ -67,10 +67,18 @@ describe("tokenizer", () => {
         ])
     })
 
-    it("tokenizes range operator", () => {
+    it("tokenizes inclusive range operator", () => {
         expect(simplifyTokens("0 ... 10")).toStrictEqual([
             { type: "number", value: "0" },
             { type: "symbol", value: "..." },
+            { type: "number", value: "10" }
+        ])
+    })
+
+    it("tokenizes exclusive range operator", () => {
+        expect(simplifyTokens("0 ..< 10")).toStrictEqual([
+            { type: "number", value: "0" },
+            { type: "symbol", value: "..<" },
             { type: "number", value: "10" }
         ])
     })

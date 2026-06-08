@@ -273,11 +273,21 @@ describe("parseExpression", () => {
         });
     });
 
-    it("builds an AST for range expressions", () => {
+    it("builds an AST for inclusive range expressions", () => {
         expect(parseExpression(tokenizeReader("0 ... 10"))).toEqual({
             kind: "RangeExpression",
             start: { kind: "IntLiteral", value: 0 },
-            end: { kind: "IntLiteral", value: 10 }
+            end: { kind: "IntLiteral", value: 10 },
+            exclusive: false
+        });
+    });
+
+    it("builds an AST for exclusive range expressions", () => {
+        expect(parseExpression(tokenizeReader("0 ..< 10"))).toEqual({
+            kind: "RangeExpression",
+            start: { kind: "IntLiteral", value: 0 },
+            end: { kind: "IntLiteral", value: 10 },
+            exclusive: true
         });
     });
 
@@ -1683,7 +1693,8 @@ describe("parseStatement", () => {
             iterable: {
                 kind: "RangeExpression",
                 start: { kind: "IntLiteral", value: 0 },
-                end: { kind: "IntLiteral", value: 10 }
+                end: { kind: "IntLiteral", value: 10 },
+                exclusive: false
             },
             body: {
                 kind: "BreakStatement"

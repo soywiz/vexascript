@@ -19,7 +19,7 @@ describe("lowerProgram", () => {
     });
     expect((statement as any).condition).toMatchObject({
       kind: "BinaryExpression",
-      operator: "<"
+      operator: "<="
     });
     expect((statement as any).update).toMatchObject({
       kind: "UpdateExpression",

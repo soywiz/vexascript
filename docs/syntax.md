@@ -786,7 +786,7 @@ Supported unary operators:
 
 Supported binary operators:
 
-- range: `...`
+- range: `...` (inclusive), `..<` (exclusive)
 - exponentiation: `**`
 - multiplicative: `*`, `/`, `%`
 - additive: `+`, `-`
@@ -882,13 +882,14 @@ In TypeScript mode, embedded XML is opt-in through the `jsx` parser option; enab
 
 ### Range expressions
 
-Range expressions are supported with `start ... end`:
+Range expressions are supported with `start ... end` (inclusive) and `start ..< end` (exclusive), matching Swift syntax:
 
 ```mylang
-0 ... 10
+0 ... 10   // inclusive: 0, 1, 2, ..., 10
+0 ..< 10   // exclusive: 0, 1, 2, ..., 9
 ```
 
-`...` is end-exclusive, so `0 ... 10` iterates/generates values from `0` to `9`.
+`...` is end-inclusive, so `0 ... 10` iterates/generates values from `0` to `10`. `..<` is end-exclusive, so `0 ..< 10` iterates/generates values from `0` to `9`.
 
 ### Member access
 
@@ -1273,7 +1274,7 @@ try {
 - `+`, `-`, `*`, `/`, `%`, shifts and bitwise operators on `int` operands infer `int`.
 - `+` with at least one `string` operand infers `string`.
 - Comparisons/equality/logical operators infer `boolean`.
-- `start ... end` infers `range<int>` and is end-exclusive.
+- `start ... end` infers `range<int>` and is end-inclusive; `start ..< end` infers `range<int>` and is end-exclusive.
 
 ### Long runtime lowering
 
