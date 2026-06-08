@@ -29,6 +29,7 @@ MyLang is a language derived from TypeScript with some features and ideas from S
 - The official test suite runs with node tests.
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
 - Before closing any task, the full test suite must pass.
+- In LSP/editor tests, prefer the `^^^` cursor-marker style with the shared helper in `compiler/test/sourceWithCursor.ts` instead of hardcoded line/column coordinates whenever practical.
 - For UI-facing changes (Monaco plugin, browser flows, visual interactions), validate the final behavior in a real browser before handing off. Use Playwright or another browser automation path when available, and treat that browser check as part of completion rather than an optional extra.
 - If tests fail, they must be fixed before finishing the task.
 - If requirements change, update tests to match the new expected behavior instead of preserving outdated assertions.
