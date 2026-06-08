@@ -1,12 +1,10 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "./test/expect";
+import { fileExists } from "./utils/io";
 
 const ARCHITECTURE_MAP_FILE = "docs/file.structure.md";
-const architectureMap = readFileSync(ARCHITECTURE_MAP_FILE, "utf8");
-const architectureMapSection = extractArchitectureMapSection(architectureMap);
-
 const architecturePathReferencePattern = /`([^`]+\.(?:ts|js|json|md|my|d\.ts))`/g;
 const ignoredProjectDirectories = new Set([".git", "dist", "node_modules"]);
 
@@ -38,13 +36,13 @@ function extractBacktickedPathReferences(markdown: string): string[] {
   return [...paths].sort();
 }
 
-function collectProjectFiles(directory = "."): string[] {
+async function collectProjectFiles(directory = "."): Promise<string[]> {
   const filePaths: string[] = [];
 
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       if (!ignoredProjectDirectories.has(entry.name)) {
-        filePaths.push(...collectProjectFiles(join(directory, entry.name)));
+        filePaths.push(...await collectProjectFiles(join(directory, entry.name)));
       }
       continue;
     }
@@ -64,21 +62,27 @@ function globToRegExp(pattern: string): RegExp {
 }
 
 describe("Architecture Map", () => {
-  it("documents architecture paths in AGENTS.md", () => {
+  it("documents architecture paths in AGENTS.md", async () => {
+    const architectureMap = await readFile(ARCHITECTURE_MAP_FILE, "utf8");
+    const architectureMapSection = extractArchitectureMapSection(architectureMap);
     expect(extractBacktickedPathReferences(architectureMapSection)).not.toEqual([]);
   });
 
-  it("only documents explicit architecture paths that exist", () => {
+  it("only documents explicit architecture paths that exist", async () => {
+    const architectureMap = await readFile(ARCHITECTURE_MAP_FILE, "utf8");
+    const architectureMapSection = extractArchitectureMapSection(architectureMap);
     const documentedPaths = extractBacktickedPathReferences(architectureMapSection).filter((path) => !path.includes("*"));
 
     expect(documentedPaths).not.toEqual([]);
     for (const filePath of documentedPaths) {
-      expect(existsSync(filePath), `${filePath} is documented in AGENTS.md but does not exist`).toBe(true);
+      expect(await fileExists(filePath), `${filePath} is documented in AGENTS.md but does not exist`).toBe(true);
     }
   });
 
-  it("only documents architecture globs that match existing files", () => {
-    const projectFiles = collectProjectFiles();
+  it("only documents architecture globs that match existing files", async () => {
+    const architectureMap = await readFile(ARCHITECTURE_MAP_FILE, "utf8");
+    const architectureMapSection = extractArchitectureMapSection(architectureMap);
+    const projectFiles = await collectProjectFiles();
     const documentedGlobs = extractBacktickedPathReferences(architectureMapSection).filter((path) => path.includes("*"));
 
     expect(documentedGlobs).not.toEqual([]);

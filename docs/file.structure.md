@@ -49,6 +49,7 @@ This section is the fast onboarding map for agents and contributors.
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`
   - LSP formatting adapter: `compiler/lsp/formatting.ts`
+- Shared async file/process I/O helpers live in `compiler/utils/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
 
 ### Tooling and Integration Pieces
 
@@ -125,6 +126,7 @@ This section is the fast onboarding map for agents and contributors.
 - Third-party declaration samples: `testFixtures/PIXI.d.ts`, `testFixtures/threejs.d.ts`
 - TypeScript compatibility fixture: `testFixtures/typescript-supported.d.ts`
 - Fixture tests: `testFixtures/@test.test.ts`
+- Shared async I/O utilities for reusable file/process helpers: `compiler/utils/io.ts`, tests: `compiler/utils/io.test.ts`
 - Reader utilities used by parser/tokenizer:
   - `compiler/utils/ListReader.ts`, tests: `compiler/utils/ListReader.test.ts`
   - `compiler/utils/StrReader.ts`, tests: `compiler/utils/StrReader.test.ts`

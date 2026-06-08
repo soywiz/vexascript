@@ -1,5 +1,5 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -933,7 +933,7 @@ describe("cross-file navigation", () => {
 
     const runtimeFilePath = await getEcmaScriptRuntimeDeclarationFilePath();
     expect(location?.uri).toBe(pathToFileURL(runtimeFilePath).toString());
-    const runtimeLines = readFileSync(runtimeFilePath, "utf8").split("\n");
+    const runtimeLines = (await readFile(runtimeFilePath, "utf8")).split("\n");
     const lineText = runtimeLines[location?.range.start.line ?? -1] ?? "";
     expect(lineText).toContain("map");
   });

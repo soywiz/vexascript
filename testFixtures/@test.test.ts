@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { it, describe } from "node:test";
 import { expect } from "../compiler/test/expect";
@@ -7,8 +7,8 @@ import { Parser } from "../compiler/parser/parser";
 import { tokenizeReader } from "../compiler/parser/tokenizer";
 
 describe("Parse Typescript Libraries", () => {
-    it("parses testFixtures/moment.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(import.meta.dirname, "moment.d.ts"), "utf8");
+    it("parses testFixtures/moment.d.ts in typescript mode", async () => {
+        const source = await readFile(resolve(import.meta.dirname, "moment.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
@@ -21,8 +21,8 @@ describe("Parse Typescript Libraries", () => {
         expect(() => new Analysis(ast)).not.toThrow();
     });
 
-    it("parses testFixtures/typescript-supported.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(import.meta.dirname, "typescript-supported.d.ts"), "utf8");
+    it("parses testFixtures/typescript-supported.d.ts in typescript mode", async () => {
+        const source = await readFile(resolve(import.meta.dirname, "typescript-supported.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
@@ -36,8 +36,8 @@ describe("Parse Typescript Libraries", () => {
         expect(parser.errors).toEqual([]);
     });
 
-    it("parses testFixtures/PIXI.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(import.meta.dirname, "./PIXI.d.ts"), "utf8");
+    it("parses testFixtures/PIXI.d.ts in typescript mode", async () => {
+        const source = await readFile(resolve(import.meta.dirname, "./PIXI.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();
@@ -47,8 +47,8 @@ describe("Parse Typescript Libraries", () => {
         expect(parser.errors).toEqual([]);
     });
 
-    it("parses testFixtures/threejs.d.ts in typescript mode", () => {
-        const source = readFileSync(resolve(import.meta.dirname, "./threejs.d.ts"), "utf8");
+    it("parses testFixtures/threejs.d.ts in typescript mode", async () => {
+        const source = await readFile(resolve(import.meta.dirname, "./threejs.d.ts"), "utf8");
 
         const parser = new Parser(tokenizeReader(source), { language: "typescript" });
         const ast = parser.parseFile();

@@ -1,18 +1,6 @@
-import { writeFile, access } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { fileExists, runCommand } from "./utils/io";
 
 async function isPackageInstalled(projectDir: string, pkg: string): Promise<boolean> {
   return fileExists(resolve(projectDir, "node_modules", pkg));
@@ -52,5 +40,5 @@ export async function ensureDependencies(
 
   console.log(`Installing dependencies: ${specs.join(", ")}`);
   const args = pm === "pnpm" ? ["add", ...specs] : ["install", ...specs];
-  await execFileAsync(pm, args, { cwd: projectDir });
+  await runCommand(pm, args, { cwd: projectDir });
 }

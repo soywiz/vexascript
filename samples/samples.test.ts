@@ -1,9 +1,8 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
-import { resolve } from "node:path";
+import { readdir, readFile } from "node:fs/promises"
 import { it, describe } from "node:test";
 import { expect } from "../compiler/test/expect";
 import { runFile } from "../compiler/cli";
-import { spawnSync } from "node:child_process";
+import { fileExists, isDirectory, runCommand } from "../compiler/utils/io";
 
 async function hookOutput(callback: () => Promise<void>) {
     const lines = [] as string[]
@@ -21,23 +20,23 @@ async function hookOutput(callback: () => Promise<void>) {
 
 describe("samples test", async () => {
     const rootDir = import.meta.dirname
-    for (const file of readdirSync(rootDir)) {
+    for (const file of await readdir(rootDir)) {
         const rfile = `${rootDir}/${file}`
         const rexpected = `${rfile}/expected.txt`
         const rpackageJson = `${rfile}/package.json`
         const rnodeModules = `${rfile}/node_modules`
 
-        if (!statSync(rfile).isDirectory()) continue
-        if (!existsSync(rexpected)) continue
-        if (existsSync(rpackageJson) && !existsSync(rnodeModules)) {
+        if (!(await isDirectory(rfile))) continue
+        if (!(await fileExists(rexpected))) continue
+        if ((await fileExists(rpackageJson)) && !(await fileExists(rnodeModules))) {
             // pnpm install
-            spawnSync("pnpm", ["install"], { cwd: rfile })
+            await runCommand("pnpm", ["install"], { cwd: rfile })
         }
 
         it(`sample ${file}`, async () => {
             //console.log(rfile)
 
-            const expected = readFileSync(rexpected, 'utf-8')
+            const expected = await readFile(rexpected, 'utf-8')
             const result = await hookOutput(async () => {
                 await runFile(`${rfile}/main.my`, "conservative")
             })

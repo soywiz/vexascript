@@ -1,23 +1,15 @@
-import { readFile, access } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { parseToml } from "./runtime/toml";
+import { fileExists, isDirectory } from "./utils/io";
 
 export interface MylangProject {
   projectDir: string;
   dependencies: Record<string, string>;
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function loadProject(startPath: string): Promise<MylangProject | null> {
-  const startDir = (await fileExists(startPath) && !(await fileExists(startPath + "/.")))
+  const startDir = (await fileExists(startPath) && !(await isDirectory(startPath)))
     ? dirname(startPath)
     : startPath;
 

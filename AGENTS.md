@@ -18,7 +18,7 @@ MyLang is a language derived from TypeScript with some features and ideas from S
 ## File Structure & Maintenance Rule
 
 - In docs/file.structure.md there is a explanation of the file structure of the repository. Keep it updated.
-- If a new architectural piece/module is added (new compiler phase, new service, new plugin integration, new docs surface, etc.), this Architecture Map in `docs/file.structure.md` and `AGENTS.md` must be updated in the same change so future agents can understand the repository quickly.
+- If a new architectural piece/module is added (new compiler phase, new service, new plugin integration, new docs surface, etc.), this Architecture Map in `docs/file.structure.md` must be updated in the same change so future agents can understand the repository quickly.
 
 ## Testing policy
 

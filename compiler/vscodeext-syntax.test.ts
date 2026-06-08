@@ -1,7 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "./test/expect";
+import { fileExists } from "./utils/io";
 
 type VscodeExtPackage = {
   contributes?: {
@@ -16,10 +17,10 @@ type VscodeExtPackage = {
 };
 
 describe("VS Code extension syntax highlighting", () => {
-  it("registers MyLang language configuration and grammar", () => {
+  it("registers MyLang language configuration and grammar", async () => {
     const extRoot = resolve(process.cwd(), "plugins", "vscode");
     const packageJsonPath = resolve(extRoot, "package.json");
-    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8")) as VscodeExtPackage;
+    const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as VscodeExtPackage;
 
     const language = pkg.contributes?.languages?.find((item) => item.id === "mylang");
     expect(language).toBeDefined();
@@ -27,19 +28,19 @@ describe("VS Code extension syntax highlighting", () => {
     expect(language?.icon?.light).toBe("./icons/mylang-file.svg");
     expect(language?.icon?.dark).toBe("./icons/mylang-file.svg");
     expect(pkg.contributes?.iconThemes).toBeUndefined();
-    expect(existsSync(resolve(extRoot, "language-configuration.json"))).toBe(true);
-    expect(existsSync(resolve(extRoot, "icons", "mylang-file.svg"))).toBe(true);
+    expect(await fileExists(resolve(extRoot, "language-configuration.json"))).toBe(true);
+    expect(await fileExists(resolve(extRoot, "icons", "mylang-file.svg"))).toBe(true);
 
     const grammar = pkg.contributes?.grammars?.find((item) => item.language === "mylang");
     expect(grammar).toBeDefined();
     expect(grammar?.scopeName).toBe("source.mylang");
     expect(grammar?.path).toBe("./syntaxes/mylang.tmLanguage.json");
-    expect(existsSync(resolve(extRoot, "syntaxes", "mylang.tmLanguage.json"))).toBe(true);
+    expect(await fileExists(resolve(extRoot, "syntaxes", "mylang.tmLanguage.json"))).toBe(true);
   });
 
-  it("includes core keyword/string/operator patterns in grammar", () => {
+  it("includes core keyword/string/operator patterns in grammar", async () => {
     const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
-    const grammar = JSON.parse(readFileSync(grammarPath, "utf8")) as {
+    const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {
       repository?: Record<string, { patterns?: Array<{ match?: string }> }>;
     };
 
@@ -93,9 +94,9 @@ describe("VS Code extension syntax highlighting", () => {
     expect(stringEscapeMatch).toBe("\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})");
   });
 
-  it("includes embedded XML/JSX highlighting patterns", () => {
+  it("includes embedded XML/JSX highlighting patterns", async () => {
     const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
-    const grammar = JSON.parse(readFileSync(grammarPath, "utf8")) as {
+    const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {
       patterns?: Array<{ include?: string }>;
       repository?: Record<string, unknown>;
     };

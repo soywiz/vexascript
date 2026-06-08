@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "../test/expect";
@@ -7,15 +7,15 @@ import dedent from "compiler/utils/dedent";
 import { bundleModuleGraph } from "./moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 
-function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), "mylang-module-graph-"));
+async function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "mylang-module-graph-"));
   for (const [name, content] of Object.entries(files)) {
     const filePath = join(dir, name);
-    mkdirSync(join(filePath, ".."), { recursive: true });
-    writeFileSync(filePath, content, "utf8");
+    await mkdir(join(filePath, ".."), { recursive: true });
+    await writeFile(filePath, content, "utf8");
   }
-  return run(dir).finally(() => {
-    rmSync(dir, { recursive: true, force: true });
+  return run(dir).finally(async () => {
+    await rm(dir, { recursive: true, force: true });
   });
 }
 

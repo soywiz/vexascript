@@ -1,9 +1,6 @@
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
-
-async function fileExists(path: string): Promise<boolean> {
-  return access(path).then(() => true).catch(() => false);
-}
+import { fileExists } from "./utils/io";
 
 /**
  * Resolve an import path (as written in an `import ... from "<path>"` statement)
