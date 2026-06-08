@@ -532,6 +532,21 @@ export class TypeChecker {
   }
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
+    if (statement.operator) {
+      const isUnaryAllowed = statement.operator === "+" || statement.operator === "-";
+      const nonThisParams = statement.parameters.filter((p) => p.thisParameter !== true);
+      if (nonThisParams.length > 1) {
+        this.issues.push({
+          message: `Operator '${statement.operator}' must declare at most one parameter`,
+          node: statement.name
+        });
+      } else if (!isUnaryAllowed && nonThisParams.length !== 1) {
+        this.issues.push({
+          message: `Operator '${statement.operator}' must declare exactly one parameter`,
+          node: statement.name
+        });
+      }
+    }
     const isAsyncLike = this.isAsyncLike(statement);
     this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => this.withAsyncLikeFunction(isAsyncLike, () => {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
@@ -660,6 +675,20 @@ export class TypeChecker {
             message: `Setter '${method.name.name}' must declare exactly one parameter`,
             node: method.name
           });
+        }
+        if (method.operator) {
+          const isUnaryAllowed = method.operator === "+" || method.operator === "-";
+          if (method.parameters.length > 1) {
+            this.issues.push({
+              message: `Operator '${method.operator}' must declare at most one parameter`,
+              node: method.name
+            });
+          } else if (!isUnaryAllowed && method.parameters.length !== 1) {
+            this.issues.push({
+              message: `Operator '${method.operator}' must declare exactly one parameter`,
+              node: method.name
+            });
+          }
         }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
         const methodIsAsyncLike = this.isAsyncLike(method);
@@ -1351,6 +1380,20 @@ export class TypeChecker {
           result = builtinType("int");
           break;
         }
+        if (unary.operator === "+" || unary.operator === "-") {
+          const overload = this.resolveUnaryOperatorOverload(unary.operator, argumentType, scope);
+          if (overload) {
+            result = overload.type;
+            break;
+          }
+          if (argumentType.kind === "named") {
+            this.issues.push({
+              message: `Unary operator '${unary.operator}' is not defined for type '${this.typeToDiagnosticLabel(argumentType)}'`,
+              node: unary,
+              code: ANALYSIS_ISSUE_CODES.OPERATOR_NOT_DEFINED
+            });
+          }
+        }
         result = UNKNOWN_TYPE;
         break;
       }
@@ -1627,6 +1670,40 @@ export class TypeChecker {
           : namedType(leftType.name),
         symbol: this.createFunctionSymbol(extension)
       };
+    }
+    return null;
+  }
+
+  private resolveUnaryOperatorOverload(
+    operator: "+" | "-",
+    argumentType: AnalysisType,
+    scope: Scope
+  ): { type: AnalysisType } | null {
+    if (argumentType.kind !== "named") {
+      return null;
+    }
+    const classStatement = this.classStatementsByName.get(argumentType.name);
+    for (const member of classStatement?.members ?? []) {
+      if (member.kind !== "ClassMethodMember") {
+        continue;
+      }
+      const method = member as ClassMethodMember;
+      if (method.operator === operator && method.parameters.length === 0) {
+        return {
+          type: method.returnType
+            ? this.resolveTypeAnnotation(method.returnType, scope) ?? UNKNOWN_TYPE
+            : namedType(argumentType.name)
+        };
+      }
+    }
+    for (const extension of this.extensionOperatorsByReceiver.get(argumentType.name) ?? []) {
+      if (extension.operator === operator && extension.parameters.length === 0) {
+        return {
+          type: extension.returnType
+            ? this.resolveTypeAnnotation(extension.returnType, scope) ?? UNKNOWN_TYPE
+            : namedType(argumentType.name)
+        };
+      }
     }
     return null;
   }

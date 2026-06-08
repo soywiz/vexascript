@@ -180,6 +180,137 @@ let after = bind`));
     });
   });
 
+  describe("unary operator overloads", () => {
+    it("resolves unary - on a class with a 0-param operator- method", () => {
+      const source = dedent`
+        class Point(val x: number, val y: number) {
+          operator-(): Point => Point(-x, -y)
+        }
+        val p = Point(1, 2)
+        val neg = -p
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages.filter((m) => m.includes("Unary operator"))).toEqual([]);
+      const negType = analysis.getExpressionTypes().get(
+        (ast.body[2] as import("../ast/ast.js").VarStatement).initializer!
+      );
+      expect(negType?.kind === "named" && negType.name).toBe("Point");
+    });
+
+    it("reports an error for unary - on a class with no operator- method", () => {
+      const source = dedent`
+        class Point(val x: number, val y: number)
+        val p = Point(1, 2)
+        val neg = -p
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages).toContain("Unary operator '-' is not defined for type 'Point'");
+    });
+
+    it("resolves unary + on a class with a 0-param operator+ method", () => {
+      const source = dedent`
+        class Vec(val x: number) {
+          operator+(): Vec => this
+        }
+        val v = Vec(3)
+        val pos = +v
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages.filter((m) => m.includes("Unary operator"))).toEqual([]);
+    });
+
+    it("does not report an error for unary - on int", () => {
+      const source = "val n: int = 5\nval neg = -n\n";
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages.filter((m) => m.includes("Unary operator"))).toEqual([]);
+    });
+
+    it("a class can have both unary operator- and binary operator- independently", () => {
+      const source = dedent`
+        class Point(val x: number, val y: number) {
+          operator-(): Point => Point(-x, -y)
+          operator-(other: Point): Point => Point(x - other.x, y - other.y)
+        }
+        val p = Point(1, 2)
+        val q = Point(3, 4)
+        val neg = -p
+        val diff = p - q
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages.filter((m) => m.includes("not defined"))).toEqual([]);
+    });
+  });
+
+  describe("operator arity validation", () => {
+    it("reports an error when operator* has 0 parameters", () => {
+      const source = dedent`
+        class Num(val x: number) {
+          operator*(): Num => this
+        }
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages).toContain("Operator '*' must declare exactly one parameter");
+    });
+
+    it("reports an error when operator+ has more than one parameter", () => {
+      const source = dedent`
+        class Num(val x: number) {
+          operator+(a: Num, b: Num): Num => a
+        }
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages).toContain("Operator '+' must declare at most one parameter");
+    });
+
+    it("allows operator+ and operator- with 0 or 1 parameters", () => {
+      const source = dedent`
+        class Num(val x: number) {
+          operator+(): Num => this
+          operator-(): Num => Num(-x)
+          operator+(other: Num): Num => Num(x + other.x)
+          operator-(other: Num): Num => Num(x - other.x)
+        }
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages.filter((m) => m.includes("must declare"))).toEqual([]);
+    });
+
+    it("reports an error for extension operator with wrong arity", () => {
+      const source = dedent`
+        class Point(val x: number, val y: number)
+        fun Point.operator*(): Point => this
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      expect(messages).toContain("Operator '*' must declare exactly one parameter");
+    });
+  });
+
   it("allows yield only inside generator functions", () => {
     const source = dedent`
       function* ok() {
