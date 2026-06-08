@@ -1,6 +1,6 @@
 // MyLang Monaco Editor — demo file
 // Try: hover over symbols · Ctrl+Space for completion · F12 for definition
-//      Shift+F12 for references · F2 to rename · Shift+Alt+F to format
+//      Shift+F12 for references · F2/Shift+F6 to rename · Shift+Alt+F to format
 
 // ── Type declarations ─────────────────────────────────────────────────────────
 
