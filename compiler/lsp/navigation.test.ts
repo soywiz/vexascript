@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -30,6 +31,58 @@ describe("lsp navigation", () => {
       range: {
         start: { line: 0, character: 4 },
         end: { line: 0, character: 9 }
+      }
+    });
+  });
+
+  it("provides hover and definition for JSX component attributes declared by destructured props", () => {
+    const marked = sourceWithCursor(dedent`
+      function Page({ name: string }) {
+        return <h1>{name}</h1>
+      }
+
+      const html = <Page ^^^name="Carlos" />
+    `);
+    const ast = parseFile(tokenizeReader(marked.source, { jsx: true }));
+    const analysis = new Analysis(ast);
+
+    const hover = createHover(analysis, marked.line, marked.character);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "parameter name: string"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 4, character: 19 },
+      end: { line: 4, character: 23 }
+    });
+
+    const definition = createDefinitionLocation(analysis, URI, marked.line, marked.character);
+    expect(definition).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 0, character: 16 },
+        end: { line: 0, character: 20 }
+      }
+    });
+  });
+
+  it("goes to the declared prop name for renamed JSX destructured props", () => {
+    const marked = sourceWithCursor(dedent`
+      function Page({ name :: displayName: string }) {
+        return <h1>{displayName}</h1>
+      }
+
+      const html = <Page ^^^name="Carlos" />
+    `);
+    const ast = parseFile(tokenizeReader(marked.source, { jsx: true }));
+    const analysis = new Analysis(ast);
+
+    const definition = createDefinitionLocation(analysis, URI, marked.line, marked.character);
+    expect(definition).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 0, character: 16 },
+        end: { line: 0, character: 20 }
       }
     });
   });

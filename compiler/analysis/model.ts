@@ -51,6 +51,11 @@ export interface IdentifierResolution {
   symbol: AnalysisSymbol;
 }
 
+export interface JsxAttributeResolution {
+  attribute: Node & { kind: "JsxAttribute"; name: string };
+  symbol: AnalysisSymbol;
+}
+
 export interface OperatorResolution {
   expression: BinaryExpression;
   symbol: AnalysisSymbol;
@@ -59,6 +64,7 @@ export interface OperatorResolution {
 export interface CheckedAnalysis {
   issues: AnalysisIssue[];
   identifierResolutions: IdentifierResolution[];
+  jsxAttributeResolutions: JsxAttributeResolution[];
   operatorResolutions: OperatorResolution[];
   expressionTypes: Map<Node, AnalysisType>;
   // Expressions that receive an implicit `await` because they evaluate to a Promise inside a

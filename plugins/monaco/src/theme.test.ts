@@ -25,7 +25,7 @@ describe("monaco theme", () => {
     });
     expect(jsxTag).toEqual({
       token: "tag",
-      foreground: "4EC9B0",
+      foreground: "D4D4D4",
     });
     expect(jsxAttribute).toEqual({
       token: "attribute.name",
