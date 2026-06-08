@@ -5297,7 +5297,7 @@ export class TypeChecker {
           this.typeFromTypeNameLoose(classStatement.extendsType.name),
           substitutions
         );
-        if (resolvedExtendsType.kind === "named") {
+        if (resolvedExtendsType.kind === "named" && this.classStatementsByName.has(resolvedExtendsType.name)) {
           const inheritedMembers = this.resolveNamedTypeMembersInternal(resolvedExtendsType, visited);
           if (inheritedMembers) {
             for (const [memberName, memberType] of inheritedMembers.entries()) {
@@ -5372,6 +5372,33 @@ export class TypeChecker {
     return members;
   }
 
+  private implementedInterfaceTypesForClass(classStatement: ClassStatement): Array<AnalysisType & { kind: "named" }> {
+    const implementedTypes: Array<AnalysisType & { kind: "named" }> = [];
+    const seenInterfaceNames = new Set<string>();
+
+    const addIfInterface = (typeName: Identifier | undefined): void => {
+      if (!typeName) {
+        return;
+      }
+      const resolvedType = this.typeFromTypeNameLoose(typeName.name);
+      if (resolvedType.kind !== "named" || seenInterfaceNames.has(resolvedType.name)) {
+        return;
+      }
+      if (!this.interfaceStatementsByName.has(resolvedType.name)) {
+        return;
+      }
+      seenInterfaceNames.add(resolvedType.name);
+      implementedTypes.push(resolvedType);
+    };
+
+    addIfInterface(classStatement.extendsType);
+    for (const implementedType of classStatement.implementsTypes ?? []) {
+      addIfInterface(implementedType);
+    }
+
+    return implementedTypes;
+  }
+
   private validateImplementedInterfaces(classStatement: ClassStatement): void {
     const classTypeArguments = (classStatement.typeParameters ?? []).map((typeParameter) =>
       namedType(typeParameter.name.name)
@@ -5382,12 +5409,7 @@ export class TypeChecker {
       return;
     }
 
-    for (const implementedType of classStatement.implementsTypes ?? []) {
-      const resolvedImplementedType = this.typeFromTypeNameLoose(implementedType.name);
-      if (resolvedImplementedType.kind !== "named") {
-        continue;
-      }
-
+    for (const resolvedImplementedType of this.implementedInterfaceTypesForClass(classStatement)) {
       const interfaceStatement = this.interfaceStatementsByName.get(resolvedImplementedType.name);
       if (!interfaceStatement) {
         continue;
