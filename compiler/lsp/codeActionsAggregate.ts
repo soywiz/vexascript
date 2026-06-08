@@ -18,6 +18,7 @@ import { createTrailingLambdaCodeActions } from "./trailingLambdaFixes";
 import { createEmptyClassBodyCodeActions } from "./emptyClassBodyFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
+import { createThisCodeActions } from "./thisFixes";
 import type { SymbolExportProvider } from "./importFixes";
 
 /**
@@ -119,6 +120,15 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
       uri,
       ast,
       text,
+      position: range.start
+    })
+  );
+
+  actions.push(
+    ...createThisCodeActions({
+      uri,
+      ast,
+      analysis,
       position: range.start
     })
   );

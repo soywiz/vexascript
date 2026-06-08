@@ -36,6 +36,7 @@ import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
 import { createCreateMemberCodeActions } from "./memberFixes";
 import { createStringTemplateCodeActions } from "./stringTemplateFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
+import { createThisCodeActions } from "./thisFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems,
@@ -218,6 +219,15 @@ export function startLspInWorker(): void {
         ast: session.ast,
         analysis: session.analysis,
         diagnostics: params.context.diagnostics,
+      })
+    );
+
+    actions.push(
+      ...createThisCodeActions({
+        uri: params.textDocument.uri,
+        ast: session.ast,
+        analysis: session.analysis,
+        position: params.range.start,
       })
     );
 
