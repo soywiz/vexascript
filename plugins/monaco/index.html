@@ -46,6 +46,11 @@
         align-items: center;
         gap: 8px;
       }
+      .nav-group {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
       .tabs {
         display: flex;
         align-items: center;
@@ -237,6 +242,10 @@
       <span class="file-name">main.my</span>
       <div id="tabs" class="tabs"></div>
       <div class="toolbar">
+        <div class="nav-group">
+          <button class="btn" id="btn-nav-back" title="Go back (Alt+Cmd+Left)">Back</button>
+          <button class="btn" id="btn-nav-forward" title="Go forward (Alt+Cmd+Right)">Forward</button>
+        </div>
         <button class="btn" id="btn-format" title="Format document (Shift+Alt+F)">Format</button>
         <button class="btn" id="btn-save" title="Save file">Save</button>
         <span id="status" class="status connecting">Connecting…</span>

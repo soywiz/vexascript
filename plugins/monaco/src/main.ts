@@ -14,6 +14,7 @@ import {
 import {
   createFileInWorkspace,
   createFolderInWorkspace,
+  deleteWorkspaceEntry,
   findEntryByUri,
   listChildren,
   MAIN_DOCUMENT_URI,
@@ -26,6 +27,14 @@ import {
   type WorkspaceEntry,
   type WorkspaceFile,
 } from "./workspace";
+import {
+  pushNavigationTarget,
+  sameNavigationTarget,
+  stepBack,
+  stepForward,
+  type NavigationHistoryState,
+  type NavigationTarget,
+} from "./navigationHistory";
 
 self.MonacoEnvironment = {
   getWorker(_id: string, label: string): Worker {
@@ -76,6 +85,13 @@ function setToolbarState(entry: WorkspaceEntry | undefined): void {
   if (saveButton) saveButton.disabled = !enabled;
 }
 
+function setNavigationButtonsState(history: NavigationHistoryState): void {
+  const backButton = document.getElementById("btn-nav-back") as HTMLButtonElement | null;
+  const forwardButton = document.getElementById("btn-nav-forward") as HTMLButtonElement | null;
+  if (backButton) backButton.disabled = history.backStack.length === 0;
+  if (forwardButton) forwardButton.disabled = history.forwardStack.length === 0;
+}
+
 function renderTabs(
   openTabs: string[],
   entries: WorkspaceEntry[],
@@ -119,7 +135,8 @@ function renderTree(
   entries: WorkspaceEntry[],
   activeUri: string | null,
   selectedPath: string,
-  onSelectEntry: (entry: WorkspaceEntry) => void
+  onSelectEntry: (entry: WorkspaceEntry) => void,
+  onContextMenu: (entry: WorkspaceEntry, event: MouseEvent) => void
 ): void {
   const container = document.getElementById("file-tree");
   if (!container) return;
@@ -135,6 +152,10 @@ function renderTree(
       item.type = "button";
       item.textContent = entry.kind === "folder" ? `▾ ${entry.label}` : entry.label;
       item.addEventListener("click", () => onSelectEntry(entry));
+      item.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        onContextMenu(entry, event);
+      });
       container.appendChild(item);
       if (entry.kind === "folder") {
         appendFolder(entry.path, depth + 1);
@@ -159,6 +180,12 @@ async function main(): Promise<void> {
   let selectedPath = "/";
   let savedSnapshot = JSON.stringify(entries);
   let diagnosticsTimer: number | undefined;
+  let contextMenuEntry: WorkspaceEntry | null = null;
+  let navigationHistory: NavigationHistoryState = {
+    backStack: [],
+    current: { uri: MAIN_DOCUMENT_URI, lineNumber: 1, column: 1 },
+    forwardStack: [],
+  };
 
   const ensureModel = (uri: string): monaco.editor.ITextModel | null => {
     const existing = models.get(uri) ?? monaco.editor.getModel(monaco.Uri.parse(uri));
@@ -234,15 +261,56 @@ async function main(): Promise<void> {
     editor.revealPositionInCenter(selectionOrPosition);
   };
 
+  const selectionOrPositionToTarget = (
+    uri: string,
+    selectionOrPosition?: monaco.IRange | monaco.IPosition
+  ): NavigationTarget => {
+    if (!selectionOrPosition) {
+      return { uri };
+    }
+    if ("endLineNumber" in selectionOrPosition) {
+      return {
+        uri,
+        lineNumber: selectionOrPosition.startLineNumber,
+        column: selectionOrPosition.startColumn,
+        endLineNumber: selectionOrPosition.endLineNumber,
+        endColumn: selectionOrPosition.endColumn,
+      };
+    }
+    return {
+      uri,
+      lineNumber: selectionOrPosition.lineNumber,
+      column: selectionOrPosition.column,
+    };
+  };
+
+  const currentEditorTarget = (): NavigationTarget | null => {
+    const model = editor.getModel();
+    if (!model) {
+      return activeUri ? { uri: activeUri } : null;
+    }
+    const position = editor.getPosition();
+    return {
+      uri: model.uri.toString(),
+      lineNumber: position?.lineNumber,
+      column: position?.column,
+    };
+  };
+
   const syncEditorState = (): void => {
     const activeEntry = activeUri ? findEntryByUri(entries, activeUri) : undefined;
     updateActiveFileLabel(activeEntry, JSON.stringify(entries) !== savedSnapshot);
     setToolbarState(activeEntry);
+    setNavigationButtonsState(navigationHistory);
     renderTabs(openTabs, entries, activeUri, selectDocument, closeTab);
-    renderTree(entries, activeUri, selectedPath, handleTreeSelection);
+    renderTree(entries, activeUri, selectedPath, handleTreeSelection, showTreeContextMenu);
   };
 
-  const selectDocument = (uri: string, selectionOrPosition?: monaco.IRange | monaco.IPosition): void => {
+  const selectDocument = (
+    uri: string,
+    selectionOrPosition?: monaco.IRange | monaco.IPosition,
+    options: { trackHistory?: boolean } = {}
+  ): void => {
     const model = ensureModel(uri);
     const entry = findEntryByUri(entries, uri);
     if (!model || !entry || entry.kind !== "file") return;
@@ -255,6 +323,10 @@ async function main(): Promise<void> {
     editor.updateOptions({ readOnly: !!entry.readOnly });
     applySelection(selectionOrPosition);
     editor.focus();
+    if (options.trackHistory !== false) {
+      const target = selectionOrPositionToTarget(uri, selectionOrPosition);
+      navigationHistory = pushNavigationTarget(navigationHistory, target);
+    }
     syncEditorState();
     if (isEditableMyLangFile(entry)) {
       pullDiagnostics(model, sessionCache);
@@ -262,8 +334,115 @@ async function main(): Promise<void> {
     }
   };
 
+  const navigateHistory = (direction: "back" | "forward"): void => {
+    const updatedHistory = direction === "back"
+      ? stepBack(navigationHistory)
+      : stepForward(navigationHistory);
+    if (updatedHistory === navigationHistory || !updatedHistory.current) {
+      return;
+    }
+    navigationHistory = updatedHistory;
+    const target = updatedHistory.current;
+    const selection = target.lineNumber && target.column
+      ? target.endLineNumber && target.endColumn
+        ? {
+            startLineNumber: target.lineNumber,
+            startColumn: target.column,
+            endLineNumber: target.endLineNumber,
+            endColumn: target.endColumn,
+          }
+        : {
+            lineNumber: target.lineNumber,
+            column: target.column,
+          }
+      : undefined;
+    selectDocument(target.uri, selection, { trackHistory: false });
+  };
+
+  const hideTreeContextMenu = (): void => {
+    const menu = document.getElementById("tree-context-menu");
+    if (!menu) {
+      return;
+    }
+    menu.style.display = "none";
+    contextMenuEntry = null;
+  };
+
+  const showTreeContextMenu = (entry: WorkspaceEntry, event: MouseEvent): void => {
+    const menu = document.getElementById("tree-context-menu");
+    if (!menu) {
+      return;
+    }
+    contextMenuEntry = entry;
+    selectedPath = entry.path;
+    syncEditorState();
+    menu.style.display = "block";
+    menu.style.left = `${event.clientX}px`;
+    menu.style.top = `${event.clientY}px`;
+
+    const openAction = document.getElementById("tree-context-open") as HTMLButtonElement | null;
+    const deleteAction = document.getElementById("tree-context-delete") as HTMLButtonElement | null;
+    if (openAction) {
+      openAction.disabled = entry.kind !== "file";
+    }
+    if (deleteAction) {
+      deleteAction.disabled = !!entry.readOnly || entry.path === "/";
+    }
+  };
+
+  const deleteEntry = (entry: WorkspaceEntry): void => {
+    const previousEntries = entries;
+    const deletedUri = entry.kind === "file" ? entry.uri : null;
+    entries = deleteWorkspaceEntry(entries, entry.path);
+    if (entries.some((candidate) => candidate.path === entry.path)) {
+      showToast("Read-only entries cannot be deleted");
+      return;
+    }
+    if (deletedUri) {
+      const model = models.get(deletedUri);
+      model?.dispose();
+      models.delete(deletedUri);
+      openTabs = openTabs.filter((uri) => uri !== deletedUri);
+      if (activeUri === deletedUri) {
+        activeUri = openTabs[openTabs.length - 1] ?? MAIN_DOCUMENT_URI;
+        if (activeUri) {
+          selectDocument(activeUri, undefined, { trackHistory: false });
+          return;
+        }
+      }
+    } else {
+      const deletedPrefix = `${entry.path}/`;
+      const deletedUris = openTabs.filter((uri) => {
+        const candidate = findEntryByUri(previousEntries, uri);
+        return !!candidate && candidate.path.startsWith(deletedPrefix);
+      });
+      for (const uri of deletedUris) {
+        const model = models.get(uri);
+        model?.dispose();
+        models.delete(uri);
+      }
+      openTabs = openTabs.filter((uri) => !deletedUris.includes(uri));
+      if (activeUri) {
+        const activeEntry = findEntryByUri(entries, activeUri);
+        if (!activeEntry) {
+          activeUri = openTabs[openTabs.length - 1] ?? MAIN_DOCUMENT_URI;
+          if (activeUri) {
+            selectDocument(activeUri, undefined, { trackHistory: false });
+            return;
+          }
+        }
+      }
+    }
+    selectedPath = "/";
+    syncEditorState();
+  };
+
   monaco.editor.registerEditorOpener({
     openCodeEditor(_source, resource, selectionOrPosition) {
+      const currentTarget = currentEditorTarget();
+      if (currentTarget && !sameNavigationTarget(navigationHistory.current, currentTarget)) {
+        navigationHistory = pushNavigationTarget(navigationHistory, currentTarget);
+      }
       const uri = resource.toString();
       const entry = findEntryByUri(entries, uri);
       if (!entry || entry.kind !== "file") {
@@ -352,9 +531,17 @@ async function main(): Promise<void> {
 
   document.getElementById("btn-new-file")?.addEventListener("click", () => createWorkspaceEntry("file"));
   document.getElementById("btn-new-folder")?.addEventListener("click", () => createWorkspaceEntry("folder"));
+  document.getElementById("btn-nav-back")?.addEventListener("click", () => navigateHistory("back"));
+  document.getElementById("btn-nav-forward")?.addEventListener("click", () => navigateHistory("forward"));
 
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     document.getElementById("btn-save")?.click();
+  });
+  editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
+    navigateHistory("back");
+  });
+  editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => {
+    navigateHistory("forward");
   });
 }
 

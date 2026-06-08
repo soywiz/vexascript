@@ -3,6 +3,7 @@ import { expect } from "../../../compiler/test/expect";
 import {
   createFileInWorkspace,
   createFolderInWorkspace,
+  deleteWorkspaceEntry,
   findEntryByUri,
   listChildren,
   MAIN_DOCUMENT_URI,
@@ -66,5 +67,34 @@ describe("monaco static workspace", () => {
     const entries = resolveWorkspaceEntries("default", "runtime", new MemoryStorage());
     expect(listChildren(entries, "/").map((entry) => entry.label)).toEqual(["runtime", "main.my"]);
     expect(listChildren(entries, "/runtime").map((entry) => entry.label)).toEqual(["es2025.d.ts"]);
+  });
+
+  it("deletes editable files and nested folders recursively", () => {
+    const entries = createFileInWorkspace(
+      createFolderInWorkspace(
+        createFileInWorkspace(
+          createFolderInWorkspace(resolveWorkspaceEntries("default", "runtime", new MemoryStorage()), "/", "src"),
+          "/src",
+          "util.my"
+        ),
+        "/src",
+        "nested"
+      ),
+      "/src/nested",
+      "deep.my"
+    );
+
+    const withoutFile = deleteWorkspaceEntry(entries, "/src/util.my");
+    expect(listChildren(withoutFile, "/src").map((entry) => entry.label)).toEqual(["nested"]);
+
+    const withoutFolder = deleteWorkspaceEntry(withoutFile, "/src/nested");
+    expect(listChildren(withoutFolder, "/src").map((entry) => entry.label)).toEqual([]);
+  });
+
+  it("does not delete read-only runtime entries", () => {
+    const entries = resolveWorkspaceEntries("default", "runtime", new MemoryStorage());
+    const next = deleteWorkspaceEntry(entries, "/runtime");
+    expect(listChildren(next, "/").map((entry) => entry.label)).toEqual(["runtime", "main.my"]);
+    expect(findEntryByUri(next, RUNTIME_DOCUMENT_URI)?.kind === "file" ? findEntryByUri(next, RUNTIME_DOCUMENT_URI)?.label : null).toBe("es2025.d.ts");
   });
 });

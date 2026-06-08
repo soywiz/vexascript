@@ -248,3 +248,19 @@ export function createFolderInWorkspace(
   if (entries.some((entry) => entry.path === fullPath)) return entries;
   return sortEntries([...entries, createFolderEntry(fullPath)]);
 }
+
+export function deleteWorkspaceEntry(
+  entries: WorkspaceEntry[],
+  targetPath: string
+): WorkspaceEntry[] {
+  const normalized = normalizePath(targetPath);
+  const target = entries.find((entry) => entry.path === normalized);
+  if (!target || target.readOnly || normalized === "/") {
+    return entries;
+  }
+  const prefix = normalized.endsWith("/") ? normalized : `${normalized}/`;
+  return sortEntries(entries.filter((entry) =>
+    entry.path !== normalized &&
+    !entry.path.startsWith(prefix)
+  ));
+}
