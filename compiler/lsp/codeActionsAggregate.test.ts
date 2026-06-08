@@ -15,9 +15,9 @@ function pointRange(line: number, character: number): Range {
 }
 
 describe("collectCodeActions aggregator", () => {
-  it("returns no actions when there is no AST", () => {
+  it("returns no actions when there is no AST", async () => {
     expect(
-      collectCodeActions({
+      await collectCodeActions({
         uri: URI,
         text: "",
         ast: null,
@@ -29,10 +29,10 @@ describe("collectCodeActions aggregator", () => {
     ).toHaveLength(0);
   });
 
-  it("offers a declaration-keyword replacement quick fix", () => {
+  it("offers a declaration-keyword replacement quick fix", async () => {
     const source = "let value = 1\n";
     const session = createAnalysisSession(source);
-    const actions = collectCodeActions({
+    const actions = await collectCodeActions({
       uri: URI,
       text: source,
       ast: session.ast,
@@ -45,10 +45,10 @@ describe("collectCodeActions aggregator", () => {
     expect(titles).toContain("Replace 'let' with 'const'");
   });
 
-  it("offers an explicit return type quick fix", () => {
+  it("offers an explicit return type quick fix", async () => {
     const source = "function add(a: number, b: number) {\n  return a + b\n}\n";
     const session = createAnalysisSession(source);
-    const actions = collectCodeActions({
+    const actions = await collectCodeActions({
       uri: URI,
       text: source,
       ast: session.ast,
@@ -61,7 +61,7 @@ describe("collectCodeActions aggregator", () => {
     expect(titles).toContain("Add explicit return type ': number'");
   });
 
-  it("offers a string-concatenation to template-literal quick fix", () => {
+  it("offers a string-concatenation to template-literal quick fix", async () => {
     const source = dedent`
       class Rectangle {
         describe() {
@@ -70,7 +70,7 @@ describe("collectCodeActions aggregator", () => {
       }
       `;
     const session = createAnalysisSession(source);
-    const actions = collectCodeActions({
+    const actions = await collectCodeActions({
       uri: URI,
       text: source,
       ast: session.ast,

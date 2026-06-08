@@ -10,7 +10,7 @@ import { createSignatureHelp } from "./signatureHelp";
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 
 describe("signature help", () => {
-  it("provides function signature and active parameter index", () => {
+  it("provides function signature and active parameter index", async () => {
     const source = dedent`
       fun sum(a: int, b: int): int {
         return a + b
@@ -24,7 +24,7 @@ describe("signature help", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = createSignatureHelp(session.ast!, session.analysis!, 4, 15);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 4, 15);
     expect(help).toEqual({
       signatures: [
         {
@@ -37,7 +37,7 @@ describe("signature help", () => {
     });
   });
 
-  it("provides constructor signature for new expressions", () => {
+  it("provides constructor signature for new expressions", async () => {
     const source = dedent`
       class Point(val x: int, val y: int)
       fun demo() {
@@ -49,7 +49,7 @@ describe("signature help", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = createSignatureHelp(session.ast!, session.analysis!, 2, 22);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 2, 22);
     expect(help).toEqual({
       signatures: [
         {
@@ -62,7 +62,7 @@ describe("signature help", () => {
     });
   });
 
-  it("provides signature help for static members on ambient runtime constructors", () => {
+  it("provides signature help for static members on ambient runtime constructors", async () => {
     const source = dedent`
       fun script() {
         Date.parse("2024-01-01")
@@ -73,13 +73,13 @@ describe("signature help", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = createSignatureHelp(session.ast!, session.analysis!, 1, 13);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 13);
     expect(help?.signatures[0]?.label).toEqual("parse(s: string)");
     expect(help?.signatures[0]?.parameters).toEqual([{ label: "s: string" }]);
     expect(help?.activeParameter).toEqual(0);
   });
 
-  it("provides signature help for members on ambient runtime interface globals", () => {
+  it("provides signature help for members on ambient runtime interface globals", async () => {
     const source = dedent`
       fun script() {
         Math.max(1, 2)
@@ -90,11 +90,11 @@ describe("signature help", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = createSignatureHelp(session.ast!, session.analysis!, 1, 11);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 11);
     expect(help?.signatures[0]?.label).toEqual("max(values: number[])");
   });
 
-  it("resolves the innermost call inside a tail/brace lambda argument", () => {
+  it("resolves the innermost call inside a tail/brace lambda argument", async () => {
     const source = dedent`
       fun inner(a: int, b: int): int {
         return a + b
@@ -112,7 +112,7 @@ describe("signature help", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = createSignatureHelp(session.ast!, session.analysis!, 7, 13);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 7, 13);
     expect(help).toEqual({
       signatures: [
         {
@@ -125,13 +125,13 @@ describe("signature help", () => {
     });
   });
 
-  it("returns null when cursor is outside invocation", () => {
+  it("returns null when cursor is outside invocation", async () => {
     const source = "fun demo() {\n  let value = 1\n}\n";
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    expect(createSignatureHelp(session.ast!, session.analysis!, 1, 6)).toBeNull();
+    expect(await createSignatureHelp(session.ast!, session.analysis!, 1, 6)).toBeNull();
   });
 
   it("provides signature help and docs for imported class methods", async () => {
@@ -162,7 +162,7 @@ describe("signature help", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = createSignatureHelp(
+    const help = await createSignatureHelp(
       session.ast!,
       session.analysis!,
       3,
@@ -186,7 +186,7 @@ describe("signature help", () => {
     });
   });
 
-  it("specializes generic method signature help from instantiated type", () => {
+  it("specializes generic method signature help from instantiated type", async () => {
     const source = dedent`
       class Map<K, V> {
         get(key: K): V { }
@@ -201,7 +201,7 @@ describe("signature help", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = createSignatureHelp(session.ast!, session.analysis!, 5, 12);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 5, 12);
     expect(help).toEqual({
       signatures: [
         {
@@ -214,7 +214,7 @@ describe("signature help", () => {
     });
   });
 
-  it("specializes signature help for inherited generic methods", () => {
+  it("specializes signature help for inherited generic methods", async () => {
     const source = dedent`
       class Base<T> {
         get(key: T): T { }
@@ -231,7 +231,7 @@ describe("signature help", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = createSignatureHelp(session.ast!, session.analysis!, 7, 13);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 7, 13);
     expect(help).toEqual({
       signatures: [
         {
@@ -272,11 +272,11 @@ describe("signature help", () => {
 
     const ctx = { uri: pathToFileURL(mainPath).href, sourceRoots: [root], getSessionForFilePath: () => null };
     const baseSession = createAnalysisSession(source);
-    const declarations = collectImportedTypeDeclarations(baseSession.ast!, ctx);
-    const symbolTypes = collectImportedSymbolTypes(baseSession.ast!, ctx);
+    const declarations = await collectImportedTypeDeclarations(baseSession.ast!, ctx);
+    const symbolTypes = await collectImportedSymbolTypes(baseSession.ast!, ctx);
     const session = createAnalysisSession(source, declarations, symbolTypes);
 
-    const help = createSignatureHelp(session.ast!, session.analysis!, 1, 16, ctx);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 16, ctx);
     expect(help).not.toBeNull();
     expect(help!.signatures[0]!.label).toBe("helper(input: string, count: number)");
     expect(help!.signatures[0]!.parameters).toEqual([

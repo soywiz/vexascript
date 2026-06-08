@@ -222,10 +222,10 @@ export function createDocumentSymbols(program: Program): DocumentSymbol[] {
   return collectDocumentSymbols(program);
 }
 
-export function createWorkspaceSymbols(params: {
+export async function createWorkspaceSymbols(params: {
   sourceRoots: string[];
   query: string;
-}): SymbolInformation[] {
+}): Promise<SymbolInformation[]> {
   const { sourceRoots, query } = params;
   if (sourceRoots.length === 0) {
     return [];
@@ -233,8 +233,8 @@ export function createWorkspaceSymbols(params: {
 
   const symbols: SymbolInformation[] = [];
   const projectIndex = getProjectIndex(sourceRoots);
-  for (const filePath of projectIndex.scanMyFiles()) {
-    const session = getProjectSessionForFilePath(filePath, { sourceRoots });
+  for (const filePath of await projectIndex.scanMyFiles()) {
+    const session = await getProjectSessionForFilePath(filePath, { sourceRoots });
     if (!session?.ast) {
       continue;
     }

@@ -84,13 +84,13 @@ function findReturnTypeTargetAtPosition(ast: Program, position: Position): Retur
   return state.best ? state.best.target : null;
 }
 
-export function createReturnTypeCodeActions(params: {
+export async function createReturnTypeCodeActions(params: {
   uri: string;
   ast: Program | null;
   analysis: Analysis | null;
   position: Position;
   options?: ClassResolverOptions;
-}): CodeAction[] {
+}): Promise<CodeAction[]> {
   if (!params.ast || !params.analysis) {
     return [];
   }
@@ -100,7 +100,7 @@ export function createReturnTypeCodeActions(params: {
     return [];
   }
 
-  const inferred = pickFunctionReturnTypeFromBody(
+  const inferred = await pickFunctionReturnTypeFromBody(
     target.node.body.body,
     params.analysis,
     params.ast,

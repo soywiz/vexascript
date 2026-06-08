@@ -5,30 +5,30 @@ import { join } from "node:path";
 import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { bundleModuleGraph } from "./moduleGraph";
+import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 
-function withTempProject(files: Record<string, string>, run: (dir: string) => void): void {
+function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "mylang-module-graph-"));
-  try {
-    for (const [name, content] of Object.entries(files)) {
-      const filePath = join(dir, name);
-      mkdirSync(join(filePath, ".."), { recursive: true });
-      writeFileSync(filePath, content, "utf8");
-    }
-    run(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  for (const [name, content] of Object.entries(files)) {
+    const filePath = join(dir, name);
+    mkdirSync(join(filePath, ".."), { recursive: true });
+    writeFileSync(filePath, content, "utf8");
   }
+  return run(dir).finally(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
 }
 
 describe("bundleModuleGraph", () => {
-  it("inlines local imports and drops their import statements", () => {
-    withTempProject(
+  it("inlines local imports and drops their import statements", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
       {
         "other.my": "class Point(val x: number, val y: number)\n",
         "main.my": 'import { Point } from "./other"\n\nconst p = Point(1, 2)\n'
       },
-      (dir) => {
-        const result = bundleModuleGraph(join(dir, "main.my"), "conservative");
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
 
         expect(result.errors).toEqual([]);
         expect(result.code).toContain("class Point {");
@@ -38,8 +38,9 @@ describe("bundleModuleGraph", () => {
     );
   });
 
-  it("auto-awaits a Promise-returning function imported from another file", () => {
-    withTempProject(
+  it("auto-awaits a Promise-returning function imported from another file", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
       {
         "dep.my":
           "class TimeSpan(val ms: number) {}\n" +
@@ -53,8 +54,8 @@ describe("bundleModuleGraph", () => {
           "}\n" +
           "demo()\n"
       },
-      (dir) => {
-        const result = bundleModuleGraph(join(dir, "main.my"), "optimized");
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.my"), "optimized");
 
         expect(result.errors).toEqual([]);
         // The imported `delay` returns a Promise (inferred cross-file), so each
@@ -65,8 +66,9 @@ describe("bundleModuleGraph", () => {
     );
   });
 
-  it("lowers cross-file operator overloads using the imported declaration", () => {
-    withTempProject(
+  it("lowers cross-file operator overloads using the imported declaration", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
       {
         "other.my":
           dedent`
@@ -77,8 +79,8 @@ describe("bundleModuleGraph", () => {
           'import { Point, operator+ } from "./other"\n\n' +
           "const sum = Point(1, 2) + Point(3, 4)\n"
       },
-      (dir) => {
-        const result = bundleModuleGraph(join(dir, "main.my"), "conservative");
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
 
         expect(result.errors).toEqual([]);
         expect(result.code).toContain("function Point$$operator$plus$$Point($this, other)");
@@ -89,8 +91,9 @@ describe("bundleModuleGraph", () => {
     );
   });
 
-  it("emits each module once for diamond-shaped dependencies", () => {
-    withTempProject(
+  it("emits each module once for diamond-shaped dependencies", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
       {
         "base.my": "class Base(val value: number)\n",
         "left.my": 'import { Base } from "./base"\nfun makeLeft() => Base(1)\n',
@@ -98,8 +101,8 @@ describe("bundleModuleGraph", () => {
         "main.my":
           'import { makeLeft } from "./left"\nimport { makeRight } from "./right"\nmakeLeft()\nmakeRight()\n'
       },
-      (dir) => {
-        const result = bundleModuleGraph(join(dir, "main.my"), "conservative");
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
 
         expect(result.errors).toEqual([]);
         const baseDefinitions = result.code.split("class Base {").length - 1;
@@ -108,13 +111,14 @@ describe("bundleModuleGraph", () => {
     );
   });
 
-  it("keeps non-local (bare) imports in the bundled output", () => {
-    withTempProject(
+  it("keeps non-local (bare) imports in the bundled output", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
       {
         "main.my": 'import { readFile } from "node:fs"\nreadFile("x")\n'
       },
-      (dir) => {
-        const result = bundleModuleGraph(join(dir, "main.my"), "conservative");
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
 
         expect(result.errors).toEqual([]);
         expect(result.code).toContain('import { readFile } from "node:fs";');

@@ -29,7 +29,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(fileB).toString(),
       line: 2,
       character: 15,
@@ -62,7 +62,7 @@ describe("cross-file navigation", () => {
     const session = createAnalysisSession(source);
     // Cursor on `ms` in `time.ms`, which lives inside the `new Promise { ... }`
     // trailing lambda body.
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(file).toString(),
       line: 2,
       character: source.split("\n")[2]!.indexOf(".ms") + 2,
@@ -91,7 +91,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(fileB).toString(),
       line: 3,
       character: 8,
@@ -128,7 +128,7 @@ describe("cross-file navigation", () => {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(file).toString(),
       line: 8,
       character: 12,
@@ -163,14 +163,14 @@ describe("cross-file navigation", () => {
 
     const uri = pathToFileURL(main).toString();
     const baseSession = createAnalysisSession(mainSource);
-    const externalDeclarations = collectImportedTypeDeclarations(baseSession.ast!, {
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
       uri,
       sourceRoots: [root]
     });
     const session = createAnalysisSession(mainSource, externalDeclarations);
 
     // Cursor on the `+` operator of `Point(1, 2) + Point(3, 4)`.
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri,
       line: 1,
       character: mainSource.split("\n")[1]!.indexOf(") + ") + 2,
@@ -205,14 +205,14 @@ describe("cross-file navigation", () => {
 
     const uri = pathToFileURL(main).toString();
     const baseSession = createAnalysisSession(mainSource);
-    const externalDeclarations = collectImportedTypeDeclarations(baseSession.ast!, {
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
       uri,
       sourceRoots: [root]
     });
     const session = createAnalysisSession(mainSource, externalDeclarations);
 
     // Cursor on `seconds` in `1.seconds`.
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri,
       line: 1,
       character: mainSource.split("\n")[1]!.indexOf(".seconds") + 2,
@@ -247,14 +247,14 @@ describe("cross-file navigation", () => {
 
     const uri = pathToFileURL(main).toString();
     const baseSession = createAnalysisSession(mainSource);
-    const externalDeclarations = collectImportedTypeDeclarations(baseSession.ast!, {
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
       uri,
       sourceRoots: [root]
     });
     const session = createAnalysisSession(mainSource, externalDeclarations);
 
     // Cursor on `magnitude` in `Point(1, 2).magnitude()`.
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri,
       line: 1,
       character: mainSource.split("\n")[1]!.indexOf(".magnitude") + 2,
@@ -279,7 +279,7 @@ describe("cross-file navigation", () => {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const hover = resolveMemberHoverAcrossFiles({
+    const hover = await resolveMemberHoverAcrossFiles({
       uri: pathToFileURL(file).toString(),
       line: 0,
       character: 20,
@@ -309,7 +309,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const hover = resolveMemberHoverAcrossFiles({
+    const hover = await resolveMemberHoverAcrossFiles({
       uri: pathToFileURL(fileB).toString(),
       line: 3,
       character: 8,
@@ -345,7 +345,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(fileB).toString(),
       line: 3,
       character: 8,
@@ -379,7 +379,7 @@ describe("cross-file navigation", () => {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const hover = resolveMemberHoverAcrossFiles({
+    const hover = await resolveMemberHoverAcrossFiles({
       uri: pathToFileURL(file).toString(),
       line: 6,
       character: 7,
@@ -421,7 +421,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const hover = resolveMemberHoverAcrossFiles({
+    const hover = await resolveMemberHoverAcrossFiles({
       uri: pathToFileURL(fileB).toString(),
       line: 3,
       character: 8,
@@ -454,7 +454,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileC, sourceC, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const locations = resolveReferencesAcrossFiles(
+    const locations = await resolveReferencesAcrossFiles(
       {
         uri: pathToFileURL(fileB).toString(),
         line: 2,
@@ -504,7 +504,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const locations = resolveReferencesAcrossFiles(
+    const locations = await resolveReferencesAcrossFiles(
       {
         uri: pathToFileURL(fileB).toString(),
         line: 3,
@@ -561,7 +561,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionA = createAnalysisSession(sourceA);
-    const locations = resolveReferencesAcrossFiles(
+    const locations = await resolveReferencesAcrossFiles(
       {
         uri: pathToFileURL(fileA).toString(),
         line: 0,
@@ -617,7 +617,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const locations = resolveReferencesAcrossFiles(
+    const locations = await resolveReferencesAcrossFiles(
       {
         uri: pathToFileURL(fileB).toString(),
         line: 3,
@@ -674,7 +674,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const edit = resolveRenameAcrossFiles(
+    const edit = await resolveRenameAcrossFiles(
       {
         uri: pathToFileURL(fileB).toString(),
         line: 2,
@@ -725,7 +725,7 @@ describe("cross-file navigation", () => {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const edit = resolveRenameAcrossFiles(
+    const edit = await resolveRenameAcrossFiles(
       {
         uri: pathToFileURL(file).toString(),
         line: 1,
@@ -773,7 +773,7 @@ describe("cross-file navigation", () => {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const edit = resolveRenameAcrossFiles(
+    const edit = await resolveRenameAcrossFiles(
       {
         uri: pathToFileURL(file).toString(),
         line: 0,
@@ -813,7 +813,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionA = createAnalysisSession(sourceA);
-    const locations = resolveReferencesAcrossFiles(
+    const locations = await resolveReferencesAcrossFiles(
       {
         uri: pathToFileURL(fileA).toString(),
         line: 0,
@@ -874,7 +874,7 @@ describe("cross-file navigation", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionA = createAnalysisSession(sourceA);
-    const edit = resolveRenameAcrossFiles(
+    const edit = await resolveRenameAcrossFiles(
       {
         uri: pathToFileURL(fileA).toString(),
         line: 0,
@@ -923,7 +923,7 @@ describe("cross-file navigation", () => {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(file).toString(),
       line: 1,
       character: 10,
@@ -931,8 +931,9 @@ describe("cross-file navigation", () => {
       sourceRoots: [root]
     });
 
-    expect(location?.uri).toBe(pathToFileURL(getEcmaScriptRuntimeDeclarationFilePath()).toString());
-    const runtimeLines = readFileSync(getEcmaScriptRuntimeDeclarationFilePath(), "utf8").split("\n");
+    const runtimeFilePath = await getEcmaScriptRuntimeDeclarationFilePath();
+    expect(location?.uri).toBe(pathToFileURL(runtimeFilePath).toString());
+    const runtimeLines = readFileSync(runtimeFilePath, "utf8").split("\n");
     const lineText = runtimeLines[location?.range.start.line ?? -1] ?? "";
     expect(lineText).toContain("map");
   });
@@ -947,7 +948,7 @@ describe("cross-file navigation", () => {
 
     const sessionB = createAnalysisSession(`import { Foo } from "./a"\n`);
     // cursor on the "./a" string (line 0, character 21 is inside the string)
-    const location = resolveDefinitionAcrossFiles({
+    const location = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(fileB).toString(),
       line: 0,
       character: 21,
@@ -971,7 +972,7 @@ describe("cross-file navigation", () => {
 
     const { resolveImportPathHover } = await import("./crossFileNavigation");
     const sessionB = createAnalysisSession(`import { Foo } from "./a"\n`);
-    const hover = resolveImportPathHover({
+    const hover = await resolveImportPathHover({
       uri: pathToFileURL(fileB).toString(),
       line: 0,
       character: 21,

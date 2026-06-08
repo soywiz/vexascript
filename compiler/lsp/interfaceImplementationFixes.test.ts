@@ -40,7 +40,7 @@ class Map implements MyInterface {
 
     const session = createAnalysisSession(source);
     const uri = pathToFileURL(file).toString();
-    const actions = createInterfaceImplementationCodeActions({
+    const actions = await createInterfaceImplementationCodeActions({
       uri,
       ast: session.ast,
       diagnostics: [
@@ -79,7 +79,7 @@ class Map implements MyInterface {
 
     const session = createAnalysisSession(source);
     const uri = pathToFileURL(file).toString();
-    const actions = createInterfaceImplementationCodeActions({
+    const actions = await createInterfaceImplementationCodeActions({
       uri,
       ast: session.ast,
       diagnostics: [
@@ -118,7 +118,7 @@ class Map implements MyInterface {
 
     const session = createAnalysisSession(source);
     const uri = pathToFileURL(file).toString();
-    const actions = createInterfaceImplementationCodeActions({
+    const actions = await createInterfaceImplementationCodeActions({
       uri,
       ast: session.ast,
       diagnostics: [

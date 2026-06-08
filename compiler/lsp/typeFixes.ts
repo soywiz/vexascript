@@ -120,15 +120,15 @@ function buildMemberTypeEdit(
   return null;
 }
 
-export function createTypeFixCodeActions(params: {
+export async function createTypeFixCodeActions(params: {
   uri: string;
   ast: Program | null;
   analysis: Analysis | null;
   diagnostics: Diagnostic[];
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => { ast: Program | null; analysis: Analysis | null } | null;
+  getSessionForFilePath?: (filePath: string) => { ast: Program | null; analysis: Analysis | null } | null | Promise<{ ast: Program | null; analysis: Analysis | null } | null>;
   commandName?: string;
-}): CodeAction[] {
+}): Promise<CodeAction[]> {
   if (!params.ast || !params.analysis) {
     return [];
   }
@@ -166,7 +166,7 @@ export function createTypeFixCodeActions(params: {
       continue;
     }
 
-    const objectType = resolveExpressionTypeName(
+    const objectType = await resolveExpressionTypeName(
       leftMember.object,
       params.analysis,
       params.ast,
@@ -176,7 +176,7 @@ export function createTypeFixCodeActions(params: {
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(
+    const classResolution = await resolveClassStatementAcrossFiles(
       params.ast,
       baseTypeName(objectType),
       resolverOptions,
@@ -187,7 +187,7 @@ export function createTypeFixCodeActions(params: {
     }
 
     const memberName = (leftMember.property as Identifier).name;
-    const resolvedMember = resolveClassMember(
+    const resolvedMember = await resolveClassMember(
       classResolution.classStatement,
       memberName,
       objectType,
@@ -201,7 +201,7 @@ export function createTypeFixCodeActions(params: {
       continue;
     }
 
-    const declaration = resolveClassMemberDeclaration(
+    const declaration = await resolveClassMemberDeclaration(
       classResolution,
       memberName,
       objectType,

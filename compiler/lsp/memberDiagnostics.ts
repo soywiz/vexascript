@@ -17,7 +17,7 @@ interface CollectMemberDiagnosticsParams {
   uri: string;
   session: AnalysisSession;
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
+  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
 }
 
 function collectMemberExpressions(program: Program): MemberExpression[] {
@@ -30,9 +30,9 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
   return expressions;
 }
 
-export function collectCrossFileMemberDiagnostics(
+export async function collectCrossFileMemberDiagnostics(
   params: CollectMemberDiagnosticsParams
-): Diagnostic[] {
+): Promise<Diagnostic[]> {
   const { session, sourceRoots, uri } = params;
   if (!session.ast || !session.analysis) {
     return [];
@@ -53,7 +53,7 @@ export function collectCrossFileMemberDiagnostics(
     if (member.computed || member.property.kind !== "Identifier") {
       continue;
     }
-    const objectTypeName = resolveCrossFileExpressionTypeName(
+    const objectTypeName = await resolveCrossFileExpressionTypeName(
       member.object,
       session.analysis,
       session.ast,
@@ -63,7 +63,7 @@ export function collectCrossFileMemberDiagnostics(
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(
+    const classResolution = await resolveClassStatementAcrossFiles(
       session.ast,
       baseTypeName(objectTypeName),
       options,
@@ -74,7 +74,7 @@ export function collectCrossFileMemberDiagnostics(
     }
 
     const memberName = (member.property as Identifier).name;
-    const resolvedMember = resolveClassMember(
+    const resolvedMember = await resolveClassMember(
       classResolution.classStatement,
       memberName,
       objectTypeName,

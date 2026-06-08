@@ -28,7 +28,7 @@ fun demo() {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileMemberDiagnostics({
+    const diagnostics = await collectCrossFileMemberDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -70,7 +70,7 @@ fun demo() {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileMemberDiagnostics({
+    const diagnostics = await collectCrossFileMemberDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -103,7 +103,7 @@ fun demo() {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileMemberDiagnostics({
+    const diagnostics = await collectCrossFileMemberDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]

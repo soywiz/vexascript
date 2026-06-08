@@ -39,14 +39,14 @@ fun demo() {
           return { line, character };
         }
       ),
-      ...collectCrossFileTypeDiagnostics({
+      ...await collectCrossFileTypeDiagnostics({
         uri: pathToFileURL(helloFile).toString(),
         session,
         sourceRoots: [root]
       })
     ];
 
-    const actions = createTypeFixCodeActions({
+    const actions = await createTypeFixCodeActions({
       uri: pathToFileURL(helloFile).toString(),
       ast: session.ast,
       analysis: session.analysis,
@@ -96,14 +96,14 @@ fun demo() {
           return { line, character };
         }
       ),
-      ...collectCrossFileTypeDiagnostics({
+      ...await collectCrossFileTypeDiagnostics({
         uri: pathToFileURL(helloFile).toString(),
         session,
         sourceRoots: [root]
       })
     ];
 
-    const actions = createTypeFixCodeActions({
+    const actions = await createTypeFixCodeActions({
       uri: pathToFileURL(helloFile).toString(),
       ast: session.ast,
       analysis: session.analysis,

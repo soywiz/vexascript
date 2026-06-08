@@ -37,11 +37,11 @@ export interface CollectCodeActionsParams {
   range: Range;
   diagnostics: Diagnostic[];
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null;
+  getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
   refreshDiagnosticsCommand?: string;
 }
 
-export function collectCodeActions(params: CollectCodeActionsParams): CodeAction[] {
+export async function collectCodeActions(params: CollectCodeActionsParams): Promise<CodeAction[]> {
   const { uri, text, ast, analysis, range, diagnostics, sourceRoots } = params;
   if (!ast) {
     return [];
@@ -85,7 +85,7 @@ export function collectCodeActions(params: CollectCodeActionsParams): CodeAction
   );
 
   actions.push(
-    ...createReturnTypeCodeActions({
+    ...await createReturnTypeCodeActions({
       uri,
       ast,
       analysis,
@@ -122,7 +122,7 @@ export function collectCodeActions(params: CollectCodeActionsParams): CodeAction
   );
 
   actions.push(
-    ...createAutoImportCodeActions({
+    ...await createAutoImportCodeActions({
       uri,
       ast,
       diagnostics,
@@ -141,7 +141,7 @@ export function collectCodeActions(params: CollectCodeActionsParams): CodeAction
   );
 
   actions.push(
-    ...createCreateMemberCodeActions({
+    ...await createCreateMemberCodeActions({
       uri,
       ast,
       analysis,
@@ -152,7 +152,7 @@ export function collectCodeActions(params: CollectCodeActionsParams): CodeAction
   );
 
   actions.push(
-    ...createTypeFixCodeActions({
+    ...await createTypeFixCodeActions({
       uri,
       ast,
       analysis,
@@ -166,7 +166,7 @@ export function collectCodeActions(params: CollectCodeActionsParams): CodeAction
   );
 
   actions.push(
-    ...createInterfaceImplementationCodeActions({
+    ...await createInterfaceImplementationCodeActions({
       uri,
       ast,
       diagnostics,

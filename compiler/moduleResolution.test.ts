@@ -16,25 +16,25 @@ describe("resolveImportTargetFilePath", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("appends a .my extension when the import omits one", () => {
+  it("appends a .my extension when the import omits one", async () => {
     const importer = join(root, "main.my");
     writeFileSync(importer, "");
     const target = join(root, "utils.my");
     writeFileSync(target, "");
 
-    expect(resolveImportTargetFilePath(importer, "./utils")).toBe(target);
+    expect(await resolveImportTargetFilePath(importer, "./utils")).toBe(target);
   });
 
-  it("resolves an import that already includes the extension", () => {
+  it("resolves an import that already includes the extension", async () => {
     const importer = join(root, "main.my");
     writeFileSync(importer, "");
     const target = join(root, "utils.my");
     writeFileSync(target, "");
 
-    expect(resolveImportTargetFilePath(importer, "./utils.my")).toBe(target);
+    expect(await resolveImportTargetFilePath(importer, "./utils.my")).toBe(target);
   });
 
-  it("resolves imports relative to the importing file's directory", () => {
+  it("resolves imports relative to the importing file's directory", async () => {
     const nestedDir = join(root, "nested");
     mkdirSync(nestedDir);
     const importer = join(nestedDir, "main.my");
@@ -42,13 +42,13 @@ describe("resolveImportTargetFilePath", () => {
     const target = join(root, "shared.my");
     writeFileSync(target, "");
 
-    expect(resolveImportTargetFilePath(importer, "../shared")).toBe(target);
+    expect(await resolveImportTargetFilePath(importer, "../shared")).toBe(target);
   });
 
-  it("returns null when the target file does not exist", () => {
+  it("returns null when the target file does not exist", async () => {
     const importer = join(root, "main.my");
     writeFileSync(importer, "");
 
-    expect(resolveImportTargetFilePath(importer, "./missing")).toBeNull();
+    expect(await resolveImportTargetFilePath(importer, "./missing")).toBeNull();
   });
 });

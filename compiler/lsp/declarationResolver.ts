@@ -102,9 +102,9 @@ function importSpecifierName(
   return matchingSpecifier?.imported.name ?? null;
 }
 
-export function resolveTopLevelDeclarationAcrossFiles<T extends Statement>(
+export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>(
   options: ResolveTopLevelDeclarationOptions<T>
-): ResolvedTopLevelDeclaration<T> | null {
+): Promise<ResolvedTopLevelDeclaration<T> | null> {
   const local = findTopLevelDeclarationInProgram(options.ast, options.name, options.predicate);
   if (local) {
     return {
@@ -123,14 +123,14 @@ export function resolveTopLevelDeclarationAcrossFiles<T extends Statement>(
       if (!importedName) {
         continue;
       }
-      const targetFilePath = resolveImportTargetFilePath(
+      const targetFilePath = await resolveImportTargetFilePath(
         options.currentFilePath,
         importStatement.from.value
       );
       if (!targetFilePath) {
         continue;
       }
-      const targetSession = getProjectSessionForFilePath(targetFilePath, options);
+      const targetSession = await getProjectSessionForFilePath(targetFilePath, options);
       if (!targetSession?.ast) {
         continue;
       }
@@ -162,8 +162,8 @@ export function resolveTopLevelDeclarationAcrossFiles<T extends Statement>(
     }
   }
 
-  for (const filePath of scanProjectMyFiles(options.sourceRoots ?? [])) {
-    const targetSession = getProjectSessionForFilePath(filePath, options);
+  for (const filePath of await scanProjectMyFiles(options.sourceRoots ?? [])) {
+    const targetSession = await getProjectSessionForFilePath(filePath, options);
     if (!targetSession?.ast) {
       continue;
     }

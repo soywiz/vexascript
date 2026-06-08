@@ -28,12 +28,12 @@ export interface SymbolExport {
 
 const CODE_ACTION_KIND_QUICK_FIX = "quickfix";
 
-export function buildSymbolExports(sourceRoots: string[]): SymbolExport[] {
+export async function buildSymbolExports(sourceRoots: string[]): Promise<SymbolExport[]> {
   const exports: SymbolExport[] = [];
   const projectIndex = getProjectIndex(sourceRoots);
 
   try {
-    for (const entry of projectIndex.collectWorkspaceTopLevelDeclarations("")) {
+    for (const entry of await projectIndex.collectWorkspaceTopLevelDeclarations("")) {
       exports.push({
         name: entry.declaration.name,
         kind: entry.declaration.kind,
@@ -206,12 +206,12 @@ export function uriToFilePath(uri: string): string | null {
   }
 }
 
-export function createAutoImportCodeActions(params: {
+export async function createAutoImportCodeActions(params: {
   uri: string;
   ast: Program | null;
   diagnostics: Diagnostic[];
   sourceRoots: string[];
-}): CodeAction[] {
+}): Promise<CodeAction[]> {
   const { uri, ast, diagnostics, sourceRoots } = params;
   if (!ast || sourceRoots.length === 0) {
     return [];
@@ -228,7 +228,7 @@ export function createAutoImportCodeActions(params: {
     return [];
   }
 
-  const exportedSymbols = buildSymbolExports(sourceRoots);
+  const exportedSymbols = await buildSymbolExports(sourceRoots);
   if (exportedSymbols.length === 0) {
     return [];
   }
@@ -343,7 +343,7 @@ export interface AutoImportSuggestion {
   range: Range;
 }
 
-export function buildExtensionAutoImportSuggestions(params: {
+export async function buildExtensionAutoImportSuggestions(params: {
   uri: string;
   ast: Program | null;
   sourceRoots: string[];
@@ -351,12 +351,12 @@ export function buildExtensionAutoImportSuggestions(params: {
   prefix?: string;
   memberKind?: "property" | "method";
   excludeSymbols?: Set<string>;
-}): AutoImportSuggestion[] {
+}): Promise<AutoImportSuggestion[]> {
   const { receiverType, memberKind } = params;
-  return buildAutoImportSuggestions({
+  return (await buildAutoImportSuggestions({
     ...params,
     allowEmptyPrefix: true
-  }).filter(({ symbol }) => {
+  })).filter(({ symbol }) => {
     if (!symbol.receiverType) {
       return false;
     }
@@ -373,14 +373,14 @@ export function buildExtensionAutoImportSuggestions(params: {
   });
 }
 
-export function buildAutoImportSuggestions(params: {
+export async function buildAutoImportSuggestions(params: {
   uri: string;
   ast: Program | null;
   sourceRoots: string[];
   prefix?: string;
   allowEmptyPrefix?: boolean;
   excludeSymbols?: Set<string>;
-}): AutoImportSuggestion[] {
+}): Promise<AutoImportSuggestion[]> {
   const { uri, ast, sourceRoots, prefix, allowEmptyPrefix, excludeSymbols } = params;
   if (!ast || sourceRoots.length === 0) {
     return [];
@@ -391,7 +391,7 @@ export function buildAutoImportSuggestions(params: {
     return [];
   }
 
-  const exportedSymbols = buildSymbolExports(sourceRoots);
+  const exportedSymbols = await buildSymbolExports(sourceRoots);
   if (exportedSymbols.length === 0) {
     return [];
   }

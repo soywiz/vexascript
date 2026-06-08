@@ -36,7 +36,7 @@ function sourceWithCursor(source: string): {
 }
 
 describe("createCompletionItemsForPosition", () => {
-  it("includes in-scope variables and parameters inside function body", () => {
+  it("includes in-scope variables and parameters inside function body", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       let top = 1
       fun demo(a, b: int) {
@@ -46,7 +46,7 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const ast = parseFile(tokenizeReader(source));
-    const items = createCompletionItemsForPosition(ast, line, character);
+    const items = await createCompletionItemsForPosition(ast, line, character);
     const labels = items.map((item) => item.label);
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
@@ -61,7 +61,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("demo")?.detail).toBe("In-scope function: (a: unknown, b: int) => unknown");
   });
 
-  it("offers contextually typed Promise executor parameters", () => {
+  it("offers contextually typed Promise executor parameters", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       let promise = new Promise((resolve, reject) => {
         ^^^resolve(1)
@@ -69,21 +69,21 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const ast = parseFile(tokenizeReader(source));
-    const items = createCompletionItemsForPosition(ast, line, character);
+    const items = await createCompletionItemsForPosition(ast, line, character);
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
     expect(byLabel.get("resolve")?.detail).toBe("In-scope parameter: (arg1: int) => void");
     expect(byLabel.get("reject")?.detail).toBe("In-scope parameter: (arg1: Error) => void");
   });
 
-  it("suggests named arguments inside an empty call argument list", () => {
+  it("suggests named arguments inside an empty call argument list", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun connect(host: string, port: number) {}
       connect(^^^)
       `
     );
     const ast = parseFile(tokenizeReader(source));
-    const items = createCompletionItemsForPosition(ast, line, character);
+    const items = await createCompletionItemsForPosition(ast, line, character);
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
     expect(byLabel.has("host:")).toBe(true);
@@ -93,35 +93,35 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("host:")?.detail).toBe("Named argument: string");
   });
 
-  it("suggests named arguments for new expressions", () => {
+  it("suggests named arguments for new expressions", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Point(val x: number, val y: number)
       val p = new Point(^^^)
       `
     );
     const ast = parseFile(tokenizeReader(source));
-    const items = createCompletionItemsForPosition(ast, line, character);
+    const items = await createCompletionItemsForPosition(ast, line, character);
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
     expect(byLabel.has("x:")).toBe(true);
     expect(byLabel.has("y:")).toBe(true);
   });
 
-  it("does not suggest named arguments outside of a call argument list", () => {
+  it("does not suggest named arguments outside of a call argument list", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun connect(host: string, port: number) {}
       ^^^connect
       `
     );
     const ast = parseFile(tokenizeReader(source));
-    const items = createCompletionItemsForPosition(ast, line, character);
+    const items = await createCompletionItemsForPosition(ast, line, character);
     const labels = items.map((item) => item.label);
 
     expect(labels).not.toContain("host:");
     expect(labels).not.toContain("port:");
   });
 
-  it("keeps keyword completions available", () => {
+  it("keeps keyword completions available", async () => {
     const labels = createKeywordOnlyCompletionItems().map((item) => item.label);
     expect(labels).toContain("fn");
     expect(labels).toContain("type");
@@ -137,10 +137,10 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("boolean");
   });
 
-  it("includes auto-import completion items with additional text edits", () => {
+  it("includes auto-import completion items with additional text edits", async () => {
     const { source, line, character } = sourceWithCursor("fun demo() {\n  return ^^^Poi\n}\n");
     const ast = parseFile(tokenizeReader(source));
-    const items = createCompletionItemsForPosition(
+    const items = await createCompletionItemsForPosition(
       ast,
       line,
       character,
@@ -165,27 +165,27 @@ describe("createCompletionItemsForPosition", () => {
     );
   });
 
-  it("offers exported runtime namespace members for member access", () => {
+  it("offers exported runtime namespace members for member access", async () => {
     const { source, line, character } = sourceWithCursor(
       "namespace Tools { export const version = 1; const hidden = 2; export function read() { return version } }\nTools.^^^"
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     expect(items.map((item) => item.label)).toEqual(expect.arrayContaining(["version", "read"]));
     expect(items.map((item) => item.label)).not.toContain("hidden");
   });
 
-  it("offers ECMAScript runtime members for built-in globals", () => {
+  it("offers ECMAScript runtime members for built-in globals", async () => {
     const { source, line, character } = sourceWithCursor("fun demo() {\n  Math.^^^\n}\n");
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toEqual(expect.arrayContaining(["abs", "floor", "max", "random"]));
     expect(labels).not.toContain("demo");
   });
 
-  it("offers local extension members for numeric literal member access", () => {
+  it("offers local extension members for numeric literal member access", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class TimeSpan(val ms: number)
       val number.milliseconds => TimeSpan(this)
@@ -194,13 +194,13 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toEqual(expect.arrayContaining(["milliseconds", "seconds"]));
   });
 
-  it("offers generic Array extension members for array member access", () => {
+  it("offers generic Array extension members for array member access", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun <T> Array<T>.second(): T { return this[1] }
       val <T> Array<T>.doubledLength => length * 2
@@ -209,7 +209,7 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toEqual(expect.arrayContaining(["second", "doubledLength"]));
@@ -231,7 +231,7 @@ describe("createCompletionItemsForPosition", () => {
     await writeFile(consumerFile, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(consumerFile).toString(),
       sourceRoots: [root],
@@ -256,7 +256,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("seconds")?.detail).toBe("Auto import extension from ./duration");
   });
 
-  it("resolves chained members after extension properties", () => {
+  it("resolves chained members after extension properties", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class TimeSpan(val ms: number)
       val number.seconds => TimeSpan(this * 1000)
@@ -264,41 +264,41 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toContain("ms");
   });
 
-  it("offers constructor properties inside template interpolation", () => {
+  it("offers constructor properties inside template interpolation", async () => {
     const source = dedent`
       class TimeSpan(val ms: number) {
         toString() => \`\${m}\`
       }
       `;
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, 1, 20, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, 1, 20, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels[0]).toBe("ms");
     expect(labels).toContain("this");
   });
 
-  it("offers constructor properties inside empty template interpolation", () => {
+  it("offers constructor properties inside empty template interpolation", async () => {
     const source = dedent`
       class TimeSpan(val ms: number) {
         toString() => \`\${}\`
       }
       `;
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, 1, 18, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, 1, 18, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels[0]).toBe("ms");
     expect(labels).toContain("this");
   });
 
-  it("resolves member completions from explicitly typed variables", () => {
+  it("resolves member completions from explicitly typed variables", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun demo() {
         const result: Point = value
@@ -308,14 +308,14 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toEqual(expect.arrayContaining(["x", "y"]));
     expect(labels).not.toEqual(expect.arrayContaining(["result", "value", "true"]));
   });
 
-  it("prioritizes class member completions for member access", () => {
+  it("prioritizes class member completions for member access", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Point(val x: int, val y: int) {
         sum() {
@@ -331,7 +331,7 @@ describe("createCompletionItemsForPosition", () => {
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
-    const items = createCompletionItemsForPosition(
+    const items = await createCompletionItemsForPosition(
       session.ast!,
       line,
       character,
@@ -348,7 +348,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("point");
   });
 
-  it("offers Array<T> members for array-typed variable member access", () => {
+  it("offers Array<T> members for array-typed variable member access", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       declare class Array<T> {
         length: number
@@ -362,7 +362,7 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
     expect([...byLabel.keys()]).toContain("push");
@@ -371,7 +371,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("push")?.detail).toBe("Class method: (item: int) => number");
   });
 
-  it("offers Array<T> members for unknown[] member access", () => {
+  it("offers Array<T> members for unknown[] member access", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       declare class Array<T> {
         push(item: T): number
@@ -383,13 +383,13 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toContain("push");
   });
 
-  it("offers members on an auto-awaited call receiver inside a sync function", () => {
+  it("offers members on an auto-awaited call receiver inside a sync function", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       declare class Response {
         arrayBuffer(): Promise<ArrayBuffer>
@@ -401,7 +401,7 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toContain("arrayBuffer");
@@ -410,7 +410,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("Array");
   });
 
-  it("offers members after a bare dot on an auto-awaited call receiver inside a sync function", () => {
+  it("offers members after a bare dot on an auto-awaited call receiver inside a sync function", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       declare class Response {
         arrayBuffer(): Promise<ArrayBuffer>
@@ -422,13 +422,13 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toContain("arrayBuffer");
   });
 
-  it("offers members on a chained method-call receiver", () => {
+  it("offers members on a chained method-call receiver", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Builder {
         self(): Builder
@@ -440,13 +440,13 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels).toContain("value");
   });
 
-  it("includes constructor parameter properties in member completion", () => {
+  it("includes constructor parameter properties in member completion", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class User { constructor(public id: string, readonly age: int) {} }
       let user = new User("a", 1)
@@ -454,14 +454,14 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
     expect(byLabel.get("id")?.detail).toBe("Class property: string");
     expect(byLabel.get("age")?.detail).toBe("Class property: int");
   });
 
-  it("prioritizes primary constructor properties ahead of methods in member completion", () => {
+  it("prioritizes primary constructor properties ahead of methods in member completion", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Point(val x: number, val y: number) {
         operator+(other: Point): Point => Point(x + other.x, y + other.y)
@@ -473,13 +473,13 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
 
     expect(labels.slice(0, 2)).toEqual(["x", "y"]);
   });
 
-  it("keeps operator member completions visible and edits member access safely", () => {
+  it("keeps operator member completions visible and edits member access safely", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Point(val x: number, val y: number) {
         operator+(other: Point): Point => Point(x + other.x, y + other.y)
@@ -491,7 +491,7 @@ describe("createCompletionItemsForPosition", () => {
       `
     );
     const session = createAnalysisSession(source);
-    const items = createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
     const labels = items.map((item) => item.label);
     const operatorItem = items.find((item) => item.label === "operator*");
 
@@ -516,7 +516,7 @@ describe("createCompletionItemsForPosition", () => {
     ]);
   });
 
-  it("resolves member completions for chained member access", () => {
+  it("resolves member completions for chained member access", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Point(val x: int, val y: int)
       class Holder(val point: Point)
@@ -530,7 +530,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const items = createCompletionItemsForPosition(
+    const items = await createCompletionItemsForPosition(
       session.ast!,
       line,
       character,
@@ -545,7 +545,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("holder");
   });
 
-  it("resolves specialized generic member types in completion details", () => {
+  it("resolves specialized generic member types in completion details", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Map<K, V> {
         a: K
@@ -562,7 +562,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const items = createCompletionItemsForPosition(
+    const items = await createCompletionItemsForPosition(
       session.ast!,
       line,
       character,
@@ -575,7 +575,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("a")?.detail).toBe("Class property: string");
   });
 
-  it("includes inherited generic members in completion details", () => {
+  it("includes inherited generic members in completion details", async () => {
     const { source, valueLine, valueCharacter } = (() => {
       const first = sourceWithCursor(dedent`
         class Base<T> {
@@ -615,7 +615,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const valueItems = createCompletionItemsForPosition(
+    const valueItems = await createCompletionItemsForPosition(
       session.ast!,
       valueLine,
       valueCharacter,
@@ -626,7 +626,7 @@ describe("createCompletionItemsForPosition", () => {
     const valueByLabel = new Map(valueItems.map((item) => [item.label, item]));
     expect(valueByLabel.get("value")?.detail).toBe("Class property: string");
 
-    const methodItems = createCompletionItemsForPosition(
+    const methodItems = await createCompletionItemsForPosition(
       session.ast!,
       methodLine,
       methodCharacter,
@@ -639,7 +639,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(methodByLabel.get("getValue")?.detail).toBe("Class method: () => string");
   });
 
-  it("ranks in-scope symbols by nearest scope distance", () => {
+  it("ranks in-scope symbols by nearest scope distance", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       let top = 1
       fun demo() {
@@ -655,7 +655,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const items = createCompletionItemsForPosition(
+    const items = await createCompletionItemsForPosition(
       session.ast!,
       line,
       character,
@@ -671,7 +671,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(symbolLabels.indexOf("outer")).toBeLessThan(symbolLabels.indexOf("top"));
   });
 
-  it("ranks call-argument completions by expected parameter type relevance", () => {
+  it("ranks call-argument completions by expected parameter type relevance", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun takesNumber(value: number) {
       }
@@ -687,7 +687,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const items = createCompletionItemsForPosition(
+    const items = await createCompletionItemsForPosition(
       session.ast!,
       line,
       character,
@@ -734,11 +734,11 @@ describe("createCompletionItemsForPosition", () => {
 
     const baseSession = createAnalysisSession(source);
     const ctx = { uri: pathToFileURL(mainPath).href, sourceRoots: [root], getSessionForFilePath: () => null };
-    const declarations = collectImportedTypeDeclarations(baseSession.ast!, ctx);
-    const symbolTypes = collectImportedSymbolTypes(baseSession.ast!, ctx);
+    const declarations = await collectImportedTypeDeclarations(baseSession.ast!, ctx);
+    const symbolTypes = await collectImportedSymbolTypes(baseSession.ast!, ctx);
     const session = createAnalysisSession(source, declarations, symbolTypes);
 
-    const items = createCompletionItemsForPosition(
+    const items = await createCompletionItemsForPosition(
       session.ast!, line, character, session.analysis!, [],
       { text: source, uri: ctx.uri }
     );

@@ -73,6 +73,14 @@ export function getEcmaScriptRuntimeProgram(): Program {
   return program;
 }
 
+/**
+ * Loads and caches the runtime program. Safe to call multiple times — resolves
+ * immediately after the first successful load.
+ */
+export async function ensureEcmaScriptRuntimeProgram(): Promise<Program> {
+  return getEcmaScriptRuntimeProgram();
+}
+
 export function isEcmaScriptRuntimeNode(node: Node): boolean {
   const program = getEcmaScriptRuntimeProgram();
   return cachedRuntimeProgram?.program === program && cachedRuntimeProgram.nodes.has(node) === true;

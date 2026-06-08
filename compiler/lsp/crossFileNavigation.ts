@@ -79,7 +79,7 @@ interface ResolveContext {
   character: number;
   session: SessionLike;
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => SessionLike | null;
+  getSessionForFilePath?: (filePath: string) => SessionLike | null | Promise<SessionLike | null>;
 }
 
 interface CanonicalSymbol {
@@ -199,7 +199,7 @@ function declarationRangeForName(statement: Statement, name: string) {
   return nodeRange(statement);
 }
 
-function getSessionForFilePath(filePath: string, context: ResolveContext): SessionLike | null {
+async function getSessionForFilePath(filePath: string, context: ResolveContext): Promise<SessionLike | null> {
   return getProjectSessionForFilePath(filePath, {
     sourceRoots: context.sourceRoots,
     ...(context.getSessionForFilePath
@@ -240,12 +240,12 @@ function declarationDeclaresNode(declaration: Statement, symbolNode: unknown): b
  * matched by node identity because the analysis registers the very same AST
  * nodes parsed from the imported file as external declarations.
  */
-function resolveExternalDeclarationLocation(
+async function resolveExternalDeclarationLocation(
   context: ResolveContext,
   currentFilePath: string,
   symbolNode: unknown,
   symbolName: string
-): CanonicalSymbol | null {
+): Promise<CanonicalSymbol | null> {
   const ast = context.session.ast;
   if (!ast) {
     return null;
@@ -254,11 +254,11 @@ function resolveExternalDeclarationLocation(
     if (statement.kind !== "ImportStatement") {
       continue;
     }
-    const targetFilePath = resolveImportTargetFilePath(currentFilePath, (statement as ImportStatement).from.value);
+    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, (statement as ImportStatement).from.value);
     if (!targetFilePath) {
       continue;
     }
-    const targetSession = getSessionForFilePath(targetFilePath, context);
+    const targetSession = await getSessionForFilePath(targetFilePath, context);
     if (!targetSession?.ast) {
       continue;
     }
@@ -280,7 +280,7 @@ function resolveExternalDeclarationLocation(
   return null;
 }
 
-function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null {
+async function resolveCanonicalSymbol(context: ResolveContext): Promise<CanonicalSymbol | null> {
   const currentFilePath = uriToFilePath(context.uri);
   if (!currentFilePath || !context.session.analysis || !context.session.ast) {
     return null;
@@ -299,7 +299,7 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
     if (isEcmaScriptRuntimeNode(symbolAt.symbol.node)) {
       return {
         name: symbolAt.symbol.name,
-        filePath: getEcmaScriptRuntimeDeclarationFilePath(),
+        filePath: await getEcmaScriptRuntimeDeclarationFilePath(),
         range: definition.range
       };
     }
@@ -307,7 +307,7 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
     // cross-file operator overload reached from a `a + b` usage - carry a node
     // that belongs to the imported file, not the current document. Locate the
     // owning file so navigation lands there instead of the current file.
-    const externalLocation = resolveExternalDeclarationLocation(
+    const externalLocation = await resolveExternalDeclarationLocation(
       context,
       currentFilePath,
       symbolAt.symbol.node,
@@ -323,7 +323,7 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
     };
   }
 
-  const targetFilePath = resolveImportTargetFilePath(currentFilePath, importBinding.from);
+  const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importBinding.from);
   if (!targetFilePath) {
     return {
       name: symbolAt.symbol.name,
@@ -332,7 +332,7 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
     };
   }
 
-  const targetSession = getSessionForFilePath(targetFilePath, context);
+  const targetSession = await getSessionForFilePath(targetFilePath, context);
   if (!targetSession?.ast) {
     return {
       name: symbolAt.symbol.name,
@@ -342,7 +342,7 @@ function resolveCanonicalSymbol(context: ResolveContext): CanonicalSymbol | null
   }
 
   const projectIndex = getProjectIndex(context.sourceRoots);
-  const indexedDeclaration = projectIndex.findTopLevelDeclaration(targetFilePath, importBinding.name);
+  const indexedDeclaration = await projectIndex.findTopLevelDeclaration(targetFilePath, importBinding.name);
   const targetRange = indexedDeclaration?.range ?? null;
   if (!targetRange) {
     return {
@@ -371,18 +371,18 @@ function rangesEqual(
   );
 }
 
-function findMatchingImportSpecifierPositions(
+async function findMatchingImportSpecifierPositions(
   importerAst: Program,
   importerFilePath: string,
   symbol: CanonicalSymbol
-): Array<{ line: number; character: number }> {
+): Promise<Array<{ line: number; character: number }>> {
   const positions: Array<{ line: number; character: number }> = [];
   for (const statement of importerAst.body) {
     if (statement.kind !== "ImportStatement") {
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetFilePath = resolveImportTargetFilePath(importerFilePath, importStatement.from.value);
+    const targetFilePath = await resolveImportTargetFilePath(importerFilePath, importStatement.from.value);
     if (!targetFilePath || resolve(targetFilePath) !== resolve(symbol.filePath)) {
       continue;
     }
@@ -528,17 +528,17 @@ function classMemberInfoByName(
   return null;
 }
 
-function resolveTypeDefinitionAcrossFiles(
+async function resolveTypeDefinitionAcrossFiles(
   context: ResolveContext,
   typeName: string
-): { declaration: TypeLikeDeclaration; filePath: string } | null {
+): Promise<{ declaration: TypeLikeDeclaration; filePath: string } | null> {
   const currentFilePath = uriToFilePath(context.uri);
   if (!currentFilePath || !context.session.ast) {
     return null;
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
-  const resolved = resolveTopLevelDeclarationAcrossFiles({
+  const resolved = await resolveTopLevelDeclarationAcrossFiles({
     ast: context.session.ast,
     name: typeName,
     currentFilePath,
@@ -557,7 +557,7 @@ function resolveTypeDefinitionAcrossFiles(
 
   return {
     declaration: resolved.declaration,
-    filePath: resolved.filePath === "" ? getEcmaScriptRuntimeDeclarationFilePath() : resolved.filePath
+    filePath: resolved.filePath === "" ? await getEcmaScriptRuntimeDeclarationFilePath() : resolved.filePath
   };
 }
 
@@ -810,7 +810,7 @@ function findMemberExpressionAtPosition(
   return (best as { member: MemberExpression }).member;
 }
 
-function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location | null {
+async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Promise<Location | null> {
   if (!context.session.ast || !context.session.analysis) {
     return null;
   }
@@ -845,7 +845,7 @@ function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location |
   // A member access on a concrete class/interface may resolve to one of its own
   // members first.
   if (objectType.kind === "named" || objectType.kind === "array") {
-    const classResolution = resolveTypeDefinitionAcrossFiles(context, receiverTypeNames[0]!);
+    const classResolution = await resolveTypeDefinitionAcrossFiles(context, receiverTypeNames[0]!);
     if (classResolution) {
       const range = classMemberDeclarationRangeByName(classResolution.declaration, memberName);
       if (range) {
@@ -862,7 +862,7 @@ function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location |
   // or an imported file. These are not class members, so resolve them by
   // matching the receiver type.
   for (const receiverTypeName of receiverTypeNames) {
-    const extension = resolveExtensionMemberDefinitionAcrossFiles(context, receiverTypeName, memberName);
+    const extension = await resolveExtensionMemberDefinitionAcrossFiles(context, receiverTypeName, memberName);
     if (extension) {
       return extension;
     }
@@ -871,7 +871,7 @@ function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location |
   // Fallback: look for the member in node_modules .d.ts declarations. This
   // handles types whose namespace/interface is declared in a package's type
   // definitions rather than a local .my file.
-  const nodeModulesDefinition = resolveNodeModulesMemberDefinition(
+  const nodeModulesDefinition = await resolveNodeModulesMemberDefinition(
     context,
     receiverTypeNames[0]!,
     memberName
@@ -888,11 +888,11 @@ function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Location |
  * the current file) for a member named `memberName` on a type named `typeName`.
  * Returns the location within the .d.ts file if found.
  */
-function resolveNodeModulesMemberDefinition(
+async function resolveNodeModulesMemberDefinition(
   context: ResolveContext,
   typeName: string,
   memberName: string
-): Location | null {
+): Promise<Location | null> {
   const currentFilePath = uriToFilePath(context.uri);
   if (!currentFilePath || !context.session.ast) return null;
 
@@ -902,7 +902,7 @@ function resolveNodeModulesMemberDefinition(
     const from = importStmt.from.value;
     if (from.startsWith(".") || from.startsWith("/")) continue;
 
-    const location = findNodeModuleMemberLocation(currentFilePath, from, typeName, memberName);
+    const location = await findNodeModuleMemberLocation(currentFilePath, from, typeName, memberName);
     if (location) {
       return {
         uri: pathToUri(location.typingsPath),
@@ -920,18 +920,18 @@ function resolveNodeModulesMemberDefinition(
  * methods (`fun Point.foo(): ...`) declared in the current file or any file the
  * current document imports.
  */
-function resolveExtensionMemberDefinitionAcrossFiles(
+async function resolveExtensionMemberDefinitionAcrossFiles(
   context: ResolveContext,
   receiverTypeName: string,
   memberName: string
-): Location | null {
+): Promise<Location | null> {
   const currentFilePath = uriToFilePath(context.uri);
   if (!currentFilePath || !context.session.ast) {
     return null;
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
-  const resolved = resolveTopLevelDeclarationAcrossFiles({
+  const resolved = await resolveTopLevelDeclarationAcrossFiles({
     ast: context.session.ast,
     name: memberName,
     currentFilePath,
@@ -997,7 +997,7 @@ function findClassMemberDeclarationAtPosition(
   return null;
 }
 
-function resolveCanonicalMemberSymbol(context: ResolveContext): CanonicalMemberSymbol | null {
+async function resolveCanonicalMemberSymbol(context: ResolveContext): Promise<CanonicalMemberSymbol | null> {
   if (!context.session.ast || !context.session.analysis) {
     return null;
   }
@@ -1036,7 +1036,7 @@ function resolveCanonicalMemberSymbol(context: ResolveContext): CanonicalMemberS
   }
 
   const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
-  const classResolution = resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
+  const classResolution = await resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
@@ -1273,17 +1273,17 @@ function collectMemberExpressions(program: Program): MemberExpression[] {
   return expressions;
 }
 
-function resolveMemberReferencesAcrossFiles(
+async function resolveMemberReferencesAcrossFiles(
   context: ResolveContext,
   includeDeclaration: boolean
-): Location[] {
-  const memberSymbol = resolveCanonicalMemberSymbol(context);
+): Promise<Location[]> {
+  const memberSymbol = await resolveCanonicalMemberSymbol(context);
   if (!memberSymbol) {
     return [];
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(memberSymbol.filePath)];
-  const files = scanProjectMyFiles(roots);
+  const files = await scanProjectMyFiles(roots);
   const locations: Location[] = [];
   const seen = new Set<string>();
 
@@ -1301,7 +1301,7 @@ function resolveMemberReferencesAcrossFiles(
   }
 
   for (const filePath of files) {
-    const session = getSessionForFilePath(filePath, context);
+    const session = await getSessionForFilePath(filePath, context);
     if (!session?.ast || !session.analysis) {
       continue;
     }
@@ -1350,7 +1350,7 @@ function findImportStringLiteralAtPosition(
   return null;
 }
 
-function resolveImportPathDefinition(context: ResolveContext): Location | null {
+async function resolveImportPathDefinition(context: ResolveContext): Promise<Location | null> {
   if (!context.session.ast) return null;
   const importStatement = findImportStringLiteralAtPosition(
     context.session.ast,
@@ -1364,8 +1364,8 @@ function resolveImportPathDefinition(context: ResolveContext): Location | null {
   const importPath = importStatement.from.value;
 
   const resolvedPath =
-    resolveImportTargetFilePath(importerFilePath, importPath) ??
-    resolveNodeModulesTypingsPath(importerFilePath, importPath);
+    await resolveImportTargetFilePath(importerFilePath, importPath) ??
+    await resolveNodeModulesTypingsPath(importerFilePath, importPath);
   if (!resolvedPath) return null;
 
   return {
@@ -1374,7 +1374,7 @@ function resolveImportPathDefinition(context: ResolveContext): Location | null {
   };
 }
 
-export function resolveImportPathHover(context: ResolveContext): Hover | null {
+export async function resolveImportPathHover(context: ResolveContext): Promise<Hover | null> {
   if (!context.session.ast) return null;
   const importStatement = findImportStringLiteralAtPosition(
     context.session.ast,
@@ -1388,8 +1388,8 @@ export function resolveImportPathHover(context: ResolveContext): Hover | null {
   const importPath = importStatement.from.value;
 
   const resolvedPath =
-    resolveImportTargetFilePath(importerFilePath, importPath) ??
-    resolveNodeModulesTypingsPath(importerFilePath, importPath);
+    await resolveImportTargetFilePath(importerFilePath, importPath) ??
+    await resolveNodeModulesTypingsPath(importerFilePath, importPath);
 
   const fromRange = nodeRange(importStatement.from);
   const rangeOpts = fromRange ? { range: fromRange } : {};
@@ -1406,18 +1406,18 @@ export function resolveImportPathHover(context: ResolveContext): Hover | null {
   };
 }
 
-export function resolveDefinitionAcrossFiles(context: ResolveContext): Location | null {
-  const importPathDefinition = resolveImportPathDefinition(context);
+export async function resolveDefinitionAcrossFiles(context: ResolveContext): Promise<Location | null> {
+  const importPathDefinition = await resolveImportPathDefinition(context);
   if (importPathDefinition) {
     return importPathDefinition;
   }
 
-  const memberDefinition = resolveMemberDefinitionAcrossFiles(context);
+  const memberDefinition = await resolveMemberDefinitionAcrossFiles(context);
   if (memberDefinition) {
     return memberDefinition;
   }
 
-  const symbol = resolveCanonicalSymbol(context);
+  const symbol = await resolveCanonicalSymbol(context);
   if (symbol) {
     return {
       uri: pathToUri(symbol.filePath),
@@ -1435,7 +1435,7 @@ function createMemberHoverContents(
   return `${prefix} ${className}.${member.memberName}: ${member.typeLabel}`;
 }
 
-export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | null {
+export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Promise<Hover | null> {
   if (!context.session.ast || !context.session.analysis) {
     return null;
   }
@@ -1470,14 +1470,14 @@ export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | 
   }
 
   const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
-  const classResolution = resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
+  const classResolution = await resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
 
   const memberName = (memberExpression.property as Identifier).name;
   const resolvedMember = classResolution.declaration.kind === "ClassStatement"
-    ? resolveClassMember(
+    ? await resolveClassMember(
       classResolution.declaration,
       memberName,
       objectType.kind === "array" ? `Array<${typeToString(objectType.elementType)}>` : typeToString(objectType),
@@ -1510,24 +1510,24 @@ export function resolveMemberHoverAcrossFiles(context: ResolveContext): Hover | 
   };
 }
 
-export function resolveReferencesAcrossFiles(
+export async function resolveReferencesAcrossFiles(
   context: ResolveContext,
   includeDeclaration: boolean
-): Location[] {
-  const memberLocations = resolveMemberReferencesAcrossFiles(context, includeDeclaration);
+): Promise<Location[]> {
+  const memberLocations = await resolveMemberReferencesAcrossFiles(context, includeDeclaration);
   if (memberLocations.length > 0) {
     return memberLocations;
   }
 
   const localFallbackReferences = localReferencesFromContext(context, includeDeclaration);
-  const symbol = resolveCanonicalSymbol(context);
+  const symbol = await resolveCanonicalSymbol(context);
   if (!symbol) {
     return localFallbackReferences;
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(symbol.filePath)];
   const projectIndex = getProjectIndex(roots);
-  const files = scanProjectMyFiles(roots);
+  const files = await scanProjectMyFiles(roots);
   const locations: Location[] = [];
   const seen = new Set<string>();
 
@@ -1541,7 +1541,7 @@ export function resolveReferencesAcrossFiles(
   };
 
   const importerByPath = new Map<string, Array<{ line: number; character: number }>>();
-  for (const importer of projectIndex.findFilesImportingSymbol(symbol.filePath, symbol.name)) {
+  for (const importer of await projectIndex.findFilesImportingSymbol(symbol.filePath, symbol.name)) {
     const existing = importerByPath.get(importer.importerFilePath);
     if (existing) {
       existing.push(importer.importRange.start);
@@ -1551,7 +1551,7 @@ export function resolveReferencesAcrossFiles(
   }
 
   for (const filePath of files) {
-    const session = getSessionForFilePath(filePath, context);
+    const session = await getSessionForFilePath(filePath, context);
     if (!session?.ast || !session.analysis) {
       continue;
     }
@@ -1580,7 +1580,7 @@ export function resolveReferencesAcrossFiles(
 
     const importPositions =
       importerByPath.get(filePath) ??
-      findMatchingImportSpecifierPositions(session.ast, filePath, symbol);
+      await findMatchingImportSpecifierPositions(session.ast, filePath, symbol);
     for (const position of importPositions) {
       const references = session.analysis.getReferenceRangesAt(
         position.line,
@@ -1602,11 +1602,11 @@ export function resolveReferencesAcrossFiles(
   return locations;
 }
 
-export function resolveRenameAcrossFiles(
+export async function resolveRenameAcrossFiles(
   context: ResolveContext,
   newName: string
-): WorkspaceEdit | null {
-  const locations = resolveReferencesAcrossFiles(context, true);
+): Promise<WorkspaceEdit | null> {
+  const locations = await resolveReferencesAcrossFiles(context, true);
   if (locations.length === 0) {
     return localRenameWorkspaceEdit(context, newName);
   }

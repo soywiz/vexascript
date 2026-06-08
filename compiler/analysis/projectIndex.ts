@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type { Analysis } from "./Analysis";
 import type {
@@ -23,7 +23,7 @@ export interface ProjectSessionLike {
 
 export interface ProjectContext {
   sourceRoots?: string[];
-  getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null;
+  getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
 }
 
 export interface ProjectTopLevelDeclaration {
@@ -82,7 +82,7 @@ function nodeRange(node: {
   };
 }
 
-function indexFileData(ast: Program | null, filePath: string): IndexedFileData {
+async function indexFileData(ast: Program | null, filePath: string): Promise<IndexedFileData> {
   if (!ast) {
     return { declarations: [], imports: [] };
   }
@@ -194,7 +194,7 @@ function indexFileData(ast: Program | null, filePath: string): IndexedFileData {
 
     if (statement.kind === "ImportStatement") {
       const importStatement = statement as ImportStatement;
-      const targetFilePath = resolveImportTargetFilePath(filePath, importStatement.from.value);
+      const targetFilePath = await resolveImportTargetFilePath(filePath, importStatement.from.value);
       if (!targetFilePath) {
         continue;
       }
@@ -245,17 +245,22 @@ export class ProjectIndex {
     this.sourceRoots.push(...sourceRoots);
   }
 
-  scanMyFiles(): string[] {
+  async scanMyFiles(): Promise<string[]> {
     const files: string[] = [];
     const stack = [...this.sourceRoots];
 
     while (stack.length > 0) {
       const current = stack.pop();
-      if (!current || !existsSync(current)) {
+      if (!current) {
+        continue;
+      }
+      const exists = await access(current).then(() => true).catch(() => false);
+      if (!exists) {
         continue;
       }
 
-      for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const entries = await readdir(current, { withFileTypes: true });
+      for (const entry of entries) {
         if (entry.name === "node_modules" || entry.name.startsWith(".")) {
           continue;
         }
@@ -271,10 +276,10 @@ export class ProjectIndex {
     return files;
   }
 
-  upsertOpenDocument(filePath: string, source: string): void {
+  async upsertOpenDocument(filePath: string, source: string): Promise<void> {
     const normalized = resolve(filePath);
     const session = compileToSession(source);
-    const indexed = indexFileData(session.ast, normalized);
+    const indexed = await indexFileData(session.ast, normalized);
     this.openOverrides.set(normalized, { session, indexed });
   }
 
@@ -286,21 +291,22 @@ export class ProjectIndex {
     this.diskSessions.delete(resolve(filePath));
   }
 
-  private getDiskSession(filePath: string): CachedDiskSession | null {
+  private async getDiskSession(filePath: string): Promise<CachedDiskSession | null> {
     const normalized = resolve(filePath);
-    if (!existsSync(normalized)) {
+    const exists = await access(normalized).then(() => true).catch(() => false);
+    if (!exists) {
       return null;
     }
 
-    const fileStats = statSync(normalized);
+    const fileStats = await stat(normalized);
     const cached = this.diskSessions.get(normalized);
     if (cached && cached.mtimeMs === fileStats.mtimeMs) {
       return cached;
     }
 
-    const source = readFileSync(normalized, "utf8");
+    const source = await readFile(normalized, "utf8");
     const session = compileToSession(source);
-    const indexed = indexFileData(session.ast, normalized);
+    const indexed = await indexFileData(session.ast, normalized);
     const next: CachedDiskSession = {
       mtimeMs: fileStats.mtimeMs,
       session,
@@ -310,47 +316,47 @@ export class ProjectIndex {
     return next;
   }
 
-  getSessionForFilePath(filePath: string): ProjectSessionLike | null {
+  async getSessionForFilePath(filePath: string): Promise<ProjectSessionLike | null> {
     const normalized = resolve(filePath);
     const open = this.openOverrides.get(normalized);
     if (open) {
       return open.session;
     }
 
-    const disk = this.getDiskSession(normalized);
+    const disk = await this.getDiskSession(normalized);
     return disk?.session ?? null;
   }
 
-  getIndexedFileData(filePath: string): IndexedFileData | null {
+  async getIndexedFileData(filePath: string): Promise<IndexedFileData | null> {
     const normalized = resolve(filePath);
     const open = this.openOverrides.get(normalized);
     if (open) {
       return open.indexed;
     }
-    const disk = this.getDiskSession(normalized);
+    const disk = await this.getDiskSession(normalized);
     return disk?.indexed ?? null;
   }
 
-  findTopLevelDeclaration(filePath: string, name: string): ProjectTopLevelDeclaration | null {
-    const indexed = this.getIndexedFileData(filePath);
+  async findTopLevelDeclaration(filePath: string, name: string): Promise<ProjectTopLevelDeclaration | null> {
+    const indexed = await this.getIndexedFileData(filePath);
     if (!indexed) {
       return null;
     }
     return indexed.declarations.find((declaration) => declaration.name === name) ?? null;
   }
 
-  findFilesImportingSymbol(targetFilePath: string, symbolName: string): Array<{
+  async findFilesImportingSymbol(targetFilePath: string, symbolName: string): Promise<Array<{
     importerFilePath: string;
     importRange: ProjectImportBinding["range"];
-  }> {
+  }>> {
     const normalizedTarget = resolve(targetFilePath);
     const matches: Array<{
       importerFilePath: string;
       importRange: ProjectImportBinding["range"];
     }> = [];
 
-    for (const importerFilePath of this.scanMyFiles()) {
-      const indexed = this.getIndexedFileData(importerFilePath);
+    for (const importerFilePath of await this.scanMyFiles()) {
+      const indexed = await this.getIndexedFileData(importerFilePath);
       if (!indexed) {
         continue;
       }
@@ -371,18 +377,18 @@ export class ProjectIndex {
     return matches;
   }
 
-  collectWorkspaceTopLevelDeclarations(query: string): Array<{
+  async collectWorkspaceTopLevelDeclarations(query: string): Promise<Array<{
     filePath: string;
     declaration: ProjectTopLevelDeclaration;
-  }> {
+  }>> {
     const normalizedQuery = query.trim().toLowerCase();
     const matches: Array<{
       filePath: string;
       declaration: ProjectTopLevelDeclaration;
     }> = [];
 
-    for (const filePath of this.scanMyFiles()) {
-      const indexed = this.getIndexedFileData(filePath);
+    for (const filePath of await this.scanMyFiles()) {
+      const indexed = await this.getIndexedFileData(filePath);
       if (!indexed) {
         continue;
       }
@@ -418,16 +424,16 @@ export function getProjectIndex(sourceRoots: string[]): ProjectIndex {
   return created;
 }
 
-export function scanProjectMyFiles(sourceRoots: string[]): string[] {
+export async function scanProjectMyFiles(sourceRoots: string[]): Promise<string[]> {
   return getProjectIndex(sourceRoots).scanMyFiles();
 }
 
-export function getProjectSessionForFilePath(
+export async function getProjectSessionForFilePath(
   filePath: string,
   context: ProjectContext
-): ProjectSessionLike | null {
+): Promise<ProjectSessionLike | null> {
   if (context.getSessionForFilePath) {
-    const provided = context.getSessionForFilePath(filePath);
+    const provided = await context.getSessionForFilePath(filePath);
     if (provided) {
       return provided;
     }

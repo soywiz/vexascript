@@ -123,7 +123,7 @@ describe("auto-await decorations", () => {
     await writeFile(mainFile, mainSource, "utf8");
 
     const baseSession = createAnalysisSession(mainSource);
-    const importedSymbolTypes = collectImportedSymbolTypes(baseSession.ast!, {
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
       uri: pathToFileURL(mainFile).toString(),
       sourceRoots: [root]
     });

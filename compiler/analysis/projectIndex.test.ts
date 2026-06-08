@@ -19,15 +19,15 @@ describe("ProjectIndex", () => {
     await writeFile(fileB, "import { Point } from \"./a\"\nfun demo() { return new Point() }\n", "utf8");
 
     const index = getProjectIndex([root]);
-    const declaration = index.findTopLevelDeclaration(fileA, "Point");
+    const declaration = await index.findTopLevelDeclaration(fileA, "Point");
     expect(declaration?.kind).toBe("class");
-    const interfaceDeclaration = index.findTopLevelDeclaration(fileA, "Readable");
+    const interfaceDeclaration = await index.findTopLevelDeclaration(fileA, "Readable");
     expect(interfaceDeclaration?.kind).toBe("class");
 
-    const typeAliasDeclaration = index.findTopLevelDeclaration(fileA, "PointList");
+    const typeAliasDeclaration = await index.findTopLevelDeclaration(fileA, "PointList");
     expect(typeAliasDeclaration?.kind).toBe("class");
 
-    const importers = index.findFilesImportingSymbol(fileA, "Point");
+    const importers = await index.findFilesImportingSymbol(fileA, "Point");
     expect(importers).toHaveLength(1);
     expect(importers[0]?.importerFilePath).toBe(fileB);
   });
@@ -38,13 +38,13 @@ describe("ProjectIndex", () => {
     await writeFile(file, "class Point\n", "utf8");
 
     const index = getProjectIndex([root]);
-    expect(index.findTopLevelDeclaration(file, "Point")).toBeTruthy();
+    expect(await index.findTopLevelDeclaration(file, "Point")).toBeTruthy();
 
-    index.upsertOpenDocument(file, "class UpdatedPoint\n");
-    expect(index.findTopLevelDeclaration(file, "UpdatedPoint")).toBeTruthy();
-    expect(index.findTopLevelDeclaration(file, "Point")).toBeFalsy();
+    await index.upsertOpenDocument(file, "class UpdatedPoint\n");
+    expect(await index.findTopLevelDeclaration(file, "UpdatedPoint")).toBeTruthy();
+    expect(await index.findTopLevelDeclaration(file, "Point")).toBeFalsy();
 
     index.clearOpenDocument(file);
-    expect(index.findTopLevelDeclaration(file, "Point")).toBeTruthy();
+    expect(await index.findTopLevelDeclaration(file, "Point")).toBeTruthy();
   });
 });

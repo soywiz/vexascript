@@ -363,13 +363,13 @@ function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
   return type;
 }
 
-function buildSignatureFromSymbol(
+async function buildSignatureFromSymbol(
   context: InvocationContext,
   analysis: Analysis,
   program: Program,
   options: ClassResolverOptions
-): SignatureInformation | null {
-  const callable = resolveCallableSignature(context.callee, analysis, program, options);
+): Promise<SignatureInformation | null> {
+  const callable = await resolveCallableSignature(context.callee, analysis, program, options);
   if (callable) {
     const parameters = callable.parameters.map((parameter) => ({
       label: `${parameter.name}: ${parameter.typeName}`
@@ -400,7 +400,7 @@ function buildSignatureFromSymbol(
   }
 
   if (context.isNewExpression) {
-    const constructorSignature = resolveConstructorSignature(context.callee, analysis, program, options);
+    const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
     if (!constructorSignature) {
       return null;
     }
@@ -417,19 +417,19 @@ function buildSignatureFromSymbol(
   return null;
 }
 
-export function createSignatureHelp(
+export async function createSignatureHelp(
   program: Program,
   analysis: Analysis,
   line: number,
   character: number,
   options: ClassResolverOptions = {}
-): SignatureHelp | null {
+): Promise<SignatureHelp | null> {
   const context = findInvocationContext(program, line, character);
   if (!context) {
     return null;
   }
 
-  const signature = buildSignatureFromSymbol(context, analysis, program, options);
+  const signature = await buildSignatureFromSymbol(context, analysis, program, options);
   if (!signature) {
     return null;
   }

@@ -26,7 +26,7 @@ export interface CollectCrossFileTypeDiagnosticsParams {
   uri: string;
   session: AnalysisSession;
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
+  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
 }
 
 function diagnosticForNode(
@@ -83,9 +83,9 @@ function collectAssignmentExpressions(program: Program): AssignmentExpression[] 
   return assignments;
 }
 
-export function collectCrossFileTypeDiagnostics(
+export async function collectCrossFileTypeDiagnostics(
   params: CollectCrossFileTypeDiagnosticsParams
-): Diagnostic[] {
+): Promise<Diagnostic[]> {
   const { session } = params;
   if (!session.ast || !session.analysis) {
     return [];
@@ -128,7 +128,7 @@ export function collectCrossFileTypeDiagnostics(
   };
 
   for (const call of collectCallExpressions(session.ast)) {
-    const constructorSignature = resolveConstructorSignature(
+    const constructorSignature = await resolveConstructorSignature(
       call.callee,
       session.analysis,
       session.ast,
@@ -175,12 +175,12 @@ export function collectCrossFileTypeDiagnostics(
       continue;
     }
 
-    const objectTypeName = resolveExpressionTypeName(callee.object, session.analysis, session.ast, options);
+    const objectTypeName = await resolveExpressionTypeName(callee.object, session.analysis, session.ast, options);
     if (!objectTypeName) {
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(
+    const classResolution = await resolveClassStatementAcrossFiles(
       session.ast,
       baseTypeName(objectTypeName),
       options,
@@ -191,7 +191,7 @@ export function collectCrossFileTypeDiagnostics(
     }
 
     const memberName = (callee.property as Identifier).name;
-    const member = resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
+    const member = await resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
       ast: session.ast,
       options,
       cache: resolverCache
@@ -253,7 +253,7 @@ export function collectCrossFileTypeDiagnostics(
       if (!parameter || !argument) {
         continue;
       }
-      const argumentTypeName = resolveExpressionTypeName(argument, session.analysis, session.ast, options);
+      const argumentTypeName = await resolveExpressionTypeName(argument, session.analysis, session.ast, options);
       if (!argumentTypeName || argumentTypeName === "unknown") {
         continue;
       }
@@ -271,7 +271,7 @@ export function collectCrossFileTypeDiagnostics(
   }
 
   for (const node of walkCallLikeNewExpressions(session.ast)) {
-    const constructorSignature = resolveConstructorSignature(
+    const constructorSignature = await resolveConstructorSignature(
       node.callee,
       session.analysis,
       session.ast,
@@ -322,12 +322,12 @@ export function collectCrossFileTypeDiagnostics(
       continue;
     }
 
-    const objectTypeName = resolveExpressionTypeName(leftMember.object, session.analysis, session.ast, options);
+    const objectTypeName = await resolveExpressionTypeName(leftMember.object, session.analysis, session.ast, options);
     if (!objectTypeName) {
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(
+    const classResolution = await resolveClassStatementAcrossFiles(
       session.ast,
       baseTypeName(objectTypeName),
       options,
@@ -338,7 +338,7 @@ export function collectCrossFileTypeDiagnostics(
     }
 
     const memberName = (leftMember.property as Identifier).name;
-    const member = resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
+    const member = await resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
       ast: session.ast,
       options,
       cache: resolverCache
@@ -352,7 +352,7 @@ export function collectCrossFileTypeDiagnostics(
         ? `(${member.signature.parameters.map((parameter) => `${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${member.signature.returnTypeName}`
         : member.typeName)
       : member.typeName;
-    const rightTypeName = resolveExpressionTypeName(assignment.right, session.analysis, session.ast, options);
+    const rightTypeName = await resolveExpressionTypeName(assignment.right, session.analysis, session.ast, options);
     if (!rightTypeName || rightTypeName === "unknown" || leftTypeName === "unknown") {
       continue;
     }
