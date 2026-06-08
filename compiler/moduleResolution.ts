@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
-import { fileExists } from "./utils/io";
+import { fileExists } from "./utils/fs";
 
 /**
  * Resolve an import path (as written in an `import ... from "<path>"` statement)

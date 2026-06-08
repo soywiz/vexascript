@@ -2,7 +2,8 @@ import { readdir, readFile } from "node:fs/promises"
 import { it, describe } from "node:test";
 import { expect } from "../compiler/test/expect";
 import { runFile } from "../compiler/cli";
-import { fileExists, isDirectory, runCommand } from "../compiler/utils/io";
+import { fileExists, isDirectory } from "../compiler/utils/fs";
+import { runCommand } from "../compiler/utils/io";
 
 async function hookOutput(callback: () => Promise<void>) {
     const lines = [] as string[]

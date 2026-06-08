@@ -407,7 +407,7 @@ export function registerProviders(): Map<string, SessionState> {
 
   monaco.languages.registerCompletionItemProvider(LANG_ID, {
     triggerCharacters: ["."],
-    provideCompletionItems(model, position) {
+    async provideCompletionItems(model, position) {
       const session = getSession(model, cache);
       const word = model.getWordUntilPosition(position);
       if (!session.ast || !session.analysis) {
@@ -422,7 +422,7 @@ export function registerProviders(): Map<string, SessionState> {
           })),
         };
       }
-      const items = createCompletionItemsForPosition(
+      const items = await createCompletionItemsForPosition(
         session.ast,
         position.lineNumber - 1,
         position.column - 1,
@@ -616,7 +616,7 @@ export function registerProviders(): Map<string, SessionState> {
   });
 
   monaco.languages.registerCodeActionProvider(LANG_ID, {
-    provideCodeActions(model, range, context) {
+    async provideCodeActions(model, range, context) {
       const session = getSession(model, cache);
       if (!session.ast) return { actions: [], dispose: () => {} };
       const diagnostics: Diagnostic[] = context.markers.map((marker) => {
@@ -641,9 +641,9 @@ export function registerProviders(): Map<string, SessionState> {
           ...(code !== undefined ? { code } : {}),
         };
       });
-      let actions: ReturnType<typeof collectCodeActions> = [];
+      let actions: Awaited<ReturnType<typeof collectCodeActions>> = [];
       try {
-        actions = collectCodeActions({
+        actions = await collectCodeActions({
           text: model.getValue(),
           ast: session.ast,
           analysis: session.analysis,
@@ -741,16 +741,17 @@ export function registerProviders(): Map<string, SessionState> {
   });
 
   monaco.languages.registerInlayHintsProvider(LANG_ID, {
-    provideInlayHints(model, range) {
+    async provideInlayHints(model, range) {
       const session = getSession(model, cache);
       if (!session.ast || !session.analysis) return { hints: [], dispose: () => {} };
+      const hints = await createInlayHints(
+        session.ast,
+        session.analysis,
+        toLspRange(range),
+        resolverContext(model)
+      );
       return {
-        hints: createInlayHints(
-          session.ast,
-          session.analysis,
-          toLspRange(range),
-          resolverContext(model)
-        ).map((hint) => ({
+        hints: hints.map((hint) => ({
           position: toMonacoPos(hint.position),
           label: typeof hint.label === "string" ? hint.label : hint.label.map((part) => part.value).join(""),
           kind: hint.kind === 1

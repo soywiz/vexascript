@@ -1,22 +1,5 @@
 import { spawn, type StdioOptions } from "node:child_process";
-import { access, stat } from "node:fs/promises";
-
-export async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
-}
+export { fileExists, isDirectory } from "./fs";
 
 export async function runCommand(
   command: string,

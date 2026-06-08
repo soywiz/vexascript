@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
-import { fileExists, isDirectory, runCommand } from "./io";
+import { fileExists, isDirectory } from "./fs";
+import { runCommand } from "./io";
 
 describe("io utilities", () => {
   it("reports whether a file exists", async () => {

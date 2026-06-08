@@ -13,7 +13,7 @@
     "test": "tsc --noEmit && tsx --test --test-reporter spec",
     "coverage": "tsx --test --experimental-test-coverage",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
-    "monaco": "pnpm build && pnpm --dir plugins/monaco start"
+    "monaco": "pnpm build && pnpm --dir plugins/monaco build && pnpm --dir plugins/monaco start"
   },
   "dependencies": {
     "commander": "^13.1.0",

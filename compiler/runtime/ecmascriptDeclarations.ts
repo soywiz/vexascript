@@ -4,9 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { Node, Program } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
-import { fileExists } from "compiler/utils/io";
-
-export const ECMASCRIPT_RUNTIME_DECLARATION_FILE_NAME = "ecmascript.d.my";
+import { fileExists } from "compiler/utils/fs";
 export const TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME = "es2025.d.ts";
 
 interface CachedRuntimeProgram {

@@ -14,6 +14,7 @@ describe("bundled es2025 runtime declarations", () => {
     expect(source).not.toContain('/// <reference lib="');
     expect(source).toContain("interface Array<T>");
     expect(source).toContain("interface PromiseConstructor");
+    expect(source).toContain("declare var Uint8Array: Uint8ArrayConstructor;");
     expect(source).toContain("try<T, U extends unknown[]>(callbackFn: (...args: U) => T | PromiseLike<T>, ...args: U): Promise<Awaited<T>>;");
   });
 

@@ -198,7 +198,7 @@ declare module "pixi.js" {
 }
 ```
 
-A cached ECMAScript ambient runtime is loaded automatically for every analysis session, so common globals such as `Array`, `Map`, `Set`, `Math`, `JSON`, `console`, `Date`, `RegExp`, `Promise`, and `Error` are available without imports. The declarations live in `compiler/runtime/ecmascript.d.my` and are copied to `dist/ecmascript.d.my` by the build so language-server declaration navigation can open the declaration file next to the bundled executable.
+A cached ECMAScript ambient runtime is loaded automatically for every analysis session, so common globals such as `Array`, `Map`, `Set`, `Math`, `JSON`, `console`, `Date`, `RegExp`, `Promise`, `Error`, and typed arrays such as `Uint8Array` are available without imports. The declarations live in `compiler/runtime/es2025.d.ts` and are copied to `dist/es2025.d.ts` by the build so language-server declaration navigation can open the declaration file next to the bundled executable.
 
 ### Parameters
 

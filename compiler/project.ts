@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { parseToml } from "./runtime/toml";
-import { fileExists, isDirectory } from "./utils/io";
+import { fileExists, isDirectory } from "./utils/fs";
 
 export interface MylangProject {
   projectDir: string;

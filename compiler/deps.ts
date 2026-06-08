@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileExists, runCommand } from "./utils/io";
+import { fileExists } from "./utils/fs";
+import { runCommand } from "./utils/io";
 
 async function isPackageInstalled(projectDir: string, pkg: string): Promise<boolean> {
   return fileExists(resolve(projectDir, "node_modules", pkg));
