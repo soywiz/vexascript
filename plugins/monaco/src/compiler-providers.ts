@@ -31,6 +31,12 @@ import {
 import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
 import { createSignatureHelp } from "compiler/lsp/signatureHelp";
 import { createDocumentSymbols } from "compiler/lsp/symbols";
+import {
+  createPortableLanguageConfiguration,
+  createPortableMonarchLanguage,
+  type PortableLanguageConfiguration,
+  type PortableMonarchLanguage,
+} from "compiler/syntax";
 import { extractShowReferencesPayload } from "./codeLensCommands";
 
 const LANG_ID = "mylang";
@@ -280,76 +286,52 @@ export function registerLanguage(): void {
     mimetypes: ["text/x-mylang"],
   });
 
-  monaco.languages.setMonarchTokensProvider(LANG_ID, {
-    defaultToken: "",
-    keywords: [
-      "declare", "namespace", "enum", "import", "from", "as", "export",
-      "class", "interface", "infer", "extends", "implements", "override",
-      "async", "yield", "fun", "function", "keyof", "let", "var", "val",
-      "const", "if", "else", "return", "throw", "while", "for", "in",
-      "switch", "case", "default", "break", "continue", "do", "try",
-      "catch", "finally", "new", "is", "instanceof", "typeof", "void",
-      "delete", "await", "readonly", "type", "fn", "true", "false",
-      "null", "undefined",
-    ],
-    tokenizer: {
-      root: [
-        [/\/\/\/.*$/, "comment.doc"],
-        [/\/\/.*$/, "comment"],
-        [/\/\*/, { token: "comment", next: "@block_comment" }],
-        [/"([^"\\]|\\.)*"/, "string"],
-        [/'([^'\\]|\\.)*'/, "string"],
-        [/\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b/, "number.float"],
-        [/[A-Za-z_$][\w$]*/, { cases: { "@keywords": "keyword", "@default": "identifier" } }],
-        [/[{}()\[\]]/, "delimiter"],
-        [/[;,.]/, "delimiter"],
-        [/[+\-*/%&|^~<>!=?:]+/, "operator"],
-      ],
-      block_comment: [
-        [/[^/*]+/, "comment"],
-        [/\*\//, { token: "comment", next: "@pop" }],
-        [/[/*]/, "comment"],
-      ],
-    },
-  } as monaco.languages.IMonarchLanguage);
+  monaco.languages.setMonarchTokensProvider(LANG_ID, toMonacoMonarchLanguage(createPortableMonarchLanguage()) as monaco.languages.IMonarchLanguage);
+  monaco.languages.setLanguageConfiguration(LANG_ID, toMonacoLanguageConfiguration(createPortableLanguageConfiguration()));
+}
 
-  monaco.languages.setLanguageConfiguration(LANG_ID, {
-    comments: { lineComment: "//", blockComment: ["/*", "*/"] },
-    brackets: [["{", "}"], ["[", "]"], ["(", ")"]],
-    autoClosingPairs: [
-      { open: "{", close: "}" },
-      { open: "[", close: "]" },
-      { open: "(", close: ")" },
-      { open: "\"", close: "\"", notIn: ["string"] },
-      { open: "'", close: "'", notIn: ["string"] },
-    ],
-    surroundingPairs: [
-      { open: "{", close: "}" },
-      { open: "[", close: "]" },
-      { open: "(", close: ")" },
-      { open: "\"", close: "\"" },
-      { open: "'", close: "'" },
-    ],
+function toMonacoMonarchLanguage(portable: PortableMonarchLanguage): Record<string, unknown> {
+  const tokenizer = Object.fromEntries(
+    Object.entries(portable.tokenizer).map(([state, rules]) => [
+      state,
+      rules.map((rule) => {
+        if (rule.token === "@cases" && rule.cases) {
+          return [new RegExp(rule.match), { cases: rule.cases }];
+        }
+        if (rule.next) {
+          return [new RegExp(rule.match), { token: rule.token, next: rule.next }];
+        }
+        return [new RegExp(rule.match), rule.token];
+      }),
+    ])
+  );
+  return {
+    defaultToken: portable.defaultToken,
+    keywords: portable.keywords,
+    tokenizer,
+  };
+}
+
+function toMonacoLanguageConfiguration(portable: PortableLanguageConfiguration): monaco.languages.LanguageConfiguration {
+  return {
+    comments: portable.comments,
+    brackets: portable.brackets,
+    autoClosingPairs: portable.autoClosingPairs,
+    surroundingPairs: portable.surroundingPairs,
     indentationRules: {
-      increaseIndentPattern: /^.*(\{[^}"']*|->)\s*$/,
-      decreaseIndentPattern: /^\s*\}/,
+      increaseIndentPattern: new RegExp(portable.indentationRules.increaseIndentPattern),
+      decreaseIndentPattern: new RegExp(portable.indentationRules.decreaseIndentPattern),
     },
-    onEnterRules: [
-      {
-        // Brace/tail lambda arrow with an auto-closed `}` (and trailing
-        // call parens) right after the cursor: split onto an indented line
-        // and push the closing bracket(s) down.
-        beforeText: /->\s*$/,
-        afterText: /^\s*[)\]}]/,
-        action: { indentAction: monaco.languages.IndentAction.IndentOutdent },
+    onEnterRules: portable.onEnterRules.map((rule) => ({
+      ...(rule.afterText ? { afterText: new RegExp(rule.afterText) } : {}),
+      beforeText: new RegExp(rule.beforeText),
+      action: {
+        indentAction: rule.indentAction === "indentOutdent"
+          ? monaco.languages.IndentAction.IndentOutdent
+          : monaco.languages.IndentAction.Indent,
       },
-      {
-        // Lambda arrow at end of line with nothing after: just indent.
-        beforeText: /->\s*$/,
-        action: { indentAction: monaco.languages.IndentAction.Indent },
-      },
-    ],
-  });
+    })),
+  };
 }
 
 export function setModelDiagnostics(model: monaco.editor.ITextModel, markers: Array<{

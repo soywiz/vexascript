@@ -49,6 +49,9 @@ This section is the fast onboarding map for agents and contributors.
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`
   - LSP formatting adapter: `compiler/lsp/formatting.ts`
+- Embedded syntax definitions:
+  - Shared editor-syntax generators used by the CLI and editor integrations: `compiler/syntax.ts`
+  - Syntax generator consistency tests: `compiler/syntax.test.ts`
 - Shared async file helpers live in `compiler/utils/fs.ts`, and shared async process helpers live in `compiler/utils/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
 
 ### Tooling and Integration Pieces
@@ -61,6 +64,7 @@ This section is the fast onboarding map for agents and contributors.
 - CLI:
   - CLI entrypoint and commands: `compiler/cli.ts`
   - CLI tests: `compiler/cli.test.ts`
+  - `syntax` command prints embedded MyLang syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Monaco browser plugin (project root: `plugins/monaco/`):
   - Static Monaco demo entrypoint: `plugins/monaco/src/main.ts`
   - Monaco-to-compiler provider adapter (in-process; does NOT use LSP, calls the
@@ -109,8 +113,8 @@ This section is the fast onboarding map for agents and contributors.
   - LSP tests: `compiler/lsp/*.test.ts`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`
-  - TextMate grammar: `plugins/vscode/syntaxes/mylang.tmLanguage.json`
-  - VS Code extension manifest/config: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
+  - TextMate grammar generated from the compiler's shared syntax source and checked in for packaging: `plugins/vscode/syntaxes/mylang.tmLanguage.json`
+  - VS Code extension manifest/config and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `compiler/vscodeext-syntax.test.ts`
 
 ### Docs and Specs

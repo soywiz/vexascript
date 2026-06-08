@@ -14,6 +14,7 @@ MyLang is a language derived from TypeScript with some features and ideas from S
 - Run tests with coverage: `pnpm coverage`
 - Run vscode with the plugin+lsp: `pnpm code`
 - Run monaco sample: `pnpm monaco`
+- Print embedded editor syntax bundles: `pnpm tsx compiler/cli.ts syntax --monaco|--vscode-grammar|--vscode-configuration|--codemirror`
 
 ## File Structure & Maintenance Rule
 
@@ -33,6 +34,7 @@ MyLang is a language derived from TypeScript with some features and ideas from S
 - For UI-facing changes (Monaco plugin, browser flows, visual interactions), validate the final behavior in a real browser before handing off. Use Playwright or another browser automation path when available, and treat that browser check as part of completion rather than an optional extra.
 - If tests fail, they must be fixed before finishing the task.
 - If requirements change, update tests to match the new expected behavior instead of preserving outdated assertions.
+- For editor/LSP cursor-position tests, prefer the shared `^^^` marker helper in `compiler/test/sourceWithCursor.ts` over hardcoded line/column pairs.
 
 ## Language policy
 

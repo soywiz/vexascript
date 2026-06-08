@@ -140,6 +140,48 @@ describe("CLI", () => {
     });
   });
 
+  it("syntax command prints Monaco bundle source by default", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "syntax"]);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const output = String(logSpy.mock.calls[0]?.[0] ?? "");
+    expect(output).toContain("export const mylangMonacoSyntax =");
+    expect(output).toContain("\"defaultToken\"");
+  });
+
+  it("syntax command prints VS Code grammar JSON", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "syntax", "--vscode-grammar"]);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}")) as {
+      scopeName?: string;
+      repository?: Record<string, unknown>;
+    };
+    expect(output.scopeName).toBe("source.mylang");
+    expect(output.repository).toBeDefined();
+  });
+
+  it("syntax command prints CodeMirror legacy mode source", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "syntax", "--codemirror"]);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const output = String(logSpy.mock.calls[0]?.[0] ?? "");
+    expect(output).toContain("export const mylangMode =");
+    expect(output).toContain("blockCommentStart");
+  });
+
+  it("syntax command rejects multiple targets", async () => {
+    await expect(runCli(["node", "mylang", "syntax", "--monaco", "--vscode"])).rejects.toThrow(
+      "Syntax output expects exactly one target"
+    );
+  });
+
   it("format command overwrites input file with formatted source", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "format.my");

@@ -8,6 +8,7 @@ import { ensureEcmaScriptRuntimeProgram } from "./runtime/ecmascriptDeclarations
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
 import { loadProject } from "./project";
 import { ensureDependencies } from "./deps";
+import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
@@ -264,6 +265,58 @@ async function formatFile(input: string, opts: { write?: boolean; out?: string }
   console.log(`Formatted: ${sourcePath}`);
 }
 
+function resolveSyntaxTarget(opts: {
+  target?: string;
+  monaco?: boolean;
+  monacoLanguage?: boolean;
+  monacoConfiguration?: boolean;
+  vscode?: boolean;
+  vscodeGrammar?: boolean;
+  vscodeConfiguration?: boolean;
+  codemirror?: boolean;
+  textmate?: boolean;
+}): SyntaxTarget {
+  const requestedTargets = [
+    opts.monaco ? "monaco" : undefined,
+    opts.monacoLanguage ? "monaco-language" : undefined,
+    opts.monacoConfiguration ? "monaco-configuration" : undefined,
+    opts.vscode ? "vscode-grammar" : undefined,
+    opts.vscodeGrammar ? "vscode-grammar" : undefined,
+    opts.vscodeConfiguration ? "vscode-configuration" : undefined,
+    opts.codemirror ? "codemirror-legacy" : undefined,
+    opts.textmate ? "textmate" : undefined,
+    opts.target,
+  ].filter((target): target is string => target !== undefined);
+
+  if (requestedTargets.length === 0) {
+    return "monaco";
+  }
+  if (requestedTargets.length > 1) {
+    throw new Error(`Syntax output expects exactly one target. Supported targets: ${SYNTAX_TARGETS.join(", ")}`);
+  }
+
+  const requestedTarget = requestedTargets[0];
+  if (SYNTAX_TARGETS.includes(requestedTarget as SyntaxTarget)) {
+    return requestedTarget as SyntaxTarget;
+  }
+
+  throw new Error(`Unsupported syntax target "${requestedTarget}". Supported targets: ${SYNTAX_TARGETS.join(", ")}`);
+}
+
+async function printSyntax(opts: {
+  target?: string;
+  monaco?: boolean;
+  monacoLanguage?: boolean;
+  monacoConfiguration?: boolean;
+  vscode?: boolean;
+  vscodeGrammar?: boolean;
+  vscodeConfiguration?: boolean;
+  codemirror?: boolean;
+  textmate?: boolean;
+}): Promise<void> {
+  console.log(renderSyntaxTarget(resolveSyntaxTarget(opts)));
+}
+
 function createProgram(): Command {
   const program = new Command()
     .name("mylang")
@@ -273,6 +326,32 @@ function createProgram(): Command {
   program
     .option("--lsp", "Start the language server over stdio")
     .option("--language-server", "Start the language server over stdio (alias of --lsp)");
+
+  program
+    .command("syntax")
+    .description("Print embedded MyLang syntax definitions for editor integrations")
+    .option("--target <name>", `Syntax target: ${SYNTAX_TARGETS.join("|")}`)
+    .option("--monaco", "Print Monaco-ready bundle source")
+    .option("--monaco-language", "Print Monaco Monarch language JSON")
+    .option("--monaco-configuration", "Print Monaco language-configuration JSON")
+    .option("--vscode", "Print VS Code/TextMate grammar JSON")
+    .option("--vscode-grammar", "Print VS Code/TextMate grammar JSON")
+    .option("--vscode-configuration", "Print VS Code language-configuration JSON")
+    .option("--codemirror", "Print CodeMirror legacy mode source")
+    .option("--textmate", "Print TextMate grammar JSON")
+    .action(async (opts: {
+      target?: string;
+      monaco?: boolean;
+      monacoLanguage?: boolean;
+      monacoConfiguration?: boolean;
+      vscode?: boolean;
+      vscodeGrammar?: boolean;
+      vscodeConfiguration?: boolean;
+      codemirror?: boolean;
+      textmate?: boolean;
+    }) => {
+      await printSyntax(opts);
+    });
 
   program
     .command("build")
@@ -350,7 +429,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(["build", "run", "test", "tokens", "ast", "format"]);
+  const knownCommands = new Set(["build", "run", "test", "tokens", "ast", "format", "syntax"]);
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
