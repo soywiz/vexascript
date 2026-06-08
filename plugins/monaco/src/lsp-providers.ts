@@ -276,10 +276,14 @@ function toMonacoMonarchLanguage(language: PortableMonarchLanguage): monaco.lang
               { cases: rule.cases },
             ];
           }
-          if (rule.next) {
+          if (rule.next || rule.switchTo) {
             return [
               new RegExp(rule.match),
-              { token: rule.token, next: rule.next },
+              {
+                token: rule.token,
+                ...(rule.next ? { next: rule.next } : {}),
+                ...(rule.switchTo ? { switchTo: rule.switchTo } : {}),
+              },
             ];
           }
           return [new RegExp(rule.match), rule.token];

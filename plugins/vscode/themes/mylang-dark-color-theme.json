@@ -25,6 +25,22 @@
       "settings": {
         "foreground": "#569CD6"
       }
+    },
+    {
+      "scope": [
+        "entity.name.tag.mylang",
+        "punctuation.definition.tag.begin.mylang",
+        "punctuation.definition.tag.end.mylang"
+      ],
+      "settings": {
+        "foreground": "#4EC9B0"
+      }
+    },
+    {
+      "scope": "entity.other.attribute-name.mylang",
+      "settings": {
+        "foreground": "#9CDCFE"
+      }
     }
   ]
 }

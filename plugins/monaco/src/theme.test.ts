@@ -10,6 +10,8 @@ describe("monaco theme", () => {
     const theme = createMyLangMonacoTheme();
     const regularComment = theme.rules.find((rule) => rule.token === "comment");
     const docComment = theme.rules.find((rule) => rule.token === "comment.doc");
+    const jsxTag = theme.rules.find((rule) => rule.token === "tag");
+    const jsxAttribute = theme.rules.find((rule) => rule.token === "attribute.name");
 
     expect(MYLANG_MONACO_THEME_NAME).toBe("mylang-dark");
     expect(regularComment).toEqual({
@@ -20,6 +22,14 @@ describe("monaco theme", () => {
       token: "comment.doc",
       foreground: "9CDC8C",
       fontStyle: "italic",
+    });
+    expect(jsxTag).toEqual({
+      token: "tag",
+      foreground: "4EC9B0",
+    });
+    expect(jsxAttribute).toEqual({
+      token: "attribute.name",
+      foreground: "9CDCFE",
     });
   });
 });

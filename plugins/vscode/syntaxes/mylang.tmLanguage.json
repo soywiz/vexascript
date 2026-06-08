@@ -314,7 +314,7 @@
     "jsx-attributes": {
       "patterns": [
         {
-          "match": "([_$A-Za-z][-_$A-Za-z0-9]*)(?=\\s*=)",
+          "match": "([_$A-Za-z][-_:$A-Za-z0-9]*)(?=\\s*=)",
           "name": "entity.other.attribute-name.mylang"
         },
         {
@@ -354,4 +354,3 @@
     }
   }
 }
-
