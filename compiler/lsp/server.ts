@@ -60,6 +60,7 @@ import {
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(LspTextDocument);
 let sourceRoots: string[] = [];
+let inlayHintsEnabled = false;
 let projectIndex: ProjectIndex = getProjectIndex([]);
 const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
   if (!baseSession.ast) {
@@ -202,7 +203,7 @@ connection.onInitialize((params) => {
         full: true,
         range: true
       },
-      inlayHintProvider: true,
+      inlayHintProvider: inlayHintsEnabled ? true : undefined,
       renameProvider: {
         prepareProvider: true
       }
@@ -585,6 +586,8 @@ connection.onWorkspaceSymbol((params) => {
 });
 
 connection.languages.inlayHint.on(async (params) => {
+  if (!inlayHintsEnabled) return [];
+
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return [];
@@ -652,7 +655,15 @@ connection.onDocumentOnTypeFormatting((params) => {
   return doc ? createOnTypeFormattingEdits(doc.getText(), params.position, params.ch) : [];
 });
 
-connection.onDidChangeConfiguration(() => refreshDiagnostics());
+connection.onDidChangeConfiguration(async () => {
+  const config = await connection.workspace.getConfiguration("mylang");
+  const newEnabled = config?.inlayHints?.enabled === true;
+  if (newEnabled !== inlayHintsEnabled) {
+    inlayHintsEnabled = newEnabled;
+    connection.languages.inlayHint.refresh();
+  }
+  refreshDiagnostics();
+});
 connection.onDidChangeWatchedFiles((params) => {
   for (const change of params.changes) {
     const filePath = uriToFilePath(change.uri);

@@ -76,6 +76,7 @@ export function startLspInWorker(): void {
 
   const documents = new TextDocuments(LspTextDocument);
   const analysisSessions = new AnalysisSessionCache();
+  let inlayHintsEnabled = false;
 
   function refreshDiagnostics(): void {
     connection.languages.diagnostics.refresh();
@@ -138,7 +139,7 @@ export function startLspInWorker(): void {
         full: true,
         range: true,
       },
-      inlayHintProvider: true,
+      inlayHintProvider: inlayHintsEnabled ? true : undefined,
       renameProvider: { prepareProvider: true },
     },
   }));
@@ -406,6 +407,7 @@ export function startLspInWorker(): void {
   });
 
   connection.languages.inlayHint.on(async (params) => {
+    if (!inlayHintsEnabled) return [];
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
     const session = analysisSessions.getForDocument(doc);
@@ -461,7 +463,15 @@ export function startLspInWorker(): void {
       : [];
   });
 
-  connection.onDidChangeConfiguration(() => refreshDiagnostics());
+  connection.onDidChangeConfiguration(async () => {
+    const config = await connection.workspace.getConfiguration("mylang");
+    const newEnabled = config?.inlayHints?.enabled === true;
+    if (newEnabled !== inlayHintsEnabled) {
+      inlayHintsEnabled = newEnabled;
+      connection.languages.inlayHint.refresh();
+    }
+    refreshDiagnostics();
+  });
 
   connection.languages.callHierarchy.onPrepare((params) => {
     const doc = documents.get(params.textDocument.uri);
