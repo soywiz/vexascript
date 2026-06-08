@@ -49,11 +49,11 @@ describe("CLI", () => {
     );
   });
 
-  it("build command uses JSX factories from mylang.toml", async () => {
+  it("build command uses JSX factories from tsconfig.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "input-jsx.my");
     const output = join(dir, "output-jsx.js");
-    await writeFile(join(dir, "mylang.toml"), "[jsx]\nfactory = \"h\"\nfragmentFactory = \"Fragment\"\n", "utf8");
+    await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsxFactory: "h", jsxFragmentFactory: "Fragment" } }), "utf8");
     await writeFile(input, "const view = <><span>hi</span></>", "utf8");
 
     await runCli(["node", "mylang", "build", input, "--out", output]);
@@ -82,10 +82,10 @@ describe("CLI", () => {
     expect(logSpy.mock.calls).toEqual([[0], [1], [2]]);
   });
 
-  it("run command uses JSX factories from mylang.toml", async () => {
+  it("run command uses JSX factories from tsconfig.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "run-jsx.my");
-    await writeFile(join(dir, "mylang.toml"), "[jsx]\nfactory = \"h\"\nfragmentFactory = \"Fragment\"\n", "utf8");
+    await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsxFactory: "h", jsxFragmentFactory: "Fragment" } }), "utf8");
     await writeFile(input, [
       'const Fragment = "fragment"',
       "fun h(type: any, props: any, child: any = null) {",
