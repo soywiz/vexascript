@@ -153,7 +153,7 @@ console.log([].doubledLength)
   });
 
   it("executes nested object and array destructuring declarations", () => {
-    const source = `let { id, name: displayName, nested: { value = 4 }, ...rest } = { id: 1, name: "Ada", nested: {}, extra: 7 }
+    const source = `let { id, name :: displayName, nested :: { value = 4 }, ...rest } = { id: 1, name: "Ada", nested: {}, extra: 7 }
 const [first, , third = 3, ...tail] = [10, 20]
 console.log(id)
 console.log(displayName)
@@ -171,7 +171,7 @@ console.log(tail.length)
 
 describe("destructured parameter runtime integration", () => {
   it("executes nested object and array parameter patterns with defaults, holes, and rest bindings", () => {
-    const source = `function unpack({ id, nested: { value = 4 }, ...metadata }, [first, , third = 3, ...tail] = [10, 20]) {
+    const source = `function unpack({ id, nested :: { value = 4 }, ...metadata }, [first, , third = 3, ...tail] = [10, 20]) {
   console.log(id)
   console.log(value)
   console.log(metadata.extra)

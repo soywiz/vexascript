@@ -10,7 +10,7 @@
   "scripts": {
     "cli": "pnpm --silent build && node dist/mylang.js",
     "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.js",
-    "test": "tsc --noEmit && tsx --test --test-reporter spec",
+    "test": "tsc --noEmit && node --import tsx --test --test-reporter spec $(rg --files -g '*.test.ts')",
     "coverage": "tsx --test --experimental-test-coverage",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
     "monaco": "pnpm --dir plugins/monaco monaco"
