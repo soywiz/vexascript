@@ -2571,6 +2571,38 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses mylang class colon syntax: BaseShape, Shape, Comparable<Circle>", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Circle : BaseShape, Shape, Comparable<Circle> {}"),
+                { language: "mylang" }
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Circle" },
+            extendsType: { kind: "Identifier", name: "BaseShape" },
+            implementsTypes: [
+                { kind: "Identifier", name: "Shape" },
+                { kind: "Identifier", name: "Comparable<Circle>" }
+            ],
+            members: []
+        });
+    });
+
+    it("parses mylang class colon syntax with single base type", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Foo : Bar {}"),
+                { language: "mylang" }
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Foo" },
+            extendsType: { kind: "Identifier", name: "Bar" },
+            members: []
+        });
+    });
+
     it("parses generic class methods with function-type parameter annotations", () => {
         expect(
             parseStatement(
