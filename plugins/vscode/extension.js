@@ -55,6 +55,7 @@ function activate(context) {
     }
   };
 
+  const mylangConfig = workspace.getConfiguration("mylang");
   const clientOptions = {
     documentSelector: [
       { scheme: "file", language: "mylang" },
@@ -63,7 +64,11 @@ function activate(context) {
     outputChannel,
     traceOutputChannel: outputChannel,
     synchronize: {
-      fileEvents: workspace.createFileSystemWatcher("**/*.my")
+      fileEvents: workspace.createFileSystemWatcher("**/*.my"),
+      configurationSection: "mylang"
+    },
+    initializationOptions: {
+      enableReferenceCodeLens: mylangConfig.get("referenceCodeLens.enabled", false)
     }
   };
 
