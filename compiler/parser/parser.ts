@@ -869,7 +869,20 @@ export class Parser {
                     this.tokens.skip();
                     break;
                 }
-                elements.push(this.parseConditionalTypeAnnotationText());
+                let elementType = this.parseConditionalTypeAnnotationText();
+                const optionalLabel = this.tokens.peek();
+                if (optionalLabel?.type === "symbol" && optionalLabel.value === "?") {
+                    const afterQuestion = this.tokens.items[this.tokens.offset + 1];
+                    if (afterQuestion?.type === "symbol" && afterQuestion.value === ":") {
+                        this.tokens.skip();
+                        this.tokens.skip();
+                        elementType += `?: ${this.parseConditionalTypeAnnotationText()}`;
+                    }
+                } else if (optionalLabel?.type === "symbol" && optionalLabel.value === ":") {
+                    this.tokens.skip();
+                    elementType += `: ${this.parseConditionalTypeAnnotationText()}`;
+                }
+                elements.push(elementType);
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
                     this.tokens.skip();

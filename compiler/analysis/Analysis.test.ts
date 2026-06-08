@@ -1063,6 +1063,51 @@ let after = bind`));
     expect(messages).toContain("Type 'string' is not assignable to type 'int'");
   });
 
+  it("infers tuple element types for destructuring and generic tuple returns", () => {
+    const source = dedent`
+      fun useState<T>(value: T) {
+        return [value, (newValue: T) => { console.log("setNewValue", newValue) }]
+      }
+
+      fun demo() {
+        const [result, setResult] = useState(0)
+        setResult(result + 1)
+        setResult("wrong")
+        return result
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(7, 5).map((symbol) => [symbol.name, symbol]));
+
+    expect(symbols.get("result")?.valueType).toBe("int");
+    expect(symbols.get("setResult")?.valueType).toBe("(newValue: int) => void");
+    expect(messages).toContain("Argument 1 of type 'string' is not assignable to parameter 'newValue' of type 'int'");
+    expect(messages.some((message) => message.includes("result + 1"))).toBe(false);
+  });
+
+  it("supports labeled TypeScript tuple element types", () => {
+    const source = dedent`
+      let pair: [name: string, count: int] = ["Ada", 1]
+      const [name, count] = pair
+      let bad: [name: string, count: int] = [1, "Ada"]
+      fun demo() {
+        return count
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(4, 5).map((symbol) => [symbol.name, symbol]));
+
+    expect(symbols.get("name")?.valueType).toBe("string");
+    expect(symbols.get("count")?.valueType).toBe("int");
+    expect(messages).toContain("Type '[int, string]' is not assignable to type '[string, int]'");
+  });
+
   it("checks union, intersection, literal, and tuple type annotations", () => {
     const source = dedent`
       interface Named { name: string }
