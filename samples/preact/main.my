@@ -5,13 +5,11 @@ import render from "preact-render-to-string";
 //function Page({ name :: displayName : string }) { // destructuring with rename + types
 //function Page({ name :: displayName }) { // destructuring with rename
 function Page({ name : string }) { // destructuring with types
-    return (
-        <html>
-            <body>
-                <h1>Hello {name}</h1>
-            </body>
-        </html>
-    );
+    return <html>
+        <body>
+            <h1>Hello {name}</h1>
+        </body>
+    </html>
 }
 
 const html = "<!doctype html>" + render(<Page name="Carlos" />);
