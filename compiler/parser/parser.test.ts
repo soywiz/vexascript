@@ -273,11 +273,21 @@ describe("parseExpression", () => {
         });
     });
 
-    it("builds an AST for range expressions", () => {
+    it("builds an AST for inclusive range expressions", () => {
         expect(parseExpression(tokenizeReader("0 ... 10"))).toEqual({
             kind: "RangeExpression",
             start: { kind: "IntLiteral", value: 0 },
-            end: { kind: "IntLiteral", value: 10 }
+            end: { kind: "IntLiteral", value: 10 },
+            exclusive: false
+        });
+    });
+
+    it("builds an AST for exclusive range expressions", () => {
+        expect(parseExpression(tokenizeReader("0 ..< 10"))).toEqual({
+            kind: "RangeExpression",
+            start: { kind: "IntLiteral", value: 0 },
+            end: { kind: "IntLiteral", value: 10 },
+            exclusive: true
         });
     });
 
@@ -1683,7 +1693,8 @@ describe("parseStatement", () => {
             iterable: {
                 kind: "RangeExpression",
                 start: { kind: "IntLiteral", value: 0 },
-                end: { kind: "IntLiteral", value: 10 }
+                end: { kind: "IntLiteral", value: 10 },
+                exclusive: false
             },
             body: {
                 kind: "BreakStatement"
@@ -2556,6 +2567,38 @@ describe("parseStatement", () => {
                 { kind: "Identifier", name: "Iterable<K>" },
                 { kind: "Identifier", name: "Serializable" }
             ],
+            members: []
+        });
+    });
+
+    it("parses mylang class colon syntax: BaseShape, Shape, Comparable<Circle>", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Circle : BaseShape, Shape, Comparable<Circle> {}"),
+                { language: "mylang" }
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Circle" },
+            extendsType: { kind: "Identifier", name: "BaseShape" },
+            implementsTypes: [
+                { kind: "Identifier", name: "Shape" },
+                { kind: "Identifier", name: "Comparable<Circle>" }
+            ],
+            members: []
+        });
+    });
+
+    it("parses mylang class colon syntax with single base type", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Foo : Bar {}"),
+                { language: "mylang" }
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Foo" },
+            extendsType: { kind: "Identifier", name: "Bar" },
             members: []
         });
     });

@@ -196,6 +196,11 @@ describe("formatSource", () => {
       .toBe("for (a of 0 ... 10)console.log(a)");
   });
 
+  it("formats exclusive range operator with binary spacing", () => {
+    expect(formatSource("for(a of 0..<10)console.log(a)"))
+      .toBe("for (a of 0 ..< 10)console.log(a)");
+  });
+
   it("keeps generic angle brackets tight while preserving comparison spacing", () => {
     expect(formatSource("let value:Promise<Response>=load()"))
       .toBe("let value: Promise<Response> = load()");

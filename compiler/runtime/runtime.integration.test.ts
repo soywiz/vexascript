@@ -52,7 +52,7 @@ console.log(user.describe())
   it("executes lowered range loops, class constructor fields, and bigint/long arithmetic", () => {
     const source = `class Pair(val x: int, val y: int)
 let total = 0
-for (n of 0 ... 3) {
+for (n of 0 ..< 3) {
   total = total + n
 }
 let pair = new Pair(2, 5)
@@ -94,7 +94,7 @@ console.log(values.length)
 
   it("preserves behavior between conservative and optimized transpile targets", () => {
     const source = `let total = 0
-for (n of 0 ... 5) {
+for (n of 0 ..< 5) {
   total = total + n
 }
 console.log(total)

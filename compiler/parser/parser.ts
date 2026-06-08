@@ -96,7 +96,7 @@ type BinaryOperator = BinaryExpression["operator"];
 type AssignmentOperator = AssignmentExpression["operator"];
 type OverloadableOperator = BinaryExpression["operator"];
 type BinaryAssoc = "left" | "right";
-type InfixOperator = BinaryOperator | "...";
+type InfixOperator = BinaryOperator | "..." | "..<";
 
 const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="];
 const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
@@ -124,6 +124,7 @@ const BINARY_OPERATOR_INFO: Record<InfixOperator, { precedence: number; assoc: B
     ">>": { precedence: 8, assoc: "left" },
     ">>>": { precedence: 8, assoc: "left" },
     "...": { precedence: 9, assoc: "left" },
+    "..<": { precedence: 9, assoc: "left" },
     "+": { precedence: 10, assoc: "left" },
     "-": { precedence: 10, assoc: "left" },
     "*": { precedence: 11, assoc: "left" },
@@ -1692,11 +1693,12 @@ export class Parser {
             const nextMinPrecedence = info.assoc === "left" ? info.precedence + 1 : info.precedence;
             const right = this.parseBinaryExpression(nextMinPrecedence);
 
-            if (operator === "...") {
+            if (operator === "..." || operator === "..<") {
                 left = this.attachNodeBounds({
                     kind: "RangeExpression",
                     start: left,
-                    end: right
+                    end: right,
+                    exclusive: operator === "..<"
                 } as RangeExpression, left.firstToken, right.lastToken ?? this.getLastReadToken());
                 continue;
             }
@@ -4874,12 +4876,33 @@ export class Parser {
         }
 
         let extendsType: Identifier | undefined;
+        let implementsTypes: Identifier[] | undefined;
+
+        if (this.language === "mylang" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            this.tokens.skip();
+            const colonTypes: Identifier[] = [];
+            while (this.tokens.hasMore) {
+                colonTypes.push(this.parseTypeAnnotationNode());
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && separator.value === ",") {
+                    this.tokens.skip();
+                    continue;
+                }
+                break;
+            }
+            if (colonTypes.length > 0) {
+                extendsType = colonTypes[0];
+                if (colonTypes.length > 1) {
+                    implementsTypes = colonTypes.slice(1);
+                }
+            }
+        }
+
         if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
             this.tokens.skip();
             extendsType = this.parseTypeAnnotationNode();
         }
 
-        let implementsTypes: Identifier[] | undefined;
         if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "implements") {
             this.tokens.skip();
             implementsTypes = [];

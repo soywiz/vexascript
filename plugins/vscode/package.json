@@ -50,7 +50,14 @@
           "description": "Show inline reference counts (e.g. '2 references') above declarations."
         }
       }
-    }
+    },
+    "themes": [
+      {
+        "label": "MyLang Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/mylang-dark-color-theme.json"
+      }
+    ]
   },
   "scripts": {
     "lint": "echo \"No lint configured\""

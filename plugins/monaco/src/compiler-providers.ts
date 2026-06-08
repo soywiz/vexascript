@@ -370,6 +370,8 @@ function toMonacoMonarchLanguage(portable: PortableMonarchLanguage): Record<stri
   return {
     defaultToken: portable.defaultToken,
     keywords: portable.keywords,
+    declarationKeywords: portable.declarationKeywords,
+    controlKeywords: portable.controlKeywords,
     tokenizer,
   };
 }

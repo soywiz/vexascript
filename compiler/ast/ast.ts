@@ -109,6 +109,7 @@ export interface RangeExpression extends Node {
     kind: "RangeExpression"
     start: Expr
     end: Expr
+    exclusive: boolean
 }
 
 export interface AssignmentExpression extends Node {

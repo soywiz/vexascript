@@ -48,12 +48,24 @@ describe("emitProgram", () => {
   it("keeps emitter focused on syntax emission without range-loop optimization", () => {
     const program = parseFile(tokenizeReader("for (a of 0 ... 10) console.log(a)"));
     expect(emitProgram(program)).toContain(
+      "for (const a of (function*(s, e) { for (let n = s; n <= e; n++) yield n })(0, 10)) console.log(a);"
+    );
+  });
+
+  it("keeps emitter focused on syntax emission for exclusive range-loop", () => {
+    const program = parseFile(tokenizeReader("for (a of 0 ..< 10) console.log(a)"));
+    expect(emitProgram(program)).toContain(
       "for (const a of (function*(s, e) { for (let n = s; n < e; n++) yield n })(0, 10)) console.log(a);"
     );
   });
 
-  it("emits classic for loop after lowering a range-based for-of", () => {
+  it("emits classic for loop after lowering an inclusive range-based for-of", () => {
     const program = parseFile(tokenizeReader("for (a of 0 ... 10) console.log(a)"));
+    expect(emitProgram(lowerProgram(program))).toContain("for (let a = 0; a <= 10; a++) console.log(a);");
+  });
+
+  it("emits classic for loop after lowering an exclusive range-based for-of", () => {
+    const program = parseFile(tokenizeReader("for (a of 0 ..< 10) console.log(a)"));
     expect(emitProgram(lowerProgram(program))).toContain("for (let a = 0; a < 10; a++) console.log(a);");
   });
 
@@ -67,8 +79,15 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toBe("let value = (setA(), setB());\ndebugger;\nwhile (value) ;");
   });
 
-  it("emits range expression outside for as generator", () => {
+  it("emits inclusive range expression outside for as generator", () => {
     const program = parseFile(tokenizeReader("let values = 0 ... 3"));
+    expect(emitProgram(program)).toContain(
+      "let values = (function*(s, e) { for (let n = s; n <= e; n++) yield n })(0, 3);"
+    );
+  });
+
+  it("emits exclusive range expression outside for as generator", () => {
+    const program = parseFile(tokenizeReader("let values = 0 ..< 3"));
     expect(emitProgram(program)).toContain(
       "let values = (function*(s, e) { for (let n = s; n < e; n++) yield n })(0, 3);"
     );
