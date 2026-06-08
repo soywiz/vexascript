@@ -26,6 +26,10 @@ export interface SymbolExport {
   memberKind?: "property" | "method";
 }
 
+export interface SymbolExportProvider {
+  (): Promise<SymbolExport[]> | SymbolExport[];
+}
+
 const CODE_ACTION_KIND_QUICK_FIX = "quickfix";
 
 export async function buildSymbolExports(sourceRoots: string[]): Promise<SymbolExport[]> {
@@ -47,6 +51,19 @@ export async function buildSymbolExports(sourceRoots: string[]): Promise<SymbolE
   }
 
   return exports;
+}
+
+async function resolveAvailableSymbolExports(params: {
+  sourceRoots: string[];
+  getExportedSymbols?: SymbolExportProvider;
+}): Promise<SymbolExport[]> {
+  if (params.getExportedSymbols) {
+    return await params.getExportedSymbols();
+  }
+  if (params.sourceRoots.length === 0) {
+    return [];
+  }
+  return buildSymbolExports(params.sourceRoots);
 }
 
 /**
@@ -211,9 +228,10 @@ export async function createAutoImportCodeActions(params: {
   ast: Program | null;
   diagnostics: Diagnostic[];
   sourceRoots: string[];
+  getExportedSymbols?: SymbolExportProvider;
 }): Promise<CodeAction[]> {
   const { uri, ast, diagnostics, sourceRoots } = params;
-  if (!ast || sourceRoots.length === 0) {
+  if (!ast) {
     return [];
   }
 
@@ -228,7 +246,10 @@ export async function createAutoImportCodeActions(params: {
     return [];
   }
 
-  const exportedSymbols = await buildSymbolExports(sourceRoots);
+  const exportedSymbols = await resolveAvailableSymbolExports({
+    sourceRoots,
+    ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {}),
+  });
   if (exportedSymbols.length === 0) {
     return [];
   }
@@ -347,6 +368,7 @@ export async function buildExtensionAutoImportSuggestions(params: {
   uri: string;
   ast: Program | null;
   sourceRoots: string[];
+  getExportedSymbols?: SymbolExportProvider;
   receiverType: string;
   prefix?: string;
   memberKind?: "property" | "method";
@@ -377,12 +399,13 @@ export async function buildAutoImportSuggestions(params: {
   uri: string;
   ast: Program | null;
   sourceRoots: string[];
+  getExportedSymbols?: SymbolExportProvider;
   prefix?: string;
   allowEmptyPrefix?: boolean;
   excludeSymbols?: Set<string>;
 }): Promise<AutoImportSuggestion[]> {
   const { uri, ast, sourceRoots, prefix, allowEmptyPrefix, excludeSymbols } = params;
-  if (!ast || sourceRoots.length === 0) {
+  if (!ast) {
     return [];
   }
 
@@ -391,7 +414,10 @@ export async function buildAutoImportSuggestions(params: {
     return [];
   }
 
-  const exportedSymbols = await buildSymbolExports(sourceRoots);
+  const exportedSymbols = await resolveAvailableSymbolExports({
+    sourceRoots,
+    ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {}),
+  });
   if (exportedSymbols.length === 0) {
     return [];
   }

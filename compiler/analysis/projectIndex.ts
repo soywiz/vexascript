@@ -82,13 +82,11 @@ function nodeRange(node: {
   };
 }
 
-async function indexFileData(ast: Program | null, filePath: string): Promise<IndexedFileData> {
+export function collectTopLevelDeclarationsFromAst(ast: Program | null): ProjectTopLevelDeclaration[] {
   if (!ast) {
-    return { declarations: [], imports: [] };
+    return [];
   }
-
   const declarations: ProjectTopLevelDeclaration[] = [];
-  const imports: ProjectImportBinding[] = [];
 
   for (const originalStatement of ast.body) {
     const statement: Statement = originalStatement.kind === "ExportStatement" && (originalStatement as ExportStatement).declaration
@@ -160,10 +158,10 @@ async function indexFileData(ast: Program | null, filePath: string): Promise<Ind
         for (const declaration of variableStatement.declarations) {
           for (const identifier of bindingIdentifiers(declaration.name)) {
             const range = nodeRange(identifier);
-            if (range) declarations.push({
-              name: identifier.name,
-              kind: "variable",
-              ...(variableStatement.receiverType
+      if (range) declarations.push({
+        name: identifier.name,
+        kind: "variable",
+        ...(variableStatement.receiverType
                 ? {
                     receiverType: variableStatement.receiverType.name,
                     memberKind: "property" as const
@@ -191,6 +189,23 @@ async function indexFileData(ast: Program | null, filePath: string): Promise<Ind
       }
       continue;
     }
+  }
+
+  return declarations;
+}
+
+async function indexFileData(ast: Program | null, filePath: string): Promise<IndexedFileData> {
+  if (!ast) {
+    return { declarations: [], imports: [] };
+  }
+
+  const declarations = collectTopLevelDeclarationsFromAst(ast);
+  const imports: ProjectImportBinding[] = [];
+
+  for (const originalStatement of ast.body) {
+    const statement: Statement = originalStatement.kind === "ExportStatement" && (originalStatement as ExportStatement).declaration
+      ? (originalStatement as ExportStatement).declaration!
+      : originalStatement;
 
     if (statement.kind === "ImportStatement") {
       const importStatement = statement as ImportStatement;

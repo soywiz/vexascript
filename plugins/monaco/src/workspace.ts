@@ -1,6 +1,7 @@
 export const MAIN_DOCUMENT_URI = "file:///main.my";
 export const RUNTIME_DOCUMENT_URI = "file:///es2025.d.ts";
 export const WORKSPACE_STORAGE_KEY = "mylang.monaco.workspace.v1";
+export const WORKSPACE_SESSION_STORAGE_KEY = "mylang.monaco.workspace-session.v1";
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -36,6 +37,12 @@ interface StoredWorkspaceSnapshot {
   }>;
 }
 
+export interface StoredWorkspaceSessionSnapshot {
+  activeUri: string;
+  lineNumber: number;
+  column: number;
+}
+
 function normalizePath(path: string): string {
   const trimmed = path.trim().replace(/\\/g, "/");
   const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
@@ -55,7 +62,7 @@ function basename(path: string): string {
   return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
 }
 
-function pathToUri(path: string): string {
+export function pathToUri(path: string): string {
   return `file://${normalizePath(path)}`;
 }
 
@@ -204,6 +211,61 @@ export function persistWorkspaceEntries(
   storageKey = WORKSPACE_STORAGE_KEY
 ): void {
   storage?.setItem(storageKey, JSON.stringify(serializeEditableWorkspace(entries)));
+}
+
+export function resolveWorkspaceSession(
+  entries: WorkspaceEntry[],
+  storage?: StorageLike,
+  storageKey = WORKSPACE_SESSION_STORAGE_KEY
+): StoredWorkspaceSessionSnapshot | null {
+  const snapshotText = storage?.getItem(storageKey) ?? null;
+  if (!snapshotText) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(snapshotText) as Partial<StoredWorkspaceSessionSnapshot>;
+    if (
+      typeof parsed.activeUri !== "string" ||
+      typeof parsed.lineNumber !== "number" ||
+      typeof parsed.column !== "number"
+    ) {
+      return null;
+    }
+    const entry = findEntryByUri(entries, parsed.activeUri);
+    if (!entry || entry.kind !== "file") {
+      return null;
+    }
+    return {
+      activeUri: parsed.activeUri,
+      lineNumber: Math.max(1, Math.floor(parsed.lineNumber)),
+      column: Math.max(1, Math.floor(parsed.column)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function persistWorkspaceSession(
+  session: StoredWorkspaceSessionSnapshot,
+  storage?: StorageLike,
+  storageKey = WORKSPACE_SESSION_STORAGE_KEY
+): void {
+  storage?.setItem(storageKey, JSON.stringify(session));
+}
+
+export function clampWorkspaceSessionToFile(
+  session: StoredWorkspaceSessionSnapshot,
+  content: string
+): StoredWorkspaceSessionSnapshot {
+  const lines = content.split("\n");
+  const safeLineNumber = Math.max(1, Math.min(session.lineNumber, Math.max(1, lines.length)));
+  const lineText = lines[safeLineNumber - 1] ?? "";
+  const safeColumn = Math.max(1, Math.min(session.column, lineText.length + 1));
+  return {
+    activeUri: session.activeUri,
+    lineNumber: safeLineNumber,
+    column: safeColumn,
+  };
 }
 
 export function listChildren(entries: WorkspaceEntry[], folderPath: string): WorkspaceEntry[] {

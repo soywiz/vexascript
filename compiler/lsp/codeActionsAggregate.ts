@@ -18,6 +18,7 @@ import { createTrailingLambdaCodeActions } from "./trailingLambdaFixes";
 import { createEmptyClassBodyCodeActions } from "./emptyClassBodyFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
+import type { SymbolExportProvider } from "./importFixes";
 
 /**
  * Shared code-action collection used by both the LSP server and the Monaco
@@ -38,6 +39,7 @@ export interface CollectCodeActionsParams {
   diagnostics: Diagnostic[];
   sourceRoots: string[];
   getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
+  getExportedSymbols?: SymbolExportProvider;
   refreshDiagnosticsCommand?: string;
 }
 
@@ -126,7 +128,8 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
       uri,
       ast,
       diagnostics,
-      sourceRoots
+      sourceRoots,
+      ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {})
     })
   );
 

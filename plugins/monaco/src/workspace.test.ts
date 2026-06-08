@@ -7,9 +7,12 @@ import {
   findEntryByUri,
   listChildren,
   MAIN_DOCUMENT_URI,
+  persistWorkspaceSession,
   persistWorkspaceEntries,
+  resolveWorkspaceSession,
   resolveWorkspaceEntries,
   RUNTIME_DOCUMENT_URI,
+  WORKSPACE_SESSION_STORAGE_KEY,
   updateFileContent,
   WORKSPACE_STORAGE_KEY,
   type StorageLike,
@@ -96,5 +99,36 @@ describe("monaco static workspace", () => {
     const next = deleteWorkspaceEntry(entries, "/runtime");
     expect(listChildren(next, "/").map((entry) => entry.label)).toEqual(["runtime", "main.my"]);
     expect(findEntryByUri(next, RUNTIME_DOCUMENT_URI)?.kind === "file" ? findEntryByUri(next, RUNTIME_DOCUMENT_URI)?.label : null).toBe("es2025.d.ts");
+  });
+
+  it("persists and restores the active file and cursor position", () => {
+    const storage = new MemoryStorage();
+    const entries = resolveWorkspaceEntries("default", "runtime", storage);
+
+    persistWorkspaceSession({
+      activeUri: MAIN_DOCUMENT_URI,
+      lineNumber: 12,
+      column: 7,
+    }, storage);
+
+    expect(resolveWorkspaceSession(entries, storage)).toEqual({
+      activeUri: MAIN_DOCUMENT_URI,
+      lineNumber: 12,
+      column: 7,
+    });
+    expect(storage.getItem(WORKSPACE_SESSION_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it("ignores a persisted session that points to a missing file", () => {
+    const storage = new MemoryStorage();
+    const entries = resolveWorkspaceEntries("default", "runtime", storage);
+
+    persistWorkspaceSession({
+      activeUri: "file:///missing.my",
+      lineNumber: 5,
+      column: 2,
+    }, storage);
+
+    expect(resolveWorkspaceSession(entries, storage)).toBeNull();
   });
 });

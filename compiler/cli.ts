@@ -320,7 +320,7 @@ async function printSyntax(opts: {
 function createProgram(): Command {
   const program = new Command()
     .name("mylang")
-    .description("MyLang compiler CLI")
+    .description("MyLang compiler CLI - Soywiz Software 2026")
     .version("0.1.0");
 
   program

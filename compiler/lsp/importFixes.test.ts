@@ -78,6 +78,23 @@ describe("import quick fixes", () => {
     );
   });
 
+  it("suggests import from virtual exported symbols without source roots", async () => {
+    const source = "fun demo() {\n  return new Point()\n}\n";
+    const session = createAnalysisSession(source);
+    const actions = await createAutoImportCodeActions({
+      uri: "file:///consumer.my",
+      ast: session.ast,
+      diagnostics: [undefinedVariableDiagnostic("Point")],
+      sourceRoots: [],
+      getExportedSymbols: async () => [
+        { name: "Point", filePath: "/models/point.my", kind: "class" },
+      ],
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Import 'Point' from './models/point'");
+  });
+
   it("merges import into existing import from the same file", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
     const fileA = join(root, "a.my");
@@ -194,6 +211,26 @@ describe("import quick fixes", () => {
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]?.symbol.name).toBe("Point");
     expect(suggestions[0]?.importPath).toBe("./a");
+  });
+
+  it("builds auto-import suggestions from virtual exported symbols", async () => {
+    const source = "fun demo() {\n  return Poi\n}\n";
+    const session = createAnalysisSession(source);
+    const suggestions = await buildAutoImportSuggestions({
+      uri: "file:///consumer.my",
+      ast: session.ast,
+      sourceRoots: [],
+      prefix: "Poi",
+      excludeSymbols: new Set(),
+      getExportedSymbols: async () => [
+        { name: "Point", filePath: "/models/point.my", kind: "class" },
+        { name: "Vector", filePath: "/models/vector.my", kind: "class" },
+      ],
+    });
+
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]?.symbol.name).toBe("Point");
+    expect(suggestions[0]?.importPath).toBe("./models/point");
   });
   it("suggests importing an exported extension property for a missing member", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));

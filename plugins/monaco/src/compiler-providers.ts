@@ -37,6 +37,7 @@ import {
   type PortableLanguageConfiguration,
   type PortableMonarchLanguage,
 } from "compiler/syntax";
+import type { SymbolExport } from "compiler/lsp/importFixes";
 import { extractShowReferencesPayload } from "./codeLensCommands";
 
 const LANG_ID = "mylang";
@@ -46,21 +47,32 @@ interface SessionState {
   session: AnalysisSession;
 }
 
+interface ProviderWorkspaceContext {
+  getSessionForFilePath?: (filePath: string) => AnalysisSession | null | Promise<AnalysisSession | null>;
+  getExportedSymbols?: () => Promise<SymbolExport[]> | SymbolExport[];
+}
+
 /**
  * Build the resolver context shared by the cross-file navigation, hover,
  * completion and code-action helpers. The Monaco static demo is single-file,
  * so there is no other session to resolve into; the helpers gracefully fall
  * back to in-file results.
  */
-function resolverContext(model: monaco.editor.ITextModel): {
+function resolverContext(model: monaco.editor.ITextModel, workspaceContext?: ProviderWorkspaceContext): {
   uri: string;
   sourceRoots: string[];
-  getSessionForFilePath: () => null;
+  getSessionForFilePath?: (filePath: string) => AnalysisSession | null | Promise<AnalysisSession | null>;
+  getExportedSymbols?: () => Promise<SymbolExport[]> | SymbolExport[];
 } {
   return {
     uri: model.uri.toString(),
     sourceRoots: [],
-    getSessionForFilePath: () => null,
+    ...(workspaceContext?.getSessionForFilePath
+      ? { getSessionForFilePath: workspaceContext.getSessionForFilePath }
+      : {}),
+    ...(workspaceContext?.getExportedSymbols
+      ? { getExportedSymbols: workspaceContext.getExportedSymbols }
+      : {}),
   };
 }
 
@@ -412,7 +424,7 @@ export function updateAutoAwaitGlyphs(
   collection.set(decorations);
 }
 
-export function registerProviders(): Map<string, SessionState> {
+export function registerProviders(workspaceContext?: ProviderWorkspaceContext): Map<string, SessionState> {
   const cache = new Map<string, SessionState>();
 
   monaco.languages.registerCompletionItemProvider(LANG_ID, {
@@ -438,7 +450,7 @@ export function registerProviders(): Map<string, SessionState> {
         position.column - 1,
         session.analysis,
         [],
-        { text: model.getValue(), ...resolverContext(model) }
+        { text: model.getValue(), ...resolverContext(model, workspaceContext) }
       );
       const defaultRange = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
       return {
@@ -469,7 +481,7 @@ export function registerProviders(): Map<string, SessionState> {
       // it and fall back to the in-file hover.
       let memberHover = null;
       try {
-        memberHover = await resolveMemberHoverAcrossFiles({ line, character, session, ...resolverContext(model) });
+        memberHover = await resolveMemberHoverAcrossFiles({ line, character, session, ...resolverContext(model, workspaceContext) });
       } catch {
         memberHover = null;
       }
@@ -493,7 +505,7 @@ export function registerProviders(): Map<string, SessionState> {
         session.analysis,
         position.lineNumber - 1,
         position.column - 1,
-        resolverContext(model)
+        resolverContext(model, workspaceContext)
       );
       if (!help) return null;
       return {
@@ -526,7 +538,7 @@ export function registerProviders(): Map<string, SessionState> {
         line: position.lineNumber - 1,
         character: position.column - 1,
         session,
-        ...resolverContext(model),
+        ...resolverContext(model, workspaceContext),
       });
     } catch {
       location = null;
@@ -560,7 +572,7 @@ export function registerProviders(): Map<string, SessionState> {
             line: position.lineNumber - 1,
             character: position.column - 1,
             session,
-            ...resolverContext(model),
+            ...resolverContext(model, workspaceContext),
           },
           context.includeDeclaration
         );
@@ -606,7 +618,7 @@ export function registerProviders(): Map<string, SessionState> {
             line: position.lineNumber - 1,
             character: position.column - 1,
             session,
-            ...resolverContext(model),
+            ...resolverContext(model, workspaceContext),
           },
           newName
         );
@@ -665,7 +677,7 @@ export function registerProviders(): Map<string, SessionState> {
           analysis: session.analysis,
           range: toLspRange(range),
           diagnostics,
-          ...resolverContext(model),
+          ...resolverContext(model, workspaceContext),
         });
       } catch {
         actions = [];
@@ -764,7 +776,7 @@ export function registerProviders(): Map<string, SessionState> {
         session.ast,
         session.analysis,
         toLspRange(range),
-        resolverContext(model)
+        resolverContext(model, workspaceContext)
       );
       return {
         hints: hints.map((hint) => ({

@@ -3,6 +3,9 @@
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import * as monaco from "monaco-editor";
+import { createAnalysisSession, type AnalysisSession } from "compiler/lsp/analysisSession";
+import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
+import type { SymbolExport } from "compiler/lsp/importFixes";
 import bundledSample from "../sample/main.my?raw";
 import bundledRuntime from "../../../compiler/runtime/es2025.d.ts?raw";
 import {
@@ -18,9 +21,14 @@ import {
   findEntryByUri,
   listChildren,
   MAIN_DOCUMENT_URI,
+  clampWorkspaceSessionToFile,
+  persistWorkspaceSession,
   persistWorkspaceEntries,
+  pathToUri,
+  resolveWorkspaceSession,
   resolveWorkspaceEntries,
   RUNTIME_DOCUMENT_URI,
+  WORKSPACE_SESSION_STORAGE_KEY,
   updateFileContent,
   WORKSPACE_STORAGE_KEY,
   type StorageLike,
@@ -64,6 +72,10 @@ function localStorageOrUndefined(): Storage | undefined {
   } catch {
     return undefined;
   }
+}
+
+function filePathToWorkspaceUri(filePath: string): string {
+  return pathToUri(filePath);
 }
 
 function isEditableMyLangFile(entry: WorkspaceEntry | undefined): entry is WorkspaceFile {
@@ -170,13 +182,14 @@ async function main(): Promise<void> {
   setStatus("Loading compiler…", "connecting");
 
   registerLanguage();
-  const sessionCache = registerProviders();
 
   const storage = localStorageOrUndefined();
   let entries = resolveWorkspaceEntries(bundledSample, bundledRuntime, storage, WORKSPACE_STORAGE_KEY);
   const models = new Map<string, monaco.editor.ITextModel>();
-  let openTabs = [MAIN_DOCUMENT_URI];
-  let activeUri: string | null = MAIN_DOCUMENT_URI;
+  const workspaceSessionCache = new Map<string, { content: string; session: AnalysisSession }>();
+  const restoredSession = resolveWorkspaceSession(entries, storage, WORKSPACE_SESSION_STORAGE_KEY);
+  let openTabs = [restoredSession?.activeUri ?? MAIN_DOCUMENT_URI];
+  let activeUri: string | null = restoredSession?.activeUri ?? MAIN_DOCUMENT_URI;
   let selectedPath = "/";
   let savedSnapshot = JSON.stringify(entries);
   let diagnosticsTimer: number | undefined;
@@ -186,6 +199,56 @@ async function main(): Promise<void> {
     current: { uri: MAIN_DOCUMENT_URI, lineNumber: 1, column: 1 },
     forwardStack: [],
   };
+
+  const getWorkspaceFileSource = (uri: string): string | null => {
+    const model = models.get(uri) ?? monaco.editor.getModel(monaco.Uri.parse(uri));
+    if (model) {
+      return model.getValue();
+    }
+    const entry = findEntryByUri(entries, uri);
+    return entry?.kind === "file" ? entry.content : null;
+  };
+
+  const getWorkspaceSessionForFilePath = (filePath: string): AnalysisSession | null => {
+    const uri = filePathToWorkspaceUri(filePath);
+    const source = getWorkspaceFileSource(uri);
+    if (source === null) {
+      return null;
+    }
+    const cached = workspaceSessionCache.get(uri);
+    if (cached && cached.content === source) {
+      return cached.session;
+    }
+    const session = createAnalysisSession(source);
+    workspaceSessionCache.set(uri, { content: source, session });
+    return session;
+  };
+
+  const getWorkspaceExportedSymbols = async (): Promise<SymbolExport[]> => {
+    const symbols: SymbolExport[] = [];
+    for (const entry of entries) {
+      if (entry.kind !== "file" || entry.language !== "mylang") {
+        continue;
+      }
+      const filePath = entry.path;
+      const session = getWorkspaceSessionForFilePath(filePath);
+      for (const declaration of collectTopLevelDeclarationsFromAst(session?.ast ?? null)) {
+        symbols.push({
+          name: declaration.name,
+          kind: declaration.kind,
+          filePath,
+          ...(declaration.receiverType ? { receiverType: declaration.receiverType } : {}),
+          ...(declaration.memberKind ? { memberKind: declaration.memberKind } : {}),
+        });
+      }
+    }
+    return symbols;
+  };
+
+  const sessionCache = registerProviders({
+    getSessionForFilePath: getWorkspaceSessionForFilePath,
+    getExportedSymbols: getWorkspaceExportedSymbols,
+  });
 
   const ensureModel = (uri: string): monaco.editor.ITextModel | null => {
     const existing = models.get(uri) ?? monaco.editor.getModel(monaco.Uri.parse(uri));
@@ -227,10 +290,17 @@ async function main(): Promise<void> {
     throw new Error("Main workspace model could not be created");
   }
   ensureModel(RUNTIME_DOCUMENT_URI);
+  const restoredInitialSession = restoredSession
+    ? clampWorkspaceSessionToFile(
+        restoredSession,
+        getWorkspaceFileSource(restoredSession.activeUri) ?? initialModel.getValue()
+      )
+    : null;
+  const startupModel = ensureModel(restoredInitialSession?.activeUri ?? MAIN_DOCUMENT_URI) ?? initialModel;
 
   const editorContainer = document.getElementById("editor-container")!;
   const editor = monaco.editor.create(editorContainer, {
-    model: initialModel,
+    model: startupModel,
     theme: "vs-dark",
     automaticLayout: true,
     minimap: { enabled: true },
@@ -259,6 +329,23 @@ async function main(): Promise<void> {
     }
     editor.setPosition(selectionOrPosition);
     editor.revealPositionInCenter(selectionOrPosition);
+  };
+
+  const persistEditorSession = (): void => {
+    const model = editor.getModel();
+    const position = editor.getPosition();
+    if (!model || !position) {
+      return;
+    }
+    persistWorkspaceSession(
+      {
+        activeUri: model.uri.toString(),
+        lineNumber: position.lineNumber,
+        column: position.column,
+      },
+      storage,
+      WORKSPACE_SESSION_STORAGE_KEY
+    );
   };
 
   const selectionOrPositionToTarget = (
@@ -327,6 +414,7 @@ async function main(): Promise<void> {
       const target = selectionOrPositionToTarget(uri, selectionOrPosition);
       navigationHistory = pushNavigationTarget(navigationHistory, target);
     }
+    persistEditorSession();
     syncEditorState();
     if (isEditableMyLangFile(entry)) {
       pullDiagnostics(model, sessionCache);
@@ -391,6 +479,14 @@ async function main(): Promise<void> {
   };
 
   const deleteEntry = (entry: WorkspaceEntry): void => {
+    const confirmed = window.confirm(
+      entry.kind === "folder"
+        ? `Delete folder "${entry.label}" and all its contents?`
+        : `Delete file "${entry.label}"?`
+    );
+    if (!confirmed) {
+      return;
+    }
     const previousEntries = entries;
     const deletedUri = entry.kind === "file" ? entry.uri : null;
     entries = deleteWorkspaceEntry(entries, entry.path);
@@ -467,7 +563,12 @@ async function main(): Promise<void> {
     }
     activeUri = nextUri;
     selectedPath = entry.path;
+    persistEditorSession();
     syncEditorState();
+  });
+
+  editor.onDidChangeCursorPosition(() => {
+    persistEditorSession();
   });
 
   const closeTab = (uri: string): void => {
@@ -513,8 +614,20 @@ async function main(): Promise<void> {
     }
   };
 
-  pullDiagnostics(initialModel, sessionCache);
+  if (restoredInitialSession?.activeUri) {
+    activeUri = restoredInitialSession.activeUri;
+    const restoredEntry = findEntryByUri(entries, restoredInitialSession.activeUri);
+    if (restoredEntry) {
+      selectedPath = restoredEntry.path;
+    }
+  }
+  applySelection(restoredInitialSession
+    ? { lineNumber: restoredInitialSession.lineNumber, column: restoredInitialSession.column }
+    : undefined);
+  editor.focus();
+  pullDiagnostics(startupModel, sessionCache);
   updateAutoAwaitGlyphs(editor, sessionCache);
+  persistEditorSession();
   syncEditorState();
   setStatus("Compiler Connected", "connected");
 
@@ -555,6 +668,9 @@ async function main(): Promise<void> {
 
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     document.getElementById("btn-save")?.click();
+  });
+  editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Enter, () => {
+    void editor.getAction("editor.action.quickFix")?.run();
   });
   editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
     navigateHistory("back");

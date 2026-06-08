@@ -145,6 +145,33 @@ describe("createCompletionItemsForPosition", () => {
     );
   });
 
+  it("computes auto-import completion items from exported-symbol callbacks", async () => {
+    const { source, line, character } = sourceWithCursor("fun demo() {\n  return Poi^^^\n}\n");
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(
+      ast,
+      line,
+      character,
+      undefined,
+      [],
+      {
+        text: source,
+        uri: "file:///consumer.my",
+        sourceRoots: [],
+        getExportedSymbols: async () => [
+          { name: "Point", filePath: "/models/point.my", kind: "class" },
+        ],
+      }
+    );
+    const point = items.find((item) => item.label === "Point");
+
+    expect(point).toBeDefined();
+    expect(point?.detail).toBe("Auto import from ./models/point");
+    expect(point?.additionalTextEdits?.[0]?.newText).toBe(
+      "import { Point } from \"./models/point\"\n"
+    );
+  });
+
   it("offers exported runtime namespace members for member access", async () => {
     const { source, line, character } = sourceWithCursor(
       "namespace Tools { export const version = 1; const hidden = 2; export function read() { return version } }\nTools.^^^"

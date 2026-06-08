@@ -51,8 +51,10 @@ import { typeToString } from "compiler/analysis/types";
 import { compileSource } from "compiler/pipeline/compile";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import {
+  buildAutoImportSuggestions,
   buildExtensionAutoImportSuggestions,
-  type AutoImportSuggestion
+  type AutoImportSuggestion,
+  type SymbolExportProvider,
 } from "./importFixes";
 import {
   createClassResolverCache,
@@ -142,6 +144,7 @@ export interface CompletionRequestOptions {
   uri?: string;
   sourceRoots?: string[];
   getSessionForFilePath?: (filePath: string) => CompletionSessionLike | null | Promise<CompletionSessionLike | null>;
+  getExportedSymbols?: SymbolExportProvider;
 }
 
 interface MemberAccessTarget {
@@ -265,6 +268,20 @@ function inferLiteralTypeName(pathSegment: string): string | null {
     return "number";
   }
   return null;
+}
+
+function identifierPrefixAtPosition(
+  text: string | undefined,
+  line: number,
+  character: number
+): string {
+  if (!text) {
+    return "";
+  }
+  const lineText = text.split("\n")[line] ?? "";
+  const uptoCursor = lineText.slice(0, Math.max(0, Math.min(character, lineText.length)));
+  const match = /[A-Za-z_][A-Za-z0-9_]*$/.exec(uptoCursor);
+  return match?.[0] ?? "";
 }
 
 /**
@@ -521,11 +538,12 @@ async function buildExtensionMemberCompletionItems(
     });
   }
 
-  if (options.uri && options.sourceRoots?.length) {
+  if (options.uri && (options.sourceRoots?.length || options.getExportedSymbols)) {
     const autoImports = await buildExtensionAutoImportSuggestions({
       uri: options.uri,
       ast,
-      sourceRoots: options.sourceRoots,
+      sourceRoots: options.sourceRoots ?? [],
+      ...(options.getExportedSymbols ? { getExportedSymbols: options.getExportedSymbols } : {}),
       receiverType: baseTypeName(objectTypeName),
       prefix: normalizedPrefix,
       excludeSymbols: seen
@@ -1753,6 +1771,19 @@ export async function createCompletionItemsForPosition(
   options: CompletionRequestOptions = {}
 ): Promise<CompletionItem[]> {
   const resolvedAnalysis = analysis ?? new Analysis(ast);
+  const resolvedAutoImportSuggestions =
+    autoImportSuggestions.length > 0
+      ? autoImportSuggestions
+      : options.uri && (options.sourceRoots?.length || options.getExportedSymbols)
+        ? await buildAutoImportSuggestions({
+            uri: options.uri,
+            ast,
+            sourceRoots: options.sourceRoots ?? [],
+            ...(options.getExportedSymbols ? { getExportedSymbols: options.getExportedSymbols } : {}),
+            prefix: identifierPrefixAtPosition(options.text, line, character),
+            excludeSymbols: new Set(resolvedAnalysis.getVisibleSymbolsAt(line, character).map((symbol) => symbol.name))
+          })
+        : [];
   const memberCompletions = await buildMemberAccessCompletions(
     ast,
     resolvedAnalysis,
@@ -1844,7 +1875,7 @@ export async function createCompletionItemsForPosition(
     });
   }
 
-  for (const suggestion of autoImportSuggestions) {
+  for (const suggestion of resolvedAutoImportSuggestions) {
     if (seenLabels.has(suggestion.symbol.name)) {
       continue;
     }
