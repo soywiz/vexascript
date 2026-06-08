@@ -20,6 +20,7 @@ This section is the fast onboarding map for agents and contributors.
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface and local Node-backed implementation, injectable into compiler project services that need file reads: `compiler/vfs.ts`
   - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` file), used by the semantic project index and the LSP cross-file features and parameterized by the selected VFS: `compiler/moduleResolution.ts`
+  - Project configuration loading for `mylang.toml` dependencies and JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
   - Public analysis API: `compiler/analysis/Analysis.ts`

@@ -6,6 +6,8 @@ import { fileExists, isDirectory } from "./utils/fs";
 export interface MylangProject {
   projectDir: string;
   dependencies: Record<string, string>;
+  jsxFactory?: string;
+  jsxFragmentFactory?: string;
 }
 
 export async function loadProject(startPath: string): Promise<MylangProject | null> {
@@ -26,7 +28,25 @@ export async function loadProject(startPath: string): Promise<MylangProject | nu
           dependencies[pkg] = version;
         }
       }
-      return { projectDir: dir, dependencies };
+
+      const jsxSection = doc["jsx"] ?? {};
+      const jsxFactory = typeof jsxSection["factory"] === "string"
+        ? jsxSection["factory"]
+        : typeof jsxSection["jsxFactory"] === "string"
+          ? jsxSection["jsxFactory"]
+          : undefined;
+      const jsxFragmentFactory = typeof jsxSection["fragmentFactory"] === "string"
+        ? jsxSection["fragmentFactory"]
+        : typeof jsxSection["jsxFragmentFactory"] === "string"
+          ? jsxSection["jsxFragmentFactory"]
+          : undefined;
+
+      return {
+        projectDir: dir,
+        dependencies,
+        ...(jsxFactory ? { jsxFactory } : {}),
+        ...(jsxFragmentFactory ? { jsxFragmentFactory } : {})
+      };
     }
     const parent = dirname(dir);
     if (parent === dir) break;

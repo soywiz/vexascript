@@ -86,11 +86,14 @@ async function buildFile(
 ): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
+  const project = await loadProject(sourcePath);
   const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
+    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
+    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
     ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
   });
@@ -143,17 +146,23 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
   // Bundle the entry file together with its local module graph so cross-file
   // references resolve, then execute the combined module.
   await ensureEcmaScriptRuntimeProgram();
-  const result = await bundleModuleGraph(sourcePath, target);
+  const result = await bundleModuleGraph(sourcePath, target, {
+    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
+    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
+  });
   await executeCompiled(result, sourcePath);
 }
 
 async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
   const outputPath = sourcePath.replace(/\.[^.]+$/, ".js");
+  const project = await loadProject(sourcePath);
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
-    preserveSourceLineOffsets: true
+    preserveSourceLineOffsets: true,
+    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
+    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
   });
   await executeCompiled(result, sourcePath);
 }

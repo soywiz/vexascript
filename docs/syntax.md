@@ -893,10 +893,16 @@ Embedded XML is transpiled with the classic React runtime: elements become `Reac
 React.createElement("div", { class: "greeting" }, "Hi ", name)
 ```
 
-The element factory and fragment factory are configurable. They default to the classic React runtime (`React.createElement` / `React.Fragment`) but can be overridden through the emitter/transpile options `jsxFactory` and `jsxFragmentFactory`, or the `mylang build` flags `--jsx-factory` and `--jsx-fragment-factory` (for example `--jsx-factory h --jsx-fragment-factory Fragment` for Preact):
+The element factory and fragment factory are configurable. They default to the classic React runtime (`React.createElement` / `React.Fragment`) but can be overridden through the emitter/transpile options `jsxFactory` and `jsxFragmentFactory`, the `mylang build` flags `--jsx-factory` and `--jsx-fragment-factory`, or a project-level `mylang.toml` JSX section (for example Preact's classic runtime uses `h` and `Fragment`):
+
+```toml
+[jsx]
+factory = "h"
+fragmentFactory = "Fragment"
+```
 
 ```js
-// with --jsx-factory h --jsx-fragment-factory Fragment
+// with --jsx-factory h --jsx-fragment-factory Fragment or the mylang.toml above
 // <><span/></>
 h(Fragment, null, h("span", null))
 ```
