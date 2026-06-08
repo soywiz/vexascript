@@ -9,6 +9,7 @@
 
 import * as monaco from "monaco-editor";
 import type { CompilerClient } from "./compiler-client";
+import { extractShowReferencesPayload } from "./codeLensCommands";
 
 // ── LSP type stubs (only the shapes we actually use) ─────────────────────────
 
@@ -127,6 +128,31 @@ function toLspRange(r: monaco.IRange): LspRange {
 
 function lspEditToMonaco(e: LspTextEdit): monaco.languages.TextEdit {
   return { range: toMonacoRange(e.range), text: e.newText };
+}
+
+function mapCodeLensCommand(command?: {
+  title: string;
+  command: string;
+  arguments?: unknown[];
+}): monaco.languages.Command | undefined {
+  if (!command) return undefined;
+  const references = extractShowReferencesPayload(command);
+  if (!references) {
+    return { id: command.command, title: command.title, command: command.command, arguments: command.arguments };
+  }
+  return {
+    id: "editor.action.showReferences",
+    title: command.title,
+    command: "editor.action.showReferences",
+    arguments: [
+      monaco.Uri.parse(references.uri),
+      toMonacoPos(references.position),
+      references.locations.map((location) => ({
+        uri: monaco.Uri.parse(location.uri),
+        range: toMonacoRange(location.range),
+      })),
+    ],
+  };
 }
 
 // ── Kind / severity mapping ───────────────────────────────────────────────────
@@ -815,9 +841,7 @@ export function registerProviders(
         return {
           lenses: raw.map((cl) => ({
             range: toMonacoRange(cl.range),
-            command: cl.command
-              ? { id: cl.command.command, title: cl.command.title, command: cl.command.command }
-              : undefined,
+            command: mapCodeLensCommand(cl.command),
           })),
           dispose: () => undefined,
         };

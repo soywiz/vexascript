@@ -30,6 +30,7 @@ import {
 import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
 import { createSignatureHelp } from "compiler/lsp/signatureHelp";
 import { createDocumentSymbols } from "compiler/lsp/symbols";
+import { extractShowReferencesPayload } from "./codeLensCommands";
 
 const LANG_ID = "mylang";
 
@@ -243,6 +244,31 @@ function hoverContentsToMarkdown(contents: unknown): monaco.IMarkdownString[] {
     }
   }
   return result;
+}
+
+function mapCodeLensCommand(command?: {
+  title: string;
+  command: string;
+  arguments?: unknown[];
+}): monaco.languages.Command | undefined {
+  if (!command) return undefined;
+  const references = extractShowReferencesPayload(command);
+  if (!references) {
+    return { id: command.command, title: command.title, command: command.command, arguments: command.arguments };
+  }
+  return {
+    id: "editor.action.showReferences",
+    title: command.title,
+    command: "editor.action.showReferences",
+    arguments: [
+      monaco.Uri.parse(references.uri),
+      toMonacoPos(references.position),
+      references.locations.map((location) => ({
+        uri: monaco.Uri.parse(location.uri),
+        range: toMonacoRange(location.range),
+      })),
+    ],
+  };
 }
 
 export function registerLanguage(): void {
@@ -809,7 +835,7 @@ export function registerProviders(): Map<string, SessionState> {
       return {
         lenses: createReferenceCodeLenses(session.ast, session.analysis, model.uri.toString()).map((lens) => ({
           range: toMonacoRange(lens.range),
-          command: lens.command ? { id: lens.command.command, title: lens.command.title, command: lens.command.command } : undefined,
+          command: mapCodeLensCommand(lens.command),
         })),
         dispose: () => {},
       };
