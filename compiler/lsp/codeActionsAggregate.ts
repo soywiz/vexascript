@@ -1,9 +1,9 @@
 import {
-  CodeActionKind,
   type CodeAction,
   type Diagnostic,
   type Range
 } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import type { Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";

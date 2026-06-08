@@ -21,7 +21,8 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import { tokenize } from "compiler/parser/tokenizer";
-import { CodeActionKind, type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
+import { type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import { getCallDiagnosticKind } from "./diagnosticCodes";
 import { containsPosition, nodeRange, offsetToPosition, rangeSize, type Position } from "./ranges";
 

@@ -10,13 +10,7 @@ import {
   mapAnalysisIssueCodeToDiagnosticCode,
   MYLANG_DIAGNOSTIC_CODES
 } from "./diagnosticCodes";
-
-const DiagnosticSeverity = {
-  Error: 1,
-  Warning: 2,
-  Information: 3,
-  Hint: 4
-} as const;
+import { DiagnosticSeverity } from "./diagnosticSeverity";
 
 const DocumentDiagnosticReportKind = {
   Full: "full"

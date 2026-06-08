@@ -9,7 +9,7 @@ import type {
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { walkAst } from "compiler/ast/traversal";
 import type { Diagnostic } from "vscode-languageserver/node.js";
-import { DiagnosticSeverity } from "vscode-languageserver/node.js";
+import { DiagnosticSeverity } from "./diagnosticSeverity";
 import type { AnalysisSession } from "./analysisSession";
 import { MYLANG_DIAGNOSTIC_CODES, type MyLangDiagnosticCode } from "./diagnosticCodes";
 import {

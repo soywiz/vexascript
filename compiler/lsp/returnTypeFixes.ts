@@ -5,7 +5,8 @@ import type {
   Program
 } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
-import { CodeActionKind, type CodeAction } from "vscode-languageserver/node.js";
+import { type CodeAction } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import type { ClassResolverOptions } from "./classResolver";
 import { pickFunctionReturnTypeFromBody } from "./inlayHints";
 import { containsPosition, nodeRange, rangeSize, tokenRange, type Position } from "./ranges";

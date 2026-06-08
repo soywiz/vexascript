@@ -1,6 +1,6 @@
 import type { Program, ClassMethodMember, ClassStatement } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
-import { CodeActionKind } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import { pathToUri } from "./importFixes";
 import {
   createClassResolverCache,

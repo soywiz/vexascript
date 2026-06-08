@@ -7,7 +7,8 @@ import type {
   ReturnStatement
 } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
-import { CodeActionKind, type CodeAction, type Range } from "vscode-languageserver/node.js";
+import { type CodeAction, type Range } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import { containsPosition, nodeRange, rangeSize, tokenRange, type Position } from "./ranges";
 
 interface FunctionLikeTarget {

@@ -2,7 +2,7 @@ import { baseTypeName } from "compiler/analysis/typeNames";
 import type { Identifier, MemberExpression, Program } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import type { Diagnostic } from "vscode-languageserver/node.js";
-import { DiagnosticSeverity } from "vscode-languageserver/node.js";
+import { DiagnosticSeverity } from "./diagnosticSeverity";
 import type { AnalysisSession } from "./analysisSession";
 import {
   type ClassResolverSessionLike,

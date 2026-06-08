@@ -6,7 +6,8 @@ import {
 } from "compiler/lsp/completion";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
 import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
-import { DiagnosticSeverity, type Diagnostic } from "vscode-languageserver/node.js";
+import { DiagnosticSeverity } from "compiler/lsp/diagnosticSeverity";
+import type { Diagnostic } from "vscode-languageserver/node.js";
 import {
   createDocumentHighlights,
   createFoldingRanges,

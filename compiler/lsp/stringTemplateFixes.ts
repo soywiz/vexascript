@@ -4,7 +4,8 @@ import type {
   Program,
   StringLiteral
 } from "compiler/ast/ast";
-import { CodeActionKind, type CodeAction, type Range } from "vscode-languageserver/node.js";
+import { type CodeAction, type Range } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import { nodeRange, type Position } from "./ranges";
 import { findNodeAtPosition } from "./nodeSearch";
 

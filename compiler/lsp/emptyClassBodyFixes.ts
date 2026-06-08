@@ -1,5 +1,6 @@
 import type { ClassStatement, Node, Program } from "compiler/ast/ast";
-import { CodeActionKind, type CodeAction } from "vscode-languageserver/node.js";
+import { type CodeAction } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import { findNodeAtPosition } from "./nodeSearch";
 import { offsetToPosition, type Position } from "./ranges";
 

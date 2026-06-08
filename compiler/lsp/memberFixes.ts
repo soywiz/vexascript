@@ -11,7 +11,7 @@ import type {
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
-import { CodeActionKind } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import { pathToUri } from "./importFixes";
 import {
   createClassResolverCache,

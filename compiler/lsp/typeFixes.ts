@@ -9,7 +9,7 @@ import type {
   Program
 } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
-import { CodeActionKind } from "vscode-languageserver/node.js";
+import { CodeActionKind } from "./codeActionKinds";
 import {
   createClassResolverCache,
   resolveClassMember,

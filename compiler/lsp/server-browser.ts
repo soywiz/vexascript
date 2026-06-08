@@ -18,7 +18,6 @@ import {
   ProposedFeatures,
   TextDocuments,
   TextDocumentSyncKind,
-  CodeActionKind,
   DocumentDiagnosticReportKind,
   BrowserMessageReader,
   BrowserMessageWriter,
@@ -27,6 +26,7 @@ import {
   type TextEdit,
 } from "vscode-languageserver/browser";
 import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocument";
+import { CodeActionKind } from "./codeActionKinds";
 import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { createDocumentDiagnosticReport } from "./diagnostics";
