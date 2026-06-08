@@ -3128,6 +3128,20 @@ describe("named call argument analysis", () => {
       expect(messages).toContain("Undefined variable 'missing'");
     });
 
+    it("reports all component prop diagnostics for destructured parameters", () => {
+      const source = dedent`
+        fun Page({ name: string, lol: number }) {
+          return <h1>{name}</h1>
+        }
+
+        const html = <Page name={1} demo="test" name={"test"} />
+      `;
+      const messages = new Analysis(parseFile(tokenizeReader(source, { jsx: true }))).getIssues().map((i) => i.message);
+      expect(messages).toContain("Argument of type 'int' is not assignable to parameter 'name' of type 'string'");
+      expect(messages).toContain("No parameter named 'demo'");
+      expect(messages).toContain("Missing required argument for parameter 'lol'");
+    });
+
     it("resolves variables visible inside JSX expression containers for autocomplete", () => {
       const source = dedent`
         fun demo() {
