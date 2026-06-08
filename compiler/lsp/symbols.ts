@@ -1,11 +1,20 @@
-import type { ClassStatement, ExportStatement, FunctionStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
+import type {
+  ClassStatement,
+  ExportStatement,
+  FunctionStatement,
+  InterfaceStatement,
+  Program,
+  Statement,
+  TypeAliasStatement,
+  VarStatement
+} from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type {
   DocumentSymbol,
   Location,
   SymbolInformation
 } from "vscode-languageserver/node.js";
-import { getProjectIndex, getProjectSessionForFilePath } from "./projectAnalysis";
+import { getProjectIndex, getProjectSessionForFilePath, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
 import { pathToUri } from "./importFixes";
 import { nodeRange, type TokenBackedNode } from "./ranges";
 
@@ -38,9 +47,12 @@ const SymbolKind = {
   TypeParameter: 26
 } as const;
 
-function symbolKindForTopLevel(kind: "class" | "function" | "variable"): SymbolInformation["kind"] {
+function symbolKindForTopLevel(kind: ProjectTopLevelDeclarationKind): SymbolInformation["kind"] {
   if (kind === "class") {
     return SymbolKind.Class;
+  }
+  if (kind === "interface" || kind === "type") {
+    return SymbolKind.Interface;
   }
   if (kind === "function") {
     return SymbolKind.Function;
@@ -108,6 +120,38 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
       continue;
     }
 
+    if (statement.kind === "InterfaceStatement") {
+      const interfaceStatement = statement as InterfaceStatement;
+      const interfaceRange = nodeRange(statement);
+      const nameRange = nodeRange(interfaceStatement.name);
+      if (!interfaceRange || !nameRange) {
+        continue;
+      }
+      symbols.push({
+        name: interfaceStatement.name.name,
+        kind: SymbolKind.Interface,
+        range: interfaceRange,
+        selectionRange: nameRange
+      });
+      continue;
+    }
+
+    if (statement.kind === "TypeAliasStatement") {
+      const typeAliasStatement = statement as TypeAliasStatement;
+      const typeRange = nodeRange(statement);
+      const nameRange = nodeRange(typeAliasStatement.name);
+      if (!typeRange || !nameRange) {
+        continue;
+      }
+      symbols.push({
+        name: typeAliasStatement.name.name,
+        kind: SymbolKind.Interface,
+        range: typeRange,
+        selectionRange: nameRange
+      });
+      continue;
+    }
+
     if (statement.kind === "FunctionStatement") {
       const functionStatement = statement as FunctionStatement;
       const functionRange = nodeRange(statement);
@@ -147,6 +191,7 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
   return symbols;
 }
 
+
 function collectTopLevelSymbolInformation(
   program: Program,
   filePath: string,
@@ -159,7 +204,7 @@ function collectTopLevelSymbolInformation(
   const uri = pathToUri(filePath);
   const push = (
     name: string,
-    kind: "class" | "function" | "variable",
+    kind: ProjectTopLevelDeclarationKind,
     locationNode: TokenBackedNode,
     containerName?: string
   ) => {
@@ -194,6 +239,18 @@ function collectTopLevelSymbolInformation(
           push(member.name.name, member.accessorKind ? "variable" : "function", member.name, classStatement.name.name);
         }
       }
+      continue;
+    }
+
+    if (statement.kind === "InterfaceStatement") {
+      const interfaceStatement = statement as InterfaceStatement;
+      push(interfaceStatement.name.name, "interface", interfaceStatement.name);
+      continue;
+    }
+
+    if (statement.kind === "TypeAliasStatement") {
+      const typeAliasStatement = statement as TypeAliasStatement;
+      push(typeAliasStatement.name.name, "type", typeAliasStatement.name);
       continue;
     }
 

@@ -3,6 +3,7 @@ import type { Analysis } from "./Analysis";
 import type {
   ClassStatement,
   FunctionStatement,
+  Identifier,
   InterfaceStatement,
   ImportStatement,
   Program,
@@ -27,9 +28,11 @@ export interface ProjectContext {
   getSessionForFilePath?: (filePath: string) => ProjectSessionLike | null | Promise<ProjectSessionLike | null>;
 }
 
+export type ProjectTopLevelDeclarationKind = "class" | "interface" | "type" | "function" | "variable";
+
 export interface ProjectTopLevelDeclaration {
   name: string;
-  kind: "class" | "function" | "variable";
+  kind: ProjectTopLevelDeclarationKind;
   receiverType?: string;
   memberKind?: "property" | "method";
   range: {
@@ -83,6 +86,38 @@ function nodeRange(node: {
   };
 }
 
+function extensionMemberMetadata(
+  receiverType: Identifier | undefined,
+  memberKind: "property" | "method"
+): Pick<ProjectTopLevelDeclaration, "receiverType" | "memberKind"> {
+  if (!receiverType) {
+    return {};
+  }
+  return {
+    receiverType: receiverType.name,
+    memberKind
+  };
+}
+
+function pushVariableDeclarations(
+  declarations: ProjectTopLevelDeclaration[],
+  variableStatement: VarStatement,
+  bindingNames: Iterable<Identifier>
+): void {
+  for (const identifier of bindingNames) {
+    const range = nodeRange(identifier);
+    if (!range) {
+      continue;
+    }
+    declarations.push({
+      name: identifier.name,
+      kind: "variable",
+      ...extensionMemberMetadata(variableStatement.receiverType, "property"),
+      range
+    });
+  }
+}
+
 export function collectTopLevelDeclarationsFromAst(ast: Program | null): ProjectTopLevelDeclaration[] {
   if (!ast) {
     return [];
@@ -110,10 +145,9 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
       const interfaceStatement = statement as InterfaceStatement;
       const range = nodeRange(interfaceStatement.name);
       if (range) {
-        // Keep interface declarations discoverable through the same top-level class channel.
         declarations.push({
           name: interfaceStatement.name.name,
-          kind: "class",
+          kind: "interface",
           range
         });
       }
@@ -124,10 +158,9 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
       const typeAliasStatement = statement as TypeAliasStatement;
       const range = nodeRange(typeAliasStatement.name);
       if (range) {
-        // Keep type-only declarations discoverable through the same top-level class channel.
         declarations.push({
           name: typeAliasStatement.name.name,
-          kind: "class",
+          kind: "type",
           range
         });
       }
@@ -141,12 +174,7 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
         declarations.push({
           name: functionStatement.name.name,
           kind: "function",
-          ...(functionStatement.receiverType
-            ? {
-                receiverType: functionStatement.receiverType.name,
-                memberKind: "method" as const
-              }
-            : {}),
+          ...extensionMemberMetadata(functionStatement.receiverType, "method"),
           range
         });
       }
@@ -157,36 +185,10 @@ export function collectTopLevelDeclarationsFromAst(ast: Program | null): Project
       const variableStatement = statement as VarStatement;
       if (variableStatement.declarations && variableStatement.declarations.length > 0) {
         for (const declaration of variableStatement.declarations) {
-          for (const identifier of bindingIdentifiers(declaration.name)) {
-            const range = nodeRange(identifier);
-      if (range) declarations.push({
-        name: identifier.name,
-        kind: "variable",
-        ...(variableStatement.receiverType
-                ? {
-                    receiverType: variableStatement.receiverType.name,
-                    memberKind: "property" as const
-                  }
-                : {}),
-              range
-            });
-          }
+          pushVariableDeclarations(declarations, variableStatement, bindingIdentifiers(declaration.name));
         }
       } else {
-        for (const identifier of bindingIdentifiers(variableStatement.name)) {
-          const range = nodeRange(identifier);
-          if (range) declarations.push({
-            name: identifier.name,
-            kind: "variable",
-            ...(variableStatement.receiverType
-              ? {
-                  receiverType: variableStatement.receiverType.name,
-                  memberKind: "property" as const
-                }
-              : {}),
-            range
-          });
-        }
+        pushVariableDeclarations(declarations, variableStatement, bindingIdentifiers(variableStatement.name));
       }
       continue;
     }

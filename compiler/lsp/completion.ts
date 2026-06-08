@@ -2021,6 +2021,8 @@ export async function createCompletionItemsForPosition(
       let kind: CompletionItemKind = CompletionItemKind.Variable;
       if (suggestion.symbol.kind === "class") {
         kind = CompletionItemKind.Class;
+      } else if (suggestion.symbol.kind === "interface" || suggestion.symbol.kind === "type") {
+        kind = CompletionItemKind.Interface;
       } else if (suggestion.symbol.kind === "function") {
         kind = CompletionItemKind.Function;
       }

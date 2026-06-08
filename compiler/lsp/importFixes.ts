@@ -6,7 +6,7 @@ import type {
   Statement
 } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
-import { getProjectIndex } from "./projectAnalysis";
+import { getProjectIndex, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
 import {
   isUndefinedVariableDiagnostic,
   isMissingMemberDiagnostic,
@@ -21,7 +21,7 @@ import {
 export interface SymbolExport {
   name: string;
   filePath: string;
-  kind: "class" | "function" | "variable";
+  kind: ProjectTopLevelDeclarationKind;
   receiverType?: string;
   memberKind?: "property" | "method";
 }

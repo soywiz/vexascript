@@ -21,6 +21,8 @@ describe("lsp symbols", () => {
           return "point"
         }
       }
+      interface Drawable {}
+      type PointTuple = string
       fun demo() {}
       let a = 1
       let b = 2, c = 3
@@ -28,11 +30,13 @@ describe("lsp symbols", () => {
     const ast = parseFile(tokenizeReader(source));
 
     const symbols = createDocumentSymbols(ast);
-    expect(symbols.map((symbol) => symbol.name)).toEqual(["Point", "demo", "a", "b", "c"]);
+    expect(symbols.map((symbol) => symbol.name)).toEqual(["Point", "Drawable", "PointTuple", "demo", "a", "b", "c"]);
     expect(symbols[0]?.kind).toBe(SymbolKind.Class);
     expect(symbols[0]?.children?.map((child) => child.name)).toEqual(["move", "label"]);
     expect(symbols[0]?.children?.[0]?.kind).toBe(SymbolKind.Method);
     expect(symbols[0]?.children?.[1]?.kind).toBe(SymbolKind.Property);
+    expect(symbols[1]?.kind).toBe(SymbolKind.Interface);
+    expect(symbols[2]?.kind).toBe(SymbolKind.Interface);
   });
 
 
@@ -54,7 +58,11 @@ describe("lsp symbols", () => {
     const worldFile = join(root, "world.my");
     const helloFile = join(root, "hello.my");
 
-    await writeFile(worldFile, "class MyPoint\nfun buildPoint() {}\n", "utf8");
+    await writeFile(
+      worldFile,
+      "class MyPoint\ninterface PointLike {}\ntype PointName = string\nfun buildPoint() {}\n",
+      "utf8"
+    );
     await writeFile(helloFile, "let value = 1\n", "utf8");
 
     const symbols = await createWorkspaceSymbols({
@@ -63,10 +71,16 @@ describe("lsp symbols", () => {
     });
 
     const names = symbols.map((symbol) => symbol.name);
-    expect(names).toEqual(expect.arrayContaining(["MyPoint", "buildPoint"]));
+    expect(names).toEqual(expect.arrayContaining(["MyPoint", "PointLike", "PointName", "buildPoint"]));
 
     const point = symbols.find((symbol) => symbol.name === "MyPoint");
     expect(point?.kind).toBe(SymbolKind.Class);
     expect(point?.location.uri).toBe(pathToFileURL(worldFile).toString());
+
+    const interfaceSymbol = symbols.find((symbol) => symbol.name === "PointLike");
+    expect(interfaceSymbol?.kind).toBe(SymbolKind.Interface);
+
+    const typeSymbol = symbols.find((symbol) => symbol.name === "PointName");
+    expect(typeSymbol?.kind).toBe(SymbolKind.Interface);
   });
 });

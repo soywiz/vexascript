@@ -195,7 +195,7 @@ describe("import quick fixes", () => {
     const fileA = join(root, "a.my");
     const fileB = join(root, "b.my");
 
-    await writeFile(fileA, "class Point\nclass Vector\n", "utf8");
+    await writeFile(fileA, "class Point\ninterface PointReader {}\ntype PointId = string\nclass Vector\n", "utf8");
     const sourceB = "fun demo() {\n  return Poi\n}\n";
     await writeFile(fileB, sourceB, "utf8");
 
@@ -208,8 +208,10 @@ describe("import quick fixes", () => {
       excludeSymbols: new Set()
     });
 
-    expect(suggestions).toHaveLength(1);
-    expect(suggestions[0]?.symbol.name).toBe("Point");
+    expect(suggestions.map((suggestion) => suggestion.symbol.name)).toEqual(["Point", "PointId", "PointReader"]);
+    expect(suggestions.find((suggestion) => suggestion.symbol.name === "Point")?.symbol.kind).toBe("class");
+    expect(suggestions.find((suggestion) => suggestion.symbol.name === "PointId")?.symbol.kind).toBe("type");
+    expect(suggestions.find((suggestion) => suggestion.symbol.name === "PointReader")?.symbol.kind).toBe("interface");
     expect(suggestions[0]?.importPath).toBe("./a");
   });
 
