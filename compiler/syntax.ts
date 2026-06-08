@@ -36,6 +36,8 @@ export interface PortableMonarchRule {
 export interface PortableMonarchLanguage {
   defaultToken: string;
   keywords: string[];
+  declarationKeywords: string[];
+  controlKeywords: string[];
   tokenizer: Record<string, PortableMonarchRule[]>;
 }
 
@@ -59,18 +61,13 @@ export interface PortableLanguageConfiguration {
 }
 
 export function createPortableMonarchLanguage(): PortableMonarchLanguage {
+  const declarationKeywords = [...MYLANG_KEYWORD_DECLARATIONS, ...MYLANG_STORAGE_TYPES] as string[];
+  const controlKeywords = [...MYLANG_KEYWORD_CONTROLS, ...MYLANG_CONSTANTS] as string[];
   return {
     defaultToken: "",
-    keywords: [
-      "declare", "namespace", "enum", "import", "from", "as", "export",
-      "class", "interface", "infer", "extends", "implements", "override",
-      "async", "yield", "fun", "function", "keyof", "let", "var", "val",
-      "const", "if", "else", "return", "throw", "while", "for", "in",
-      "switch", "case", "default", "break", "continue", "do", "try",
-      "catch", "finally", "new", "is", "instanceof", "typeof", "void",
-      "delete", "await", "readonly", "type", "fn", "true", "false",
-      "null", "undefined",
-    ],
+    keywords: [...declarationKeywords, ...controlKeywords],
+    declarationKeywords,
+    controlKeywords,
     tokenizer: {
       root: [
         { match: String.raw`\/\/\/.*$`, token: "comment.doc" },
@@ -79,7 +76,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`"([^"\\]|\\.)*"`, token: "string" },
         { match: String.raw`'([^'\\]|\\.)*'`, token: "string" },
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
-        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@keywords": "keyword", "@default": "identifier" } },
+        { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
         { match: String.raw`[;,.]`, token: "delimiter" },
         { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },

@@ -264,6 +264,8 @@ function toMonacoMonarchLanguage(language: PortableMonarchLanguage): monaco.lang
   return {
     defaultToken: language.defaultToken,
     keywords: [...language.keywords],
+    declarationKeywords: [...language.declarationKeywords],
+    controlKeywords: [...language.controlKeywords],
     tokenizer: Object.fromEntries(
       Object.entries(language.tokenizer).map(([stateName, rules]) => [
         stateName,

@@ -20,6 +20,8 @@ export function createMyLangMonacoTheme(): MonacoStandaloneThemeData {
     rules: [
       { token: "comment", foreground: "6A9955" },
       { token: "comment.doc", foreground: "9CDC8C", fontStyle: "italic" },
+      { token: "keyword.declaration", foreground: "569CD6" },
+      { token: "keyword.control", foreground: "C586C0" },
     ],
     colors: {
       "editorGutter.background": "#1e1e1e",
