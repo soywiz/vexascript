@@ -310,6 +310,24 @@ function readDocumentationFromIdentifier(identifier: Identifier): string | undef
     return undefined;
   }
 
+  const lineDocumentation: string[] = [];
+  for (let index = comments.length - 1; index >= 0; index -= 1) {
+    const comment = comments[index];
+    if (!comment || comment.kind !== "line" || !comment.value.startsWith("///")) {
+      if (lineDocumentation.length > 0) {
+        break;
+      }
+      continue;
+    }
+
+    lineDocumentation.unshift(comment.value.replace(/^\/\/\/\s?/, "").trimEnd());
+  }
+
+  const normalizedLineDocumentation = lineDocumentation.join("\n").trim();
+  if (normalizedLineDocumentation.length > 0) {
+    return normalizedLineDocumentation;
+  }
+
   for (let index = comments.length - 1; index >= 0; index -= 1) {
     const comment = comments[index];
     if (!comment || comment.kind !== "block" || !comment.value.startsWith("/**")) {

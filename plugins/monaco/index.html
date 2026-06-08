@@ -222,6 +222,39 @@
         transition: opacity 0.2s, transform 0.2s;
         pointer-events: none;
       }
+      .context-menu {
+        position: fixed;
+        display: none;
+        min-width: 160px;
+        background: #252526;
+        border: 1px solid #3e3e3e;
+        border-radius: 6px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+        padding: 6px;
+        z-index: 2000;
+      }
+      .context-menu button {
+        display: block;
+        width: 100%;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: #d4d4d4;
+        text-align: left;
+        font-size: 12px;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+      .context-menu button:hover {
+        background: #094771;
+      }
+      .context-menu button:disabled {
+        color: #777;
+        cursor: default;
+      }
+      .context-menu button:disabled:hover {
+        background: transparent;
+      }
       #toast.show {
         opacity: 1;
         transform: translateX(-50%) translateY(0);
@@ -243,8 +276,8 @@
       <div id="tabs" class="tabs"></div>
       <div class="toolbar">
         <div class="nav-group">
-          <button class="btn" id="btn-nav-back" title="Go back (Alt+Cmd+Left)">Back</button>
-          <button class="btn" id="btn-nav-forward" title="Go forward (Alt+Cmd+Right)">Forward</button>
+          <button class="btn" id="btn-nav-back" title="Go back (Alt+Ctrl+Cmd+Left)">Back</button>
+          <button class="btn" id="btn-nav-forward" title="Go forward (Alt+Ctrl+Cmd+Right)">Forward</button>
         </div>
         <button class="btn" id="btn-format" title="Format document (Shift+Alt+F)">Format</button>
         <button class="btn" id="btn-save" title="Save file">Save</button>
@@ -267,6 +300,10 @@
       </div>
     </main>
     <div id="toast"></div>
+    <div id="tree-context-menu" class="context-menu">
+      <button id="tree-context-open" type="button">Open</button>
+      <button id="tree-context-delete" type="button">Delete</button>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

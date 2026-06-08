@@ -533,14 +533,33 @@ async function main(): Promise<void> {
   document.getElementById("btn-new-folder")?.addEventListener("click", () => createWorkspaceEntry("folder"));
   document.getElementById("btn-nav-back")?.addEventListener("click", () => navigateHistory("back"));
   document.getElementById("btn-nav-forward")?.addEventListener("click", () => navigateHistory("forward"));
+  document.getElementById("tree-context-open")?.addEventListener("click", () => {
+    if (contextMenuEntry?.kind === "file") {
+      selectDocument(contextMenuEntry.uri);
+    }
+    hideTreeContextMenu();
+  });
+  document.getElementById("tree-context-delete")?.addEventListener("click", () => {
+    if (contextMenuEntry) {
+      deleteEntry(contextMenuEntry);
+    }
+    hideTreeContextMenu();
+  });
+  window.addEventListener("click", () => hideTreeContextMenu());
+  window.addEventListener("blur", () => hideTreeContextMenu());
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideTreeContextMenu();
+    }
+  });
 
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     document.getElementById("btn-save")?.click();
   });
-  editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
+  editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
     navigateHistory("back");
   });
-  editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => {
+  editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => {
     navigateHistory("forward");
   });
 }
