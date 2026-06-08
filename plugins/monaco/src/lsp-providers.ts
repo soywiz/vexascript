@@ -358,7 +358,8 @@ export interface SemanticTokensLegend {
 
 export function registerProviders(
   lsp: CompilerClient,
-  legend: SemanticTokensLegend
+  legend: SemanticTokensLegend,
+  { enableInlayHints = false }: { enableInlayHints?: boolean } = {}
 ): void {
   // ── Completion ──────────────────────────────────────────────────────────────
   monaco.languages.registerCompletionItemProvider(LANG_ID, {
@@ -767,7 +768,7 @@ export function registerProviders(
   });
 
   // ── Inlay Hints ─────────────────────────────────────────────────────────────
-  monaco.languages.registerInlayHintsProvider(LANG_ID, {
+  if (enableInlayHints) monaco.languages.registerInlayHintsProvider(LANG_ID, {
     async provideInlayHints(model, range) {
       try {
         const raw = await lsp.request<LspInlayHint[] | null>(

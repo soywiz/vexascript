@@ -479,7 +479,7 @@ export async function updateAutoAwaitGlyphs(
   collection.set(decorations);
 }
 
-export function registerProviders(workspaceContext?: ProviderWorkspaceContext): Map<string, SessionState> {
+export function registerProviders(workspaceContext?: ProviderWorkspaceContext, { enableInlayHints = false }: { enableInlayHints?: boolean } = {}): Map<string, SessionState> {
   const cache = new Map<string, SessionState>();
 
   monaco.languages.registerCompletionItemProvider(LANG_ID, {
@@ -803,7 +803,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
     },
   });
 
-  monaco.languages.registerInlayHintsProvider(LANG_ID, {
+  if (enableInlayHints) monaco.languages.registerInlayHintsProvider(LANG_ID, {
     async provideInlayHints(model, range) {
       const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.ast || !session.analysis) return { hints: [], dispose: () => {} };
