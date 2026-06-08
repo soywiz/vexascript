@@ -60,7 +60,8 @@ import type {
   JsxElement,
   JsxFragment,
   JsxExpressionContainer,
-  JsxSpreadAttribute
+  JsxSpreadAttribute,
+  JsxAttribute
 } from "compiler/ast/ast";
 import { bindingElements, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Node } from "compiler/ast/ast";
@@ -816,11 +817,12 @@ export class TypeChecker {
           if (parameter.thisParameter === true) {
             continue;
           }
-          const parameterType =
-            this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
-            (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
-          this.validateRestParameterType(parameter, parameterType);
-          this.updateBindingSymbolTypes(functionScope, parameter.name, parameterType);
+          const parameterType = this.functionParameterType(parameter, functionScope);
+          const effectiveParameterType = isUnknownType(parameterType) && parameter.defaultValue
+            ? this.visitExpression(parameter.defaultValue, functionScope)
+            : parameterType;
+          this.validateRestParameterType(parameter, effectiveParameterType);
+          this.updateBindingSymbolTypes(functionScope, parameter.name, effectiveParameterType);
           for (const element of bindingElements(parameter.name)) {
             if (element.initializer) this.visitExpression(element.initializer, functionScope);
           }
@@ -1807,14 +1809,9 @@ export class TypeChecker {
         break;
       case "JsxElement": {
         const jsxElement = expression as JsxElement;
-        if (jsxElement.reference) this.visitExpression(jsxElement.reference, scope);
-        for (const attr of jsxElement.attributes) {
-          if (attr.kind === "JsxSpreadAttribute") {
-            this.visitExpression((attr as JsxSpreadAttribute).expression, scope);
-          } else if (attr.kind === "JsxAttribute" && attr.value?.kind === "JsxExpressionContainer") {
-            this.visitExpression((attr.value as JsxExpressionContainer).expression, scope);
-          }
-        }
+        const componentType = jsxElement.reference ? this.visitExpression(jsxElement.reference, scope) : undefined;
+        const callableComponentType = componentType ? this.callableTypeFrom(componentType) : null;
+        this.validateJsxComponentAttributes(jsxElement, callableComponentType, scope);
         for (const child of jsxElement.children) {
           if (child.kind === "JsxExpressionContainer") {
             this.visitExpression((child as JsxExpressionContainer).expression, scope);
@@ -2046,7 +2043,7 @@ export class TypeChecker {
     const symbolType = functionType(
       method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
         name: bindingNameText(parameter.name),
-        type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+        type: this.functionParameterTypeLoose(parameter),
         optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
         rest: parameter.rest === true
       })),
@@ -2067,7 +2064,7 @@ export class TypeChecker {
     const symbolType = functionType(
       statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
         name: bindingNameText(parameter.name),
-        type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+        type: this.functionParameterTypeLoose(parameter),
         optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
         rest: parameter.rest === true
       })),
@@ -2084,6 +2081,58 @@ export class TypeChecker {
     };
   }
 
+
+  private functionParameterTypeLoose(parameter: FunctionParameter): AnalysisType {
+    if (parameter.typeAnnotation) {
+      return this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
+    }
+    return this.bindingPatternAnnotationTypeLoose(parameter.name) ?? UNKNOWN_TYPE;
+  }
+
+  private bindingPatternAnnotationTypeLoose(binding: BindingName): AnalysisType | null {
+    if (binding.kind === "Identifier") {
+      return null;
+    }
+    if (binding.kind === "ObjectBindingPattern") {
+      const properties: Record<string, AnalysisType> = {};
+      let hasTypedProperty = false;
+      for (const element of binding.elements) {
+        if (element.rest === true) {
+          continue;
+        }
+        const propertyName = element.propertyName?.name ?? (element.name.kind === "Identifier" ? element.name.name : undefined);
+        if (!propertyName) {
+          continue;
+        }
+        const annotatedType = element.typeAnnotation
+          ? this.typeFromAnnotationLoose(element.typeAnnotation) ?? UNKNOWN_TYPE
+          : this.bindingPatternAnnotationTypeLoose(element.name);
+        if (!annotatedType) {
+          continue;
+        }
+        properties[propertyName] = annotatedType;
+        hasTypedProperty = true;
+      }
+      return hasTypedProperty ? objectTypeWithProperties(properties) : null;
+    }
+
+    const elements: AnalysisType[] = [];
+    let hasTypedElement = false;
+    binding.elements.forEach((element, index) => {
+      if (element.kind === "BindingHole") {
+        elements[index] = UNKNOWN_TYPE;
+        return;
+      }
+      const annotatedType = element.typeAnnotation
+        ? this.typeFromAnnotationLoose(element.typeAnnotation) ?? UNKNOWN_TYPE
+        : this.bindingPatternAnnotationTypeLoose(element.name);
+      elements[index] = annotatedType ?? UNKNOWN_TYPE;
+      if (annotatedType) {
+        hasTypedElement = true;
+      }
+    });
+    return hasTypedElement ? tupleType(elements) : null;
+  }
 
   private operatorParameterMatches(parameter: FunctionParameter | undefined, rightType: AnalysisType, scope: Scope): boolean {
     const parameterType = parameter?.typeAnnotation
@@ -2425,9 +2474,7 @@ export class TypeChecker {
     return functionType(
       parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
         name: bindingNameText(parameter.name),
-        type: parameter.typeAnnotation
-          ? this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
-          : scope.symbols.get(bindingNameText(parameter.name))?.type ?? UNKNOWN_TYPE,
+        type: this.functionParameterType(parameter, scope),
         optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
         rest: parameter.rest === true
       })),
@@ -2435,6 +2482,62 @@ export class TypeChecker {
       typeParameters.map((parameter) => parameter.name.name),
       this.typeParameterConstraintMap(typeParameters, scope)
     );
+  }
+
+  private functionParameterType(parameter: FunctionParameter, scope: Scope): AnalysisType {
+    if (parameter.typeAnnotation) {
+      return this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE;
+    }
+    const patternType = this.bindingPatternAnnotationType(parameter.name, scope);
+    if (patternType) {
+      return patternType;
+    }
+    return scope.symbols.get(bindingNameText(parameter.name))?.type ?? UNKNOWN_TYPE;
+  }
+
+  private bindingPatternAnnotationType(binding: BindingName, scope: Scope): AnalysisType | null {
+    if (binding.kind === "Identifier") {
+      return null;
+    }
+    if (binding.kind === "ObjectBindingPattern") {
+      const properties: Record<string, AnalysisType> = {};
+      let hasTypedProperty = false;
+      for (const element of binding.elements) {
+        if (element.rest === true) {
+          continue;
+        }
+        const propertyName = element.propertyName?.name ?? (element.name.kind === "Identifier" ? element.name.name : undefined);
+        if (!propertyName) {
+          continue;
+        }
+        const annotatedType = element.typeAnnotation
+          ? this.resolveTypeAnnotation(element.typeAnnotation, scope) ?? UNKNOWN_TYPE
+          : this.bindingPatternAnnotationType(element.name, scope);
+        if (!annotatedType) {
+          continue;
+        }
+        properties[propertyName] = annotatedType;
+        hasTypedProperty = true;
+      }
+      return hasTypedProperty ? objectTypeWithProperties(properties) : null;
+    }
+
+    const elements: AnalysisType[] = [];
+    let hasTypedElement = false;
+    binding.elements.forEach((element, index) => {
+      if (element.kind === "BindingHole") {
+        elements[index] = UNKNOWN_TYPE;
+        return;
+      }
+      const annotatedType = element.typeAnnotation
+        ? this.resolveTypeAnnotation(element.typeAnnotation, scope) ?? UNKNOWN_TYPE
+        : this.bindingPatternAnnotationType(element.name, scope);
+      elements[index] = annotatedType ?? UNKNOWN_TYPE;
+      if (annotatedType) {
+        hasTypedElement = true;
+      }
+    });
+    return hasTypedElement ? tupleType(elements) : null;
   }
 
   private typeParameterConstraintMap(
@@ -2952,6 +3055,137 @@ export class TypeChecker {
       return UNKNOWN_TYPE;
     }
     return nonNullishTypes.length === 1 ? nonNullishTypes[0]! : unionType(nonNullishTypes);
+  }
+
+  private validateJsxComponentAttributes(
+    jsxElement: JsxElement,
+    componentType: (AnalysisType & { kind: "function" }) | null,
+    scope: Scope
+  ): void {
+    for (const attr of jsxElement.attributes) {
+      if (attr.kind === "JsxSpreadAttribute") {
+        this.visitExpression((attr as JsxSpreadAttribute).expression, scope);
+      }
+    }
+
+    if (!componentType || jsxElement.reference === undefined) {
+      this.visitJsxAttributeValues(jsxElement, scope);
+      return;
+    }
+
+    const propsParameter = componentType.parameters[0];
+    if (!propsParameter || propsParameter.rest === true) {
+      this.visitJsxAttributeValues(jsxElement, scope);
+      return;
+    }
+
+    const propsType = propsParameter.type;
+    if (isUnknownType(propsType) || (propsType.kind === "builtin" && propsType.name === "any")) {
+      this.visitJsxAttributeValues(jsxElement, scope);
+      return;
+    }
+
+    const expectedProps = this.propertyMapFromJsxPropsType(propsType);
+    if (!expectedProps) {
+      this.visitJsxAttributeValues(jsxElement, scope);
+      return;
+    }
+
+    const provided = new Set<string>();
+    for (const attr of jsxElement.attributes) {
+      if (attr.kind !== "JsxAttribute") {
+        continue;
+      }
+      const attribute = attr as JsxAttribute;
+      const expectedType = expectedProps.get(attribute.name);
+      if (!expectedType) {
+        this.jsxAttributeValueType(attribute, scope);
+        this.issues.push({
+          message: `No parameter named '${attribute.name}'`,
+          node: attribute
+        });
+        continue;
+      }
+
+      if (provided.has(attribute.name)) {
+        this.issues.push({
+          message: `Parameter '${attribute.name}' specified more than once`,
+          node: attribute
+        });
+      }
+      provided.add(attribute.name);
+
+      const valueNode = attribute.value?.kind === "JsxExpressionContainer"
+        ? (attribute.value as JsxExpressionContainer).expression
+        : attribute.value ?? attribute;
+      const attributeType = this.jsxAttributeValueType(attribute, scope, expectedType);
+      if (isUnknownType(expectedType) || isUnknownType(attributeType)) {
+        continue;
+      }
+      if (this.isTypeAssignable(attributeType, expectedType)) {
+        continue;
+      }
+      this.issues.push({
+        message: `Argument of type '${typeToString(attributeType)}' is not assignable to parameter '${attribute.name}' of type '${typeToString(expectedType)}'`,
+        node: valueNode
+      });
+      this.reportNestedMismatchContext(attributeType, expectedType, valueNode);
+    }
+
+    for (const [propertyName, propertyType] of expectedProps.entries()) {
+      if (provided.has(propertyName) || this.isOptionalJsxPropType(propertyType)) {
+        continue;
+      }
+      this.issues.push({
+        message: `Missing required argument for parameter '${propertyName}'`,
+        node: jsxElement.reference
+      });
+    }
+  }
+
+  private visitJsxAttributeValues(jsxElement: JsxElement, scope: Scope): void {
+    for (const attr of jsxElement.attributes) {
+      if (attr.kind === "JsxAttribute") {
+        this.jsxAttributeValueType(attr as JsxAttribute, scope);
+      }
+    }
+  }
+
+  private jsxAttributeValueType(attribute: JsxAttribute, scope: Scope, expectedType?: AnalysisType): AnalysisType {
+    if (!attribute.value) {
+      return builtinType("boolean");
+    }
+    if (attribute.value.kind === "JsxExpressionContainer") {
+      return this.visitExpression((attribute.value as JsxExpressionContainer).expression, scope, expectedType);
+    }
+    return this.visitExpression(attribute.value, scope, expectedType);
+  }
+
+  private propertyMapFromJsxPropsType(propsType: AnalysisType): Map<string, AnalysisType> | null {
+    if (propsType.kind === "object") {
+      return new Map(Object.entries(propsType.properties));
+    }
+    if (propsType.kind === "named") {
+      return this.resolveNamedTypeMembers(propsType);
+    }
+    if (propsType.kind === "intersection") {
+      const merged = new Map<string, AnalysisType>();
+      for (const member of propsType.types) {
+        const memberMap = this.propertyMapFromJsxPropsType(member);
+        if (!memberMap) {
+          return null;
+        }
+        for (const [propertyName, propertyType] of memberMap.entries()) {
+          merged.set(propertyName, propertyType);
+        }
+      }
+      return merged;
+    }
+    return null;
+  }
+
+  private isOptionalJsxPropType(type: AnalysisType): boolean {
+    return type.kind === "union" && type.types.some((member) => member.kind === "builtin" && member.name === "undefined");
   }
 
   private validateCallArguments(
