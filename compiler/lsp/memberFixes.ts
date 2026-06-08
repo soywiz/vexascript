@@ -20,10 +20,7 @@ import {
   type ClassResolverCache,
   type ClassResolverSessionLike
 } from "./classResolver";
-import {
-  isMissingMemberDiagnostic,
-  MISSING_MEMBER_PATTERN
-} from "./diagnosticCodes";
+import { parseMissingMemberDiagnostic as parseDiagnosticMissingMember } from "./diagnosticCodes";
 import { nodeRange, rangeContains } from "./ranges";
 
 interface ClassResolution {
@@ -45,19 +42,10 @@ interface MissingMemberDiagnosticMatch {
 }
 
 function parseMissingMemberDiagnostic(diagnostic: Diagnostic): MissingMemberDiagnosticMatch | null {
-  if (!isMissingMemberDiagnostic(diagnostic)) {
-    return null;
-  }
-  const match = MISSING_MEMBER_PATTERN.exec(diagnostic.message);
-  if (!match) {
-    return null;
-  }
-  const memberName = match[1];
-  const typeName = match[2];
-  if (!memberName || !typeName) {
-    return null;
-  }
-  return { memberName, typeName, className: baseTypeName(typeName) };
+  const match = parseDiagnosticMissingMember(diagnostic);
+  return match
+    ? { ...match, className: baseTypeName(match.typeName) }
+    : null;
 }
 
 async function resolveClassTarget(params: {

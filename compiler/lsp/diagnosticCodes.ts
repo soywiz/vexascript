@@ -49,6 +49,30 @@ export const IMPLEMENTS_MISSING_MEMBER_PATTERN = /^Class '([^']+)' incorrectly i
 export const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is of type '(.+)' but expected '(.+)'$/;
 export const OPERATOR_NOT_DEFINED_PATTERN = /^Operator '(.+)' is not defined for types '(.+)' and '(.+)'$/;
 
+export interface UndefinedVariableDiagnosticMatch {
+  name: string;
+}
+
+export interface TypeMismatchDiagnosticMatch {
+  sourceType: string;
+  targetType: string;
+}
+
+export interface MissingMemberDiagnosticMatch {
+  memberName: string;
+  typeName: string;
+}
+
+export interface UnknownTypeDiagnosticMatch {
+  typeName: string;
+}
+
+export interface OperatorNotDefinedDiagnosticMatch {
+  operator: string;
+  leftType: string;
+  rightType: string;
+}
+
 function diagnosticCodeToString(diagnostic: Diagnostic): string | null {
   const value = diagnostic.code;
   if (typeof value === "string" || typeof value === "number") {
@@ -65,6 +89,70 @@ function diagnosticCodeToString(diagnostic: Diagnostic): string | null {
 
 export function diagnosticHasCode(diagnostic: Diagnostic, code: MyLangDiagnosticCode): boolean {
   return diagnosticCodeToString(diagnostic) === code;
+}
+
+function stringCapture(match: RegExpExecArray, index: number): string | null {
+  const value = match[index];
+  return value && value.length > 0 ? value : null;
+}
+
+export function parseUndefinedVariableDiagnostic(
+  diagnostic: Diagnostic
+): UndefinedVariableDiagnosticMatch | null {
+  if (!isUndefinedVariableDiagnostic(diagnostic)) {
+    return null;
+  }
+  const match = UNDEFINED_VARIABLE_PATTERN.exec(diagnostic.message);
+  const name = match ? stringCapture(match, 1) : null;
+  return name ? { name } : null;
+}
+
+export function parseTypeMismatchDiagnostic(
+  diagnostic: Diagnostic
+): TypeMismatchDiagnosticMatch | null {
+  if (!isTypeMismatchDiagnostic(diagnostic)) {
+    return null;
+  }
+  const match = TYPE_MISMATCH_PATTERN.exec(diagnostic.message);
+  const sourceType = match ? stringCapture(match, 1) : null;
+  const targetType = match ? stringCapture(match, 2) : null;
+  return sourceType && targetType ? { sourceType, targetType } : null;
+}
+
+export function parseMissingMemberDiagnostic(
+  diagnostic: Diagnostic
+): MissingMemberDiagnosticMatch | null {
+  if (!isMissingMemberDiagnostic(diagnostic)) {
+    return null;
+  }
+  const match = MISSING_MEMBER_PATTERN.exec(diagnostic.message);
+  const memberName = match ? stringCapture(match, 1) : null;
+  const typeName = match ? stringCapture(match, 2) : null;
+  return memberName && typeName ? { memberName, typeName } : null;
+}
+
+export function parseUnknownTypeDiagnostic(
+  diagnostic: Diagnostic
+): UnknownTypeDiagnosticMatch | null {
+  if (!isUnknownTypeDiagnostic(diagnostic)) {
+    return null;
+  }
+  const match = UNKNOWN_TYPE_PATTERN.exec(diagnostic.message);
+  const typeName = match ? stringCapture(match, 1) : null;
+  return typeName ? { typeName } : null;
+}
+
+export function parseOperatorNotDefinedDiagnostic(
+  diagnostic: Diagnostic
+): OperatorNotDefinedDiagnosticMatch | null {
+  if (!isOperatorNotDefinedDiagnostic(diagnostic)) {
+    return null;
+  }
+  const match = OPERATOR_NOT_DEFINED_PATTERN.exec(diagnostic.message);
+  const operator = match ? stringCapture(match, 1) : null;
+  const leftType = match ? stringCapture(match, 2) : null;
+  const rightType = match ? stringCapture(match, 3) : null;
+  return operator && leftType && rightType ? { operator, leftType, rightType } : null;
 }
 
 export function classifySemanticDiagnosticMessage(message: string): MyLangDiagnosticCode | null {

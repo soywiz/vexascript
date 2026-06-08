@@ -8,14 +8,10 @@ import type {
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { getProjectIndex, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
 import {
-  isUndefinedVariableDiagnostic,
-  isMissingMemberDiagnostic,
-  isUnknownTypeDiagnostic,
-  isOperatorNotDefinedDiagnostic,
-  UNDEFINED_VARIABLE_PATTERN,
-  MISSING_MEMBER_PATTERN,
-  UNKNOWN_TYPE_PATTERN,
-  OPERATOR_NOT_DEFINED_PATTERN
+  parseMissingMemberDiagnostic,
+  parseOperatorNotDefinedDiagnostic,
+  parseUndefinedVariableDiagnostic,
+  parseUnknownTypeDiagnostic
 } from "./diagnosticCodes";
 
 export interface SymbolExport {
@@ -79,23 +75,20 @@ function baseTypeIdentifier(typeName: string): string | null {
 function extractImportableSymbols(diagnostics: Diagnostic[]): string[] {
   const names = new Set<string>();
   for (const diagnostic of diagnostics) {
-    const pattern = isUndefinedVariableDiagnostic(diagnostic)
-      ? UNDEFINED_VARIABLE_PATTERN
-      : isMissingMemberDiagnostic(diagnostic)
-        ? MISSING_MEMBER_PATTERN
-        : isUnknownTypeDiagnostic(diagnostic)
-          ? UNKNOWN_TYPE_PATTERN
-          : null;
-    if (!pattern) continue;
-    const match = pattern.exec(diagnostic.message);
-    if (!match) {
+    const undefinedVariable = parseUndefinedVariableDiagnostic(diagnostic);
+    if (undefinedVariable) {
+      names.add(undefinedVariable.name);
       continue;
     }
-    const captured = match[1];
-    if (!captured) {
+
+    const missingMember = parseMissingMemberDiagnostic(diagnostic);
+    if (missingMember) {
+      names.add(missingMember.memberName);
       continue;
     }
-    const symbolName = pattern === UNKNOWN_TYPE_PATTERN ? baseTypeIdentifier(captured) : captured;
+
+    const unknownType = parseUnknownTypeDiagnostic(diagnostic);
+    const symbolName = unknownType ? baseTypeIdentifier(unknownType.typeName) : null;
     if (symbolName) {
       names.add(symbolName);
     }
@@ -114,25 +107,20 @@ function extractOperatorImports(diagnostics: Diagnostic[]): OperatorImportReques
   const requests: OperatorImportRequest[] = [];
   const seen = new Set<string>();
   for (const diagnostic of diagnostics) {
-    if (!isOperatorNotDefinedDiagnostic(diagnostic)) {
-      continue;
-    }
-    const match = OPERATOR_NOT_DEFINED_PATTERN.exec(diagnostic.message);
-    if (!match) {
-      continue;
-    }
-    const operator = match[1];
-    const leftType = match[2];
-    if (!operator || !leftType) {
+    const operatorDiagnostic = parseOperatorNotDefinedDiagnostic(diagnostic);
+    if (!operatorDiagnostic) {
       continue;
     }
     // The receiver of a binary operator overload is the left-hand operand type.
-    const key = `${leftType}::operator${operator}`;
+    const key = `${operatorDiagnostic.leftType}::operator${operatorDiagnostic.operator}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    requests.push({ symbolName: `operator${operator}`, receiverType: leftType });
+    requests.push({
+      symbolName: `operator${operatorDiagnostic.operator}`,
+      receiverType: operatorDiagnostic.leftType
+    });
   }
   return requests;
 }
