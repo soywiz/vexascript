@@ -39,6 +39,7 @@ import {
 } from "compiler/syntax";
 import type { SymbolExport } from "compiler/lsp/importFixes";
 import { extractShowReferencesPayload } from "./codeLensCommands";
+import { markerToDiagnostic } from "./providerConversions";
 
 const LANG_ID = "mylang";
 
@@ -466,6 +467,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
             ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
             : undefined,
           range: completionEditRange(item.textEdit, defaultRange),
+          additionalTextEdits: item.additionalTextEdits?.map(lspEditToMonaco),
         })),
       };
     },
@@ -647,28 +649,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
     async provideCodeActions(model, range, context) {
       const session = getSession(model, cache);
       if (!session.ast) return { actions: [], dispose: () => {} };
-      const diagnostics: Diagnostic[] = context.markers.map((marker) => {
-        const rawCode = marker.code;
-        const code = typeof rawCode === "object" && rawCode !== null ? rawCode.value : rawCode;
-        return {
-          range: toLspRange({
-            startLineNumber: marker.startLineNumber,
-            startColumn: marker.startColumn,
-            endLineNumber: marker.endLineNumber,
-            endColumn: marker.endColumn,
-          }),
-          severity:
-            marker.severity === monaco.MarkerSeverity.Error
-              ? DiagnosticSeverity.Error
-              : marker.severity === monaco.MarkerSeverity.Warning
-                ? DiagnosticSeverity.Warning
-                : marker.severity === monaco.MarkerSeverity.Info
-                  ? DiagnosticSeverity.Information
-                  : DiagnosticSeverity.Hint,
-          message: marker.message,
-          ...(code !== undefined ? { code } : {}),
-        };
-      });
+      const diagnostics: Diagnostic[] = context.markers.map((marker) => markerToDiagnostic(marker, monaco.MarkerSeverity));
       let actions: Awaited<ReturnType<typeof collectCodeActions>> = [];
       try {
         actions = await collectCodeActions({
