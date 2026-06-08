@@ -360,8 +360,15 @@ function toMonacoMonarchLanguage(portable: PortableMonarchLanguage): Record<stri
         if (rule.token === "@cases" && rule.cases) {
           return [new RegExp(rule.match), { cases: rule.cases }];
         }
-        if (rule.next) {
-          return [new RegExp(rule.match), { token: rule.token, next: rule.next }];
+        if (rule.next || rule.switchTo) {
+          return [
+            new RegExp(rule.match),
+            {
+              token: rule.token,
+              ...(rule.next ? { next: rule.next } : {}),
+              ...(rule.switchTo ? { switchTo: rule.switchTo } : {}),
+            },
+          ];
         }
         return [new RegExp(rule.match), rule.token];
       }),
