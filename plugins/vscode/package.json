@@ -40,6 +40,13 @@
         "scopeName": "source.mylang",
         "path": "./syntaxes/mylang.tmLanguage.json"
       }
+    ],
+    "themes": [
+      {
+        "label": "MyLang Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/mylang-dark-color-theme.json"
+      }
     ]
   },
   "scripts": {

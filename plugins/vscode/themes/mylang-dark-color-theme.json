@@ -1,0 +1,30 @@
+{
+  "name": "MyLang Dark",
+  "type": "dark",
+  "tokenColors": [
+    {
+      "scope": "keyword.declaration.mylang",
+      "settings": {
+        "foreground": "#569CD6"
+      }
+    },
+    {
+      "scope": "storage.type.mylang",
+      "settings": {
+        "foreground": "#569CD6"
+      }
+    },
+    {
+      "scope": "keyword.control.mylang",
+      "settings": {
+        "foreground": "#C586C0"
+      }
+    },
+    {
+      "scope": "constant.language.mylang",
+      "settings": {
+        "foreground": "#569CD6"
+      }
+    }
+  ]
+}
