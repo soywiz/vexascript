@@ -4,6 +4,10 @@
 
 MyLang is a language derived from TypeScript with some features and ideas from Swift, Kotlin, C# and other languages.
 
+## Important
+
+- Do not use synchronous I/O API calls. Only use asynchronous I/O APIs. The compiler is intended to run both in node and the browser.
+
 ## Commands
 
 - Run tests once: `pnpm test`
