@@ -13,6 +13,7 @@ import type {
   Expr,
   ForStatement,
   FunctionStatement,
+  Identifier,
   IfStatement,
   LabeledStatement,
   MemberExpression,
@@ -42,6 +43,7 @@ import {
   resolveConstructorSignature,
   type ClassResolverOptions
 } from "./classResolver";
+import { readDocumentationFromProgramDeclaration } from "./documentation";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
 
 interface InvocationContext {
@@ -393,9 +395,14 @@ async function buildSignatureFromSymbol(
       label: `${parameter.name}: ${typeToString(parameter.type)}`
     }));
     const label = `${symbolMatch.symbol.name}(${parameters.map((parameter) => parameter.label).join(", ")})`;
+    const documentation =
+      symbolMatch.symbol.node.kind === "Identifier"
+        ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
+        : undefined;
     return {
       label,
-      parameters
+      parameters,
+      ...(documentation ? { documentation } : {})
     };
   }
 

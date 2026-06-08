@@ -15,6 +15,10 @@ import {
   updateAutoAwaitGlyphs,
 } from "./compiler-providers";
 import {
+  createMyLangMonacoTheme,
+  MYLANG_MONACO_THEME_NAME,
+} from "./theme";
+import {
   createFileInWorkspace,
   createFolderInWorkspace,
   deleteWorkspaceEntry,
@@ -182,6 +186,8 @@ async function main(): Promise<void> {
   setStatus("Loading compiler…", "connecting");
 
   registerLanguage();
+  monaco.editor.defineTheme(MYLANG_MONACO_THEME_NAME, createMyLangMonacoTheme());
+  monaco.editor.setTheme(MYLANG_MONACO_THEME_NAME);
 
   const storage = localStorageOrUndefined();
   let entries = resolveWorkspaceEntries(bundledSample, bundledRuntime, storage, WORKSPACE_STORAGE_KEY);
@@ -301,7 +307,7 @@ async function main(): Promise<void> {
   const editorContainer = document.getElementById("editor-container")!;
   const editor = monaco.editor.create(editorContainer, {
     model: startupModel,
-    theme: "vs-dark",
+    theme: MYLANG_MONACO_THEME_NAME,
     automaticLayout: true,
     minimap: { enabled: true },
     fontSize: 14,

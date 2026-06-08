@@ -50,6 +50,7 @@ import { baseTypeName, parseTypeNameShape } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import { compileSource } from "compiler/pipeline/compile";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
+import { readDocumentationFromProgramDeclaration } from "./documentation";
 import {
   buildAutoImportSuggestions,
   buildExtensionAutoImportSuggestions,
@@ -1867,10 +1868,15 @@ export async function createCompletionItemsForPosition(
     const entry = rankedSymbols[index]!;
     const symbol = entry.symbol;
     seenLabels.add(symbol.name);
+    const documentation =
+      symbol.node.kind === "Identifier"
+        ? readDocumentationFromProgramDeclaration(ast, symbol.node as Identifier)
+        : undefined;
     items.push({
       label: symbol.name,
       kind: symbolKindToCompletionKind(symbol),
       detail: symbolDetail(symbol),
+      ...(documentation ? { documentation } : {}),
       sortText: `1-${entry.typeRelevance}-${String(entry.scopeDistance).padStart(4, "0")}-${String(index).padStart(4, "0")}-${symbol.name}`
     });
   }

@@ -56,6 +56,26 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("reject")?.detail).toBe("In-scope parameter: (arg1: Error) => void");
   });
 
+  it("includes triple-slash documentation comments in in-scope function completions", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      /// searches [sub] in [str]
+      /// and returns its index or -1
+      fun demo(str: string, sub: string): int {
+      }
+
+      fun demo2() {
+        de^^^mo()
+      }
+      `
+    );
+    const ast = parseFile(tokenizeReader(source));
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(ast, line, character, session.analysis!, [], { text: source });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("demo")?.documentation).toBe("searches [sub] in [str]\nand returns its index or -1");
+  });
+
   it("suggests named arguments inside an empty call argument list", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun connect(host: string, port: number) {}

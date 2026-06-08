@@ -4,6 +4,9 @@
 
 MyLang is a language derived from TypeScript with some features and ideas from Swift, Kotlin, C# and other languages.
 
+- Monaco sample theme configuration, including editor token colors for MyLang-specific comment styling, lives in `plugins/monaco/src/theme.ts`.
+- Shared LSP declaration-documentation extraction for `///` and block doc comments lives in `compiler/lsp/documentation.ts`.
+
 ## Important
 
 - Do not use synchronous I/O API calls. Only use asynchronous I/O APIs. The compiler is intended to run both in node and the browser.

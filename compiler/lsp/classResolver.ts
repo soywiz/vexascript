@@ -28,6 +28,7 @@ import type {
 } from "compiler/ast/ast";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { uriToFilePath } from "./importFixes";
+import { readDocumentationFromIdentifier, readDocumentationFromProgramDeclaration } from "./documentation";
 import {
   findTopLevelDeclarationInProgram,
   isClassStatement,
@@ -302,51 +303,6 @@ function declaredInitializerTypeName(
     }
   });
   return resolvedTypeName;
-}
-
-function readDocumentationFromIdentifier(identifier: Identifier): string | undefined {
-  const comments = identifier.firstToken?.leadingComments;
-  if (!comments || comments.length === 0) {
-    return undefined;
-  }
-
-  const lineDocumentation: string[] = [];
-  for (let index = comments.length - 1; index >= 0; index -= 1) {
-    const comment = comments[index];
-    if (!comment || comment.kind !== "line" || !comment.value.startsWith("///")) {
-      if (lineDocumentation.length > 0) {
-        break;
-      }
-      continue;
-    }
-
-    lineDocumentation.unshift(comment.value.replace(/^\/\/\/\s?/, "").trimEnd());
-  }
-
-  const normalizedLineDocumentation = lineDocumentation.join("\n").trim();
-  if (normalizedLineDocumentation.length > 0) {
-    return normalizedLineDocumentation;
-  }
-
-  for (let index = comments.length - 1; index >= 0; index -= 1) {
-    const comment = comments[index];
-    if (!comment || comment.kind !== "block" || !comment.value.startsWith("/**")) {
-      continue;
-    }
-
-    const withoutMarkers = comment.value
-      .replace(/^\/\*\*/, "")
-      .replace(/\*\/$/, "");
-    const lines = withoutMarkers
-      .split("\n")
-      .map((line) => line.replace(/^\s*\*\s?/, "").trimEnd());
-    const normalized = lines.join("\n").trim();
-    if (normalized.length > 0) {
-      return normalized;
-    }
-  }
-
-  return undefined;
 }
 
 export function constructorParameterProperties(classStatement: ClassStatement): FunctionParameter[] {
@@ -1207,6 +1163,10 @@ export async function resolveCallableSignature(
       return null;
     }
     if (symbol.type?.kind === "function") {
+      const documentation =
+        symbol.node.kind === "Identifier"
+          ? readDocumentationFromProgramDeclaration(ast, symbol.node as Identifier)
+          : undefined;
       return {
         name: identifier.name,
         parameters: symbol.type.parameters.map((parameter) => ({
@@ -1215,7 +1175,8 @@ export async function resolveCallableSignature(
           optional: parameter.optional === true,
           rest: parameter.rest === true
         })),
-        returnTypeName: typeToString(symbol.type.returnType)
+        returnTypeName: typeToString(symbol.type.returnType),
+        ...(documentation ? { documentation } : {})
       };
     }
     return null;

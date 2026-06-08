@@ -246,6 +246,36 @@ describe("signature help", () => {
     });
   });
 
+  it("reads triple-slash documentation comments for local function calls", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      /// searches [sub] in [str]
+      /// and returns its index or -1
+      fun demo(str: string, sub: string): int {
+      }
+
+      fun demo2() {
+        demo(^^^"abc", "b")
+      }
+      `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "demo(str: string, sub: string)",
+          parameters: [{ label: "str: string" }, { label: "sub: string" }],
+          documentation: "searches [sub] in [str]\nand returns its index or -1"
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
   it("specializes signature help for inherited generic methods", async () => {
     const source = dedent`
       class Base<T> {

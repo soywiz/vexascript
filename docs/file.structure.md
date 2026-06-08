@@ -81,6 +81,7 @@ This section is the fast onboarding map for agents and contributors.
   - Client-side virtual-workspace and persistence helpers (bundled sample + runtime declarations + `localStorage`): `plugins/monaco/src/workspace.ts`
   - Monaco sample navigation-history state helpers used by toolbar/shortcut back-forward navigation: `plugins/monaco/src/navigationHistory.ts`
   - Code-lens command bridge translating LSP-style commands to native Monaco commands: `plugins/monaco/src/codeLensCommands.ts`
+  - Shared Monaco theme definitions for the sample UI, including distinct styling for regular and documentation comments: `plugins/monaco/src/theme.ts`
   - Monaco package manifest and Vite config: `plugins/monaco/package.json`, `plugins/monaco/vite.config.ts`
 - LSP server and features:
   - Server entrypoint: `compiler/lsp/server.ts`
@@ -109,6 +110,7 @@ This section is the fast onboarding map for agents and contributors.
   - Empty class body quick fix (removes the empty braces from a class that declares no members, e.g. `class TimeSpan(val ms: number) { }` to `class TimeSpan(val ms: number)`): `compiler/lsp/emptyClassBodyFixes.ts`
   - Shared cross-file top-level declaration resolution helpers: `compiler/lsp/declarationResolver.ts`
   - Class/interface resolution helpers: `compiler/lsp/classResolver.ts`
+  - Shared declaration-documentation extraction for `///` and block doc comments used by completion/signature/hover surfaces: `compiler/lsp/documentation.ts`
   - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`): `compiler/lsp/importedDeclarations.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
