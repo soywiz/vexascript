@@ -256,9 +256,11 @@ function findMemberAccessDot(
   const dotCharacter = match.index;
   // The receiver must end with a value-producing token so that we are looking at
   // a member access rather than, for example, a decimal point in a number.
+  // A trailing-lambda call receiver ends at its closing brace (`xs.map { it }.`),
+  // so `}` must be accepted here too.
   const beforeDot = uptoCursor.slice(0, dotCharacter).replace(/\s+$/, "");
   const lastChar = beforeDot[beforeDot.length - 1];
-  if (!lastChar || !/[A-Za-z0-9_)\]"'`]/.test(lastChar)) {
+  if (!lastChar || !/[A-Za-z0-9_)\]"'`}]/.test(lastChar)) {
     return null;
   }
   return { dotCharacter, receiverEndCharacter: beforeDot.length, prefix: match[1] ?? "" };
