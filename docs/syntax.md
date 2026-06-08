@@ -63,11 +63,12 @@ count++
 
 ### Destructuring declarations
 
-Variable declarations support nested object and array binding patterns. Object bindings may use shorthand names, property aliases, defaults, and rest bindings. Array bindings may use holes, defaults, nested patterns, and rest bindings. When the initializer has a tuple type, each introduced array binding receives the corresponding tuple element type.
+Variable declarations support nested object and array binding patterns. Object bindings may use shorthand names, property aliases, inline type annotations, defaults, and rest bindings. In MyLang object destructuring, `:` introduces an inline type annotation and `::` renames a source property to a local binding. Array bindings may use holes, inline type annotations, defaults, nested patterns, and rest bindings. When the initializer has a tuple type, each introduced array binding receives the corresponding tuple element type unless an inline binding annotation overrides it. TypeScript mode keeps TypeScript destructuring rules: object binding `:` renames properties and destructuring patterns do not accept inline binding type annotations.
 
 ```mylang
-let { id, name: displayName, nested: { value = 1 }, ...rest } = source
-const [first, , third = 3, ...tail] = values
+let { id, name :: displayName, nested :: { value = 1 }, ...rest } = source
+let { name : string, title :: displayTitle : string } = props
+const [first : string, , third = 3, ...tail] = values
 const [result, setResult] = useState(0) // result: int, setResult: (newValue: int) => void
 ```
 
@@ -245,12 +246,12 @@ fun collect(label: string, ...values: int[]) {
 }
 ```
 
-Parameters also support object and array binding patterns, including nesting, property aliases, defaults, holes, and rest bindings. The introduced binding names are available throughout the function body, and the patterns are preserved in emitted JavaScript:
+Parameters also support object and array binding patterns, including nesting, property aliases with `::`, inline binding type annotations with `:`, defaults, holes, and rest bindings. The introduced binding names are available throughout the function body, and the patterns are preserved in emitted JavaScript with type-only annotations erased:
 
 ```mylang
 function unpack(
-  { id, nested: { value = 1 }, ...metadata },
-  [first, , ...tail] = values
+  { id, nested :: { value = 1 }, label : string, name :: displayName : string, ...metadata },
+  [first : string, , ...tail] = values
 ) {
   return value
 }

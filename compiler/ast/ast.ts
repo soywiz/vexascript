@@ -295,6 +295,7 @@ export interface BindingElement extends Node {
     kind: "BindingElement"
     name: BindingName
     propertyName?: Identifier
+    typeAnnotation?: Identifier
     shorthand?: boolean
     rest?: boolean
     initializer?: Expr

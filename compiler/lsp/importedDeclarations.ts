@@ -14,7 +14,7 @@ import { candidateImportTargetFilePaths, resolveImportTargetFilePath } from "com
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { AnalysisType } from "compiler/analysis/types";
-import { namedType } from "compiler/analysis/types";
+import { functionType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 
 /**
@@ -36,6 +36,32 @@ type NamedTypeDeclaration =
   | TypeAliasStatement;
 
 type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement;
+
+function callableTypeFromExternalFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
+  for (const statement of declarations) {
+    if (statement.kind !== "ExportStatement" || (statement as { default?: boolean }).default !== true) {
+      continue;
+    }
+    const declaration = unwrapExportedDeclaration(statement);
+    if (declaration?.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = declaration as FunctionStatement;
+    if (fn.name.name !== name) {
+      continue;
+    }
+    return functionType(
+      fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+        type: UNKNOWN_TYPE,
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
+      })),
+      UNKNOWN_TYPE
+    );
+  }
+  return null;
+}
 
 export interface CollectImportedDeclarationsContext extends ProjectContext {
   uri?: string;
@@ -181,8 +207,9 @@ export async function collectImportedSymbolTypes(
       const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
       if (nodeModuleTypings?.defaultExportName) {
         const exportType = namedType(nodeModuleTypings.defaultExportName);
+        const defaultImportType = callableTypeFromExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName) ?? exportType;
         if (importStatement.defaultImport) {
-          result.set(importStatement.defaultImport.name, exportType);
+          result.set(importStatement.defaultImport.name, defaultImportType);
         }
         if (importStatement.namespaceImport) {
           result.set(importStatement.namespaceImport.name, exportType);

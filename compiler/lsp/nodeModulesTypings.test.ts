@@ -125,6 +125,28 @@ describe("node_modules typings resolution", () => {
     expect((symbol as { name?: string })?.name).toBe("pkg");
   });
 
+
+  it("assigns callable type to default imports from default function node_modules typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    await makePackageWithTypings(root, "renderer", dedent`
+      export default function render(value: unknown): string;
+      export function helper(): string;
+    `);
+
+    const mainPath = join(root, "main.my");
+    const source = `import render from "renderer"\nconst html = render("page")\n`;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
+    const declarations = await collectImportedTypeDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, declarations, symbolTypes);
+
+    expect(symbolTypes.get("render")?.kind).toBe("function");
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain("Type 'renderer' is not callable");
+  });
+
   it("findNodeModuleMemberLocation finds a member inside a namespace", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);

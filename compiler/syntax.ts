@@ -195,6 +195,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
           { name: "keyword.operator.relational.mylang", match: "(<=|>=|<|>)" },
           { name: "keyword.operator.equality.mylang", match: "(===|!==|==|!=)" },
           { name: "keyword.operator.member.mylang", match: "(\\?\\.|!\\.)" },
+          { name: "keyword.operator.rename.mylang", match: "::" },
           { name: "keyword.operator.logical.mylang", match: "(\\|\\||&&|\\?\\?)" },
           { name: "keyword.operator.bitwise.mylang", match: "(&|\\||\\^)" },
           { name: "keyword.operator.assignment.mylang", match: "=" },

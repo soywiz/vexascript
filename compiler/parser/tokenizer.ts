@@ -46,6 +46,7 @@ const CODE_AMPERSAND = 38; // &
 const CODE_SINGLE_QUOTE = 39; // '
 const CODE_STAR = 42; // *
 const CODE_PLUS = 43; // +
+const CODE_COLON = 58; // :
 const CODE_MINUS = 45; // -
 const CODE_DOT = 46; // .
 const CODE_SLASH = 47; // /
@@ -747,6 +748,10 @@ function readSymbol(reader: StrReader): string {
   if (ch === CODE_PLUS && next === CODE_PLUS) {
     advanceCode(reader);
     return "++";
+  }
+  if (ch === CODE_COLON && next === CODE_COLON) {
+    advanceCode(reader);
+    return "::";
   }
   if (ch === CODE_QUESTION && next === CODE_QUESTION) {
     advanceCode(reader);

@@ -2,8 +2,8 @@ import { h } from "preact";
 
 import render from "preact-render-to-string";
 
-//function Page({ name :: name : string }) { // destructuring with rename + types
-//function Page({ name :: name }) { // destructuring with rename
+//function Page({ name :: displayName : string }) { // destructuring with rename + types
+//function Page({ name :: displayName }) { // destructuring with rename
 function Page({ name : string }) { // destructuring with types
     return (
         <html>
