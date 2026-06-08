@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
-import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import { candidateImportTargetFilePaths, resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { typeToString } from "compiler/analysis/types";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
@@ -79,6 +79,7 @@ interface ResolveContext {
   character: number;
   session: SessionLike;
   sourceRoots: string[];
+  vfs?: import("compiler/vfs").Vfs;
   getSessionForFilePath?: (filePath: string) => SessionLike | null | Promise<SessionLike | null>;
 }
 
@@ -208,6 +209,24 @@ async function getSessionForFilePath(filePath: string, context: ResolveContext):
   });
 }
 
+async function resolveImportTargetInContext(
+  importerFilePath: string,
+  importPath: string,
+  context: ResolveContext
+): Promise<string | null> {
+  const diskPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs: context.vfs });
+  if (diskPath || !context.getSessionForFilePath) {
+    return diskPath;
+  }
+  for (const candidate of candidateImportTargetFilePaths(importerFilePath, importPath)) {
+    const session = await getSessionForFilePath(candidate, context);
+    if (session?.ast) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 /**
  * Whether `declaration` introduces `symbolNode` as its declared name. The
  * analysis stores the declaration's name identifier (not the statement) as a
@@ -254,7 +273,7 @@ async function resolveExternalDeclarationLocation(
     if (statement.kind !== "ImportStatement") {
       continue;
     }
-    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, (statement as ImportStatement).from.value);
+    const targetFilePath = await resolveImportTargetInContext(currentFilePath, (statement as ImportStatement).from.value, context);
     if (!targetFilePath) {
       continue;
     }
@@ -323,7 +342,7 @@ async function resolveCanonicalSymbol(context: ResolveContext): Promise<Canonica
     };
   }
 
-  const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importBinding.from);
+  const targetFilePath = await resolveImportTargetInContext(currentFilePath, importBinding.from, context);
   if (!targetFilePath) {
     return {
       name: symbolAt.symbol.name,
@@ -341,9 +360,10 @@ async function resolveCanonicalSymbol(context: ResolveContext): Promise<Canonica
     };
   }
 
-  const projectIndex = getProjectIndex(context.sourceRoots);
+  const projectIndex = getProjectIndex(context.sourceRoots, context.vfs);
   const indexedDeclaration = await projectIndex.findTopLevelDeclaration(targetFilePath, importBinding.name);
-  const targetRange = indexedDeclaration?.range ?? null;
+  const astDeclaration = findTopLevelDeclarationByName(targetSession.ast, importBinding.name);
+  const targetRange = indexedDeclaration?.range ?? (astDeclaration ? declarationRangeForName(astDeclaration, importBinding.name) : null);
   if (!targetRange) {
     return {
       name: symbolAt.symbol.name,
@@ -374,7 +394,8 @@ function rangesEqual(
 async function findMatchingImportSpecifierPositions(
   importerAst: Program,
   importerFilePath: string,
-  symbol: CanonicalSymbol
+  symbol: CanonicalSymbol,
+  context: ResolveContext
 ): Promise<Array<{ line: number; character: number }>> {
   const positions: Array<{ line: number; character: number }> = [];
   for (const statement of importerAst.body) {
@@ -382,7 +403,7 @@ async function findMatchingImportSpecifierPositions(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetFilePath = await resolveImportTargetFilePath(importerFilePath, importStatement.from.value);
+    const targetFilePath = await resolveImportTargetFilePath(importerFilePath, importStatement.from.value, { vfs: context.vfs });
     if (!targetFilePath || resolve(targetFilePath) !== resolve(symbol.filePath)) {
       continue;
     }
@@ -902,7 +923,7 @@ async function resolveNodeModulesMemberDefinition(
     const from = importStmt.from.value;
     if (from.startsWith(".") || from.startsWith("/")) continue;
 
-    const location = await findNodeModuleMemberLocation(currentFilePath, from, typeName, memberName);
+    const location = await findNodeModuleMemberLocation(currentFilePath, from, typeName, memberName, { vfs: context.vfs });
     if (location) {
       return {
         uri: pathToUri(location.typingsPath),
@@ -1283,7 +1304,7 @@ async function resolveMemberReferencesAcrossFiles(
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(memberSymbol.filePath)];
-  const files = await scanProjectMyFiles(roots);
+  const files = await scanProjectMyFiles(roots, context.vfs);
   const locations: Location[] = [];
   const seen = new Set<string>();
 
@@ -1364,8 +1385,8 @@ async function resolveImportPathDefinition(context: ResolveContext): Promise<Loc
   const importPath = importStatement.from.value;
 
   const resolvedPath =
-    await resolveImportTargetFilePath(importerFilePath, importPath) ??
-    await resolveNodeModulesTypingsPath(importerFilePath, importPath);
+    await resolveImportTargetInContext(importerFilePath, importPath, context) ??
+    await resolveNodeModulesTypingsPath(importerFilePath, importPath, { vfs: context.vfs });
   if (!resolvedPath) return null;
 
   return {
@@ -1388,8 +1409,8 @@ export async function resolveImportPathHover(context: ResolveContext): Promise<H
   const importPath = importStatement.from.value;
 
   const resolvedPath =
-    await resolveImportTargetFilePath(importerFilePath, importPath) ??
-    await resolveNodeModulesTypingsPath(importerFilePath, importPath);
+    await resolveImportTargetInContext(importerFilePath, importPath, context) ??
+    await resolveNodeModulesTypingsPath(importerFilePath, importPath, { vfs: context.vfs });
 
   const fromRange = nodeRange(importStatement.from);
   const rangeOpts = fromRange ? { range: fromRange } : {};
@@ -1526,8 +1547,8 @@ export async function resolveReferencesAcrossFiles(
   }
 
   const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(symbol.filePath)];
-  const projectIndex = getProjectIndex(roots);
-  const files = await scanProjectMyFiles(roots);
+  const projectIndex = getProjectIndex(roots, context.vfs);
+  const files = await scanProjectMyFiles(roots, context.vfs);
   const locations: Location[] = [];
   const seen = new Set<string>();
 
@@ -1580,7 +1601,7 @@ export async function resolveReferencesAcrossFiles(
 
     const importPositions =
       importerByPath.get(filePath) ??
-      await findMatchingImportSpecifierPositions(session.ast, filePath, symbol);
+      await findMatchingImportSpecifierPositions(session.ast, filePath, symbol, context);
     for (const position of importPositions) {
       const references = session.analysis.getReferenceRangesAt(
         position.line,

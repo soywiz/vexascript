@@ -10,7 +10,7 @@ import type {
 } from "compiler/ast/ast";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
-import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { candidateImportTargetFilePaths, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { AnalysisType } from "compiler/analysis/types";
@@ -39,6 +39,24 @@ type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement;
 
 export interface CollectImportedDeclarationsContext extends ProjectContext {
   uri?: string;
+}
+
+async function resolveImportTargetInContext(
+  importerFilePath: string,
+  importPath: string,
+  context: ProjectContext
+): Promise<string | null> {
+  const diskPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs: context.vfs });
+  if (diskPath || !context.getSessionForFilePath) {
+    return diskPath;
+  }
+  for (const candidate of candidateImportTargetFilePaths(importerFilePath, importPath)) {
+    const session = await context.getSessionForFilePath(candidate);
+    if (session?.ast) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
@@ -87,11 +105,11 @@ export async function collectImportedTypeDeclarations(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
+    const targetFilePath = await resolveImportTargetInContext(currentFilePath, importStatement.from.value, context);
     if (!targetFilePath) {
       // Bare specifier — load all declarations from node_modules typings so
       // named types (namespaces, interfaces) resolve for member access.
-      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value);
+      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
       if (nodeModuleTypings) {
         for (const targetStatement of nodeModuleTypings.declarations) {
           // For node_modules .d.ts files, include all top-level declarations
@@ -156,11 +174,11 @@ export async function collectImportedSymbolTypes(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
+    const targetFilePath = await resolveImportTargetInContext(currentFilePath, importStatement.from.value, context);
     if (!targetFilePath) {
       // Bare specifier — assign a named type from node_modules typings so that
       // default/namespace/named imports resolve their members in hover/completion.
-      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value);
+      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
       if (nodeModuleTypings?.defaultExportName) {
         const exportType = namedType(nodeModuleTypings.defaultExportName);
         if (importStatement.defaultImport) {

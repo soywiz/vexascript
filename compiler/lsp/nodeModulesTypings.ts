@@ -1,7 +1,7 @@
-import { access, readFile, stat } from "node:fs/promises";
 import type { ExprStatement, FunctionStatement, Identifier, InterfaceStatement, NamespaceStatement, Program, Statement } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
-import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import { resolveNodeModulesTypingsPath, type ModuleResolutionOptions } from "compiler/moduleResolution";
+import { localVfs } from "compiler/vfs";
 import { nodeRange } from "./ranges";
 import type { Range } from "vscode-languageserver";
 
@@ -25,8 +25,9 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-async function parseTypingsProgram(typingsPath: string): Promise<Program | null> {
-  const source = await readFile(typingsPath, "utf8");
+async function parseTypingsProgram(typingsPath: string, options: ModuleResolutionOptions): Promise<Program | null> {
+  const source = await (options.vfs ?? localVfs).readFile(typingsPath);
+  if (source === null) return null;
   const parsed = parseSource(source, { language: "typescript" });
   return parsed.ast ?? null;
 }
@@ -78,30 +79,26 @@ function detectNamespaceName(ast: Program): string | null {
  */
 export async function getNodeModuleTypings(
   importerFilePath: string,
-  packageName: string
+  packageName: string,
+  options: ModuleResolutionOptions = {}
 ): Promise<NodeModuleTypings | null> {
-  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName);
+  const vfs = options.vfs ?? localVfs;
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs });
   if (!typingsPath) {
     return null;
   }
-  const exists = await access(typingsPath).then(() => true).catch(() => false);
-  if (!exists) {
+  const typingsStat = await vfs.stat(typingsPath);
+  if (!typingsStat || typingsStat.isFile === false) {
     return null;
   }
-
-  let mtimeMs: number;
-  try {
-    mtimeMs = (await stat(typingsPath)).mtimeMs;
-  } catch {
-    return null;
-  }
+  const mtimeMs = typingsStat.mtimeMs;
 
   const cached = cache.get(typingsPath);
   if (cached && cached.mtimeMs === mtimeMs) {
     return cached.result;
   }
 
-  const ast = await parseTypingsProgram(typingsPath);
+  const ast = await parseTypingsProgram(typingsPath, { vfs });
   if (!ast) {
     return null;
   }
@@ -137,12 +134,14 @@ export async function findNodeModuleMemberLocation(
   importerFilePath: string,
   packageName: string,
   typeName: string,
-  memberName: string
+  memberName: string,
+  options: ModuleResolutionOptions = {}
 ): Promise<NodeModuleMemberLocation | null> {
-  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName);
+  const vfs = options.vfs ?? localVfs;
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs });
   if (!typingsPath) return null;
 
-  const typings = await getNodeModuleTypings(importerFilePath, packageName);
+  const typings = await getNodeModuleTypings(importerFilePath, packageName, { vfs });
   if (!typings) return null;
 
   const range = findMemberRangeInStatements(typings.declarations, typeName, memberName);

@@ -125,7 +125,8 @@ export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>
       }
       const targetFilePath = await resolveImportTargetFilePath(
         options.currentFilePath,
-        importStatement.from.value
+        importStatement.from.value,
+        { vfs: options.vfs }
       );
       if (!targetFilePath) {
         continue;
@@ -162,7 +163,7 @@ export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>
     }
   }
 
-  for (const filePath of await scanProjectMyFiles(options.sourceRoots ?? [])) {
+  for (const filePath of await scanProjectMyFiles(options.sourceRoots ?? [], options.vfs)) {
     const targetSession = await getProjectSessionForFilePath(filePath, options);
     if (!targetSession?.ast) {
       continue;

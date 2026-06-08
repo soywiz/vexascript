@@ -1,6 +1,15 @@
-import { readFile } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
-import { fileExists } from "./utils/fs";
+import { localVfs, type Vfs } from "./vfs";
+
+
+export function candidateImportTargetFilePaths(
+  importerFilePath: string,
+  importPath: string
+): string[] {
+  const baseDir = dirname(importerFilePath);
+  const direct = resolve(baseDir, importPath);
+  return extname(direct) ? [direct] : [direct, `${direct}.my`];
+}
 
 /**
  * Resolve an import path (as written in an `import ... from "<path>"` statement)
@@ -15,19 +24,19 @@ import { fileExists } from "./utils/fs";
  * This is the shared resolver used by the semantic project index and the LSP
  * cross-file features so they all agree on how local module paths map to files.
  */
+export interface ModuleResolutionOptions {
+  vfs?: Vfs | undefined;
+}
+
 export async function resolveImportTargetFilePath(
   importerFilePath: string,
-  importPath: string
+  importPath: string,
+  options: ModuleResolutionOptions = {}
 ): Promise<string | null> {
-  const baseDir = dirname(importerFilePath);
-  const direct = resolve(baseDir, importPath);
-  if (await fileExists(direct)) {
-    return direct;
-  }
-  if (!extname(direct)) {
-    const withMyExt = `${direct}.my`;
-    if (await fileExists(withMyExt)) {
-      return withMyExt;
+  const vfs = options.vfs ?? localVfs;
+  for (const candidate of candidateImportTargetFilePaths(importerFilePath, importPath)) {
+    if (await vfs.fileExists(candidate)) {
+      return candidate;
     }
   }
   return null;
@@ -43,8 +52,10 @@ export async function resolveImportTargetFilePath(
  */
 export async function resolveNodeModulesTypingsPath(
   importerFilePath: string,
-  packageName: string
+  packageName: string,
+  options: ModuleResolutionOptions = {}
 ): Promise<string | null> {
+  const vfs = options.vfs ?? localVfs;
   if (packageName.startsWith(".") || packageName.startsWith("/")) {
     return null;
   }
@@ -52,18 +63,22 @@ export async function resolveNodeModulesTypingsPath(
   while (true) {
     const pkgDir = resolve(dir, "node_modules", packageName);
     const pkgJsonPath = resolve(pkgDir, "package.json");
-    if (await fileExists(pkgJsonPath)) {
+    if (await vfs.fileExists(pkgJsonPath)) {
       try {
-        const pkg = JSON.parse(await readFile(pkgJsonPath, "utf8")) as Record<string, unknown>;
+        const pkgText = await vfs.readFile(pkgJsonPath);
+        if (pkgText === null) {
+          return null;
+        }
+        const pkg = JSON.parse(pkgText) as Record<string, unknown>;
         const typingsField = (pkg["typings"] ?? pkg["types"]) as string | undefined;
         if (typingsField) {
           const typingsPath = resolve(pkgDir, typingsField);
-          if (await fileExists(typingsPath)) {
+          if (await vfs.fileExists(typingsPath)) {
             return typingsPath;
           }
         }
         const indexDts = resolve(pkgDir, "index.d.ts");
-        if (await fileExists(indexDts)) {
+        if (await vfs.fileExists(indexDts)) {
           return indexDts;
         }
       } catch {

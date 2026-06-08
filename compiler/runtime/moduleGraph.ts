@@ -1,5 +1,4 @@
-import { access, readFile } from "node:fs/promises";
-import { dirname, extname, resolve } from "node:path";
+import { extname } from "node:path";
 import type {
   Identifier,
   ImportStatement,
@@ -12,7 +11,8 @@ import { compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
 import { namedType } from "compiler/analysis/types";
-import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import { localVfs, type Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
@@ -31,24 +31,12 @@ import { transpile, type TranspileResult, type TranspileTarget } from "./transpi
  * resolve cross-file classes, operator overloads and extension properties.
  */
 
-async function resolveLocalModulePath(importerFilePath: string, importPath: string): Promise<string | null> {
+async function resolveLocalModulePath(importerFilePath: string, importPath: string, vfs: Vfs): Promise<string | null> {
   if (!importPath.startsWith(".")) {
     return null;
   }
-  const baseDir = dirname(importerFilePath);
-  const direct = resolve(baseDir, importPath);
-  const directExists = await access(direct).then(() => true).catch(() => false);
-  if (directExists && extname(direct) === ".my") {
-    return direct;
-  }
-  if (!extname(direct)) {
-    const withMyExt = `${direct}.my`;
-    const withExtExists = await access(withMyExt).then(() => true).catch(() => false);
-    if (withExtExists) {
-      return withMyExt;
-    }
-  }
-  return null;
+  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs });
+  return targetPath && extname(targetPath) === ".my" ? targetPath : null;
 }
 
 function declarationName(statement: Statement): string | null {
@@ -122,7 +110,8 @@ async function collectNodeModulesTypings(
   ast: Program,
   importerFilePath: string,
   externalDeclarations: Statement[],
-  importedSymbolTypes: Map<string, AnalysisType>
+  importedSymbolTypes: Map<string, AnalysisType>,
+  vfs: Vfs
 ): Promise<void> {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") continue;
@@ -130,12 +119,11 @@ async function collectNodeModulesTypings(
     const specifier = importStatement.from.value;
     if (specifier.startsWith(".") || specifier.startsWith("/")) continue;
 
-    const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, specifier);
+    const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, specifier, { vfs });
     if (!typingsPath) continue;
-    const exists = await access(typingsPath).then(() => true).catch(() => false);
-    if (!exists) continue;
 
-    const source = await readFile(typingsPath, "utf8");
+    const source = await vfs.readFile(typingsPath);
+    if (source === null) continue;
     const parsed = parseSource(source, { language: "typescript" });
     if (!parsed.ast) continue;
 
@@ -162,14 +150,14 @@ async function collectNodeModulesTypings(
   }
 }
 
-async function localImportSpecifiers(ast: Program, importerFilePath: string): Promise<{ statement: ImportStatement; targetPath: string }[]> {
+async function localImportSpecifiers(ast: Program, importerFilePath: string, vfs: Vfs): Promise<{ statement: ImportStatement; targetPath: string }[]> {
   const imports: { statement: ImportStatement; targetPath: string }[] = [];
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") {
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetPath = await resolveLocalModulePath(importerFilePath, importStatement.from.value);
+    const targetPath = await resolveLocalModulePath(importerFilePath, importStatement.from.value, vfs);
     if (targetPath) {
       imports.push({ statement: importStatement, targetPath });
     }
@@ -196,7 +184,8 @@ function stripBundledImports(code: string): string {
     .join("\n");
 }
 
-export async function bundleModuleGraph(entryFilePath: string, target: TranspileTarget): Promise<TranspileResult> {
+export async function bundleModuleGraph(entryFilePath: string, target: TranspileTarget, options: { vfs?: Vfs } = {}): Promise<TranspileResult> {
+  const vfs = options.vfs ?? localVfs;
   await ensureEcmaScriptRuntimeProgram();
 
   const emittedByPath = new Map<string, string>();
@@ -212,17 +201,23 @@ export async function bundleModuleGraph(entryFilePath: string, target: Transpile
     }
     inProgress.add(filePath);
 
-    const source = await readFile(filePath, "utf8");
+    const source = await vfs.readFile(filePath);
+    if (source === null) {
+      errors.push(`Unable to read module '${filePath}'`);
+      inProgress.delete(filePath);
+      return;
+    }
     const parsed = parseSource(source);
     const ast = parsed.ast;
 
     const externalDeclarations: Statement[] = [];
     const importedSymbolTypes = new Map<string, AnalysisType>();
     if (ast) {
-      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes);
-      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath)) {
+      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, vfs);
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, vfs)) {
         await visit(targetPath);
-        const dependencyParsed = parseSource(await readFile(targetPath, "utf8"));
+        const dependencySource = await vfs.readFile(targetPath);
+        const dependencyParsed = dependencySource === null ? { ast: null } : parseSource(dependencySource);
         if (dependencyParsed.ast) {
           const importedNames = new Set(
             statement.specifiers.map((specifier) => specifier.imported.name)

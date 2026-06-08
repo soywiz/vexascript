@@ -1086,13 +1086,14 @@ export async function resolveExpressionTypeName(
 async function findNodeModuleNamespaceBody(
   ast: Program,
   typeName: string,
-  importerFilePath: string
+  importerFilePath: string,
+  options: ClassResolverOptions
 ): Promise<Statement[] | null> {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") continue;
     const importStatement = statement as ImportStatement;
     if (importStatement.from.value.startsWith(".")) continue;
-    const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value);
+    const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value, { vfs: options.vfs });
     if (!typings || typings.defaultExportName !== typeName) continue;
     for (const decl of typings.declarations) {
       const candidate =
@@ -1114,9 +1115,10 @@ async function resolveNodeModuleNamespaceFunctionSignature(
   ast: Program,
   typeName: string,
   memberName: string,
-  importerFilePath: string
+  importerFilePath: string,
+  options: ClassResolverOptions
 ): Promise<ResolvedFunctionSignature | null> {
-  const nsBody = await findNodeModuleNamespaceBody(ast, typeName, importerFilePath);
+  const nsBody = await findNodeModuleNamespaceBody(ast, typeName, importerFilePath, options);
   if (!nsBody) return null;
 
   for (const bodyStmt of nsBody) {
@@ -1248,7 +1250,8 @@ export async function resolveCallableSignature(
       ast,
       parsedObjectType.baseName,
       memberName,
-      importerFilePath
+      importerFilePath,
+      options
     );
     if (nodeModuleSig) return nodeModuleSig;
   }

@@ -17,8 +17,9 @@ This section is the fast onboarding map for agents and contributors.
 - Source locations:
   - Shared user-facing source coordinate formatting: `compiler/sourceLocations.ts`
   - Source location tests: `compiler/sourceLocations.test.ts`
-- Module resolution:
-  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` file), used by the semantic project index and the LSP cross-file features: `compiler/moduleResolution.ts`
+- Module resolution and virtual file access:
+  - Shared asynchronous virtual file-system interface and local Node-backed implementation, injectable into compiler project services that need file reads: `compiler/vfs.ts`
+  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` file), used by the semantic project index and the LSP cross-file features and parameterized by the selected VFS: `compiler/moduleResolution.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
   - Public analysis API: `compiler/analysis/Analysis.ts`
@@ -82,6 +83,7 @@ This section is the fast onboarding map for agents and contributors.
     `plugins/monaco/src/browser-stubs/`
   - Client-side Monaco sample shell with workspace tabs, left-hand file tree, cross-tab navigation history (back/forward), and on-demand model creation over a browser-only virtual workspace: `plugins/monaco/src/main.ts`
   - Client-side virtual-workspace and persistence helpers (bundled sample + runtime declarations + `localStorage`): `plugins/monaco/src/workspace.ts`
+  - Monaco virtual file-system adapter that exposes open/editor workspace files through the compiler's async VFS interface: `plugins/monaco/src/workspaceVfs.ts`
   - Monaco sample navigation-history state helpers used by toolbar/shortcut back-forward navigation: `plugins/monaco/src/navigationHistory.ts`
   - Code-lens command bridge translating LSP-style commands to native Monaco commands: `plugins/monaco/src/codeLensCommands.ts`
   - Shared Monaco theme definitions for the sample UI, including distinct styling for regular and documentation comments: `plugins/monaco/src/theme.ts`
