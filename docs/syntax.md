@@ -893,16 +893,19 @@ Embedded XML is transpiled with the classic React runtime: elements become `Reac
 React.createElement("div", { class: "greeting" }, "Hi ", name)
 ```
 
-The element factory and fragment factory are configurable. They default to the classic React runtime (`React.createElement` / `React.Fragment`) but can be overridden through the emitter/transpile options `jsxFactory` and `jsxFragmentFactory`, the `mylang build` flags `--jsx-factory` and `--jsx-fragment-factory`, or a project-level `mylang.toml` JSX section (for example Preact's classic runtime uses `h` and `Fragment`):
+The element factory and fragment factory are configurable. They default to the classic React runtime (`React.createElement` / `React.Fragment`) but can be overridden through the emitter/transpile options `jsxFactory` and `jsxFragmentFactory`, the `mylang build` flags `--jsx-factory` and `--jsx-fragment-factory`, or a project-level `tsconfig.json` (`compilerOptions.jsxFactory` and `compilerOptions.jsxFragmentFactory`). A `tsconfig.json` with `compilerOptions.jsxImportSource` set to `"preact"` is mapped to Preact's classic factories (`h` and `Fragment`) while MyLang emits classic JSX factory calls.
 
-```toml
-[jsx]
-factory = "h"
-fragmentFactory = "Fragment"
+```json
+{
+  "compilerOptions": {
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment"
+  }
+}
 ```
 
 ```js
-// with --jsx-factory h --jsx-fragment-factory Fragment or the mylang.toml above
+// with --jsx-factory h --jsx-fragment-factory Fragment or the tsconfig.json above
 // <><span/></>
 h(Fragment, null, h("span", null))
 ```

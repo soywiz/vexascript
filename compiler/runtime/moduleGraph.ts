@@ -77,6 +77,11 @@ function collectImportedDeclarations(dependencyAst: Program, importedNames: Set<
  */
 function detectDtsDefaultExportName(ast: Program): string | null {
   for (const stmt of ast.body) {
+    if (stmt.kind === "ExportStatement" && (stmt as { default?: boolean }).default) {
+      const declaration = unwrapExportedDeclaration(stmt);
+      const name = declarationName(declaration as Statement);
+      if (name) return name;
+    }
     if (stmt.kind === "ExprStatement") {
       const expr = (stmt as { expression?: { kind?: string; name?: string } }).expression;
       if (expr?.kind === "Identifier" && expr.name) return expr.name;
@@ -133,19 +138,24 @@ async function collectNodeModulesTypings(
       externalDeclarations.push(decl);
     }
 
-    // Assign a named type to default / namespace / named imports so member
-    // access (e.g. moment.parseZone(...).format(1)) resolves properly.
+    // Resolve imported values to their declaration types when possible. This
+    // keeps default-exported functions callable while retaining the named-type
+    // fallback used for namespace-shaped packages such as moment.
+    const declarationAnalysis = compileSource(source, {}, {}).analysis;
     const defaultExportName = detectDtsDefaultExportName(parsed.ast) ?? specifier;
     const exportType = namedType(defaultExportName);
     if (importStatement.defaultImport) {
-      importedSymbolTypes.set(importStatement.defaultImport.name, exportType);
+      importedSymbolTypes.set(
+        importStatement.defaultImport.name,
+        declarationAnalysis?.getTopLevelSymbolType(defaultExportName) ?? exportType
+      );
     }
     if (importStatement.namespaceImport) {
       importedSymbolTypes.set(importStatement.namespaceImport.name, exportType);
     }
     for (const s of importStatement.specifiers) {
       const localName = (s.local ?? s.imported).name;
-      importedSymbolTypes.set(localName, exportType);
+      importedSymbolTypes.set(localName, declarationAnalysis?.getTopLevelSymbolType(s.imported.name) ?? exportType);
     }
   }
 }

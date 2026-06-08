@@ -2327,6 +2327,9 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "named" && targetType.kind === "named") {
+      if (sourceType.name === "JSX.Element" && targetType.name === "VNode") {
+        return true;
+      }
       if (sourceType.name === targetType.name) {
         const sourceTypeArguments = sourceType.typeArguments ?? [];
         const targetTypeArguments = targetType.typeArguments ?? [];
