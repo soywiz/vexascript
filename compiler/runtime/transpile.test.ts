@@ -681,4 +681,52 @@ c.value`;
     expect(result.code).toContain('h(Fragment, null, h("span", null))');
   });
 
+
+  it("lowers delegated variables through type-directed getter and setter shapes", () => {
+    const source = [
+      "fun useState(value: number) {",
+      "  return [value, (newValue: number) => { value = newValue }]",
+      "}",
+      "var nvalue by useState(0)",
+      "nvalue = nvalue + 1",
+      "nvalue += 1",
+      "nvalue++",
+      "var value by useState(10)",
+      "value++",
+      "let result = nvalue"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const __$delegate_nvalue = useState(0);");
+    expect(result.code).toContain("__$delegate_nvalue[1](__$delegate_nvalue[0] + 1);");
+    expect(result.code).toContain("__$delegate_nvalue[1](__$delegate_nvalue[0] + 1);");
+    expect(result.code).toContain("const __$delegate_value = useState(10);");
+    expect(result.code).toContain("__$delegate_value[1](__$delegate_value[0] + 1);");
+    expect(result.code).toContain("let result = __$delegate_nvalue[0];");
+    expect(result.code).toContain("return [value, (newValue) => {");
+    expect(result.code).toContain("value = newValue;");
+  });
+
+  it("supports delegated variables backed by getter functions and value objects", () => {
+    const source = [
+      "var stored = 1",
+      "var fromFunction by () => stored",
+      "var fromObject by { value: 2 }",
+      "fromObject += fromFunction",
+      "fromObject++",
+      "let result = fromObject"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const __$delegate_fromFunction = () => stored;");
+    expect(result.code).toContain("const __$delegate_fromObject = {value: 2};");
+    expect(result.code).toContain("__$delegate_fromObject.value = __$delegate_fromObject.value + __$delegate_fromFunction();");
+    expect(result.code).toContain("__$delegate_fromObject.value = __$delegate_fromObject.value + 1;");
+    expect(result.code).toContain("let result = __$delegate_fromObject.value;");
+  });
+
 });

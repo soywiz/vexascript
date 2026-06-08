@@ -1,5 +1,5 @@
 export const MYLANG_KEYWORD_DECLARATIONS = [
-  "import", "from", "let", "var", "val", "const", "function", "fun",
+  "import", "from", "let", "var", "val", "const", "by", "function", "fun",
   "declare", "class", "interface", "enum", "extends", "implements",
   "override", "readonly", "keyof", "infer", "async", "sync"
 ] as const;
