@@ -1,9 +1,31 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { resolveImportTargetFilePath } from "./moduleResolution";
+import type { Vfs, VfsDirEntry, VfsStat } from "./vfs";
+
+
+class MemoryVfs implements Vfs {
+  constructor(private readonly files: Set<string>) {}
+
+  async readFile(path: string): Promise<string | null> {
+    return this.files.has(resolve(path)) ? "" : null;
+  }
+
+  async fileExists(path: string): Promise<boolean> {
+    return this.files.has(resolve(path));
+  }
+
+  async stat(path: string): Promise<VfsStat | null> {
+    return this.files.has(resolve(path)) ? { mtimeMs: 1, isFile: true, isDirectory: false } : null;
+  }
+
+  async readDir(_path: string): Promise<VfsDirEntry[] | null> {
+    return null;
+  }
+}
 
 describe("resolveImportTargetFilePath", () => {
   let root: string;
@@ -51,4 +73,12 @@ describe("resolveImportTargetFilePath", () => {
 
     expect(await resolveImportTargetFilePath(importer, "./missing")).toBeNull();
   });
+  it("uses the provided VFS instead of requiring files on disk", async () => {
+    const importer = resolve("/virtual/main.my");
+    const target = resolve("/virtual/Point.my");
+    const vfs = new MemoryVfs(new Set([target]));
+
+    expect(await resolveImportTargetFilePath(importer, "./Point", { vfs })).toBe(target);
+  });
+
 });

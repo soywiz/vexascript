@@ -144,12 +144,11 @@ function mapCodeLensCommand(command?: {
   if (!command) return undefined;
   const references = extractShowReferencesPayload(command);
   if (!references) {
-    return { id: command.command, title: command.title, command: command.command, arguments: command.arguments };
+    return { id: command.command, title: command.title, arguments: command.arguments };
   }
   return {
     id: "editor.action.showReferences",
     title: command.title,
-    command: "editor.action.showReferences",
     arguments: [
       monaco.Uri.parse(references.uri),
       toMonacoPos(references.position),

@@ -17,6 +17,7 @@ import {
   WORKSPACE_STORAGE_KEY,
   type StorageLike,
 } from "./workspace";
+import { WorkspaceVfs } from "./workspaceVfs";
 
 class MemoryStorage implements StorageLike {
   private readonly values = new Map<string, string>();
@@ -61,9 +62,27 @@ describe("monaco static workspace", () => {
     persistWorkspaceEntries(edited, storage);
 
     const restored = resolveWorkspaceEntries("default", "runtime", storage);
-    expect(findEntryByUri(restored, MAIN_DOCUMENT_URI)?.kind === "file" ? findEntryByUri(restored, MAIN_DOCUMENT_URI)?.content : null).toBe("saved");
+    const restoredMain = findEntryByUri(restored, MAIN_DOCUMENT_URI);
+    expect(restoredMain?.kind === "file" ? restoredMain.content : null).toBe("saved");
     expect(storage.getItem(WORKSPACE_STORAGE_KEY)).not.toBeNull();
     expect(listChildren(restored, "/src").map((entry) => entry.label)).toEqual(["util.my"]);
+  });
+
+  it("exposes editable files through the Monaco workspace VFS", async () => {
+    const entries = createFileInWorkspace(
+      createFolderInWorkspace(resolveWorkspaceEntries("default", "runtime", new MemoryStorage()), "/", "src"),
+      "/src",
+      "Point.my"
+    );
+    const pointEntry = entries.find((entry) => entry.kind === "file" && entry.path === "/src/Point.my");
+    const vfs = new WorkspaceVfs({
+      getEntries: () => entries,
+      readWorkspaceFile: (uri) => uri === pointEntry?.uri ? "class Point" : null
+    });
+
+    expect(await vfs.fileExists("/src/Point.my")).toBe(true);
+    expect(await vfs.readFile("/src/Point.my")).toBe("class Point");
+    expect((await vfs.readDir("/src"))?.map((entry) => entry.name)).toEqual(["Point.my"]);
   });
 
   it("creates runtime and user entries in tree order", () => {

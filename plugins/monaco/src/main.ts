@@ -6,6 +6,7 @@ import * as monaco from "monaco-editor";
 import { createAnalysisSession, type AnalysisSession } from "compiler/lsp/analysisSession";
 import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
 import type { SymbolExport } from "compiler/lsp/importFixes";
+import { WorkspaceVfs } from "./workspaceVfs";
 import bundledSample from "../sample/main.my?raw";
 import bundledRuntime from "../../../compiler/runtime/es2025.d.ts?raw";
 import {
@@ -215,6 +216,19 @@ async function main(): Promise<void> {
     return entry?.kind === "file" ? entry.content : null;
   };
 
+  const workspaceVfs = new WorkspaceVfs({
+    getEntries: () => entries,
+    readWorkspaceFile: (uri) => getWorkspaceFileSource(uri),
+    fetchText: async (uri) => {
+      try {
+        const response = await fetch(uri);
+        return response.ok ? await response.text() : null;
+      } catch {
+        return null;
+      }
+    },
+  });
+
   const getWorkspaceSessionForFilePath = (filePath: string): AnalysisSession | null => {
     const uri = filePathToWorkspaceUri(filePath);
     const source = getWorkspaceFileSource(uri);
@@ -251,10 +265,12 @@ async function main(): Promise<void> {
     return symbols;
   };
 
-  const sessionCache = registerProviders({
+  const providerWorkspaceContext = {
+    vfs: workspaceVfs,
     getSessionForFilePath: getWorkspaceSessionForFilePath,
     getExportedSymbols: getWorkspaceExportedSymbols,
-  });
+  };
+  const sessionCache = registerProviders(providerWorkspaceContext);
 
   const ensureModel = (uri: string): monaco.editor.ITextModel | null => {
     const existing = models.get(uri) ?? monaco.editor.getModel(monaco.Uri.parse(uri));
@@ -272,7 +288,7 @@ async function main(): Promise<void> {
     if (!entry.readOnly) {
       model.onDidChangeContent(() => {
         entries = updateFileContent(entries, entry.uri, model.getValue());
-        renderTree(entries, activeUri, selectedPath, handleTreeSelection);
+        renderTree(entries, activeUri, selectedPath, handleTreeSelection, showTreeContextMenu);
         renderTabs(openTabs, entries, activeUri, selectDocument, closeTab);
         const activeEntry = activeUri ? findEntryByUri(entries, activeUri) : undefined;
         updateActiveFileLabel(activeEntry, JSON.stringify(entries) !== savedSnapshot);
@@ -281,8 +297,8 @@ async function main(): Promise<void> {
         }
         diagnosticsTimer = window.setTimeout(() => {
           if (activeUri === entry.uri && isEditableMyLangFile(activeEntry)) {
-            pullDiagnostics(model, sessionCache);
-            updateAutoAwaitGlyphs(editor, sessionCache);
+            void pullDiagnostics(model, sessionCache, providerWorkspaceContext);
+            void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
           }
         }, 150);
       });
@@ -423,8 +439,8 @@ async function main(): Promise<void> {
     persistEditorSession();
     syncEditorState();
     if (isEditableMyLangFile(entry)) {
-      pullDiagnostics(model, sessionCache);
-      updateAutoAwaitGlyphs(editor, sessionCache);
+      void pullDiagnostics(model, sessionCache, providerWorkspaceContext);
+      void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
     }
   };
 
@@ -631,8 +647,8 @@ async function main(): Promise<void> {
     ? { lineNumber: restoredInitialSession.lineNumber, column: restoredInitialSession.column }
     : undefined);
   editor.focus();
-  pullDiagnostics(startupModel, sessionCache);
-  updateAutoAwaitGlyphs(editor, sessionCache);
+  void pullDiagnostics(startupModel, sessionCache, providerWorkspaceContext);
+  void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
   persistEditorSession();
   syncEditorState();
   setStatus("Compiler Connected", "connected");

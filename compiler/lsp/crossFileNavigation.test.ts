@@ -985,4 +985,75 @@ describe("cross-file navigation", () => {
     expect((hover?.contents as { value: string }).value).toContain(fileA);
   });
 
+  it("resolves go-to-definition from a virtual-workspace import string to the imported file", async () => {
+    const mainPath = "/demo.my";
+    const pointPath = "/Point.my";
+    const mainSource = 'import { Point } from "./Point"\n';
+    const pointSource = "class Point(val x: number, val y: number)\n";
+    const sessions = new Map([
+      [mainPath, createAnalysisSession(mainSource)],
+      [pointPath, createAnalysisSession(pointSource)]
+    ]);
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: mainSource.indexOf("./Point") + 2,
+      session: sessions.get(mainPath)!,
+      sourceRoots: [],
+      getSessionForFilePath: (filePath) => sessions.get(filePath) ?? null
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(pointPath).toString(),
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+    });
+  });
+
+  it("resolves imported class calls and operators in a virtual workspace", async () => {
+    const mainPath = "/demo.my";
+    const pointPath = "/Point.my";
+    const pointSource = dedent`
+      class Point(val x: number, val y: number) {
+        operator+(other: Point): Point => Point(x + other.x, y + other.y)
+      }
+      `;
+    const mainSource = 'import { Point, operator+ } from "./Point"\nval point = Point(1, 2) + Point(3, 4)\n';
+    const pointSession = createAnalysisSession(pointSource);
+    const baseSession = createAnalysisSession(mainSource);
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [],
+      getSessionForFilePath: (filePath) => filePath === pointPath ? pointSession : null
+    });
+    const mainSession = createAnalysisSession(mainSource, externalDeclarations);
+
+    expect(mainSession.semanticIssues.map((issue) => issue.message)).not.toContain(
+      "Operator '+' is not defined for types 'unknown' and 'unknown'"
+    );
+    expect(mainSession.semanticIssues.map((issue) => issue.message)).not.toContain(
+      "Operator '+' is not defined for types 'Point' and 'Point'"
+    );
+
+    const hover = mainSession.analysis!.getHoverAt(1, mainSource.split("\n")[1]!.indexOf(") + ") + 3);
+    expect(hover?.contents).toBe("method operator+: (other: Point) => Point");
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 1,
+      character: mainSource.split("\n")[1]!.indexOf("Point(1") + 1,
+      session: mainSession,
+      sourceRoots: [],
+      getSessionForFilePath: (filePath) => filePath === pointPath ? pointSession : null
+    });
+
+    expect(location).toEqual({
+      uri: pathToFileURL(pointPath).toString(),
+      range: {
+        start: { line: 0, character: 6 },
+        end: { line: 0, character: 11 }
+      }
+    });
+  });
+
 });

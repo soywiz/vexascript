@@ -1,4 +1,5 @@
 import type { CompletionItem } from "vscode-languageserver/node.js";
+import type { Vfs } from "compiler/vfs";
 import { fileURLToPath } from "node:url";
 import { resolve as resolvePath } from "node:path";
 import type {
@@ -145,6 +146,7 @@ export interface CompletionRequestOptions {
   text?: string;
   uri?: string;
   sourceRoots?: string[];
+  vfs?: Vfs;
   getSessionForFilePath?: (filePath: string) => CompletionSessionLike | null | Promise<CompletionSessionLike | null>;
   getExportedSymbols?: SymbolExportProvider;
 }
@@ -1620,13 +1622,14 @@ async function resolveTypeNameFromPath(
 async function findNodeModuleNamespaceForTypeName(
   ast: Program,
   typeName: string,
-  importerFilePath: string
+  importerFilePath: string,
+  options: CompletionRequestOptions
 ): Promise<NamespaceStatement | null> {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") continue;
     const importStatement = statement as ImportStatement;
     if (importStatement.from.value.startsWith(".")) continue;
-    const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value);
+    const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value, { vfs: options.vfs });
     if (!typings || typings.defaultExportName !== typeName) continue;
     for (const decl of typings.declarations) {
       const candidate =
@@ -1718,6 +1721,7 @@ async function buildMemberCompletionItemsForType(
     predicate: (statement): statement is InterfaceStatement => statement.kind === "InterfaceStatement",
     includeRuntime: true,
     sourceRoots: resolverOptions.sourceRoots ?? [],
+    ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),
     ...(resolverOptions.getSessionForFilePath
       ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
       : {})
@@ -1764,7 +1768,7 @@ async function buildMemberAccessCompletions(
     const namespaceStatement =
       findNamespaceByPath(ast, pathSegments) ??
       (importerFilePath && pathSegments.length === 1 && pathSegments[0]
-        ? await findNodeModuleNamespaceForTypeName(ast, pathSegments[0], importerFilePath)
+        ? await findNodeModuleNamespaceForTypeName(ast, pathSegments[0], importerFilePath, options)
         : null);
     if (namespaceStatement) {
       return buildNamespaceMemberCompletionItems(namespaceStatement, target.prefix);

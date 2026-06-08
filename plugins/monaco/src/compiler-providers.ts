@@ -1,5 +1,7 @@
 import * as monaco from "monaco-editor";
+import type { Vfs } from "compiler/vfs";
 import { createAnalysisSession, type AnalysisSession } from "compiler/lsp/analysisSession";
+import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "compiler/lsp/importedDeclarations";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems,
@@ -46,9 +48,11 @@ const LANG_ID = "mylang";
 interface SessionState {
   version: number;
   session: AnalysisSession;
+  pending?: Promise<AnalysisSession>;
 }
 
 interface ProviderWorkspaceContext {
+  vfs?: Vfs;
   getSessionForFilePath?: (filePath: string) => AnalysisSession | null | Promise<AnalysisSession | null>;
   getExportedSymbols?: () => Promise<SymbolExport[]> | SymbolExport[];
 }
@@ -62,12 +66,14 @@ interface ProviderWorkspaceContext {
 function resolverContext(model: monaco.editor.ITextModel, workspaceContext?: ProviderWorkspaceContext): {
   uri: string;
   sourceRoots: string[];
+  vfs?: Vfs;
   getSessionForFilePath?: (filePath: string) => AnalysisSession | null | Promise<AnalysisSession | null>;
   getExportedSymbols?: () => Promise<SymbolExport[]> | SymbolExport[];
 } {
   return {
     uri: model.uri.toString(),
     sourceRoots: [],
+    ...(workspaceContext?.vfs ? { vfs: workspaceContext.vfs } : {}),
     ...(workspaceContext?.getSessionForFilePath
       ? { getSessionForFilePath: workspaceContext.getSessionForFilePath }
       : {}),
@@ -119,6 +125,50 @@ function getSession(model: monaco.editor.ITextModel, cache: Map<string, SessionS
   const session = createAnalysisSession(model.getValue());
   cache.set(uri, { version, session });
   return session;
+}
+
+async function getSessionAsync(
+  model: monaco.editor.ITextModel,
+  cache: Map<string, SessionState>,
+  workspaceContext?: ProviderWorkspaceContext
+): Promise<AnalysisSession> {
+  const uri = model.uri.toString();
+  const version = model.getVersionId();
+  const cached = cache.get(uri);
+  if (cached && cached.version === version && !cached.pending) {
+    return cached.session;
+  }
+
+  const baseSession = cached?.version === version ? cached.session : createAnalysisSession(model.getValue());
+  if (!baseSession.ast || !workspaceContext?.getSessionForFilePath) {
+    cache.set(uri, { version, session: baseSession });
+    return baseSession;
+  }
+
+  if (cached?.version === version && cached.pending) {
+    return cached.pending;
+  }
+
+  const context = resolverContext(model, workspaceContext);
+  const pending = Promise.all([
+    collectImportedTypeDeclarations(baseSession.ast, context),
+    collectImportedSymbolTypes(baseSession.ast, context),
+  ])
+    .then(([externalDeclarations, importedSymbolTypes]) => {
+      const latestModel = monaco.editor.getModel(model.uri);
+      if (!latestModel || latestModel.getVersionId() !== version) {
+        return baseSession;
+      }
+      const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0
+        ? createAnalysisSession(latestModel.getValue(), externalDeclarations, importedSymbolTypes)
+        : baseSession;
+      cache.set(uri, { version, session });
+      return session;
+    })
+    .catch(() => baseSession);
+
+  cache.set(uri, { version, session: baseSession, pending });
+  return pending;
 }
 
 function toMonacoPos(position: { line: number; character: number }): monaco.IPosition {
@@ -274,12 +324,11 @@ function mapCodeLensCommand(command?: {
   if (!command) return undefined;
   const references = extractShowReferencesPayload(command);
   if (!references) {
-    return { id: command.command, title: command.title, command: command.command, arguments: command.arguments };
+    return { id: command.command, title: command.title, arguments: command.arguments };
   }
   return {
     id: "editor.action.showReferences",
     title: command.title,
-    command: "editor.action.showReferences",
     arguments: [
       monaco.Uri.parse(references.uri),
       toMonacoPos(references.position),
@@ -370,8 +419,12 @@ export function setModelDiagnostics(model: monaco.editor.ITextModel, markers: Ar
   );
 }
 
-export function pullDiagnostics(model: monaco.editor.ITextModel, cache: Map<string, SessionState>): void {
-  const session = getSession(model, cache);
+export async function pullDiagnostics(
+  model: monaco.editor.ITextModel,
+  cache: Map<string, SessionState>,
+  workspaceContext?: ProviderWorkspaceContext
+): Promise<void> {
+  const session = await getSessionAsync(model, cache, workspaceContext);
   const diagnostics = collectDiagnosticsFromSession(
     session,
     model.getValue(),
@@ -393,10 +446,11 @@ const autoAwaitGlyphCollections = new WeakMap<
  * `sync` function body (similar to Kotlin's suspend-call gutter markers). Safe to call repeatedly;
  * the decorations are reconciled through a per-editor decorations collection.
  */
-export function updateAutoAwaitGlyphs(
+export async function updateAutoAwaitGlyphs(
   editor: monaco.editor.ICodeEditor,
-  cache: Map<string, SessionState>
-): void {
+  cache: Map<string, SessionState>,
+  workspaceContext?: ProviderWorkspaceContext
+): Promise<void> {
   let collection = autoAwaitGlyphCollections.get(editor);
   if (!collection) {
     collection = editor.createDecorationsCollection();
@@ -409,7 +463,7 @@ export function updateAutoAwaitGlyphs(
     return;
   }
 
-  const session = getSession(model, cache);
+  const session = await getSessionAsync(model, cache, workspaceContext);
   if (!session.ast || !session.analysis) {
     collection.clear();
     return;
@@ -431,7 +485,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
   monaco.languages.registerCompletionItemProvider(LANG_ID, {
     triggerCharacters: ["."],
     async provideCompletionItems(model, position) {
-      const session = getSession(model, cache);
+      const session = await getSessionAsync(model, cache, workspaceContext);
       const word = model.getWordUntilPosition(position);
       if (!session.ast || !session.analysis) {
         const keywordItems = createKeywordOnlyCompletionItems();
@@ -475,7 +529,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
 
   monaco.languages.registerHoverProvider(LANG_ID, {
     async provideHover(model, position) {
-      const session = getSession(model, cache);
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.analysis || !session.ast) return null;
       const line = position.lineNumber - 1;
       const character = position.column - 1;
@@ -500,7 +554,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
     signatureHelpTriggerCharacters: ["(", ","],
     signatureHelpRetriggerCharacters: [","],
     async provideSignatureHelp(model, position) {
-      const session = getSession(model, cache);
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.ast || !session.analysis) return null;
       const help = await createSignatureHelp(
         session.ast,
@@ -532,7 +586,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
     model: monaco.editor.ITextModel,
     position: monaco.IPosition
   ): Promise<monaco.languages.Definition> => {
-    const session = getSession(model, cache);
+    const session = await getSessionAsync(model, cache, workspaceContext);
     if (!session.analysis || !session.ast) return [];
     let location = null;
     try {
@@ -565,7 +619,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
 
   monaco.languages.registerReferenceProvider(LANG_ID, {
     async provideReferences(model, position, context) {
-      const session = getSession(model, cache);
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.analysis || !session.ast) return [];
       let locations: Awaited<ReturnType<typeof resolveReferencesAcrossFiles>> = [];
       try {
@@ -586,8 +640,8 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
   });
 
   monaco.languages.registerDocumentHighlightProvider(LANG_ID, {
-    provideDocumentHighlights(model, position) {
-      const session = getSession(model, cache);
+    async provideDocumentHighlights(model, position) {
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.analysis) return [];
       return createDocumentHighlights(session.analysis, position.lineNumber - 1, position.column - 1).map((highlight) => ({
         range: toMonacoRange(highlight.range),
@@ -599,19 +653,19 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
   });
 
   monaco.languages.registerRenameProvider(LANG_ID, {
-    resolveRenameLocation(model, position) {
+    async resolveRenameLocation(model, position) {
       const reject: monaco.languages.RenameLocation & { rejectReason: string } = {
         range: new monaco.Range(1, 1, 1, 1),
         text: "",
         rejectReason: "Cannot rename this symbol",
       };
-      const session = getSession(model, cache);
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.analysis) return reject;
       const prepared = createPrepareRename(session.analysis, position.lineNumber - 1, position.column - 1);
       return normalizePrepareRenameResult(prepared) ?? reject;
     },
     async provideRenameEdits(model, position, newName) {
-      const session = getSession(model, cache);
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.analysis || !session.ast) return { edits: [] };
       let edit = null;
       try {
@@ -633,8 +687,8 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
   });
 
   monaco.languages.registerLinkedEditingRangeProvider(LANG_ID, {
-    provideLinkedEditingRanges(model, position) {
-      const session = getSession(model, cache);
+    async provideLinkedEditingRanges(model, position) {
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.analysis) return null;
       const ranges = session.analysis.getRenameRangesAt(position.lineNumber - 1, position.column - 1);
       if (ranges.length <= 1) return null;
@@ -647,7 +701,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
 
   monaco.languages.registerCodeActionProvider(LANG_ID, {
     async provideCodeActions(model, range, context) {
-      const session = getSession(model, cache);
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.ast) return { actions: [], dispose: () => {} };
       const diagnostics: Diagnostic[] = context.markers.map((marker) => markerToDiagnostic(marker, monaco.MarkerSeverity));
       let actions: Awaited<ReturnType<typeof collectCodeActions>> = [];
@@ -695,8 +749,8 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
   });
 
   monaco.languages.registerDocumentSymbolProvider(LANG_ID, {
-    provideDocumentSymbols(model) {
-      const session = getSession(model, cache);
+    async provideDocumentSymbols(model) {
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.ast) return [];
       const mapSymbol = (symbol: {
         name: string;
@@ -718,8 +772,8 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
   });
 
   monaco.languages.registerFoldingRangeProvider(LANG_ID, {
-    provideFoldingRanges(model) {
-      const session = getSession(model, cache);
+    async provideFoldingRanges(model) {
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.ast) return [];
       return createFoldingRanges(session.ast).map((range) => ({
         start: range.startLine + 1,
@@ -734,8 +788,8 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
   });
 
   monaco.languages.registerSelectionRangeProvider(LANG_ID, {
-    provideSelectionRanges(model, positions) {
-      const session = getSession(model, cache);
+    async provideSelectionRanges(model, positions) {
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.ast) return [];
       return createSelectionRanges(session.ast, positions.map(toLspPos)).map((selectionRange) => {
         const chain: monaco.languages.SelectionRange[] = [];
@@ -751,7 +805,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
 
   monaco.languages.registerInlayHintsProvider(LANG_ID, {
     async provideInlayHints(model, range) {
-      const session = getSession(model, cache);
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.ast || !session.analysis) return { hints: [], dispose: () => {} };
       const hints = await createInlayHints(
         session.ast,
@@ -779,8 +833,8 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
 
   monaco.languages.registerDocumentSemanticTokensProvider(LANG_ID, {
     getLegend: () => MYLANG_SEMANTIC_TOKENS_LEGEND,
-    provideDocumentSemanticTokens(model) {
-      const session = getSession(model, cache);
+    async provideDocumentSemanticTokens(model) {
+      const session = await getSessionAsync(model, cache, workspaceContext);
       const tokens = createSemanticTokens({
         text: model.getValue(),
         ast: session.ast,
@@ -793,8 +847,8 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
 
   monaco.languages.registerDocumentRangeSemanticTokensProvider(LANG_ID, {
     getLegend: () => MYLANG_SEMANTIC_TOKENS_LEGEND,
-    provideDocumentRangeSemanticTokens(model, range) {
-      const session = getSession(model, cache);
+    async provideDocumentRangeSemanticTokens(model, range) {
+      const session = await getSessionAsync(model, cache, workspaceContext);
       const tokens = createSemanticTokens({
         text: model.getValue(),
         ast: session.ast,
@@ -806,8 +860,8 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext): 
   });
 
   monaco.languages.registerCodeLensProvider(LANG_ID, {
-    provideCodeLenses(model) {
-      const session = getSession(model, cache);
+    async provideCodeLenses(model) {
+      const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.ast || !session.analysis) return { lenses: [], dispose: () => {} };
       return {
         lenses: createReferenceCodeLenses(session.ast, session.analysis, model.uri.toString()).map((lens) => ({
