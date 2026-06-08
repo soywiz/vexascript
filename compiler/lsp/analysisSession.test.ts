@@ -53,4 +53,44 @@ describe("lsp analysis session", () => {
     expect(sessionV1First).toBe(sessionV1Second);
     expect(sessionV2).not.toBe(sessionV1First);
   });
+
+  it("keeps shorthand class methods with explicit return types compatible with implemented interfaces", () => {
+    const source = dedent`
+      interface Shape {
+        describe(): string
+      }
+
+      class Rectangle implements Shape {
+        width: number
+        height: number
+        describe(): string => \`Rectangle(\${this.width}x\${this.height})\`
+      }
+    `;
+
+    const session = createAnalysisSession(source);
+    const messages = session.semanticIssues.map((issue) => issue.message);
+
+    expect(
+      messages.some((message) => message.includes("incorrectly implements interface"))
+    ).toBe(false);
+  });
+
+  it("keeps shorthand class methods with inferred return types compatible with implemented interfaces", () => {
+    const source = dedent`
+      interface Shape {
+        describe(): string
+      }
+
+      class Rectangle implements Shape {
+        width: number
+        height: number
+        describe() => \`Rectangle(\${this.width}x\${this.height})\`
+      }
+    `;
+
+    const session = createAnalysisSession(source);
+    const messages = session.semanticIssues.map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
 });

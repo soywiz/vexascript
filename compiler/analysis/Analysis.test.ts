@@ -2154,6 +2154,46 @@ let after = bind`));
     ).toBe(false);
   });
 
+  it("accepts shorthand class methods with explicit return types when implementing interfaces", () => {
+    const source = dedent`
+      interface Shape {
+        describe(): string
+      }
+      class Rectangle implements Shape {
+        width: number
+        height: number
+        describe(): string => \`Rectangle(\${this.width}x\${this.height})\`
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
+  it("accepts shorthand class methods with inferred return types when implementing interfaces", () => {
+    const source = dedent`
+      interface Shape {
+        describe(): string
+      }
+      class Rectangle implements Shape {
+        width: number
+        height: number
+        describe() => \`Rectangle(\${this.width}x\${this.height})\`
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(
+      messages.some((message) => message.includes("incorrectly implements interface"))
+    ).toBe(false);
+  });
+
   it("resolves lambda parameters inside lambda scope", () => {
     const source = dedent`
       declare function apply(fn): int

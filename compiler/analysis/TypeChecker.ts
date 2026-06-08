@@ -630,6 +630,7 @@ export class TypeChecker {
             const inferredType = this.visitExpression(field.initializer, classScope);
             if (!annotationType) {
               this.updateSymbolType(classScope, field.name.name, inferredType);
+              this.namedTypeMembersCache.clear();
             }
           }
           continue;
@@ -675,6 +676,7 @@ export class TypeChecker {
               method.typeParameters ?? []
             );
             this.updateSymbolType(classScope, method.name.name, methodType);
+            this.namedTypeMembersCache.clear();
 
             const methodScope = this.scopeFor(method, classScope);
             for (const parameter of method.parameters) {
@@ -717,6 +719,7 @@ export class TypeChecker {
                 method.typeParameters ?? []
               )
             );
+            this.namedTypeMembersCache.clear();
             if (statement.declared !== true && method.missingBody !== true && method.abstract !== true) {
               this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike);
             }
@@ -5093,10 +5096,10 @@ export class TypeChecker {
           continue;
         }
 
+        const classScope = this.bound.scopeByNode.get(classStatement);
+        const symbolType = classScope?.symbols.get(classMember.name.name)?.type;
         let rawReturnType = this.typeFromAnnotationLoose(classMember.returnType);
-        if (!rawReturnType && classMember.accessorKind === "get") {
-          const classScope = this.bound.scopeByNode.get(classStatement);
-          const symbolType = classScope?.symbols.get(classMember.name.name)?.type;
+        if (!rawReturnType && symbolType?.kind === "function") {
           rawReturnType = symbolType?.kind === "function" ? symbolType.returnType : undefined;
         }
         rawReturnType ??= builtinType("void");
@@ -5294,6 +5297,7 @@ export class TypeChecker {
     memberName: string,
     substitutions: Map<string, AnalysisType>
   ): AnalysisType | null {
+    const classScope = this.bound.scopeByNode.get(classStatement);
     for (const classMember of classStatement.members) {
       if (classMember.name.name !== memberName) {
         continue;
@@ -5304,7 +5308,11 @@ export class TypeChecker {
         return this.substituteTypeParameters(fieldType, substitutions);
       }
 
-      const returnType = this.typeFromAnnotationLoose(classMember.returnType) ?? builtinType("void");
+      const symbolType = classScope?.symbols.get(classMember.name.name)?.type;
+      const returnType =
+        this.typeFromAnnotationLoose(classMember.returnType) ??
+        (symbolType?.kind === "function" ? symbolType.returnType : undefined) ??
+        builtinType("void");
       if (classMember.accessorKind === "get") {
         return this.substituteTypeParameters(returnType, substitutions);
       }
