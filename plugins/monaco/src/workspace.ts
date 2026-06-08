@@ -1,5 +1,5 @@
 export const MAIN_DOCUMENT_URI = "file:///main.my";
-export const RUNTIME_DOCUMENT_URI = "file:///runtime/es2025.d.ts";
+export const RUNTIME_DOCUMENT_URI = "file:///es2025.d.ts";
 export const WORKSPACE_STORAGE_KEY = "mylang.monaco.workspace.v1";
 
 export interface StorageLike {
@@ -69,13 +69,14 @@ export function createFileEntry(
   options: {
     language?: "mylang" | "typescript";
     readOnly?: boolean;
+    uri?: string;
   } = {}
 ): WorkspaceFile {
   const normalized = normalizePath(path);
   return {
     kind: "file",
     path: normalized,
-    uri: pathToUri(normalized),
+    uri: options.uri ?? pathToUri(normalized),
     label: basename(normalized),
     language: options.language ?? guessLanguage(normalized),
     content,
@@ -190,6 +191,7 @@ export function resolveWorkspaceEntries(
     createFileEntry("/runtime/es2025.d.ts", runtimeContent, {
       language: "typescript",
       readOnly: true,
+      uri: RUNTIME_DOCUMENT_URI,
     }),
   ];
 

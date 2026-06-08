@@ -221,6 +221,19 @@ async function main(): Promise<void> {
     bracketPairColorization: { enabled: true },
   });
 
+  const applySelection = (selectionOrPosition?: monaco.IRange | monaco.IPosition): void => {
+    if (!selectionOrPosition) {
+      return;
+    }
+    if ("endLineNumber" in selectionOrPosition) {
+      editor.setSelection(selectionOrPosition);
+      editor.revealRangeInCenter(selectionOrPosition);
+      return;
+    }
+    editor.setPosition(selectionOrPosition);
+    editor.revealPositionInCenter(selectionOrPosition);
+  };
+
   const syncEditorState = (): void => {
     const activeEntry = activeUri ? findEntryByUri(entries, activeUri) : undefined;
     updateActiveFileLabel(activeEntry, JSON.stringify(entries) !== savedSnapshot);
@@ -229,7 +242,7 @@ async function main(): Promise<void> {
     renderTree(entries, activeUri, selectedPath, handleTreeSelection);
   };
 
-  const selectDocument = (uri: string): void => {
+  const selectDocument = (uri: string, selectionOrPosition?: monaco.IRange | monaco.IPosition): void => {
     const model = ensureModel(uri);
     const entry = findEntryByUri(entries, uri);
     if (!model || !entry || entry.kind !== "file") return;
@@ -240,12 +253,43 @@ async function main(): Promise<void> {
     selectedPath = entry.path;
     editor.setModel(model);
     editor.updateOptions({ readOnly: !!entry.readOnly });
+    applySelection(selectionOrPosition);
+    editor.focus();
     syncEditorState();
     if (isEditableMyLangFile(entry)) {
       pullDiagnostics(model, sessionCache);
       updateAutoAwaitGlyphs(editor, sessionCache);
     }
   };
+
+  monaco.editor.registerEditorOpener({
+    openCodeEditor(_source, resource, selectionOrPosition) {
+      const uri = resource.toString();
+      const entry = findEntryByUri(entries, uri);
+      if (!entry || entry.kind !== "file") {
+        return false;
+      }
+      selectDocument(uri, selectionOrPosition);
+      return true;
+    },
+  });
+
+  editor.onDidChangeModel((event) => {
+    const nextUri = event.newModelUrl?.toString() ?? null;
+    if (!nextUri) {
+      return;
+    }
+    const entry = findEntryByUri(entries, nextUri);
+    if (!entry || entry.kind !== "file") {
+      return;
+    }
+    if (!openTabs.includes(nextUri)) {
+      openTabs = [...openTabs, nextUri];
+    }
+    activeUri = nextUri;
+    selectedPath = entry.path;
+    syncEditorState();
+  });
 
   const closeTab = (uri: string): void => {
     if (openTabs.length <= 1) return;
