@@ -240,6 +240,12 @@ describe("CLI", () => {
       "--lsp",
       "--stdio"
     ]);
+    expect(ensureLspTransportArg(["node", "mylang", "lsp"])).toEqual([
+      "node",
+      "mylang",
+      "lsp",
+      "--stdio"
+    ]);
   });
 
   it("keeps existing language server transport arg", () => {
@@ -260,6 +266,12 @@ describe("CLI", () => {
       "mylang",
       "--lsp",
       "--socket=6010"
+    ]);
+    expect(ensureLspTransportArg(["node", "mylang", "lsp", "--stdio"])).toEqual([
+      "node",
+      "mylang",
+      "lsp",
+      "--stdio"
     ]);
   });
 });

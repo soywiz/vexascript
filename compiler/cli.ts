@@ -324,8 +324,19 @@ function createProgram(): Command {
     .version("0.1.0");
 
   program
-    .option("--lsp", "Start the language server over stdio")
-    .option("--language-server", "Start the language server over stdio (alias of --lsp)");
+    .command("lsp")
+    .description("Start the language server")
+    .allowUnknownOption(true)
+    .action(async () => {
+      const lspArgv = ensureLspTransportArg(process.argv);
+      const originalArgv = process.argv;
+      process.argv = lspArgv;
+      try {
+        await runLanguageServer();
+      } finally {
+        process.argv = originalArgv;
+      }
+    });
 
   program
     .command("syntax")
@@ -429,7 +440,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(["build", "run", "test", "tokens", "ast", "format", "syntax"]);
+  const knownCommands = new Set(["build", "run", "test", "tokens", "ast", "format", "syntax", "lsp"]);
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
