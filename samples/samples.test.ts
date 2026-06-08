@@ -1,4 +1,5 @@
 import { readdir, readFile } from "node:fs/promises"
+import { format } from "node:util";
 import { it, describe } from "node:test";
 import { expect } from "../compiler/test/expect";
 import { runFile } from "../compiler/cli";
@@ -10,7 +11,7 @@ async function hookOutput(callback: () => Promise<void>) {
     const oldLog = console.log
     try {
         console.log = (...params: any[]) => {
-            lines.push([...params].join(" "))
+            lines.push(format(...params))
         }
         await callback()
     } finally {

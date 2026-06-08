@@ -2685,7 +2685,10 @@ export class TypeChecker {
       const argument = call.arguments[index]!;
       const expectedParameterType = calleeType.parameters[index]?.type;
       const contextualExpectedType = expectedParameterType
-        ? this.contextualTypeForExpressionArgument(argument, expectedParameterType)
+        ? this.contextualTypeForExpressionArgument(
+            argument,
+            this.contextualTypeWithoutUnresolvedReturnType(expectedParameterType, calleeType.typeParameters ?? [])
+          )
         : null;
       if (!contextualExpectedType) {
         continue;
@@ -2699,6 +2702,24 @@ export class TypeChecker {
     }
 
     return contextualArgumentTypes ?? argumentTypes;
+  }
+
+  private contextualTypeWithoutUnresolvedReturnType(
+    expectedType: AnalysisType,
+    typeParameters: string[]
+  ): AnalysisType {
+    if (
+      expectedType.kind !== "function" ||
+      expectedType.returnType.kind !== "named" ||
+      !typeParameters.includes(expectedType.returnType.name)
+    ) {
+      return expectedType;
+    }
+
+    return {
+      ...expectedType,
+      returnType: UNKNOWN_TYPE
+    };
   }
 
   private isFunctionLikeExpression(expression: Expr): boolean {
@@ -3042,11 +3063,41 @@ export class TypeChecker {
         ? this.restParameterElementType(restParameter.type)
         : parameter.type;
       const argumentType = argumentTypes[index]!;
-      if (!isUnknownType(expectedType) && !isUnknownType(argumentType) && !this.isTypeAssignable(argumentType, expectedType)) {
+      if (!isUnknownType(expectedType) && !isUnknownType(argumentType) && !this.isCallArgumentAssignable(argumentType, expectedType)) {
         return false;
       }
     }
     return true;
+  }
+
+  private isCallArgumentAssignable(argumentType: AnalysisType, expectedType: AnalysisType): boolean {
+    if (argumentType.kind !== "function" || expectedType.kind !== "function") {
+      return this.isTypeAssignable(argumentType, expectedType);
+    }
+    if (expectedType.parameters.length === 0 && this.returnValueIsOptional(expectedType.returnType)) {
+      return true;
+    }
+
+    const argumentRequiredCount = argumentType.parameters.filter((parameter) => !parameter.optional).length;
+    if (argumentRequiredCount > expectedType.parameters.length) {
+      return false;
+    }
+
+    for (let index = 0; index < argumentType.parameters.length; index += 1) {
+      const argumentParameter = argumentType.parameters[index];
+      const expectedParameter = expectedType.parameters[index];
+      if (!argumentParameter || !expectedParameter) {
+        return false;
+      }
+      if (!this.isTypeAssignable(expectedParameter.type, argumentParameter.type)) {
+        return false;
+      }
+      if ((expectedParameter.optional ?? false) === true && (argumentParameter.optional ?? false) === false) {
+        return false;
+      }
+    }
+
+    return this.isTypeAssignable(argumentType.returnType, expectedType.returnType);
   }
 
   private hasNullishUnionMember(type: AnalysisType): boolean {
@@ -3300,7 +3351,7 @@ export class TypeChecker {
       if (isUnknownType(expectedType) || isUnknownType(comparableArgumentType)) {
         continue;
       }
-      if (this.isTypeAssignable(comparableArgumentType, expectedType)) {
+      if (this.isCallArgumentAssignable(comparableArgumentType, expectedType)) {
         continue;
       }
 
@@ -3411,7 +3462,7 @@ export class TypeChecker {
       if (isUnknownType(expectedType) || isUnknownType(comparableArgumentType)) {
         continue;
       }
-      if (this.isTypeAssignable(comparableArgumentType, expectedType)) {
+      if (this.isCallArgumentAssignable(comparableArgumentType, expectedType)) {
         continue;
       }
       this.issues.push({

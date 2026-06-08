@@ -389,7 +389,7 @@ let promise = go fetchValue()
   });
 
   it("emits object and array destructuring declarations", () => {
-    const program = parseFile(tokenizeReader("let { id, name: displayName, nested: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
+    const program = parseFile(tokenizeReader("let { id, name :: displayName, nested :: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
 
     expect(emitProgram(program)).toBe(dedent`
       let { id, name: displayName, nested: { value = 1 }, ...rest } = source;
@@ -423,7 +423,7 @@ describe("emit enum declarations", () => {
 
 describe("emit destructured parameters", () => {
   it("preserves object, array, nested, default, and rest parameter patterns", () => {
-    const program = parseFile(tokenizeReader("function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail] = values) { return value }"));
+    const program = parseFile(tokenizeReader("function unpack({ id, nested :: { value = 1 }, ...meta }, [first, , ...tail] = values) { return value }"));
     expect(emitProgram(program)).toBe("function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail] = values) {\nreturn value;\n}");
   });
 });

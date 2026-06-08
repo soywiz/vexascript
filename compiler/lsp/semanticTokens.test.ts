@@ -317,7 +317,7 @@ describe("semantic tokens", () => {
     ).toBe(true);
   });
   it("highlights identifiers introduced by destructuring as variables", () => {
-    const source = "let { source: target, nested: { value }, ...rest } = input\nconst [first, , ...tail] = values";
+    const source = "let { source :: target, nested :: { value }, ...rest } = input\nconst [first, , ...tail] = values";
     const session = createAnalysisSession(source);
     const semantic = createSemanticTokens({ text: source, ast: session.ast, analysis: session.analysis });
     const decoded = decodeTokens(source, semantic.data);
@@ -332,7 +332,7 @@ describe("semantic tokens", () => {
 
 describe("destructured parameter semantic tokens", () => {
   it("highlights introduced names as parameters and property keys as properties", () => {
-    const source = "function unpack({ source: target, nested: { value }, ...rest }, [first, , ...tail]) { return target }";
+    const source = "function unpack({ source :: target, nested :: { value }, ...rest }, [first, , ...tail]) { return target }";
     const session = createAnalysisSession(source);
     const decoded = decodeTokens(source, createSemanticTokens({ text: source, ast: session.ast, analysis: session.analysis }).data);
     for (const name of ["target", "value", "rest", "first", "tail"]) {
