@@ -39,6 +39,28 @@ let enabled
 val a = 10 * 2, lol = true
 ```
 
+### Delegated variables
+
+Variables may use a Kotlin-like `by` delegate instead of an initializer. The delegate customizes reads and writes of the declared identifier. The delegate shape is selected from its compile-time type:
+
+- `[value, setter]` reads from the first tuple element and writes with the second element as a `(newValue) => void` setter.
+- `[getter, setter]` calls a zero-argument getter for reads and calls the setter for writes.
+- `{ value: T }` reads and writes the delegate object's `value` property.
+- A zero-argument function delegate is read by calling the function.
+
+Assignments, compound assignments, and update expressions use the delegate setter/value path, so `x = x + 1`, `x += 1`, `x++`, `++x`, `x--`, and `--x` all route through the custom accessor.
+
+```mylang
+fun useState(value: number) {
+  return [value, (newValue: number) => { value = newValue }]
+}
+
+var count by useState(0)
+count = count + 1
+count += 1
+count++
+```
+
 ### Destructuring declarations
 
 Variable declarations support nested object and array binding patterns. Object bindings may use shorthand names, property aliases, defaults, and rest bindings. Array bindings may use holes, defaults, nested patterns, and rest bindings. When the initializer has a tuple type, each introduced array binding receives the corresponding tuple element type.

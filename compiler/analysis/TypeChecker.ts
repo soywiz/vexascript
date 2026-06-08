@@ -482,7 +482,7 @@ export class TypeChecker {
         !isUnknownType(initializerType) &&
         !this.isTypeAssignable(initializerType, explicitType)
       ) {
-        this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer);
+        this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer ?? statement.delegate);
       }
       const propertyType = explicitType ?? initializerType;
       const properties = this.extensionPropertiesByReceiver.get(statement.receiverType.name) ?? new Map<string, AnalysisType>();
@@ -493,9 +493,13 @@ export class TypeChecker {
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
         const explicitType = this.resolveTypeAnnotation(declaration.typeAnnotation, scope);
+        const delegateType = declaration.delegate
+          ? this.visitExpression(declaration.delegate, scope)
+          : undefined;
+        const delegateValueType = delegateType ? this.variableDelegateValueType(delegateType) : undefined;
         const initializerType = declaration.initializer
           ? this.visitExpression(declaration.initializer, scope, explicitType)
-          : undefined;
+          : delegateValueType;
         if (
           explicitType &&
           initializerType &&
@@ -503,10 +507,16 @@ export class TypeChecker {
           !isUnknownType(initializerType) &&
           !this.isTypeAssignable(initializerType, explicitType)
         ) {
-          this.reportTypeMismatch(initializerType, explicitType, declaration.name, declaration.initializer);
+          this.reportTypeMismatch(initializerType, explicitType, declaration.name, declaration.initializer ?? declaration.delegate);
         }
         for (const element of bindingElements(declaration.name)) {
           if (element.initializer) this.visitExpression(element.initializer, scope);
+        }
+        if (declaration.delegate && bindingIdentifiers(declaration.name).length !== 1) {
+          this.issues.push({
+            message: "Delegated variables must use a single identifier binding",
+            node: declaration.name
+          });
         }
         const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
         this.updateBindingSymbolTypes(scope, declaration.name, inferredType);
@@ -515,9 +525,13 @@ export class TypeChecker {
     }
 
     const explicitType = this.resolveTypeAnnotation(statement.typeAnnotation, scope);
+    const delegateType = statement.delegate
+      ? this.visitExpression(statement.delegate, scope)
+      : undefined;
+    const delegateValueType = delegateType ? this.variableDelegateValueType(delegateType) : undefined;
     const initializerType = statement.initializer
       ? this.visitExpression(statement.initializer, scope, explicitType)
-      : undefined;
+      : delegateValueType;
     if (
       explicitType &&
       initializerType &&
@@ -525,13 +539,34 @@ export class TypeChecker {
       !isUnknownType(initializerType) &&
       !this.isTypeAssignable(initializerType, explicitType)
     ) {
-      this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer);
+      this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer ?? statement.delegate);
     }
     for (const element of bindingElements(statement.name)) {
       if (element.initializer) this.visitExpression(element.initializer, scope);
     }
+    if (statement.delegate && bindingIdentifiers(statement.name).length !== 1) {
+      this.issues.push({
+        message: "Delegated variables must use a single identifier binding",
+        node: statement.name
+      });
+    }
     const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
     this.updateBindingSymbolTypes(scope, statement.name, inferredType);
+  }
+
+
+  private variableDelegateValueType(delegateType: AnalysisType): AnalysisType {
+    if (delegateType.kind === "function") {
+      return delegateType.returnType;
+    }
+    if (delegateType.kind === "tuple") {
+      const getterOrValueType = delegateType.elements[0] ?? UNKNOWN_TYPE;
+      return getterOrValueType.kind === "function" ? getterOrValueType.returnType : getterOrValueType;
+    }
+    if (delegateType.kind === "object") {
+      return delegateType.properties["value"] ?? UNKNOWN_TYPE;
+    }
+    return UNKNOWN_TYPE;
   }
 
 

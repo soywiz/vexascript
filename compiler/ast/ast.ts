@@ -320,6 +320,7 @@ export interface VarStatement extends Statement {
     kind: "VarStatement"
     declared?: boolean
     declarationKind: VariableDeclarationKind
+    delegate?: Expr
     name: BindingName
     receiverType?: Identifier
     receiverTypeArguments?: Identifier[]
@@ -334,6 +335,7 @@ export interface VarDeclarator extends Node {
     name: BindingName
     typeAnnotation?: Identifier
     initializer?: Expr
+    delegate?: Expr
 }
 
 export interface FunctionStatement extends Statement {

@@ -3348,6 +3348,9 @@ export class Parser {
         if (firstDeclaration.initializer) {
             statement.initializer = firstDeclaration.initializer;
         }
+        if (firstDeclaration.delegate) {
+            statement.delegate = firstDeclaration.delegate;
+        }
         if (declarations.length > 1) {
             statement.declarations = declarations;
         }
@@ -3366,10 +3369,14 @@ export class Parser {
         }
 
         let initializer: Expr | undefined;
-        const maybeEquals = this.tokens.peek();
-        if (maybeEquals?.type === "symbol" && maybeEquals.value === "=") {
+        let delegate: Expr | undefined;
+        const maybeEqualsOrBy = this.tokens.peek();
+        if (maybeEqualsOrBy?.type === "symbol" && maybeEqualsOrBy.value === "=") {
             this.tokens.skip();
             initializer = this.parseAssignment();
+        } else if (maybeEqualsOrBy?.type === "identifier" && maybeEqualsOrBy.value === "by") {
+            this.tokens.skip();
+            delegate = this.parseAssignment();
         }
 
         const declarator: VarDeclarator = {
@@ -3381,6 +3388,9 @@ export class Parser {
         }
         if (initializer) {
             declarator.initializer = initializer;
+        }
+        if (delegate) {
+            declarator.delegate = delegate;
         }
 
         return this.attachNodeBounds(declarator, firstToken, this.getLastReadToken() ?? firstToken);

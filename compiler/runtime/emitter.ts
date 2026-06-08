@@ -138,6 +138,13 @@ let activeParameterNames: Map<string, string[]> = new Map();
 let activeJavaScriptImplementations: Map<string, JavaScriptImplementationInfo> = new Map();
 // Source-name to final JavaScript-name overrides declared via `@JsName("...")`.
 let activeJsNames: Map<string, string> = new Map();
+
+interface RuntimeVariableDelegateInfo {
+  backingName: string;
+  kind: "function" | "tupleFunction" | "tupleValue" | "objectValue" | "unknownTuple";
+}
+
+let activeVariableDelegates: Map<string, RuntimeVariableDelegateInfo> = new Map();
 let activeExtensionThis = false;
 let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
 let activeStaticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map();
@@ -745,6 +752,10 @@ function collectExtensionProperties(
 }
 
 function emitIdentifier(identifier: Identifier): string {
+  const delegate = activeVariableDelegates.get(identifier.name);
+  if (delegate) {
+    return emitVariableDelegateRead(delegate);
+  }
   if (activeExtensionThis && identifier.name === "this") {
     return "$this";
   }
@@ -756,6 +767,148 @@ function emitIdentifier(identifier: Identifier): string {
     return `${activeExtensionThis ? "$this" : "this"}.${identifier.name}`;
   }
   return resolveJsName(identifier.name);
+}
+
+function withVariableDelegateShadows<T>(names: readonly string[], emit: () => T): T {
+  if (names.length === 0) {
+    return emit();
+  }
+  const previous = activeVariableDelegates;
+  const next = new Map(previous);
+  for (const name of names) {
+    next.delete(name);
+  }
+  activeVariableDelegates = next;
+  try {
+    return emit();
+  } finally {
+    activeVariableDelegates = previous;
+  }
+}
+
+function functionParameterBindingNames(parameters: FunctionParameter[]): string[] {
+  return parameters.flatMap((parameter) => bindingIdentifiers(parameter.name).map((identifier) => identifier.name));
+}
+
+function variableDelegateBackingName(name: string): string {
+  return `__$delegate_${resolveJsName(name)}`;
+}
+
+function variableDelegateKind(type: AnalysisType | undefined): RuntimeVariableDelegateInfo["kind"] {
+  if (type?.kind === "function") {
+    return "function";
+  }
+  if (type?.kind === "tuple") {
+    const first = type.elements[0];
+    if (first?.kind === "function") {
+      return "tupleFunction";
+    }
+    return "tupleValue";
+  }
+  if (type?.kind === "object" && type.properties["value"]) {
+    return "objectValue";
+  }
+  return "unknownTuple";
+}
+
+function collectVariableDelegates(program: Program, expressionTypes?: ReadonlyMap<Node, AnalysisType>): Map<string, RuntimeVariableDelegateInfo> {
+  const delegates = new Map<string, RuntimeVariableDelegateInfo>();
+  walkAst(program, (node) => {
+    if (node.kind !== "VarStatement") return;
+    const statement = node as VarStatement;
+    const declarations = statement.declarations && statement.declarations.length > 0
+      ? statement.declarations
+      : [{ kind: "VarDeclarator", name: statement.name, delegate: statement.delegate } as VarDeclarator];
+    for (const declaration of declarations) {
+      if (!declaration.delegate || declaration.name.kind !== "Identifier") {
+        continue;
+      }
+      const sourceName = declaration.name.name;
+      delegates.set(sourceName, {
+        backingName: variableDelegateBackingName(sourceName),
+        kind: variableDelegateKind(expressionTypes?.get(declaration.delegate as unknown as Node))
+      });
+    }
+  });
+  return delegates;
+}
+
+function emitVariableDelegateRead(delegate: RuntimeVariableDelegateInfo): string {
+  switch (delegate.kind) {
+    case "function":
+      return `${delegate.backingName}()`;
+    case "tupleFunction":
+      return `${delegate.backingName}[0]()`;
+    case "objectValue":
+      return `${delegate.backingName}.value`;
+    case "tupleValue":
+    case "unknownTuple":
+      return `${delegate.backingName}[0]`;
+  }
+}
+
+function emitVariableDelegateWrite(delegate: RuntimeVariableDelegateInfo, valueText: string): string {
+  switch (delegate.kind) {
+    case "objectValue":
+      return `${delegate.backingName}.value = ${valueText}`;
+    case "function":
+      return `${delegate.backingName}(${valueText})`;
+    case "tupleFunction":
+    case "tupleValue":
+    case "unknownTuple":
+      return `${delegate.backingName}[1](${valueText})`;
+  }
+}
+
+function variableDelegateForTarget(target: Expr): RuntimeVariableDelegateInfo | null {
+  if (target.kind !== "Identifier") {
+    return null;
+  }
+  return activeVariableDelegates.get((target as Identifier).name) ?? null;
+}
+
+function compoundAssignmentBinaryOperator(operator: AssignmentExpression["operator"]): BinaryExpression["operator"] | null {
+  switch (operator) {
+    case "+=": return "+";
+    case "-=": return "-";
+    case "*=": return "*";
+    case "/=": return "/";
+    case "%=": return "%";
+    case "&=": return "&";
+    case "|=": return "|";
+    case "&&=": return "&&";
+    case "||=": return "||";
+    case "??=": return "??";
+    case "<<=": return "<<";
+    case ">>=": return ">>";
+    case ">>>=": return ">>>";
+    default: return null;
+  }
+}
+
+function emitVariableDelegateAssignment(assignment: AssignmentExpression): string | null {
+  const delegate = variableDelegateForTarget(assignment.left);
+  if (!delegate) {
+    return null;
+  }
+  if (assignment.operator === "=") {
+    return emitVariableDelegateWrite(delegate, emitExpression(assignment.right, PREC_ASSIGNMENT, "right"));
+  }
+  const operator = compoundAssignmentBinaryOperator(assignment.operator);
+  if (!operator) {
+    return null;
+  }
+  const valueText = `${emitVariableDelegateRead(delegate)} ${operator} ${emitExpression(assignment.right, PREC_ASSIGNMENT, "right")}`;
+  return emitVariableDelegateWrite(delegate, valueText);
+}
+
+function emitVariableDelegateUpdate(update: UpdateExpression): string | null {
+  const delegate = variableDelegateForTarget(update.argument);
+  if (!delegate) {
+    return null;
+  }
+  const operator = update.operator === "++" ? "+" : "-";
+  return emitVariableDelegateWrite(delegate, `${emitVariableDelegateRead(delegate)} ${operator} 1`);
 }
 
 function eraseTypeArguments(typeName: string): string {
@@ -1001,6 +1154,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;
+        const delegateAssignment = emitVariableDelegateAssignment(assignment);
+        if (delegateAssignment) {
+          return delegateAssignment;
+        }
         const leftText = emitExpression(assignment.left, PREC_ASSIGNMENT, "left");
         const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
         return `${leftText} ${assignment.operator} ${rightText}`;
@@ -1091,6 +1248,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "UpdateExpression": {
         const update = expression as UpdateExpression;
+        const delegateUpdate = emitVariableDelegateUpdate(update);
+        if (delegateUpdate) {
+          return delegateUpdate;
+        }
         if (update.prefix) {
           return `${update.operator}${emitExpression(update.argument, PREC_UNARY, "right")}`;
         }
@@ -1118,7 +1279,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
             const key = emitObjectPropertyKey(objectProperty);
             if (objectProperty.method && objectProperty.value.kind === "FunctionExpression") {
               const fn = objectProperty.value as FunctionExpression;
-              return `${key}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+              return withVariableDelegateShadows(
+                functionParameterBindingNames(fn.parameters),
+                () => `${key}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`
+              );
             }
             return `${key}: ${emitListElement(objectProperty.value)}`;
           })
@@ -1130,20 +1294,25 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           return emitExpression(arrow.contextualObjectLiteral, parentPrecedence, side);
         }
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
-        if (arrow.body.kind === "BlockStatement") {
-          return `${asyncEmitPrefix(arrow)}${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
-        }
-        const bodyExpression = arrow.body as Expr;
-        const bodyText = emitExpression(bodyExpression);
-        if (bodyExpression.kind === "ObjectLiteral") {
-          return `${asyncEmitPrefix(arrow)}${parameters} => (${bodyText})`;
-        }
-        return `${asyncEmitPrefix(arrow)}${parameters} => ${bodyText}`;
+        return withVariableDelegateShadows(functionParameterBindingNames(arrow.parameters), () => {
+          if (arrow.body.kind === "BlockStatement") {
+            return `${asyncEmitPrefix(arrow)}${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
+          }
+          const bodyExpression = arrow.body as Expr;
+          const bodyText = emitExpression(bodyExpression);
+          if (bodyExpression.kind === "ObjectLiteral") {
+            return `${asyncEmitPrefix(arrow)}${parameters} => (${bodyText})`;
+          }
+          return `${asyncEmitPrefix(arrow)}${parameters} => ${bodyText}`;
+        });
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
         const name = fn.name ? ` ${fn.name.name}` : "";
-        return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+        return withVariableDelegateShadows(
+          functionParameterBindingNames(fn.parameters),
+          () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`
+        );
       }
       case "JsxElement":
         return emitJsxElement(expression as JsxElement);
@@ -1207,6 +1376,9 @@ function emitBindingName(binding: BindingName): string {
 }
 
 function emitVarDeclarator(declarator: VarDeclarator): string {
+  if (declarator.delegate && declarator.name.kind === "Identifier") {
+    return `${variableDelegateBackingName(declarator.name.name)} = ${emitListElement(declarator.delegate)}`;
+  }
   if (declarator.initializer) {
     return `${emitBindingName(declarator.name)} = ${emitListElement(declarator.initializer)}`;
   }
@@ -1226,6 +1398,15 @@ function emitVarStatementBody(statement: VarStatement): string {
 function emitVarStatement(statement: VarStatement): string {
   if (statement.declared) {
     return "";
+  }
+  if (statement.declarations && statement.declarations.some((declaration) => declaration.delegate)) {
+    return statement.declarations.map((declaration) => {
+      const kind = declaration.delegate ? "const" : normalizeVarKind(statement.declarationKind);
+      return `${kind} ${emitVarDeclarator(declaration)};`;
+    }).join("\n");
+  }
+  if (statement.delegate && statement.name.kind === "Identifier") {
+    return `const ${variableDelegateBackingName(statement.name.name)} = ${emitListElement(statement.delegate)};`;
   }
   return `${normalizeVarKind(statement.declarationKind)} ${emitVarStatementBody(statement)};`;
 }
@@ -1322,8 +1503,10 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   const asyncPrefix = asyncEmitPrefix(method);
   const generatorPrefix = method.generator === true ? "*" : "";
   const methodName = method.operator ? operatorMethodName(method.operator, method.parameters) : method.name.name;
-  const body = methodName === "constructor" ? emitConstructorBlock(method) : emitBlock(method.body);
-  return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;
+  return withVariableDelegateShadows(functionParameterBindingNames(method.parameters), () => {
+    const body = methodName === "constructor" ? emitConstructorBlock(method) : emitBlock(method.body);
+    return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;
+  });
 }
 
 function emitForStatement(statement: ForStatement): string {
@@ -1554,7 +1737,10 @@ export function emitStatement(statement: Statement): string {
         const previousExtensionThis = activeExtensionThis;
         activeExtensionThis = true;
         try {
-          return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${parameterList}) ${emitBlock(fn.body)}`;
+          return withVariableDelegateShadows(
+            functionParameterBindingNames(fn.parameters),
+            () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${parameterList}) ${emitBlock(fn.body)}`
+          );
         } finally {
           activeExtensionThis = previousExtensionThis;
         }
@@ -1562,7 +1748,10 @@ export function emitStatement(statement: Statement): string {
       const overloads = activeProgramOverloads.get(fn.name.name);
       const emittedName = activeJsNames.get(fn.name.name)
         ?? (overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name);
-      return `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`;
+      return withVariableDelegateShadows(
+        functionParameterBindingNames(fn.parameters),
+        () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`
+      );
     }
     case "ClassStatement": {
       const classStatement = statement as ClassStatement;
@@ -1736,6 +1925,7 @@ export function emitProgramStatements(
   const previousParameterNames = activeParameterNames;
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
   const previousJsNames = activeJsNames;
+  const previousVariableDelegates = activeVariableDelegates;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
   const previousStaticImplicitReceiverIdentifiers = activeStaticImplicitReceiverIdentifiers;
   const previousAutoAwaitExpressions = activeAutoAwaitExpressions;
@@ -1755,6 +1945,7 @@ export function emitProgramStatements(
   activeParameterNames = runtimeContext.parameterNames;
   activeJavaScriptImplementations = runtimeContext.javaScriptImplementations;
   activeJsNames = runtimeContext.jsNames;
+  activeVariableDelegates = collectVariableDelegates(contextProgram, expressionTypes);
   try {
     return program.body
       .map((statement) => emitStatement(statement))
@@ -1769,6 +1960,7 @@ export function emitProgramStatements(
     activeParameterNames = previousParameterNames;
     activeJavaScriptImplementations = previousJavaScriptImplementations;
     activeJsNames = previousJsNames;
+    activeVariableDelegates = previousVariableDelegates;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
     activeStaticImplicitReceiverIdentifiers = previousStaticImplicitReceiverIdentifiers;
     activeAutoAwaitExpressions = previousAutoAwaitExpressions;
