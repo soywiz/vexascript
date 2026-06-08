@@ -3,7 +3,8 @@ export type {
   ProjectImportBinding,
   ProjectIndex,
   ProjectSessionLike,
-  ProjectTopLevelDeclaration
+  ProjectTopLevelDeclaration,
+  ProjectTopLevelDeclarationKind
 } from "compiler/analysis/projectIndex";
 
 export {

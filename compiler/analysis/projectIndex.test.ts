@@ -22,10 +22,10 @@ describe("ProjectIndex", () => {
     const declaration = await index.findTopLevelDeclaration(fileA, "Point");
     expect(declaration?.kind).toBe("class");
     const interfaceDeclaration = await index.findTopLevelDeclaration(fileA, "Readable");
-    expect(interfaceDeclaration?.kind).toBe("class");
+    expect(interfaceDeclaration?.kind).toBe("interface");
 
     const typeAliasDeclaration = await index.findTopLevelDeclaration(fileA, "PointList");
-    expect(typeAliasDeclaration?.kind).toBe("class");
+    expect(typeAliasDeclaration?.kind).toBe("type");
 
     const importers = await index.findFilesImportingSymbol(fileA, "Point");
     expect(importers).toHaveLength(1);
