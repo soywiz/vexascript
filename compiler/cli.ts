@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { transpile, type TranspileDiagnostic, type TranspileTarget } from "./runtime/transpile";
 import { bundleModuleGraph } from "./runtime/moduleGraph";
+import { ensureEcmaScriptRuntimeProgram } from "./runtime/ecmascriptDeclarations";
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
 import { loadProject } from "./project";
 import { ensureDependencies } from "./deps";
@@ -140,7 +141,8 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
   }
   // Bundle the entry file together with its local module graph so cross-file
   // references resolve, then execute the combined module.
-  const result = bundleModuleGraph(sourcePath, target);
+  await ensureEcmaScriptRuntimeProgram();
+  const result = await bundleModuleGraph(sourcePath, target);
   await executeCompiled(result, sourcePath);
 }
 

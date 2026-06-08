@@ -141,7 +141,7 @@ export interface CompletionRequestOptions {
   text?: string;
   uri?: string;
   sourceRoots?: string[];
-  getSessionForFilePath?: (filePath: string) => CompletionSessionLike | null;
+  getSessionForFilePath?: (filePath: string) => CompletionSessionLike | null | Promise<CompletionSessionLike | null>;
 }
 
 interface MemberAccessTarget {
@@ -341,12 +341,12 @@ function inferExtensionReturnTypeName(
   return null;
 }
 
-function collectAvailableExtensionMembers(
+async function collectAvailableExtensionMembers(
   ast: Program,
   objectTypeName: string,
   options: CompletionRequestOptions,
   analysis: Analysis | null = null
-): ExtensionMemberCompletionCandidate[] {
+): Promise<ExtensionMemberCompletionCandidate[]> {
   const currentFilePath = options.uri?.startsWith("file://")
     ? fileURLToPath(options.uri)
     : null;
@@ -422,7 +422,7 @@ function collectAvailableExtensionMembers(
     }
     const importStatement = statement as ImportStatement;
     const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
-    const importedSession = options.getSessionForFilePath(targetFilePath);
+    const importedSession = await options.getSessionForFilePath(targetFilePath);
     const importedAst = importedSession?.ast;
     const importedAnalysis = importedSession?.analysis ?? null;
     if (!importedAst) {
@@ -479,25 +479,25 @@ function collectAvailableExtensionMembers(
   return candidates;
 }
 
-function resolveExtensionMemberTypeName(
+async function resolveExtensionMemberTypeName(
   ast: Program,
   objectTypeName: string,
   memberName: string,
   options: CompletionRequestOptions,
   analysis?: Analysis | null
-): string | null {
-  const candidate = collectAvailableExtensionMembers(ast, objectTypeName, options, analysis)
+): Promise<string | null> {
+  const candidate = (await collectAvailableExtensionMembers(ast, objectTypeName, options, analysis))
     .find((item) => item.name === memberName);
   return candidate?.returnTypeName ?? null;
 }
 
-function buildExtensionMemberCompletionItems(
+async function buildExtensionMemberCompletionItems(
   ast: Program,
   objectTypeName: string,
   prefix: string,
   options: CompletionRequestOptions,
   analysis?: Analysis | null
-): CompletionItem[] {
+): Promise<CompletionItem[]> {
   const normalizedPrefix = prefix.trim();
   const items: CompletionItem[] = [];
   const seen = new Set<string>();
@@ -513,7 +513,7 @@ function buildExtensionMemberCompletionItems(
     items.push(item);
   };
 
-  for (const candidate of collectAvailableExtensionMembers(ast, objectTypeName, options, analysis)) {
+  for (const candidate of await collectAvailableExtensionMembers(ast, objectTypeName, options, analysis)) {
     pushItem({
       label: candidate.name,
       kind: candidate.kind === "method" ? CompletionItemKind.Method : CompletionItemKind.Property,
@@ -522,7 +522,7 @@ function buildExtensionMemberCompletionItems(
   }
 
   if (options.uri && options.sourceRoots?.length) {
-    const autoImports = buildExtensionAutoImportSuggestions({
+    const autoImports = await buildExtensionAutoImportSuggestions({
       uri: options.uri,
       ast,
       sourceRoots: options.sourceRoots,
@@ -548,7 +548,7 @@ function buildExtensionMemberCompletionItems(
   return items.sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function buildClassMemberCompletionItems(
+async function buildClassMemberCompletionItems(
   classStatement: ClassStatement,
   objectTypeName: string | undefined,
   prefix: string,
@@ -564,7 +564,7 @@ function buildClassMemberCompletionItems(
     options: ClassResolverOptions;
     cache: ClassResolverCache;
   }
-): CompletionItem[] {
+): Promise<CompletionItem[]> {
   const items: CompletionItem[] = [];
   const seen = new Set<string>();
   const normalizedPrefix = prefix.trim();
@@ -581,13 +581,13 @@ function buildClassMemberCompletionItems(
     items.push(item);
   };
 
-  const memberNames = resolveClassMemberNames(classStatement, objectTypeName, {
+  const memberNames = await resolveClassMemberNames(classStatement, objectTypeName, {
     ast: resolverContext.ast,
     options: resolverContext.options,
     cache: resolverContext.cache
   });
   for (const memberName of memberNames) {
-    const resolved = resolveClassMember(classStatement, memberName, objectTypeName, {
+    const resolved = await resolveClassMember(classStatement, memberName, objectTypeName, {
       ast: resolverContext.ast,
       options: resolverContext.options,
       cache: resolverContext.cache
@@ -999,21 +999,21 @@ function findNamedArgumentCallContext(
   return best;
 }
 
-function buildNamedArgumentCompletionItems(
+async function buildNamedArgumentCompletionItems(
   ast: Program,
   analysis: Analysis,
   line: number,
   character: number,
   options: CompletionRequestOptions
-): CompletionItem[] {
+): Promise<CompletionItem[]> {
   const context = findNamedArgumentCallContext(ast, line, character);
   if (!context) {
     return [];
   }
   const resolverOptions = classResolverOptionsFromCompletionOptions(options);
   const signature = context.isNew
-    ? resolveConstructorSignature(context.callee, analysis, ast, resolverOptions)
-    : resolveCallableSignature(context.callee, analysis, ast, resolverOptions);
+    ? await resolveConstructorSignature(context.callee, analysis, ast, resolverOptions)
+    : await resolveCallableSignature(context.callee, analysis, ast, resolverOptions);
   const parameters = signature?.parameters ?? [];
   const items: CompletionItem[] = [];
   for (const parameter of parameters) {
@@ -1032,20 +1032,20 @@ function buildNamedArgumentCompletionItems(
   return items;
 }
 
-function inferExpectedTypeForPosition(
+async function inferExpectedTypeForPosition(
   ast: Program,
   analysis: Analysis,
   line: number,
   character: number,
   options: CompletionRequestOptions
-): string | null {
+): Promise<string | null> {
   const context = findArgumentCompletionContext(ast, line, character);
   if (!context) {
     return null;
   }
 
   if (context.kind === "call") {
-    const signature = resolveCallableSignature(
+    const signature = await resolveCallableSignature(
       context.callee,
       analysis,
       ast,
@@ -1054,7 +1054,7 @@ function inferExpectedTypeForPosition(
     return signature?.parameters[context.argumentIndex]?.typeName ?? null;
   }
 
-  const constructorSignature = resolveConstructorSignature(
+  const constructorSignature = await resolveConstructorSignature(
     context.callee,
     analysis,
     ast,
@@ -1349,7 +1349,7 @@ function inferTypeNameFromAstVariableAnnotation(
   return bestTypeName;
 }
 
-function resolveTypeNameFromPath(
+async function resolveTypeNameFromPath(
   ast: Program,
   analysis: Analysis,
   pathSegments: string[],
@@ -1357,7 +1357,7 @@ function resolveTypeNameFromPath(
   objectStartCharacter: number,
   resolverOptions: ClassResolverOptions,
   resolverCache: ClassResolverCache
-): string | null {
+): Promise<string | null> {
   if (pathSegments.length === 0) {
     return null;
   }
@@ -1428,14 +1428,14 @@ function resolveTypeNameFromPath(
     if (!memberName || !currentTypeName) {
       return null;
     }
-    const classResolution = resolveClassStatementAcrossFiles(
+    const classResolution = await resolveClassStatementAcrossFiles(
       ast,
       baseTypeName(currentTypeName),
       resolverOptions,
       resolverCache
     );
     if (!classResolution) {
-      currentTypeName = resolveExtensionMemberTypeName(
+      currentTypeName = await resolveExtensionMemberTypeName(
         ast,
         currentTypeName,
         memberName,
@@ -1449,13 +1449,13 @@ function resolveTypeNameFromPath(
       }
       continue;
     }
-    const member = resolveClassMember(classResolution.classStatement, memberName, currentTypeName, {
+    const member = await resolveClassMember(classResolution.classStatement, memberName, currentTypeName, {
       ast,
       options: resolverOptions,
       cache: resolverCache
     });
     if (!member) {
-      currentTypeName = resolveExtensionMemberTypeName(
+      currentTypeName = await resolveExtensionMemberTypeName(
         ast,
         currentTypeName,
         memberName,
@@ -1479,16 +1479,16 @@ function resolveTypeNameFromPath(
   return currentTypeName;
 }
 
-function findNodeModuleNamespaceForTypeName(
+async function findNodeModuleNamespaceForTypeName(
   ast: Program,
   typeName: string,
   importerFilePath: string
-): NamespaceStatement | null {
+): Promise<NamespaceStatement | null> {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") continue;
     const importStatement = statement as ImportStatement;
     if (importStatement.from.value.startsWith(".")) continue;
-    const typings = getNodeModuleTypings(importerFilePath, importStatement.from.value);
+    const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value);
     if (!typings || typings.defaultExportName !== typeName) continue;
     for (const decl of typings.declarations) {
       const candidate =
@@ -1553,7 +1553,7 @@ function buildNamespaceMemberCompletionItems(namespaceStatement: NamespaceStatem
   return items;
 }
 
-function buildMemberCompletionItemsForType(
+async function buildMemberCompletionItemsForType(
   ast: Program,
   analysis: Analysis,
   className: string,
@@ -1564,16 +1564,16 @@ function buildMemberCompletionItemsForType(
   options: CompletionRequestOptions,
   resolverOptions: ClassResolverOptions,
   resolverCache: ClassResolverCache
-): CompletionItem[] {
+): Promise<CompletionItem[]> {
   // Array types (`T[]`) resolve their members from the declared `class Array<T>`.
   const resolvedClassName = arrayTypeNameToArrayAlias(className) ?? className;
-  const classStatement = resolveClassStatementAcrossFiles(
+  const classStatement = (await resolveClassStatementAcrossFiles(
     ast,
     baseTypeName(resolvedClassName),
     resolverOptions,
     resolverCache
-  )?.classStatement;
-  const interfaceStatement = resolveTopLevelDeclarationAcrossFiles({
+  ))?.classStatement;
+  const interfaceStatement = (await resolveTopLevelDeclarationAcrossFiles({
     ast,
     name: baseTypeName(resolvedClassName),
     currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
@@ -1583,11 +1583,11 @@ function buildMemberCompletionItemsForType(
     ...(resolverOptions.getSessionForFilePath
       ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
       : {})
-  })?.declaration;
+  }))?.declaration;
   return [
-    ...buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis),
+    ...await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis),
     ...(classStatement
-      ? buildClassMemberCompletionItems(
+      ? await buildClassMemberCompletionItems(
           classStatement,
           resolvedClassName,
           prefix,
@@ -1608,14 +1608,14 @@ function buildMemberCompletionItemsForType(
   ];
 }
 
-function buildMemberAccessCompletions(
+async function buildMemberAccessCompletions(
   ast: Program,
   analysis: Analysis,
   line: number,
   character: number,
   options: CompletionRequestOptions,
   allowRecovery = true
-): CompletionItem[] | null {
+): Promise<CompletionItem[] | null> {
   const resolverOptions = classResolverOptionsFromCompletionOptions(options);
   const resolverCache = createClassResolverCache();
 
@@ -1626,12 +1626,12 @@ function buildMemberAccessCompletions(
     const namespaceStatement =
       findNamespaceByPath(ast, pathSegments) ??
       (importerFilePath && pathSegments.length === 1 && pathSegments[0]
-        ? findNodeModuleNamespaceForTypeName(ast, pathSegments[0], importerFilePath)
+        ? await findNodeModuleNamespaceForTypeName(ast, pathSegments[0], importerFilePath)
         : null);
     if (namespaceStatement) {
       return buildNamespaceMemberCompletionItems(namespaceStatement, target.prefix);
     }
-    const className = resolveTypeNameFromPath(
+    const className = await resolveTypeNameFromPath(
       ast,
       analysis,
       pathSegments,
@@ -1641,7 +1641,7 @@ function buildMemberAccessCompletions(
       resolverCache
     );
     if (className) {
-      const items = buildMemberCompletionItemsForType(
+      const items = await buildMemberCompletionItemsForType(
         ast,
         analysis,
         className,
@@ -1668,7 +1668,7 @@ function buildMemberAccessCompletions(
   if (dot) {
     const receiverTypeName = analysis.getReceiverTypeNameEndingAt(line, dot.receiverEndCharacter);
     if (receiverTypeName && receiverTypeName !== "unknown") {
-      const items = buildMemberCompletionItemsForType(
+      const items = await buildMemberCompletionItemsForType(
         ast,
         analysis,
         receiverTypeName,
@@ -1715,11 +1715,11 @@ function recoverSourceForMemberAccessCompletion(
   return lines.join("\n");
 }
 
-function buildRecoveredMemberAccessCompletions(
+async function buildRecoveredMemberAccessCompletions(
   line: number,
   character: number,
   options: CompletionRequestOptions
-): CompletionItem[] | null {
+): Promise<CompletionItem[] | null> {
   if (!options.text) {
     return null;
   }
@@ -1744,16 +1744,16 @@ function buildRecoveredMemberAccessCompletions(
   );
 }
 
-export function createCompletionItemsForPosition(
+export async function createCompletionItemsForPosition(
   ast: Program,
   line: number,
   character: number,
   analysis?: Analysis | null,
   autoImportSuggestions: AutoImportSuggestion[] = [],
   options: CompletionRequestOptions = {}
-): CompletionItem[] {
+): Promise<CompletionItem[]> {
   const resolvedAnalysis = analysis ?? new Analysis(ast);
-  const memberCompletions = buildMemberAccessCompletions(
+  const memberCompletions = await buildMemberAccessCompletions(
     ast,
     resolvedAnalysis,
     line,
@@ -1766,7 +1766,7 @@ export function createCompletionItemsForPosition(
   const memberTarget = parseMemberAccessTarget(options.text, line, character);
   const literalReceiverType = memberTarget ? inferLiteralTypeName(memberTarget.objectPath) : null;
   if (memberTarget && literalReceiverType) {
-    const literalExtensionCompletions = buildExtensionMemberCompletionItems(
+    const literalExtensionCompletions = await buildExtensionMemberCompletionItems(
       ast,
       literalReceiverType,
       memberTarget.prefix,
@@ -1779,7 +1779,7 @@ export function createCompletionItemsForPosition(
   }
 
   const visibleSymbols = resolvedAnalysis.getVisibleSymbolsAt(line, character);
-  const expectedTypeName = inferExpectedTypeForPosition(
+  const expectedTypeName = await inferExpectedTypeForPosition(
     ast,
     resolvedAnalysis,
     line,
@@ -1817,7 +1817,7 @@ export function createCompletionItemsForPosition(
   // Named-argument suggestions (`url:`) are offered alongside the in-scope
   // symbols whenever the cursor is inside a call's argument list, ranked above
   // ordinary symbols so they surface first.
-  const namedArgumentItems = buildNamedArgumentCompletionItems(
+  const namedArgumentItems = await buildNamedArgumentCompletionItems(
     ast,
     resolvedAnalysis,
     line,

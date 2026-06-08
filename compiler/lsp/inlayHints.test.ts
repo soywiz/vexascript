@@ -5,7 +5,7 @@ import { createAnalysisSession } from "./analysisSession";
 import { createInlayHints } from "./inlayHints";
 
 describe("inlay hints", () => {
-  it("provides inferred type hints and parameter name hints", () => {
+  it("provides inferred type hints and parameter name hints", async () => {
     const source =
 dedent`
       class Box {
@@ -22,7 +22,7 @@ dedent`
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const hints = createInlayHints(
+    const hints = await createInlayHints(
       session.ast!,
       session.analysis!,
       {
@@ -45,7 +45,7 @@ dedent`
     );
   });
 
-  it("provides constructor parameter name hints for new expressions", () => {
+  it("provides constructor parameter name hints for new expressions", async () => {
     const source =
 dedent`
       class Point(val x: int, val y: int)
@@ -58,7 +58,7 @@ dedent`
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const hints = createInlayHints(
+    const hints = await createInlayHints(
       session.ast!,
       session.analysis!,
       {
@@ -72,7 +72,7 @@ dedent`
     expect(labels).toContain("y: ");
   });
 
-  it("does not emit parameter hints for arguments already passed by name", () => {
+  it("does not emit parameter hints for arguments already passed by name", async () => {
     const source =
 dedent`
       fun connect(host: string, port: number) {}
@@ -85,7 +85,7 @@ dedent`
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const hints = createInlayHints(
+    const hints = await createInlayHints(
       session.ast!,
       session.analysis!,
       {
@@ -99,7 +99,7 @@ dedent`
     expect(labels).not.toContain("port: ");
   });
 
-  it("emits hints only for positional arguments when mixed with named ones", () => {
+  it("emits hints only for positional arguments when mixed with named ones", async () => {
     const source =
 dedent`
       fun connect(host: string, port: number) {}
@@ -112,7 +112,7 @@ dedent`
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const hints = createInlayHints(
+    const hints = await createInlayHints(
       session.ast!,
       session.analysis!,
       {

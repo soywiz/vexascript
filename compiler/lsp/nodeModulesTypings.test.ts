@@ -39,7 +39,7 @@ describe("node_modules typings resolution", () => {
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
     const importerPath = join(root, "main.my");
-    const typings = getNodeModuleTypings(importerPath, "pkg");
+    const typings = await getNodeModuleTypings(importerPath, "pkg");
 
     expect(typings).not.toBeNull();
     expect(typings?.defaultExportName).toBe("pkg");
@@ -49,7 +49,7 @@ describe("node_modules typings resolution", () => {
   it("returns null for unknown packages", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
     const importerPath = join(root, "main.my");
-    const typings = getNodeModuleTypings(importerPath, "nonexistent-pkg");
+    const typings = await getNodeModuleTypings(importerPath, "nonexistent-pkg");
     expect(typings).toBeNull();
   });
 
@@ -60,7 +60,7 @@ describe("node_modules typings resolution", () => {
     await mkdir(subDir, { recursive: true });
     const importerPath = join(subDir, "main.my");
 
-    const typings = getNodeModuleTypings(importerPath, "pkg");
+    const typings = await getNodeModuleTypings(importerPath, "pkg");
     expect(typings).not.toBeNull();
     expect(typings?.defaultExportName).toBe("pkg");
   });
@@ -74,7 +74,7 @@ describe("node_modules typings resolution", () => {
     await writeFile(mainPath, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const declarations = collectImportedTypeDeclarations(session.ast!, {
+    const declarations = await collectImportedTypeDeclarations(session.ast!, {
       uri: `file://${mainPath}`,
       sourceRoots: [root],
       getSessionForFilePath: () => null
@@ -96,7 +96,7 @@ describe("node_modules typings resolution", () => {
     await writeFile(mainPath, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const symbolTypes = collectImportedSymbolTypes(session.ast!, {
+    const symbolTypes = await collectImportedSymbolTypes(session.ast!, {
       uri: `file://${mainPath}`,
       sourceRoots: [root],
       getSessionForFilePath: () => null
@@ -114,16 +114,9 @@ describe("node_modules typings resolution", () => {
     await writeFile(mainPath, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const symbolTypes = collectImportedSymbolTypes(session.ast!, {
-      uri: `file://${mainPath}`,
-      sourceRoots: [root],
-      getSessionForFilePath: () => null
-    });
-    const declarations = collectImportedTypeDeclarations(session.ast!, {
-      uri: `file://${mainPath}`,
-      sourceRoots: [root],
-      getSessionForFilePath: () => null
-    });
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
+    const declarations = await collectImportedTypeDeclarations(session.ast!, ctx);
 
     const richSession = createAnalysisSession(source, declarations, symbolTypes);
 
@@ -138,7 +131,7 @@ describe("node_modules typings resolution", () => {
 
     const importerPath = join(root, "main.my");
 
-    const result = findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "helper");
+    const result = await findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "helper");
     expect(result).not.toBeNull();
     expect(result?.typingsPath).toContain("index.d.ts");
     expect(result?.range.start.line).toBeGreaterThanOrEqual(0);
@@ -149,7 +142,7 @@ describe("node_modules typings resolution", () => {
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
     const importerPath = join(root, "main.my");
-    const result = findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "nonExistent");
+    const result = await findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "nonExistent");
     expect(result).toBeNull();
   });
 
@@ -163,8 +156,8 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = collectImportedSymbolTypes(session.ast!, ctx);
-    const declarations = collectImportedTypeDeclarations(session.ast!, ctx);
+    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
+    const declarations = await collectImportedTypeDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, declarations, symbolTypes);
 
     // `pkg.helper` should resolve to a function type (not unknown)

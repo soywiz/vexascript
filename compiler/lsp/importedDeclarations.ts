@@ -70,10 +70,10 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
  * still registered under its original name, which matches direct imports — the
  * common case for extension methods.
  */
-export function collectImportedTypeDeclarations(
+export async function collectImportedTypeDeclarations(
   ast: Program,
   context: CollectImportedDeclarationsContext
-): Statement[] {
+): Promise<Statement[]> {
   const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
   if (!currentFilePath) {
     return [];
@@ -87,11 +87,11 @@ export function collectImportedTypeDeclarations(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
+    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
     if (!targetFilePath) {
       // Bare specifier — load all declarations from node_modules typings so
       // named types (namespaces, interfaces) resolve for member access.
-      const nodeModuleTypings = getNodeModuleTypings(currentFilePath, importStatement.from.value);
+      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value);
       if (nodeModuleTypings) {
         for (const targetStatement of nodeModuleTypings.declarations) {
           // For node_modules .d.ts files, include all top-level declarations
@@ -112,7 +112,7 @@ export function collectImportedTypeDeclarations(
     if (wantedNames.size === 0) {
       continue;
     }
-    const targetSession = getProjectSessionForFilePath(targetFilePath, context);
+    const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
     if (!targetSession?.ast) {
       continue;
     }
@@ -141,10 +141,10 @@ export function collectImportedTypeDeclarations(
  * as `importedSymbolTypes` so cross-file calls resolve their value type and
  * participate in pervasive auto-await.
  */
-export function collectImportedSymbolTypes(
+export async function collectImportedSymbolTypes(
   ast: Program,
   context: CollectImportedDeclarationsContext
-): Map<string, AnalysisType> {
+): Promise<Map<string, AnalysisType>> {
   const result = new Map<string, AnalysisType>();
   const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
   if (!currentFilePath) {
@@ -156,11 +156,11 @@ export function collectImportedSymbolTypes(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
+    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
     if (!targetFilePath) {
       // Bare specifier — assign a named type from node_modules typings so that
       // default/namespace/named imports resolve their members in hover/completion.
-      const nodeModuleTypings = getNodeModuleTypings(currentFilePath, importStatement.from.value);
+      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value);
       if (nodeModuleTypings?.defaultExportName) {
         const exportType = namedType(nodeModuleTypings.defaultExportName);
         if (importStatement.defaultImport) {
@@ -179,7 +179,7 @@ export function collectImportedSymbolTypes(
     if (importStatement.specifiers.length === 0) {
       continue;
     }
-    const targetSession = getProjectSessionForFilePath(targetFilePath, context);
+    const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
     const targetAnalysis = targetSession?.analysis;
     if (!targetAnalysis) {
       continue;

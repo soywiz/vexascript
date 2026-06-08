@@ -49,12 +49,16 @@ export interface ResolvedExternals {
 export type ExternalDeclarationsResolver = (
   document: TextDocument,
   session: AnalysisSession
-) => ResolvedExternals;
+) => ResolvedExternals | Promise<ResolvedExternals>;
 
 export class AnalysisSessionCache {
   private readonly cache = new Map<string, { version: number; session: AnalysisSession }>();
+  private readonly pending = new Map<string, Promise<AnalysisSession>>();
 
-  constructor(private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver) {}
+  constructor(
+    private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver,
+    private readonly onSessionUpdated?: () => void
+  ) {}
 
   getForDocument(document: TextDocument): AnalysisSession {
     const cached = this.cache.get(document.uri);
@@ -63,7 +67,55 @@ export class AnalysisSessionCache {
     }
 
     const baseSession = createAnalysisSession(document.getText());
-    const resolved = this.resolveExternalDeclarations?.(document, baseSession);
+    if (!this.resolveExternalDeclarations) {
+      this.cache.set(document.uri, { version: document.version, session: baseSession });
+      return baseSession;
+    }
+
+    // Kick off async resolution if not already in progress for this version
+    const existingPending = this.pending.get(document.uri);
+    if (!existingPending) {
+      const docVersion = document.version;
+      const docText = document.getText();
+      const docUri = document.uri;
+      const resolvePromise = Promise.resolve(this.resolveExternalDeclarations(document, baseSession)).then((resolved) => {
+        const externalDeclarations = resolved?.externalDeclarations ?? [];
+        const importedSymbolTypes = resolved?.importedSymbolTypes ?? new Map();
+        const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0
+          ? createAnalysisSession(docText, externalDeclarations, importedSymbolTypes)
+          : baseSession;
+        // Only update if version still matches
+        const still = this.cache.get(docUri);
+        if (!still || still.version <= docVersion) {
+          this.cache.set(docUri, { version: docVersion, session });
+          this.onSessionUpdated?.();
+        }
+        this.pending.delete(docUri);
+        return session;
+      }).catch(() => {
+        this.pending.delete(docUri);
+        return baseSession;
+      });
+      this.pending.set(docUri, resolvePromise);
+    }
+
+    // Return stale or base session until async resolution completes
+    return cached?.session ?? baseSession;
+  }
+
+  async getForDocumentAsync(document: TextDocument): Promise<AnalysisSession> {
+    const cached = this.cache.get(document.uri);
+    if (cached && cached.version === document.version) {
+      return cached.session;
+    }
+
+    const baseSession = createAnalysisSession(document.getText());
+    if (!this.resolveExternalDeclarations) {
+      this.cache.set(document.uri, { version: document.version, session: baseSession });
+      return baseSession;
+    }
+
+    const resolved = await this.resolveExternalDeclarations(document, baseSession);
     const externalDeclarations = resolved?.externalDeclarations ?? [];
     const importedSymbolTypes = resolved?.importedSymbolTypes ?? new Map();
     const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0
@@ -75,9 +127,11 @@ export class AnalysisSessionCache {
 
   delete(uri: string): void {
     this.cache.delete(uri);
+    this.pending.delete(uri);
   }
 
   clear(): void {
     this.cache.clear();
+    this.pending.clear();
   }
 }

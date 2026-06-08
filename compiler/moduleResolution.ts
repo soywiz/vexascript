@@ -1,5 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
+import { access, readFile } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
+
+async function fileExists(path: string): Promise<boolean> {
+  return access(path).then(() => true).catch(() => false);
+}
 
 /**
  * Resolve an import path (as written in an `import ... from "<path>"` statement)
@@ -14,18 +18,18 @@ import { dirname, extname, resolve } from "node:path";
  * This is the shared resolver used by the semantic project index and the LSP
  * cross-file features so they all agree on how local module paths map to files.
  */
-export function resolveImportTargetFilePath(
+export async function resolveImportTargetFilePath(
   importerFilePath: string,
   importPath: string
-): string | null {
+): Promise<string | null> {
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
-  if (existsSync(direct)) {
+  if (await fileExists(direct)) {
     return direct;
   }
   if (!extname(direct)) {
     const withMyExt = `${direct}.my`;
-    if (existsSync(withMyExt)) {
+    if (await fileExists(withMyExt)) {
       return withMyExt;
     }
   }
@@ -40,10 +44,10 @@ export function resolveImportTargetFilePath(
  *
  * Returns `null` when the package or its declaration file cannot be located.
  */
-export function resolveNodeModulesTypingsPath(
+export async function resolveNodeModulesTypingsPath(
   importerFilePath: string,
   packageName: string
-): string | null {
+): Promise<string | null> {
   if (packageName.startsWith(".") || packageName.startsWith("/")) {
     return null;
   }
@@ -51,18 +55,18 @@ export function resolveNodeModulesTypingsPath(
   while (true) {
     const pkgDir = resolve(dir, "node_modules", packageName);
     const pkgJsonPath = resolve(pkgDir, "package.json");
-    if (existsSync(pkgJsonPath)) {
+    if (await fileExists(pkgJsonPath)) {
       try {
-        const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as Record<string, unknown>;
+        const pkg = JSON.parse(await readFile(pkgJsonPath, "utf8")) as Record<string, unknown>;
         const typingsField = (pkg["typings"] ?? pkg["types"]) as string | undefined;
         if (typingsField) {
           const typingsPath = resolve(pkgDir, typingsField);
-          if (existsSync(typingsPath)) {
+          if (await fileExists(typingsPath)) {
             return typingsPath;
           }
         }
         const indexDts = resolve(pkgDir, "index.d.ts");
-        if (existsSync(indexDts)) {
+        if (await fileExists(indexDts)) {
           return indexDts;
         }
       } catch {

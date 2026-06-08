@@ -64,7 +64,7 @@ describe("import quick fixes", () => {
 
     const sourceB = "fun demo() {\n  return new Point()\n}\n";
     const sessionB = createAnalysisSession(sourceB);
-    const actions = createAutoImportCodeActions({
+    const actions = await createAutoImportCodeActions({
       uri: pathToFileURL(fileB).toString(),
       ast: sessionB.ast,
       diagnostics: [undefinedVariableDiagnostic("Point")],
@@ -88,7 +88,7 @@ describe("import quick fixes", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const actions = createAutoImportCodeActions({
+    const actions = await createAutoImportCodeActions({
       uri: pathToFileURL(fileB).toString(),
       ast: sessionB.ast,
       diagnostics: [undefinedVariableDiagnostic("Vector")],
@@ -112,7 +112,7 @@ describe("import quick fixes", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const actions = createAutoImportCodeActions({
+    const actions = await createAutoImportCodeActions({
       uri: pathToFileURL(fileB).toString(),
       ast: sessionB.ast,
       diagnostics: [undefinedVariableDiagnostic("Point")],
@@ -132,7 +132,7 @@ describe("import quick fixes", () => {
     await writeFile(helloFile, sourceHello, "utf8");
 
     const sessionHello = createAnalysisSession(sourceHello);
-    const actions = createAutoImportCodeActions({
+    const actions = await createAutoImportCodeActions({
       uri: pathToFileURL(helloFile).toString(),
       ast: sessionHello.ast,
       diagnostics: [unknownTypeDiagnostic("TimeSpan")],
@@ -160,7 +160,7 @@ describe("import quick fixes", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const actions = createAutoImportCodeActions({
+    const actions = await createAutoImportCodeActions({
       uri: pathToFileURL(fileB).toString(),
       ast: sessionB.ast,
       diagnostics: [operatorNotDefinedDiagnostic("+", "Point", "Point")],
@@ -183,7 +183,7 @@ describe("import quick fixes", () => {
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
-    const suggestions = buildAutoImportSuggestions({
+    const suggestions = await buildAutoImportSuggestions({
       uri: pathToFileURL(fileB).toString(),
       ast: sessionB.ast,
       sourceRoots: [root],
@@ -204,7 +204,7 @@ describe("import quick fixes", () => {
     await writeFile(consumerFile, source, "utf8");
     const session = createAnalysisSession(source);
 
-    const actions = createAutoImportCodeActions({
+    const actions = await createAutoImportCodeActions({
       uri: pathToFileURL(consumerFile).toString(),
       ast: session.ast,
       diagnostics: [missingMemberDiagnostic("milliseconds", "int")],
@@ -234,7 +234,7 @@ describe("import quick fixes", () => {
     await writeFile(consumerFile, source, "utf8");
     const session = createAnalysisSession(source);
 
-    const suggestions = buildExtensionAutoImportSuggestions({
+    const suggestions = await buildExtensionAutoImportSuggestions({
       uri: pathToFileURL(consumerFile).toString(),
       ast: session.ast,
       sourceRoots: [root],

@@ -11,7 +11,7 @@ import { tokenizeReader } from "compiler/parser/tokenizer";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 
 describe("lsp symbols", () => {
-  it("builds hierarchical document symbols", () => {
+  it("builds hierarchical document symbols", async () => {
     const source = dedent`
       class Point(val x: int, val y: int) {
         move(dx: int, dy: int) {
@@ -36,7 +36,7 @@ describe("lsp symbols", () => {
   });
 
 
-  it("builds document symbols for exported declarations", () => {
+  it("builds document symbols for exported declarations", async () => {
     const ast = parseFile(tokenizeReader(dedent`
       export class Point { move() {} }
       export fun demo() {}
@@ -57,7 +57,7 @@ describe("lsp symbols", () => {
     await writeFile(worldFile, "class MyPoint\nfun buildPoint() {}\n", "utf8");
     await writeFile(helloFile, "let value = 1\n", "utf8");
 
-    const symbols = createWorkspaceSymbols({
+    const symbols = await createWorkspaceSymbols({
       sourceRoots: [root],
       query: "point"
     });

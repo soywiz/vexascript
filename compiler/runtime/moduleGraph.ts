@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { access, readFile } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
 import type {
   Identifier,
@@ -13,6 +13,7 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
 import { namedType } from "compiler/analysis/types";
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
 /**
@@ -30,18 +31,20 @@ import { transpile, type TranspileResult, type TranspileTarget } from "./transpi
  * resolve cross-file classes, operator overloads and extension properties.
  */
 
-function resolveLocalModulePath(importerFilePath: string, importPath: string): string | null {
+async function resolveLocalModulePath(importerFilePath: string, importPath: string): Promise<string | null> {
   if (!importPath.startsWith(".")) {
     return null;
   }
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
-  if (existsSync(direct) && extname(direct) === ".my") {
+  const directExists = await access(direct).then(() => true).catch(() => false);
+  if (directExists && extname(direct) === ".my") {
     return direct;
   }
   if (!extname(direct)) {
     const withMyExt = `${direct}.my`;
-    if (existsSync(withMyExt)) {
+    const withExtExists = await access(withMyExt).then(() => true).catch(() => false);
+    if (withExtExists) {
       return withMyExt;
     }
   }
@@ -115,22 +118,24 @@ function detectDtsDefaultExportName(ast: Program): string | null {
  * into `importedSymbolTypes`. This gives the CLI type-checker the same npm
  * package information the LSP already has.
  */
-function collectNodeModulesTypings(
+async function collectNodeModulesTypings(
   ast: Program,
   importerFilePath: string,
   externalDeclarations: Statement[],
   importedSymbolTypes: Map<string, AnalysisType>
-): void {
+): Promise<void> {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") continue;
     const importStatement = statement as ImportStatement;
     const specifier = importStatement.from.value;
     if (specifier.startsWith(".") || specifier.startsWith("/")) continue;
 
-    const typingsPath = resolveNodeModulesTypingsPath(importerFilePath, specifier);
-    if (!typingsPath || !existsSync(typingsPath)) continue;
+    const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, specifier);
+    if (!typingsPath) continue;
+    const exists = await access(typingsPath).then(() => true).catch(() => false);
+    if (!exists) continue;
 
-    const source = readFileSync(typingsPath, "utf8");
+    const source = await readFile(typingsPath, "utf8");
     const parsed = parseSource(source, { language: "typescript" });
     if (!parsed.ast) continue;
 
@@ -157,14 +162,14 @@ function collectNodeModulesTypings(
   }
 }
 
-function localImportSpecifiers(ast: Program, importerFilePath: string): { statement: ImportStatement; targetPath: string }[] {
+async function localImportSpecifiers(ast: Program, importerFilePath: string): Promise<{ statement: ImportStatement; targetPath: string }[]> {
   const imports: { statement: ImportStatement; targetPath: string }[] = [];
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") {
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetPath = resolveLocalModulePath(importerFilePath, importStatement.from.value);
+    const targetPath = await resolveLocalModulePath(importerFilePath, importStatement.from.value);
     if (targetPath) {
       imports.push({ statement: importStatement, targetPath });
     }
@@ -191,7 +196,9 @@ function stripBundledImports(code: string): string {
     .join("\n");
 }
 
-export function bundleModuleGraph(entryFilePath: string, target: TranspileTarget): TranspileResult {
+export async function bundleModuleGraph(entryFilePath: string, target: TranspileTarget): Promise<TranspileResult> {
+  await ensureEcmaScriptRuntimeProgram();
+
   const emittedByPath = new Map<string, string>();
   const analysisByPath = new Map<string, Analysis | null>();
   const order: string[] = [];
@@ -199,23 +206,23 @@ export function bundleModuleGraph(entryFilePath: string, target: TranspileTarget
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const visit = (filePath: string): void => {
+  const visit = async (filePath: string): Promise<void> => {
     if (emittedByPath.has(filePath) || inProgress.has(filePath)) {
       return;
     }
     inProgress.add(filePath);
 
-    const source = readFileSync(filePath, "utf8");
+    const source = await readFile(filePath, "utf8");
     const parsed = parseSource(source);
     const ast = parsed.ast;
 
     const externalDeclarations: Statement[] = [];
     const importedSymbolTypes = new Map<string, AnalysisType>();
     if (ast) {
-      collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes);
-      for (const { statement, targetPath } of localImportSpecifiers(ast, filePath)) {
-        visit(targetPath);
-        const dependencyParsed = parseSource(readFileSync(targetPath, "utf8"));
+      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes);
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath)) {
+        await visit(targetPath);
+        const dependencyParsed = parseSource(await readFile(targetPath, "utf8"));
         if (dependencyParsed.ast) {
           const importedNames = new Set(
             statement.specifiers.map((specifier) => specifier.imported.name)
@@ -257,7 +264,7 @@ export function bundleModuleGraph(entryFilePath: string, target: TranspileTarget
     order.push(filePath);
   };
 
-  visit(entryFilePath);
+  await visit(entryFilePath);
 
   const code = order
     .map((filePath) => emittedByPath.get(filePath) ?? "")

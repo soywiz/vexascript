@@ -17,6 +17,7 @@ import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
 import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
+import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { buildAutoImportSuggestions } from "./importFixes";
 import { collectCodeActions } from "./codeActionsAggregate";
 import {
@@ -58,7 +59,9 @@ import {
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(LspTextDocument);
-const analysisSessions = new AnalysisSessionCache((document, baseSession) => {
+let sourceRoots: string[] = [];
+let projectIndex: ProjectIndex = getProjectIndex([]);
+const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
   if (!baseSession.ast) {
     return { externalDeclarations: [], importedSymbolTypes: new Map() };
   }
@@ -67,13 +70,12 @@ const analysisSessions = new AnalysisSessionCache((document, baseSession) => {
     sourceRoots,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments
   };
-  return {
-    externalDeclarations: collectImportedTypeDeclarations(baseSession.ast, context),
-    importedSymbolTypes: collectImportedSymbolTypes(baseSession.ast, context)
-  };
-});
-let sourceRoots: string[] = [];
-let projectIndex: ProjectIndex = getProjectIndex([]);
+  const [externalDeclarations, importedSymbolTypes] = await Promise.all([
+    collectImportedTypeDeclarations(baseSession.ast, context),
+    collectImportedSymbolTypes(baseSession.ast, context)
+  ]);
+  return { externalDeclarations, importedSymbolTypes };
+}, () => refreshDiagnostics());
 const REFRESH_DIAGNOSTICS_COMMAND = "mylang.refreshDiagnostics";
 
 function candidateCharacters(character: number): number[] {
@@ -116,24 +118,26 @@ function resolveSourceRoots(params: InitializeParams): string[] {
   return roots;
 }
 
-function getSessionForFilePathFromOpenDocuments(filePath: string) {
+async function getSessionForFilePathFromOpenDocuments(filePath: string) {
   return projectIndex.getSessionForFilePath(resolvePath(filePath));
 }
 
-function collectWorkspaceDiagnosticsForDocument(doc: LspTextDocument): Diagnostic[] {
+async function collectWorkspaceDiagnosticsForDocument(doc: LspTextDocument): Promise<Diagnostic[]> {
   const session = analysisSessions.getForDocument(doc);
-  const crossFileDiagnostics = collectCrossFileMemberDiagnostics({
-    uri: doc.uri,
-    session,
-    sourceRoots,
-    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
-  });
-  const crossFileTypeDiagnostics = collectCrossFileTypeDiagnostics({
-    uri: doc.uri,
-    session,
-    sourceRoots,
-    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
-  });
+  const [crossFileDiagnostics, crossFileTypeDiagnostics] = await Promise.all([
+    collectCrossFileMemberDiagnostics({
+      uri: doc.uri,
+      session,
+      sourceRoots,
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    }),
+    collectCrossFileTypeDiagnostics({
+      uri: doc.uri,
+      session,
+      sourceRoots,
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    })
+  ]);
   const sameFileKeys = new Set(
     session.semanticIssues.map((issue) => {
       const token = issue.node.firstToken;
@@ -148,6 +152,9 @@ function collectWorkspaceDiagnosticsForDocument(doc: LspTextDocument): Diagnosti
     return !sameFileKeys.has(key);
   });
 }
+
+// Ensure runtime is loaded on server start (non-blocking background load)
+ensureEcmaScriptRuntimeProgram().catch(() => undefined);
 
 connection.onInitialize((params) => {
   sourceRoots = resolveSourceRoots(params);
@@ -222,14 +229,14 @@ function completionPrefixAt(text: string, offset: number): string {
 documents.onDidOpen((event) => {
   const filePath = uriToFilePath(event.document.uri);
   if (filePath) {
-    projectIndex.upsertOpenDocument(filePath, event.document.getText());
+    projectIndex.upsertOpenDocument(filePath, event.document.getText()).catch(() => undefined);
   }
   refreshDiagnostics();
 });
 documents.onDidChangeContent((event) => {
   const filePath = uriToFilePath(event.document.uri);
   if (filePath) {
-    projectIndex.upsertOpenDocument(filePath, event.document.getText());
+    projectIndex.upsertOpenDocument(filePath, event.document.getText()).catch(() => undefined);
   }
   refreshDiagnostics();
 });
@@ -243,7 +250,7 @@ documents.onDidClose((event) => {
   refreshDiagnostics();
 });
 
-connection.onCompletion((params) => {
+connection.onCompletion(async (params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return createKeywordOnlyCompletionItems();
@@ -259,7 +266,7 @@ connection.onCompletion((params) => {
     params.position.line,
     params.position.character
   ) ?? [];
-  const autoImportSuggestions = buildAutoImportSuggestions({
+  const autoImportSuggestions = await buildAutoImportSuggestions({
     uri: doc.uri,
     ast: session.ast,
     sourceRoots,
@@ -282,7 +289,7 @@ connection.onCompletion((params) => {
   );
 });
 
-connection.onCodeAction((params) => {
+connection.onCodeAction(async (params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return [];
@@ -293,7 +300,7 @@ connection.onCodeAction((params) => {
     return [];
   }
 
-  const actions = collectCodeActions({
+  const actions = await collectCodeActions({
     uri: params.textDocument.uri,
     text: doc.getText(),
     ast: session.ast,
@@ -382,7 +389,7 @@ connection.onDocumentHighlight((params) => {
   return analysis ? createDocumentHighlights(analysis, params.position.line, params.position.character) : [];
 });
 
-connection.onHover((params) => {
+connection.onHover(async (params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return null;
@@ -406,7 +413,7 @@ connection.onHover((params) => {
   }
 
   for (const character of candidateCharacters(params.position.character)) {
-    const memberHover = resolveMemberHoverAcrossFiles({
+    const memberHover = await resolveMemberHoverAcrossFiles({
       uri: params.textDocument.uri,
       line: params.position.line,
       character,
@@ -448,7 +455,7 @@ connection.onPrepareRename((params) => {
   return null;
 });
 
-connection.onRenameRequest((params) => {
+connection.onRenameRequest(async (params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return null;
@@ -460,7 +467,7 @@ connection.onRenameRequest((params) => {
   }
 
   for (const character of candidateCharacters(params.position.character)) {
-    const edit = resolveRenameAcrossFiles(
+    const edit = await resolveRenameAcrossFiles(
       {
         uri: params.textDocument.uri,
         line: params.position.line,
@@ -496,25 +503,20 @@ connection.languages.diagnostics.on((params) => {
   );
 });
 
-connection.languages.diagnostics.onWorkspace(() => {
-  const items = documents.all().map((doc): {
-    kind: typeof DocumentDiagnosticReportKind.Full;
-    items: Diagnostic[];
-    uri: string;
-    version: number;
-    resultId: string;
-  } => ({
-    kind: DocumentDiagnosticReportKind.Full,
-    items: collectWorkspaceDiagnosticsForDocument(doc),
+connection.languages.diagnostics.onWorkspace(async () => {
+  const docs = documents.all();
+  const items = await Promise.all(docs.map(async (doc) => ({
+    kind: DocumentDiagnosticReportKind.Full as typeof DocumentDiagnosticReportKind.Full,
+    items: await collectWorkspaceDiagnosticsForDocument(doc),
     uri: doc.uri,
     version: doc.version,
     resultId: String(doc.version)
-  }));
+  })));
 
   return { items };
 });
 
-connection.onReferences((params) => {
+connection.onReferences(async (params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return [];
@@ -537,7 +539,7 @@ connection.onReferences((params) => {
   );
 });
 
-connection.onSignatureHelp((params) => {
+connection.onSignatureHelp(async (params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return null;
@@ -582,7 +584,7 @@ connection.onWorkspaceSymbol((params) => {
   });
 });
 
-connection.languages.inlayHint.on((params) => {
+connection.languages.inlayHint.on(async (params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return [];

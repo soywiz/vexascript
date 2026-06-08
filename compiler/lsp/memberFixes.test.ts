@@ -40,7 +40,7 @@ fun demo() {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const actions = createCreateMemberCodeActions({
+    const actions = await createCreateMemberCodeActions({
       uri: pathToFileURL(helloFile).toString(),
       ast: session.ast,
       diagnostics: [
@@ -67,7 +67,7 @@ fun demo() {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const actions = createCreateMemberCodeActions({
+    const actions = await createCreateMemberCodeActions({
       uri: pathToFileURL(file).toString(),
       ast: session.ast,
       diagnostics: [
@@ -93,12 +93,12 @@ fun demo() {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const diagnostics = collectCrossFileMemberDiagnostics({
+    const diagnostics = await collectCrossFileMemberDiagnostics({
       uri: pathToFileURL(file).toString(),
       session,
       sourceRoots: [root]
     });
-    const actions = createCreateMemberCodeActions({
+    const actions = await createCreateMemberCodeActions({
       uri: pathToFileURL(file).toString(),
       ast: session.ast,
       analysis: session.analysis,
@@ -130,7 +130,7 @@ fun demo() {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const actions = createCreateMemberCodeActions({
+    const actions = await createCreateMemberCodeActions({
       uri: pathToFileURL(helloFile).toString(),
       ast: session.ast,
       analysis: session.analysis,

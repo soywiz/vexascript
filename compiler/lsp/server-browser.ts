@@ -166,7 +166,7 @@ export function startLspInWorker(): void {
     );
   });
 
-  connection.onCodeAction((params) => {
+  connection.onCodeAction(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
     const session = analysisSessions.getForDocument(doc);
@@ -222,7 +222,7 @@ export function startLspInWorker(): void {
     );
 
     actions.push(
-      ...createCreateMemberCodeActions({
+      ...await createCreateMemberCodeActions({
         uri: params.textDocument.uri,
         ast: session.ast,
         analysis: session.analysis,
@@ -233,7 +233,7 @@ export function startLspInWorker(): void {
     );
 
     actions.push(
-      ...createTypeFixCodeActions({
+      ...await createTypeFixCodeActions({
         uri: params.textDocument.uri,
         ast: session.ast,
         analysis: session.analysis,
@@ -395,7 +395,7 @@ export function startLspInWorker(): void {
     return session.ast ? createDocumentSymbols(session.ast) : [];
   });
 
-  connection.languages.inlayHint.on((params) => {
+  connection.languages.inlayHint.on(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
     const session = analysisSessions.getForDocument(doc);

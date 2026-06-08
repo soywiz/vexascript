@@ -64,12 +64,12 @@ function inRange(
   return true;
 }
 
-export function pickFunctionReturnTypeFromBody(
+export async function pickFunctionReturnTypeFromBody(
   body: Statement[],
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions
-): string | null {
+): Promise<string | null> {
   let resolved: string | null = null;
   let conflict = false;
 
@@ -86,24 +86,24 @@ export function pickFunctionReturnTypeFromBody(
     }
   };
 
-  const visitStatement = (statement: Statement): void => {
+  const visitStatement = async (statement: Statement): Promise<void> => {
     switch (statement.kind) {
       case "ReturnStatement":
         consider(
           (statement as ReturnStatement).expression
-            ? resolveExpressionTypeName((statement as ReturnStatement).expression!, analysis, ast, options)
+            ? await resolveExpressionTypeName((statement as ReturnStatement).expression!, analysis, ast, options)
             : "undefined"
         );
         return;
       case "BlockStatement":
         for (const child of (statement as BlockStatement).body) {
-          visitStatement(child);
+          await visitStatement(child);
         }
         return;
       case "IfStatement":
-        visitStatement((statement as IfStatement).thenBranch);
+        await visitStatement((statement as IfStatement).thenBranch);
         if ((statement as IfStatement).elseBranch) {
-          visitStatement((statement as IfStatement).elseBranch!);
+          await visitStatement((statement as IfStatement).elseBranch!);
         }
         return;
       case "WhileStatement":
@@ -123,7 +123,7 @@ export function pickFunctionReturnTypeFromBody(
   };
 
   for (const statement of body) {
-    visitStatement(statement);
+    await visitStatement(statement);
   }
 
   if (conflict) {
@@ -169,21 +169,21 @@ function getReturnTypeHintPosition(node: FunctionLikeSignatureNode): { line: num
   };
 }
 
-function pushParameterTypeHints(
+async function pushParameterTypeHints(
   parameters: FunctionParameter[],
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions,
   range: Range,
   hints: InlayHint[]
-): void {
+): Promise<void> {
   for (const parameter of parameters) {
     if (parameter.typeAnnotation || !parameter.name.lastToken) {
       continue;
     }
     const inferred =
       parameter.defaultValue
-        ? resolveExpressionTypeName(parameter.defaultValue, analysis, ast, options)
+        ? await resolveExpressionTypeName(parameter.defaultValue, analysis, ast, options)
         : null;
     if (!inferred || inferred === "unknown") {
       continue;
@@ -203,7 +203,7 @@ function pushParameterTypeHints(
   }
 }
 
-function pushReturnTypeHint(
+async function pushReturnTypeHint(
   node: FunctionLikeSignatureNode,
   explicitReturnType: { name: string } | undefined,
   body: Statement[],
@@ -213,11 +213,11 @@ function pushReturnTypeHint(
   options: ClassResolverOptions,
   range: Range,
   hints: InlayHint[]
-): void {
+): Promise<void> {
   if (explicitReturnType) {
     return;
   }
-  const inferred = pickFunctionReturnTypeFromBody(body, analysis, ast, options);
+  const inferred = await pickFunctionReturnTypeFromBody(body, analysis, ast, options);
   if (!inferred || inferred === "unknown") {
     return;
   }
@@ -236,20 +236,20 @@ function pushReturnTypeHint(
   });
 }
 
-function pushTypeHintForVarStatement(
+async function pushTypeHintForVarStatement(
   statement: VarStatement,
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions,
   range: Range,
   hints: InlayHint[]
-): void {
+): Promise<void> {
   if (statement.declarations && statement.declarations.length > 0) {
     for (const declaration of statement.declarations) {
       if (declaration.typeAnnotation || !declaration.initializer || !declaration.name.lastToken) {
         continue;
       }
-      const inferredType = resolveExpressionTypeName(declaration.initializer, analysis, ast, options);
+      const inferredType = await resolveExpressionTypeName(declaration.initializer, analysis, ast, options);
       if (!inferredType || inferredType === "unknown") {
         continue;
       }
@@ -272,7 +272,7 @@ function pushTypeHintForVarStatement(
   if (statement.typeAnnotation || !statement.initializer || !statement.name.lastToken) {
     return;
   }
-  const inferredType = resolveExpressionTypeName(statement.initializer, analysis, ast, options);
+  const inferredType = await resolveExpressionTypeName(statement.initializer, analysis, ast, options);
   if (!inferredType || inferredType === "unknown") {
     return;
   }
@@ -290,15 +290,15 @@ function pushTypeHintForVarStatement(
   });
 }
 
-function pushParameterHintsForCall(
+async function pushParameterHintsForCall(
   call: CallExpression,
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions,
   range: Range,
   hints: InlayHint[]
-): void {
-  const signature = resolveCallableSignature(call.callee, analysis, ast, options);
+): Promise<void> {
+  const signature = await resolveCallableSignature(call.callee, analysis, ast, options);
   if (!signature) {
     return;
   }
@@ -306,15 +306,15 @@ function pushParameterHintsForCall(
   pushArgumentParameterHints(call.arguments, signature.parameters, range, hints);
 }
 
-function pushParameterHintsForNewExpression(
+async function pushParameterHintsForNewExpression(
   expression: NewExpression,
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions,
   range: Range,
   hints: InlayHint[]
-): void {
-  const signature = resolveConstructorSignature(expression.callee, analysis, ast, options);
+): Promise<void> {
+  const signature = await resolveConstructorSignature(expression.callee, analysis, ast, options);
   if (!signature) {
     return;
   }
@@ -360,31 +360,31 @@ function pushArgumentParameterHints(
   }
 }
 
-export function createInlayHints(
+export async function createInlayHints(
   ast: Program,
   analysis: Analysis,
   range: Range,
   options: ClassResolverOptions = {}
-): InlayHint[] {
+): Promise<InlayHint[]> {
   const hints: InlayHint[] = [];
 
-  const visitExpression = (expression: Expr): void => {
+  const visitExpression = async (expression: Expr): Promise<void> => {
     switch (expression.kind) {
       case "CallExpression": {
         const call = expression as CallExpression;
-        visitExpression(call.callee);
+        await visitExpression(call.callee);
         for (const argument of call.arguments) {
-          visitExpression(argument);
+          await visitExpression(argument);
         }
-        pushParameterHintsForCall(call, analysis, ast, options, range, hints);
+        await pushParameterHintsForCall(call, analysis, ast, options, range, hints);
         return;
       }
       case "NewExpression":
-        visitExpression((expression as NewExpression).callee);
+        await visitExpression((expression as NewExpression).callee);
         for (const argument of (expression as NewExpression).arguments ?? []) {
-          visitExpression(argument);
+          await visitExpression(argument);
         }
-        pushParameterHintsForNewExpression(
+        await pushParameterHintsForNewExpression(
           expression as NewExpression,
           analysis,
           ast,
@@ -394,57 +394,57 @@ export function createInlayHints(
         );
         return;
       case "MemberExpression":
-        visitExpression((expression as MemberExpression).object);
+        await visitExpression((expression as MemberExpression).object);
         if ((expression as MemberExpression).computed) {
-          visitExpression((expression as MemberExpression).property);
+          await visitExpression((expression as MemberExpression).property);
         }
         return;
       case "CommaExpression":
         for (const child of (expression as CommaExpression).expressions) {
-          visitExpression(child);
+          await visitExpression(child);
         }
         return;
       case "AsExpression":
-        visitExpression((expression as AsExpression).expression);
+        await visitExpression((expression as AsExpression).expression);
         return;
       case "NonNullExpression":
-        visitExpression((expression as NonNullExpression).expression);
+        await visitExpression((expression as NonNullExpression).expression);
         return;
       case "NamedArgument":
-        visitExpression((expression as unknown as { value: Expr }).value);
+        await visitExpression((expression as unknown as { value: Expr }).value);
         return;
       case "BinaryExpression":
-        visitExpression((expression as BinaryExpression).left);
-        visitExpression((expression as BinaryExpression).right);
+        await visitExpression((expression as BinaryExpression).left);
+        await visitExpression((expression as BinaryExpression).right);
         return;
       case "RangeExpression":
-        visitExpression((expression as RangeExpression).start);
-        visitExpression((expression as RangeExpression).end);
+        await visitExpression((expression as RangeExpression).start);
+        await visitExpression((expression as RangeExpression).end);
         return;
       case "AssignmentExpression":
-        visitExpression((expression as AssignmentExpression).left);
-        visitExpression((expression as AssignmentExpression).right);
+        await visitExpression((expression as AssignmentExpression).left);
+        await visitExpression((expression as AssignmentExpression).right);
         return;
       case "ConditionalExpression":
-        visitExpression((expression as ConditionalExpression).test);
-        visitExpression((expression as ConditionalExpression).consequent);
-        visitExpression((expression as ConditionalExpression).alternate);
+        await visitExpression((expression as ConditionalExpression).test);
+        await visitExpression((expression as ConditionalExpression).consequent);
+        await visitExpression((expression as ConditionalExpression).alternate);
         return;
       case "UnaryExpression":
       case "UpdateExpression":
-        visitExpression((expression as UnaryExpression | UpdateExpression).argument);
+        await visitExpression((expression as UnaryExpression | UpdateExpression).argument);
         return;
       case "ArrayLiteral":
         for (const element of (expression as ArrayLiteral).elements) {
-          visitExpression(element);
+          await visitExpression(element);
         }
         return;
       case "ObjectLiteral":
         for (const property of (expression as ObjectLiteral).properties) {
           if (property.kind === "ObjectSpreadProperty") {
-            visitExpression(property.argument);
+            await visitExpression(property.argument);
           } else {
-            visitExpression(property.value);
+            await visitExpression(property.value);
           }
         }
         return;
@@ -453,38 +453,38 @@ export function createInlayHints(
     }
   };
 
-  const visitStatement = (statement: Statement): void => {
+  const visitStatement = async (statement: Statement): Promise<void> => {
     switch (statement.kind) {
       case "VarStatement":
-        pushTypeHintForVarStatement(statement as VarStatement, analysis, ast, options, range, hints);
+        await pushTypeHintForVarStatement(statement as VarStatement, analysis, ast, options, range, hints);
         if ((statement as VarStatement).declarations && (statement as VarStatement).declarations!.length > 0) {
           for (const declaration of (statement as VarStatement).declarations!) {
             if (declaration.initializer) {
-              visitExpression(declaration.initializer);
+              await visitExpression(declaration.initializer);
             }
           }
         } else if ((statement as VarStatement).initializer) {
-          visitExpression((statement as VarStatement).initializer!);
+          await visitExpression((statement as VarStatement).initializer!);
         }
         return;
       case "ExprStatement":
-        visitExpression((statement as ExprStatement).expression);
+        await visitExpression((statement as ExprStatement).expression);
         return;
       case "ReturnStatement":
         if ((statement as ReturnStatement).expression) {
-          visitExpression((statement as ReturnStatement).expression!);
+          await visitExpression((statement as ReturnStatement).expression!);
         }
         return;
       case "ThrowStatement":
-        visitExpression((statement as ThrowStatement).expression);
+        await visitExpression((statement as ThrowStatement).expression);
         return;
       case "BlockStatement":
         for (const child of (statement as BlockStatement).body) {
-          visitStatement(child);
+          await visitStatement(child);
         }
         return;
       case "FunctionStatement":
-        pushParameterTypeHints(
+        await pushParameterTypeHints(
           (statement as FunctionStatement).parameters,
           analysis,
           ast,
@@ -492,7 +492,7 @@ export function createInlayHints(
           range,
           hints
         );
-        pushReturnTypeHint(
+        await pushReturnTypeHint(
           statement as FunctionStatement,
           (statement as FunctionStatement).returnType,
           (statement as FunctionStatement).body.body,
@@ -504,15 +504,15 @@ export function createInlayHints(
           hints
         );
         for (const child of (statement as FunctionStatement).body.body) {
-          visitStatement(child);
+          await visitStatement(child);
         }
         return;
       case "ClassStatement":
         for (const member of (statement as ClassStatement).members) {
           if (member.kind === "ClassFieldMember" && member.initializer) {
-            visitExpression(member.initializer);
+            await visitExpression(member.initializer);
           } else if (member.kind === "ClassMethodMember") {
-            pushParameterTypeHints(
+            await pushParameterTypeHints(
               member.parameters,
               analysis,
               ast,
@@ -520,7 +520,7 @@ export function createInlayHints(
               range,
               hints
             );
-            pushReturnTypeHint(
+            await pushReturnTypeHint(
               member,
               member.returnType,
               member.body.body,
@@ -532,78 +532,78 @@ export function createInlayHints(
               hints
             );
             for (const child of member.body.body) {
-              visitStatement(child);
+              await visitStatement(child);
             }
           }
         }
         return;
       case "IfStatement":
-        visitExpression((statement as IfStatement).condition);
-        visitStatement((statement as IfStatement).thenBranch);
+        await visitExpression((statement as IfStatement).condition);
+        await visitStatement((statement as IfStatement).thenBranch);
         if ((statement as IfStatement).elseBranch) {
-          visitStatement((statement as IfStatement).elseBranch!);
+          await visitStatement((statement as IfStatement).elseBranch!);
         }
         return;
       case "WhileStatement":
-        visitExpression((statement as WhileStatement).condition);
-        visitStatement((statement as WhileStatement).body);
+        await visitExpression((statement as WhileStatement).condition);
+        await visitStatement((statement as WhileStatement).body);
         return;
       case "WithStatement":
-        visitExpression((statement as WithStatement).object);
-        visitStatement((statement as WithStatement).body);
+        await visitExpression((statement as WithStatement).object);
+        await visitStatement((statement as WithStatement).body);
         return;
       case "LabeledStatement":
-        visitStatement((statement as LabeledStatement).body);
+        await visitStatement((statement as LabeledStatement).body);
         return;
       case "DoWhileStatement":
-        visitStatement((statement as DoWhileStatement).body);
-        visitExpression((statement as DoWhileStatement).condition);
+        await visitStatement((statement as DoWhileStatement).body);
+        await visitExpression((statement as DoWhileStatement).condition);
         return;
       case "ForStatement":
         if ((statement as ForStatement).initializer && (statement as ForStatement).initializer!.kind === "VarStatement") {
-          visitStatement((statement as ForStatement).initializer as Statement);
+          await visitStatement((statement as ForStatement).initializer as Statement);
         } else if ((statement as ForStatement).initializer) {
-          visitExpression((statement as ForStatement).initializer as Expr);
+          await visitExpression((statement as ForStatement).initializer as Expr);
         }
         if ((statement as ForStatement).iterator && (statement as ForStatement).iterator!.kind === "VarStatement") {
-          visitStatement((statement as ForStatement).iterator as Statement);
+          await visitStatement((statement as ForStatement).iterator as Statement);
         } else if ((statement as ForStatement).iterator) {
-          visitExpression((statement as ForStatement).iterator as Expr);
+          await visitExpression((statement as ForStatement).iterator as Expr);
         }
         if ((statement as ForStatement).iterable) {
-          visitExpression((statement as ForStatement).iterable!);
+          await visitExpression((statement as ForStatement).iterable!);
         }
         if ((statement as ForStatement).condition) {
-          visitExpression((statement as ForStatement).condition!);
+          await visitExpression((statement as ForStatement).condition!);
         }
         if ((statement as ForStatement).update) {
-          visitExpression((statement as ForStatement).update!);
+          await visitExpression((statement as ForStatement).update!);
         }
-        visitStatement((statement as ForStatement).body);
+        await visitStatement((statement as ForStatement).body);
         return;
       case "SwitchStatement":
-        visitExpression((statement as SwitchStatement).discriminant);
+        await visitExpression((statement as SwitchStatement).discriminant);
         for (const switchCase of (statement as SwitchStatement).cases) {
           if (switchCase.test) {
-            visitExpression(switchCase.test);
+            await visitExpression(switchCase.test);
           }
           for (const child of switchCase.consequent) {
-            visitStatement(child);
+            await visitStatement(child);
           }
         }
         return;
       case "TryStatement":
         for (const child of (statement as TryStatement).tryBlock.body) {
-          visitStatement(child);
+          await visitStatement(child);
         }
         if ((statement as TryStatement).catchClause) {
           for (const child of (statement as TryStatement).catchClause!.body.body) {
-            visitStatement(child);
+            await visitStatement(child);
           }
         }
         if ((statement as TryStatement).finallyBlock) {
           for (const child of (statement as TryStatement).finallyBlock!.body) {
-            visitStatement(child);
+            await visitStatement(child);
           }
         }
         return;
@@ -613,7 +613,7 @@ export function createInlayHints(
   };
 
   for (const statement of ast.body) {
-    visitStatement(statement);
+    await visitStatement(statement);
   }
 
   return hints;

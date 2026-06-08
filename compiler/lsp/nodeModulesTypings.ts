@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { access, readFile, stat } from "node:fs/promises";
 import type { ExprStatement, FunctionStatement, Identifier, InterfaceStatement, NamespaceStatement, Program, Statement } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
@@ -25,8 +25,8 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-function parseTypingsProgram(typingsPath: string): Program | null {
-  const source = readFileSync(typingsPath, "utf8");
+async function parseTypingsProgram(typingsPath: string): Promise<Program | null> {
+  const source = await readFile(typingsPath, "utf8");
   const parsed = parseSource(source, { language: "typescript" });
   return parsed.ast ?? null;
 }
@@ -76,18 +76,22 @@ function detectNamespaceName(ast: Program): string | null {
  * and mtime. Returns `null` when the package or its declaration file cannot be
  * located.
  */
-export function getNodeModuleTypings(
+export async function getNodeModuleTypings(
   importerFilePath: string,
   packageName: string
-): NodeModuleTypings | null {
-  const typingsPath = resolveNodeModulesTypingsPath(importerFilePath, packageName);
-  if (!typingsPath || !existsSync(typingsPath)) {
+): Promise<NodeModuleTypings | null> {
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName);
+  if (!typingsPath) {
+    return null;
+  }
+  const exists = await access(typingsPath).then(() => true).catch(() => false);
+  if (!exists) {
     return null;
   }
 
   let mtimeMs: number;
   try {
-    mtimeMs = statSync(typingsPath).mtimeMs;
+    mtimeMs = (await stat(typingsPath)).mtimeMs;
   } catch {
     return null;
   }
@@ -97,7 +101,7 @@ export function getNodeModuleTypings(
     return cached.result;
   }
 
-  const ast = parseTypingsProgram(typingsPath);
+  const ast = await parseTypingsProgram(typingsPath);
   if (!ast) {
     return null;
   }
@@ -129,16 +133,16 @@ export interface NodeModuleMemberLocation {
  * This enables go-to-definition for members of types declared in node_modules
  * .d.ts files (e.g. `moment.parseZone` or `Moment.format`).
  */
-export function findNodeModuleMemberLocation(
+export async function findNodeModuleMemberLocation(
   importerFilePath: string,
   packageName: string,
   typeName: string,
   memberName: string
-): NodeModuleMemberLocation | null {
-  const typingsPath = resolveNodeModulesTypingsPath(importerFilePath, packageName);
+): Promise<NodeModuleMemberLocation | null> {
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName);
   if (!typingsPath) return null;
 
-  const typings = getNodeModuleTypings(importerFilePath, packageName);
+  const typings = await getNodeModuleTypings(importerFilePath, packageName);
   if (!typings) return null;
 
   const range = findMemberRangeInStatements(typings.declarations, typeName, memberName);

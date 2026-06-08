@@ -34,7 +34,7 @@ interface ClassResolution {
   options: {
     uri: string;
     sourceRoots: string[];
-    getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
+    getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
   };
 }
 
@@ -60,13 +60,13 @@ function parseMissingMemberDiagnostic(diagnostic: Diagnostic): MissingMemberDiag
   return { memberName, typeName, className: baseTypeName(typeName) };
 }
 
-function resolveClassTarget(params: {
+async function resolveClassTarget(params: {
   currentUri: string;
   currentAst: Program;
   typeName: string;
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
-}): ClassResolution | null {
+  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
+}): Promise<ClassResolution | null> {
   const cache = createClassResolverCache();
   const options = {
     uri: params.currentUri,
@@ -75,7 +75,7 @@ function resolveClassTarget(params: {
       ? { getSessionForFilePath: params.getSessionForFilePath }
       : {})
   };
-  const classResolution = resolveClassStatementAcrossFiles(
+  const classResolution = await resolveClassStatementAcrossFiles(
     params.currentAst,
     baseTypeName(params.typeName),
     options,
@@ -210,14 +210,14 @@ function inferMissingMemberTypeFromDiagnostic(
   return inferred;
 }
 
-export function createCreateMemberCodeActions(params: {
+export async function createCreateMemberCodeActions(params: {
   uri: string;
   ast: Program | null;
   analysis?: Analysis | null;
   diagnostics: Diagnostic[];
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
-}): CodeAction[] {
+  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
+}): Promise<CodeAction[]> {
   const { uri, ast, diagnostics, sourceRoots } = params;
   if (!ast || diagnostics.length === 0) {
     return [];
@@ -233,7 +233,7 @@ export function createCreateMemberCodeActions(params: {
     }
     const { className, memberName, typeName } = parsed;
 
-    const classTarget = resolveClassTarget({
+    const classTarget = await resolveClassTarget({
       currentUri: uri,
       currentAst: ast,
       typeName,
@@ -245,7 +245,7 @@ export function createCreateMemberCodeActions(params: {
     if (!classTarget) {
       continue;
     }
-    const existingMember = resolveClassMember(
+    const existingMember = await resolveClassMember(
       classTarget.classStatement,
       memberName,
       classTarget.objectTypeName,

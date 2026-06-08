@@ -317,13 +317,13 @@ function methodSignatureRange(method: ClassMethodMember): Range | null {
   };
 }
 
-export function createInterfaceImplementationCodeActions(params: {
+export async function createInterfaceImplementationCodeActions(params: {
   uri: string;
   ast: Program | null;
   diagnostics: Diagnostic[];
   sourceRoots: string[];
-  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null;
-}): CodeAction[] {
+  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
+}): Promise<CodeAction[]> {
   const { uri, ast, diagnostics, sourceRoots } = params;
   if (!ast || diagnostics.length === 0) {
     return [];
@@ -346,7 +346,7 @@ export function createInterfaceImplementationCodeActions(params: {
       continue;
     }
 
-    const classResolution = resolveClassStatementAcrossFiles(ast, parsed.className, options, cache);
+    const classResolution = await resolveClassStatementAcrossFiles(ast, parsed.className, options, cache);
     if (!classResolution) {
       continue;
     }
@@ -357,7 +357,7 @@ export function createInterfaceImplementationCodeActions(params: {
         continue;
       }
 
-      const expectedMember = resolveClassMember(
+      const expectedMember = await resolveClassMember(
         classResolution.classStatement,
         parsed.memberName,
         classObjectTypeName(classResolution.classStatement),

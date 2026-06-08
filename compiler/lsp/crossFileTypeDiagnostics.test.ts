@@ -36,7 +36,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -82,7 +82,7 @@ describe("cross-file type diagnostics", () => {
       }
       `
     );
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -112,7 +112,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -124,7 +124,7 @@ describe("cross-file type diagnostics", () => {
     ).toEqual({ line: 3, character: 9 });
   });
 
-  it("does not duplicate same-file member-call arity diagnostics already reported by analysis", () => {
+  it("does not duplicate same-file member-call arity diagnostics already reported by analysis", async () => {
     const source = dedent`
       class Logger {
         log(value: number): int { return 0 }
@@ -137,7 +137,7 @@ describe("cross-file type diagnostics", () => {
 `;
 
     const session = createAnalysisSession(source);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: "file:///demo.my",
       session,
       sourceRoots: []
@@ -167,7 +167,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -198,7 +198,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -230,7 +230,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -266,7 +266,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -305,7 +305,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]
@@ -335,7 +335,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(helloFile, helloSource, "utf8");
 
     const session = createAnalysisSession(helloSource);
-    const diagnostics = collectCrossFileTypeDiagnostics({
+    const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
       session,
       sourceRoots: [root]

@@ -173,19 +173,19 @@ export function findClassStatementInProgram(ast: Program, className: string): Cl
   return findTopLevelDeclarationInProgram(ast, className, isClassStatement);
 }
 
-export function resolveClassStatementAcrossFiles(
+export async function resolveClassStatementAcrossFiles(
   ast: Program,
   className: string,
   options: ClassResolverOptions,
   cache?: ClassResolverCache
-): ResolvedClassStatement | null {
+): Promise<ResolvedClassStatement | null> {
   const resolverCache = cache ?? createClassResolverCache();
   const cached = resolverCache.classStatementByName.get(className);
   if (cached !== undefined) {
     return cached;
   }
 
-  const resolved = resolveTopLevelDeclarationAcrossFiles({
+  const resolved = await resolveTopLevelDeclarationAcrossFiles({
     ast,
     name: className,
     currentFilePath: options.uri ? uriToFilePath(options.uri) : null,
@@ -207,18 +207,18 @@ export function resolveClassStatementAcrossFiles(
   return classStatement;
 }
 
-function resolveInterfaceStatementAcrossFiles(
+async function resolveInterfaceStatementAcrossFiles(
   ast: Program,
   interfaceName: string,
   options: ClassResolverOptions,
   cache: ClassResolverCache
-): ResolvedInterfaceStatement | null {
+): Promise<ResolvedInterfaceStatement | null> {
   const cached = cache.interfaceStatementByName.get(interfaceName);
   if (cached !== undefined) {
     return cached;
   }
 
-  const resolved = resolveTopLevelDeclarationAcrossFiles({
+  const resolved = await resolveTopLevelDeclarationAcrossFiles({
     ast,
     name: interfaceName,
     currentFilePath: options.uri ? uriToFilePath(options.uri) : null,
@@ -507,13 +507,13 @@ function resolveInterfaceOwnMember(
   return null;
 }
 
-function resolveInterfaceMemberRecursive(
+async function resolveInterfaceMemberRecursive(
   interfaceStatement: InterfaceStatement,
   memberName: string,
   objectTypeName: string | undefined,
   context: ResolutionContext,
   visitedInterfaces: Set<string>
-): ResolvedClassMember | null {
+): Promise<ResolvedClassMember | null> {
   const cacheKey = interfaceMemberCacheKey(interfaceStatement.name.name, memberName, objectTypeName);
   const cached = context.cache.interfaceMemberByRequest.get(cacheKey);
   if (cached !== undefined) {
@@ -540,7 +540,7 @@ function resolveInterfaceMemberRecursive(
 
   for (const parentType of interfaceStatement.extendsTypes ?? []) {
     const specializedParentType = substituteTypeNameText(parentType.name, substitutions);
-    const parentResolution = resolveInterfaceStatementAcrossFiles(
+    const parentResolution = await resolveInterfaceStatementAcrossFiles(
       context.ast,
       baseTypeName(specializedParentType),
       context.options,
@@ -549,7 +549,7 @@ function resolveInterfaceMemberRecursive(
     if (!parentResolution) {
       continue;
     }
-    const resolved = resolveInterfaceMemberRecursive(
+    const resolved = await resolveInterfaceMemberRecursive(
       parentResolution.interfaceStatement,
       memberName,
       specializedParentType,
@@ -566,14 +566,14 @@ function resolveInterfaceMemberRecursive(
   return null;
 }
 
-function resolveClassMemberRecursive(
+async function resolveClassMemberRecursive(
   classStatement: ClassStatement,
   memberName: string,
   objectTypeName: string | undefined,
   context: ResolutionContext,
   visitedClasses: Set<string>,
   visitedInterfaces: Set<string>
-): ResolvedClassMember | null {
+): Promise<ResolvedClassMember | null> {
   const cacheKey = classMemberCacheKey(classStatement.name.name, memberName, objectTypeName);
   const cached = context.cache.classMemberByRequest.get(cacheKey);
   if (cached !== undefined) {
@@ -596,14 +596,14 @@ function resolveClassMemberRecursive(
 
   if (classStatement.extendsType) {
     const specializedParentType = substituteTypeNameText(classStatement.extendsType.name, substitutions);
-    const parentResolution = resolveClassStatementAcrossFiles(
+    const parentResolution = await resolveClassStatementAcrossFiles(
       context.ast,
       baseTypeName(specializedParentType),
       context.options,
       context.cache
     );
     if (parentResolution) {
-      const resolved = resolveClassMemberRecursive(
+      const resolved = await resolveClassMemberRecursive(
         parentResolution.classStatement,
         memberName,
         specializedParentType,
@@ -620,7 +620,7 @@ function resolveClassMemberRecursive(
 
   for (const implementedType of classStatement.implementsTypes ?? []) {
     const specializedInterfaceType = substituteTypeNameText(implementedType.name, substitutions);
-    const interfaceResolution = resolveInterfaceStatementAcrossFiles(
+    const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
       context.ast,
       baseTypeName(specializedInterfaceType),
       context.options,
@@ -629,7 +629,7 @@ function resolveClassMemberRecursive(
     if (!interfaceResolution) {
       continue;
     }
-    const resolved = resolveInterfaceMemberRecursive(
+    const resolved = await resolveInterfaceMemberRecursive(
       interfaceResolution.interfaceStatement,
       memberName,
       specializedInterfaceType,
@@ -646,12 +646,12 @@ function resolveClassMemberRecursive(
   return null;
 }
 
-export function resolveClassMember(
+export async function resolveClassMember(
   classStatement: ClassStatement,
   memberName: string,
   objectTypeName?: string,
   context?: ResolveClassMemberContext
-): ResolvedClassMember | null {
+): Promise<ResolvedClassMember | null> {
   if (!context) {
     const substitutions = typeParameterSubstitutions(
       classStatement.typeParameters ?? [],
@@ -674,12 +674,12 @@ export function resolveClassMember(
   );
 }
 
-export function resolveInterfaceMember(
+export async function resolveInterfaceMember(
   interfaceStatement: InterfaceStatement,
   memberName: string,
   objectTypeName?: string,
   context?: ResolveClassMemberContext
-): ResolvedClassMember | null {
+): Promise<ResolvedClassMember | null> {
   if (!context) {
     const substitutions = typeParameterSubstitutions(
       interfaceStatement.typeParameters ?? [],
@@ -701,13 +701,13 @@ export function resolveInterfaceMember(
   );
 }
 
-function resolveClassMemberDeclarationRecursive(
+async function resolveClassMemberDeclarationRecursive(
   classResolution: ResolvedClassStatement,
   memberName: string,
   objectTypeName: string | undefined,
   context: ResolutionContext,
   visitedClasses: Set<string>
-): ResolvedClassMemberDeclaration | null {
+): Promise<ResolvedClassMemberDeclaration | null> {
   const classStatement = classResolution.classStatement;
   const visitKey = `${classStatement.name.name}|${objectTypeName ?? "<none>"}`;
   if (visitedClasses.has(visitKey)) {
@@ -730,7 +730,7 @@ function resolveClassMemberDeclarationRecursive(
     return null;
   }
   const specializedParentType = substituteTypeNameText(classStatement.extendsType.name, substitutions);
-  const parentResolution = resolveClassStatementAcrossFiles(
+  const parentResolution = await resolveClassStatementAcrossFiles(
     context.ast,
     baseTypeName(specializedParentType),
     context.options,
@@ -749,12 +749,12 @@ function resolveClassMemberDeclarationRecursive(
   );
 }
 
-export function resolveClassMemberDeclaration(
+export async function resolveClassMemberDeclaration(
   classResolution: ResolvedClassStatement,
   memberName: string,
   objectTypeName: string | undefined,
   context: ResolveClassMemberContext
-): ResolvedClassMemberDeclaration | null {
+): Promise<ResolvedClassMemberDeclaration | null> {
   return resolveClassMemberDeclarationRecursive(
     classResolution,
     memberName,
@@ -776,14 +776,14 @@ function addUniqueMemberName(names: string[], seen: Set<string>, memberName: str
   names.push(memberName);
 }
 
-function collectInterfaceMemberNamesRecursive(
+async function collectInterfaceMemberNamesRecursive(
   interfaceStatement: InterfaceStatement,
   objectTypeName: string | undefined,
   context: ResolutionContext,
   visitedInterfaces: Set<string>,
   names: string[],
   seenNames: Set<string>
-): void {
+): Promise<void> {
   const visitKey = `${interfaceStatement.name.name}|${objectTypeName ?? "<none>"}`;
   if (visitedInterfaces.has(visitKey)) {
     return;
@@ -800,7 +800,7 @@ function collectInterfaceMemberNamesRecursive(
   );
   for (const parentType of interfaceStatement.extendsTypes ?? []) {
     const specializedParentType = substituteTypeNameText(parentType.name, substitutions);
-    const parentResolution = resolveInterfaceStatementAcrossFiles(
+    const parentResolution = await resolveInterfaceStatementAcrossFiles(
       context.ast,
       baseTypeName(specializedParentType),
       context.options,
@@ -809,7 +809,7 @@ function collectInterfaceMemberNamesRecursive(
     if (!parentResolution) {
       continue;
     }
-    collectInterfaceMemberNamesRecursive(
+    await collectInterfaceMemberNamesRecursive(
       parentResolution.interfaceStatement,
       specializedParentType,
       context,
@@ -820,7 +820,7 @@ function collectInterfaceMemberNamesRecursive(
   }
 }
 
-function collectClassMemberNamesRecursive(
+async function collectClassMemberNamesRecursive(
   classStatement: ClassStatement,
   objectTypeName: string | undefined,
   context: ResolutionContext,
@@ -828,7 +828,7 @@ function collectClassMemberNamesRecursive(
   visitedInterfaces: Set<string>,
   names: string[],
   seenNames: Set<string>
-): void {
+): Promise<void> {
   const visitKey = `${classStatement.name.name}|${objectTypeName ?? "<none>"}`;
   if (visitedClasses.has(visitKey)) {
     return;
@@ -846,14 +846,14 @@ function collectClassMemberNamesRecursive(
 
   if (classStatement.extendsType) {
     const specializedParentType = substituteTypeNameText(classStatement.extendsType.name, substitutions);
-    const parentResolution = resolveClassStatementAcrossFiles(
+    const parentResolution = await resolveClassStatementAcrossFiles(
       context.ast,
       baseTypeName(specializedParentType),
       context.options,
       context.cache
     );
     if (parentResolution) {
-      collectClassMemberNamesRecursive(
+      await collectClassMemberNamesRecursive(
         parentResolution.classStatement,
         specializedParentType,
         context,
@@ -867,7 +867,7 @@ function collectClassMemberNamesRecursive(
 
   for (const implementedType of classStatement.implementsTypes ?? []) {
     const specializedInterfaceType = substituteTypeNameText(implementedType.name, substitutions);
-    const interfaceResolution = resolveInterfaceStatementAcrossFiles(
+    const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
       context.ast,
       baseTypeName(specializedInterfaceType),
       context.options,
@@ -876,7 +876,7 @@ function collectClassMemberNamesRecursive(
     if (!interfaceResolution) {
       continue;
     }
-    collectInterfaceMemberNamesRecursive(
+    await collectInterfaceMemberNamesRecursive(
       interfaceResolution.interfaceStatement,
       specializedInterfaceType,
       context,
@@ -887,11 +887,11 @@ function collectClassMemberNamesRecursive(
   }
 }
 
-export function resolveClassMemberNames(
+export async function resolveClassMemberNames(
   classStatement: ClassStatement,
   objectTypeName?: string,
   context?: ResolveClassMemberContext
-): string[] {
+): Promise<string[]> {
   const names: string[] = [];
   const seenNames = new Set<string>();
 
@@ -905,7 +905,7 @@ export function resolveClassMemberNames(
     return names;
   }
 
-  collectClassMemberNamesRecursive(
+  await collectClassMemberNamesRecursive(
     classStatement,
     objectTypeName,
     {
@@ -940,12 +940,12 @@ export function isTypeAssignableByName(sourceType: string, targetType: string): 
   return false;
 }
 
-export function resolveExpressionTypeName(
+export async function resolveExpressionTypeName(
   expression: Expr,
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions
-): string | null {
+): Promise<string | null> {
   const direct = typeNameFromAnalysisType(analysis.getExpressionTypes().get(expression));
   if (direct && direct !== "unknown" && !(expression.kind === "Identifier" && inferredTypeNameLosesGenericArguments(direct))) {
     return direct;
@@ -955,13 +955,13 @@ export function resolveExpressionTypeName(
     const assertion = expression as AsExpression;
     return typeNameFromAnalysisType(analysis.getExpressionTypes().get(assertion))
       ?? assertion.typeAnnotation.name
-      ?? resolveExpressionTypeName(assertion.expression, analysis, ast, options);
+      ?? await resolveExpressionTypeName(assertion.expression, analysis, ast, options);
   }
 
   if (expression.kind === "NonNullExpression") {
     const nonNull = expression as NonNullExpression;
     return typeNameFromAnalysisType(analysis.getExpressionTypes().get(nonNull))
-      ?? resolveExpressionTypeName(nonNull.expression, analysis, ast, options);
+      ?? await resolveExpressionTypeName(nonNull.expression, analysis, ast, options);
   }
 
   if (expression.kind === "Identifier") {
@@ -986,12 +986,12 @@ export function resolveExpressionTypeName(
 
   if (expression.kind === "CallExpression") {
     const call = expression as CallExpression;
-    const callable = resolveCallableSignature(call.callee, analysis, ast, options);
+    const callable = await resolveCallableSignature(call.callee, analysis, ast, options);
     return callable?.returnTypeName ?? null;
   }
 
   if (expression.kind === "AssignmentExpression") {
-    return resolveExpressionTypeName((expression as AssignmentExpression).right, analysis, ast, options);
+    return await resolveExpressionTypeName((expression as AssignmentExpression).right, analysis, ast, options);
   }
 
   if (expression.kind === "UnaryExpression") {
@@ -1009,13 +1009,13 @@ export function resolveExpressionTypeName(
       return "boolean";
     }
     if (unary.operator === "await") {
-      return resolveExpressionTypeName(unary.argument, analysis, ast, options);
+      return await resolveExpressionTypeName(unary.argument, analysis, ast, options);
     }
-    return resolveExpressionTypeName(unary.argument, analysis, ast, options);
+    return await resolveExpressionTypeName(unary.argument, analysis, ast, options);
   }
 
   if (expression.kind === "UpdateExpression") {
-    const argumentType = resolveExpressionTypeName(
+    const argumentType = await resolveExpressionTypeName(
       (expression as UpdateExpression).argument,
       analysis,
       ast,
@@ -1026,8 +1026,8 @@ export function resolveExpressionTypeName(
 
   if (expression.kind === "ConditionalExpression") {
     const conditional = expression as ConditionalExpression;
-    const consequentType = resolveExpressionTypeName(conditional.consequent, analysis, ast, options);
-    const alternateType = resolveExpressionTypeName(conditional.alternate, analysis, ast, options);
+    const consequentType = await resolveExpressionTypeName(conditional.consequent, analysis, ast, options);
+    const alternateType = await resolveExpressionTypeName(conditional.alternate, analysis, ast, options);
     if (consequentType && consequentType === alternateType) {
       return consequentType;
     }
@@ -1040,8 +1040,8 @@ export function resolveExpressionTypeName(
 
   if (expression.kind === "BinaryExpression") {
     const binary = expression as BinaryExpression;
-    const left = resolveExpressionTypeName(binary.left, analysis, ast, options);
-    const right = resolveExpressionTypeName(binary.right, analysis, ast, options);
+    const left = await resolveExpressionTypeName(binary.left, analysis, ast, options);
+    const right = await resolveExpressionTypeName(binary.right, analysis, ast, options);
     if (binary.operator === "+" && (left === "string" || right === "string")) {
       return "string";
     }
@@ -1074,14 +1074,14 @@ export function resolveExpressionTypeName(
     return null;
   }
 
-  const objectTypeName = resolveExpressionTypeName(member.object, analysis, ast, options);
+  const objectTypeName = await resolveExpressionTypeName(member.object, analysis, ast, options);
   const parsedObjectType = objectTypeName ? parseTypeNameShape(objectTypeName) : null;
   if (!parsedObjectType || BUILTIN_TYPE_NAMES.has(parsedObjectType.baseName)) {
     return null;
   }
 
   const resolverCache = createClassResolverCache();
-  const classResolution = resolveClassStatementAcrossFiles(
+  const classResolution = await resolveClassStatementAcrossFiles(
     ast,
     parsedObjectType.baseName,
     options,
@@ -1090,7 +1090,7 @@ export function resolveExpressionTypeName(
   if (!classResolution) {
     return null;
   }
-  const memberResolution = resolveClassMember(
+  const memberResolution = await resolveClassMember(
     classResolution.classStatement,
     (member.property as Identifier).name,
     objectTypeName ?? undefined,
@@ -1109,16 +1109,16 @@ export function resolveExpressionTypeName(
   return memberResolution.typeName;
 }
 
-function findNodeModuleNamespaceBody(
+async function findNodeModuleNamespaceBody(
   ast: Program,
   typeName: string,
   importerFilePath: string
-): Statement[] | null {
+): Promise<Statement[] | null> {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") continue;
     const importStatement = statement as ImportStatement;
     if (importStatement.from.value.startsWith(".")) continue;
-    const typings = getNodeModuleTypings(importerFilePath, importStatement.from.value);
+    const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value);
     if (!typings || typings.defaultExportName !== typeName) continue;
     for (const decl of typings.declarations) {
       const candidate =
@@ -1136,13 +1136,13 @@ function findNodeModuleNamespaceBody(
   return null;
 }
 
-function resolveNodeModuleNamespaceFunctionSignature(
+async function resolveNodeModuleNamespaceFunctionSignature(
   ast: Program,
   typeName: string,
   memberName: string,
   importerFilePath: string
-): ResolvedFunctionSignature | null {
-  const nsBody = findNodeModuleNamespaceBody(ast, typeName, importerFilePath);
+): Promise<ResolvedFunctionSignature | null> {
+  const nsBody = await findNodeModuleNamespaceBody(ast, typeName, importerFilePath);
   if (!nsBody) return null;
 
   for (const bodyStmt of nsBody) {
@@ -1170,12 +1170,12 @@ function resolveNodeModuleNamespaceFunctionSignature(
   return null;
 }
 
-export function resolveCallableSignature(
+export async function resolveCallableSignature(
   callee: Expr,
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions
-): ResolvedFunctionSignature | null {
+): Promise<ResolvedFunctionSignature | null> {
   if (callee.kind === "Identifier") {
     const identifier = callee as Identifier;
     if (!identifier.firstToken) {
@@ -1212,7 +1212,7 @@ export function resolveCallableSignature(
     return null;
   }
 
-  const objectTypeName = resolveExpressionTypeName(member.object, analysis, ast, options);
+  const objectTypeName = await resolveExpressionTypeName(member.object, analysis, ast, options);
   const parsedObjectType = objectTypeName ? parseTypeNameShape(objectTypeName) : null;
   if (!parsedObjectType || BUILTIN_TYPE_NAMES.has(parsedObjectType.baseName)) {
     return null;
@@ -1222,14 +1222,14 @@ export function resolveCallableSignature(
   const memberName = (member.property as Identifier).name;
   const memberContext = { ast, options, cache: resolverCache };
 
-  const classResolution = resolveClassStatementAcrossFiles(
+  const classResolution = await resolveClassStatementAcrossFiles(
     ast,
     parsedObjectType.baseName,
     options,
     resolverCache
   );
   if (classResolution) {
-    const memberResolution = resolveClassMember(
+    const memberResolution = await resolveClassMember(
       classResolution.classStatement,
       memberName,
       objectTypeName ?? undefined,
@@ -1244,14 +1244,14 @@ export function resolveCallableSignature(
   // ambient runtime globals such as `Math` and constructor objects like `Date`
   // (typed `declare var Date: DateConstructor`), whose static-style members
   // live on the (constructor) interface.
-  const interfaceResolution = resolveInterfaceStatementAcrossFiles(
+  const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
     ast,
     parsedObjectType.baseName,
     options,
     resolverCache
   );
   if (interfaceResolution) {
-    const memberResolution = resolveInterfaceMember(
+    const memberResolution = await resolveInterfaceMember(
       interfaceResolution.interfaceStatement,
       memberName,
       objectTypeName ?? undefined,
@@ -1265,7 +1265,7 @@ export function resolveCallableSignature(
   // Fallback: look for the member in a node_modules namespace declaration.
   const importerFilePath = options.uri ? uriToFilePath(options.uri) : null;
   if (importerFilePath) {
-    const nodeModuleSig = resolveNodeModuleNamespaceFunctionSignature(
+    const nodeModuleSig = await resolveNodeModuleNamespaceFunctionSignature(
       ast,
       parsedObjectType.baseName,
       memberName,
@@ -1277,12 +1277,12 @@ export function resolveCallableSignature(
   return null;
 }
 
-export function resolveConstructorSignature(
+export async function resolveConstructorSignature(
   callee: Expr,
   analysis: Analysis,
   ast: Program,
   options: ClassResolverOptions
-): ResolvedConstructorSignature | null {
+): Promise<ResolvedConstructorSignature | null> {
   if (callee.kind !== "Identifier") {
     return null;
   }
@@ -1292,7 +1292,7 @@ export function resolveConstructorSignature(
     return null;
   }
 
-  const classResolution = resolveClassStatementAcrossFiles(
+  const classResolution = await resolveClassStatementAcrossFiles(
     ast,
     identifier.name,
     options,
@@ -1324,7 +1324,7 @@ export function resolveConstructorSignature(
     return null;
   }
 
-  const resolvedClass = resolveClassStatementAcrossFiles(
+  const resolvedClass = await resolveClassStatementAcrossFiles(
     ast,
     className,
     options,
