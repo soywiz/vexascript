@@ -47,6 +47,7 @@ import {
   type NavigationHistoryState,
   type NavigationTarget,
 } from "./navigationHistory";
+import { registerEditorShortcuts } from "./editorShortcuts";
 
 self.MonacoEnvironment = {
   getWorker(_id: string, label: string): Worker {
@@ -272,7 +273,13 @@ async function main(): Promise<void> {
     if (!entry.readOnly) {
       model.onDidChangeContent(() => {
         entries = updateFileContent(entries, entry.uri, model.getValue());
-        renderTree(entries, activeUri, selectedPath, handleTreeSelection);
+        renderTree(
+          entries,
+          activeUri,
+          selectedPath,
+          handleTreeSelection,
+          showTreeContextMenu
+        );
         renderTabs(openTabs, entries, activeUri, selectDocument, closeTab);
         const activeEntry = activeUri ? findEntryByUri(entries, activeUri) : undefined;
         updateActiveFileLabel(activeEntry, JSON.stringify(entries) !== savedSnapshot);
@@ -396,7 +403,13 @@ async function main(): Promise<void> {
     setToolbarState(activeEntry);
     setNavigationButtonsState(navigationHistory);
     renderTabs(openTabs, entries, activeUri, selectDocument, closeTab);
-    renderTree(entries, activeUri, selectedPath, handleTreeSelection, showTreeContextMenu);
+    renderTree(
+      entries,
+      activeUri,
+      selectedPath,
+      handleTreeSelection,
+      showTreeContextMenu
+    );
   };
 
   const selectDocument = (
@@ -672,17 +685,9 @@ async function main(): Promise<void> {
     }
   });
 
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-    document.getElementById("btn-save")?.click();
-  });
-  editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Enter, () => {
-    void editor.getAction("editor.action.quickFix")?.run();
-  });
-  editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
-    navigateHistory("back");
-  });
-  editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => {
-    navigateHistory("forward");
+  registerEditorShortcuts(editor, monaco, {
+    navigateHistory,
+    saveWorkspace: () => document.getElementById("btn-save")?.click(),
   });
 }
 
