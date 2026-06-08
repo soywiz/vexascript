@@ -1,9 +1,11 @@
 import type {
   ArrowFunctionExpression,
+  ArrayBindingPattern,
   ArrayLiteral,
   AsExpression,
   AssignmentExpression,
   BinaryExpression,
+  BindingName,
   BlockStatement,
   CallExpression,
   ClassFieldMember,
@@ -34,6 +36,7 @@ import type {
   NewExpression,
   NamespaceStatement,
   NonNullExpression,
+  ObjectBindingPattern,
   ObjectLiteral,
   ObjectProperty,
   ObjectSpreadProperty,
@@ -506,7 +509,7 @@ export class TypeChecker {
           if (element.initializer) this.visitExpression(element.initializer, scope);
         }
         const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
-        for (const identifier of bindingIdentifiers(declaration.name)) this.updateSymbolType(scope, identifier.name, inferredType);
+        this.updateBindingSymbolTypes(scope, declaration.name, inferredType);
       }
       return;
     }
@@ -528,7 +531,119 @@ export class TypeChecker {
       if (element.initializer) this.visitExpression(element.initializer, scope);
     }
     const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
-    for (const identifier of bindingIdentifiers(statement.name)) this.updateSymbolType(scope, identifier.name, inferredType);
+    this.updateBindingSymbolTypes(scope, statement.name, inferredType);
+  }
+
+
+  private updateBindingSymbolTypes(scope: Scope, binding: BindingName, sourceType: AnalysisType): void {
+    if (binding.kind === "Identifier") {
+      this.updateSymbolType(scope, binding.name, sourceType);
+      return;
+    }
+
+    if (binding.kind === "ArrayBindingPattern") {
+      this.updateArrayBindingSymbolTypes(scope, binding, sourceType);
+      return;
+    }
+
+    this.updateObjectBindingSymbolTypes(scope, binding, sourceType);
+  }
+
+  private defineBindingParameterSymbols(scope: Scope, binding: BindingName, sourceType: AnalysisType): void {
+    const define = (name: Identifier, type: AnalysisType): void => {
+      scope.symbols.set(name.name, {
+        name: name.name,
+        kind: "parameter",
+        node: name,
+        declaredOffset: name.firstToken?.range.start.offset ?? -1,
+        type,
+        valueType: typeToString(type)
+      });
+    };
+    this.visitBindingIdentifiersWithTypes(binding, sourceType, define);
+  }
+
+  private updateArrayBindingSymbolTypes(scope: Scope, binding: ArrayBindingPattern, sourceType: AnalysisType): void {
+    binding.elements.forEach((element, index) => {
+      if (element.kind === "BindingHole") {
+        return;
+      }
+      const elementType = this.arrayBindingElementType(sourceType, index, element.rest === true);
+      this.updateBindingSymbolTypes(scope, element.name, elementType);
+    });
+  }
+
+  private updateObjectBindingSymbolTypes(scope: Scope, binding: ObjectBindingPattern, sourceType: AnalysisType): void {
+    for (const element of binding.elements) {
+      if (element.rest === true) {
+        this.updateBindingSymbolTypes(scope, element.name, UNKNOWN_TYPE);
+        continue;
+      }
+      const propertyName = element.propertyName?.name ?? (element.name.kind === "Identifier" ? element.name.name : undefined);
+      const propertyType = propertyName ? this.memberTypeFromObjectType(sourceType, propertyName) ?? UNKNOWN_TYPE : UNKNOWN_TYPE;
+      this.updateBindingSymbolTypes(scope, element.name, propertyType);
+    }
+  }
+
+  private visitBindingIdentifiersWithTypes(
+    binding: BindingName,
+    sourceType: AnalysisType,
+    visit: (identifier: Identifier, type: AnalysisType) => void
+  ): void {
+    if (binding.kind === "Identifier") {
+      visit(binding, sourceType);
+      return;
+    }
+
+    if (binding.kind === "ArrayBindingPattern") {
+      binding.elements.forEach((element, index) => {
+        if (element.kind === "BindingHole") {
+          return;
+        }
+        this.visitBindingIdentifiersWithTypes(
+          element.name,
+          this.arrayBindingElementType(sourceType, index, element.rest === true),
+          visit
+        );
+      });
+      return;
+    }
+
+    for (const element of binding.elements) {
+      const propertyName = element.propertyName?.name ?? (element.name.kind === "Identifier" ? element.name.name : undefined);
+      const propertyType = element.rest === true || !propertyName
+        ? UNKNOWN_TYPE
+        : this.memberTypeFromObjectType(sourceType, propertyName) ?? UNKNOWN_TYPE;
+      this.visitBindingIdentifiersWithTypes(element.name, propertyType, visit);
+    }
+  }
+
+  private arrayBindingElementType(sourceType: AnalysisType, index: number, rest: boolean): AnalysisType {
+    if (sourceType.kind === "tuple") {
+      if (rest) {
+        return this.arrayTypeFromElements(sourceType.elements.slice(index));
+      }
+      return sourceType.elements[index] ?? UNKNOWN_TYPE;
+    }
+    if (sourceType.kind === "array") {
+      return rest ? sourceType : sourceType.elementType;
+    }
+    if (sourceType.kind === "named" && sourceType.name === "Array" && sourceType.typeArguments?.[0]) {
+      const elementType = sourceType.typeArguments[0];
+      return rest ? arrayType(elementType) : elementType;
+    }
+    if (sourceType.kind === "union") {
+      const elementTypes = sourceType.types.map((member) => this.arrayBindingElementType(member, index, rest));
+      return elementTypes.length === 1 ? elementTypes[0]! : unionType(elementTypes);
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  private arrayTypeFromElements(elements: AnalysisType[]): AnalysisType {
+    if (elements.length === 0) {
+      return arrayType(UNKNOWN_TYPE);
+    }
+    return arrayType(elements.reduce((current, next) => this.commonSupertype(current, next)));
   }
 
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
@@ -571,7 +686,7 @@ export class TypeChecker {
             this.resolveTypeAnnotation(parameter.typeAnnotation, functionScope) ??
             (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, functionScope) : UNKNOWN_TYPE);
           this.validateRestParameterType(parameter, parameterType);
-          for (const identifier of bindingIdentifiers(parameter.name)) this.updateSymbolType(functionScope, identifier.name, parameterType);
+          this.updateBindingSymbolTypes(functionScope, parameter.name, parameterType);
           for (const element of bindingElements(parameter.name)) {
             if (element.initializer) this.visitExpression(element.initializer, functionScope);
           }
@@ -2246,7 +2361,7 @@ export class TypeChecker {
         tupleBody.length === 0
           ? []
           : splitTopLevelTypeText(tupleBody, ",").map((part) =>
-            this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames) ?? UNKNOWN_TYPE
+            this.typeFromTypeNameLooseWithTypeParameters(this.tupleElementTypeText(part), localTypeParameterNames) ?? UNKNOWN_TYPE
           )
       );
     }
@@ -2276,6 +2391,22 @@ export class TypeChecker {
       return this.expandTypeAliases(resolved);
     }
     return this.typeFromTypeNameLoose(typeName);
+  }
+
+
+  private tupleElementTypeText(elementText: string): string {
+    let trimmed = elementText.trim();
+    if (trimmed.startsWith("...")) {
+      trimmed = trimmed.slice(3).trim();
+    }
+    const colonIndex = findTopLevelTypeCharacter(trimmed, ":");
+    if (colonIndex >= 0) {
+      const label = trimmed.slice(0, colonIndex).trim();
+      if (/^[A-Za-z_$][\w$]*\??$/.test(label)) {
+        return trimmed.slice(colonIndex + 1).trim();
+      }
+    }
+    return trimmed;
   }
 
   private typeParameterConstraintMapLoose(
@@ -2339,7 +2470,7 @@ export class TypeChecker {
       return expectedType.kind === "object" || expectedType.kind === "named" ? expectedType : null;
     }
     if (argument.kind === "ArrayLiteral") {
-      return expectedType.kind === "array" || expectedType.kind === "range" ? expectedType : null;
+      return expectedType.kind === "array" || expectedType.kind === "range" || expectedType.kind === "tuple" ? expectedType : null;
     }
     return null;
   }
@@ -2435,6 +2566,19 @@ export class TypeChecker {
         explicitlyProvidedTypeParameters,
         substitutions
       );
+      return;
+    }
+
+    if (parameterType.kind === "tuple" && argumentType.kind === "tuple") {
+      for (let index = 0; index < parameterType.elements.length && index < argumentType.elements.length; index += 1) {
+        this.inferTypeParameterSubstitutions(
+          parameterType.elements[index]!,
+          argumentType.elements[index]!,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
       return;
     }
 
@@ -3308,12 +3452,34 @@ export class TypeChecker {
     return collected;
   }
 
+
+  private returnExpressionType(expression: Expr): AnalysisType {
+    if (expression.kind === "ArrayLiteral") {
+      return this.tupleTypeFromArrayLiteral(expression as ArrayLiteral);
+    }
+    return this.expressionTypes.get(expression) ?? UNKNOWN_TYPE;
+  }
+
+  private tupleTypeFromArrayLiteral(arrayLiteral: ArrayLiteral): AnalysisType {
+    return tupleType(arrayLiteral.elements.map((element) => {
+      if (element.kind === "ArrayHole") {
+        return builtinType("undefined");
+      }
+      const elementType = this.expressionTypes.get(element) ?? UNKNOWN_TYPE;
+      if (element.kind === "SpreadExpression") {
+        const spreadElementType = this.spreadArgumentElementType(elementType);
+        return spreadElementType;
+      }
+      return elementType;
+    }));
+  }
+
   private collectReturnExpressionTypesFromStatement(statement: Statement, collected: AnalysisType[]): void {
     switch (statement.kind) {
       case "ReturnStatement": {
         const expression = (statement as ReturnStatement).expression;
         if (expression) {
-          collected.push(this.expressionTypes.get(expression) ?? UNKNOWN_TYPE);
+          collected.push(this.returnExpressionType(expression));
         } else {
           collected.push(builtinType("undefined"));
         }
@@ -3587,7 +3753,7 @@ export class TypeChecker {
       const elements = tupleBody.trim().length === 0
         ? []
         : splitTopLevelTypeText(tupleBody, ",").map((part) =>
-            this.resolveTypeNameText(part, node, scope, false)
+            this.resolveTypeNameText(this.tupleElementTypeText(part), node, scope, false)
           );
       return tupleType(elements);
     }
@@ -3776,7 +3942,7 @@ export class TypeChecker {
       const tupleBody = tupleTypeMatch[1] ?? "";
       const elements = tupleBody.trim().length === 0
         ? []
-        : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(part));
+        : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(this.tupleElementTypeText(part)));
       return tupleType(elements);
     }
 
@@ -4339,16 +4505,7 @@ export class TypeChecker {
       for (const element of bindingElements(parameter.name)) {
         if (element.initializer) this.visitExpression(element.initializer, functionScope);
       }
-      for (const identifier of bindingIdentifiers(parameter.name)) {
-        functionScope.symbols.set(identifier.name, {
-          name: identifier.name,
-          kind: "parameter",
-          node: identifier,
-          declaredOffset: identifier.firstToken?.range.start.offset ?? -1,
-          type: parameterType,
-          valueType: typeToString(parameterType)
-        });
-      }
+      this.defineBindingParameterSymbols(functionScope, parameter.name, parameterType);
     }
     return functionScope;
   }
@@ -4611,12 +4768,12 @@ export class TypeChecker {
     const varStatement = iterator as VarStatement;
     if (varStatement.declarations && varStatement.declarations.length > 0) {
       for (const declaration of varStatement.declarations) {
-        for (const identifier of bindingIdentifiers(declaration.name)) this.updateSymbolType(scope, identifier.name, iteratorType);
+        this.updateBindingSymbolTypes(scope, declaration.name, iteratorType);
       }
       return;
     }
 
-    for (const identifier of bindingIdentifiers(varStatement.name)) this.updateSymbolType(scope, identifier.name, iteratorType);
+    this.updateBindingSymbolTypes(scope, varStatement.name, iteratorType);
   }
 
   private collectNamespaceStatements(program: Program): void {

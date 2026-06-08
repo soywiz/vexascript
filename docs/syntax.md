@@ -41,11 +41,12 @@ val a = 10 * 2, lol = true
 
 ### Destructuring declarations
 
-Variable declarations support nested object and array binding patterns. Object bindings may use shorthand names, property aliases, defaults, and rest bindings. Array bindings may use holes, defaults, nested patterns, and rest bindings.
+Variable declarations support nested object and array binding patterns. Object bindings may use shorthand names, property aliases, defaults, and rest bindings. Array bindings may use holes, defaults, nested patterns, and rest bindings. When the initializer has a tuple type, each introduced array binding receives the corresponding tuple element type.
 
 ```mylang
 let { id, name: displayName, nested: { value = 1 }, ...rest } = source
 const [first, , third = 3, ...tail] = values
+const [result, setResult] = useState(0) // result: int, setResult: (newValue: int) => void
 ```
 
 ## Functions
@@ -905,10 +906,11 @@ Optional member and computed access include `undefined` in their inferred result
 
 ### Array literals
 
-Array literals preserve TypeScript/JavaScript sparse holes during emission and runtime execution. A hole contributes `undefined` to semantic element inference, so `[1, , 3]` is compatible with an `(int | undefined)[]` expectation and emits as a sparse JavaScript array.
+Array literals preserve TypeScript/JavaScript sparse holes during emission and runtime execution. A hole contributes `undefined` to semantic element inference, so `[1, , 3]` is compatible with an `(int | undefined)[]` expectation and emits as a sparse JavaScript array. TypeScript-style tuple type annotations use square brackets, including labeled tuple elements such as `[value: T, setter: (newValue: T) => void]`.
 
 ```mylang
 let values: (int | undefined)[] = [1, , 3]
+let state: [value: int, setter: (newValue: int) => void] = [0, (newValue: int) => {}]
 ```
 
 ### Object literals
@@ -1286,6 +1288,7 @@ try {
 - Array literals infer an element type from their items. Sparse holes contribute `undefined` to element inference.
 - When an array literal is checked against an expected array type, that element type is used as context for nested generic calls.
 - When an array literal is checked against an expected tuple type, each tuple element type is used as context for the corresponding array element.
+- Array literals returned from functions infer tuple return types, so generic helpers such as `useState<T>(value: T) { return [value, (newValue: T) => {}] }` preserve each destructured element type at call sites.
 - Homogeneous arrays infer typed arrays, for example `int[]`.
 - Mixed element types unify to their common supertype. Members of the numeric tower unify to `numeric`, so `[10, 10L]` (an `int` and a `long`) infers `numeric[]`.
 - Mixed incompatible arrays (with no common supertype, for example `[10, "string"]`) fall back to `any[]`.
