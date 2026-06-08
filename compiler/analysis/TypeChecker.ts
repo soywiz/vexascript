@@ -512,13 +512,17 @@ export class TypeChecker {
         for (const element of bindingElements(declaration.name)) {
           if (element.initializer) this.visitExpression(element.initializer, scope);
         }
-        if (declaration.delegate && bindingIdentifiers(declaration.name).length !== 1) {
-          this.issues.push({
-            message: "Delegated variables must use a single identifier binding",
-            node: declaration.name
-          });
+        if (declaration.delegate) {
+          this.validateVariableDelegateType(delegateType ?? UNKNOWN_TYPE, declaration.delegate);
+          if (bindingIdentifiers(declaration.name).length !== 1) {
+            this.issues.push({
+              message: "Delegated variables must use a single identifier binding",
+              node: declaration.name
+            });
+          }
         }
         const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
+        this.validateBindingPatternSource(declaration.name, inferredType);
         this.updateBindingSymbolTypes(scope, declaration.name, inferredType);
       }
       return;
@@ -544,16 +548,96 @@ export class TypeChecker {
     for (const element of bindingElements(statement.name)) {
       if (element.initializer) this.visitExpression(element.initializer, scope);
     }
-    if (statement.delegate && bindingIdentifiers(statement.name).length !== 1) {
-      this.issues.push({
-        message: "Delegated variables must use a single identifier binding",
-        node: statement.name
-      });
+    if (statement.delegate) {
+      this.validateVariableDelegateType(delegateType ?? UNKNOWN_TYPE, statement.delegate);
+      if (bindingIdentifiers(statement.name).length !== 1) {
+        this.issues.push({
+          message: "Delegated variables must use a single identifier binding",
+          node: statement.name
+        });
+      }
     }
     const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
+    this.validateBindingPatternSource(statement.name, inferredType);
     this.updateBindingSymbolTypes(scope, statement.name, inferredType);
   }
 
+
+  private validateVariableDelegateType(delegateType: AnalysisType, node: Node): void {
+    if (this.isValidVariableDelegateType(delegateType)) {
+      return;
+    }
+    this.issues.push({
+      message: `Type '${typeToString(delegateType)}' is not a valid property delegate; expected a function, tuple, or object with a 'value' property`,
+      node
+    });
+  }
+
+  private isValidVariableDelegateType(delegateType: AnalysisType): boolean {
+    if (isUnknownType(delegateType) || (delegateType.kind === "builtin" && delegateType.name === "any")) {
+      return true;
+    }
+    if (delegateType.kind === "function" || delegateType.kind === "tuple") {
+      return true;
+    }
+    if (delegateType.kind === "object") {
+      return delegateType.properties["value"] !== undefined;
+    }
+    if (delegateType.kind === "union") {
+      return delegateType.types.every((member) => this.isValidVariableDelegateType(member));
+    }
+    return false;
+  }
+
+  private validateBindingPatternSource(binding: BindingName, sourceType: AnalysisType): void {
+    if (binding.kind === "Identifier") {
+      return;
+    }
+    if (binding.kind === "ArrayBindingPattern") {
+      if (!this.canDestructureArrayBinding(sourceType)) {
+        this.issues.push({
+          message: `Type '${typeToString(sourceType)}' cannot be destructured with an array binding pattern`,
+          node: binding
+        });
+      }
+      return;
+    }
+    if (!this.canDestructureObjectBinding(sourceType)) {
+      this.issues.push({
+        message: `Type '${typeToString(sourceType)}' cannot be destructured with an object binding pattern`,
+        node: binding
+      });
+    }
+  }
+
+  private canDestructureArrayBinding(sourceType: AnalysisType): boolean {
+    if (isUnknownType(sourceType) || (sourceType.kind === "builtin" && sourceType.name === "any")) {
+      return true;
+    }
+    if (sourceType.kind === "tuple" || sourceType.kind === "array") {
+      return true;
+    }
+    if (sourceType.kind === "named" && sourceType.name === "Array") {
+      return true;
+    }
+    if (sourceType.kind === "union") {
+      return sourceType.types.every((member) => this.canDestructureArrayBinding(member));
+    }
+    return false;
+  }
+
+  private canDestructureObjectBinding(sourceType: AnalysisType): boolean {
+    if (isUnknownType(sourceType) || (sourceType.kind === "builtin" && sourceType.name === "any")) {
+      return true;
+    }
+    if (sourceType.kind === "object" || sourceType.kind === "named") {
+      return true;
+    }
+    if (sourceType.kind === "union") {
+      return sourceType.types.every((member) => this.canDestructureObjectBinding(member));
+    }
+    return false;
+  }
 
   private variableDelegateValueType(delegateType: AnalysisType): AnalysisType {
     if (delegateType.kind === "function") {
