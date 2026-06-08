@@ -450,7 +450,7 @@ export function registerProviders(): Map<string, SessionState> {
   });
 
   monaco.languages.registerHoverProvider(LANG_ID, {
-    provideHover(model, position) {
+    async provideHover(model, position) {
       const session = getSession(model, cache);
       if (!session.analysis || !session.ast) return null;
       const line = position.lineNumber - 1;
@@ -459,7 +459,7 @@ export function registerProviders(): Map<string, SessionState> {
       // it and fall back to the in-file hover.
       let memberHover = null;
       try {
-        memberHover = resolveMemberHoverAcrossFiles({ line, character, session, ...resolverContext(model) });
+        memberHover = await resolveMemberHoverAcrossFiles({ line, character, session, ...resolverContext(model) });
       } catch {
         memberHover = null;
       }
@@ -475,10 +475,16 @@ export function registerProviders(): Map<string, SessionState> {
   monaco.languages.registerSignatureHelpProvider(LANG_ID, {
     signatureHelpTriggerCharacters: ["(", ","],
     signatureHelpRetriggerCharacters: [","],
-    provideSignatureHelp(model, position) {
+    async provideSignatureHelp(model, position) {
       const session = getSession(model, cache);
       if (!session.ast || !session.analysis) return null;
-      const help = createSignatureHelp(session.ast, session.analysis, position.lineNumber - 1, position.column - 1, resolverContext(model));
+      const help = await createSignatureHelp(
+        session.ast,
+        session.analysis,
+        position.lineNumber - 1,
+        position.column - 1,
+        resolverContext(model)
+      );
       if (!help) return null;
       return {
         value: {
@@ -498,15 +504,15 @@ export function registerProviders(): Map<string, SessionState> {
     },
   });
 
-  const resolveDefinition = (
+  const resolveDefinition = async (
     model: monaco.editor.ITextModel,
     position: monaco.IPosition
-  ): monaco.languages.Definition => {
+  ): Promise<monaco.languages.Definition> => {
     const session = getSession(model, cache);
     if (!session.analysis || !session.ast) return [];
     let location = null;
     try {
-      location = resolveDefinitionAcrossFiles({
+      location = await resolveDefinitionAcrossFiles({
         line: position.lineNumber - 1,
         character: position.column - 1,
         session,
@@ -534,12 +540,12 @@ export function registerProviders(): Map<string, SessionState> {
   });
 
   monaco.languages.registerReferenceProvider(LANG_ID, {
-    provideReferences(model, position, context) {
+    async provideReferences(model, position, context) {
       const session = getSession(model, cache);
       if (!session.analysis || !session.ast) return [];
-      let locations: ReturnType<typeof resolveReferencesAcrossFiles> = [];
+      let locations: Awaited<ReturnType<typeof resolveReferencesAcrossFiles>> = [];
       try {
-        locations = resolveReferencesAcrossFiles(
+        locations = await resolveReferencesAcrossFiles(
           {
             line: position.lineNumber - 1,
             character: position.column - 1,
@@ -580,12 +586,12 @@ export function registerProviders(): Map<string, SessionState> {
       const prepared = createPrepareRename(session.analysis, position.lineNumber - 1, position.column - 1);
       return normalizePrepareRenameResult(prepared) ?? reject;
     },
-    provideRenameEdits(model, position, newName) {
+    async provideRenameEdits(model, position, newName) {
       const session = getSession(model, cache);
       if (!session.analysis || !session.ast) return { edits: [] };
       let edit = null;
       try {
-        edit = resolveRenameAcrossFiles(
+        edit = await resolveRenameAcrossFiles(
           {
             line: position.lineNumber - 1,
             character: position.column - 1,
