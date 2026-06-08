@@ -1,24 +1,248 @@
-export const STATIC_WORKSPACE_URI = "file:///main.my";
-export const WORKSPACE_STORAGE_KEY = "mylang.monaco.main";
+export const MAIN_DOCUMENT_URI = "file:///main.my";
+export const RUNTIME_DOCUMENT_URI = "file:///runtime/es2025.d.ts";
+export const WORKSPACE_STORAGE_KEY = "mylang.monaco.workspace.v1";
 
 export interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 }
 
-export function resolveWorkspaceContent(
-  defaultContent: string,
-  storage?: StorageLike,
-  storageKey = WORKSPACE_STORAGE_KEY
-): string {
-  const stored = storage?.getItem(storageKey);
-  return stored ?? defaultContent;
+export interface WorkspaceFolder {
+  kind: "folder";
+  path: string;
+  uri: string;
+  label: string;
+  readOnly?: boolean;
 }
 
-export function persistWorkspaceContent(
+export interface WorkspaceFile {
+  kind: "file";
+  path: string;
+  uri: string;
+  label: string;
+  language: "mylang" | "typescript";
+  content: string;
+  readOnly?: boolean;
+}
+
+export type WorkspaceEntry = WorkspaceFolder | WorkspaceFile;
+
+interface StoredWorkspaceSnapshot {
+  folders: string[];
+  files: Array<{
+    path: string;
+    language: "mylang" | "typescript";
+    content: string;
+  }>;
+}
+
+function normalizePath(path: string): string {
+  const trimmed = path.trim().replace(/\\/g, "/");
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withLeadingSlash.replace(/\/+/g, "/");
+}
+
+function dirname(path: string): string {
+  const normalized = normalizePath(path);
+  const lastSlash = normalized.lastIndexOf("/");
+  if (lastSlash <= 0) return "/";
+  return normalized.slice(0, lastSlash);
+}
+
+function basename(path: string): string {
+  const normalized = normalizePath(path);
+  const lastSlash = normalized.lastIndexOf("/");
+  return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
+}
+
+function pathToUri(path: string): string {
+  return `file://${normalizePath(path)}`;
+}
+
+function guessLanguage(path: string): "mylang" | "typescript" {
+  return path.endsWith(".d.ts") || path.endsWith(".ts") ? "typescript" : "mylang";
+}
+
+export function createFileEntry(
+  path: string,
   content: string,
+  options: {
+    language?: "mylang" | "typescript";
+    readOnly?: boolean;
+  } = {}
+): WorkspaceFile {
+  const normalized = normalizePath(path);
+  return {
+    kind: "file",
+    path: normalized,
+    uri: pathToUri(normalized),
+    label: basename(normalized),
+    language: options.language ?? guessLanguage(normalized),
+    content,
+    ...(options.readOnly ? { readOnly: true } : {}),
+  };
+}
+
+export function createFolderEntry(path: string, readOnly = false): WorkspaceFolder {
+  const normalized = normalizePath(path);
+  return {
+    kind: "folder",
+    path: normalized,
+    uri: pathToUri(normalized),
+    label: basename(normalized),
+    ...(readOnly ? { readOnly: true } : {}),
+  };
+}
+
+function sortEntries(entries: WorkspaceEntry[]): WorkspaceEntry[] {
+  return [...entries].sort((left, right) => {
+    if (left.path === "/") return -1;
+    if (right.path === "/") return 1;
+    if (dirname(left.path) !== dirname(right.path)) {
+      return left.path.localeCompare(right.path);
+    }
+    if (left.kind !== right.kind) {
+      return left.kind === "folder" ? -1 : 1;
+    }
+    return left.label.localeCompare(right.label);
+  });
+}
+
+function ensureFolderPaths(paths: Iterable<string>): string[] {
+  const folderPaths = new Set<string>(["/"]);
+  for (const path of paths) {
+    let current = normalizePath(path);
+    while (current !== "/") {
+      current = dirname(current);
+      folderPaths.add(current);
+      if (current === "/") break;
+    }
+  }
+  return Array.from(folderPaths.values()).sort();
+}
+
+function serializeEditableWorkspace(entries: WorkspaceEntry[]): StoredWorkspaceSnapshot {
+  const editableFolders = entries
+    .filter((entry): entry is WorkspaceFolder => entry.kind === "folder" && !entry.readOnly && entry.path !== "/")
+    .map((entry) => entry.path);
+  const editableFiles = entries
+    .filter((entry): entry is WorkspaceFile => entry.kind === "file" && !entry.readOnly)
+    .map((entry) => ({
+      path: entry.path,
+      language: entry.language,
+      content: entry.content,
+    }));
+  return {
+    folders: editableFolders,
+    files: editableFiles,
+  };
+}
+
+function deserializeWorkspaceSnapshot(
+  snapshotText: string | null,
+  defaultMainContent: string
+): WorkspaceEntry[] | null {
+  if (!snapshotText) return null;
+  try {
+    const parsed = JSON.parse(snapshotText) as Partial<StoredWorkspaceSnapshot>;
+    const files = Array.isArray(parsed.files) ? parsed.files : [];
+    const folders = Array.isArray(parsed.folders) ? parsed.folders : [];
+    const fileEntries = files
+      .filter((entry): entry is StoredWorkspaceSnapshot["files"][number] =>
+        !!entry &&
+        typeof entry.path === "string" &&
+        typeof entry.content === "string" &&
+        (entry.language === "mylang" || entry.language === "typescript")
+      )
+      .map((entry) => createFileEntry(entry.path, entry.content, { language: entry.language }));
+    if (fileEntries.length === 0) {
+      fileEntries.push(createFileEntry("/main.my", defaultMainContent, { language: "mylang" }));
+    }
+    if (!fileEntries.some((entry) => entry.path === "/main.my")) {
+      fileEntries.unshift(createFileEntry("/main.my", defaultMainContent, { language: "mylang" }));
+    }
+    const folderPaths = new Set<string>(folders.filter((entry): entry is string => typeof entry === "string"));
+    for (const path of ensureFolderPaths([...folderPaths, ...fileEntries.map((entry) => entry.path)])) {
+      folderPaths.add(path);
+    }
+    const folderEntries = Array.from(folderPaths.values()).map((path) => createFolderEntry(path));
+    return sortEntries([...folderEntries, ...fileEntries]);
+  } catch {
+    return null;
+  }
+}
+
+export function resolveWorkspaceEntries(
+  defaultMainContent: string,
+  runtimeContent: string,
+  storage?: StorageLike,
+  storageKey = WORKSPACE_STORAGE_KEY
+): WorkspaceEntry[] {
+  const editableEntries =
+    deserializeWorkspaceSnapshot(storage?.getItem(storageKey) ?? null, defaultMainContent) ??
+    sortEntries([
+      createFolderEntry("/"),
+      createFileEntry("/main.my", defaultMainContent, { language: "mylang" }),
+    ]);
+
+  const runtimeEntries: WorkspaceEntry[] = [
+    createFolderEntry("/runtime", true),
+    createFileEntry("/runtime/es2025.d.ts", runtimeContent, {
+      language: "typescript",
+      readOnly: true,
+    }),
+  ];
+
+  return sortEntries([...editableEntries.filter((entry) => entry.path !== "/runtime" && entry.path !== "/runtime/es2025.d.ts"), ...runtimeEntries]);
+}
+
+export function persistWorkspaceEntries(
+  entries: WorkspaceEntry[],
   storage?: StorageLike,
   storageKey = WORKSPACE_STORAGE_KEY
 ): void {
-  storage?.setItem(storageKey, content);
+  storage?.setItem(storageKey, JSON.stringify(serializeEditableWorkspace(entries)));
+}
+
+export function listChildren(entries: WorkspaceEntry[], folderPath: string): WorkspaceEntry[] {
+  const normalized = normalizePath(folderPath);
+  return sortEntries(entries.filter((entry) => dirname(entry.path) === normalized && entry.path !== normalized));
+}
+
+export function findEntryByUri(entries: WorkspaceEntry[], uri: string): WorkspaceEntry | undefined {
+  return entries.find((entry) => entry.uri === uri);
+}
+
+export function updateFileContent(entries: WorkspaceEntry[], uri: string, content: string): WorkspaceEntry[] {
+  return entries.map((entry) =>
+    entry.kind === "file" && entry.uri === uri
+      ? { ...entry, content }
+      : entry
+  );
+}
+
+export function createFileInWorkspace(
+  entries: WorkspaceEntry[],
+  parentFolderPath: string,
+  name: string
+): WorkspaceEntry[] {
+  const trimmed = name.trim();
+  if (!trimmed) return entries;
+  const folderPath = normalizePath(parentFolderPath);
+  const fullPath = normalizePath(folderPath === "/" ? `/${trimmed}` : `${folderPath}/${trimmed}`);
+  if (entries.some((entry) => entry.path === fullPath)) return entries;
+  return sortEntries([...entries, createFileEntry(fullPath, "", { language: guessLanguage(fullPath) })]);
+}
+
+export function createFolderInWorkspace(
+  entries: WorkspaceEntry[],
+  parentFolderPath: string,
+  name: string
+): WorkspaceEntry[] {
+  const trimmed = name.trim();
+  if (!trimmed) return entries;
+  const folderPath = normalizePath(parentFolderPath);
+  const fullPath = normalizePath(folderPath === "/" ? `/${trimmed}` : `${folderPath}/${trimmed}`);
+  if (entries.some((entry) => entry.path === fullPath)) return entries;
+  return sortEntries([...entries, createFolderEntry(fullPath)]);
 }

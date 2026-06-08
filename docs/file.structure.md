@@ -73,7 +73,8 @@ This section is the fast onboarding map for agents and contributors.
     `plugins/monaco/src/lsp-client.ts`, `compiler/lsp/server-browser.ts`
   - Browser stubs for Node built-ins used by shared compiler modules:
     `plugins/monaco/src/browser-stubs/`
-  - Client-side static workspace persistence helpers (bundled sample + `localStorage`): `plugins/monaco/src/workspace.ts`
+  - Client-side Monaco sample shell with workspace tabs, left-hand file tree, and on-demand model creation over a browser-only virtual workspace: `plugins/monaco/src/main.ts`
+  - Client-side virtual-workspace and persistence helpers (bundled sample + runtime declarations + `localStorage`): `plugins/monaco/src/workspace.ts`
   - Code-lens command bridge translating LSP-style commands to native Monaco commands: `plugins/monaco/src/codeLensCommands.ts`
   - Monaco package manifest and Vite config: `plugins/monaco/package.json`, `plugins/monaco/vite.config.ts`
 - LSP server and features:
