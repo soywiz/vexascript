@@ -3421,15 +3421,23 @@ export class Parser {
         const firstName = this.parseBindingName();
         let propertyName: Identifier | undefined;
         let name = firstName;
+        let typeAnnotation: Identifier | undefined;
         let shorthand = false;
-        if (allowPropertyName && firstName.kind === "Identifier") {
-            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
-                this.tokens.skip();
-                propertyName = firstName;
-                name = this.parseBindingName();
-            } else {
-                shorthand = true;
-            }
+        const nextToken = this.tokens.peek();
+        if (allowPropertyName && firstName.kind === "Identifier" && nextToken?.type === "symbol" && nextToken.value === "::") {
+            this.tokens.skip();
+            propertyName = firstName;
+            name = this.parseBindingName();
+        } else if (allowPropertyName && firstName.kind === "Identifier" && nextToken?.type === "symbol" && nextToken.value === ":" && this.language === "typescript") {
+            this.tokens.skip();
+            propertyName = firstName;
+            name = this.parseBindingName();
+        } else if (allowPropertyName && firstName.kind === "Identifier") {
+            shorthand = true;
+        }
+        if (!rest && this.language === "mylang" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            this.tokens.skip();
+            typeAnnotation = this.parseTypeAnnotationNode();
         }
         let initializer: Expr | undefined;
         if (!rest && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
@@ -3438,6 +3446,7 @@ export class Parser {
         }
         const element: BindingElement = { kind: "BindingElement", name };
         if (propertyName) element.propertyName = propertyName;
+        if (typeAnnotation) element.typeAnnotation = typeAnnotation;
         if (shorthand) element.shorthand = true;
         if (rest) element.rest = true;
         if (initializer) element.initializer = initializer;

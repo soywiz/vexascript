@@ -679,7 +679,7 @@ export class TypeChecker {
         valueType: typeToString(type)
       });
     };
-    this.visitBindingIdentifiersWithTypes(binding, sourceType, define);
+    this.visitBindingIdentifiersWithTypes(scope, binding, sourceType, define);
   }
 
   private updateArrayBindingSymbolTypes(scope: Scope, binding: ArrayBindingPattern, sourceType: AnalysisType): void {
@@ -687,7 +687,10 @@ export class TypeChecker {
       if (element.kind === "BindingHole") {
         return;
       }
-      const elementType = this.arrayBindingElementType(sourceType, index, element.rest === true);
+      const inferredElementType = this.arrayBindingElementType(sourceType, index, element.rest === true);
+      const elementType = element.typeAnnotation
+        ? this.resolveTypeAnnotation(element.typeAnnotation, scope) ?? UNKNOWN_TYPE
+        : inferredElementType;
       this.updateBindingSymbolTypes(scope, element.name, elementType);
     });
   }
@@ -699,12 +702,16 @@ export class TypeChecker {
         continue;
       }
       const propertyName = element.propertyName?.name ?? (element.name.kind === "Identifier" ? element.name.name : undefined);
-      const propertyType = propertyName ? this.memberTypeFromObjectType(sourceType, propertyName) ?? UNKNOWN_TYPE : UNKNOWN_TYPE;
+      const inferredPropertyType = propertyName ? this.memberTypeFromObjectType(sourceType, propertyName) ?? UNKNOWN_TYPE : UNKNOWN_TYPE;
+      const propertyType = element.typeAnnotation
+        ? this.resolveTypeAnnotation(element.typeAnnotation, scope) ?? UNKNOWN_TYPE
+        : inferredPropertyType;
       this.updateBindingSymbolTypes(scope, element.name, propertyType);
     }
   }
 
   private visitBindingIdentifiersWithTypes(
+    scope: Scope,
     binding: BindingName,
     sourceType: AnalysisType,
     visit: (identifier: Identifier, type: AnalysisType) => void
@@ -719,9 +726,14 @@ export class TypeChecker {
         if (element.kind === "BindingHole") {
           return;
         }
+        const inferredElementType = this.arrayBindingElementType(sourceType, index, element.rest === true);
+        const elementType = element.typeAnnotation
+          ? this.resolveTypeAnnotation(element.typeAnnotation, scope) ?? UNKNOWN_TYPE
+          : inferredElementType;
         this.visitBindingIdentifiersWithTypes(
+          scope,
           element.name,
-          this.arrayBindingElementType(sourceType, index, element.rest === true),
+          elementType,
           visit
         );
       });
@@ -730,10 +742,13 @@ export class TypeChecker {
 
     for (const element of binding.elements) {
       const propertyName = element.propertyName?.name ?? (element.name.kind === "Identifier" ? element.name.name : undefined);
-      const propertyType = element.rest === true || !propertyName
+      const inferredPropertyType = element.rest === true || !propertyName
         ? UNKNOWN_TYPE
         : this.memberTypeFromObjectType(sourceType, propertyName) ?? UNKNOWN_TYPE;
-      this.visitBindingIdentifiersWithTypes(element.name, propertyType, visit);
+      const propertyType = element.typeAnnotation
+        ? this.resolveTypeAnnotation(element.typeAnnotation, scope) ?? UNKNOWN_TYPE
+        : inferredPropertyType;
+      this.visitBindingIdentifiersWithTypes(scope, element.name, propertyType, visit);
     }
   }
 

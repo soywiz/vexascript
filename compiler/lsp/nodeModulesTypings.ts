@@ -39,6 +39,12 @@ async function parseTypingsProgram(typingsPath: string, options: ModuleResolutio
  */
 function detectExportEqualsName(ast: Program): string | null {
   for (const stmt of ast.body) {
+    if (stmt.kind === "ExportStatement") {
+      const declaration = (stmt as { default?: boolean; declaration?: Statement }).declaration;
+      if ((stmt as { default?: boolean }).default === true && declaration?.kind === "FunctionStatement") {
+        return (declaration as FunctionStatement).name.name;
+      }
+    }
     if (stmt.kind === "ExprStatement") {
       const expr = (stmt as ExprStatement).expression;
       if (expr && expr.kind === "Identifier") {

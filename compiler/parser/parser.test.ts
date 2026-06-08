@@ -4487,7 +4487,7 @@ go = 7
     });
 
     it("parses object and array binding patterns in variable declarations", () => {
-        const program = parseFile(tokenizeReader("let { id, name: displayName, nested: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
+        const program = parseFile(tokenizeReader("let { id, name :: displayName, nested :: { value = 1 }, ...rest } = source\nconst [first, , third = 3, ...tail] = values"));
 
         expect(program.body[0]).toMatchObject({
             kind: "VarStatement",
@@ -4534,8 +4534,41 @@ go = 7
 });
 
 describe("destructured parameters", () => {
+    it("parses MyLang binding element type annotations and double-colon renames", () => {
+        const program = parseFile(tokenizeReader("function Page({ name : string, title :: displayTitle : string }, [count : int]) { return displayTitle }"));
+
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            parameters: [
+                { name: { kind: "ObjectBindingPattern", elements: [
+                    { name: { name: "name" }, shorthand: true, typeAnnotation: { name: "string" } },
+                    { propertyName: { name: "title" }, name: { name: "displayTitle" }, typeAnnotation: { name: "string" } }
+                ] } },
+                { name: { kind: "ArrayBindingPattern", elements: [
+                    { name: { name: "count" }, typeAnnotation: { name: "int" } }
+                ] } }
+            ]
+        });
+    });
+
+    it("keeps TypeScript object binding colons as renames", () => {
+        const program = parseFile(tokenizeReader("function Page({ name: displayName }: { name: string }) { return displayName }"), { language: "typescript" });
+
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            parameters: [
+                {
+                    name: { kind: "ObjectBindingPattern", elements: [
+                        { propertyName: { name: "name" }, name: { name: "displayName" } }
+                    ] },
+                    typeAnnotation: { name: "{ name: string }" }
+                }
+            ]
+        });
+    });
+
     it("parses object, array, nested, default, and rest binding patterns", () => {
-        const program = parseFile(tokenizeReader("function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail] = values) { return value }"));
+        const program = parseFile(tokenizeReader("function unpack({ id, nested :: { value = 1 }, ...meta }, [first, , ...tail] = values) { return value }"));
         expect(program.body[0]).toMatchObject({
             kind: "FunctionStatement",
             parameters: [

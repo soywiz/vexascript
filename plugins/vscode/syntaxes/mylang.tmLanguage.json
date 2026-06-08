@@ -164,6 +164,10 @@
           "match": "(\\?\\.|!\\.)"
         },
         {
+          "name": "keyword.operator.rename.mylang",
+          "match": "::"
+        },
+        {
           "name": "keyword.operator.logical.mylang",
           "match": "(\\|\\||&&|\\?\\?)"
         },
@@ -350,3 +354,4 @@
     }
   }
 }
+

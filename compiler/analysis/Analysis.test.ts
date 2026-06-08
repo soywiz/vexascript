@@ -1108,6 +1108,25 @@ let after = bind`));
     expect(messages.some((message) => message.includes("result + 1"))).toBe(false);
   });
 
+
+  it("uses MyLang inline destructuring type annotations and double-colon renames", () => {
+    const source = dedent`
+      function Page({ name : string, title :: displayTitle : string }) {
+        let label = name + displayTitle
+        return label
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(2, 5).map((symbol) => [symbol.name, symbol]));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(symbols.get("name")?.valueType).toBe("string");
+    expect(symbols.get("displayTitle")?.valueType).toBe("string");
+    expect(messages).not.toContain("Undefined variable 'name'");
+  });
+
   it("supports labeled TypeScript tuple element types", () => {
     const source = dedent`
       let pair: [name: string, count: int] = ["Ada", 1]
@@ -2885,7 +2904,7 @@ let after = bind`));
 
   it("binds every identifier introduced by nested destructuring declarations", () => {
     const source = dedent`
-      let { id, name: displayName, nested: { value = 1 }, ...rest } = source
+      let { id, name :: displayName, nested :: { value = 1 }, ...rest } = source
       const [first, , third = 3, ...tail] = values
       displayName; value; rest; first; third; tail
       first = 4
@@ -3029,7 +3048,7 @@ describe("enum semantic analysis", () => {
 
 describe("destructured parameter analysis", () => {
   it("binds every identifier introduced by nested parameter patterns", () => {
-    const source = "function unpack({ id, nested: { value = 1 }, ...meta }, [first, , ...tail]) { return id + value + first; meta; tail }";
+    const source = "function unpack({ id, nested :: { value = 1 }, ...meta }, [first, , ...tail]) { return id + value + first; meta; tail }";
     const messages = new Analysis(parseFile(tokenizeReader(source))).getIssues().map((issue) => issue.message);
     for (const name of ["id", "value", "meta", "first", "tail"]) {
       expect(messages).not.toContain(`Undefined variable '${name}'`);
