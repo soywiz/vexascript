@@ -479,7 +479,7 @@ export async function updateAutoAwaitGlyphs(
   collection.set(decorations);
 }
 
-export function registerProviders(workspaceContext?: ProviderWorkspaceContext, { enableInlayHints = false }: { enableInlayHints?: boolean } = {}): Map<string, SessionState> {
+export function registerProviders(workspaceContext?: ProviderWorkspaceContext, { enableInlayHints = false, enableReferenceCodeLens = false }: { enableInlayHints?: boolean; enableReferenceCodeLens?: boolean } = {}): Map<string, SessionState> {
   const cache = new Map<string, SessionState>();
 
   monaco.languages.registerCompletionItemProvider(LANG_ID, {
@@ -859,19 +859,21 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
     },
   });
 
-  monaco.languages.registerCodeLensProvider(LANG_ID, {
-    async provideCodeLenses(model) {
-      const session = await getSessionAsync(model, cache, workspaceContext);
-      if (!session.ast || !session.analysis) return { lenses: [], dispose: () => {} };
-      return {
-        lenses: createReferenceCodeLenses(session.ast, session.analysis, model.uri.toString()).map((lens) => ({
-          range: toMonacoRange(lens.range),
-          command: mapCodeLensCommand(lens.command),
-        })),
-        dispose: () => {},
-      };
-    },
-  });
+  if (enableReferenceCodeLens) {
+    monaco.languages.registerCodeLensProvider(LANG_ID, {
+      async provideCodeLenses(model) {
+        const session = await getSessionAsync(model, cache, workspaceContext);
+        if (!session.ast || !session.analysis) return { lenses: [], dispose: () => {} };
+        return {
+          lenses: createReferenceCodeLenses(session.ast, session.analysis, model.uri.toString()).map((lens) => ({
+            range: toMonacoRange(lens.range),
+            command: mapCodeLensCommand(lens.command),
+          })),
+          dispose: () => {},
+        };
+      },
+    });
+  }
 
   return cache;
 }

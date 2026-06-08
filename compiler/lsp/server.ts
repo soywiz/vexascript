@@ -61,6 +61,7 @@ const connection = createConnection(ProposedFeatures.all, process.stdin, process
 const documents = new TextDocuments(LspTextDocument);
 let sourceRoots: string[] = [];
 let inlayHintsEnabled = false;
+let referenceCodeLensEnabled = false;
 let projectIndex: ProjectIndex = getProjectIndex([]);
 const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
   if (!baseSession.ast) {
@@ -160,6 +161,7 @@ ensureEcmaScriptRuntimeProgram().catch(() => undefined);
 connection.onInitialize((params) => {
   sourceRoots = resolveSourceRoots(params);
   projectIndex = getProjectIndex(sourceRoots);
+  referenceCodeLensEnabled = params.initializationOptions?.enableReferenceCodeLens === true;
   return {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -180,7 +182,7 @@ connection.onInitialize((params) => {
       typeDefinitionProvider: true,
       implementationProvider: true,
       documentHighlightProvider: true,
-      codeLensProvider: { resolveProvider: false },
+      codeLensProvider: referenceCodeLensEnabled ? { resolveProvider: false } : undefined,
       foldingRangeProvider: true,
       selectionRangeProvider: true,
       linkedEditingRangeProvider: true,
@@ -611,6 +613,7 @@ connection.languages.inlayHint.on(async (params) => {
 });
 
 connection.onCodeLens((params) => {
+  if (!referenceCodeLensEnabled) return [];
   const doc = documents.get(params.textDocument.uri);
   if (!doc) return [];
   const session = analysisSessions.getForDocument(doc);
@@ -661,6 +664,11 @@ connection.onDidChangeConfiguration(async () => {
   if (newEnabled !== inlayHintsEnabled) {
     inlayHintsEnabled = newEnabled;
     connection.languages.inlayHint.refresh();
+  }
+  const newCodeLensEnabled = config?.referenceCodeLens?.enabled === true;
+  if (newCodeLensEnabled !== referenceCodeLensEnabled) {
+    referenceCodeLensEnabled = newCodeLensEnabled;
+    connection.sendRequest("workspace/codeLens/refresh");
   }
   refreshDiagnostics();
 });

@@ -40,7 +40,17 @@
         "scopeName": "source.mylang",
         "path": "./syntaxes/mylang.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "MyLang",
+      "properties": {
+        "mylang.referenceCodeLens.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show inline reference counts (e.g. '2 references') above declarations."
+        }
+      }
+    }
   },
   "scripts": {
     "lint": "echo \"No lint configured\""

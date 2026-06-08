@@ -359,7 +359,7 @@ export interface SemanticTokensLegend {
 export function registerProviders(
   lsp: CompilerClient,
   legend: SemanticTokensLegend,
-  { enableInlayHints = false }: { enableInlayHints?: boolean } = {}
+  { enableInlayHints = false, enableReferenceCodeLens = false }: { enableInlayHints?: boolean; enableReferenceCodeLens?: boolean } = {}
 ): void {
   // ── Completion ──────────────────────────────────────────────────────────────
   monaco.languages.registerCompletionItemProvider(LANG_ID, {
@@ -822,25 +822,27 @@ export function registerProviders(
   });
 
   // ── Code Lens (reference counts) ───────────────────────────────────────────
-  monaco.languages.registerCodeLensProvider(LANG_ID, {
-    async provideCodeLenses(model) {
-      try {
-        const raw = await lsp.request<
-          Array<{ range: LspRange; command?: { title: string; command: string } }> | null
-        >("textDocument/codeLens", { textDocument: { uri: model.uri.toString() } });
-        if (!raw) return { lenses: [], dispose: () => undefined };
-        return {
-          lenses: raw.map((cl) => ({
-            range: toMonacoRange(cl.range),
-            command: mapCodeLensCommand(cl.command),
-          })),
-          dispose: () => undefined,
-        };
-      } catch {
-        return { lenses: [], dispose: () => undefined };
-      }
-    },
-  });
+  if (enableReferenceCodeLens) {
+    monaco.languages.registerCodeLensProvider(LANG_ID, {
+      async provideCodeLenses(model) {
+        try {
+          const raw = await lsp.request<
+            Array<{ range: LspRange; command?: { title: string; command: string } }> | null
+          >("textDocument/codeLens", { textDocument: { uri: model.uri.toString() } });
+          if (!raw) return { lenses: [], dispose: () => undefined };
+          return {
+            lenses: raw.map((cl) => ({
+              range: toMonacoRange(cl.range),
+              command: mapCodeLensCommand(cl.command),
+            })),
+            dispose: () => undefined,
+          };
+        } catch {
+          return { lenses: [], dispose: () => undefined };
+        }
+      },
+    });
+  }
 
   // ── Linked Editing (rename matching pairs in sync) ──────────────────────────
   monaco.languages.registerLinkedEditingRangeProvider(LANG_ID, {

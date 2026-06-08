@@ -77,6 +77,7 @@ export function startLspInWorker(): void {
   const documents = new TextDocuments(LspTextDocument);
   const analysisSessions = new AnalysisSessionCache();
   let inlayHintsEnabled = false;
+  let referenceCodeLensEnabled = false;
 
   function refreshDiagnostics(): void {
     connection.languages.diagnostics.refresh();
@@ -99,7 +100,9 @@ export function startLspInWorker(): void {
     return text.slice(i, offset);
   }
 
-  connection.onInitialize(() => ({
+  connection.onInitialize((params) => {
+    referenceCodeLensEnabled = params.initializationOptions?.enableReferenceCodeLens === true;
+    return {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
       completionProvider: {
@@ -114,7 +117,7 @@ export function startLspInWorker(): void {
       typeDefinitionProvider: true,
       implementationProvider: true,
       documentHighlightProvider: true,
-      codeLensProvider: { resolveProvider: false },
+      codeLensProvider: referenceCodeLensEnabled ? { resolveProvider: false } : undefined,
       foldingRangeProvider: true,
       selectionRangeProvider: true,
       linkedEditingRangeProvider: true,
@@ -142,7 +145,8 @@ export function startLspInWorker(): void {
       inlayHintProvider: inlayHintsEnabled ? true : undefined,
       renameProvider: { prepareProvider: true },
     },
-  }));
+  };
+  });
 
   documents.onDidOpen(() => refreshDiagnostics());
   documents.onDidChangeContent(() => refreshDiagnostics());
@@ -420,6 +424,7 @@ export function startLspInWorker(): void {
   });
 
   connection.onCodeLens((params) => {
+    if (!referenceCodeLensEnabled) return [];
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
     const session = analysisSessions.getForDocument(doc);
