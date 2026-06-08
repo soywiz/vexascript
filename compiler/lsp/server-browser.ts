@@ -4,12 +4,9 @@
  * Differences from server.ts (the Node.js/stdio version):
  *   - Uses vscode-languageserver/browser transport (BrowserMessageReader/Writer)
  *     so the entire server runs inside a Web Worker.
- *   - Cross-file features are omitted (they depend on node:fs / node:path):
- *       • Auto-import code actions
- *       • Interface-implementation fixes
- *       • Cross-file definition / references / rename / hover
- *       • Workspace symbols
- *       • Workspace diagnostics
+ *   - Cross-file features are unavailable because the worker has no Node file
+ *     system roots or project index resolver. Shared collectors are still reused
+ *     with empty source roots so single-file features stay in parity.
  *   - Single-file equivalents from navigation.ts are used instead.
  */
 
@@ -21,22 +18,14 @@ import {
   DocumentDiagnosticReportKind,
   BrowserMessageReader,
   BrowserMessageWriter,
-  type CodeAction,
   type Diagnostic,
   type TextEdit,
 } from "vscode-languageserver/browser";
 import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocument";
-import { CodeActionKind } from "./codeActionKinds";
-import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
+import { collectCodeActions } from "./codeActionsAggregate";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { createDocumentDiagnosticReport } from "./diagnostics";
 import { AnalysisSessionCache } from "./analysisSession";
-import { createCallFixCodeActions } from "./callFixes";
-import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
-import { createCreateMemberCodeActions } from "./memberFixes";
-import { createStringTemplateCodeActions } from "./stringTemplateFixes";
-import { createTypeFixCodeActions } from "./typeFixes";
-import { createThisCodeActions } from "./thisFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems,
@@ -178,86 +167,16 @@ export function startLspInWorker(): void {
     const session = analysisSessions.getForDocument(doc);
     if (!session.ast) return [];
 
-    const actions: CodeAction[] = [];
-
-    const replacement = findDeclarationKeywordReplacementAtPosition(
-      session.ast,
-      params.range.start.line,
-      params.range.start.character
-    );
-    if (replacement) {
-      actions.push({
-        title: `Replace '${replacement.from}' with '${replacement.to}'`,
-        kind: CodeActionKind.QuickFix,
-        edit: {
-          changes: {
-            [params.textDocument.uri]: [
-              { range: replacement.range, newText: replacement.to },
-            ],
-          },
-        },
-      });
-    }
-
-    actions.push(
-      ...createFunctionShorthandCodeActions({
-        uri: params.textDocument.uri,
-        ast: session.ast,
-        text: doc.getText(),
-        position: params.range.start,
-      })
-    );
-
-    actions.push(
-      ...createStringTemplateCodeActions({
-        uri: params.textDocument.uri,
-        ast: session.ast,
-        text: doc.getText(),
-        position: params.range.start,
-      })
-    );
-
-    actions.push(
-      ...createCallFixCodeActions({
-        uri: params.textDocument.uri,
-        text: doc.getText(),
-        ast: session.ast,
-        analysis: session.analysis,
-        diagnostics: params.context.diagnostics,
-      })
-    );
-
-    actions.push(
-      ...createThisCodeActions({
-        uri: params.textDocument.uri,
-        ast: session.ast,
-        analysis: session.analysis,
-        position: params.range.start,
-      })
-    );
-
-    actions.push(
-      ...await createCreateMemberCodeActions({
-        uri: params.textDocument.uri,
-        ast: session.ast,
-        analysis: session.analysis,
-        diagnostics: params.context.diagnostics,
-        sourceRoots: [],
-        getSessionForFilePath: () => null,
-      })
-    );
-
-    actions.push(
-      ...await createTypeFixCodeActions({
-        uri: params.textDocument.uri,
-        ast: session.ast,
-        analysis: session.analysis,
-        diagnostics: params.context.diagnostics,
-        sourceRoots: [],
-        getSessionForFilePath: () => null,
-        commandName: "",
-      })
-    );
+    const actions = await collectCodeActions({
+      uri: params.textDocument.uri,
+      text: doc.getText(),
+      ast: session.ast,
+      analysis: session.analysis,
+      range: params.range,
+      diagnostics: params.context.diagnostics,
+      sourceRoots: [],
+      getSessionForFilePath: () => null,
+    });
 
     return deferCodeActions(actions);
   });

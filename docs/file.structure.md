@@ -77,9 +77,11 @@ This section is the fast onboarding map for agents and contributors.
     such as `source`/`code` when adapting Monaco markers to compiler quick-fix
     inputs: `plugins/monaco/src/providerConversions.ts`
   - Optional LSP-over-Web-Worker path (alternative transport, not wired into the
-    default demo): `plugins/monaco/src/lsp-providers.ts`,
-    `plugins/monaco/src/compiler-client.ts`, `plugins/monaco/src/lsp-worker.ts`,
-    `plugins/monaco/src/lsp-client.ts`, `compiler/lsp/server-browser.ts`
+    default demo; reuses shared single-file LSP feature collectors such as the
+    code-action aggregator with browser-safe empty source roots):
+    `plugins/monaco/src/lsp-providers.ts`, `plugins/monaco/src/compiler-client.ts`,
+    `plugins/monaco/src/lsp-worker.ts`, `plugins/monaco/src/lsp-client.ts`,
+    `compiler/lsp/server-browser.ts`
   - Browser stubs for Node built-ins used by shared compiler modules:
     `plugins/monaco/src/browser-stubs/`
   - Client-side Monaco sample shell with workspace tabs, left-hand file tree, cross-tab navigation history (back/forward), and on-demand model creation over a browser-only virtual workspace: `plugins/monaco/src/main.ts`
@@ -108,7 +110,7 @@ This section is the fast onboarding map for agents and contributors.
   - Inlay hints: `compiler/lsp/inlayHints.ts`
   - Await gutter decorations (lines with an explicit `await` in async/sync functions or an implicit auto-`await` inside `sync` functions, served via the custom `mylang/autoAwaitDecorations` request and the Monaco glyph margin): `compiler/lsp/autoAwaitDecorations.ts`
   - Code action orchestration: `compiler/lsp/codeActions.ts`
-  - Shared code-action collection (used by both the LSP server and the Monaco in-process providers): `compiler/lsp/codeActionsAggregate.ts`
+  - Shared code-action collection (used by the Node LSP server, browser-worker LSP server, and Monaco in-process providers): `compiler/lsp/codeActionsAggregate.ts`
   - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`, `compiler/lsp/stringTemplateFixes.ts`, `compiler/lsp/thisFixes.ts`
   - Function shorthand quick fixes: `compiler/lsp/functionShorthandFixes.ts`
   - Trailing-lambda quick fix (moves a brace lambda written as the last call argument out of the parentheses, e.g. `foo(a, { x -> ... })` to `foo(a) { x -> ... }`): `compiler/lsp/trailingLambdaFixes.ts`

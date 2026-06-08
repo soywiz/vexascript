@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
@@ -86,5 +87,14 @@ describe("collectCodeActions aggregator", () => {
     expect(templateAction?.edit?.changes?.[URI]?.[0]?.newText).toBe(
       "`Rectangle(${this.width}x${this.height})`"
     );
+  });
+
+  it("keeps the browser LSP worker on the shared code-action aggregator", async () => {
+    const browserServer = await readFile("compiler/lsp/server-browser.ts", "utf8");
+
+    expect(browserServer).toContain('import { collectCodeActions } from "./codeActionsAggregate";');
+    expect(browserServer).not.toContain("createStringTemplateCodeActions");
+    expect(browserServer).not.toContain("createTypeFixCodeActions");
+    expect(browserServer).not.toContain("findDeclarationKeywordReplacementAtPosition");
   });
 });
