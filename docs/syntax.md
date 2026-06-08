@@ -1174,15 +1174,20 @@ a += b
 
 ## Comments
 
-MyLang supports two comment styles:
+MyLang supports three comment styles:
 
 - single-line comments with `//`
+- documentation comments with `///`
 - block comments with `/* ... */`
 
 Examples:
 
 ```mylang
 let a = 1 // single-line comment
+
+/// searches [sub] in [str]
+/// and returns its index or -1
+fun find(str: string, sub: string): int { }
 
 /*
 multi-line

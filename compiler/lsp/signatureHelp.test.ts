@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -207,6 +208,37 @@ describe("signature help", () => {
         {
           label: "get(key: string)",
           parameters: [{ label: "key: string" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
+  it("reads triple-slash documentation comments from the next declaration", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Strings {
+        /// searches [sub] in [str]
+        /// and returns its index or -1
+        find(str: string, sub: string): int { }
+      }
+      fun demo() {
+        const strings = new Strings()
+        strings.find(^^^"abc", "b")
+      }
+      `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "find(str: string, sub: string)",
+          parameters: [{ label: "str: string" }, { label: "sub: string" }],
+          documentation: "searches [sub] in [str]\nand returns its index or -1"
         }
       ],
       activeSignature: 0,

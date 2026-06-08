@@ -294,6 +294,7 @@ export function registerLanguage(): void {
     ],
     tokenizer: {
       root: [
+        [/\/\/\/.*$/, "comment.doc"],
         [/\/\/.*$/, "comment"],
         [/\/\*/, { token: "comment", next: "@block_comment" }],
         [/"([^"\\]|\\.)*"/, "string"],

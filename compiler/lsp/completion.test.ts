@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect } from "../test/expect";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
@@ -13,27 +14,6 @@ import {
   createKeywordOnlyCompletionItems
 } from "./completion";
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
-
-function sourceWithCursor(source: string): {
-  source: string;
-  line: number;
-  character: number;
-} {
-  const marker = "^^^";
-  const offset = source.indexOf(marker);
-  expect(offset).toBeGreaterThanOrEqual(0);
-  expect(source.indexOf(marker, offset + marker.length)).toBe(-1);
-
-  const cleanSource = source.slice(0, offset) + source.slice(offset + marker.length);
-  const beforeCursor = source.slice(0, offset);
-  const lines = beforeCursor.split("\n");
-
-  return {
-    source: cleanSource,
-    line: lines.length - 1,
-    character: lines[lines.length - 1]?.length ?? 0
-  };
-}
 
 describe("createCompletionItemsForPosition", () => {
   it("includes in-scope variables and parameters inside function body", async () => {

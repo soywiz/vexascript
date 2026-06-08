@@ -243,6 +243,14 @@ describe("tokenizer", () => {
         ]);
     });
 
+    it("attaches triple-slash documentation comments as leading line comments", () => {
+        const tokens = tokenize("/// summary\n/// details\nfun find() { }");
+        expect(tokens[0]?.leadingComments?.map((comment) => ({ kind: comment.kind, value: comment.value }))).toEqual([
+            { kind: "line", value: "/// summary" },
+            { kind: "line", value: "/// details" }
+        ]);
+    });
+
     it("ignores block comments, including multiline comments", () => {
         expect(simplifyTokens("let a = /* inline */ 1\n/* multi\nline */\nlet b = 2")).toStrictEqual([
             { type: "identifier", value: "let" },

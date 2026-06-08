@@ -94,6 +94,18 @@ describe("VS Code extension syntax highlighting", () => {
     expect(stringEscapeMatch).toBe("\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})");
   });
 
+  it("includes triple-slash documentation comment highlighting", async () => {
+    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
+    const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {
+      repository?: Record<string, { patterns?: Array<{ name?: string; begin?: string }> }>;
+    };
+
+    const commentPatterns = grammar.repository?.["comments"]?.patterns ?? [];
+    expect(commentPatterns.some((pattern) =>
+      pattern.name === "comment.line.documentation.mylang" && pattern.begin === "///"
+    )).toBe(true);
+  });
+
   it("includes embedded XML/JSX highlighting patterns", async () => {
     const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
     const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {

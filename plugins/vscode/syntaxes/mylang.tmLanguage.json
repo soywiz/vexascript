@@ -31,6 +31,16 @@
     "comments": {
       "patterns": [
         {
+          "name": "comment.line.documentation.mylang",
+          "begin": "///",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.mylang"
+            }
+          },
+          "end": "$\\n?"
+        },
+        {
           "name": "comment.line.double-slash.mylang",
           "begin": "//",
           "beginCaptures": {
