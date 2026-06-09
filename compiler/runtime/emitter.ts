@@ -528,7 +528,7 @@ function collectInterfaceMethodNames(program: Program): Map<string, Set<string>>
       continue;
     }
     const interfaceStatement = candidate as InterfaceStatement;
-    const names = new Set<string>();
+    const names = result.get(interfaceStatement.name.name) ?? new Set<string>();
     for (const member of interfaceStatement.members) {
       if (member.kind === "InterfaceMethodMember") {
         names.add(member.name.name);
