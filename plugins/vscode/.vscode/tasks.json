@@ -16,10 +16,10 @@
       "problemMatcher": []
     },
     {
-      "label": "mylang: build compiler from plugin",
+      "label": "mylang: bundle extension from plugin",
       "type": "shell",
       "command": "pnpm",
-      "args": ["--dir", "../..", "build"],
+      "args": ["run", "bundle-extension"],
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -33,7 +33,7 @@
       "label": "mylang: prepare from plugin",
       "dependsOn": [
         "mylang: install plugin deps",
-        "mylang: build compiler from plugin"
+        "mylang: bundle extension from plugin"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []

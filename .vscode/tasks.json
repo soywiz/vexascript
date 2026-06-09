@@ -16,12 +16,12 @@
       "problemMatcher": []
     },
     {
-      "label": "mylang: build compiler",
+      "label": "mylang: bundle vscode extension",
       "type": "shell",
       "command": "pnpm",
-      "args": ["build"],
+      "args": ["run", "bundle-extension"],
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/plugins/vscode"
       },
       "presentation": {
         "reveal": "always",
@@ -33,7 +33,7 @@
       "label": "mylang: prepare vscode extension",
       "dependsOn": [
         "mylang: install vscode extension deps",
-        "mylang: build compiler"
+        "mylang: bundle vscode extension"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []
