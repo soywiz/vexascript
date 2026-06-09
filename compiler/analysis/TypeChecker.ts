@@ -1448,6 +1448,22 @@ export class TypeChecker {
           );
           break;
         }
+        const constructableOnlyType = this.interfaceConstructorTypeForNewExpression(call, calleeType, scope);
+        if (constructableOnlyType) {
+          const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
+            this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
+          );
+          const instantiatedConstructorType = this.instantiateFunctionType(
+            constructableOnlyType,
+            explicitTypeArguments,
+            argumentTypes,
+            expectedType
+          );
+          this.validateFunctionTypeArgumentConstraints(constructableOnlyType, instantiatedConstructorType, call);
+          this.validateCallArguments(call, instantiatedConstructorType, argumentTypes);
+          result = instantiatedConstructorType.returnType;
+          break;
+        }
         if (!isUnknownType(calleeType)) {
           this.issues.push({
             message: `Type '${this.typeToDiagnosticLabel(calleeType)}' is not callable`,
@@ -3625,7 +3641,7 @@ export class TypeChecker {
   }
 
   private interfaceConstructorTypeForNewExpression(
-    newExpression: NewExpression,
+    newExpression: NewExpression | CallExpression,
     calleeType: AnalysisType,
     scope: Scope
   ): (AnalysisType & { kind: "function" }) | null {
@@ -3704,7 +3720,7 @@ export class TypeChecker {
 
   private selectBestConstructorOverload(
     overloads: InterfaceMethodMember[],
-    newExpression: NewExpression,
+    newExpression: NewExpression | CallExpression,
     scope: Scope
   ): InterfaceMethodMember {
     if (overloads.length === 1) {
@@ -3737,7 +3753,7 @@ export class TypeChecker {
   }
 
   private visitConstructorArgumentsWithContext(
-    newExpression: NewExpression,
+    newExpression: NewExpression | CallExpression,
     scope: Scope,
     constructorType: AnalysisType & { kind: "function" }
   ): AnalysisType[] {
@@ -3764,7 +3780,7 @@ export class TypeChecker {
   }
 
   private inferPromiseConstructorTypeArgumentFromExecutor(
-    newExpression: NewExpression,
+    newExpression: NewExpression | CallExpression,
     substitutions: Map<string, AnalysisType>,
     explicitTypeParameterNames: Set<string>
   ): void {
