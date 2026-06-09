@@ -45,6 +45,12 @@ export interface AnalysisOptions {
    */
   externalDeclarations?: Statement[];
   /**
+   * Ambient library declarations requested by project configuration, such as
+   * DOM globals from `compilerOptions.lib`. Unlike module imports, these
+   * declarations are bound as globals in the analyzed file.
+   */
+  ambientDeclarations?: Statement[];
+  /**
    * Resolved types for imported symbols, keyed by the local name they are bound
    * to in this program (e.g. `delay` from `import { delay } from "./other"`).
    * They let cross-file value imports — in particular functions whose return
@@ -65,10 +71,11 @@ export class Analysis {
 
   constructor(program: Program, options: AnalysisOptions = {}) {
     const externalDeclarations = options.externalDeclarations ?? [];
-    const bound = new Binder(program, externalDeclarations, options.importedSymbolTypes).bind();
+    const ambientDeclarations = options.ambientDeclarations ?? [];
+    const bound = new Binder(program, externalDeclarations, options.importedSymbolTypes, ambientDeclarations).bind();
     this.rootScope = bound.rootScope;
 
-    const checked = new TypeChecker(program, bound, externalDeclarations).check();
+    const checked = new TypeChecker(program, bound, externalDeclarations, ambientDeclarations).check();
     this.issues = checked.issues;
     this.identifierResolutions = checked.identifierResolutions;
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;

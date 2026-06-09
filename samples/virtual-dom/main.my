@@ -1,0 +1,13 @@
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
+
+GlobalRegistrator.register();
+
+const root: HTMLElement = document.createElement("main");
+root.id = "app";
+root.className = "sample-shell";
+root.setAttribute("data-role", "demo");
+
+const childCount: number = root.children.length;
+const role: string | null = root.getAttribute("data-role");
+
+console.log(`${root.tagName}:${root.id}:${root.className}:${role}:${childCount}`);

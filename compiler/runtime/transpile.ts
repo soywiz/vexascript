@@ -88,6 +88,11 @@ export interface TranspileOptions {
    */
   externalDeclarations?: Statement[];
   /**
+   * Ambient declarations requested by project configuration, such as DOM host
+   * globals. They affect type checking only and are not emitted.
+   */
+  ambientDeclarations?: Statement[];
+  /**
    * Resolved types for imported values, keyed by their local name. Lets
    * cross-file functions (including those whose return type is inferred from
    * their body) participate in type resolution and pervasive auto-await.
@@ -263,7 +268,8 @@ function createSourceMap(
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
   const externalDeclarations = options.externalDeclarations ?? [];
   const importedSymbolTypes = options.importedSymbolTypes ?? new Map();
-  const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes });
+  const ambientDeclarations = options.ambientDeclarations ?? [];
+  const artifacts = compileSource(source, {}, { externalDeclarations, ambientDeclarations, importedSymbolTypes });
   const errors: string[] = [];
   const diagnostics: TranspileDiagnostic[] = [];
   const file = options.sourceFilePath ?? "<unknown>";

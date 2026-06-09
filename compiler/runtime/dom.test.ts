@@ -2,12 +2,20 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import { ensureDomProgram, getDomDeclarationFilePath } from "./domDeclarations";
 
 function readBundledDomRuntime(): Promise<string> {
   return readFile(join(process.cwd(), "compiler", "runtime", "dom.d.ts"), "utf8");
 }
 
 describe("bundled dom runtime declarations", () => {
+  it("loads and parses the bundled DOM declaration file", async () => {
+    const program = await ensureDomProgram();
+
+    expect(getDomDeclarationFilePath().endsWith("dom.d.ts")).toBe(true);
+    expect(program.body.length > 0).toBe(true);
+  });
+
   it("bundles DOM core, iterable, and async iterable declarations into one file", async () => {
     const source = await readBundledDomRuntime();
 
