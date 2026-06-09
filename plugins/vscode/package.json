@@ -4,9 +4,25 @@
   "description": "VS Code support for MyLang (.my) using the bundled MyLang LSP",
   "version": "0.0.1",
   "publisher": "mylang",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soywiz/mylang.git"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },
+  "files": [
+    "dist/**",
+    "icons/**",
+    "syntaxes/**",
+    "themes/**",
+    "extension.js",
+    "language-configuration.json",
+    "LICENSE",
+    "README.md",
+    "package.json"
+  ],
   "categories": [
     "Programming Languages"
   ],
@@ -60,7 +76,11 @@
     ]
   },
   "scripts": {
-    "lint": "echo \"No lint configured\""
+    "lint": "echo \"No lint configured\"",
+    "setup": "CI=true pnpm install",
+    "bundle-server": "pnpm --dir ../.. build && mkdir -p dist && cp ../../dist/mylang.js ../../dist/mylang.js.map ../../dist/es2025.d.ts ../../dist/dom.d.ts dist/",
+    "package": "pnpm run bundle-server && pnpm dlx @vscode/vsce package --no-dependencies --out mylang-vscodeext.vsix",
+    "launch": "pnpm run bundle-server && code --extensionDevelopmentPath=$(pwd)"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

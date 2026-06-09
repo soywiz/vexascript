@@ -15,6 +15,7 @@ MyLang is a language derived from TypeScript with some features and ideas from S
 ## Commands
 
 - Run tests once: `pnpm test`
+- Keep the `test` script as `tsc --noEmit && node --import tsx --test --test-reporter spec`. Do not add explicit test-file globs or `rg`/`find` enumeration to it unless the current autodiscovery behavior actually breaks. In this repository, Node's test runner with `--import tsx` already discovers and runs the `.test.ts` suite correctly.
 - Run tests with coverage: `pnpm coverage`
 - Run vscode with the plugin+lsp: `pnpm code`
 - Run monaco sample: `pnpm monaco`

@@ -36,8 +36,6 @@ function activate(context) {
 
   const serverModule = path.resolve(
     context.extensionPath,
-    "..",
-    "..",
     "dist",
     "mylang.js"
   );
