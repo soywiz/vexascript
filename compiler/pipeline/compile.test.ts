@@ -1,10 +1,12 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import {
+  compileParsedSource,
   compileSource,
   formatParseIssue,
   formatSemanticIssue
 } from "./compile";
+import { parseSource } from "./parse";
 
 describe("compileSource", () => {
   it("produces parse and semantic artifacts for valid source", () => {
@@ -45,6 +47,16 @@ describe("compileSource", () => {
     expect(artifacts.ast).toBeNull();
     expect(artifacts.analysis).toBeNull();
     expect(artifacts.tokenizeError).not.toBeNull();
+    expect(artifacts.parserIssues).toEqual([]);
+    expect(artifacts.semanticIssues).toEqual([]);
+  });
+
+  it("can reuse pre-parsed artifacts without reparsing", () => {
+    const parsed = parseSource("let a = 1\nlet b = a + 2\n");
+    const artifacts = compileParsedSource(parsed);
+
+    expect(artifacts.ast).toBe(parsed.ast);
+    expect(artifacts.analysis).not.toBeNull();
     expect(artifacts.parserIssues).toEqual([]);
     expect(artifacts.semanticIssues).toEqual([]);
   });

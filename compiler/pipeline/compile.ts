@@ -9,12 +9,10 @@ export interface CompilationArtifacts extends ParseArtifacts {
   semanticIssues: AnalysisIssue[];
 }
 
-export function compileSource(
-  source: string,
-  options: ParserOptions = {},
+export function compileParsedSource(
+  parsed: ParseArtifacts,
   analysisOptions: AnalysisOptions = {}
 ): CompilationArtifacts {
-  const parsed = parseSource(source, options);
   if (!parsed.ast) {
     return {
       ...parsed,
@@ -38,6 +36,14 @@ export function compileSource(
       fatalError: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+export function compileSource(
+  source: string,
+  options: ParserOptions = {},
+  analysisOptions: AnalysisOptions = {}
+): CompilationArtifacts {
+  return compileParsedSource(parseSource(source, options), analysisOptions);
 }
 
 export function formatParseIssue(issue: ParseIssue): string {

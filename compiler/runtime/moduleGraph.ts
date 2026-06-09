@@ -8,8 +8,8 @@ import type {
   Statement
 } from "compiler/ast/ast";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
-import { parseSource } from "compiler/pipeline/parse";
-import { compileSource } from "compiler/pipeline/compile";
+import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
+import { compileParsedSource, compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
 import { functionType, intersectionType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
@@ -311,7 +311,7 @@ export async function bundleModuleGraph(
   const emittedByPath = new Map<string, string>();
   const analysisByPath = new Map<string, Analysis | null>();
   const sourceByPath = new Map<string, string>();
-  const astByPath = new Map<string, Program | null>();
+  const parsedByPath = new Map<string, ParseArtifacts | null>();
   const order: string[] = [];
   const inProgress = new Set<string>();
   const errors: string[] = [];
@@ -329,17 +329,17 @@ export async function bundleModuleGraph(
     return source;
   };
 
-  const loadAst = async (filePath: string, parserOptions: ParserOptions): Promise<Program | null> => {
-    if (astByPath.has(filePath)) {
-      return astByPath.get(filePath) ?? null;
+  const loadParsed = async (filePath: string, parserOptions: ParserOptions): Promise<ParseArtifacts | null> => {
+    if (parsedByPath.has(filePath)) {
+      return parsedByPath.get(filePath) ?? null;
     }
     const source = await loadSource(filePath);
     if (source === null) {
       return null;
     }
-    const ast = parseSource(source, parserOptions).ast;
-    astByPath.set(filePath, ast);
-    return ast;
+    const parsed = parseSource(source, parserOptions);
+    parsedByPath.set(filePath, parsed);
+    return parsed;
   };
 
   const visit = async (filePath: string): Promise<void> => {
@@ -355,7 +355,8 @@ export async function bundleModuleGraph(
       return;
     }
     const parserOptions = parserOptionsForModulePath(filePath);
-    const ast = await loadAst(filePath, parserOptions);
+    const parsed = await loadParsed(filePath, parserOptions);
+    const ast = parsed?.ast ?? null;
 
     const externalDeclarations: Statement[] = [];
     const importedSymbolTypes = new Map<string, AnalysisType>();
@@ -365,7 +366,7 @@ export async function bundleModuleGraph(
       for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, vfs)) {
         bundledSpecifiers.add(statement.from.value);
         await visit(targetPath);
-        const dependencyAst = await loadAst(targetPath, parserOptionsForModulePath(targetPath));
+        const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
         if (dependencyAst) {
           const importedNames = new Set(
             statement.specifiers.map((specifier) => specifier.imported.name)
@@ -388,11 +389,17 @@ export async function bundleModuleGraph(
 
     // Store this module's analysis (resolved with its own cross-file types) so
     // modules that import from it can read their imported value types.
-    const compilationArtifacts = compileSource(source, parserOptions, {
-      externalDeclarations,
-      ambientDeclarations,
-      importedSymbolTypes
-    });
+    const compilationArtifacts = parsed
+      ? compileParsedSource(parsed, {
+          externalDeclarations,
+          ambientDeclarations,
+          importedSymbolTypes
+        })
+      : compileSource(source, parserOptions, {
+          externalDeclarations,
+          ambientDeclarations,
+          importedSymbolTypes
+        });
     analysisByPath.set(filePath, compilationArtifacts.analysis);
 
     const result = transpile(source, {
