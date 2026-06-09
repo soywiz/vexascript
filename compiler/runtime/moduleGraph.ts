@@ -177,10 +177,11 @@ async function localImportSpecifiers(ast: Program, importerFilePath: string, vfs
 
 /**
  * Removes the emitted `import ... from "<local>"` / `import "<local>"`
- * statements that reference bundled local modules. Every local relative import
- * is inlined, so any emitted relative import is dropped.
+ * statements that reference bundled local `.my` modules. Relative imports that
+ * resolve to JavaScript or TypeScript stay in the output for downstream bundlers
+ * or Node.js to load normally.
  */
-function stripBundledImports(code: string): string {
+function stripBundledImports(code: string, bundledSpecifiers: ReadonlySet<string>): string {
   return code
     .split("\n")
     .filter((line) => {
@@ -188,8 +189,7 @@ function stripBundledImports(code: string): string {
       if (!match) {
         return true;
       }
-      const specifier = match[1] ?? "";
-      return !specifier.startsWith(".");
+      return !bundledSpecifiers.has(match[1] ?? "");
     })
     .join("\n");
 }
@@ -227,9 +227,11 @@ export async function bundleModuleGraph(
 
     const externalDeclarations: Statement[] = [];
     const importedSymbolTypes = new Map<string, AnalysisType>();
+    const bundledSpecifiers = new Set<string>();
     if (ast) {
       await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, vfs);
       for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, vfs)) {
+        bundledSpecifiers.add(statement.from.value);
         await visit(targetPath);
         const dependencySource = await vfs.readFile(targetPath);
         const dependencyParsed = dependencySource === null ? { ast: null } : parseSource(dependencySource);
@@ -271,7 +273,7 @@ export async function bundleModuleGraph(
     });
     errors.push(...result.errors);
     warnings.push(...result.warnings);
-    emittedByPath.set(filePath, stripBundledImports(result.code));
+    emittedByPath.set(filePath, stripBundledImports(result.code, bundledSpecifiers));
 
     inProgress.delete(filePath);
     order.push(filePath);
