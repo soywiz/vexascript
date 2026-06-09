@@ -17,7 +17,6 @@
     "icons/**",
     "syntaxes/**",
     "themes/**",
-    "extension.js",
     "language-configuration.json",
     "LICENSE",
     "README.md",
@@ -31,7 +30,7 @@
     "workspaceContains:**/*.my",
     "onStartupFinished"
   ],
-  "main": "./extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -78,9 +77,12 @@
   "scripts": {
     "lint": "echo \"No lint configured\"",
     "setup": "CI=true pnpm install",
-    "bundle-server": "pnpm --dir ../.. build && mkdir -p dist && cp ../../dist/mylang.js ../../dist/mylang.js.map ../../dist/es2025.d.ts ../../dist/dom.d.ts dist/",
-    "package": "pnpm run bundle-server && pnpm dlx @vscode/vsce package --no-dependencies --out mylang-vscodeext.vsix",
-    "launch": "pnpm run bundle-server && code --extensionDevelopmentPath=$(pwd)"
+    "bundle-server": "rm -rf dist && mkdir -p dist && pnpm --dir ../.. exec esbuild compiler/lsp/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/vscode/dist/mylang.mjs --sourcemap --external:vscode-languageserver --external:vscode-languageserver/node.js --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp ../../compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp ../../compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.mjs",
+    "stage-server-deps": "node scripts/stageServerDeps.mjs",
+    "bundle-client": "pnpm exec esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "bundle-extension": "pnpm run bundle-server && pnpm run stage-server-deps && pnpm run bundle-client",
+    "package": "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out mylang-vscodeext.vsix",
+    "launch": "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

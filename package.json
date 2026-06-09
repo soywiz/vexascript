@@ -13,7 +13,7 @@
     "test": "tsc --noEmit && node --import tsx --test --test-reporter spec",
     "coverage": "tsx --test --experimental-test-coverage",
     "vscodeext:install": "pnpm --dir plugins/vscode install",
-    "vscodeext:bundle": "pnpm --dir plugins/vscode run bundle-server",
+    "vscodeext:bundle": "pnpm --dir plugins/vscode run bundle-extension",
     "vscodeext:package": "pnpm --dir plugins/vscode run package",
     "vscodeext:launch": "pnpm --dir plugins/vscode run launch",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",

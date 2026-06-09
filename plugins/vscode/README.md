@@ -8,7 +8,7 @@ This extension wires VS Code `.my` files to the MyLang language server.
 - Adds syntax highlighting for `.my` via TextMate grammar (`source.mylang`).
 - Adds a custom language icon for `.my` without replacing the active file icon theme.
 - Starts the bundled server using:
-  - `node ./dist/mylang.js --lsp`
+  - `node ./dist/mylang.mjs --lsp`
 - Uses stdio transport via `vscode-languageclient`.
 - Exposes LSP editor features including:
   - diagnostics
@@ -29,7 +29,7 @@ pnpm run setup
 2. Build the compiler/LSP bundle:
 
 ```bash
-pnpm run bundle-server
+pnpm run bundle-extension
 ```
 
 3. Launch VS Code with the extension in development mode:
@@ -46,6 +46,7 @@ pnpm run package
 
 This writes `mylang-vscodeext.vsix` in `plugins/vscode`.
 The packaging command uses `vsce --no-dependencies` because the extension dependencies are installed with PNPM and `vsce`'s default npm dependency scan can fail on PNPM's layout.
+The extension package bundles the VS Code client entrypoint into `dist/extension.js`, so the generated `.vsix` includes the `vscode-languageclient` runtime even though `vsce` is invoked with `--no-dependencies`.
 The extension manifest now declares the repository and uses an explicit `files` allowlist, so `vsce` packages only the runtime assets we ship.
 `setup` is intentionally separate from `launch` and `package`, so packaging does not force a reinstall every time.
 

@@ -11,6 +11,7 @@ type VscodePackageJson = {
   license?: string;
   repository?: { type?: string; url?: string };
   files?: string[];
+  main?: string;
   scripts?: Record<string, string>;
 };
 
@@ -20,7 +21,7 @@ describe("VS Code extension packaging", () => {
     const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as RootPackageJson;
 
     expect(pkg.scripts?.["vscodeext:install"]).toBe("pnpm --dir plugins/vscode install");
-    expect(pkg.scripts?.["vscodeext:bundle"]).toBe("pnpm --dir plugins/vscode run bundle-server");
+    expect(pkg.scripts?.["vscodeext:bundle"]).toBe("pnpm --dir plugins/vscode run bundle-extension");
     expect(pkg.scripts?.["vscodeext:launch"]).toBe("pnpm --dir plugins/vscode run launch");
     expect(pkg.scripts?.["vscodeext:package"]).toBe("pnpm --dir plugins/vscode run package");
   });
@@ -39,21 +40,30 @@ describe("VS Code extension packaging", () => {
       "icons/**",
       "syntaxes/**",
       "themes/**",
-      "extension.js",
       "language-configuration.json",
       "LICENSE",
       "README.md",
       "package.json"
     ]);
+    expect(pkg.main).toBe("./dist/extension.js");
     expect(pkg.scripts?.["setup"]).toBe("CI=true pnpm install");
     expect(pkg.scripts?.["bundle-server"]).toBe(
-      "pnpm --dir ../.. build && mkdir -p dist && cp ../../dist/mylang.js ../../dist/mylang.js.map ../../dist/es2025.d.ts ../../dist/dom.d.ts dist/"
+      "rm -rf dist && mkdir -p dist && pnpm --dir ../.. exec esbuild compiler/lsp/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/vscode/dist/mylang.mjs --sourcemap --external:vscode-languageserver --external:vscode-languageserver/node.js --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp ../../compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp ../../compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.mjs"
+    );
+    expect(pkg.scripts?.["stage-server-deps"]).toBe(
+      "node scripts/stageServerDeps.mjs"
+    );
+    expect(pkg.scripts?.["bundle-client"]).toBe(
+      "pnpm exec esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js"
+    );
+    expect(pkg.scripts?.["bundle-extension"]).toBe(
+      "pnpm run bundle-server && pnpm run stage-server-deps && pnpm run bundle-client"
     );
     expect(pkg.scripts?.["launch"]).toBe(
-      "pnpm run bundle-server && code --extensionDevelopmentPath=$(pwd)"
+      "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)"
     );
     expect(pkg.scripts?.["package"]).toBe(
-      "pnpm run bundle-server && pnpm dlx @vscode/vsce package --no-dependencies --out mylang-vscodeext.vsix"
+      "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out mylang-vscodeext.vsix"
     );
   });
 
@@ -63,7 +73,7 @@ describe("VS Code extension packaging", () => {
 
     expect(extensionSource).toContain("context.extensionPath");
     expect(extensionSource).toContain('"dist"');
-    expect(extensionSource).toContain('"mylang.js"');
+    expect(extensionSource).toContain('"mylang.mjs"');
     expect(extensionSource).not.toContain('".."');
   });
 });
