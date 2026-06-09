@@ -3522,7 +3522,7 @@ export class Parser {
             this.tokens.skip();
             const next = this.tokens.peek();
             let declaration: Statement | undefined;
-            if (next?.type === "identifier" && this.isFunctionDeclarationKeyword(next.value)) {
+            if (next?.type === "identifier" && (this.isFunctionDeclarationKeyword(next.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart())) {
                 declaration = this.parseFunctionStatement();
             } else if (next?.type === "identifier" && (next.value === "class" || this.isAbstractClassStart())) {
                 declaration = this.parseClassStatement();
@@ -3589,7 +3589,7 @@ export class Parser {
             }
         } else if (next?.type === "identifier" && this.isVariableDeclarationKeyword(next.value)) {
             declaration = this.parseVarStatement();
-        } else if (next?.type === "identifier" && this.isFunctionDeclarationKeyword(next.value)) {
+        } else if (next?.type === "identifier" && (this.isFunctionDeclarationKeyword(next.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart())) {
             declaration = this.parseFunctionStatement();
         } else if (next?.type === "identifier" && next.value === "type") {
             declaration = this.parseTypeAliasStatement();

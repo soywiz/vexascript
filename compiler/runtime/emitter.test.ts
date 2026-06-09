@@ -257,6 +257,10 @@ let promise = go fetchValue()
       .toBe("");
     expect(emitProgram(parseFile(tokenizeReader("export as namespace MyLib"))))
       .toBe("");
+    expect(emitProgram(parseFile(tokenizeReader("export async fun load(): Promise<int> { return Promise.resolve(1) }"))))
+      .toBe("export async function load() {\nreturn Promise.resolve(1);\n}");
+    expect(emitProgram(parseFile(tokenizeReader("export sync fun loadSync(): int { return 1 }"))))
+      .toBe("export async function loadSync() {\nreturn 1;\n}");
   });
 
   it("emits named import statements", () => {

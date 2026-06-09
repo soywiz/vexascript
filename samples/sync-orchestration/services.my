@@ -1,0 +1,12 @@
+export async fun fetchPrice(name: string): Promise<int> {
+  const prices = { book: 40, pen: 5, bag: 12 }
+  return prices[name] ?? 0
+}
+
+export async fun fetchTaxRate(): Promise<int> {
+  return 3
+}
+
+export async fun auditLater(total: int): Promise<string> {
+  return `audit:${total}`
+}

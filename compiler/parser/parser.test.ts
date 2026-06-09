@@ -3305,6 +3305,24 @@ describe("parseStatement", () => {
             kind: "ExportStatement",
             namespaceExport: { kind: "Identifier", name: "MyLib" }
         });
+
+        expect(parseStatement(tokenizeReader("export async fun load(): Promise<int> { return Promise.resolve(1) }"))).toMatchObject({
+            kind: "ExportStatement",
+            declaration: {
+                kind: "FunctionStatement",
+                async: true,
+                name: { kind: "Identifier", name: "load" }
+            }
+        });
+
+        expect(parseStatement(tokenizeReader("export sync fun loadSync(): int { return 1 }"))).toMatchObject({
+            kind: "ExportStatement",
+            declaration: {
+                kind: "FunctionStatement",
+                sync: true,
+                name: { kind: "Identifier", name: "loadSync" }
+            }
+        });
     });
 
     it("parses default and type-only exports", () => {
