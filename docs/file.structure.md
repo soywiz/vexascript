@@ -111,6 +111,7 @@ This section is the fast onboarding map for agents and contributors.
   - Monaco package manifest and Vite config: `plugins/monaco/package.json`, `plugins/monaco/vite.config.ts`
 - LSP server and features:
   - Server entrypoint: `compiler/lsp/server.ts`
+  - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, and rename operations to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`
   - Completion: `compiler/lsp/completion.ts`

@@ -11,6 +11,7 @@ import { runMyLangTests } from "./runtime/testRunner";
 import { loadProject, type MylangProject } from "./project";
 import { ensureDependencies } from "./deps";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
+import { runMcpServer } from "./mcpServer";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
@@ -383,6 +384,14 @@ function createProgram(): Command {
     });
 
   program
+    .command("mcp")
+    .description("Start the MyLang MCP codebase navigation server")
+    .option("--root <dir>", "Workspace root used to resolve relative file paths and scan symbols", process.cwd())
+    .action(async (opts: { root?: string }) => {
+      await runMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
+    });
+
+  program
     .command("syntax")
     .description("Print embedded MyLang syntax definitions for editor integrations")
     .option("--target <name>", `Syntax target: ${SYNTAX_TARGETS.join("|")}`)
@@ -507,7 +516,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(["build", "bundle", "run", "test", "tokens", "ast", "format", "syntax", "lsp"]);
+  const knownCommands = new Set(["build", "bundle", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
