@@ -54,6 +54,7 @@ This section is the fast onboarding map for agents and contributors.
   - Sample-local package.json files are installed with pnpm install before execution when node_modules is missing, so samples can demonstrate npm package declarations and runtime dependencies.
   - Sample-local tsconfig.json files are loaded by `compiler/project.ts`; they can set JSX factories/import sources and `compilerOptions.lib` entries such as `dom` for DOM ambient declarations.
   - DOM-emulation sample: `samples/virtual-dom/` uses Happy DOM in Node and a tsconfig.json with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types.
+  - DefinitelyTyped sample: `samples/minimist/` uses the runtime-only `minimist` package together with `@types/minimist` to validate fallback resolution for npm packages that keep declarations in `node_modules/@types`.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`

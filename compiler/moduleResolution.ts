@@ -68,11 +68,51 @@ export async function resolveImportTargetFilePath(
   return null;
 }
 
+async function declarationPathInPackage(pkgDir: string, vfs: Vfs): Promise<string | null> {
+  const pkgJsonPath = resolve(pkgDir, "package.json");
+  if (!(await vfs.fileExists(pkgJsonPath))) {
+    return null;
+  }
+
+  try {
+    const pkgText = await vfs.readFile(pkgJsonPath);
+    if (pkgText === null) {
+      return null;
+    }
+    const pkg = JSON.parse(pkgText) as Record<string, unknown>;
+    const typingsField = (pkg["typings"] ?? pkg["types"]) as string | undefined;
+    if (typingsField) {
+      const typingsPath = resolve(pkgDir, typingsField);
+      if (await vfs.fileExists(typingsPath)) {
+        return typingsPath;
+      }
+    }
+    const indexDts = resolve(pkgDir, "index.d.ts");
+    if (await vfs.fileExists(indexDts)) {
+      return indexDts;
+    }
+  } catch {
+    // malformed package.json
+  }
+
+  return null;
+}
+
+function typesPackageNameFor(packageName: string): string {
+  if (packageName.startsWith("@")) {
+    const [scope, name] = packageName.slice(1).split("/");
+    return name ? `@types/${scope}__${name}` : `@types/${scope}`;
+  }
+  return `@types/${packageName}`;
+}
+
 /**
  * Given a bare specifier (package name, e.g. `"moment"`) and the path of the
  * importing file, walk up the directory tree looking for a `node_modules/<pkg>`
  * folder. When found, read the package's `typings`/`types` field (or fall back
- * to `index.d.ts`) and return the absolute path to the declaration file.
+ * to `index.d.ts`) and return the absolute path to the declaration file. If the
+ * runtime package does not ship declarations, fall back to the matching
+ * DefinitelyTyped package under `node_modules/@types`.
  *
  * Returns `null` when the package or its declaration file cannot be located.
  */
@@ -88,28 +128,15 @@ export async function resolveNodeModulesTypingsPath(
   let dir = dirname(importerFilePath);
   while (true) {
     const pkgDir = resolve(dir, "node_modules", packageName);
-    const pkgJsonPath = resolve(pkgDir, "package.json");
-    if (await vfs.fileExists(pkgJsonPath)) {
-      try {
-        const pkgText = await vfs.readFile(pkgJsonPath);
-        if (pkgText === null) {
-          return null;
-        }
-        const pkg = JSON.parse(pkgText) as Record<string, unknown>;
-        const typingsField = (pkg["typings"] ?? pkg["types"]) as string | undefined;
-        if (typingsField) {
-          const typingsPath = resolve(pkgDir, typingsField);
-          if (await vfs.fileExists(typingsPath)) {
-            return typingsPath;
-          }
-        }
-        const indexDts = resolve(pkgDir, "index.d.ts");
-        if (await vfs.fileExists(indexDts)) {
-          return indexDts;
-        }
-      } catch {
-        // malformed package.json
-      }
+    const packageTypings = await declarationPathInPackage(pkgDir, vfs);
+    if (packageTypings) {
+      return packageTypings;
+    }
+
+    const typesPkgDir = resolve(dir, "node_modules", typesPackageNameFor(packageName));
+    const definitelyTypedTypings = await declarationPathInPackage(typesPkgDir, vfs);
+    if (definitelyTypedTypings) {
+      return definitelyTypedTypings;
     }
     const parent = dirname(dir);
     if (parent === dir) break;
