@@ -408,6 +408,14 @@ function createProgram(): Command {
       await printSyntax(opts);
     });
 
+  const resolveBuildOptions = (opts: { target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => ({
+    target: opts.target === "conservative" ? "conservative" as const : "optimized" as const,
+    jsxOptions: {
+      ...(opts.jsxFactory ? { jsxFactory: opts.jsxFactory } : {}),
+      ...(opts.jsxFragmentFactory ? { jsxFragmentFactory: opts.jsxFragmentFactory } : {})
+    }
+  });
+
   program
     .command("build")
     .description("Compile a MyLang file to JavaScript")
@@ -418,16 +426,25 @@ function createProgram(): Command {
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--bundle", "Bundle the entry and all referenced MyLang, TypeScript, JavaScript, and package modules as ESM")
     .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
-      const target = opts.target === "conservative" ? "conservative" : "optimized";
-      const jsxOptions = {
-        ...(opts.jsxFactory ? { jsxFactory: opts.jsxFactory } : {}),
-        ...(opts.jsxFragmentFactory ? { jsxFragmentFactory: opts.jsxFragmentFactory } : {})
-      };
+      const { target, jsxOptions } = resolveBuildOptions(opts);
       if (opts.bundle) {
         await bundleFile(input, opts.out, target, jsxOptions);
         return;
       }
       await buildFile(input, opts.out, target, jsxOptions);
+    });
+
+  program
+    .command("bundle")
+    .description("Bundle a MyLang entry file and its referenced modules as ESM")
+    .argument("<input>", "Input file")
+    .option("-o, --out <file>", "Output file")
+    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
+    .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
+    .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
+    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => {
+      const { target, jsxOptions } = resolveBuildOptions(opts);
+      await bundleFile(input, opts.out, target, jsxOptions);
     });
 
   program
@@ -490,7 +507,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(["build", "run", "test", "tokens", "ast", "format", "syntax", "lsp"]);
+  const knownCommands = new Set(["build", "bundle", "run", "test", "tokens", "ast", "format", "syntax", "lsp"]);
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
