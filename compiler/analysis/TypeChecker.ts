@@ -2387,16 +2387,15 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "object" && targetType.kind === "object") {
-      for (const [propertyName, targetPropertyType] of Object.entries(targetType.properties)) {
-        const sourcePropertyType = sourceType.properties[propertyName];
-        if (!sourcePropertyType) {
-          return false;
-        }
-        if (!this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
-          return false;
-        }
+      return this.objectPropertiesAreAssignable(sourceType.properties, targetType.properties);
+    }
+
+    if (sourceType.kind === "named" && targetType.kind === "object") {
+      const sourceMembers = this.resolveNamedTypeMembers(sourceType);
+      if (!sourceMembers) {
+        return false;
       }
-      return true;
+      return this.objectPropertiesAreAssignable(sourceMembers, targetType.properties);
     }
 
     if (sourceType.kind === "object" && targetType.kind === "named") {
@@ -2404,16 +2403,7 @@ export class TypeChecker {
       if (!namedMembers) {
         return false;
       }
-      for (const [propertyName, targetPropertyType] of namedMembers) {
-        const sourcePropertyType = sourceType.properties[propertyName];
-        if (!sourcePropertyType) {
-          return false;
-        }
-        if (!this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
-          return false;
-        }
-      }
-      return true;
+      return this.objectPropertiesAreAssignable(sourceType.properties, namedMembers);
     }
 
     if (sourceType.kind === "array" && targetType.kind === "named") {
@@ -2483,9 +2473,22 @@ export class TypeChecker {
     if (!sourceMembers) {
       return false;
     }
-    for (const [propertyName, targetPropertyType] of targetMembers.entries()) {
-      const sourcePropertyType = sourceMembers.get(propertyName);
+    return this.objectPropertiesAreAssignable(sourceMembers, targetMembers);
+  }
+
+  private objectPropertiesAreAssignable(
+    sourceProperties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
+    targetProperties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>
+  ): boolean {
+    const targetEntries: Iterable<[string, AnalysisType]> = targetProperties instanceof Map
+      ? targetProperties.entries()
+      : Object.entries(targetProperties);
+    for (const [propertyName, targetPropertyType] of targetEntries) {
+      const sourcePropertyType = this.propertyTypeFrom(sourceProperties, propertyName);
       if (!sourcePropertyType) {
+        if (this.propertyTypeAllowsUndefined(targetPropertyType)) {
+          continue;
+        }
         return false;
       }
       if (!this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
@@ -2493,6 +2496,26 @@ export class TypeChecker {
       }
     }
     return true;
+  }
+
+  private propertyTypeFrom(
+    properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
+    propertyName: string
+  ): AnalysisType | undefined {
+    if (typeof (properties as ReadonlyMap<string, AnalysisType>).get === "function") {
+      return (properties as ReadonlyMap<string, AnalysisType>).get(propertyName);
+    }
+    return (properties as Record<string, AnalysisType>)[propertyName];
+  }
+
+  private propertyTypeAllowsUndefined(type: AnalysisType): boolean {
+    if (type.kind === "builtin") {
+      return type.name === "undefined" || type.name === "any" || type.name === "unknown";
+    }
+    if (type.kind === "union") {
+      return type.types.some((member) => this.propertyTypeAllowsUndefined(member));
+    }
+    return false;
   }
 
   private buildFunctionType(
@@ -2973,6 +2996,9 @@ export class TypeChecker {
       const constraint = constraints[typeParameter];
       const typeArgument = substitutions.get(typeParameter);
       if (!constraint || !typeArgument) {
+        continue;
+      }
+      if (typeArgument.kind === "named" && typeParameters.includes(typeArgument.name)) {
         continue;
       }
       this.validateTypeArgumentConstraint(
@@ -5996,7 +6022,10 @@ export class TypeChecker {
     const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
     for (const interfaceMember of interfaceStatement.members) {
       if (interfaceMember.kind === "InterfacePropertyMember") {
-        const memberType = this.typeFromAnnotationLoose(interfaceMember.typeAnnotation) ?? UNKNOWN_TYPE;
+        const rawMemberType = this.typeFromAnnotationLoose(interfaceMember.typeAnnotation) ?? UNKNOWN_TYPE;
+        const memberType = interfaceMember.optional === true
+          ? unionType([rawMemberType, builtinType("undefined")])
+          : rawMemberType;
         members.set(
           interfaceMember.name.name,
           this.substituteTypeParameters(memberType, substitutions)

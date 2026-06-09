@@ -5160,8 +5160,10 @@ export class Parser {
             } else if (memberNameToken.type === "identifier" && memberNameToken.value === "new") {
                 memberName = "constructor";
             }
+            let optionalMember = false;
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
                 this.tokens.skip();
+                optionalMember = true;
             }
 
             const methodTypeParameters = this.parseTypeParameterList();
@@ -5209,6 +5211,9 @@ export class Parser {
                 name: this.attachNodeBounds({ kind: "Identifier", name: memberName } as Identifier, memberNameToken, memberNameToken),
                 typeAnnotation: propertyType
             };
+            if (optionalMember) {
+                propertyMember.optional = true;
+            }
             members.push(this.attachNodeBounds(propertyMember, memberNameToken, this.getLastReadToken() ?? memberNameToken));
             this.consumeStatementSeparator("block", this.getLastReadToken());
         }

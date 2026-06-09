@@ -1,0 +1,18 @@
+// Constructor-only ECMAScript binary-buffer globals can be called in MyLang's
+// class-call style. The compiler emits JavaScript `new` calls and accepts the
+// typed ArrayBuffer/DataView generic constraint used by the standard library.
+const buffer = ArrayBuffer(4)
+const view = DataView(buffer)
+view.setUint16(0, 0x1234)
+view.setUint16(2, 0xabcd)
+
+const bytes = Uint8Array(buffer)
+const byteSet = Set<int>([bytes[0], bytes[1], bytes[2], bytes[3]])
+const metadataKey = { kind: "buffer" }
+const metadata = WeakMap<object, string>([[metadataKey, "ready"]])
+
+console.log(buffer.byteLength)
+console.log(`${view.getUint8(0)},${view.getUint8(1)},${view.getUint8(2)},${view.getUint8(3)}`)
+console.log([...byteSet].join(","))
+console.log(metadata.get(metadataKey))
+console.log(view instanceof DataView)
