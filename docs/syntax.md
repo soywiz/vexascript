@@ -988,11 +988,12 @@ let point = Point(y: 2, x: 1)             // reordered to new Point(1, 2)
 
 ### Class instantiation and new expressions
 
-A declared class can be called directly to instantiate it. `ClassName(arguments)` is equivalent to `new ClassName(arguments)`:
+A declared class can be called directly to instantiate it. `ClassName(arguments)` is equivalent to `new ClassName(arguments)`. Constructor-only ECMAScript globals from ambient declarations use the same class-call style, including calls with generic type arguments such as `Map<string, number>(entries)`:
 
 ```mylang
 class Point(val x: int, val y: int)
 let point = Point(1, 2)
+let scores = Map<string, number>([["Ada", 3]])
 ```
 
 TypeScript-style `new` expressions are also supported, including constructor arguments, generic type arguments, and member-based constructor targets:
