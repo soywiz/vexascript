@@ -505,6 +505,12 @@ export const answer: number = 42
 export function add(a: number, b: number): number {
   return a + b
 }
+export async fun loadAnswer(): Promise<number> {
+  return 42
+}
+export sync fun loadCachedAnswer(): number {
+  return loadAnswer()
+}
 export class Point
 export default Point
 export { Point as RenamedPoint }

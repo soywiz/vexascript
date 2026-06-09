@@ -1,0 +1,15 @@
+import { auditLater, fetchPrice, fetchTaxRate } from "./services.my"
+
+sync fun checkout(): int {
+  const base = fetchPrice("book")
+  const tax = fetchTaxRate()
+  const pendingAudit: Promise<string> = go auditLater(base + tax)
+  const adjustments = [fetchPrice("pen"), fetchTaxRate()]
+  const extras = { bag: fetchPrice("bag"), tax: fetchTaxRate() }
+
+  console.log(await pendingAudit)
+
+  return base + tax + adjustments[0] + adjustments[1] + extras.bag + extras.tax
+}
+
+console.log(await checkout())
