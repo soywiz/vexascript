@@ -299,12 +299,15 @@ export async function bundleModuleGraph(
 
     // Store this module's analysis (resolved with its own cross-file types) so
     // modules that import from it can read their imported value types.
-    analysisByPath.set(
-      filePath,
-      compileSource(source, parserOptions, { externalDeclarations, ambientDeclarations, importedSymbolTypes }).analysis
-    );
+    const compilationArtifacts = compileSource(source, parserOptions, {
+      externalDeclarations,
+      ambientDeclarations,
+      importedSymbolTypes
+    });
+    analysisByPath.set(filePath, compilationArtifacts.analysis);
 
     const result = transpile(source, {
+      compilationArtifacts,
       sourceFilePath: filePath,
       target,
       parserOptions,

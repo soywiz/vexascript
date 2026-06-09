@@ -1,5 +1,6 @@
 import {
   compileSource,
+  type CompilationArtifacts,
   formatParseIssue,
   formatSemanticIssue
 } from "compiler/pipeline/compile";
@@ -81,6 +82,8 @@ interface SourceMapV3 {
 }
 
 export interface TranspileOptions {
+  /** Precomputed parse+analysis artifacts to reuse instead of recompiling the source. */
+  compilationArtifacts?: CompilationArtifacts;
   sourceFilePath?: string;
   /** Parser mode. Defaults to TypeScript for `.ts`/`.tsx` paths and MyLang otherwise. */
   parserOptions?: ParserOptions;
@@ -276,7 +279,11 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const externalDeclarations = options.externalDeclarations ?? [];
   const importedSymbolTypes = options.importedSymbolTypes ?? new Map();
   const ambientDeclarations = options.ambientDeclarations ?? [];
-  const artifacts = compileSource(source, parserOptionsForTranspile(options), { externalDeclarations, ambientDeclarations, importedSymbolTypes });
+  const artifacts = options.compilationArtifacts ?? compileSource(
+    source,
+    parserOptionsForTranspile(options),
+    { externalDeclarations, ambientDeclarations, importedSymbolTypes }
+  );
   const errors: string[] = [];
   const diagnostics: TranspileDiagnostic[] = [];
   const file = options.sourceFilePath ?? "<unknown>";
