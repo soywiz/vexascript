@@ -317,7 +317,20 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
 
   for (const issue of artifacts.semanticIssues) {
     errors.push(formatSemanticIssue(issue));
-    const range = issue.node.firstToken?.range;
+    const range = issue.range
+      ? {
+          start: {
+            offset: 0,
+            line: issue.range.start.line,
+            column: issue.range.start.character
+          },
+          end: {
+            offset: 0,
+            line: issue.range.end.line,
+            column: issue.range.end.character
+          }
+        }
+      : issue.node.firstToken?.range;
     const code =
       mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
       classifySemanticDiagnosticMessage(issue.message) ??

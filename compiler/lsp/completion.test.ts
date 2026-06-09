@@ -580,6 +580,119 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("value");
   });
 
+  it("offers members after accessing a nullable inherited DOM member", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-child-"));
+    const file = join(root, "main.my");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      const root: HTMLElement = document.createElement("main")
+      root.firstChild.^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root]
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["nodeType", "parentNode", "textContent"]));
+  });
+
+  it("offers members after a DOM querySelector call receiver", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-query-selector-"));
+    const file = join(root, "main.my");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      const root: HTMLElement = document.createElement("main")
+      root.querySelector(".demo").^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["nodeType", "parentNode", "textContent", "querySelector"]));
+  });
+
+  it("offers members after an optional DOM querySelector call receiver", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-optional-query-selector-"));
+    const file = join(root, "main.my");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      const root: HTMLElement = document.createElement("main")
+      root.querySelector(".demo")?.^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["nodeType", "parentNode", "textContent", "querySelector"]));
+  });
+
+  it("offers members after a non-null-asserted DOM querySelector call receiver", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-non-null-query-selector-"));
+    const file = join(root, "main.my");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      const root: HTMLElement = document.createElement("main")
+      root.querySelector(".demo")!.^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["nodeType", "parentNode", "textContent", "querySelector"]));
+  });
+
+  it("offers members after accessing a member on a non-null-asserted DOM querySelector result", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-non-null-query-selector-child-"));
+    const file = join(root, "main.my");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      const root: HTMLElement = document.createElement("main")
+      root.querySelector(".demo")!.firstChild.^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["nodeType", "parentNode", "textContent"]));
+  });
+
   it("includes constructor parameter properties in member completion", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class User { constructor(public id: string, readonly age: int) {} }

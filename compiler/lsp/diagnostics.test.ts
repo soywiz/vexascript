@@ -179,6 +179,27 @@ function empty(): int {
     expect(diagnostic?.range.start).toEqual(doc.positionAt(source.indexOf("/")));
   });
 
+  it("anchors nullable member-access diagnostics on the access dot", () => {
+    const source = dedent`
+      interface ElementLike {
+        querySelector(value: string): ElementLike | null
+      }
+      let root: ElementLike
+      root.querySelector(".demo").querySelector("test")
+      `;
+
+    const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+    const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
+    const diagnostic = diagnostics.find(
+      (item) =>
+        item.message === "Object is possibly 'null' or 'undefined'. Use optional access '?.' or a non-null assertion '!'"
+    );
+    const expectedDotOffset = source.indexOf(".querySelector(\"test\")");
+
+    expect(diagnostic?.range.start).toEqual(doc.positionAt(expectedDotOffset));
+    expect(diagnostic?.range.end).toEqual(doc.positionAt(expectedDotOffset + 1));
+  });
+
   it("creates a full document diagnostic report from a session", () => {
     const source = "function bad() {\n  yield 1\n}\n";
     const session = createAnalysisSession(source);

@@ -84,7 +84,7 @@ export function collectDiagnosticsFromSession(
   if (session.semanticIssues.length > 0) {
     for (const issue of session.semanticIssues) {
       const token = issue.node.firstToken;
-      if (!token) {
+      if (!token && !issue.range) {
         continue;
       }
       diagnostics.push({
@@ -93,14 +93,14 @@ export function collectDiagnosticsFromSession(
           classifySemanticDiagnosticMessage(issue.message) ??
           MYLANG_DIAGNOSTIC_CODES.SEMANTIC_ERROR,
         severity: DiagnosticSeverity.Error,
-        range: {
+        range: issue.range ?? {
           start: {
-            line: token.range.start.line,
-            character: token.range.start.column
+            line: token!.range.start.line,
+            character: token!.range.start.column
           },
           end: {
-            line: token.range.end.line,
-            character: token.range.end.column
+            line: token!.range.end.line,
+            character: token!.range.end.column
           }
         },
         message: issue.message,

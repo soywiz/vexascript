@@ -13,6 +13,9 @@ export interface AnalysisSession {
   analysis: Analysis | null;
   tokenizeError: TokenizeError | null;
   fatalError: string | null;
+  externalDeclarations: Statement[];
+  importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
+  ambientDeclarations: Statement[];
 }
 
 export function createAnalysisSession(
@@ -28,7 +31,10 @@ export function createAnalysisSession(
     semanticIssues: artifacts.semanticIssues,
     analysis: artifacts.analysis,
     tokenizeError: artifacts.tokenizeError,
-    fatalError: artifacts.fatalError
+    fatalError: artifacts.fatalError,
+    externalDeclarations: [...externalDeclarations],
+    importedSymbolTypes,
+    ambientDeclarations: [...ambientDeclarations]
   };
 }
 

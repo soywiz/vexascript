@@ -228,6 +228,7 @@ export async function bundleModuleGraph(
   const inProgress = new Set<string>();
   const errors: string[] = [];
   const warnings: string[] = [];
+  const diagnostics: TranspileResult["diagnostics"] = [];
 
   const loadSource = async (filePath: string): Promise<string | null> => {
     if (sourceByPath.has(filePath)) {
@@ -318,6 +319,7 @@ export async function bundleModuleGraph(
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });
     errors.push(...result.errors);
+    diagnostics.push(...result.diagnostics);
     warnings.push(...result.warnings);
     emittedByPath.set(filePath, stripBundledImports(result.code, bundledSpecifiers));
 
@@ -332,5 +334,5 @@ export async function bundleModuleGraph(
     .filter((chunk) => chunk.trim().length > 0)
     .join("\n");
 
-  return { code, warnings, errors, diagnostics: [] };
+  return { code, warnings, errors, diagnostics };
 }

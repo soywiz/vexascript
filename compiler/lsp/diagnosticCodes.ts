@@ -24,6 +24,7 @@ export const MYLANG_DIAGNOSTIC_CODES = {
   YIELD_OUTSIDE_GENERATOR: "MYL2016",
   OPERATOR_NOT_DEFINED: "MYL2017",
   SWITCH_CASE_FALLTHROUGH: "MYL2018",
+  NULLABLE_MEMBER_ACCESS: "MYL2019",
   STYLE_AVOID_ANY: "MYL3001"
 } as const;
 
@@ -48,6 +49,8 @@ export const READONLY_REASSIGNMENT_PATTERN = /^Cannot assign to '([A-Za-z_][A-Za
 export const IMPLEMENTS_MISSING_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is missing$/;
 export const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrectly implements interface '([^']+)'\. Property '([^']+)' is of type '(.+)' but expected '(.+)'$/;
 export const OPERATOR_NOT_DEFINED_PATTERN = /^Operator '(.+)' is not defined for types '(.+)' and '(.+)'$/;
+export const NULLABLE_MEMBER_ACCESS_PATTERN =
+  /^Object is possibly 'null' or 'undefined'\. Use optional access '\?\.' or a non-null assertion '!'$/;
 
 export interface UndefinedVariableDiagnosticMatch {
   name: string;
@@ -191,6 +194,9 @@ export function classifySemanticDiagnosticMessage(message: string): MyLangDiagno
   }
   if (OPERATOR_NOT_DEFINED_PATTERN.test(message)) {
     return MYLANG_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED;
+  }
+  if (NULLABLE_MEMBER_ACCESS_PATTERN.test(message)) {
+    return MYLANG_DIAGNOSTIC_CODES.NULLABLE_MEMBER_ACCESS;
   }
   return null;
 }

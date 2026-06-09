@@ -19,6 +19,7 @@ import { createEmptyClassBodyCodeActions } from "./emptyClassBodyFixes";
 import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
 import { createThisCodeActions } from "./thisFixes";
+import { createNullableAccessCodeActions } from "./nullableAccessFixes";
 import type { SymbolExportProvider } from "./importFixes";
 
 /**
@@ -130,6 +131,14 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
       ast,
       analysis,
       position: range.start
+    })
+  );
+
+  actions.push(
+    ...createNullableAccessCodeActions({
+      uri,
+      ast,
+      diagnostics
     })
   );
 

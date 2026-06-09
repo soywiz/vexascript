@@ -1,5 +1,6 @@
 import type { Node } from "compiler/ast/ast";
 import type { BinaryExpression } from "compiler/ast/ast";
+import type { AnalysisRange } from "./Analysis";
 import type { AnalysisType } from "./types";
 import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
 
@@ -21,6 +22,7 @@ export interface AnalysisSymbol {
 export interface AnalysisIssue {
   message: string;
   node: Node;
+  range?: AnalysisRange;
   code?: AnalysisIssueCode;
   data?: AnalysisIssueData;
 }

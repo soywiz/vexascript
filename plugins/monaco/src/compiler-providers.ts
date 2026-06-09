@@ -514,7 +514,16 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
         position.column - 1,
         session.analysis,
         [],
-        { text: model.getValue(), ...resolverContext(model, workspaceContext) }
+        {
+          text: model.getValue(),
+          ...resolverContext(model, workspaceContext),
+          recoverAnalysisSession: (source) => createAnalysisSession(
+            source,
+            session.externalDeclarations,
+            session.importedSymbolTypes,
+            session.ambientDeclarations
+          )
+        }
       );
       const defaultRange = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
       return {

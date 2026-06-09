@@ -89,6 +89,41 @@ describe("collectCodeActions aggregator", () => {
     );
   });
 
+  it("offers nullable member-access quick fixes", async () => {
+    const source = dedent`
+      interface ElementLike {
+        querySelector(value: string): ElementLike | null
+      }
+      let root: ElementLike
+      root.querySelector(".demo").querySelector("test")
+      `;
+    const session = createAnalysisSession(source);
+    const diagnostics = session.semanticIssues.map((issue) => {
+      const range = issue.range;
+      if (!range) {
+        throw new Error("Expected nullable diagnostic range");
+      }
+      return {
+        message: issue.message,
+        range,
+        source: "mylang-sema"
+      };
+    });
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(4, 31),
+      diagnostics,
+      sourceRoots: []
+    });
+    const titles = actions.map((action) => action.title);
+
+    expect(titles).toContain("Use optional access '?.'");
+    expect(titles).toContain("Use non-null assertion '!.'");
+  });
+
   it("keeps the browser LSP worker on the shared code-action aggregator", async () => {
     const browserServer = await readFile("compiler/lsp/server-browser.ts", "utf8");
 

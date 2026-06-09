@@ -1467,6 +1467,7 @@ export class TypeChecker {
           member.property.kind === "Identifier" &&
           this.isPromiseMethodName((member.property as Identifier).name);
         const rawObjectType = this.visitExpression(member.object, scope, undefined, suppressObjectAutoAwait);
+        this.validateNullableMemberAccess(member, rawObjectType);
         const objectType = member.nonNullAsserted === true ? this.removeNullishFromType(rawObjectType) : rawObjectType;
         if (member.computed) {
           const propertyType = this.visitExpression(member.property, scope);
@@ -5634,21 +5635,47 @@ export class TypeChecker {
     return unionType([type, builtinType("undefined")]);
   }
 
+  private validateNullableMemberAccess(member: MemberExpression, objectType: AnalysisType): void {
+    if (member.optional === true || member.nonNullAsserted === true || !this.hasNullishUnionMember(objectType)) {
+      return;
+    }
+    const objectLastToken = member.object.lastToken;
+    const propertyFirstToken = member.property.firstToken;
+    const range =
+      objectLastToken && propertyFirstToken
+        ? {
+            start: {
+              line: objectLastToken.range.end.line,
+              character: objectLastToken.range.end.column
+            },
+            end: {
+              line: objectLastToken.range.end.line,
+              character: Math.min(propertyFirstToken.range.start.column, objectLastToken.range.end.column + 1)
+            }
+          }
+        : null;
+    this.issues.push({
+      message: "Object is possibly 'null' or 'undefined'. Use optional access '?.' or a non-null assertion '!'",
+      node: member.property,
+      ...(range ? { range } : {})
+    });
+  }
+
   private validateKnownMemberAccess(member: MemberExpression, objectType: AnalysisType, scope: Scope): void {
     if (member.computed || member.property.kind !== "Identifier") {
       return;
     }
 
     const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-    if (isUnknownType(objectType) || (objectType.kind === "builtin" && objectType.name === "unknown")) {
-      if (member.object.kind !== "Identifier") {
-        return;
-      }
-      const baseIdentifier = member.object as Identifier;
-      const usageOffset = baseIdentifier.firstToken?.range.start.offset;
-      const symbol = this.resolve(baseIdentifier.name, scope, usageOffset);
-      if (!symbol || !this.explicitlyUnknownIdentifiers.has(symbol.node)) {
-        return;
+    const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
+    if (isUnknownType(resolvedObjectType) || (resolvedObjectType.kind === "builtin" && resolvedObjectType.name === "unknown")) {
+      if (member.object.kind === "Identifier") {
+        const baseIdentifier = member.object as Identifier;
+        const usageOffset = baseIdentifier.firstToken?.range.start.offset;
+        const symbol = this.resolve(baseIdentifier.name, scope, usageOffset);
+        if (!symbol || !this.explicitlyUnknownIdentifiers.has(symbol.node)) {
+          return;
+        }
       }
       this.issues.push({
         message: `Property '${propertyName}' does not exist on type 'unknown'`,
@@ -5657,24 +5684,44 @@ export class TypeChecker {
       return;
     }
 
-    if (this.resolveExtensionMemberType(objectType, propertyName) || this.importedExtensionPropertyNames.has(propertyName)) {
+    if (this.resolveExtensionMemberType(resolvedObjectType, propertyName) || this.importedExtensionPropertyNames.has(propertyName)) {
       return;
     }
 
-    const knownMembers = this.membersForType(objectType);
+    const knownMembers = this.membersForType(resolvedObjectType);
     if (!knownMembers) {
       return;
     }
     if (knownMembers.has(propertyName)) {
-      this.validateMemberVisibility(member, objectType, propertyName, scope);
+      this.validateMemberVisibility(member, resolvedObjectType, propertyName, scope);
       return;
     }
 
-    const displayType = objectType.kind === "named" ? objectType.name : typeToString(objectType);
+    const displayType = resolvedObjectType.kind === "named" ? resolvedObjectType.name : typeToString(resolvedObjectType);
     this.issues.push({
       message: `Property '${propertyName}' does not exist on type '${displayType}'`,
       node: member.property
     });
+  }
+
+  private resolveConstrainedNamedExpressionType(expression: Expr, type: AnalysisType): AnalysisType | null {
+    if (type.kind === "union") {
+      return unionType(type.types.map((member) => this.resolveConstrainedNamedExpressionType(expression, member) ?? member));
+    }
+    if (type.kind !== "named") {
+      return null;
+    }
+    if (this.membersForType(type)) {
+      return null;
+    }
+    if (expression.kind !== "CallExpression") {
+      return null;
+    }
+    const calleeType = this.expressionTypes.get((expression as CallExpression).callee);
+    const constrained = calleeType?.kind === "function"
+      ? calleeType.typeParameterConstraints?.[type.name]
+      : null;
+    return constrained ?? null;
   }
 
   private validateMemberVisibility(member: MemberExpression, objectType: AnalysisType, propertyName: string, scope: Scope): void {
@@ -5773,16 +5820,17 @@ export class TypeChecker {
       return null;
     }
 
+    const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
     const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-    const extensionType = this.resolveExtensionMemberType(objectType, memberName);
+    const extensionType = this.resolveExtensionMemberType(resolvedObjectType, memberName);
     if (extensionType) {
       return extensionType;
     }
     if (this.importedExtensionPropertyNames.has(memberName)) {
       return UNKNOWN_TYPE;
     }
-    if (objectType.kind === "union") {
-      const memberTypes = objectType.types
+    if (resolvedObjectType.kind === "union") {
+      const memberTypes = resolvedObjectType.types
         .filter((type) => !this.isNullishType(type))
         .map((type) => this.resolveKnownMemberType(member, type))
         .filter((type): type is AnalysisType => type !== null);
@@ -5791,21 +5839,21 @@ export class TypeChecker {
       }
       return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
     }
-    if (objectType.kind === "object") {
-      return objectType.properties[memberName] ?? null;
+    if (resolvedObjectType.kind === "object") {
+      return resolvedObjectType.properties[memberName] ?? null;
     }
-    if (objectType.kind === "array") {
-      const arrayMembers = this.membersForArrayAlias(objectType);
+    if (resolvedObjectType.kind === "array") {
+      const arrayMembers = this.membersForArrayAlias(resolvedObjectType);
       if (!arrayMembers) {
         return null;
       }
       return arrayMembers.get(memberName) ?? null;
     }
-    if (objectType.kind !== "named") {
+    if (resolvedObjectType.kind !== "named") {
       return null;
     }
 
-    const classMembers = this.resolveNamedTypeMembers(objectType);
+    const classMembers = this.resolveNamedTypeMembers(resolvedObjectType);
     if (!classMembers) {
       return null;
     }

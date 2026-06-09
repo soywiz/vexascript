@@ -1,6 +1,7 @@
 import { Analysis, type AnalysisIssue, type AnalysisOptions } from "compiler/analysis/Analysis";
 import type { ParseIssue, ParserOptions } from "compiler/parser/parser";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
+import type { SourceRange } from "compiler/parser/tokenizer";
 import { parseSource, type ParseArtifacts } from "./parse";
 
 export interface CompilationArtifacts extends ParseArtifacts {
@@ -47,9 +48,22 @@ export function formatParseIssue(issue: ParseIssue): string {
 }
 
 export function formatSemanticIssue(issue: AnalysisIssue): string {
-  const token = issue.node.firstToken;
-  if (!token) {
+  const range: SourceRange | undefined = issue.range
+    ? {
+        start: {
+          offset: 0,
+          line: issue.range.start.line,
+          column: issue.range.start.character
+        },
+        end: {
+          offset: 0,
+          line: issue.range.end.line,
+          column: issue.range.end.character
+        }
+      }
+    : issue.node.firstToken?.range;
+  if (!range) {
     return issue.message;
   }
-  return formatMessageAtSourceRange(issue.message, token.range);
+  return formatMessageAtSourceRange(issue.message, range);
 }

@@ -15,7 +15,7 @@ import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formattin
 import { createDocumentDiagnosticReport } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
-import { AnalysisSessionCache } from "./analysisSession";
+import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { buildAutoImportSuggestions } from "./importFixes";
@@ -301,7 +301,13 @@ connection.onCompletion(async (params) => {
       text,
       uri: doc.uri,
       sourceRoots,
-      getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+      getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
+      recoverAnalysisSession: (source) => createAnalysisSession(
+        source,
+        session.externalDeclarations,
+        session.importedSymbolTypes,
+        session.ambientDeclarations
+      )
     }
   );
 });

@@ -2925,6 +2925,47 @@ let after = bind`));
     expect(messages).toContain("Type 'int | undefined' is not assignable to type 'int'");
   });
 
+  it("reports member access on nullable receivers unless ?. or ! is used", () => {
+    const source = dedent`
+      interface MaybeRunner {
+        run(): MaybeRunner
+      }
+      let maybe: MaybeRunner | undefined
+      let bad = maybe.run().run()
+      let ok1 = maybe?.run()
+      let ok2 = maybe!.run()
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Object is possibly 'null' or 'undefined'. Use optional access '?.' or a non-null assertion '!'");
+    expect(messages.filter((message) => message.includes("Object is possibly 'null' or 'undefined'"))).toHaveLength(1);
+  });
+
+  it("reports unknown members inside optional chains after a nullable access narrows to unknown", () => {
+    const source = dedent`
+      interface NodeLike {
+        firstChild: unknown
+      }
+      interface ElementLike {
+        querySelector(value: string): ElementLike | null
+        firstChild: NodeLike | null
+      }
+      let root: ElementLike
+      root.querySelector(".demo")?.firstChild?.firstChild2?.test?.lol
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Property 'firstChild2' does not exist on type 'NodeLike | null | undefined'");
+    expect(messages).toContain("Property 'test' does not exist on type 'unknown'");
+    expect(messages).toContain("Property 'lol' does not exist on type 'unknown'");
+  });
+
   it("supports variadic runtime Console methods", () => {
     const source = dedent`
       console.log(42, 10, "ok")

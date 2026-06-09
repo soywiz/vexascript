@@ -186,6 +186,26 @@ describe("CLI", () => {
     expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain("error");
   });
 
+  it("run command includes semantic diagnostic codes in stderr output", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
+    const input = join(dir, "broken-nullable.my");
+    await writeFile(input, [
+      "interface MaybeRunner {",
+      "  run(): MaybeRunner",
+      "}",
+      "let maybe: MaybeRunner | undefined",
+      "let bad = maybe.run()"
+    ].join("\n"), "utf8");
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runCli(["node", "mylang", "run", input])).rejects.toThrow("Compilation failed");
+    const rendered = errorSpy.mock.calls.map((call) => String(call[0] ?? "")).join("\n");
+
+    expect(rendered).toContain("MYL2019");
+    expect(rendered).toContain("Object is possibly 'null' or 'undefined'");
+  });
+
   it("tokens command prints token list as JSON", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
     const input = join(dir, "tokens.my");

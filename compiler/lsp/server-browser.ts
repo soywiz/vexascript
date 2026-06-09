@@ -25,7 +25,7 @@ import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocum
 import { collectCodeActions } from "./codeActionsAggregate";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { createDocumentDiagnosticReport } from "./diagnostics";
-import { AnalysisSessionCache } from "./analysisSession";
+import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems,
@@ -157,7 +157,18 @@ export function startLspInWorker(): void {
       params.position.character,
       session.analysis,
       [],
-      { text, uri: doc.uri, sourceRoots: [], getSessionForFilePath: () => null }
+      {
+        text,
+        uri: doc.uri,
+        sourceRoots: [],
+        getSessionForFilePath: () => null,
+        recoverAnalysisSession: (source) => createAnalysisSession(
+          source,
+          session.externalDeclarations,
+          session.importedSymbolTypes,
+          session.ambientDeclarations
+        )
+      }
     );
   });
 

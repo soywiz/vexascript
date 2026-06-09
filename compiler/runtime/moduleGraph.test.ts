@@ -157,4 +157,25 @@ describe("bundleModuleGraph", () => {
       }
     );
   });
+
+  it("preserves semantic diagnostics emitted by transpile", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "main.my": dedent`
+          interface MaybeRunner {
+            run(): MaybeRunner
+          }
+          let maybe: MaybeRunner | undefined
+          let bad = maybe.run()
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+
+        expect(result.errors.length).toBeGreaterThan(0);
+        expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("MYL2019");
+      }
+    );
+  });
 });
