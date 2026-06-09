@@ -1,0 +1,15 @@
+fun box<T>(initial: T) {
+  return { value: initial }
+}
+
+var source = 1
+var observed by () => source
+var total by box(0)
+
+total = observed + 2
+console.log(`first:${total}`)
+
+source = 5
+total += observed
+total++
+console.log(`second:${total}`)
