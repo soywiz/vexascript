@@ -31,6 +31,7 @@ import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
+import { declarationIndexForStatements } from "./declarationIndex";
 
 const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typeof UNKNOWN_TYPE>([
   ["true", builtinType("boolean")],
@@ -148,7 +149,7 @@ export class Binder {
     scope: Scope,
     declaredOffsetOverride?: number
   ): void {
-    for (const statement of statements) {
+    for (const statement of declarationIndexForStatements(statements).globalDeclarations) {
       if (statement.kind === "ExportStatement") {
         const exportStatement = statement as ExportStatement;
         if (exportStatement.declaration) {
@@ -578,24 +579,16 @@ export class Binder {
 
 
   private collectClassStatements(statements: Statement[]): void {
-    for (const statement of statements) {
-      const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
-      if (candidate?.kind === "ClassStatement") {
-        const classStatement = candidate as ClassStatement;
-        this.classStatementsByName.set(classStatement.name.name, classStatement);
-      }
+    for (const classStatement of declarationIndexForStatements(statements).classes) {
+      this.classStatementsByName.set(classStatement.name.name, classStatement);
     }
   }
 
   private collectInterfaceStatements(statements: Statement[]): void {
-    for (const statement of statements) {
-      const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
-      if (candidate?.kind === "InterfaceStatement") {
-        const interfaceStatement = candidate as InterfaceStatement;
-        const existing = this.interfaceStatementsByName.get(interfaceStatement.name.name) ?? [];
-        existing.push(interfaceStatement);
-        this.interfaceStatementsByName.set(interfaceStatement.name.name, existing);
-      }
+    for (const interfaceStatement of declarationIndexForStatements(statements).interfaces) {
+      const existing = this.interfaceStatementsByName.get(interfaceStatement.name.name) ?? [];
+      existing.push(interfaceStatement);
+      this.interfaceStatementsByName.set(interfaceStatement.name.name, existing);
     }
   }
 

@@ -26,8 +26,10 @@ This section is the fast onboarding map for agents and contributors.
   - Public analysis API: `compiler/analysis/Analysis.ts`
   - Scope/symbol binding: `compiler/analysis/Binder.ts`
   - Type checking and semantic diagnostics: `compiler/analysis/TypeChecker.ts`
+  - Shared cached one-pass top-level declaration indexing for runtime/ambient/program statement arrays reused by binder/type-checker: `compiler/analysis/declarationIndex.ts`
   - Shared structural type-text parsing/splitting and substitution helpers: `compiler/analysis/typeNames.ts`
   - Type-name helper tests: `compiler/analysis/typeNames.test.ts`
+  - Declaration-index tests: `compiler/analysis/declarationIndex.test.ts`
   - Project semantic index/cache with precise top-level declaration kinds for classes, interfaces, type aliases, functions, variables, and extension members: `compiler/analysis/projectIndex.ts`
   - Project index tests: `compiler/analysis/projectIndex.test.ts`
   - Analysis model/types: `compiler/analysis/model.ts`, `compiler/analysis/types.ts`

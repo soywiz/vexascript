@@ -106,6 +106,7 @@ import {
 } from "./typeNames";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { declarationIndexForStatements } from "./declarationIndex";
 
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
@@ -5411,30 +5412,11 @@ export class TypeChecker {
    * resolution when referenced as plain named types.
    */
   private collectNestedNamespaceDeclarations(statements: readonly Statement[]): Statement[] {
-    const result: Statement[] = [];
-    const visit = (stmts: readonly Statement[]): void => {
-      for (const stmt of stmts) {
-        const candidate = stmt.kind === "ExportStatement" ? (stmt as ExportStatement).declaration : stmt;
-        if (candidate?.kind === "NamespaceStatement") {
-          const ns = candidate as NamespaceStatement;
-          result.push(...ns.body.body);
-          visit(ns.body.body);
-        }
-      }
-    };
-    visit(statements);
-    return result;
+    return declarationIndexForStatements(statements).nestedNamespaceDeclarations;
   }
 
   private collectFunctionStatements(statements: readonly Statement[]): void {
-    for (const statement of statements) {
-      const candidate = statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration
-        : statement;
-      if (candidate?.kind !== "FunctionStatement") {
-        continue;
-      }
-      const functionStatement = candidate as FunctionStatement;
+    for (const functionStatement of declarationIndexForStatements(statements).functions) {
       if (!functionStatement.receiverType) {
         this.functionStatementsByName.set(functionStatement.name.name, functionStatement);
       }
@@ -5442,14 +5424,7 @@ export class TypeChecker {
   }
 
   private collectClassStatements(statements: readonly Statement[]): void {
-    for (const statement of statements) {
-      const candidate = statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration
-        : statement;
-      if (candidate?.kind !== "ClassStatement") {
-        continue;
-      }
-      const classStatement = candidate as ClassStatement;
+    for (const classStatement of declarationIndexForStatements(statements).classes) {
       this.classStatementsByName.set(classStatement.name.name, classStatement);
     }
   }
@@ -5546,27 +5521,13 @@ export class TypeChecker {
 
 
   private collectEnumStatements(statements: readonly Statement[]): void {
-    for (const statement of statements) {
-      const candidate = statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration
-        : statement;
-      if (candidate?.kind !== "EnumStatement") {
-        continue;
-      }
-      const enumStatement = candidate as EnumStatement;
+    for (const enumStatement of declarationIndexForStatements(statements).enums) {
       this.enumStatementsByName.set(enumStatement.name.name, enumStatement);
     }
   }
 
   private collectInterfaceStatements(statements: readonly Statement[]): void {
-    for (const statement of statements) {
-      const candidate = statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration
-        : statement;
-      if (candidate?.kind !== "InterfaceStatement") {
-        continue;
-      }
-      const interfaceStatement = candidate as InterfaceStatement;
+    for (const interfaceStatement of declarationIndexForStatements(statements).interfaces) {
       const existing = this.interfaceStatementsByName.get(interfaceStatement.name.name);
       if (!existing) {
         this.interfaceStatementsByName.set(interfaceStatement.name.name, interfaceStatement);
@@ -5592,14 +5553,7 @@ export class TypeChecker {
   }
 
   private collectTypeAliasStatements(statements: readonly Statement[]): void {
-    for (const statement of statements) {
-      const candidate = statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration
-        : statement;
-      if (candidate?.kind !== "TypeAliasStatement") {
-        continue;
-      }
-      const typeAliasStatement = candidate as TypeAliasStatement;
+    for (const typeAliasStatement of declarationIndexForStatements(statements).typeAliases) {
       this.typeAliasStatementsByName.set(typeAliasStatement.name.name, typeAliasStatement);
     }
   }
