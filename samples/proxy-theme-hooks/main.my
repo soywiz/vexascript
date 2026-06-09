@@ -1,0 +1,55 @@
+type ThemeColors = {
+  background: string;
+  foreground: string;
+}
+
+type Theme = {
+  name: string;
+  colors: ThemeColors;
+}
+
+const events: string[] = []
+
+function observableTheme(theme: Theme): Theme {
+  const observedColors = Proxy(theme.colors as any, {
+    get(target: any, property: string | symbol, receiver: any) {
+      if (typeof property == "string") events.push(`color:get:${property}`)
+      return Reflect.get(target, property, receiver)
+    },
+    set(target: any, property: string | symbol, value: string, receiver: any) {
+      if (typeof property == "string") events.push(`color:set:${property}=${value}`)
+      return Reflect.set(target, property, value, receiver)
+    }
+  } as any) as ThemeColors
+
+  return Proxy({ ...theme, colors: observedColors } as any, {
+    get(target: any, property: string | symbol, receiver: any) {
+      if (typeof property == "string") events.push(`theme:get:${property}`)
+      return Reflect.get(target, property, receiver)
+    },
+    set(target: any, property: string | symbol, value: any, receiver: any) {
+      if (typeof property == "string") events.push(`theme:set:${property}=${value}`)
+      return Reflect.set(target, property, value, receiver)
+    },
+    has(target: any, property: string | symbol) {
+      if (typeof property == "string") events.push(`theme:has:${property}`)
+      return Reflect.has(target, property)
+    }
+  } as any) as Theme
+}
+
+const theme = observableTheme({
+  name: "light",
+  colors: {
+    background: "#ffffff",
+    foreground: "#202020"
+  }
+})
+
+theme.name = "dark"
+theme.colors.background = "#101010"
+
+console.log(theme.name)
+console.log(theme.colors.background)
+console.log("colors" in theme)
+console.log(events.join("|"))
