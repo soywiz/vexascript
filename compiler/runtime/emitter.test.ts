@@ -254,6 +254,25 @@ let promise = go fetchValue()
   });
 
 
+  it("emits class delegate members without extending delegated interfaces", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      interface Shape {
+        area: number
+        fill(color: string): string
+      }
+      class MyDemo(val shape: Shape) : Shape by { shape } {
+      }
+    `));
+
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("class MyDemo {");
+    expect(emitted).not.toContain("extends Shape");
+    expect(emitted).toContain("get area() { return this.shape.area; }");
+    expect(emitted).toContain("fill(color) { return this.shape.fill(color); }");
+  });
+
+
   it("emits value exports and erases type-only exports", () => {
     expect(emitProgram(parseFile(tokenizeReader("export const value: number = 1"))))
       .toBe("export const value = 1;");

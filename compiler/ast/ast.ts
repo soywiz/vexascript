@@ -407,6 +407,12 @@ export interface ClassPrimaryConstructorParameter extends Node {
     defaultValue?: Expr
 }
 
+export interface ClassDelegate extends Node {
+    kind: "ClassDelegate"
+    typeAnnotation: Identifier
+    expression: Expr
+}
+
 export interface ClassStatement extends Statement {
     kind: "ClassStatement"
     declared?: boolean
@@ -415,6 +421,7 @@ export interface ClassStatement extends Statement {
     typeParameters?: TypeParameter[]
     extendsType?: Identifier
     implementsTypes?: Identifier[]
+    classDelegates?: ClassDelegate[]
     primaryConstructorParameters?: ClassPrimaryConstructorParameter[]
     members: ClassMember[]
 }

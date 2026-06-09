@@ -1,0 +1,21 @@
+interface Shape {
+  area: number
+  fill(color: string): string
+}
+
+class Rectangle(val width: number, val height: number) : Shape {
+  area => width * height
+
+  fill(color: string) => `${color}:${width}x${height}`
+}
+
+class ShapeLogger(val shape: Shape, val label: string) : Shape by { shape } {
+  describe() => `${label}:${area}`
+}
+
+val rectangle = Rectangle(4, 5)
+val logger = ShapeLogger(rectangle, "demo")
+
+console.log(logger.area)
+console.log(logger.fill("blue"))
+console.log(logger.describe())

@@ -2468,6 +2468,29 @@ let after = bind`));
     ).toBe(false);
   });
 
+  it("accepts delegated class interfaces as implemented members", () => {
+    const source = dedent`
+      interface Shape {
+        area: number
+        fill(): string
+      }
+      class BaseShape : Shape {
+        area => 12
+        fill() => "filled"
+      }
+      class MyDemo(val shape: Shape) : Shape by { shape } {
+      }
+      val demoArea = MyDemo(BaseShape()).area
+      val filled = MyDemo(BaseShape()).fill()
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("accepts shorthand class methods with explicit return types when implementing interfaces", () => {
     const source = dedent`
       interface Shape {

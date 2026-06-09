@@ -14,6 +14,7 @@ import {
     BreakStatement,
     CallExpression,
     CatchClause,
+    ClassDelegate,
     ClassFieldMember,
     ClassMember,
     ClassMethodMember,
@@ -4894,6 +4895,14 @@ export class Parser {
         return parameters;
     }
 
+    private parseClassDelegateExpression(): Expr {
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
+            this.tokens.skip();
+            return this.parseObjectLiteral();
+        }
+        return this.parseAssignment();
+    }
+
     private parseClassStatement(declared: boolean = false): ClassStatement {
         let classKeyword = this.tokens.read();
         let isAbstractClass = false;
@@ -4930,12 +4939,23 @@ export class Parser {
 
         let extendsType: Identifier | undefined;
         let implementsTypes: Identifier[] | undefined;
+        const classDelegates: ClassDelegate[] = [];
 
         if (this.language === "mylang" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             const colonTypes: Identifier[] = [];
             while (this.tokens.hasMore) {
-                colonTypes.push(this.parseTypeAnnotationNode());
+                const typeAnnotation = this.parseTypeAnnotationNode();
+                if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
+                    const byToken = this.tokens.read()!;
+                    const expression = this.parseClassDelegateExpression();
+                    classDelegates.push(this.attachNodeBounds({
+                        kind: "ClassDelegate",
+                        typeAnnotation,
+                        expression
+                    } as ClassDelegate, typeAnnotation.firstToken, expression.lastToken ?? this.getLastReadToken() ?? byToken));
+                }
+                colonTypes.push(typeAnnotation);
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
                     this.tokens.skip();
@@ -4960,7 +4980,17 @@ export class Parser {
             this.tokens.skip();
             implementsTypes = [];
             while (this.tokens.hasMore) {
-                implementsTypes.push(this.parseTypeAnnotationNode());
+                const typeAnnotation = this.parseTypeAnnotationNode();
+                if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
+                    const byToken = this.tokens.read()!;
+                    const expression = this.parseClassDelegateExpression();
+                    classDelegates.push(this.attachNodeBounds({
+                        kind: "ClassDelegate",
+                        typeAnnotation,
+                        expression
+                    } as ClassDelegate, typeAnnotation.firstToken, expression.lastToken ?? this.getLastReadToken() ?? byToken));
+                }
+                implementsTypes.push(typeAnnotation);
 
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
@@ -4993,6 +5023,9 @@ export class Parser {
                 }
                 if (implementsTypes && implementsTypes.length > 0) {
                     statement.implementsTypes = implementsTypes;
+                }
+                if (classDelegates.length > 0) {
+                    statement.classDelegates = classDelegates;
                 }
                 if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
                     statement.primaryConstructorParameters = primaryConstructorParameters;
@@ -5031,6 +5064,9 @@ export class Parser {
                 }
                 if (implementsTypes && implementsTypes.length > 0) {
                     statement.implementsTypes = implementsTypes;
+                }
+                if (classDelegates.length > 0) {
+                    statement.classDelegates = classDelegates;
                 }
                 if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
                     statement.primaryConstructorParameters = primaryConstructorParameters;

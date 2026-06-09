@@ -630,6 +630,33 @@ class User {
 
 Modifiers are only valid on parameters of a class `constructor`; ordinary function and method parameters cannot use them.
 
+### Class interface delegates
+
+A class can satisfy an interface by delegating missing interface members to another value with `by` in its heritage clause. The delegate can be written as an expression, or as the common single-shorthand brace form used to expose an existing instance member. The delegated expression must resolve to a value assignable to the interface.
+
+For each interface property or method that the class does not declare itself, MyLang synthesizes a forwarding member at JavaScript emission time. Explicit class members win over delegated members with the same name.
+
+```mylang
+interface Shape {
+  area: number
+  fill(color: string): string
+}
+
+class MyDemo(val shape: Shape) : Shape by { shape } {
+}
+```
+
+This is equivalent to writing the forwarding members by hand:
+
+```mylang
+class MyDemo(val shape: Shape) : Shape {
+  area => shape.area
+  fill(color: string) {
+    return shape.fill(color)
+  }
+}
+```
+
 ### Optional primary constructor
 
 Class declarations support an optional primary constructor parameter list after the class name.
