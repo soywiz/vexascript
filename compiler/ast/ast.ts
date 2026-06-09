@@ -423,6 +423,7 @@ export interface InterfacePropertyMember extends Node {
     kind: "InterfacePropertyMember"
     name: Identifier
     typeAnnotation: Identifier
+    optional?: boolean
 }
 
 export interface InterfaceMethodMember extends Node {

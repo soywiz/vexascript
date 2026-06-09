@@ -2297,6 +2297,21 @@ let after = bind`));
     expect(messages.some((message) => message.includes("Type argument 'User' does not satisfy"))).toBe(false);
   });
 
+  it("accepts DataView constructor constraints for ArrayBuffer values", () => {
+    const source = dedent`
+      fun demo() {
+        const buffer = ArrayBuffer(4)
+        const view = DataView(buffer)
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message.includes("does not satisfy constraint"))).toBe(false);
+  });
+
   it("reports missing properties when class does not satisfy implemented interface", () => {
     const source = dedent`
       interface Readable {
