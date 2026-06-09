@@ -26,6 +26,7 @@ import type {
   FunctionStatement,
   Identifier,
   IfStatement,
+  InterfaceStatement,
   JsxElement,
   JsxFragment,
   JsxAttribute,
@@ -131,6 +132,7 @@ let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
 let activeExtensionMethods: Map<string, RuntimeExtensionMethodInfo[]> = new Map();
 let activeExtensionProperties: Map<string, string> = new Map();
 let activeClassNames: Set<string> = new Set();
+let activeConstructableOnlyNames: Set<string> = new Set();
 // Parameter names (in declaration order) keyed by callable name (top-level
 // functions and class constructors), used to reorder named call arguments
 // (`fetch(url: ...)`) into the callee's positional parameter order.
@@ -513,6 +515,57 @@ function collectClassNames(program: Program): Set<string> {
     const candidate = unwrapExportedDeclaration(statement);
     if (candidate?.kind === "ClassStatement") {
       result.add((candidate as ClassStatement).name.name);
+    }
+  }
+  return result;
+}
+
+function collectInterfaceMethodNames(program: Program): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>();
+  for (const statement of program.body) {
+    const candidate = unwrapExportedDeclaration(statement);
+    if (candidate?.kind !== "InterfaceStatement") {
+      continue;
+    }
+    const interfaceStatement = candidate as InterfaceStatement;
+    const names = new Set<string>();
+    for (const member of interfaceStatement.members) {
+      if (member.kind === "InterfaceMethodMember") {
+        names.add(member.name.name);
+      }
+    }
+    result.set(interfaceStatement.name.name, names);
+  }
+  return result;
+}
+
+function collectConstructableOnlyNames(program: Program): Set<string> {
+  const interfaceMethodNames = collectInterfaceMethodNames(program);
+  const result = new Set<string>();
+  for (const statement of program.body) {
+    const candidate = unwrapExportedDeclaration(statement);
+    if (candidate?.kind !== "VarStatement") {
+      continue;
+    }
+    const variable = candidate as VarStatement;
+    if (variable.name.kind !== "Identifier") {
+      continue;
+    }
+    const typeName = variable.typeAnnotation?.name;
+    if (!typeName) {
+      continue;
+    }
+    const methodNames = interfaceMethodNames.get(typeName);
+    if (
+      methodNames?.has("constructor") &&
+      !methodNames.has("call") &&
+      // Boolean's declaration uses a generic call signature (`<T>(...)`) that
+      // is intentionally callable without `new` in JavaScript. Do not treat it
+      // as constructor-only just because that generic call signature is not
+      // represented as a regular `call` interface member.
+      variable.name.name !== "Boolean"
+    ) {
+      result.add(variable.name.name);
     }
   }
   return result;
@@ -1214,7 +1267,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const isClassCall =
           call.optional !== true &&
           call.callee.kind === "Identifier" &&
-          activeClassNames.has((call.callee as Identifier).name);
+          (activeClassNames.has((call.callee as Identifier).name) ||
+            activeConstructableOnlyNames.has((call.callee as Identifier).name));
         return isClassCall
           ? `new ${calleeText}(${argumentsText})`
           : `${calleeText}${call.optional ? "?." : ""}(${argumentsText})`;
@@ -1881,6 +1935,7 @@ interface EmitProgramRuntimeContext {
   extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
   extensionProperties: Map<string, string>;
   classNames: Set<string>;
+  constructableOnlyNames: Set<string>;
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
@@ -1899,6 +1954,7 @@ export function createEmitProgramRuntimeContext(
     extensionMethods: collectExtensionMethods(contextProgram),
     extensionProperties: collectExtensionProperties(contextProgram, expressionTypes),
     classNames: collectClassNames(contextProgram),
+    constructableOnlyNames: collectConstructableOnlyNames(contextProgram),
     parameterNames: collectParameterNames(contextProgram),
     javaScriptImplementations: collectJavaScriptImplementations(contextProgram),
     jsNames: collectJsNames(contextProgram),
@@ -1922,6 +1978,7 @@ export function emitProgramStatements(
   const previousExtensionMethods = activeExtensionMethods;
   const previousExtensionProperties = activeExtensionProperties;
   const previousClassNames = activeClassNames;
+  const previousConstructableOnlyNames = activeConstructableOnlyNames;
   const previousParameterNames = activeParameterNames;
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
   const previousJsNames = activeJsNames;
@@ -1942,6 +1999,7 @@ export function emitProgramStatements(
   activeExtensionMethods = runtimeContext.extensionMethods;
   activeExtensionProperties = runtimeContext.extensionProperties;
   activeClassNames = runtimeContext.classNames;
+  activeConstructableOnlyNames = runtimeContext.constructableOnlyNames;
   activeParameterNames = runtimeContext.parameterNames;
   activeJavaScriptImplementations = runtimeContext.javaScriptImplementations;
   activeJsNames = runtimeContext.jsNames;
@@ -1957,6 +2015,7 @@ export function emitProgramStatements(
     activeExtensionMethods = previousExtensionMethods;
     activeExtensionProperties = previousExtensionProperties;
     activeClassNames = previousClassNames;
+    activeConstructableOnlyNames = previousConstructableOnlyNames;
     activeParameterNames = previousParameterNames;
     activeJavaScriptImplementations = previousJavaScriptImplementations;
     activeJsNames = previousJsNames;

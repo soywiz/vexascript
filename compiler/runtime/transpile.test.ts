@@ -180,6 +180,24 @@ describe("transpile", () => {
     expect(result.code).toContain("let point = new Point(1);");
   });
 
+  it("emits constructor-only runtime globals with new when they are called", () => {
+    const source = "const bytes = Uint8Array(7)\nconsole.log(bytes.length)";
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const bytes = new Uint8Array(7);");
+  });
+
+  it("preserves callable runtime constructors without forced new", () => {
+    const source = "const flag = Boolean(0)";
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const flag = Boolean(0);");
+  });
+
   it("maps emitted lines to original source lines when declarations are omitted", () => {
     const source = [
       "declare class Console {",

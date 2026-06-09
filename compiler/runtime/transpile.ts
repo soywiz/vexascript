@@ -7,6 +7,7 @@ import { basename } from "node:path";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
 import { createEmitProgramRuntimeContext, emitProgramStatements, type EmitOptions } from "./emitter";
 import { lowerProgram } from "./lowering";
+import { getEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 import type { Program, Statement } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
@@ -325,13 +326,21 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
 
   const target = options.target ?? "optimized";
   const programForEmission = target === "conservative" ? artifacts.ast : lowerProgram(artifacts.ast);
-  // Emission collects classes, operator overloads and extension properties from
-  // a context program. Including the imported declarations lets the emitter
-  // lower calls (`Point(...)` -> `new Point(...)`), operators and extension
-  // properties that resolve to cross-file declarations.
-  const contextProgram: Program = externalDeclarations.length > 0
-    ? { ...programForEmission, body: [...externalDeclarations, ...programForEmission.body] }
-    : programForEmission;
+  // Emission collects classes, constructor-only runtime globals, operator
+  // overloads and extension properties from a context program. Including the
+  // built-in, ambient, and imported declarations lets the emitter lower calls
+  // (`Point(...)` / `Uint8Array(...)` -> `new ...(...)`), operators and
+  // extension properties that resolve outside the source file.
+  const runtimeDeclarations = getEcmaScriptRuntimeProgram().body;
+  const contextProgram: Program = {
+    ...programForEmission,
+    body: [
+      ...runtimeDeclarations,
+      ...ambientDeclarations,
+      ...externalDeclarations,
+      ...programForEmission.body
+    ]
+  };
   const expressionTypes = artifacts.analysis.getExpressionTypes();
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
   const staticImplicitReceiverIdentifiers = artifacts.analysis.getStaticImplicitReceiverIdentifiers();
