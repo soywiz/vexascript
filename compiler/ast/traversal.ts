@@ -1,7 +1,5 @@
 import type { ExportStatement, Node, Statement } from "./ast";
 
-const metadataKeys = new Set(["firstToken", "lastToken"]);
-
 /**
  * Returns the underlying declaration carried by an `export` statement, or the
  * statement itself when it is not an export. Useful when collecting top-level
@@ -23,16 +21,25 @@ function isNode(value: unknown): value is Node {
   );
 }
 
+function isMetadataKey(key: string): boolean {
+  return key === "firstToken" || key === "lastToken";
+}
+
 /** Returns the direct structural AST children of a node, excluding source-token metadata. */
 export function childNodes(node: Node): Node[] {
   const children: Node[] = [];
 
-  for (const [key, value] of Object.entries(node)) {
-    if (metadataKeys.has(key)) {
+  for (const key in node) {
+    if (isMetadataKey(key)) {
       continue;
     }
+    const value = node[key as keyof Node];
     if (Array.isArray(value)) {
-      children.push(...value.filter(isNode));
+      for (const entry of value) {
+        if (isNode(entry)) {
+          children.push(entry);
+        }
+      }
     } else if (isNode(value)) {
       children.push(value);
     }
@@ -51,8 +58,21 @@ export function walkAst(root: Node, visit: (node: Node) => void): void {
     }
     visited.add(node);
     visit(node);
-    for (const child of childNodes(node)) {
-      walk(child);
+
+    for (const key in node) {
+      if (isMetadataKey(key)) {
+        continue;
+      }
+      const value = node[key as keyof Node];
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          if (isNode(entry)) {
+            walk(entry);
+          }
+        }
+      } else if (isNode(value)) {
+        walk(value);
+      }
     }
   };
 
