@@ -57,6 +57,7 @@ This section is the fast onboarding map for agents and contributors.
   - DefinitelyTyped sample: `samples/minimist/` uses the runtime-only `minimist` package together with `@types/minimist` to validate fallback resolution for npm packages that keep declarations in `node_modules/@types`.
   - Delegated-state sample: `samples/delegated-state/` validates end-to-end execution of Kotlin-style delegated variables backed by function and object delegates.
   - Sync orchestration sample: `samples/sync-orchestration/` validates local-module imports of exported async functions plus `sync` auto-awaiting across call arguments, arrays, object literals, and `go` opt-out promises.
+  - Syntax tour sample: `samples/syntax-tour/` is a multi-file runnable fixture that exercises the broad supported MyLang syntax surface, JSX factory configuration, local imports, declarations/types, classes, extensions/operators, delegates, control flow, and async `sync` output.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`

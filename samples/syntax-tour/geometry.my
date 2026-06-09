@@ -1,0 +1,40 @@
+export class Point(val x: number, val y: number) {
+  static origin = Point(0, 0)
+
+  get label(): string {
+    return `(${this.x},${this.y})`
+  }
+
+  magnitudeSquared: number => x * x + y * y
+
+  move(dx: number = 0, dy: number = 0): Point => Point(x + dx, y + dy)
+
+  operator+(other: Point): Point {
+    return Point(this.x + other.x, this.y + other.y)
+  }
+}
+
+export fun Point.scale(factor: number): Point {
+  return Point(x * factor, y * factor)
+}
+
+export val Point.isOrigin: boolean => x == 0 && y == 0
+export val number.px: string => `${this}px`
+
+class ShapeBase {
+  baseArea(): number {
+    return 0
+  }
+}
+
+class DerivedShape extends ShapeBase {
+}
+
+export class Rectangle {
+  constructor(public readonly width: number, private height: number = 1) {
+  }
+
+  area(): number {
+    return this.width * this.height
+  }
+}

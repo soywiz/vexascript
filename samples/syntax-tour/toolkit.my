@@ -1,0 +1,57 @@
+import type { Described, Pair } from "./types.my"
+
+export enum Direction {
+  Up,
+  Down = 4,
+  Left,
+  Right = "right"
+}
+
+export enum Status {
+  Ready = 1,
+  Done
+}
+
+export function toolLabel(value: string): string {
+  return `tool:${value}`
+}
+
+export const runtimeBoxValue = 7
+
+export fun joinWords(first: string, second: string = "done"): string {
+  return `${first}-${second}`
+}
+
+export function upper(value: string): string {
+  return String(value).toUpperCase()
+}
+
+export function describe(value: int): string { return `int:${value}` }
+export function describe(value: string): string { return `string:${value}` }
+
+export fun identity<T>(value: T): T {
+  return value
+}
+
+export function collect(label: string, ...values: number[]): string {
+  return `${label}:${values.join("|")}`
+}
+
+export function summarize({ name : string, describe :: makeDescription, ...metadata }: Described & { tag: string }, [first : string, second : string]: Pair<string>): string {
+  return `${name}:${makeDescription()}:${metadata.tag}:${first}/${second}`
+}
+
+export async fun fetchNumber(seed: number): Promise<number> {
+  return seed + 10
+}
+
+export async fun fetchLabel(value: number): Promise<string> {
+  return `async:${value}`
+}
+
+export function defaultFormatter(value: string): string {
+  return `[${value}]`
+}
+
+export default defaultFormatter
+export const CompassDirection = Direction

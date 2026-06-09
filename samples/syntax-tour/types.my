@@ -1,0 +1,13 @@
+export interface Named {
+  name: string
+}
+
+export interface Described extends Named {
+  describe(): string
+}
+
+export type Pair<T> = [first: T, second: T]
+export type NameKey = "name" | "describe"
+export type NameValue = string
+export type MaybeArray<T> = T extends (infer U)[] ? U : T
+export type MutablePair = { first: string; second: string }
