@@ -1,0 +1,15 @@
+import { Color, Direction, Person, asyncValue, choose, describePerson, doubled, flags, totalScores } from "./helpers"
+
+sync fun main() {
+  const ada = Person("Ada", 36).birthday()
+  console.log(describePerson(ada))
+  console.log(Color.Red, Color.Green, Color.Blue)
+  console.log(Direction["North"], Direction["South"])
+  console.log(totalScores([["parser", 3], ["runtime", 4]]))
+  console.log(choose("left", "right"))
+  console.log(flags.enabled, flags.count)
+  console.log(doubled.join(","))
+  console.log(asyncValue(9))
+}
+
+main()

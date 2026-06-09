@@ -111,6 +111,38 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("transpiles and inlines local TypeScript modules imported from MyLang", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "helpers.ts":
+          "export enum Color { Red, Green = 2, Blue = \"blue\" }\n" +
+          "export class Person {\n" +
+          "  constructor(public readonly name: string, private age: number = 0) {}\n" +
+          "  describe(): string { return this.name + \":\" + this.age }\n" +
+          "}\n" +
+          "export function makePerson(name: string): Person { return new Person(name, 7) }\n",
+        "main.my":
+          'import { Color, Person, makePerson } from "./helpers"\n' +
+          'const direct = Person("Ada", 36)\n' +
+          'const made = makePerson("Grace")\n' +
+          'console.log(direct.describe())\n' +
+          'console.log(made.describe())\n' +
+          'console.log(Color.Red, Color.Green, Color.Blue)\n'
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).toContain("var Color;");
+        expect(result.code).toContain("class Person {");
+        expect(result.code).toContain("function makePerson(name)");
+        expect(result.code).not.toContain('from "./helpers"');
+        expect(result.code).toContain('const direct = new Person("Ada", 36);');
+      }
+    );
+  });
+
   it("keeps non-local (bare) imports in the bundled output", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
