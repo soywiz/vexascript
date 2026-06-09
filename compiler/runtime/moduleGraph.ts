@@ -197,9 +197,10 @@ function stripBundledImports(code: string): string {
 export async function bundleModuleGraph(
   entryFilePath: string,
   target: TranspileTarget,
-  options: { vfs?: Vfs; jsxFactory?: string; jsxFragmentFactory?: string } = {}
+  options: { vfs?: Vfs; jsxFactory?: string; jsxFragmentFactory?: string; ambientDeclarations?: Statement[] } = {}
 ): Promise<TranspileResult> {
   const vfs = options.vfs ?? localVfs;
+  const ambientDeclarations = options.ambientDeclarations ?? [];
   await ensureEcmaScriptRuntimeProgram();
 
   const emittedByPath = new Map<string, string>();
@@ -256,7 +257,7 @@ export async function bundleModuleGraph(
     // modules that import from it can read their imported value types.
     analysisByPath.set(
       filePath,
-      compileSource(source, {}, { externalDeclarations, importedSymbolTypes }).analysis
+      compileSource(source, {}, { externalDeclarations, ambientDeclarations, importedSymbolTypes }).analysis
     );
 
     const result = transpile(source, {
@@ -264,6 +265,7 @@ export async function bundleModuleGraph(
       target,
       externalDeclarations,
       importedSymbolTypes,
+      ambientDeclarations,
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     });

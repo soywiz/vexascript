@@ -20,7 +20,7 @@ This section is the fast onboarding map for agents and contributors.
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface and local Node-backed implementation, injectable into compiler project services that need file reads: `compiler/vfs.ts`
   - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` file), used by the semantic project index and the LSP cross-file features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
-  - Project configuration loading from `package.json` dependencies and `tsconfig.json` JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
+  - Project configuration loading from package.json dependencies and tsconfig.json JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
   - Public analysis API: `compiler/analysis/Analysis.ts`
@@ -34,8 +34,8 @@ This section is the fast onboarding map for agents and contributors.
   - Analysis issue codes/contracts: `compiler/analysis/issueCodes.ts`
   - Analysis tests: `compiler/analysis/Analysis.test.ts`
 - Embedded runtime declarations:
-  - Current ambient runtime declarations consumed by the compiler from bundled TypeScript declarations: `compiler/runtime/es2025.d.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
-  - Bundled TypeScript DOM declarations for future TypeScript declaration-file runtime consumption: `compiler/runtime/dom.d.ts`
+  - Current ambient ECMAScript runtime declarations consumed by the compiler from bundled TypeScript declarations: `compiler/runtime/es2025.d.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
+  - Bundled TypeScript DOM declarations and loader used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/dom.d.ts`, `compiler/runtime/domDeclarations.ts`
 - Emitter / transpilation:
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`
@@ -49,6 +49,11 @@ This section is the fast onboarding map for agents and contributors.
   - Test-runner orchestration tests: `compiler/runtime/testRunner.test.ts`
   - Transpile tests: `compiler/runtime/transpile.test.ts`
   - Runtime integration tests: `compiler/runtime/runtime.integration.test.ts`
+- Runnable samples and sample-test harness: `samples/`, `samples/samples.test.ts`
+  - Each sample directory is discovered when it contains expected.txt; the harness runs main.my with runFile and compares captured console.log output to expected.txt.
+  - Sample-local package.json files are installed with pnpm install before execution when node_modules is missing, so samples can demonstrate npm package declarations and runtime dependencies.
+  - Sample-local tsconfig.json files are loaded by `compiler/project.ts`; they can set JSX factories/import sources and `compilerOptions.lib` entries such as `dom` for DOM ambient declarations.
+  - DOM-emulation sample: `samples/virtual-dom/` uses Happy DOM in Node and a tsconfig.json with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`

@@ -65,7 +65,8 @@ export class Binder {
   constructor(
     private readonly program: Program,
     private readonly externalDeclarations: Statement[] = [],
-    private readonly importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map()
+    private readonly importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
+    private readonly ambientDeclarations: Statement[] = []
   ) {
     this.rootScope = this.createScope(undefined, program);
   }
@@ -74,15 +75,18 @@ export class Binder {
     // External (imported) declarations are collected first so that same-file
     // declarations override them on name clashes.
     this.collectClassStatements(this.externalDeclarations);
+    this.collectClassStatements(this.ambientDeclarations);
     this.collectClassStatements(this.program.body);
     // Interface declarations (including ambient runtime types such as `Array`)
     // feed implicit receiver member access inside extension methods/properties,
     // e.g. the `length` reference in `val <T> Array<T>.doubledLength => length`.
     this.collectInterfaceStatements(getEcmaScriptRuntimeProgram().body);
     this.collectInterfaceStatements(this.externalDeclarations);
+    this.collectInterfaceStatements(this.ambientDeclarations);
     this.collectInterfaceStatements(this.program.body);
     this.bindBuiltins();
     this.bindGlobalDeclarations(getEcmaScriptRuntimeProgram().body, this.rootScope, -1);
+    this.bindGlobalDeclarations(this.ambientDeclarations, this.rootScope, -1);
     this.bindGlobalDeclarations(this.program.body, this.rootScope);
     this.bindStatements(this.program.body, this.rootScope);
     return {

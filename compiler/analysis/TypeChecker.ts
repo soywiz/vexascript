@@ -139,7 +139,8 @@ export class TypeChecker {
   constructor(
     private readonly program: Program,
     private readonly bound: BoundAnalysis,
-    externalDeclarations: readonly Statement[] = []
+    externalDeclarations: readonly Statement[] = [],
+    ambientDeclarations: readonly Statement[] = []
   ) {
     const runtimeProgram = getEcmaScriptRuntimeProgram();
     this.collectFunctionStatements(runtimeProgram.body);
@@ -155,6 +156,12 @@ export class TypeChecker {
     // resolution only. They are never visited or re-checked because the
     // statement walk only traverses this program's body. Local declarations are
     // collected afterwards so they win on name clashes.
+    this.collectFunctionStatements(ambientDeclarations);
+    this.collectClassStatements(ambientDeclarations);
+    this.collectEnumStatements(ambientDeclarations);
+    this.collectInterfaceStatements(ambientDeclarations);
+    this.collectTypeAliasStatements(ambientDeclarations);
+    this.collectNamespaceStatements({ kind: "Program", body: [...ambientDeclarations] } as Program);
     this.collectFunctionStatements(externalDeclarations);
     this.collectClassStatements(externalDeclarations);
     this.collectEnumStatements(externalDeclarations);
@@ -164,13 +171,13 @@ export class TypeChecker {
     // Also collect declarations nested inside namespace bodies so types like
     // `moment.Moment` (declared as `namespace moment { interface Moment }`) are
     // available for member resolution when referenced as namedType("Moment").
-    const nestedFromExternals = this.collectNestedNamespaceDeclarations(externalDeclarations);
+    const nestedFromExternals = this.collectNestedNamespaceDeclarations([...ambientDeclarations, ...externalDeclarations]);
     this.collectClassStatements(nestedFromExternals);
     this.collectInterfaceStatements(nestedFromExternals);
     this.collectTypeAliasStatements(nestedFromExternals);
     // Imported extension operator overloads (e.g. `import { operator+ }`) are
     // registered so a cross-file operator like `a + b` resolves to the overload.
-    this.collectExtensionOperators({ kind: "Program", body: [...externalDeclarations] } as Program);
+    this.collectExtensionOperators({ kind: "Program", body: [...ambientDeclarations, ...externalDeclarations] } as Program);
     this.collectFunctionStatements(program.body);
     this.collectClassStatements(program.body);
     this.collectExtensionOperators(program);

@@ -26,6 +26,7 @@ MyLang is a language derived from TypeScript with some features and ideas from S
 - If a new architectural piece/module is added (new compiler phase, new service, new plugin integration, new docs surface, etc.), this Architecture Map in `docs/file.structure.md` must be updated in the same change so future agents can understand the repository quickly.
 - The Monaco sample shell lives in `plugins/monaco/src/main.ts`, its browser-only virtual workspace lives in `plugins/monaco/src/workspace.ts`, and cross-tab navigation history helpers live in `plugins/monaco/src/navigationHistory.ts`.
 - Shared async file helpers live in `compiler/utils/fs.ts`, and shared async process helpers live in `compiler/utils/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
+- Repository samples live under `samples/<name>/`. The sample test harness runs directories that contain expected.txt, installs package.json dependencies with pnpm install when node_modules is absent, and lets each sample provide its own tsconfig.json for compiler options such as JSX factories or DOM libraries.
 
 ## Testing policy
 

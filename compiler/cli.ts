@@ -5,9 +5,10 @@ import { Command } from "commander";
 import { transpile, type TranspileDiagnostic, type TranspileTarget } from "./runtime/transpile";
 import { bundleModuleGraph } from "./runtime/moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./runtime/ecmascriptDeclarations";
+import { ensureDomProgram } from "./runtime/domDeclarations";
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
 import { runMyLangTests } from "./runtime/testRunner";
-import { loadProject } from "./project";
+import { loadProject, type MylangProject } from "./project";
 import { ensureDependencies } from "./deps";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
 
@@ -39,6 +40,15 @@ function printDiagnostic(diag: TranspileDiagnostic, useColor: boolean): void {
     console.error(`${c.yellow}${lineNum}${c.reset} ${diag.sourceLine}`);
     console.error(`${c.red}${underline}${c.reset}`);
   }
+}
+
+async function ambientDeclarationsForProject(project: MylangProject | null) {
+  const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
+  if (!requested.has("dom")) {
+    return [];
+  }
+
+  return (await ensureDomProgram()).body;
 }
 
 function printDiagnostics(result: { errors: string[]; diagnostics?: TranspileDiagnostic[] }, file: string): void {
@@ -89,10 +99,12 @@ async function buildFile(
   const source = await readFile(sourcePath, "utf8");
   const project = await loadProject(sourcePath);
   const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
+  const ambientDeclarations = await ambientDeclarationsForProject(project);
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
+    ambientDeclarations,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
@@ -147,7 +159,9 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
   // Bundle the entry file together with its local module graph so cross-file
   // references resolve, then execute the combined module.
   await ensureEcmaScriptRuntimeProgram();
+  const ambientDeclarations = await ambientDeclarationsForProject(project);
   const result = await bundleModuleGraph(sourcePath, target, {
+    ambientDeclarations,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
   });
@@ -157,11 +171,13 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
 async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
   const outputPath = sourcePath.replace(/\.[^.]+$/, ".js");
   const project = await loadProject(sourcePath);
+  const ambientDeclarations = await ambientDeclarationsForProject(project);
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
     preserveSourceLineOffsets: true,
+    ambientDeclarations,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
   });

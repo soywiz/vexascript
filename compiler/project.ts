@@ -7,6 +7,7 @@ export interface MylangProject {
   dependencies: Record<string, string>;
   jsxFactory?: string;
   jsxFragmentFactory?: string;
+  libs: string[];
 }
 
 interface PackageJsonConfig {
@@ -22,6 +23,7 @@ interface TsConfigJson {
     jsxFactory?: unknown;
     jsxFragmentFactory?: unknown;
     jsxImportSource?: unknown;
+    lib?: unknown;
   };
 }
 
@@ -55,6 +57,15 @@ function mergeDependencies(pkg: PackageJsonConfig | null): Record<string, string
     ...stringRecord(pkg.optionalDependencies),
     ...stringRecord(pkg.peerDependencies)
   };
+}
+
+function libsFromTsConfig(tsconfig: TsConfigJson | null): string[] {
+  const lib = tsconfig?.compilerOptions?.lib;
+  if (!Array.isArray(lib)) {
+    return [];
+  }
+
+  return lib.filter((entry): entry is string => typeof entry === "string");
 }
 
 function jsxOptionsFromTsConfig(tsconfig: TsConfigJson | null): { jsxFactory?: string; jsxFragmentFactory?: string } {
@@ -126,6 +137,7 @@ export async function loadProject(startPath: string): Promise<MylangProject | nu
   return {
     projectDir: packageDir ?? resolve(startDir),
     dependencies,
+    libs: libsFromTsConfig(tsconfig),
     ...jsxOptionsFromTsConfig(tsconfig)
   };
 }

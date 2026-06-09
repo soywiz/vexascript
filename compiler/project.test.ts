@@ -16,8 +16,22 @@ describe("project configuration", () => {
     expect(await loadProject(input)).toEqual({
       projectDir: dir,
       dependencies: { preact: "10.29.2" },
+      libs: [],
       jsxFactory: "h",
       jsxFragmentFactory: "Fragment"
+    });
+  });
+
+  it("loads compilerOptions.lib entries from tsconfig.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-project-"));
+    const input = join(dir, "main.my");
+    await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect(await loadProject(input)).toEqual({
+      projectDir: dir,
+      dependencies: {},
+      libs: ["es2025", "dom"]
     });
   });
 
