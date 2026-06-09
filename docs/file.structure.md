@@ -36,6 +36,7 @@ This section is the fast onboarding map for agents and contributors.
 - Embedded runtime declarations:
   - Current ambient ECMAScript runtime declarations consumed by the compiler from bundled TypeScript declarations: `compiler/runtime/es2025.d.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
   - Bundled TypeScript DOM declarations and loader used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/dom.d.ts`, `compiler/runtime/domDeclarations.ts`
+  - Shared persistent cache for parsed runtime declaration programs reused across processes: `compiler/runtime/programCache.ts`
 - Emitter / transpilation:
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`

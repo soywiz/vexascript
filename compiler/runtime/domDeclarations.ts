@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url";
 import type { Program } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
 import { fileExists } from "compiler/utils/fs";
+import { loadCachedProgram, storeCachedProgram } from "./programCache";
 
 export const TYPESCRIPT_DOM_DECLARATION_FILE_NAME = "dom.d.ts";
+const DOM_CACHE_SALT = "dom-runtime-v1";
 
 interface CachedDomProgram {
   filePath: string;
@@ -53,9 +55,19 @@ function parseDomProgram(source: string): Program {
 }
 
 async function loadDomProgram(): Promise<CachedDomProgram> {
-  const source = await readFile(domDeclarationFilePath, "utf8");
   const { mtimeMs } = await stat(domDeclarationFilePath);
+  const cachedProgram = await loadCachedProgram(domDeclarationFilePath, mtimeMs, DOM_CACHE_SALT);
+  if (cachedProgram) {
+    return {
+      filePath: domDeclarationFilePath,
+      mtimeMs,
+      program: cachedProgram
+    };
+  }
+
+  const source = await readFile(domDeclarationFilePath, "utf8");
   const program = parseDomProgram(source);
+  await storeCachedProgram(domDeclarationFilePath, mtimeMs, DOM_CACHE_SALT, program);
 
   return {
     filePath: domDeclarationFilePath,
