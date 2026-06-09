@@ -1,7 +1,6 @@
-import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { createDocument } from "./dom-runtime";
 
-GlobalRegistrator.register();
-
+const document = createDocument();
 const root: HTMLElement = document.createElement("main");
 root.id = "app";
 root.className = "sample-shell";

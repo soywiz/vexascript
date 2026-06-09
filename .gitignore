@@ -5,3 +5,4 @@ dist
 package-lock.json
 .pnpm-store
 
+**/.mylang-run-profile-*.mjs
