@@ -132,6 +132,8 @@ let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
 let activeExtensionMethods: Map<string, RuntimeExtensionMethodInfo[]> = new Map();
 let activeExtensionProperties: Map<string, string> = new Map();
 let activeClassNames: Set<string> = new Set();
+let activeInterfaceNames: Set<string> = new Set();
+let activeInterfaceMembers: Map<string, InterfaceStatement["members"]> = new Map();
 let activeConstructableOnlyNames: Set<string> = new Set();
 // Parameter names (in declaration order) keyed by callable name (top-level
 // functions and class constructors), used to reorder named call arguments
@@ -515,6 +517,29 @@ function collectClassNames(program: Program): Set<string> {
     const candidate = unwrapExportedDeclaration(statement);
     if (candidate?.kind === "ClassStatement") {
       result.add((candidate as ClassStatement).name.name);
+    }
+  }
+  return result;
+}
+
+function collectInterfaceNames(program: Program): Set<string> {
+  const result = new Set<string>();
+  for (const statement of program.body) {
+    const candidate = unwrapExportedDeclaration(statement);
+    if (candidate?.kind === "InterfaceStatement") {
+      result.add((candidate as InterfaceStatement).name.name);
+    }
+  }
+  return result;
+}
+
+function collectInterfaceMembers(program: Program): Map<string, InterfaceStatement["members"]> {
+  const result = new Map<string, InterfaceStatement["members"]>();
+  for (const statement of program.body) {
+    const candidate = unwrapExportedDeclaration(statement);
+    if (candidate?.kind === "InterfaceStatement") {
+      const interfaceStatement = candidate as InterfaceStatement;
+      result.set(interfaceStatement.name.name, interfaceStatement.members);
     }
   }
   return result;
@@ -1491,6 +1516,72 @@ function emitForIteratorHeader(iterator: ForStatement["iterator"]): string {
   return emitExpression(iterator as Expr);
 }
 
+function classInstanceMemberNames(statement: ClassStatement, members: Array<ClassFieldMember | ClassMethodMember>): Set<string> {
+  const names = new Set<string>();
+  for (const parameter of statement.primaryConstructorParameters ?? []) {
+    names.add(parameter.name.name);
+  }
+  for (const constructor of members.filter(
+    (member): member is ClassMethodMember => member.kind === "ClassMethodMember" && member.name.name === "constructor"
+  )) {
+    for (const parameter of constructor.parameters) {
+      if (parameter.name.kind === "Identifier" && (parameter.accessModifier !== undefined || parameter.readonly === true)) {
+        names.add(parameter.name.name);
+      }
+    }
+  }
+  for (const member of members) {
+    if (member.name.name !== "constructor" && member.static !== true) {
+      names.add(member.name.name);
+    }
+  }
+  return names;
+}
+
+function emitClassDelegateTarget(expression: Expr, instanceMemberNames: Set<string>): string {
+  if (expression.kind === "ObjectLiteral") {
+    const objectLiteral = expression as ObjectLiteral;
+    if (objectLiteral.properties.length === 1) {
+      const property = objectLiteral.properties[0]!;
+      if (property.kind === "ObjectProperty" && (property as ObjectProperty).shorthand === true) {
+        return emitClassDelegateTarget((property as ObjectProperty).value, instanceMemberNames);
+      }
+    }
+  }
+  if (expression.kind === "Identifier" && instanceMemberNames.has((expression as Identifier).name)) {
+    return `this.${(expression as Identifier).name}`;
+  }
+  if (expression.kind === "ArrowFunctionExpression" || expression.kind === "FunctionExpression") {
+    return `(${emitExpression(expression, PREC_MEMBER, "left")})()`;
+  }
+  return emitExpression(expression, PREC_MEMBER, "left");
+}
+
+function emitClassDelegateMembers(statement: ClassStatement, members: Array<ClassFieldMember | ClassMethodMember>): string[] {
+  const existingNames = new Set(members.map((member) => member.name.name));
+  const instanceMemberNames = classInstanceMemberNames(statement, members);
+  const lines: string[] = [];
+  for (const classDelegate of statement.classDelegates ?? []) {
+    for (const interfaceMember of activeInterfaceMembers.get(classDelegate.typeAnnotation.name) ?? []) {
+      if (existingNames.has(interfaceMember.name.name)) {
+        continue;
+      }
+      existingNames.add(interfaceMember.name.name);
+      const target = emitClassDelegateTarget(classDelegate.expression, instanceMemberNames);
+      if (interfaceMember.kind === "InterfacePropertyMember") {
+        lines.push(`get ${interfaceMember.name.name}() { return ${target}.${interfaceMember.name.name}; }`);
+      } else {
+        const parameters = emitFunctionParameters(interfaceMember.parameters);
+        const argumentNames = interfaceMember.parameters
+          .filter((parameter) => parameter.thisParameter !== true)
+          .map((parameter) => (parameter.name as Identifier).name);
+        lines.push(`${interfaceMember.name.name}(${parameters}) { return ${target}.${interfaceMember.name.name}(${argumentNames.join(", ")}); }`);
+      }
+    }
+  }
+  return lines;
+}
+
 function emitClassPrimaryConstructor(
   parameters: ClassPrimaryConstructorParameter[] | undefined,
   members: Array<ClassFieldMember | ClassMethodMember>
@@ -1816,9 +1907,10 @@ export function emitStatement(statement: Statement): string {
       const syntheticConstructor = emitClassPrimaryConstructor(classStatement.primaryConstructorParameters, members);
       const memberLines = [
         ...(syntheticConstructor ? [syntheticConstructor] : []),
-        ...members.map((member) => emitClassMember(member))
+        ...members.map((member) => emitClassMember(member)),
+        ...emitClassDelegateMembers(classStatement, members)
       ];
-      const extendsClause = classStatement.extendsType
+      const extendsClause = classStatement.extendsType && !activeInterfaceNames.has(classStatement.extendsType.name)
         ? ` extends ${eraseTypeArguments(classStatement.extendsType.name)}`
         : "";
       return `class ${resolveJsName(classStatement.name.name)}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
@@ -1935,6 +2027,8 @@ interface EmitProgramRuntimeContext {
   extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
   extensionProperties: Map<string, string>;
   classNames: Set<string>;
+  interfaceNames: Set<string>;
+  interfaceMembers: Map<string, InterfaceStatement["members"]>;
   constructableOnlyNames: Set<string>;
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
@@ -1954,6 +2048,8 @@ export function createEmitProgramRuntimeContext(
     extensionMethods: collectExtensionMethods(contextProgram),
     extensionProperties: collectExtensionProperties(contextProgram, expressionTypes),
     classNames: collectClassNames(contextProgram),
+    interfaceNames: collectInterfaceNames(contextProgram),
+    interfaceMembers: collectInterfaceMembers(contextProgram),
     constructableOnlyNames: collectConstructableOnlyNames(contextProgram),
     parameterNames: collectParameterNames(contextProgram),
     javaScriptImplementations: collectJavaScriptImplementations(contextProgram),
@@ -1978,6 +2074,8 @@ export function emitProgramStatements(
   const previousExtensionMethods = activeExtensionMethods;
   const previousExtensionProperties = activeExtensionProperties;
   const previousClassNames = activeClassNames;
+  const previousInterfaceNames = activeInterfaceNames;
+  const previousInterfaceMembers = activeInterfaceMembers;
   const previousConstructableOnlyNames = activeConstructableOnlyNames;
   const previousParameterNames = activeParameterNames;
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
@@ -1999,6 +2097,8 @@ export function emitProgramStatements(
   activeExtensionMethods = runtimeContext.extensionMethods;
   activeExtensionProperties = runtimeContext.extensionProperties;
   activeClassNames = runtimeContext.classNames;
+  activeInterfaceNames = runtimeContext.interfaceNames;
+  activeInterfaceMembers = runtimeContext.interfaceMembers;
   activeConstructableOnlyNames = runtimeContext.constructableOnlyNames;
   activeParameterNames = runtimeContext.parameterNames;
   activeJavaScriptImplementations = runtimeContext.javaScriptImplementations;
@@ -2015,6 +2115,8 @@ export function emitProgramStatements(
     activeExtensionMethods = previousExtensionMethods;
     activeExtensionProperties = previousExtensionProperties;
     activeClassNames = previousClassNames;
+    activeInterfaceNames = previousInterfaceNames;
+    activeInterfaceMembers = previousInterfaceMembers;
     activeConstructableOnlyNames = previousConstructableOnlyNames;
     activeParameterNames = previousParameterNames;
     activeJavaScriptImplementations = previousJavaScriptImplementations;

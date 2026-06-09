@@ -923,6 +923,33 @@ export class TypeChecker {
       for (const implementedType of statement.implementsTypes ?? []) {
         this.resolveTypeAnnotation(implementedType, classScope);
       }
+      for (const classDelegate of statement.classDelegates ?? []) {
+        const expectedDelegateType = this.resolveTypeAnnotation(classDelegate.typeAnnotation, classScope);
+        const expressionType = this.classDelegateExpressionType(classDelegate.expression, classScope, expectedDelegateType);
+        if (expectedDelegateType && !isUnknownType(expressionType) && !this.isTypeAssignable(expressionType, expectedDelegateType)) {
+          this.issues.push({
+            message: `Class delegate for '${classDelegate.typeAnnotation.name}' has type '${this.typeToDiagnosticLabel(expressionType)}' but expected '${this.typeToDiagnosticLabel(expectedDelegateType)}'`,
+            node: classDelegate.expression
+          });
+        }
+        if (expectedDelegateType?.kind === "named") {
+          for (const [memberName, memberType] of this.resolveNamedTypeMembers(expectedDelegateType)?.entries() ?? []) {
+            if (!classScope.symbols.has(memberName)) {
+              classScope.symbols.set(memberName, {
+                name: memberName,
+                kind: memberType.kind === "function" ? "method" : "variable",
+                node: classDelegate.typeAnnotation,
+                implicitReceiver: true,
+                declaredOffset: -1,
+                type: memberType,
+                valueType: typeToString(memberType)
+              });
+              continue;
+            }
+            this.updateSymbolType(classScope, memberName, memberType);
+          }
+        }
+      }
 
       for (const member of statement.members) {
         if (member.kind === "ClassFieldMember") {
@@ -1048,6 +1075,24 @@ export class TypeChecker {
       this.validateOverrideMembers(statement);
       this.validateImplementedInterfaces(statement);
     });
+  }
+
+  private classDelegateExpressionType(expression: Expr, scope: Scope, expectedType: AnalysisType | undefined): AnalysisType {
+    if (expression.kind === "ObjectLiteral") {
+      const objectLiteral = expression as ObjectLiteral;
+      if (objectLiteral.properties.length === 1) {
+        const property = objectLiteral.properties[0]!;
+        if (property.kind === "ObjectProperty" && (property as ObjectProperty).shorthand === true) {
+          return this.visitExpression((property as ObjectProperty).value, scope, expectedType);
+        }
+      }
+    }
+
+    const expressionType = this.visitExpression(expression, scope, expectedType);
+    if (expressionType.kind === "function" && expressionType.parameters.length === 0) {
+      return expressionType.returnType;
+    }
+    return expressionType;
   }
 
   private visitBlockStatement(statement: BlockStatement, scope: Scope, flow: FlowContext): void {
@@ -6016,6 +6061,25 @@ export class TypeChecker {
             classMember.typeParameters?.map((parameter) => parameter.name.name)
           ), substitutions)
         );
+      }
+
+      for (const classDelegate of classStatement.classDelegates ?? []) {
+        const delegateType = this.substituteTypeParameters(
+          this.typeFromTypeNameLoose(classDelegate.typeAnnotation.name),
+          substitutions
+        );
+        if (delegateType.kind !== "named") {
+          continue;
+        }
+        const delegatedMembers = this.resolveNamedTypeMembersInternal(delegateType, visited);
+        if (!delegatedMembers) {
+          continue;
+        }
+        for (const [memberName, memberType] of delegatedMembers.entries()) {
+          if (!members.has(memberName)) {
+            members.set(memberName, memberType);
+          }
+        }
       }
 
       if (classStatement.extendsType) {

@@ -2307,6 +2307,34 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses class delegates in colon interface clauses", () => {
+        expect(
+            parseStatement(tokenizeReader("class MyDemo(val shape: Shape) : Shape by { shape } {}"))
+        ).toMatchObject({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "MyDemo" },
+            extendsType: { kind: "Identifier", name: "Shape" },
+            classDelegates: [
+                {
+                    kind: "ClassDelegate",
+                    typeAnnotation: { kind: "Identifier", name: "Shape" },
+                    expression: {
+                        kind: "ObjectLiteral",
+                        properties: [
+                            {
+                                kind: "ObjectProperty",
+                                key: { kind: "Identifier", name: "shape" },
+                                value: { kind: "Identifier", name: "shape" },
+                                shorthand: true
+                            }
+                        ]
+                    }
+                }
+            ],
+            members: []
+        });
+    });
+
     it("parses getter shorthand class members in implemented interfaces", () => {
         expect(
             parseStatement(
