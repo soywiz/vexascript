@@ -222,10 +222,36 @@ export async function bundleModuleGraph(
 
   const emittedByPath = new Map<string, string>();
   const analysisByPath = new Map<string, Analysis | null>();
+  const sourceByPath = new Map<string, string>();
+  const astByPath = new Map<string, Program | null>();
   const order: string[] = [];
   const inProgress = new Set<string>();
   const errors: string[] = [];
   const warnings: string[] = [];
+
+  const loadSource = async (filePath: string): Promise<string | null> => {
+    if (sourceByPath.has(filePath)) {
+      return sourceByPath.get(filePath) ?? null;
+    }
+    const source = await vfs.readFile(filePath);
+    if (source !== null) {
+      sourceByPath.set(filePath, source);
+    }
+    return source;
+  };
+
+  const loadAst = async (filePath: string, parserOptions: ParserOptions): Promise<Program | null> => {
+    if (astByPath.has(filePath)) {
+      return astByPath.get(filePath) ?? null;
+    }
+    const source = await loadSource(filePath);
+    if (source === null) {
+      return null;
+    }
+    const ast = parseSource(source, parserOptions).ast;
+    astByPath.set(filePath, ast);
+    return ast;
+  };
 
   const visit = async (filePath: string): Promise<void> => {
     if (emittedByPath.has(filePath) || inProgress.has(filePath)) {
@@ -233,15 +259,14 @@ export async function bundleModuleGraph(
     }
     inProgress.add(filePath);
 
-    const source = await vfs.readFile(filePath);
+    const source = await loadSource(filePath);
     if (source === null) {
       errors.push(`Unable to read module '${filePath}'`);
       inProgress.delete(filePath);
       return;
     }
     const parserOptions = parserOptionsForModulePath(filePath);
-    const parsed = parseSource(source, parserOptions);
-    const ast = parsed.ast;
+    const ast = await loadAst(filePath, parserOptions);
 
     const externalDeclarations: Statement[] = [];
     const importedSymbolTypes = new Map<string, AnalysisType>();
@@ -251,13 +276,12 @@ export async function bundleModuleGraph(
       for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, vfs)) {
         bundledSpecifiers.add(statement.from.value);
         await visit(targetPath);
-        const dependencySource = await vfs.readFile(targetPath);
-        const dependencyParsed = dependencySource === null ? { ast: null } : parseSource(dependencySource, parserOptionsForModulePath(targetPath));
-        if (dependencyParsed.ast) {
+        const dependencyAst = await loadAst(targetPath, parserOptionsForModulePath(targetPath));
+        if (dependencyAst) {
           const importedNames = new Set(
             statement.specifiers.map((specifier) => specifier.imported.name)
           );
-          externalDeclarations.push(...collectImportedDeclarations(dependencyParsed.ast, importedNames));
+          externalDeclarations.push(...collectImportedDeclarations(dependencyAst, importedNames));
         }
         // Resolve imported value types (e.g. functions returning a Promise) from
         // the dependency's analysis so cross-file calls participate in auto-await.

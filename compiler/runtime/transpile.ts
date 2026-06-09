@@ -6,7 +6,11 @@ import {
 import type { ParserOptions } from "compiler/parser/parser";
 import { basename, extname } from "node:path";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
-import { createEmitProgramRuntimeContext, emitProgramStatements, type EmitOptions } from "./emitter";
+import {
+  createEmitProgramRuntimeContext,
+  emitProgramStatementPairs,
+  type EmitOptions
+} from "./emitter";
 import { lowerProgram } from "./lowering";
 import { getEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 import type { Program, Statement } from "compiler/ast/ast";
@@ -179,11 +183,6 @@ function sourceLinesForEmittedStatement(statement: Statement, emittedStatement: 
   return lines;
 }
 
-interface EmittedStatementSegment {
-  statement: Statement;
-  emitted: string;
-}
-
 function emitProgramStatementSegments(
   program: Program,
   expressionTypes: ReadonlyMap<Node, AnalysisType>,
@@ -192,31 +191,21 @@ function emitProgramStatementSegments(
   contextProgram: Program = program,
   emitOptions: EmitOptions = {},
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
-): EmittedStatementSegment[] {
+): { statement: Statement; emitted: string }[] {
   const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions);
-  const segments: EmittedStatementSegment[] = [];
-
-  for (const statement of program.body) {
-    const emittedSingle = emitProgramStatements(
-      { ...program, body: [statement] },
-      expressionTypes,
-      contextProgram,
-      implicitReceiverIdentifiers,
-      autoAwaitExpressions,
-      runtimeContext,
-      staticImplicitReceiverIdentifiers
-    );
-    const emittedStatement = emittedSingle.length > 0 ? emittedSingle[0]! : "";
-    if (emittedStatement.trim().length > 0) {
-      segments.push({ statement, emitted: emittedStatement });
-    }
-  }
-
-  return segments;
+  return emitProgramStatementPairs(
+    program,
+    expressionTypes,
+    contextProgram,
+    implicitReceiverIdentifiers,
+    autoAwaitExpressions,
+    runtimeContext,
+    staticImplicitReceiverIdentifiers
+  ).filter(({ emitted }) => emitted.trim().length > 0);
 }
 
 function emitSegmentsWithLineMap(
-  segments: EmittedStatementSegment[]
+  segments: { statement: Statement; emitted: string }[]
 ): { emitted: string; sourceLinesByGeneratedLine: number[] } {
   const sourceLinesByGeneratedLine = segments.flatMap(({ statement, emitted }) =>
     sourceLinesForEmittedStatement(statement, emitted)
@@ -227,7 +216,7 @@ function emitSegmentsWithLineMap(
   };
 }
 
-function emitSegmentsWithSourceLineOffsets(segments: EmittedStatementSegment[]): string {
+function emitSegmentsWithSourceLineOffsets(segments: { statement: Statement; emitted: string }[]): string {
   const lines: string[] = [];
   let generatedLine = 0;
 

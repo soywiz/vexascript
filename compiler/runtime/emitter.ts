@@ -2037,6 +2037,11 @@ interface EmitProgramRuntimeContext {
   jsxFragmentFactory: string;
 }
 
+export interface EmittedProgramStatement {
+  statement: Statement;
+  emitted: string;
+}
+
 export function createEmitProgramRuntimeContext(
   contextProgram: Program,
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
@@ -2068,6 +2073,28 @@ export function emitProgramStatements(
   runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
 ): string[] {
+  return emitProgramStatementPairs(
+    program,
+    expressionTypes,
+    contextProgram,
+    implicitReceiverIdentifiers,
+    autoAwaitExpressions,
+    runtimeContext,
+    staticImplicitReceiverIdentifiers
+  )
+    .map(({ emitted }) => emitted)
+    .filter((statement) => statement.trim().length > 0);
+}
+
+export function emitProgramStatementPairs(
+  program: Program,
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>,
+  contextProgram: Program = program,
+  implicitReceiverIdentifiers: ReadonlySet<Node> = new Set(),
+  autoAwaitExpressions: ReadonlySet<Node> = new Set(),
+  runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
+  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
+): EmittedProgramStatement[] {
   const previous = activeExpressionTypes;
   const previousOverloads = activeProgramOverloads;
   const previousOperators = activeOperators;
@@ -2105,9 +2132,10 @@ export function emitProgramStatements(
   activeJsNames = runtimeContext.jsNames;
   activeVariableDelegates = collectVariableDelegates(contextProgram, expressionTypes);
   try {
-    return program.body
-      .map((statement) => emitStatement(statement))
-      .filter((statement) => statement.trim().length > 0);
+    return program.body.map((statement) => ({
+      statement,
+      emitted: emitStatement(statement)
+    }));
   } finally {
     activeExpressionTypes = previous;
     activeProgramOverloads = previousOverloads;
