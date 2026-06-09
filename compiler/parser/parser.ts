@@ -2119,8 +2119,9 @@ export class Parser {
             }
         }
 
+        const blockStatements = this.applyImplicitTailLambdaReturn(statements);
         const block = this.attachNodeBounds(
-            { kind: "BlockStatement", body: statements } as BlockStatement,
+            { kind: "BlockStatement", body: blockStatements } as BlockStatement,
             openBrace,
             this.getLastReadToken() ?? openBrace
         );
@@ -2161,6 +2162,26 @@ export class Parser {
             openBrace,
             block.lastToken ?? this.getLastReadToken() ?? openBrace
         );
+    }
+
+
+    private applyImplicitTailLambdaReturn(statements: Statement[]): Statement[] {
+        if (statements.length <= 1) {
+            return statements;
+        }
+        const lastStatement = statements[statements.length - 1];
+        if (lastStatement?.kind !== "ExprStatement") {
+            return statements;
+        }
+        const returnStatement = this.attachNodeBounds(
+            {
+                kind: "ReturnStatement",
+                expression: (lastStatement as ExprStatement).expression
+            } as ReturnStatement,
+            lastStatement.firstToken ?? (lastStatement as ExprStatement).expression.firstToken,
+            lastStatement.lastToken ?? (lastStatement as ExprStatement).expression.lastToken
+        );
+        return [...statements.slice(0, -1), returnStatement];
     }
 
     private tryParseArrowFunctionExpression(): ArrowFunctionExpression | null {

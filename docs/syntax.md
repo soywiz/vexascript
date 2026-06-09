@@ -450,9 +450,14 @@ Examples:
 
 MyLang also supports Kotlin/Swift-style tail lambdas after call expressions and brace lambdas inside call argument lists. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The explicit `{ arg1, arg2 -> ... }` form is always a lambda.
 
-The body after `->` may be a single expression or a sequence of statements. When it contains more than one statement, the lambda has a block body:
+The body after `->` may be a single expression or a sequence of statements. When it contains more than one statement, the lambda has a block body, and a final expression statement is emitted as an implicit `return`:
 
 ```mylang
+[1, 2, 3].map {
+  const doubled = it * 2
+  doubled + 1 // implicit return
+}
+
 new Promise({ resolve, reject ->
   setTimeout(resolve, time.ms)
   setTimeout(reject, 1000)

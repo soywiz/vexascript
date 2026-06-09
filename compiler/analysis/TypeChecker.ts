@@ -54,6 +54,7 @@ import type {
   TryStatement,
   UnaryExpression,
   UpdateExpression,
+  VariableDeclarationKind,
   VarStatement,
   WhileStatement,
   WithStatement,
@@ -538,6 +539,7 @@ export class TypeChecker {
         }
         const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
         this.validateBindingPatternSource(declaration.name, inferredType);
+        this.ensureVariableBindingSymbols(scope, declaration.name, statement.declarationKind, inferredType);
         this.updateBindingSymbolTypes(scope, declaration.name, inferredType);
       }
       return;
@@ -574,9 +576,31 @@ export class TypeChecker {
     }
     const inferredType = explicitType ?? initializerType ?? UNKNOWN_TYPE;
     this.validateBindingPatternSource(statement.name, inferredType);
+    this.ensureVariableBindingSymbols(scope, statement.name, statement.declarationKind, inferredType);
     this.updateBindingSymbolTypes(scope, statement.name, inferredType);
   }
 
+  private ensureVariableBindingSymbols(
+    scope: Scope,
+    binding: BindingName,
+    declarationKind: VariableDeclarationKind,
+    type: AnalysisType
+  ): void {
+    for (const identifier of bindingIdentifiers(binding)) {
+      if (scope.symbols.has(identifier.name)) {
+        continue;
+      }
+      scope.symbols.set(identifier.name, {
+        name: identifier.name,
+        kind: "variable",
+        node: identifier,
+        declaredOffset: identifier.firstToken?.range.start.offset ?? -1,
+        isReadonly: declarationKind === "const" || declarationKind === "val",
+        type,
+        valueType: typeToString(type)
+      });
+    }
+  }
 
   private validateVariableDelegateType(delegateType: AnalysisType, node: Node): void {
     if (this.isValidVariableDelegateType(delegateType)) {
