@@ -492,6 +492,16 @@ import type { Shape } from "./types"
 
 Type-only imports participate in semantic analysis as bindings but are omitted from emitted JavaScript output.
 
+Relative imports can target local `.ts` files as well as `.my` files. Extensionless resolution checks the direct path, then `.my`, then `.ts`. During `mylang run` and CLI bundling, local TypeScript modules are parsed in TypeScript mode, type-checked with their exported declarations available to the importing MyLang file, transpiled to JavaScript, and inlined into the same executable module. This supports TypeScript runtime declarations such as classes, functions, variables, enums, destructuring, arrow functions, and async functions; type-only constructs such as interfaces and type aliases remain analysis-only and are erased from emitted JavaScript.
+
+```mylang
+import { Color, Person, describePerson } from "./helpers"
+
+const ada = Person("Ada", 36)
+console.log(describePerson(ada))
+console.log(Color.Green)
+```
+
 Extension operator overloads declared in another file (for example `fun Point.operator+`) can be imported by their `operator` name so the operator resolves across files:
 
 ```mylang
@@ -1245,7 +1255,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode, it supports ES module imports (`import { ... } from "..."`, default imports, namespace imports, side-effect imports, and `import type`), ambient declarations (`declare function`, `declare type`, `declare abstract class`, `declare interface`, `declare enum`, `declare var/let/const`, and `export declare ...`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
+When the parser runs in `typescript` mode directly or because a local `.ts`/`.tsx` module is imported into a MyLang module graph, it supports ES module imports (`import { ... } from "..."`, default imports, namespace imports, side-effect imports, and `import type`), ambient declarations (`declare function`, `declare type`, `declare abstract class`, `declare interface`, `declare enum`, `declare var/let/const`, and `export declare ...`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
 
 Example:
 

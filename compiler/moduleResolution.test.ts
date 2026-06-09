@@ -48,6 +48,15 @@ describe("resolveImportTargetFilePath", () => {
     expect(await resolveImportTargetFilePath(importer, "./utils")).toBe(target);
   });
 
+  it("appends a .ts extension when no .my target exists", async () => {
+    const importer = join(root, "main.my");
+    await writeFile(importer, "");
+    const target = join(root, "utils.ts");
+    await writeFile(target, "");
+
+    expect(await resolveImportTargetFilePath(importer, "./utils")).toBe(target);
+  });
+
   it("resolves an import that already includes the extension", async () => {
     const importer = join(root, "main.my");
     await writeFile(importer, "");

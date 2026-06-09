@@ -3,7 +3,8 @@ import {
   formatParseIssue,
   formatSemanticIssue
 } from "compiler/pipeline/compile";
-import { basename } from "node:path";
+import type { ParserOptions } from "compiler/parser/parser";
+import { basename, extname } from "node:path";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
 import { createEmitProgramRuntimeContext, emitProgramStatements, type EmitOptions } from "./emitter";
 import { lowerProgram } from "./lowering";
@@ -77,6 +78,8 @@ interface SourceMapV3 {
 
 export interface TranspileOptions {
   sourceFilePath?: string;
+  /** Parser mode. Defaults to TypeScript for `.ts`/`.tsx` paths and MyLang otherwise. */
+  parserOptions?: ParserOptions;
   outputFilePath?: string;
   target?: TranspileTarget;
   preserveSourceLineOffsets?: boolean;
@@ -266,11 +269,25 @@ function createSourceMap(
   return JSON.stringify(map);
 }
 
+function parserOptionsForTranspile(options: TranspileOptions): ParserOptions {
+  if (options.parserOptions) {
+    return options.parserOptions;
+  }
+  const extension = options.sourceFilePath ? extname(options.sourceFilePath).toLowerCase() : "";
+  if (extension === ".ts") {
+    return { language: "typescript" };
+  }
+  if (extension === ".tsx") {
+    return { language: "typescript", jsx: true };
+  }
+  return {};
+}
+
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
   const externalDeclarations = options.externalDeclarations ?? [];
   const importedSymbolTypes = options.importedSymbolTypes ?? new Map();
   const ambientDeclarations = options.ambientDeclarations ?? [];
-  const artifacts = compileSource(source, {}, { externalDeclarations, ambientDeclarations, importedSymbolTypes });
+  const artifacts = compileSource(source, parserOptionsForTranspile(options), { externalDeclarations, ambientDeclarations, importedSymbolTypes });
   const errors: string[] = [];
   const diagnostics: TranspileDiagnostic[] = [];
   const file = options.sourceFilePath ?? "<unknown>";

@@ -8,7 +8,7 @@ export function candidateImportTargetFilePaths(
 ): string[] {
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
-  return extname(direct) ? [direct] : [direct, `${direct}.my`];
+  return extname(direct) ? [direct] : [direct, `${direct}.my`, `${direct}.ts`];
 }
 
 /**
@@ -21,6 +21,8 @@ export function candidateImportTargetFilePaths(
  *     in the VFS or in an open editor/LSP session.
  *  2. The same path with a `.my` extension appended, when the import omits an
  *     explicit extension.
+ *  3. The same path with a `.ts` extension appended, so MyLang files can import
+ *     colocated TypeScript runtime modules without spelling the extension.
  *
  * This is the shared resolver used by the semantic project index and the LSP
  * cross-file features so they all agree on how local module paths map to files,

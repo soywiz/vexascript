@@ -19,7 +19,7 @@ This section is the fast onboarding map for agents and contributors.
   - Source location tests: `compiler/sourceLocations.test.ts`
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface and local Node-backed implementation, injectable into compiler project services that need file reads: `compiler/vfs.ts`
-  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` file), used by the semantic project index and the LSP cross-file features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
+  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` or `.ts` file), used by the semantic project index and the LSP cross-file features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
   - Project configuration loading from package.json dependencies and tsconfig.json JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
@@ -42,7 +42,7 @@ This section is the fast onboarding map for agents and contributors.
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
-  - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.my` entry file together with its transitively imported local `.my` modules so cross-file classes/operators/extension properties resolve before downstream JavaScript/TypeScript/package bundling): `compiler/runtime/moduleGraph.ts`
+  - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.my` entry file together with its transitively imported local `.my` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before downstream JavaScript/package bundling): `compiler/runtime/moduleGraph.ts`
   - Module-graph bundling tests: `compiler/runtime/moduleGraph.test.ts`
   - Runtime tooling helpers: `compiler/runtime/tooling.ts`
   - MyLang test-file discovery/orchestration and inline test helpers used by the CLI test command: `compiler/runtime/testRunner.ts`
@@ -58,6 +58,7 @@ This section is the fast onboarding map for agents and contributors.
   - Delegated-state sample: `samples/delegated-state/` validates end-to-end execution of Kotlin-style delegated variables backed by function and object delegates.
   - Sync orchestration sample: `samples/sync-orchestration/` validates local-module imports of exported async functions plus `sync` auto-awaiting across call arguments, arrays, object literals, and `go` opt-out promises.
   - Syntax tour sample: `samples/syntax-tour/` is a multi-file runnable fixture that exercises the broad supported MyLang syntax surface, JSX factory configuration, local imports, declarations/types, classes, extensions/operators, delegates, control flow, and async `sync` output.
+  - TypeScript import sample: `samples/typescript-import/` validates a `.my` entry importing a local `.ts` module with TypeScript enums, interfaces, type aliases, classes, generics, destructuring, arrow functions, and async functions that are transpiled into the bundled runtime output.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`

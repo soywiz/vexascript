@@ -1,0 +1,8 @@
+Ada:37:human
+0 2 blue
+1 2
+7
+right
+true 3
+2,4,6
+10

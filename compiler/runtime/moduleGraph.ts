@@ -1,4 +1,5 @@
 import { extname } from "node:path";
+import type { ParserOptions } from "compiler/parser/parser";
 import type {
   Identifier,
   ImportStatement,
@@ -22,7 +23,7 @@ import { transpile, type TranspileResult, type TranspileTarget } from "./transpi
  *
  * MyLang local files (`./foo`, `../bar`) do not produce real ES module exports,
  * so cross-file references cannot be resolved at runtime through the normal
- * module loader. For `run`, the entry file and every local `.my` module it
+ * module loader. For `run`, the entry file and every local `.my` or `.ts` module it
  * imports (transitively) are transpiled and concatenated in dependency order
  * into one module, with the now-internal local `import` statements removed.
  *
@@ -31,12 +32,28 @@ import { transpile, type TranspileResult, type TranspileTarget } from "./transpi
  * resolve cross-file classes, operator overloads and extension properties.
  */
 
+function isBundledLocalModulePath(filePath: string): boolean {
+  const extension = extname(filePath).toLowerCase();
+  return extension === ".my" || extension === ".ts" || extension === ".tsx";
+}
+
+function parserOptionsForModulePath(filePath: string): ParserOptions {
+  const extension = extname(filePath).toLowerCase();
+  if (extension === ".ts") {
+    return { language: "typescript" };
+  }
+  if (extension === ".tsx") {
+    return { language: "typescript", jsx: true };
+  }
+  return {};
+}
+
 async function resolveLocalModulePath(importerFilePath: string, importPath: string, vfs: Vfs): Promise<string | null> {
   if (!importPath.startsWith(".")) {
     return null;
   }
   const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs });
-  return targetPath && extname(targetPath) === ".my" ? targetPath : null;
+  return targetPath && isBundledLocalModulePath(targetPath) ? targetPath : null;
 }
 
 function declarationName(statement: Statement): string | null {
@@ -141,7 +158,7 @@ async function collectNodeModulesTypings(
     // Resolve imported values to their declaration types when possible. This
     // keeps default-exported functions callable while retaining the named-type
     // fallback used for namespace-shaped packages such as moment.
-    const declarationAnalysis = compileSource(source, {}, {}).analysis;
+    const declarationAnalysis = compileSource(source, { language: "typescript" }, {}).analysis;
     const defaultExportName = detectDtsDefaultExportName(parsed.ast) ?? specifier;
     const exportType = namedType(defaultExportName);
     if (importStatement.defaultImport) {
@@ -177,8 +194,8 @@ async function localImportSpecifiers(ast: Program, importerFilePath: string, vfs
 
 /**
  * Removes the emitted `import ... from "<local>"` / `import "<local>"`
- * statements that reference bundled local `.my` modules. Relative imports that
- * resolve to JavaScript or TypeScript stay in the output for downstream bundlers
+ * statements that reference bundled local `.my`/`.ts` modules. Relative imports that
+ * resolve to JavaScript stay in the output for downstream bundlers
  * or Node.js to load normally.
  */
 function stripBundledImports(code: string, bundledSpecifiers: ReadonlySet<string>): string {
@@ -222,7 +239,8 @@ export async function bundleModuleGraph(
       inProgress.delete(filePath);
       return;
     }
-    const parsed = parseSource(source);
+    const parserOptions = parserOptionsForModulePath(filePath);
+    const parsed = parseSource(source, parserOptions);
     const ast = parsed.ast;
 
     const externalDeclarations: Statement[] = [];
@@ -234,7 +252,7 @@ export async function bundleModuleGraph(
         bundledSpecifiers.add(statement.from.value);
         await visit(targetPath);
         const dependencySource = await vfs.readFile(targetPath);
-        const dependencyParsed = dependencySource === null ? { ast: null } : parseSource(dependencySource);
+        const dependencyParsed = dependencySource === null ? { ast: null } : parseSource(dependencySource, parserOptionsForModulePath(targetPath));
         if (dependencyParsed.ast) {
           const importedNames = new Set(
             statement.specifiers.map((specifier) => specifier.imported.name)
@@ -259,12 +277,13 @@ export async function bundleModuleGraph(
     // modules that import from it can read their imported value types.
     analysisByPath.set(
       filePath,
-      compileSource(source, {}, { externalDeclarations, ambientDeclarations, importedSymbolTypes }).analysis
+      compileSource(source, parserOptions, { externalDeclarations, ambientDeclarations, importedSymbolTypes }).analysis
     );
 
     const result = transpile(source, {
       sourceFilePath: filePath,
       target,
+      parserOptions,
       externalDeclarations,
       importedSymbolTypes,
       ambientDeclarations,
