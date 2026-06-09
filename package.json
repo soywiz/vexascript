@@ -9,7 +9,7 @@
   },
   "scripts": {
     "cli": "pnpm --silent build && node dist/mylang.js",
-    "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.js",
+    "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --external:esbuild --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.js",
     "test": "tsc --noEmit && node --import tsx --test --test-reporter spec $(rg --files -g '*.test.ts')",
     "coverage": "tsx --test --experimental-test-coverage",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
@@ -19,12 +19,12 @@
     "commander": "^13.1.0",
     "source-map": "^0.7.6",
     "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.12"
+    "vscode-languageserver-textdocument": "^1.0.12",
+    "esbuild": "^0.21.5"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.15.30",
-    "esbuild": "^0.21.5",
     "tsx": "^4.22.4",
     "typescript": "^5.8.3"
   }

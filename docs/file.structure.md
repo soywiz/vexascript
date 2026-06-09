@@ -42,7 +42,7 @@ This section is the fast onboarding map for agents and contributors.
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
-  - Local module-graph bundling for execution (resolves and inlines a `.my` entry file together with its transitively imported local modules so cross-file classes/operators/extension properties resolve at run time): `compiler/runtime/moduleGraph.ts`
+  - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.my` entry file together with its transitively imported local `.my` modules so cross-file classes/operators/extension properties resolve before downstream JavaScript/TypeScript/package bundling): `compiler/runtime/moduleGraph.ts`
   - Module-graph bundling tests: `compiler/runtime/moduleGraph.test.ts`
   - Runtime tooling helpers: `compiler/runtime/tooling.ts`
   - MyLang test-file discovery/orchestration and inline test helpers used by the CLI test command: `compiler/runtime/testRunner.ts`

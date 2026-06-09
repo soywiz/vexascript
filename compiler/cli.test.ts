@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, it } from "node:test";
 import { expect, vi } from "./test/expect";
 import { ensureLspTransportArg, runCli } from "./cli";
@@ -60,6 +61,39 @@ describe("CLI", () => {
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain('h(Fragment, null, h("span", null, "hi"))');
+  });
+
+  it("build command creates an ESM bundle with MyLang, TypeScript, JavaScript, and package imports", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-bundle-"));
+    const input = join(dir, "main.my");
+    const output = join(dir, "bundle.mjs");
+    await writeFile(join(dir, "math.my"), "export fun double(value: number) => value * 2\n", "utf8");
+    await writeFile(join(dir, "message.ts"), "import { suffix } from './suffix.js'; export const label: string = `answer${suffix}`;\n", "utf8");
+    await writeFile(join(dir, "suffix.js"), "export const suffix = '-from-js';\n", "utf8");
+    await mkdir(join(dir, "node_modules", "tiny-lib"), { recursive: true });
+    await writeFile(join(dir, "node_modules", "tiny-lib", "package.json"), JSON.stringify({ type: "module", main: "index.js" }), "utf8");
+    await writeFile(join(dir, "node_modules", "tiny-lib", "index.js"), "export const offset = 1;\n", "utf8");
+    await writeFile(input, [
+      'import { double } from "./math"',
+      'import { label } from "./message.ts"',
+      'import { offset } from "tiny-lib"',
+      'export const bundled = `${label}:${double(20) + offset}`'
+    ].join("\n"), "utf8");
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "build", input, "--bundle", "--out", output]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain("-from-js");
+    expect(outputCode).toContain("offset = 1");
+    expect(outputCode).not.toContain('from "./math"');
+    expect(outputCode).not.toContain('from "./message.ts"');
+    expect(outputCode).not.toContain('from "tiny-lib"');
+
+    const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: string };
+    expect(imported.bundled).toBe("answer-from-js:41");
+    expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
   });
 
   it("run command executes testFixtures/sample.my", async () => {

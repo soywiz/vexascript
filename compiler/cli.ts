@@ -89,6 +89,19 @@ export function ensureLspTransportArg(argv: string[]): string[] {
   return [...argv, "--stdio"];
 }
 
+async function ensureRuntimeDependencies(sourcePath: string, project: MylangProject | null): Promise<void> {
+  if (project && Object.keys(project.dependencies).length > 0) {
+    await ensureDependencies(project.projectDir, project.dependencies);
+    return;
+  }
+
+  const sourceDir = dirname(sourcePath);
+  const pkgDeps = await loadPackageJsonDeps(sourceDir);
+  if (pkgDeps && Object.keys(pkgDeps).length > 0) {
+    await ensureDependencies(sourceDir, pkgDeps);
+  }
+}
+
 async function buildFile(
   input: string,
   out?: string,
@@ -132,6 +145,61 @@ async function buildFile(
   }
 }
 
+async function bundleFile(
+  input: string,
+  out?: string,
+  target: TranspileTarget = "optimized",
+  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
+): Promise<void> {
+  const sourcePath = resolve(process.cwd(), input);
+  const project = await loadProject(sourcePath);
+  await ensureRuntimeDependencies(sourcePath, project);
+
+  const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".mjs"));
+  const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const result = await bundleModuleGraph(sourcePath, target, {
+    ambientDeclarations,
+    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
+    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
+    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
+    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
+  });
+  if (result.errors.length > 0) {
+    printDiagnostics(result, sourcePath);
+    throw new Error(`Compilation failed for ${sourcePath}`);
+  }
+
+  const esbuild = await import("esbuild");
+  const bundled = await esbuild.build({
+    stdin: {
+      contents: result.code,
+      resolveDir: dirname(sourcePath),
+      sourcefile: sourcePath,
+      loader: "js"
+    },
+    bundle: true,
+    format: "esm",
+    platform: "neutral",
+    mainFields: ["module", "main"],
+    conditions: ["import", "default"],
+    target: "es2020",
+    write: false,
+    logLevel: "silent"
+  });
+  const outputCode = bundled.outputFiles[0]?.text;
+  if (outputCode === undefined) {
+    throw new Error(`Bundling failed for ${sourcePath}`);
+  }
+
+  await writeFile(outputPath, outputCode, "utf8");
+  console.log(`Bundled: ${sourcePath} -> ${outputPath}`);
+  if (result.warnings.length > 0) {
+    for (const warning of result.warnings) {
+      console.warn(`warning: ${warning}`);
+    }
+  }
+}
+
 async function loadPackageJsonDeps(dir: string): Promise<Record<string, string> | null> {
   const pkgPath = resolve(dir, "package.json");
   try {
@@ -146,16 +214,7 @@ async function loadPackageJsonDeps(dir: string): Promise<Record<string, string> 
 export async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
-  if (project && Object.keys(project.dependencies).length > 0) {
-    await ensureDependencies(project.projectDir, project.dependencies);
-  } else {
-    // Fall back to package.json in the source file's directory
-    const sourceDir = dirname(sourcePath);
-    const pkgDeps = await loadPackageJsonDeps(sourceDir);
-    if (pkgDeps && Object.keys(pkgDeps).length > 0) {
-      await ensureDependencies(sourceDir, pkgDeps);
-    }
-  }
+  await ensureRuntimeDependencies(sourcePath, project);
   // Bundle the entry file together with its local module graph so cross-file
   // references resolve, then execute the combined module.
   await ensureEcmaScriptRuntimeProgram();
@@ -357,12 +416,18 @@ function createProgram(): Command {
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => {
+    .option("--bundle", "Bundle the entry and all referenced MyLang, TypeScript, JavaScript, and package modules as ESM")
+    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
       const target = opts.target === "conservative" ? "conservative" : "optimized";
-      await buildFile(input, opts.out, target, {
+      const jsxOptions = {
         ...(opts.jsxFactory ? { jsxFactory: opts.jsxFactory } : {}),
         ...(opts.jsxFragmentFactory ? { jsxFragmentFactory: opts.jsxFragmentFactory } : {})
-      });
+      };
+      if (opts.bundle) {
+        await bundleFile(input, opts.out, target, jsxOptions);
+        return;
+      }
+      await buildFile(input, opts.out, target, jsxOptions);
     });
 
   program
