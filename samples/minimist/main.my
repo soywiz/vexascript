@@ -1,0 +1,6 @@
+import minimist from "minimist"
+
+const args = minimist(["--name", "Ada", "--count", "3", "input.my"] as any)
+const summary = `${args.name} will run ${args.count} time(s) for ${args._[0]}`
+
+console.log(summary)

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { expect } from "./test/expect";
-import { resolveImportTargetFilePath } from "./moduleResolution";
+import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "./moduleResolution";
 import { compileSource } from "./pipeline/compile";
 import type { Vfs, VfsDirEntry, VfsStat } from "./vfs";
 
@@ -98,4 +98,40 @@ describe("resolveImportTargetFilePath", () => {
     ).toBe(target);
   });
 
+});
+
+describe("resolveNodeModulesTypingsPath", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "mylang-node-modules-typings-"));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("falls back to a matching @types package when the runtime package has no declarations", async () => {
+    const runtimeDir = join(root, "node_modules", "minimist");
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(join(runtimeDir, "package.json"), JSON.stringify({ name: "minimist" }), "utf8");
+
+    const typesDir = join(root, "node_modules", "@types", "minimist");
+    await mkdir(typesDir, { recursive: true });
+    const dtsPath = join(typesDir, "index.d.ts");
+    await writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/minimist" }), "utf8");
+    await writeFile(dtsPath, "declare function minimist(): void; export = minimist;", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(join(root, "main.my"), "minimist")).toBe(dtsPath);
+  });
+
+  it("maps scoped packages to DefinitelyTyped's double-underscore package name", async () => {
+    const typesDir = join(root, "node_modules", "@types", "scope__pkg");
+    await mkdir(typesDir, { recursive: true });
+    const dtsPath = join(typesDir, "index.d.ts");
+    await writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/scope__pkg" }), "utf8");
+    await writeFile(dtsPath, "export declare const value: string;", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(join(root, "main.my"), "@scope/pkg")).toBe(dtsPath);
+  });
 });
