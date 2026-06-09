@@ -96,6 +96,28 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
   });
 
+  it("bundle command is a direct alias for build --bundle", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-bundle-command-"));
+    const input = join(dir, "main.my");
+    const output = join(dir, "direct-bundle.mjs");
+    await writeFile(join(dir, "math.my"), "export fun triple(value: number) => value * 3\n", "utf8");
+    await writeFile(input, [
+      'import { triple } from "./math"',
+      'export const bundled = triple(14)'
+    ].join("\n"), "utf8");
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "mylang", "bundle", input, "--out", output]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).not.toContain('from "./math"');
+
+    const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: number };
+    expect(imported.bundled).toBe(42);
+    expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
+  });
+
   it("run command executes testFixtures/sample.my", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
