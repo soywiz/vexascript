@@ -64,6 +64,8 @@ import {
   resolveCallableSignature,
   resolveClassMember,
   resolveClassMemberNames,
+  resolveInterfaceMember,
+  resolveInterfaceMemberNames,
   resolveClassStatementAcrossFiles,
   resolveConstructorSignature,
   type ClassResolverCache,
@@ -101,6 +103,11 @@ const CompletionItemKind = {
 } as const;
 
 type CompletionItemKind = (typeof CompletionItemKind)[keyof typeof CompletionItemKind];
+type InterfaceCompletionMember = {
+  name: string;
+  detail: string;
+  kind: typeof CompletionItemKind.Field | typeof CompletionItemKind.Method;
+};
 
 const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
@@ -783,32 +790,24 @@ async function buildClassMemberCompletionItems(
 }
 
 function buildInterfaceMemberCompletionItems(
-  interfaceStatement: InterfaceStatement,
-  prefix: string
+  prefix: string,
+  resolvedMembers: InterfaceCompletionMember[]
 ): CompletionItem[] {
   const items: CompletionItem[] = [];
   const seen = new Set<string>();
   const normalizedPrefix = prefix.trim();
-  for (const member of interfaceStatement.members) {
-    if (normalizedPrefix.length > 0 && !member.name.name.startsWith(normalizedPrefix)) {
+  for (const member of resolvedMembers) {
+    if (normalizedPrefix.length > 0 && !member.name.startsWith(normalizedPrefix)) {
       continue;
     }
-    if (seen.has(member.name.name)) {
+    if (seen.has(member.name)) {
       continue;
     }
-    seen.add(member.name.name);
-    if (member.kind === "InterfacePropertyMember") {
-      items.push({
-        label: member.name.name,
-        kind: CompletionItemKind.Field,
-        detail: `Interface property: ${member.typeAnnotation.name}`
-      });
-      continue;
-    }
+    seen.add(member.name);
     items.push({
-      label: member.name.name,
-      kind: CompletionItemKind.Method,
-      detail: `Interface method: (${member.parameters.map((parameter) => `${bindingIdentifiers(parameter.name)[0]?.name ?? "arg"}: ${parameter.typeAnnotation?.name ?? "unknown"}`).join(", ")}) => ${member.returnType?.name ?? "void"}`
+      label: member.name,
+      kind: member.kind,
+      detail: member.detail
     });
   }
   return items;
@@ -1728,6 +1727,35 @@ async function buildMemberCompletionItemsForType(
       ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
       : {})
   }))?.declaration;
+  const interfaceMembers: InterfaceCompletionMember[] = interfaceStatement
+    ? await Promise.all(
+      (await resolveInterfaceMemberNames(
+        interfaceStatement,
+        resolvedClassName,
+        {
+          ast,
+          options: resolverOptions,
+          cache: resolverCache
+        }
+      )).map(async (memberName) => {
+        const member = await resolveInterfaceMember(interfaceStatement, memberName, resolvedClassName, {
+          ast,
+          options: resolverOptions,
+          cache: resolverCache
+        });
+        if (!member) {
+          return null;
+        }
+        return {
+          name: memberName,
+          kind: member.kind === "field" ? CompletionItemKind.Field : CompletionItemKind.Method,
+          detail: member.kind === "field"
+            ? `Interface property: ${member.typeName}`
+            : `Interface method: ${member.typeName}`
+        };
+      })
+    ).then((members) => members.filter((member): member is InterfaceCompletionMember => member !== null))
+    : [];
   return [
     ...await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis),
     ...(classStatement
@@ -1747,7 +1775,7 @@ async function buildMemberCompletionItemsForType(
           }
         )
       : interfaceStatement
-        ? buildInterfaceMemberCompletionItems(interfaceStatement, prefix)
+        ? buildInterfaceMemberCompletionItems(prefix, interfaceMembers)
         : [])
   ];
 }

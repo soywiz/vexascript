@@ -1,7 +1,11 @@
 import { describe, it } from "node:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import {
   AnalysisSessionCache,
   buildAnalysisForSource,
@@ -92,5 +96,22 @@ describe("lsp analysis session", () => {
     const messages = session.semanticIssues.map((issue) => issue.message);
 
     expect(messages).toEqual([]);
+  });
+
+  it("includes DOM ambient declarations from tsconfig lib entries", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mylang-lsp-dom-"));
+    const filePath = join(dir, "main.my");
+    await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const source = 'const root: HTMLElement = document.createElement("main")\n';
+    await writeFile(filePath, source, "utf8");
+
+    const cache = new AnalysisSessionCache(async () => ({
+      externalDeclarations: [],
+      importedSymbolTypes: new Map(),
+      ambientDeclarations: (await ensureDomProgram()).body
+    }));
+    const session = await cache.getForDocumentAsync(TextDocument.create(`file://${filePath}`, "mylang", 1, source));
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 });

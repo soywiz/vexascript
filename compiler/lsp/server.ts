@@ -46,6 +46,8 @@ import {
   MYLANG_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
+import { loadProject } from "compiler/project";
+import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import {
   createDocumentHighlights,
   createFoldingRanges,
@@ -65,18 +67,30 @@ let referenceCodeLensEnabled = false;
 let projectIndex: ProjectIndex = getProjectIndex([]);
 const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
   if (!baseSession.ast) {
-    return { externalDeclarations: [], importedSymbolTypes: new Map() };
+    return { externalDeclarations: [], importedSymbolTypes: new Map(), ambientDeclarations: [] };
   }
   const context = {
     uri: document.uri,
     sourceRoots,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments
   };
-  const [externalDeclarations, importedSymbolTypes] = await Promise.all([
+  const filePath = uriToFilePath(document.uri);
+  const [externalDeclarations, importedSymbolTypes, ambientDeclarations] = await Promise.all([
     collectImportedTypeDeclarations(baseSession.ast, context),
-    collectImportedSymbolTypes(baseSession.ast, context)
+    collectImportedSymbolTypes(baseSession.ast, context),
+    (async () => {
+      if (!filePath) {
+        return [];
+      }
+      const project = await loadProject(filePath);
+      const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
+      if (!requested.has("dom")) {
+        return [];
+      }
+      return (await ensureDomProgram()).body;
+    })()
   ]);
-  return { externalDeclarations, importedSymbolTypes };
+  return { externalDeclarations, importedSymbolTypes, ambientDeclarations };
 }, () => refreshDiagnostics());
 const REFRESH_DIAGNOSTICS_COMMAND = "mylang.refreshDiagnostics";
 

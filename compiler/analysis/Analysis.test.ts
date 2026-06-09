@@ -1685,6 +1685,23 @@ let after = bind`));
     expect(messages.some((message) => message.includes("'sum' does not exist"))).toBe(false);
   });
 
+  it("reports semantic error for member access on unknown", () => {
+    const source = dedent`
+      fun maybeUnknown()
+
+      fun demo() {
+        const root: unknown = maybeUnknown()
+        root.id
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Property 'id' does not exist on type 'unknown'");
+  });
+
   it("reports call argument type and arity mismatches, with int->number and long->bigint assignability", () => {
     const source = dedent`
       fun test2(a: number, b: bigint, c: string) {

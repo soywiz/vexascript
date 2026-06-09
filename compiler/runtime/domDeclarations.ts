@@ -1,7 +1,8 @@
 import { readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Program } from "compiler/ast/ast";
+import type { Node, Program } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
 import { fileExists } from "compiler/utils/fs";
 import { loadCachedProgram, storeCachedProgram } from "./programCache";
@@ -13,6 +14,7 @@ interface CachedDomProgram {
   filePath: string;
   mtimeMs: number;
   program: Program;
+  nodes: WeakSet<object>;
 }
 
 let cachedDomProgram: CachedDomProgram | null = null;
@@ -54,6 +56,12 @@ function parseDomProgram(source: string): Program {
   return parsed.ast;
 }
 
+function collectNodes(root: Program): WeakSet<object> {
+  const nodes = new WeakSet<object>();
+  walkAst(root, (node) => nodes.add(node));
+  return nodes;
+}
+
 async function loadDomProgram(): Promise<CachedDomProgram> {
   const { mtimeMs } = await stat(domDeclarationFilePath);
   const cachedProgram = await loadCachedProgram(domDeclarationFilePath, mtimeMs, DOM_CACHE_SALT);
@@ -61,7 +69,8 @@ async function loadDomProgram(): Promise<CachedDomProgram> {
     return {
       filePath: domDeclarationFilePath,
       mtimeMs,
-      program: cachedProgram
+      program: cachedProgram,
+      nodes: collectNodes(cachedProgram)
     };
   }
 
@@ -72,7 +81,8 @@ async function loadDomProgram(): Promise<CachedDomProgram> {
   return {
     filePath: domDeclarationFilePath,
     mtimeMs,
-    program
+    program,
+    nodes: collectNodes(program)
   };
 }
 
@@ -82,4 +92,8 @@ export async function ensureDomProgram(): Promise<Program> {
   }
 
   return cachedDomProgram.program;
+}
+
+export function isDomRuntimeNode(node: Node): boolean {
+  return cachedDomProgram?.nodes.has(node) === true;
 }

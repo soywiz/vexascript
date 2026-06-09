@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
+import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveDefinitionAcrossFiles,
@@ -324,6 +325,50 @@ describe("cross-file navigation", () => {
     expect(hover?.range).toEqual({
       start: { line: 3, character: 8 },
       end: { line: 3, character: 9 }
+    });
+  });
+
+  it("resolves DOM type and member definitions from tsconfig lib declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-dom-"));
+    const file = join(root, "main.my");
+    const source = dedent`
+      fun createDocument(): Document => document
+      const root: HTMLElement = createDocument().createElement("main")
+      root.className
+    `;
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    await writeFile(file, source, "utf8");
+
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+
+    const typeDefinition = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 1,
+      character: 14,
+      session,
+      sourceRoots: [root]
+    });
+    const memberDefinition = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 2,
+      character: 9,
+      session,
+      sourceRoots: [root]
+    });
+    const memberHover = await resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 2,
+      character: 9,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(typeDefinition?.uri).toBe(pathToFileURL(getDomDeclarationFilePath()).toString());
+    expect(memberDefinition?.uri).toBe(pathToFileURL(getDomDeclarationFilePath()).toString());
+    expect(memberHover?.contents).toEqual({
+      kind: "plaintext",
+      value: "member HTMLElement.className: string"
     });
   });
 

@@ -25,7 +25,16 @@ import type {
   WithStatement
 } from "compiler/ast/ast";
 import type { Node } from "compiler/ast/ast";
-import { builtinType, functionType, namedType, typeToString, UNKNOWN_TYPE, unionType, BUILTIN_TYPE_NAMES } from "./types";
+import {
+  builtinType,
+  functionType,
+  namedType,
+  objectTypeWithProperties,
+  typeToString,
+  UNKNOWN_TYPE,
+  unionType,
+  BUILTIN_TYPE_NAMES
+} from "./types";
 import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText } from "./typeNames";
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
@@ -38,7 +47,12 @@ const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typ
   ["false", builtinType("boolean")],
   ["null", builtinType("null")],
   ["undefined", builtinType("undefined")],
-  ["console", UNKNOWN_TYPE],
+  ["console", objectTypeWithProperties({
+    log: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void")),
+    error: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void")),
+    warn: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void")),
+    info: functionType([{ name: "args", type: UNKNOWN_TYPE, rest: true }], builtinType("void"))
+  })],
   ["setTimeout", functionType([
     { name: "code", type: functionType([], builtinType("void")) },
     { name: "time", type: builtinType("number") }

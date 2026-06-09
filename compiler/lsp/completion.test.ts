@@ -9,6 +9,7 @@ import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { createAnalysisSession } from "./analysisSession";
+import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -283,6 +284,28 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(labels).toEqual(expect.arrayContaining(["abs", "floor", "max", "random"]));
     expect(labels).not.toContain("demo");
+  });
+
+  it("offers DOM interface members for variables typed from tsconfig lib declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-"));
+    const file = join(root, "main.my");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun createDocument(): Document => document
+      const root: HTMLElement = createDocument().createElement("main")
+      root.^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root]
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toEqual(expect.arrayContaining(["className", "id", "children", "getAttribute", "setAttribute", "tagName"]));
   });
 
   it("offers local extension members for numeric literal member access", async () => {

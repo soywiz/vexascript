@@ -64,7 +64,7 @@ export interface ResolvedClassStatement {
   filePath: string;
 }
 
-interface ResolvedInterfaceStatement {
+export interface ResolvedInterfaceStatement {
   interfaceStatement: InterfaceStatement;
   filePath: string;
 }
@@ -94,6 +94,13 @@ export interface ResolvedClassMember {
 
 export interface ResolvedClassMemberDeclaration {
   classStatement: ClassStatement;
+  filePath: string;
+  memberName: string;
+  kind: "field" | "method";
+}
+
+export interface ResolvedTypeMemberDeclaration {
+  declaration: ClassStatement | InterfaceStatement;
   filePath: string;
   memberName: string;
   kind: "field" | "method";
@@ -208,7 +215,7 @@ export async function resolveClassStatementAcrossFiles(
   return classStatement;
 }
 
-async function resolveInterfaceStatementAcrossFiles(
+export async function resolveInterfaceStatementAcrossFiles(
   ast: Program,
   interfaceName: string,
   options: ClassResolverOptions,
@@ -893,6 +900,99 @@ export async function resolveClassMemberNames(
     seenNames
   );
   return names;
+}
+
+export async function resolveInterfaceMemberNames(
+  interfaceStatement: InterfaceStatement,
+  objectTypeName: string | undefined,
+  context: ResolveClassMemberContext
+): Promise<string[]> {
+  const names: string[] = [];
+  const seenNames = new Set<string>();
+  await collectInterfaceMemberNamesRecursive(
+    interfaceStatement,
+    objectTypeName,
+    {
+      ast: context.ast,
+      options: context.options,
+      cache: context.cache ?? createClassResolverCache()
+    },
+    new Set<string>(),
+    names,
+    seenNames
+  );
+  return names;
+}
+
+async function resolveInterfaceMemberDeclarationRecursive(
+  interfaceResolution: ResolvedInterfaceStatement,
+  memberName: string,
+  objectTypeName: string | undefined,
+  context: ResolutionContext,
+  visitedInterfaces: Set<string>
+): Promise<ResolvedTypeMemberDeclaration | null> {
+  const interfaceStatement = interfaceResolution.interfaceStatement;
+  const visitKey = `${interfaceStatement.name.name}|${objectTypeName ?? "<none>"}`;
+  if (visitedInterfaces.has(visitKey)) {
+    return null;
+  }
+  visitedInterfaces.add(visitKey);
+
+  for (const member of interfaceStatement.members) {
+    if (member.name.name === memberName) {
+      return {
+        declaration: interfaceStatement,
+        filePath: interfaceResolution.filePath,
+        memberName,
+        kind: member.kind === "InterfacePropertyMember" ? "field" : "method"
+      };
+    }
+  }
+
+  const substitutions = typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], objectTypeName);
+  for (const parentType of interfaceStatement.extendsTypes ?? []) {
+    const specializedParentType = substituteTypeNameText(parentType.name, substitutions);
+    const parentResolution = await resolveInterfaceStatementAcrossFiles(
+      context.ast,
+      baseTypeName(specializedParentType),
+      context.options,
+      context.cache
+    );
+    if (!parentResolution) {
+      continue;
+    }
+    const resolved = await resolveInterfaceMemberDeclarationRecursive(
+      parentResolution,
+      memberName,
+      specializedParentType,
+      context,
+      visitedInterfaces
+    );
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return null;
+}
+
+export async function resolveInterfaceMemberDeclaration(
+  interfaceResolution: ResolvedInterfaceStatement,
+  memberName: string,
+  objectTypeName: string | undefined,
+  context: ResolveClassMemberContext
+): Promise<ResolvedTypeMemberDeclaration | null> {
+  return resolveInterfaceMemberDeclarationRecursive(
+    interfaceResolution,
+    memberName,
+    objectTypeName,
+    {
+      ast: context.ast,
+      options: context.options,
+      cache: context.cache ?? createClassResolverCache()
+    },
+    new Set<string>()
+  );
 }
 
 export function isTypeAssignableByName(sourceType: string, targetType: string): boolean {

@@ -18,9 +18,10 @@ export interface AnalysisSession {
 export function createAnalysisSession(
   source: string,
   externalDeclarations: Statement[] = [],
-  importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map()
+  importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
+  ambientDeclarations: Statement[] = []
 ): AnalysisSession {
-  const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes });
+  const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes, ambientDeclarations });
   return {
     ast: artifacts.ast,
     parserErrors: artifacts.parserIssues,
@@ -44,6 +45,7 @@ export function buildAnalysisForSource(source: string): Analysis | null {
 export interface ResolvedExternals {
   externalDeclarations: Statement[];
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
+  ambientDeclarations?: Statement[];
 }
 
 export type ExternalDeclarationsResolver = (
@@ -81,8 +83,9 @@ export class AnalysisSessionCache {
       const resolvePromise = Promise.resolve(this.resolveExternalDeclarations(document, baseSession)).then((resolved) => {
         const externalDeclarations = resolved?.externalDeclarations ?? [];
         const importedSymbolTypes = resolved?.importedSymbolTypes ?? new Map();
-        const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0
-          ? createAnalysisSession(docText, externalDeclarations, importedSymbolTypes)
+        const ambientDeclarations = resolved?.ambientDeclarations ?? [];
+        const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0 || ambientDeclarations.length > 0
+          ? createAnalysisSession(docText, externalDeclarations, importedSymbolTypes, ambientDeclarations)
           : baseSession;
         // Only update if version still matches
         const still = this.cache.get(docUri);
@@ -118,8 +121,9 @@ export class AnalysisSessionCache {
     const resolved = await this.resolveExternalDeclarations(document, baseSession);
     const externalDeclarations = resolved?.externalDeclarations ?? [];
     const importedSymbolTypes = resolved?.importedSymbolTypes ?? new Map();
-    const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0
-      ? createAnalysisSession(document.getText(), externalDeclarations, importedSymbolTypes)
+    const ambientDeclarations = resolved?.ambientDeclarations ?? [];
+    const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0 || ambientDeclarations.length > 0
+      ? createAnalysisSession(document.getText(), externalDeclarations, importedSymbolTypes, ambientDeclarations)
       : baseSession;
     this.cache.set(document.uri, { version: document.version, session });
     return session;

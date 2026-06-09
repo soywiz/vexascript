@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { candidateImportTargetFilePaths, resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
@@ -6,6 +7,7 @@ import {
   getEcmaScriptRuntimeDeclarationFilePath,
   isEcmaScriptRuntimeNode
 } from "compiler/runtime/ecmascriptDeclarations";
+import { getDomDeclarationFilePath, isDomRuntimeNode } from "compiler/runtime/domDeclarations";
 import type {
   ArrayLiteral,
   ArrowFunctionExpression,
@@ -59,7 +61,9 @@ import { containsPosition, nodeRange } from "./ranges";
 import {
   classPropertyParameters,
   createClassResolverCache,
-  resolveClassMember
+  resolveClassMember,
+  resolveInterfaceMember,
+  resolveInterfaceMemberDeclaration,
 } from "./classResolver";
 import {
   getProjectIndex,
@@ -113,6 +117,17 @@ interface ClassMemberInfo {
 }
 
 type TypeLikeDeclaration = ClassStatement | InterfaceStatement;
+const TYPE_ANNOTATION_KEYS = new Set([
+  "typeAnnotation",
+  "returnType",
+  "extendsType",
+  "extendsTypes",
+  "implementsTypes",
+  "receiverType",
+  "typeArguments",
+  "constraint",
+  "defaultType"
+]);
 
 function localReferencesFromContext(
   context: ResolveContext,
@@ -322,6 +337,13 @@ async function resolveCanonicalSymbol(context: ResolveContext): Promise<Canonica
         range: definition.range
       };
     }
+    if (isDomRuntimeNode(symbolAt.symbol.node)) {
+      return {
+        name: symbolAt.symbol.name,
+        filePath: getDomDeclarationFilePath(),
+        range: definition.range
+      };
+    }
     // Symbols resolved through external (imported) declarations - e.g. a
     // cross-file operator overload reached from a `a + b` usage - carry a node
     // that belongs to the imported file, not the current document. Locate the
@@ -461,6 +483,55 @@ function classMemberDeclarationRangeByName(
   return null;
 }
 
+async function fallbackInterfaceMemberRangeInFile(
+  filePath: string,
+  interfaceName: string,
+  memberName: string
+): Promise<{ start: { line: number; character: number }; end: { line: number; character: number } } | null> {
+  const source = await readFile(filePath, "utf8");
+  const lines = source.split("\n");
+  const interfacePattern = new RegExp(`\\binterface\\s+${interfaceName}\\b`);
+  const memberPattern = new RegExp(`\\b${memberName}\\b`);
+
+  let interfaceLine = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (interfacePattern.test(lines[i] ?? "")) {
+      interfaceLine = i;
+      break;
+    }
+  }
+  if (interfaceLine < 0) {
+    return null;
+  }
+
+  let braceDepth = 0;
+  let enteredBody = false;
+  for (let i = interfaceLine; i < lines.length; i += 1) {
+    const lineText = lines[i] ?? "";
+    for (const char of lineText) {
+      if (char === "{") {
+        braceDepth += 1;
+        enteredBody = true;
+      } else if (char === "}") {
+        braceDepth -= 1;
+      }
+    }
+    if (enteredBody && braceDepth <= 0) {
+      break;
+    }
+    const match = memberPattern.exec(lineText);
+    if (!match) {
+      continue;
+    }
+    return {
+      start: { line: i, character: match.index },
+      end: { line: i, character: match.index + memberName.length }
+    };
+  }
+
+  return null;
+}
+
 function functionTypeLabelFromParameters(
   parameters: FunctionParameter[],
   returnTypeName?: string
@@ -580,6 +651,79 @@ async function resolveTypeDefinitionAcrossFiles(
     declaration: resolved.declaration,
     filePath: resolved.filePath === "" ? await getEcmaScriptRuntimeDeclarationFilePath() : resolved.filePath
   };
+}
+
+function isAstNode(value: unknown): value is { kind: string } {
+  return typeof value === "object" && value !== null && typeof (value as { kind?: unknown }).kind === "string";
+}
+
+function findTypeIdentifierAtPosition(
+  value: unknown,
+  line: number,
+  character: number
+): Identifier | null {
+  let best: Identifier | null = null;
+  let bestSize = Number.POSITIVE_INFINITY;
+
+  const considerIdentifier = (identifier: Identifier): void => {
+    const range = nodeRange(identifier);
+    if (!range || !containsPosition(range, { line, character })) {
+      return;
+    }
+    const size =
+      (range.end.line - range.start.line) * 100_000 +
+      (range.end.character - range.start.character);
+    if (size <= bestSize) {
+      best = identifier;
+      bestSize = size;
+    }
+  };
+
+  const visitTypeValue = (entry: unknown): void => {
+    if (Array.isArray(entry)) {
+      for (const item of entry) {
+        visitTypeValue(item);
+      }
+      return;
+    }
+    if (!isAstNode(entry)) {
+      return;
+    }
+    if (entry.kind === "Identifier") {
+      considerIdentifier(entry as Identifier);
+    }
+    for (const [key, child] of Object.entries(entry)) {
+      if (key === "kind" || key === "range" || key === "firstToken" || key === "lastToken") {
+        continue;
+      }
+      visitTypeValue(child);
+    }
+  };
+
+  const visitNode = (entry: unknown): void => {
+    if (Array.isArray(entry)) {
+      for (const item of entry) {
+        visitNode(item);
+      }
+      return;
+    }
+    if (!isAstNode(entry)) {
+      return;
+    }
+    for (const [key, child] of Object.entries(entry)) {
+      if (TYPE_ANNOTATION_KEYS.has(key)) {
+        visitTypeValue(child);
+        continue;
+      }
+      if (key === "kind" || key === "range" || key === "firstToken" || key === "lastToken") {
+        continue;
+      }
+      visitNode(child);
+    }
+  };
+
+  visitNode(value);
+  return best;
 }
 
 function findMemberExpressionAtPosition(
@@ -868,10 +1012,36 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   if (objectType.kind === "named" || objectType.kind === "array") {
     const classResolution = await resolveTypeDefinitionAcrossFiles(context, receiverTypeNames[0]!);
     if (classResolution) {
-      const range = classMemberDeclarationRangeByName(classResolution.declaration, memberName);
+      const resolverContext = {
+        ast: context.session.ast,
+        options: {
+          uri: context.uri,
+          sourceRoots: context.sourceRoots,
+          ...(context.getSessionForFilePath
+            ? { getSessionForFilePath: context.getSessionForFilePath }
+            : {})
+        },
+        cache: createClassResolverCache()
+      };
+      const interfaceMemberDeclaration = classResolution.declaration.kind === "InterfaceStatement"
+        ? await resolveInterfaceMemberDeclaration(
+          { interfaceStatement: classResolution.declaration, filePath: classResolution.filePath },
+          memberName,
+          objectType.kind === "array" ? `Array<${typeToString(objectType.elementType)}>` : typeToString(objectType),
+          resolverContext
+        )
+        : null;
+      const memberOwner = interfaceMemberDeclaration?.declaration ?? classResolution.declaration;
+      const memberFilePath = interfaceMemberDeclaration?.filePath ?? classResolution.filePath;
+      const range = classMemberDeclarationRangeByName(memberOwner, memberName)
+        ?? (
+          memberOwner.kind === "InterfaceStatement"
+            ? await fallbackInterfaceMemberRangeInFile(memberFilePath, memberOwner.name.name, memberName)
+            : null
+        );
       if (range) {
         return {
-          uri: pathToUri(classResolution.filePath),
+          uri: pathToUri(memberFilePath),
           range
         };
       }
@@ -1438,6 +1608,19 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
     return memberDefinition;
   }
 
+  const typeIdentifier = context.session.ast
+    ? findTypeIdentifierAtPosition(context.session.ast, context.line, context.character)
+    : null;
+  if (typeIdentifier) {
+    const typeDefinition = await resolveTypeDefinitionAcrossFiles(context, typeIdentifier.name);
+    if (typeDefinition) {
+      return {
+        uri: pathToUri(typeDefinition.filePath),
+        range: nodeRange(typeDefinition.declaration.name) ?? nodeRange(typeIdentifier)!
+      };
+    }
+  }
+
   const symbol = await resolveCanonicalSymbol(context);
   if (symbol) {
     return {
@@ -1514,7 +1697,22 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
         cache: createClassResolverCache()
       }
     )
-    : null;
+    : await resolveInterfaceMember(
+      classResolution.declaration,
+      memberName,
+      objectType.kind === "array" ? `Array<${typeToString(objectType.elementType)}>` : typeToString(objectType),
+      {
+        ast: context.session.ast,
+        options: {
+          uri: context.uri,
+          sourceRoots: context.sourceRoots,
+          ...(context.getSessionForFilePath
+            ? { getSessionForFilePath: context.getSessionForFilePath }
+            : {})
+        },
+        cache: createClassResolverCache()
+      }
+    );
   const fallbackMember = classMemberInfoByName(classResolution.declaration, memberName);
   if (!resolvedMember && !fallbackMember) {
     return null;

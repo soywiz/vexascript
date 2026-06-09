@@ -13,6 +13,8 @@ import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
+import { loadProject } from "compiler/project";
 import {
   getProjectSessionForFilePath,
   scanProjectMyFiles,
@@ -92,6 +94,32 @@ export function findTopLevelDeclarationInProgram<T extends Statement>(
   return null;
 }
 
+async function runtimeDeclarationsForCurrentFile(currentFilePath: string | null): Promise<Array<{
+  ast: Program;
+  filePath: string;
+}>> {
+  const runtimeDeclarations = [{
+    ast: getEcmaScriptRuntimeProgram(),
+    filePath: ""
+  }];
+
+  if (!currentFilePath) {
+    return runtimeDeclarations;
+  }
+
+  const project = await loadProject(currentFilePath);
+  const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
+  if (!requested.has("dom")) {
+    return runtimeDeclarations;
+  }
+
+  runtimeDeclarations.push({
+    ast: await ensureDomProgram(),
+    filePath: getDomDeclarationFilePath()
+  });
+  return runtimeDeclarations;
+}
+
 function importSpecifierName(
   importStatement: ImportStatement,
   localName: string
@@ -155,16 +183,18 @@ export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>
   }
 
   if (options.includeRuntime) {
-    const runtimeDeclaration = findTopLevelDeclarationInProgram(
-      getEcmaScriptRuntimeProgram(),
-      options.name,
-      options.predicate
-    );
-    if (runtimeDeclaration) {
-      return {
-        declaration: runtimeDeclaration,
-        filePath: ""
-      };
+    for (const runtime of await runtimeDeclarationsForCurrentFile(options.currentFilePath)) {
+      const runtimeDeclaration = findTopLevelDeclarationInProgram(
+        runtime.ast,
+        options.name,
+        options.predicate
+      );
+      if (runtimeDeclaration) {
+        return {
+          declaration: runtimeDeclaration,
+          filePath: runtime.filePath
+        };
+      }
     }
   }
 

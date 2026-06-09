@@ -107,6 +107,7 @@ import {
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { declarationIndexForStatements } from "./declarationIndex";
+import { walkAst } from "compiler/ast/traversal";
 
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
@@ -136,6 +137,7 @@ export class TypeChecker {
   private readonly asyncLikeFunctionStack: boolean[] = [];
   private readonly assignabilityChecksInProgress: Set<string> = new Set();
   private readonly analysisTypeIds: WeakMap<object, number> = new WeakMap();
+  private readonly explicitlyUnknownIdentifiers: WeakSet<object> = new WeakSet();
   private nextAnalysisTypeId = 1;
 
   constructor(
@@ -189,6 +191,20 @@ export class TypeChecker {
     this.collectNamespaceStatements(program);
     this.collectInterfaceStatements(program.body);
     this.collectTypeAliasStatements(program.body);
+    this.collectExplicitlyUnknownIdentifiers(program);
+  }
+
+  private collectExplicitlyUnknownIdentifiers(program: Program): void {
+    walkAst(program, (node) => {
+      const candidate = node as Node & { name?: BindingName; typeAnnotation?: Node };
+      const typeAnnotation = candidate.typeAnnotation as (Node & { kind: "Identifier"; name: string }) | undefined;
+      if (typeAnnotation?.kind !== "Identifier" || typeAnnotation.name !== "unknown" || !candidate.name) {
+        return;
+      }
+      for (const identifier of bindingIdentifiers(candidate.name)) {
+        this.explicitlyUnknownIdentifiers.add(identifier);
+      }
+    });
   }
 
   check(): CheckedAnalysis {
@@ -736,9 +752,10 @@ export class TypeChecker {
   }
 
   private updateObjectBindingSymbolTypes(scope: Scope, binding: ObjectBindingPattern, sourceType: AnalysisType): void {
+    const excludedNames = new Set<string>();
     for (const element of binding.elements) {
       if (element.rest === true) {
-        this.updateBindingSymbolTypes(scope, element.name, UNKNOWN_TYPE);
+        this.updateBindingSymbolTypes(scope, element.name, this.objectRestBindingType(sourceType, excludedNames));
         continue;
       }
       const propertyName = element.propertyName?.name ?? (element.name.kind === "Identifier" ? element.name.name : undefined);
@@ -746,6 +763,9 @@ export class TypeChecker {
       const propertyType = element.typeAnnotation
         ? this.resolveTypeAnnotation(element.typeAnnotation, scope) ?? UNKNOWN_TYPE
         : inferredPropertyType;
+      if (propertyName) {
+        excludedNames.add(propertyName);
+      }
       this.updateBindingSymbolTypes(scope, element.name, propertyType);
     }
   }
@@ -780,14 +800,20 @@ export class TypeChecker {
       return;
     }
 
+    const excludedNames = new Set<string>();
     for (const element of binding.elements) {
       const propertyName = element.propertyName?.name ?? (element.name.kind === "Identifier" ? element.name.name : undefined);
-      const inferredPropertyType = element.rest === true || !propertyName
-        ? UNKNOWN_TYPE
+      const inferredPropertyType = element.rest === true
+        ? this.objectRestBindingType(sourceType, excludedNames)
+        : !propertyName
+          ? UNKNOWN_TYPE
         : this.memberTypeFromObjectType(sourceType, propertyName) ?? UNKNOWN_TYPE;
       const propertyType = element.typeAnnotation
         ? this.resolveTypeAnnotation(element.typeAnnotation, scope) ?? UNKNOWN_TYPE
         : inferredPropertyType;
+      if (!element.rest && propertyName) {
+        excludedNames.add(propertyName);
+      }
       this.visitBindingIdentifiersWithTypes(scope, element.name, propertyType, visit);
     }
   }
@@ -4732,6 +4758,21 @@ export class TypeChecker {
     return null;
   }
 
+  private objectRestBindingType(sourceType: AnalysisType, excludedNames: ReadonlySet<string>): AnalysisType {
+    const members = this.membersForType(sourceType);
+    if (!members) {
+      return UNKNOWN_TYPE;
+    }
+    const properties: Record<string, AnalysisType> = {};
+    for (const [memberName, memberType] of members.entries()) {
+      if (excludedNames.has(memberName)) {
+        continue;
+      }
+      properties[memberName] = memberType;
+    }
+    return objectTypeWithProperties(properties);
+  }
+
   private boxedInterfaceNameForBuiltin(name: string): string | null {
     if (name === "int" || name === "number" || name === "numeric") return "Number";
     if (name === "string") return "String";
@@ -5599,6 +5640,23 @@ export class TypeChecker {
     }
 
     const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+    if (isUnknownType(objectType) || (objectType.kind === "builtin" && objectType.name === "unknown")) {
+      if (member.object.kind !== "Identifier") {
+        return;
+      }
+      const baseIdentifier = member.object as Identifier;
+      const usageOffset = baseIdentifier.firstToken?.range.start.offset;
+      const symbol = this.resolve(baseIdentifier.name, scope, usageOffset);
+      if (!symbol || !this.explicitlyUnknownIdentifiers.has(symbol.node)) {
+        return;
+      }
+      this.issues.push({
+        message: `Property '${propertyName}' does not exist on type 'unknown'`,
+        node: member.property
+      });
+      return;
+    }
+
     if (this.resolveExtensionMemberType(objectType, propertyName) || this.importedExtensionPropertyNames.has(propertyName)) {
       return;
     }
