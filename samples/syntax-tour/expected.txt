@@ -1,0 +1,16 @@
+side-effect:loaded
+types:Ada:name:entry:left/omega:local:ns
+imports:tool:x:7:0:right:2
+functions:syntax-done:TOUR:loud:renamed:int:4:string:x:local-int:3:local-string:y
+default:[value]:nums:1|2|3:id
+class:thing:Ada:thing:Ada:(2,3):(6,4):(8,7):(16,14):false:true:12
+counter:3:3|4:counter:ready
+delegates:6
+destructure:first:actual:Ada|thing:Ada|tag|a|c|d:spread
+expressions:3:true:true:safe:Ada:true
+operators:10:7:23:positive:comma:false:true:true
+calls:ok!:missing10px
+tail:2|4|6:2,3,4
+control:7:6:ab:xy:xy:1:one:label:boom:finally
+jsx:section:card:span:fragment
+async:15:50

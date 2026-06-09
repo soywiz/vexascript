@@ -1,0 +1,208 @@
+import "./side-effects.my"
+import { CompassDirection, Direction, Status, collect, defaultFormatter, describe, fetchLabel, fetchNumber, identity, joinWords, runtimeBoxValue, toolLabel, upper } from "./toolkit.my"
+import { Point, Rectangle, operator+, px, scale, isOrigin } from "./geometry.my"
+import type { Described, MaybeArray, MutablePair, NameKey, NameValue, Pair } from "./types.my"
+
+/*
+  Syntax tour sample: keep this runnable while showing many supported forms.
+*/
+const Fragment = "fragment"
+fun h(type: any, props: any, ...children: any[]) {
+  return { type, props, children }
+}
+
+declare function declaredOnly(value: string): string
+declare abstract class AbstractShape {
+  abstract area(): number
+}
+
+@JsName("renamedValueRuntime")
+val renamedValue = "renamed"
+
+@JsInline("String(value).toLowerCase()")
+fun lower(value: string): string
+
+type LocalName = NameValue
+type LocalKey = NameKey
+type LocalItem = MaybeArray<string[]>
+
+namespace LocalTools {
+  const prefix = "local"
+  export function label(value: string): string {
+    return `${prefix}:${value}`
+  }
+}
+
+class Counter(var value: number = 0) {
+  public readonly id?: string
+  service!: string
+
+  constructor(value: number = 0, id: string = "counter") {
+    this.value = value
+    this.id = id
+    this.service = "ready"
+  }
+
+  increment(amount: number = 1): number {
+    value += amount
+    return value
+  }
+
+  *values() {
+    yield value
+    yield* [value + 1]
+  }
+}
+
+class NamedThing(val name: string) {
+  description: string => `thing:${name}`
+}
+
+function overloaded(value: int): string { return `local-int:${value}` }
+function overloaded(value: string): string { return `local-string:${value}` }
+
+fun useState(value: number) {
+  return [() => value, (newValue: number) => { value = newValue }]
+}
+
+fun withTailLambda(values: number[], transform: (value: number) => number): string {
+  return values.map(transform).join(",")
+}
+
+function maybeCall(callback?: (value: string) => string): string {
+  return (callback?.("ok") ?? "missing") as string
+}
+
+function unpack(
+  { name : string, describe :: makeDescription, ...metadata }: Described & { tag: string },
+  [first : string, , third = "fallback", ...tail]: string[]
+): string {
+  return `${name}|${makeDescription()}|${metadata.tag}|${first}|${third}|${tail.join("+")}`
+}
+
+sync fun asyncSection(): string {
+  const first = fetchNumber(5)
+  const pending: Promise<string> = go fetchLabel(first)
+  const values = [fetchNumber(1), fetchNumber(2)]
+  const objectValues = { a: fetchNumber(3), b: fetchNumber(4) }
+  return `${await pending}:${values[0] + values[1] + objectValues.a + objectValues.b}`
+}
+
+const sampleName: LocalName = "Ada"
+const sampleKey: LocalKey = "name"
+const item: LocalItem = "entry"
+const mutablePair: MutablePair = { first: "left", second: "right" }
+const pair: Pair<string> = ["alpha", "omega"]
+const thing = NamedThing(sampleName)
+const describedThing: Described = { name: sampleName, describe: function(): string { return thing.description } }
+const point = Point(x: 2, y: 3)
+const moved = point.move(dy: 1, dx: 4)
+const combined = point + moved
+const scaled = combined.scale(2)
+const rectangle = new Rectangle(3, 4)
+const counter = Counter(1)
+var state by useState(2)
+
+state++
+state += 3
+
+let { name : string, describe :: makeDescription } = describedThing
+let [head : string, , third = "third"] = ["first", , "actual"]
+let dynamicKey = "score"
+let objectLiteral = { sampleName, ...{ tag: "spread" }, [dynamicKey]: 99, "display name": sampleName, 1: "one", method() { return "spread" } }
+let arrayLiteral: (number | undefined)[] = [1, , 3]
+let regex = /a.+/i
+let maybeObject: { nested?: { value: string } } | null = { nested: { value: "safe" } }
+let asserted = (sampleName as string)!
+let assign = 1
+assign += 2
+assign *= 3
+assign <<= 1
+assign >>= 1
+assign >>>= 0
+assign &= 7
+assign |= 8
+assign &&= 9
+assign ||= 10
+assign ??= 11
+let unary = +assign + -1 + ~0
+let binary = (2 ** 3) + (9 % 4) + (8 >> 1) + (8 >>> 1) + (1 & 3) + (1 ^ 3) + (1 | 2)
+let conditional = binary > 0 ? "positive" : "zero"
+let commaValue: string = (assign = assign + 1, "comma")
+let view = <section class="card" data-score={objectLiteral[dynamicKey]} disabled><span>{sampleName}</span><br /></section>
+let fragment = <><span {...{ title: "fragment" }}>text</span></>
+
+console.log(`types:${sampleName}:${sampleKey}:${item}:${mutablePair.first}/${pair[1]}:${LocalTools.label("ns")}`)
+console.log(`imports:${toolLabel("x")}:${runtimeBoxValue}:${Direction.Up}:${CompassDirection.Right}:${Status.Done}`)
+console.log(`functions:${joinWords("syntax")}:${upper("tour")}:${lower("LOUD")}:${renamedValue}:${describe(4)}:${describe("x")}:${overloaded(3)}:${overloaded("y")}`)
+console.log(`default:${defaultFormatter("value")}:${collect("nums", ...[1, 2, 3])}:${identity<string>("id")}`)
+console.log(`class:${thing.description}:${makeDescription()}:${point.label}:${moved.label}:${combined.label}:${scaled.label}:${point.isOrigin}:${Point.origin.isOrigin}:${rectangle.area()}`)
+console.log(`counter:${counter.increment(2)}:${[...counter.values()].join("|")}:${counter.id}:${counter.service}`)
+console.log(`delegates:${state}`)
+console.log(`destructure:${head}:${third}:${unpack({ name: sampleName, describe: function(): string { return thing.description }, tag: "tag" } as Described & { tag: string }, ["a", "b", "c", "d"])}:${objectLiteral.method()}`)
+console.log(`expressions:${arrayLiteral.length}:${arrayLiteral[1] === undefined}:${regex.test("Ada")}:${maybeObject?.nested?.value}:${asserted}:${delete objectLiteral[dynamicKey]}`)
+console.log(`operators:${assign}:${unary}:${binary}:${conditional}:${commaValue}:${"score" in objectLiteral}:${point instanceof Point}:${point is Point}`)
+console.log(`calls:${maybeCall((value) => value + "!")}:${maybeCall()}${10.px}`)
+console.log(`tail:${[1, 2, 3].map { it * 2 }.join("|")}:${withTailLambda([1, 2, 3]) { value -> value + 1 }}`)
+
+let rangeTotal = 0
+for (n of 0 ... 3) {
+  if (n == 2) continue
+  rangeTotal += n
+}
+for (n of 0 ..< 3) rangeTotal += n
+
+let forTotal = 0
+for (let i = 0; i < 3; i++, forTotal += i) {
+}
+let keys = ""
+for (key of Object.keys({ a: 1, b: 2 })) {
+  keys += key
+}
+let objectForIn = Object.keys({ x: 1, y: 2 }).join("")
+let itemsJoined = ""
+for (entry of ["x", "y"]) {
+  itemsJoined += entry
+}
+
+let whileCount = 0
+while (whileCount < 2) {
+  whileCount++
+}
+do {
+  whileCount--
+} while (whileCount > 1)
+
+let switchText = ""
+switch (whileCount) {
+  case 1:
+    switchText = "one"
+    break
+  default:
+    switchText = "other"
+    break
+}
+
+let caught = ""
+try {
+  throw new Error("boom")
+} catch (err) {
+  caught = err.message
+} finally {
+  caught = `${caught}:finally`
+}
+
+labelled: {
+  switchText += ":label"
+  break labelled
+}
+
+outer: for (n of 0 ... 2) {
+  if (n == 0) continue outer
+  break outer
+}
+
+console.log(`control:${rangeTotal}:${forTotal}:${keys}:${objectForIn}:${itemsJoined}:${whileCount}:${switchText}:${caught}`)
+console.log(`jsx:${view.type}:${view.props.class}:${view.children[0].type}:${fragment.type}`)
+console.log(await asyncSection())
+;
