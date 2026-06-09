@@ -1,0 +1,4 @@
+dark
+#101010
+true
+theme:set:name=dark|theme:get:colors|color:set:background=#101010|theme:get:name|theme:get:colors|color:get:background|theme:has:colors
