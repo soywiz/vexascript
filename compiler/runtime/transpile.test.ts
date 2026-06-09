@@ -79,6 +79,16 @@ describe("transpile", () => {
     expect(sourceMap.mappings.length).toBeGreaterThan(0);
   });
 
+  it("can skip source map generation for internal hot paths", () => {
+    const result = transpile("let value = 1\nvalue += 2\n", {
+      emitSourceMap: false
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.sourceMap).toBe(undefined);
+    expect(result.code).toContain("let value = 1;");
+  });
+
   it("rewrites mylang for-in loops to JavaScript for-of with const iterator", () => {
     const source = [
       "declare class Console {",

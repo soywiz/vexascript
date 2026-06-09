@@ -18,6 +18,15 @@ import { localVfs, type Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
+interface CachedTypingsData {
+  declarations: Statement[];
+  analysis: Analysis | null;
+  defaultExportName: string;
+  hasFunctionNamespaceDualExport: boolean;
+}
+
+const typingsCacheByPath = new Map<string, CachedTypingsData>();
+
 /**
  * Resolves a project's local module graph and bundles it into a single
  * executable JavaScript module.
@@ -182,6 +191,34 @@ async function collectNodeModulesTypings(
   importedSymbolTypes: Map<string, AnalysisType>,
   vfs: Vfs
 ): Promise<void> {
+  const loadTypings = async (typingsPath: string): Promise<CachedTypingsData | null> => {
+    const cached = typingsCacheByPath.get(typingsPath);
+    if (cached) {
+      return cached;
+    }
+
+    const source = await vfs.readFile(typingsPath);
+    if (source === null) {
+      return null;
+    }
+    const parsed = parseSource(source, { language: "typescript" });
+    if (!parsed.ast) {
+      return null;
+    }
+
+    const defaultExportName = detectDtsDefaultExportName(parsed.ast) ?? "";
+    const loaded: CachedTypingsData = {
+      declarations: [...parsed.ast.body],
+      analysis: compileSource(source, { language: "typescript" }, {}).analysis,
+      defaultExportName,
+      hasFunctionNamespaceDualExport: defaultExportName.length > 0
+        ? hasFunctionNamespaceDualExport(parsed.ast, defaultExportName)
+        : false
+    };
+    typingsCacheByPath.set(typingsPath, loaded);
+    return loaded;
+  };
+
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") continue;
     const importStatement = statement as ImportStatement;
@@ -191,30 +228,28 @@ async function collectNodeModulesTypings(
     const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, specifier, { vfs });
     if (!typingsPath) continue;
 
-    const source = await vfs.readFile(typingsPath);
-    if (source === null) continue;
-    const parsed = parseSource(source, { language: "typescript" });
-    if (!parsed.ast) continue;
+    const typings = await loadTypings(typingsPath);
+    if (!typings) continue;
 
     // All top-level declarations become externalDeclarations so the type
     // checker can resolve named types (interfaces, namespaces, etc.).
-    for (const decl of parsed.ast.body) {
+    for (const decl of typings.declarations) {
       externalDeclarations.push(decl);
     }
 
     // Resolve imported values to their declaration types when possible. This
     // keeps default-exported functions callable while retaining the named-type
     // fallback used for namespace-shaped packages such as moment.
-    const declarationAnalysis = compileSource(source, { language: "typescript" }, {}).analysis;
-    const defaultExportName = detectDtsDefaultExportName(parsed.ast) ?? specifier;
+    const declarationAnalysis = typings.analysis;
+    const defaultExportName = typings.defaultExportName || specifier;
     const exportType = namedType(defaultExportName);
     if (importStatement.defaultImport) {
       const declaredDefaultType = declarationAnalysis?.getTopLevelSymbolType(defaultExportName);
-      const defaultImportType = hasFunctionNamespaceDualExport(parsed.ast, defaultExportName)
+      const defaultImportType = typings.hasFunctionNamespaceDualExport
         ? declaredDefaultType ? intersectionType([declaredDefaultType, exportType]) : exportType
         : declaredDefaultType?.kind === "function"
         ? declaredDefaultType
-        : callableTypeFromDefaultExportedFunction(parsed.ast.body, defaultExportName) ?? exportType;
+        : callableTypeFromDefaultExportedFunction(typings.declarations, defaultExportName) ?? exportType;
       importedSymbolTypes.set(
         importStatement.defaultImport.name,
         defaultImportType
@@ -364,6 +399,7 @@ export async function bundleModuleGraph(
       compilationArtifacts,
       sourceFilePath: filePath,
       target,
+      emitSourceMap: false,
       parserOptions,
       externalDeclarations,
       importedSymbolTypes,

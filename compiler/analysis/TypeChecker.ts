@@ -165,13 +165,13 @@ export class TypeChecker {
     this.collectEnumStatements(ambientDeclarations);
     this.collectInterfaceStatements(ambientDeclarations);
     this.collectTypeAliasStatements(ambientDeclarations);
-    this.collectNamespaceStatements({ kind: "Program", body: [...ambientDeclarations] } as Program);
+    this.collectNamespaceStatements(ambientDeclarations);
     this.collectFunctionStatements(externalDeclarations);
     this.collectClassStatements(externalDeclarations);
     this.collectEnumStatements(externalDeclarations);
     this.collectInterfaceStatements(externalDeclarations);
     this.collectTypeAliasStatements(externalDeclarations);
-    this.collectNamespaceStatements({ kind: "Program", body: [...externalDeclarations] } as Program);
+    this.collectNamespaceStatements(externalDeclarations);
     // Also collect declarations nested inside namespace bodies so types like
     // `moment.Moment` (declared as `namespace moment { interface Moment }`) are
     // available for member resolution when referenced as namedType("Moment").
@@ -181,14 +181,15 @@ export class TypeChecker {
     this.collectTypeAliasStatements(nestedFromExternals);
     // Imported extension operator overloads (e.g. `import { operator+ }`) are
     // registered so a cross-file operator like `a + b` resolves to the overload.
-    this.collectExtensionOperators({ kind: "Program", body: [...ambientDeclarations, ...externalDeclarations] } as Program);
+    this.collectExtensionOperators(ambientDeclarations);
+    this.collectExtensionOperators(externalDeclarations);
     this.collectFunctionStatements(program.body);
     this.collectClassStatements(program.body);
     this.collectExtensionOperators(program);
     this.collectExtensionMethods(program);
     this.collectImportedExtensionPropertyNames(program);
     this.collectEnumStatements(program.body);
-    this.collectNamespaceStatements(program);
+    this.collectNamespaceStatements(program.body);
     this.collectInterfaceStatements(program.body);
     this.collectTypeAliasStatements(program.body);
     this.collectExplicitlyUnknownIdentifiers(program);
@@ -5435,8 +5436,8 @@ export class TypeChecker {
     this.updateBindingSymbolTypes(scope, varStatement.name, iteratorType);
   }
 
-  private collectNamespaceStatements(program: Program): void {
-    const visit = (statements: Statement[]): void => {
+  private collectNamespaceStatements(statements: readonly Statement[]): void {
+    const visit = (statements: readonly Statement[]): void => {
       for (const statement of statements) {
         const candidate = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
         if (candidate?.kind !== "NamespaceStatement") continue;
@@ -5461,7 +5462,7 @@ export class TypeChecker {
         visit(namespaceStatement.body.body);
       }
     };
-    visit(program.body);
+    visit(statements);
   }
 
   /**
@@ -5558,8 +5559,9 @@ export class TypeChecker {
   }
 
 
-  private collectExtensionOperators(program: Program): void {
-    for (const statement of program.body) {
+  private collectExtensionOperators(statements: readonly Statement[] | Program): void {
+    const body = "body" in statements ? statements.body : statements;
+    for (const statement of body) {
       const candidate = statement.kind === "ExportStatement"
         ? (statement as ExportStatement).declaration
         : statement;

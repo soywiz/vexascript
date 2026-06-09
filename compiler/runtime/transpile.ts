@@ -91,6 +91,11 @@ export interface TranspileOptions {
   target?: TranspileTarget;
   preserveSourceLineOffsets?: boolean;
   /**
+   * Whether to generate a source map. Defaults to true so direct transpile
+   * callers keep the current behavior, while internal hot paths can opt out.
+   */
+  emitSourceMap?: boolean;
+  /**
    * Top-level declarations imported from other files (classes, interfaces,
    * enums, type aliases, extension methods/operators/properties and functions).
    * They are fed to the analyzer for cross-file name/member/operator resolution
@@ -207,18 +212,6 @@ function emitProgramStatementSegments(
   ).filter(({ emitted }) => emitted.trim().length > 0);
 }
 
-function emitSegmentsWithLineMap(
-  segments: { statement: Statement; emitted: string }[]
-): { emitted: string; sourceLinesByGeneratedLine: number[] } {
-  const sourceLinesByGeneratedLine = segments.flatMap(({ statement, emitted }) =>
-    sourceLinesForEmittedStatement(statement, emitted)
-  );
-  return {
-    emitted: segments.map(({ emitted }) => emitted).join("\n"),
-    sourceLinesByGeneratedLine
-  };
-}
-
 function emitSegmentsWithSourceLineOffsets(segments: { statement: Statement; emitted: string }[]): string {
   const lines: string[] = [];
   let generatedLine = 0;
@@ -287,6 +280,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const errors: string[] = [];
   const diagnostics: TranspileDiagnostic[] = [];
   const file = options.sourceFilePath ?? "<unknown>";
+  const emitSourceMap = options.emitSourceMap ?? true;
   const sourceLines = source.split("\n");
 
   function makeDiagnostic(message: string, range: SourceRange | null | undefined, code: string): TranspileDiagnostic {
@@ -383,10 +377,9 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     },
     staticImplicitReceiverIdentifiers
   );
-  const { emitted, sourceLinesByGeneratedLine } = emitSegmentsWithLineMap(emittedSegments);
   const emittedWithOffsets = options.preserveSourceLineOffsets
     ? emitSegmentsWithSourceLineOffsets(emittedSegments)
-    : emitted;
+    : emittedSegments.map(({ emitted }) => emitted).join("\n");
   const code = options.preserveSourceLineOffsets
     ? ensureTrailingSemicolonPreservingLines(emittedWithOffsets)
     : ensureTrailingSemicolon(emittedWithOffsets);
@@ -395,6 +388,15 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     warnings: [],
     errors: [],
     diagnostics: [],
-    sourceMap: createSourceMap(source, code, sourceLinesByGeneratedLine, options)
+    ...(emitSourceMap
+      ? {
+          sourceMap: createSourceMap(
+            source,
+            code,
+            emittedSegments.flatMap(({ statement, emitted }) => sourceLinesForEmittedStatement(statement, emitted)),
+            options
+          )
+        }
+      : {})
   };
 }

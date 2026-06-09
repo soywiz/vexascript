@@ -117,11 +117,6 @@ interface RuntimeExtensionMethodInfo extends RuntimeOverloadInfo {
   name: string;
 }
 
-interface RuntimeImportedExtensionInfo {
-  importedName: string;
-  runtimeName: string;
-}
-
 interface JavaScriptImplementationInfo {
   template: string;
   parameters: FunctionParameter[];
@@ -149,6 +144,7 @@ interface RuntimeVariableDelegateInfo {
 }
 
 let activeVariableDelegates: Map<string, RuntimeVariableDelegateInfo> = new Map();
+let activeImportedExtensionRuntimeNames: Map<string, string[]> = new Map();
 let activeExtensionThis = false;
 let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
 let activeStaticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map();
@@ -457,33 +453,6 @@ function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, righ
   }
 }
 
-function collectRuntimeOverloads(program: Program): Map<string, RuntimeOverloadInfo[]> {
-  const byName = new Map<string, FunctionStatement[]>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind !== "FunctionStatement") {
-      continue;
-    }
-    const fn = candidate as FunctionStatement;
-    if (fn.declared || fn.receiverType) {
-      continue;
-    }
-    byName.set(fn.name.name, [...(byName.get(fn.name.name) ?? []), fn]);
-  }
-  const result = new Map<string, RuntimeOverloadInfo[]>();
-  for (const [name, functions] of byName) {
-    if (functions.length <= 1) {
-      continue;
-    }
-    result.set(name, functions.map((fn) => ({
-      emittedName: overloadedFunctionName(name, fn.parameters),
-      parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
-      hasBody: fn.missingBody !== true
-    })));
-  }
-  return result;
-}
-
 function operatorBaseName(operator: BinaryExpression["operator"]): string {
   return OPERATOR_METHOD_NAMES[operator] ?? `operator$${sanitizeManglePart(operator)}`;
 }
@@ -511,91 +480,6 @@ function isOperatorImportName(name: string): boolean {
   return /^operator[^A-Za-z0-9_]/.test(name);
 }
 
-function collectClassNames(program: Program): Set<string> {
-  const result = new Set<string>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind === "ClassStatement") {
-      result.add((candidate as ClassStatement).name.name);
-    }
-  }
-  return result;
-}
-
-function collectInterfaceNames(program: Program): Set<string> {
-  const result = new Set<string>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind === "InterfaceStatement") {
-      result.add((candidate as InterfaceStatement).name.name);
-    }
-  }
-  return result;
-}
-
-function collectInterfaceMembers(program: Program): Map<string, InterfaceStatement["members"]> {
-  const result = new Map<string, InterfaceStatement["members"]>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind === "InterfaceStatement") {
-      const interfaceStatement = candidate as InterfaceStatement;
-      result.set(interfaceStatement.name.name, interfaceStatement.members);
-    }
-  }
-  return result;
-}
-
-function collectInterfaceMethodNames(program: Program): Map<string, Set<string>> {
-  const result = new Map<string, Set<string>>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind !== "InterfaceStatement") {
-      continue;
-    }
-    const interfaceStatement = candidate as InterfaceStatement;
-    const names = result.get(interfaceStatement.name.name) ?? new Set<string>();
-    for (const member of interfaceStatement.members) {
-      if (member.kind === "InterfaceMethodMember") {
-        names.add(member.name.name);
-      }
-    }
-    result.set(interfaceStatement.name.name, names);
-  }
-  return result;
-}
-
-function collectConstructableOnlyNames(program: Program): Set<string> {
-  const interfaceMethodNames = collectInterfaceMethodNames(program);
-  const result = new Set<string>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind !== "VarStatement") {
-      continue;
-    }
-    const variable = candidate as VarStatement;
-    if (variable.name.kind !== "Identifier") {
-      continue;
-    }
-    const typeName = variable.typeAnnotation?.name;
-    if (!typeName) {
-      continue;
-    }
-    const methodNames = interfaceMethodNames.get(typeName);
-    if (
-      methodNames?.has("constructor") &&
-      !methodNames.has("call") &&
-      // Boolean's declaration uses a generic call signature (`<T>(...)`) that
-      // is intentionally callable without `new` in JavaScript. Do not treat it
-      // as constructor-only just because that generic call signature is not
-      // represented as a regular `call` interface member.
-      variable.name.name !== "Boolean"
-    ) {
-      result.add(variable.name.name);
-    }
-  }
-  return result;
-}
-
 function parameterBindingName(name: BindingName | undefined): string | null {
   return name?.kind === "Identifier" ? (name as Identifier).name : null;
 }
@@ -607,226 +491,16 @@ function functionParameterNames(parameters: FunctionParameter[]): string[] {
     .filter((name): name is string => name !== null);
 }
 
-function collectParameterNames(program: Program): Map<string, string[]> {
-  const result = new Map<string, string[]>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind === "FunctionStatement") {
-      const fn = candidate as FunctionStatement;
-      // Skip extension functions: their receiver shifts the positional layout.
-      if (fn.receiverType || result.has(fn.name.name)) {
-        continue;
-      }
-      result.set(fn.name.name, functionParameterNames(fn.parameters));
-    } else if (candidate?.kind === "ClassStatement") {
-      const classStatement = candidate as ClassStatement;
-      if (result.has(classStatement.name.name)) {
-        continue;
-      }
-      const primaryNames = (classStatement.primaryConstructorParameters ?? [])
-        .map((parameter) => parameterBindingName(parameter.name))
-        .filter((name): name is string => name !== null);
-      if (primaryNames.length > 0) {
-        result.set(classStatement.name.name, primaryNames);
-        continue;
-      }
-      const constructor = classStatement.members.find(
-        (member): member is ClassMethodMember =>
-          member.kind === "ClassMethodMember" && member.name.name === "constructor"
-      );
-      if (constructor) {
-        result.set(classStatement.name.name, functionParameterNames(constructor.parameters));
-      }
-    }
-  }
-  return result;
-}
-
-function collectJavaScriptImplementations(program: Program): Map<string, JavaScriptImplementationInfo> {
-  const result = new Map<string, JavaScriptImplementationInfo>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind !== "FunctionStatement") {
-      continue;
-    }
-    const fn = candidate as FunctionStatement;
-    if (fn.jsInline !== undefined) {
-      result.set(fn.name.name, { template: fn.jsInline, parameters: fn.parameters });
-    }
-  }
-  return result;
-}
-
-function collectJsNames(program: Program): Map<string, string> {
-  const result = new Map<string, string>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (!candidate) {
-      continue;
-    }
-    // The annotation may sit on the declaration itself or on its `export` wrapper.
-    const jsName = candidate.jsName ?? statement.jsName;
-    if (jsName === undefined) {
-      continue;
-    }
-    if (
-      candidate.kind === "FunctionStatement" ||
-      candidate.kind === "ClassStatement" ||
-      candidate.kind === "EnumStatement" ||
-      candidate.kind === "InterfaceStatement"
-    ) {
-      const named = candidate as unknown as { name: Identifier };
-      result.set(named.name.name, jsName);
-    } else if (candidate.kind === "VarStatement") {
-      const variable = candidate as VarStatement;
-      if (variable.name.kind === "Identifier") {
-        result.set((variable.name as Identifier).name, jsName);
-      }
-    }
-  }
-  return result;
-}
-
 function resolveJsName(name: string): string {
   return activeJsNames.get(name) ?? name;
-}
-
-function collectOperators(program: Program): Map<string, RuntimeOperatorInfo[]> {
-  const result = new Map<string, RuntimeOperatorInfo[]>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind === "ClassStatement") {
-      const classStatement = candidate as ClassStatement;
-      for (const member of classStatement.members) {
-        if (member.kind !== "ClassMethodMember" || !(member as ClassMethodMember).operator) {
-          continue;
-        }
-        const method = member as ClassMethodMember;
-        const info: RuntimeOperatorInfo = {
-          operator: method.operator!,
-          emittedName: operatorMethodName(method.operator!, method.parameters),
-          parameterTypes: method.parameters.map(parameterTypeName),
-          hasBody: method.missingBody !== true,
-          extension: false
-        };
-        result.set(classStatement.name.name, [...(result.get(classStatement.name.name) ?? []), info]);
-      }
-    } else if (candidate?.kind === "FunctionStatement") {
-      const fn = candidate as FunctionStatement;
-      if (!fn.receiverType || !fn.operator) {
-        continue;
-      }
-      const info: RuntimeOperatorInfo = {
-        operator: fn.operator,
-        emittedName: extensionMethodRuntimeName(fn.receiverType.name, operatorBaseName(fn.operator), fn.parameters),
-        parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
-        hasBody: fn.missingBody !== true,
-        extension: true
-      };
-      result.set(fn.receiverType.name, [...(result.get(fn.receiverType.name) ?? []), info]);
-    }
-  }
-  return result;
-}
-
-function collectExtensionMethods(program: Program): Map<string, RuntimeExtensionMethodInfo[]> {
-  const result = new Map<string, RuntimeExtensionMethodInfo[]>();
-  for (const statement of program.body) {
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind !== "FunctionStatement") {
-      continue;
-    }
-    const fn = candidate as FunctionStatement;
-    if (!fn.receiverType || fn.operator) {
-      continue;
-    }
-    const info: RuntimeExtensionMethodInfo = {
-      name: fn.name.name,
-      emittedName: extensionMethodRuntimeName(fn.receiverType.name, fn.name.name, fn.parameters),
-      parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
-      hasBody: fn.missingBody !== true
-    };
-    result.set(fn.receiverType.name, [...(result.get(fn.receiverType.name) ?? []), info]);
-  }
-  return result;
 }
 
 function extensionPropertyRuntimeName(receiverType: string, propertyName: string): string {
   return `${sanitizeManglePart(receiverType)}$$${sanitizeManglePart(propertyName)}`;
 }
 
-function collectImportedExtensionRuntimeNames(): RuntimeImportedExtensionInfo[] {
-  const result: RuntimeImportedExtensionInfo[] = [];
-  for (const operators of activeOperators.values()) {
-    for (const operator of operators) {
-      if (operator.extension) {
-        result.push({ importedName: `operator${operator.operator}`, runtimeName: operator.emittedName });
-      }
-    }
-  }
-  for (const methods of activeExtensionMethods.values()) {
-    for (const method of methods) {
-      result.push({ importedName: method.name, runtimeName: method.emittedName });
-    }
-  }
-  return result;
-}
-
 function importedExtensionRuntimeNames(importedName: string): string[] {
-  const seen = new Set<string>();
-  const names: string[] = [];
-  for (const extension of collectImportedExtensionRuntimeNames()) {
-    if (extension.importedName !== importedName || seen.has(extension.runtimeName)) {
-      continue;
-    }
-    seen.add(extension.runtimeName);
-    names.push(extension.runtimeName);
-  }
-  return names;
-}
-
-function collectExtensionProperties(
-  program: Program,
-  expressionTypes: ReadonlyMap<Node, AnalysisType> | undefined = activeExpressionTypes
-): Map<string, string> {
-  const result = new Map<string, string>();
-  const importedNames = new Set<string>();
-  for (const statement of program.body) {
-    if (statement.kind === "ImportStatement") {
-      for (const specifier of (statement as ImportStatement).specifiers) importedNames.add((specifier.local ?? specifier.imported).name);
-    }
-    const candidate = unwrapExportedDeclaration(statement);
-    if (candidate?.kind === "VarStatement" && (candidate as VarStatement).receiverType) {
-      const property = candidate as VarStatement;
-      result.set((property.name as Identifier).name, property.receiverType!.name);
-    }
-  }
-
-  walkAst(program, (node) => {
-    if (node.kind !== "MemberExpression") {
-      return;
-    }
-
-    const member = node as MemberExpression;
-    if (member.computed || member.property.kind !== "Identifier") {
-      return;
-    }
-
-    const name = (member.property as Identifier).name;
-    if (result.has(name) || !importedNames.has(name)) {
-      return;
-    }
-
-    const objectType = expressionTypes?.get(member.object);
-    if (objectType?.kind === "builtin") {
-      result.set(name, objectType.name === "int" ? "number" : objectType.name);
-    } else if (objectType?.kind === "named") {
-      result.set(name, objectType.name);
-    } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
-      result.set(name, "Array");
-    }
-  });
-  return result;
+  return activeImportedExtensionRuntimeNames.get(importedName) ?? [];
 }
 
 function emitIdentifier(identifier: Identifier): string {
@@ -2025,6 +1699,7 @@ interface EmitProgramRuntimeContext {
   overloads: Map<string, RuntimeOverloadInfo[]>;
   operators: Map<string, RuntimeOperatorInfo[]>;
   extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
+  importedExtensionRuntimeNames: Map<string, string[]>;
   extensionProperties: Map<string, string>;
   classNames: Set<string>;
   interfaceNames: Set<string>;
@@ -2033,8 +1708,241 @@ interface EmitProgramRuntimeContext {
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
+  variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
   jsxFactory: string;
   jsxFragmentFactory: string;
+}
+
+function appendMapArrayValue<T>(map: Map<string, T[]>, key: string, value: T): void {
+  const existing = map.get(key);
+  if (existing) {
+    existing.push(value);
+    return;
+  }
+  map.set(key, [value]);
+}
+
+function appendUniqueMapArrayValue(map: Map<string, string[]>, key: string, value: string): void {
+  const existing = map.get(key);
+  if (existing) {
+    if (!existing.includes(value)) {
+      existing.push(value);
+    }
+    return;
+  }
+  map.set(key, [value]);
+}
+
+function collectEmitProgramRuntimeContext(
+  contextProgram: Program,
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>,
+  options: EmitOptions = {}
+): EmitProgramRuntimeContext {
+  const overloadBuckets = new Map<string, FunctionStatement[]>();
+  const operators = new Map<string, RuntimeOperatorInfo[]>();
+  const extensionMethods = new Map<string, RuntimeExtensionMethodInfo[]>();
+  const importedExtensionRuntimeNames = new Map<string, string[]>();
+  const extensionProperties = new Map<string, string>();
+  const classNames = new Set<string>();
+  const interfaceNames = new Set<string>();
+  const interfaceMembers = new Map<string, InterfaceStatement["members"]>();
+  const interfaceMethodNames = new Map<string, Set<string>>();
+  const constructableOnlyNames = new Set<string>();
+  const constructableCandidates: Array<{ variableName: string; typeName: string }> = [];
+  const parameterNames = new Map<string, string[]>();
+  const javaScriptImplementations = new Map<string, JavaScriptImplementationInfo>();
+  const jsNames = new Map<string, string>();
+  const importedNames = new Set<string>();
+
+  for (const statement of contextProgram.body) {
+    if (statement.kind === "ImportStatement") {
+      for (const specifier of (statement as ImportStatement).specifiers) {
+        importedNames.add((specifier.local ?? specifier.imported).name);
+      }
+    }
+
+    const candidate = unwrapExportedDeclaration(statement);
+    if (!candidate) {
+      continue;
+    }
+
+    const jsName = candidate.jsName ?? statement.jsName;
+    if (jsName !== undefined) {
+      if (
+        candidate.kind === "FunctionStatement" ||
+        candidate.kind === "ClassStatement" ||
+        candidate.kind === "EnumStatement" ||
+        candidate.kind === "InterfaceStatement"
+      ) {
+        const named = candidate as unknown as { name: Identifier };
+        jsNames.set(named.name.name, jsName);
+      } else if (candidate.kind === "VarStatement") {
+        const variable = candidate as VarStatement;
+        if (variable.name.kind === "Identifier") {
+          jsNames.set((variable.name as Identifier).name, jsName);
+        }
+      }
+    }
+
+    if (candidate.kind === "FunctionStatement") {
+      const fn = candidate as FunctionStatement;
+      if (fn.jsInline !== undefined) {
+        javaScriptImplementations.set(fn.name.name, { template: fn.jsInline, parameters: fn.parameters });
+      }
+      if (!fn.receiverType) {
+        if (!fn.declared) {
+          appendMapArrayValue(overloadBuckets, fn.name.name, fn);
+        }
+        if (!parameterNames.has(fn.name.name)) {
+          parameterNames.set(fn.name.name, functionParameterNames(fn.parameters));
+        }
+        continue;
+      }
+      if (fn.operator) {
+        const emittedName = extensionMethodRuntimeName(fn.receiverType.name, operatorBaseName(fn.operator), fn.parameters);
+        const info: RuntimeOperatorInfo = {
+          operator: fn.operator,
+          emittedName,
+          parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+          hasBody: fn.missingBody !== true,
+          extension: true
+        };
+        appendMapArrayValue(operators, fn.receiverType.name, info);
+        appendUniqueMapArrayValue(importedExtensionRuntimeNames, `operator${fn.operator}`, emittedName);
+      } else {
+        const emittedName = extensionMethodRuntimeName(fn.receiverType.name, fn.name.name, fn.parameters);
+        const info: RuntimeExtensionMethodInfo = {
+          name: fn.name.name,
+          emittedName,
+          parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+          hasBody: fn.missingBody !== true
+        };
+        appendMapArrayValue(extensionMethods, fn.receiverType.name, info);
+        appendUniqueMapArrayValue(importedExtensionRuntimeNames, fn.name.name, emittedName);
+      }
+      continue;
+    }
+
+    if (candidate.kind === "ClassStatement") {
+      const classStatement = candidate as ClassStatement;
+      classNames.add(classStatement.name.name);
+      if (!parameterNames.has(classStatement.name.name)) {
+        const primaryNames = (classStatement.primaryConstructorParameters ?? [])
+          .map((parameter) => parameterBindingName(parameter.name))
+          .filter((name): name is string => name !== null);
+        if (primaryNames.length > 0) {
+          parameterNames.set(classStatement.name.name, primaryNames);
+        } else {
+          const constructor = classStatement.members.find(
+            (member): member is ClassMethodMember =>
+              member.kind === "ClassMethodMember" && member.name.name === "constructor"
+          );
+          if (constructor) {
+            parameterNames.set(classStatement.name.name, functionParameterNames(constructor.parameters));
+          }
+        }
+      }
+      for (const member of classStatement.members) {
+        if (member.kind !== "ClassMethodMember" || !member.operator) {
+          continue;
+        }
+        appendMapArrayValue(operators, classStatement.name.name, {
+          operator: member.operator,
+          emittedName: operatorMethodName(member.operator, member.parameters),
+          parameterTypes: member.parameters.map(parameterTypeName),
+          hasBody: member.missingBody !== true,
+          extension: false
+        });
+      }
+      continue;
+    }
+
+    if (candidate.kind === "InterfaceStatement") {
+      const interfaceStatement = candidate as InterfaceStatement;
+      interfaceNames.add(interfaceStatement.name.name);
+      interfaceMembers.set(interfaceStatement.name.name, interfaceStatement.members);
+      const names = interfaceMethodNames.get(interfaceStatement.name.name) ?? new Set<string>();
+      for (const member of interfaceStatement.members) {
+        if (member.kind === "InterfaceMethodMember") {
+          names.add(member.name.name);
+        }
+      }
+      interfaceMethodNames.set(interfaceStatement.name.name, names);
+      continue;
+    }
+
+    if (candidate.kind === "VarStatement") {
+      const variable = candidate as VarStatement;
+      if (variable.receiverType && variable.name.kind === "Identifier") {
+        extensionProperties.set((variable.name as Identifier).name, variable.receiverType.name);
+      }
+      if (variable.name.kind === "Identifier") {
+        const typeName = variable.typeAnnotation?.name;
+        if (typeName) {
+          constructableCandidates.push({ variableName: variable.name.name, typeName });
+        }
+      }
+    }
+  }
+
+  for (const candidate of constructableCandidates) {
+    const methodNames = interfaceMethodNames.get(candidate.typeName);
+    if (methodNames?.has("constructor") && !methodNames.has("call") && candidate.variableName !== "Boolean") {
+      constructableOnlyNames.add(candidate.variableName);
+    }
+  }
+
+  const overloads = new Map<string, RuntimeOverloadInfo[]>();
+  for (const [name, functions] of overloadBuckets) {
+    if (functions.length <= 1) {
+      continue;
+    }
+    overloads.set(name, functions.map((fn) => ({
+      emittedName: overloadedFunctionName(name, fn.parameters),
+      parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+      hasBody: fn.missingBody !== true
+    })));
+  }
+
+  walkAst(contextProgram, (node) => {
+    if (node.kind === "MemberExpression") {
+      const member = node as MemberExpression;
+      if (!member.computed && member.property.kind === "Identifier") {
+        const name = (member.property as Identifier).name;
+        if (!extensionProperties.has(name) && importedNames.has(name)) {
+          const objectType = expressionTypes?.get(member.object);
+          if (objectType?.kind === "builtin") {
+            extensionProperties.set(name, objectType.name === "int" ? "number" : objectType.name);
+          } else if (objectType?.kind === "named") {
+            extensionProperties.set(name, objectType.name);
+          } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
+            extensionProperties.set(name, "Array");
+          }
+        }
+      }
+      return;
+    }
+  });
+
+  const variableDelegates = collectVariableDelegates(contextProgram, expressionTypes);
+
+  return {
+    overloads,
+    operators,
+    extensionMethods,
+    importedExtensionRuntimeNames,
+    extensionProperties,
+    classNames,
+    interfaceNames,
+    interfaceMembers,
+    constructableOnlyNames,
+    parameterNames,
+    javaScriptImplementations,
+    jsNames,
+    variableDelegates,
+    jsxFactory: options.jsxFactory ?? DEFAULT_JSX_FACTORY,
+    jsxFragmentFactory: options.jsxFragmentFactory ?? DEFAULT_JSX_FRAGMENT_FACTORY
+  };
 }
 
 export interface EmittedProgramStatement {
@@ -2047,21 +1955,7 @@ export function createEmitProgramRuntimeContext(
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
   options: EmitOptions = {}
 ): EmitProgramRuntimeContext {
-  return {
-    overloads: collectRuntimeOverloads(contextProgram),
-    operators: collectOperators(contextProgram),
-    extensionMethods: collectExtensionMethods(contextProgram),
-    extensionProperties: collectExtensionProperties(contextProgram, expressionTypes),
-    classNames: collectClassNames(contextProgram),
-    interfaceNames: collectInterfaceNames(contextProgram),
-    interfaceMembers: collectInterfaceMembers(contextProgram),
-    constructableOnlyNames: collectConstructableOnlyNames(contextProgram),
-    parameterNames: collectParameterNames(contextProgram),
-    javaScriptImplementations: collectJavaScriptImplementations(contextProgram),
-    jsNames: collectJsNames(contextProgram),
-    jsxFactory: options.jsxFactory ?? DEFAULT_JSX_FACTORY,
-    jsxFragmentFactory: options.jsxFragmentFactory ?? DEFAULT_JSX_FRAGMENT_FACTORY
-  };
+  return collectEmitProgramRuntimeContext(contextProgram, expressionTypes, options);
 }
 
 export function emitProgramStatements(
@@ -2108,6 +2002,7 @@ export function emitProgramStatementPairs(
   const previousJavaScriptImplementations = activeJavaScriptImplementations;
   const previousJsNames = activeJsNames;
   const previousVariableDelegates = activeVariableDelegates;
+  const previousImportedExtensionRuntimeNames = activeImportedExtensionRuntimeNames;
   const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
   const previousStaticImplicitReceiverIdentifiers = activeStaticImplicitReceiverIdentifiers;
   const previousAutoAwaitExpressions = activeAutoAwaitExpressions;
@@ -2130,7 +2025,8 @@ export function emitProgramStatementPairs(
   activeParameterNames = runtimeContext.parameterNames;
   activeJavaScriptImplementations = runtimeContext.javaScriptImplementations;
   activeJsNames = runtimeContext.jsNames;
-  activeVariableDelegates = collectVariableDelegates(contextProgram, expressionTypes);
+  activeVariableDelegates = runtimeContext.variableDelegates;
+  activeImportedExtensionRuntimeNames = runtimeContext.importedExtensionRuntimeNames;
   try {
     return program.body.map((statement) => ({
       statement,
@@ -2150,6 +2046,7 @@ export function emitProgramStatementPairs(
     activeJavaScriptImplementations = previousJavaScriptImplementations;
     activeJsNames = previousJsNames;
     activeVariableDelegates = previousVariableDelegates;
+    activeImportedExtensionRuntimeNames = previousImportedExtensionRuntimeNames;
     activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
     activeStaticImplicitReceiverIdentifiers = previousStaticImplicitReceiverIdentifiers;
     activeAutoAwaitExpressions = previousAutoAwaitExpressions;

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileExists, isDirectory } from "./utils/fs";
 
@@ -27,6 +27,13 @@ interface TsConfigJson {
   };
 }
 
+interface CachedJsonFile<T> {
+  mtimeMs: number;
+  value: T | null;
+}
+
+const jsonFileCache = new Map<string, CachedJsonFile<unknown>>();
+
 function stringRecord(section: Record<string, unknown> | undefined): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [name, version] of Object.entries(section ?? {})) {
@@ -38,12 +45,24 @@ function stringRecord(section: Record<string, unknown> | undefined): Record<stri
 }
 
 async function readJsonFile<T>(path: string): Promise<T | null> {
-  if (!(await fileExists(path))) {
+  let mtimeMs = -1;
+  try {
+    mtimeMs = (await stat(path)).mtimeMs;
+  } catch {
     return null;
   }
+
+  const cached = jsonFileCache.get(path);
+  if (cached?.mtimeMs === mtimeMs) {
+    return cached.value as T | null;
+  }
+
   try {
-    return JSON.parse(await readFile(path, "utf8")) as T;
+    const value = JSON.parse(await readFile(path, "utf8")) as T;
+    jsonFileCache.set(path, { mtimeMs, value });
+    return value;
   } catch {
+    jsonFileCache.set(path, { mtimeMs, value: null });
     return null;
   }
 }
