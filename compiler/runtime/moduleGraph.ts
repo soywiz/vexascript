@@ -1,6 +1,7 @@
 import { extname } from "node:path";
 import type { ParserOptions } from "compiler/parser/parser";
 import type {
+  FunctionStatement,
   Identifier,
   ImportStatement,
   Program,
@@ -11,7 +12,7 @@ import { parseSource } from "compiler/pipeline/parse";
 import { compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
-import { namedType } from "compiler/analysis/types";
+import { functionType, intersectionType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { localVfs, type Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
@@ -64,6 +65,32 @@ function declarationName(statement: Statement): string | null {
   const named = candidate as { name?: { kind?: string; name?: string } };
   if (named.name && named.name.kind === "Identifier") {
     return (named.name as Identifier).name;
+  }
+  return null;
+}
+
+function callableTypeFromDefaultExportedFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
+  for (const statement of declarations) {
+    if (statement.kind !== "ExportStatement" || (statement as { default?: boolean }).default !== true) {
+      continue;
+    }
+    const declaration = unwrapExportedDeclaration(statement);
+    if (declaration?.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = declaration as FunctionStatement;
+    if (fn.name.name !== name) {
+      continue;
+    }
+    return functionType(
+      fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+        type: UNKNOWN_TYPE,
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
+      })),
+      UNKNOWN_TYPE
+    );
   }
   return null;
 }
@@ -122,6 +149,26 @@ function detectDtsDefaultExportName(ast: Program): string | null {
   return null;
 }
 
+function hasFunctionNamespaceDualExport(ast: Program, exportedName: string): boolean {
+  let hasFunction = false;
+  let hasNamespace = false;
+  for (const stmt of ast.body) {
+    if (stmt.kind === "FunctionStatement") {
+      const name = (stmt as { name?: { name?: string } }).name?.name;
+      if (name === exportedName) {
+        hasFunction = true;
+      }
+    }
+    if (stmt.kind === "NamespaceStatement") {
+      const name = (stmt as { names?: { name: string }[] }).names?.[0]?.name;
+      if (name === exportedName) {
+        hasNamespace = true;
+      }
+    }
+  }
+  return hasFunction && hasNamespace;
+}
+
 /**
  * Loads the .d.ts typings for every bare-specifier import in `ast` and merges
  * their declarations into `externalDeclarations` and their default-export types
@@ -162,9 +209,15 @@ async function collectNodeModulesTypings(
     const defaultExportName = detectDtsDefaultExportName(parsed.ast) ?? specifier;
     const exportType = namedType(defaultExportName);
     if (importStatement.defaultImport) {
+      const declaredDefaultType = declarationAnalysis?.getTopLevelSymbolType(defaultExportName);
+      const defaultImportType = hasFunctionNamespaceDualExport(parsed.ast, defaultExportName)
+        ? declaredDefaultType ? intersectionType([declaredDefaultType, exportType]) : exportType
+        : declaredDefaultType?.kind === "function"
+        ? declaredDefaultType
+        : callableTypeFromDefaultExportedFunction(parsed.ast.body, defaultExportName) ?? exportType;
       importedSymbolTypes.set(
         importStatement.defaultImport.name,
-        declarationAnalysis?.getTopLevelSymbolType(defaultExportName) ?? exportType
+        defaultImportType
       );
     }
     if (importStatement.namespaceImport) {

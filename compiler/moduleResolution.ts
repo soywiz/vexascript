@@ -100,6 +100,25 @@ async function declarationPathInPackage(pkgDir: string, vfs: Vfs): Promise<strin
   return null;
 }
 
+async function declarationPathInPnpmVirtualStore(nodeModulesDir: string, packageName: string, vfs: Vfs): Promise<string | null> {
+  const storeDir = resolve(nodeModulesDir, ".pnpm");
+  const entries = await vfs.readDir(storeDir);
+  if (!entries) {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory) {
+      continue;
+    }
+    const packageDir = resolve(storeDir, entry.name, "node_modules", packageName);
+    const declarationPath = await declarationPathInPackage(packageDir, vfs);
+    if (declarationPath) {
+      return declarationPath;
+    }
+  }
+  return null;
+}
+
 function typesPackageNameFor(packageName: string): string {
   if (packageName.startsWith("@")) {
     const [scope, name] = packageName.slice(1).split("/");
@@ -129,16 +148,25 @@ export async function resolveNodeModulesTypingsPath(
   }
   let dir = dirname(importerFilePath);
   while (true) {
-    const pkgDir = resolve(dir, "node_modules", packageName);
+    const nodeModulesDir = resolve(dir, "node_modules");
+    const pkgDir = resolve(nodeModulesDir, packageName);
     const packageTypings = await declarationPathInPackage(pkgDir, vfs);
     if (packageTypings) {
       return packageTypings;
     }
 
-    const typesPkgDir = resolve(dir, "node_modules", typesPackageNameFor(packageName));
+    const typesPkgDir = resolve(nodeModulesDir, typesPackageNameFor(packageName));
     const definitelyTypedTypings = await declarationPathInPackage(typesPkgDir, vfs);
     if (definitelyTypedTypings) {
       return definitelyTypedTypings;
+    }
+    const pnpmPackageTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, packageName, vfs);
+    if (pnpmPackageTypings) {
+      return pnpmPackageTypings;
+    }
+    const pnpmTypesTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, typesPackageNameFor(packageName), vfs);
+    if (pnpmTypesTypings) {
+      return pnpmTypesTypings;
     }
     const parent = dirname(dir);
     if (parent === dir) break;

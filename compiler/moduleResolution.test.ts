@@ -143,4 +143,18 @@ describe("resolveNodeModulesTypingsPath", () => {
 
     expect(await resolveNodeModulesTypingsPath(join(root, "main.my"), "@scope/pkg")).toBe(dtsPath);
   });
+
+  it("finds DefinitelyTyped declarations inside pnpm's virtual store layout", async () => {
+    const runtimeDir = join(root, "node_modules", "minimist");
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(join(runtimeDir, "package.json"), JSON.stringify({ name: "minimist" }), "utf8");
+
+    const typesDir = join(root, "node_modules", ".pnpm", "@types+minimist@1.2.5", "node_modules", "@types", "minimist");
+    await mkdir(typesDir, { recursive: true });
+    const dtsPath = join(typesDir, "index.d.ts");
+    await writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/minimist" }), "utf8");
+    await writeFile(dtsPath, "declare function minimist(): void; export = minimist;", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(join(root, "main.my"), "minimist")).toBe(dtsPath);
+  });
 });

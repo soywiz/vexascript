@@ -178,4 +178,29 @@ describe("bundleModuleGraph", () => {
       }
     );
   });
+
+  it("keeps namespace-shaped node_modules default imports navigable for member calls", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "node_modules/moment/package.json": JSON.stringify({ types: "index.d.ts" }),
+        "node_modules/moment/index.d.ts": dedent`
+          declare function moment(value?: string): moment.Moment;
+          declare namespace moment {
+            interface Moment {
+              format(mask: string): string;
+            }
+            function parseZone(value: string): Moment;
+          }
+          export = moment;
+        `,
+        "main.my": 'import moment from "moment"\nconsole.log(moment.parseZone("2026-06-07T00:00:00+02:00").format("YYYY-MM-DD"))\n'
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
 });

@@ -1946,7 +1946,7 @@ export class TypeChecker {
             this.visitExpression(child, scope);
           }
         }
-        result = namedType("JSX.Element");
+        result = this.resolveJsxResultType(scope) ?? namedType("JSX.Element");
         break;
       }
       case "JsxFragment": {
@@ -1957,7 +1957,7 @@ export class TypeChecker {
             this.visitExpression(child, scope);
           }
         }
-        result = namedType("JSX.Element");
+        result = this.resolveJsxResultType(scope) ?? namedType("JSX.Element");
         break;
       }
       default:
@@ -1990,6 +1990,14 @@ export class TypeChecker {
 
   private isGoExpression(expression: Expr): boolean {
     return expression.kind === "UnaryExpression" && (expression as UnaryExpression).operator === "go";
+  }
+
+  private resolveJsxResultType(scope: Scope): AnalysisType | null {
+    const jsxFactory = this.resolve("h", scope, undefined);
+    if (!jsxFactory?.type || jsxFactory.type.kind !== "function") {
+      return null;
+    }
+    return jsxFactory.type.returnType;
   }
 
   // A bare reference to a local variable or parameter is never auto-awaited: once a Promise has
@@ -3111,6 +3119,15 @@ export class TypeChecker {
   private callableTypeFrom(type: AnalysisType, argumentTypes: AnalysisType[] = []): (AnalysisType & { kind: "function" }) | null {
     if (type.kind === "function") {
       return type;
+    }
+    if (type.kind === "intersection") {
+      for (const member of type.types) {
+        const callable = this.callableTypeFrom(member, argumentTypes);
+        if (callable) {
+          return callable;
+        }
+      }
+      return null;
     }
     if (type.kind === "named") {
       const interfaceCallable = this.interfaceCallableTypeForNamedType(type, argumentTypes);
@@ -5839,6 +5856,15 @@ export class TypeChecker {
       }
       return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
     }
+    if (resolvedObjectType.kind === "intersection") {
+      const memberTypes = resolvedObjectType.types
+        .map((type) => this.resolveKnownMemberType(member, type))
+        .filter((type): type is AnalysisType => type !== null);
+      if (memberTypes.length === 0) {
+        return null;
+      }
+      return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
+    }
     if (resolvedObjectType.kind === "object") {
       return resolvedObjectType.properties[memberName] ?? null;
     }
@@ -5891,6 +5917,19 @@ export class TypeChecker {
         const members = this.membersForType(memberType);
         if (!members) {
           return null;
+        }
+        for (const [memberName, memberValueType] of members.entries()) {
+          merged.set(memberName, memberValueType);
+        }
+      }
+      return merged.size > 0 ? merged : null;
+    }
+    if (type.kind === "intersection") {
+      const merged = new Map<string, AnalysisType>();
+      for (const memberType of type.types) {
+        const members = this.membersForType(memberType);
+        if (!members) {
+          continue;
         }
         for (const [memberName, memberValueType] of members.entries()) {
           merged.set(memberName, memberValueType);
@@ -5980,6 +6019,24 @@ export class TypeChecker {
       return namedType((candidate as EnumStatement).name.name);
     }
     return UNKNOWN_TYPE;
+  }
+
+  private inferLooseInitializerType(initializer: Expr | undefined): AnalysisType | null {
+    if (!initializer) {
+      return null;
+    }
+    if (initializer.kind === "NewExpression" || initializer.kind === "CallExpression") {
+      const callee = initializer.kind === "NewExpression"
+        ? (initializer as NewExpression).callee
+        : (initializer as CallExpression).callee;
+      if (callee.kind === "Identifier") {
+        const className = (callee as Identifier).name;
+        if (this.classStatementsByName.has(className)) {
+          return namedType(className);
+        }
+      }
+    }
+    return null;
   }
 
   private resolveNamedTypeMembers(type: AnalysisType & { kind: "named" }): Map<string, AnalysisType> | null {
@@ -6080,7 +6137,9 @@ export class TypeChecker {
           let fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation);
           if (!fieldType) {
             const classScope = this.bound.scopeByNode.get(classStatement);
-            fieldType = classScope?.symbols.get(classMember.name.name)?.type ?? UNKNOWN_TYPE;
+            fieldType = classScope?.symbols.get(classMember.name.name)?.type
+              ?? this.inferLooseInitializerType(classMember.initializer)
+              ?? UNKNOWN_TYPE;
           }
           members.set(
             classMember.name.name,

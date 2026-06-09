@@ -4,6 +4,7 @@ import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
+import { namedType } from "./types";
 import dedent from "compiler/utils/dedent";
 
 function namesOfVisibleSymbolsAt(source: string, line: number, character: number): string[] {
@@ -2964,6 +2965,49 @@ let after = bind`));
     expect(messages).toContain("Property 'firstChild2' does not exist on type 'NodeLike | null | undefined'");
     expect(messages).toContain("Property 'test' does not exist on type 'unknown'");
     expect(messages).toContain("Property 'lol' does not exist on type 'unknown'");
+  });
+
+  it("infers imported static field types from external class initializers", () => {
+    const source = dedent`
+      import { Point } from "./geometry.my"
+      Point.origin.x
+    `;
+    const externalSource = dedent`
+      export class Point(val x: int) {
+        static origin = Point(0)
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const externalDeclarations = parseFile(tokenizeReader(externalSource)).body;
+    const analysis = new Analysis(ast, {
+      externalDeclarations,
+      importedSymbolTypes: new Map([["Point", namedType("Point")]])
+    });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("uses the local jsx factory return type for jsx expression members", () => {
+    const source = dedent`
+      fun h(type: any, props: any, ...children: any[]) {
+        return { type, props, children }
+      }
+      const view = <section class="card"><span /></section>
+      const fragment = <><span /></>
+      const className = view.props.class
+      const childType = view.children[0].type
+      const fragmentType = fragment.type
+    `;
+
+    const ast = parseFile(tokenizeReader(source, { jsx: true }));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(7, 5).map((symbol) => [symbol.name, symbol]));
+
+    expect(messages).toEqual([]);
+    expect(symbols.get("view")?.valueType).toBe("{ type: any, props: any, children: any[] }");
+    expect(symbols.get("fragment")?.valueType).toBe("{ type: any, props: any, children: any[] }");
   });
 
   it("supports variadic runtime Console methods", () => {
