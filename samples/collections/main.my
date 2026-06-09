@@ -7,3 +7,11 @@ console.log([1,2,3,4,5].some { it > 4 })
 console.log([1,2,3,4,5].every { it < 10 })
 console.log([1,2,3,4,5].find { it % 2 == 0 })
 console.log([1,2,3].map { value: number -> [value, value * 10] })
+console.log([1,2,3].map {
+  const doubled = it * 2
+  `${it}->${doubled}`
+}.join(","))
+console.log([1,2,3].map { value: number ->
+  const squared = value * value
+  squared + 1
+})

@@ -998,9 +998,21 @@ describe("parseExpression", () => {
         ]);
         expect(lambda.body.kind).toBe("BlockStatement");
         expect(lambda.body.body.length).toBe(2);
-        expect(lambda.body.body.every((statement: any) => statement.kind === "ExprStatement")).toBe(
-            true
-        );
+        expect(lambda.body.body[0].kind).toBe("ExprStatement");
+        expect(lambda.body.body[1].kind).toBe("ReturnStatement");
+        expect(lambda.body.body[1].expression.kind).toBe("CallExpression");
+
+        const implicitItBlock = parseExpression(
+            tokenizeReader("[1,2,3].map {\n  const doubled = it * 2\n  doubled + 1\n}")
+        ) as any;
+        const implicitItLambda = implicitItBlock.arguments[0];
+        expect(implicitItLambda.parameters.map((parameter: any) => parameter.name.name)).toEqual(["it"]);
+        expect(implicitItLambda.body.kind).toBe("BlockStatement");
+        expect(implicitItLambda.body.body.map((statement: any) => statement.kind)).toEqual([
+            "VarStatement",
+            "ReturnStatement"
+        ]);
+        expect(implicitItLambda.body.body[1].expression.kind).toBe("BinaryExpression");
     });
 
     it("builds an AST for new expression variants", () => {

@@ -151,6 +151,18 @@ let worker = async function* work(this: Loader) { yield await next() }
     expect(emitted).toContain("let worker = async function* work() {");
   });
 
+  it("emits implicit returns for multi-statement brace lambdas", () => {
+    const program = parseFile(tokenizeReader(`let values = [1,2,3].map {
+  const doubled = it * 2
+  doubled + 1
+}`));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("let values = [1, 2, 3].map((it) => {");
+    expect(emitted).toContain("const doubled = it * 2;");
+    expect(emitted).toContain("return doubled + 1;");
+  });
+
   it("emits sync functions and methods as async and strips the go operator", () => {
     const program = parseFile(tokenizeReader(`sync function load(id: string): int { return 1 }
 sync fun fetchValue(): int { return 2 }
