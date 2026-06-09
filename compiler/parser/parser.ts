@@ -685,6 +685,28 @@ export class Parser {
         );
     }
 
+    private tryParsePrivateIdentifierToken(): Token | null {
+        const hash = this.tokens.peek();
+        const name = this.peekToken(1);
+        if (
+            hash?.type === "symbol" &&
+            hash.value === "#" &&
+            name?.type === "identifier"
+        ) {
+            this.tokens.skip();
+            this.tokens.skip();
+            return {
+                ...name,
+                value: `#${name.value}`,
+                range: {
+                    start: hash.range.start,
+                    end: name.range.end
+                }
+            };
+        }
+        return null;
+    }
+
     private parseTypeParameterList(): TypeParameter[] {
         const open = this.tokens.peek();
         if (!(open?.type === "symbol" && open.value === "<")) {
@@ -2460,7 +2482,7 @@ export class Parser {
 
             if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
                 this.tokens.skip();
-                const property = this.tokens.read();
+                const property = this.tryParsePrivateIdentifierToken() ?? this.tokens.read();
                 if (property?.type !== "identifier") {
                     if (this.canRecoverMissingMemberIdentifier(token, property)) {
                         const errorToken = this.tokenAt(property?.type === "eof" ? token : property ?? token);
@@ -4583,24 +4605,38 @@ export class Parser {
         }
 
         const memberNameToken = this.tokens.read();
-        if (memberNameToken?.type !== "identifier") {
+        const privateMemberNameToken = memberNameToken?.type === "symbol" && memberNameToken.value === "#"
+            ? this.tokens.read()
+            : null;
+        const effectiveMemberNameToken =
+            memberNameToken?.type === "symbol" && memberNameToken.value === "#" && privateMemberNameToken?.type === "identifier"
+                ? {
+                    ...privateMemberNameToken,
+                    value: `#${privateMemberNameToken.value}`,
+                    range: {
+                        start: memberNameToken.range.start,
+                        end: privateMemberNameToken.range.end
+                    }
+                }
+                : memberNameToken;
+        if (effectiveMemberNameToken?.type !== "identifier") {
             this.fail("Expected class member name", this.tokenAt(memberNameToken));
         }
 
         let overloadedOperator: OverloadableOperator | undefined;
-        let effectiveMemberNameToken = memberNameToken;
-        if (memberNameToken.value === "operator") {
+        let resolvedMemberNameToken = effectiveMemberNameToken;
+        if (effectiveMemberNameToken.value === "operator") {
             const operatorToken = this.tokens.peek();
             overloadedOperator = this.operatorOverloadFromToken(operatorToken);
             if (!overloadedOperator) {
                 this.fail("Expected overloadable operator after 'operator'", this.tokenAt(operatorToken));
             }
             this.tokens.skip();
-            effectiveMemberNameToken = {
-                ...memberNameToken,
+            resolvedMemberNameToken = {
+                ...effectiveMemberNameToken,
                 value: `operator${overloadedOperator}`,
                 range: {
-                    start: memberNameToken.range.start,
+                    start: effectiveMemberNameToken.range.start,
                     end: operatorToken!.range.end
                 }
             };
@@ -4612,7 +4648,7 @@ export class Parser {
                 this.fail("Expected '(' after method type parameters", this.tokenAt(this.tokens.peek()));
             }
             this.tokens.skip();
-            const parameters = this.parseFunctionParameters(effectiveMemberNameToken.value === "constructor");
+            const parameters = this.parseFunctionParameters(resolvedMemberNameToken.value === "constructor");
 
             const closeParen = this.tokens.read();
             if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
@@ -4637,7 +4673,7 @@ export class Parser {
 
                 const signatureOnlyMethod: ClassMethodMember = {
                     kind: "ClassMethodMember",
-                    name: this.buildIdentifierFromToken(effectiveMemberNameToken),
+                    name: this.buildIdentifierFromToken(resolvedMemberNameToken),
                     parameters,
                     body: signatureOnlyBody
                 };
@@ -4680,7 +4716,7 @@ export class Parser {
 
             const methodMember: ClassMethodMember = {
                 kind: "ClassMethodMember",
-                name: this.buildIdentifierFromToken(effectiveMemberNameToken),
+                name: this.buildIdentifierFromToken(resolvedMemberNameToken),
                 parameters,
                 body: this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
                     ? this.parseExpressionBodyAsBlock()
@@ -4743,7 +4779,7 @@ export class Parser {
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>") {
             const getterMember: ClassMethodMember = {
                 kind: "ClassMethodMember",
-                name: this.buildIdentifierFromToken(effectiveMemberNameToken),
+                name: this.buildIdentifierFromToken(resolvedMemberNameToken),
                 parameters: [],
                 body: this.parseExpressionBodyAsBlock(),
                 accessorKind: "get"
@@ -4776,7 +4812,7 @@ export class Parser {
 
         const fieldMember: ClassFieldMember = {
             kind: "ClassFieldMember",
-            name: this.buildIdentifierFromToken(effectiveMemberNameToken)
+            name: this.buildIdentifierFromToken(resolvedMemberNameToken)
         };
         this.applyClassMemberModifiers(fieldMember, {
             override: isOverrideMember,

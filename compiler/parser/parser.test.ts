@@ -574,6 +574,15 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses private member access", () => {
+        expect(parseExpression(tokenizeReader("this.#value"), { language: "typescript" })).toEqual({
+            kind: "MemberExpression",
+            object: { kind: "Identifier", name: "this" },
+            property: { kind: "Identifier", name: "#value" },
+            computed: false
+        });
+    });
+
     it("builds an AST for safe and non-null member access", () => {
         expect(parseExpression(tokenizeReader("a?.b!.c"))).toEqual({
             kind: "MemberExpression",
@@ -2425,6 +2434,45 @@ describe("parseStatement", () => {
                     name: { kind: "Identifier", name: "id" },
                     definiteAssignment: true,
                     typeAnnotation: { kind: "Identifier", name: "string" }
+                }
+            ]
+        });
+    });
+
+    it("parses private class fields and methods that reference them", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Counter { #value = 1\nread(): int { return this.#value } }"),
+                { language: "typescript" }
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Counter" },
+            members: [
+                {
+                    kind: "ClassFieldMember",
+                    name: { kind: "Identifier", name: "#value" },
+                    initializer: { kind: "IntLiteral", value: 1 }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "read" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "int" },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ReturnStatement",
+                                expression: {
+                                    kind: "MemberExpression",
+                                    object: { kind: "Identifier", name: "this" },
+                                    property: { kind: "Identifier", name: "#value" },
+                                    computed: false
+                                }
+                            }
+                        ]
+                    }
                 }
             ]
         });

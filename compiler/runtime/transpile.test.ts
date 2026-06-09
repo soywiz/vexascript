@@ -198,6 +198,35 @@ describe("transpile", () => {
     expect(result.code).toContain("const flag = Boolean(0);");
   });
 
+  it("emits TypeScript private fields and accesses", () => {
+    const source = [
+      "class Counter {",
+      "  #value = 1",
+      "  read(): int { return this.#value }",
+      "}",
+      "const counter = Counter()",
+      "counter.read()"
+    ].join("\n");
+
+    const result = transpile(source, { target: "conservative", parserOptions: { language: "typescript" } });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("#value = 1;");
+    expect(result.code).toContain("return this.#value;");
+  });
+
+  it("accepts globalThis assertions with intersection object types", () => {
+    const source = "const host = globalThis as typeof globalThis & { document?: { createElement(tagName: string): string } }";
+
+    const result = transpile(source, {
+      target: "conservative",
+      parserOptions: { language: "typescript" }
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const host = globalThis;");
+  });
+
   it("maps emitted lines to original source lines when declarations are omitted", () => {
     const source = [
       "declare class Console {",

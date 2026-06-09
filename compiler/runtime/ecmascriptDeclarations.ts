@@ -6,6 +6,7 @@ import { walkAst } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
 import { fileExists } from "compiler/utils/fs";
 export const TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME = "es2025.d.ts";
+const EXTRA_RUNTIME_DECLARATIONS = "declare var globalThis: typeof globalThis;\n";
 
 interface CachedRuntimeProgram {
   filePath: string;
@@ -56,7 +57,7 @@ function parseRuntimeProgram(source: string): Program {
 }
 
 async function loadRuntimeProgram(): Promise<CachedRuntimeProgram> {
-  const source = await readFile(runtimeDeclarationFilePath, "utf8");
+  const source = `${await readFile(runtimeDeclarationFilePath, "utf8")}\n${EXTRA_RUNTIME_DECLARATIONS}`;
   const { mtimeMs } = await stat(runtimeDeclarationFilePath);
   const program = parseRuntimeProgram(source);
 
