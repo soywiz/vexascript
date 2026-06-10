@@ -11,6 +11,7 @@ MyLang is a language derived from TypeScript with some features and ideas from S
 ## Important
 
 - Do not use synchronous I/O API calls. Only use asynchronous I/O APIs. The compiler is intended to run both in node and the browser.
+- Except for the CLI and explicitly Node-only adapters, compiler modules must not depend on Node.js APIs. Shared compiler/runtime code should stay browser-compatible.
 
 ## Commands
 

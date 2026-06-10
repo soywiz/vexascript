@@ -1,0 +1,37 @@
+---
+layout: layout.njk
+title: MyLang Embed Guide
+---
+<section class="page-hero">
+  <p class="eyebrow">Embedding API</p>
+  <h1>Embed MyLang editors in your own pages.</h1>
+  <p class="lead">Use the generated website bundle to drop a single-file lesson editor or a richer multi-file workspace into tutorials, docs, and demos.</p>
+</section>
+
+<section class="doc-shell">
+  <div class="section-heading">
+    <h2>Drop editors into any lesson page.</h2>
+  </div>
+  <div class="embed-docs">
+    <article class="card">
+      <h3>Simple editor</h3>
+<pre><code>&lt;div id="lesson-editor"&gt;&lt;/div&gt;
+&lt;script src="/assets/generated/mylang-embed.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  MyLangEmbeds.createSimpleEditor("#lesson-editor", {
+    content: "fun add(a: int, b: int): int { return a + b }"
+  })
+&lt;/script&gt;</code></pre>
+    </article>
+    <article class="card">
+      <h3>Workspace editor</h3>
+<pre><code>MyLangEmbeds.createWorkspaceEditor("#workspace", {
+  activePath: "/main.my",
+  files: [
+    { path: "/main.my", content: "import { greet } from './greeter.my'\nconsole.log(greet('MyLang'))" },
+    { path: "/greeter.my", content: "export fun greet(name: string): string { return $\"Hello {name}\" }" }
+  ]
+})</code></pre>
+    </article>
+  </div>
+</section>

@@ -1,40 +1,53 @@
-import { readFile, stat } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Node, Program } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import { parseSource } from "compiler/pipeline/parse";
 import { fileExists } from "compiler/utils/fs";
-import { loadCachedProgram, storeCachedProgram } from "./programCache";
+import { cacheProgram } from "./programCache";
 
 export const TYPESCRIPT_DOM_DECLARATION_FILE_NAME = "dom.d.ts";
 const DOM_CACHE_SALT = "dom-runtime-v1";
 
 interface CachedDomProgram {
   filePath: string;
-  mtimeMs: number;
   program: Program;
   nodes: WeakSet<object>;
 }
 
 let cachedDomProgram: CachedDomProgram | null = null;
-const domDeclarationFilePath = await resolveDomDeclarationFilePath();
+const domDeclarationUrl = new URL(`./${TYPESCRIPT_DOM_DECLARATION_FILE_NAME}`, import.meta.url);
 
-function currentDirectory(): string {
-  return dirname(fileURLToPath(import.meta.url));
+function defaultDomDeclarationFilePath(): string {
+  const localPath = fileURLToPath(domDeclarationUrl);
+  if (localPath.startsWith("http://") || localPath.startsWith("https://")) {
+    return TYPESCRIPT_DOM_DECLARATION_FILE_NAME;
+  }
+  return localPath;
 }
 
-async function resolveDomDeclarationFilePath(): Promise<string> {
-  const bundledPath = resolve(currentDirectory(), TYPESCRIPT_DOM_DECLARATION_FILE_NAME);
-  if (await fileExists(bundledPath)) {
-    return bundledPath;
+async function loadBundledDomDeclarationSource(): Promise<{ filePath: string; source: string }> {
+  const localPath = fileURLToPath(domDeclarationUrl);
+  if (await fileExists(localPath)) {
+    return {
+      filePath: localPath,
+      source: await readFile(localPath, "utf8"),
+    };
   }
 
-  return resolve(process.cwd(), "compiler", "runtime", TYPESCRIPT_DOM_DECLARATION_FILE_NAME);
+  const response = await fetch(domDeclarationUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to load bundled DOM declarations from ${domDeclarationUrl.toString()}`);
+  }
+
+  return {
+    filePath: TYPESCRIPT_DOM_DECLARATION_FILE_NAME,
+    source: await response.text(),
+  };
 }
 
 export function getDomDeclarationFilePath(): string {
-  return domDeclarationFilePath;
+  return cachedDomProgram?.filePath ?? defaultDomDeclarationFilePath();
 }
 
 function normalizeDomSourceForParser(source: string): string {
@@ -63,24 +76,15 @@ function collectNodes(root: Program): WeakSet<object> {
 }
 
 async function loadDomProgram(): Promise<CachedDomProgram> {
-  const { mtimeMs } = await stat(domDeclarationFilePath);
-  const cachedProgram = await loadCachedProgram(domDeclarationFilePath, mtimeMs, DOM_CACHE_SALT);
-  if (cachedProgram) {
-    return {
-      filePath: domDeclarationFilePath,
-      mtimeMs,
-      program: cachedProgram,
-      nodes: collectNodes(cachedProgram)
-    };
-  }
-
-  const source = await readFile(domDeclarationFilePath, "utf8");
-  const program = parseDomProgram(source);
-  await storeCachedProgram(domDeclarationFilePath, mtimeMs, DOM_CACHE_SALT, program);
+  const { filePath, source } = await loadBundledDomDeclarationSource();
+  const program = await cacheProgram(
+    filePath,
+    `${DOM_CACHE_SALT}:${source}`,
+    async () => parseDomProgram(source)
+  );
 
   return {
-    filePath: domDeclarationFilePath,
-    mtimeMs,
+    filePath,
     program,
     nodes: collectNodes(program)
   };

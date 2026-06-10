@@ -11,10 +11,10 @@ const markdown = new MarkdownIt({
   typographer: false
 });
 
-export async function loadSyntaxDocument(projectRoot: string): Promise<string> {
+export async function loadSyntaxDocument(projectRoot) {
   return await readFile(resolve(projectRoot, "docs/syntax.md"), "utf8");
 }
 
-export function renderMarkdownDocument(content: string): string {
+export function renderMarkdownDocument(content) {
   return markdown.render(content);
 }

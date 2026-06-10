@@ -27,6 +27,10 @@ export async function stat(path: string): Promise<never> {
   throw createEnoentError("stat", path);
 }
 
+export async function mkdir(_path: string, _options?: unknown): Promise<void> {
+  // no-op in browser
+}
+
 export async function writeFile(_path: string, _data: unknown, _options?: unknown): Promise<void> {
   // no-op in browser
 }
@@ -35,5 +39,5 @@ export async function unlink(path: string): Promise<void> {
   throw createEnoentError("unlink", path);
 }
 
-const fsPromises = { access, readFile, readdir, stat, writeFile, unlink };
+const fsPromises = { access, readFile, readdir, stat, mkdir, writeFile, unlink };
 export default fsPromises;

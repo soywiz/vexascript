@@ -102,32 +102,14 @@ let name = maybeUser!.name</code></pre>
   </div>
 </section>
 
-<section id="embed" class="section alt">
+<section class="section alt">
   <div class="section-heading">
     <p class="eyebrow">Embedding API</p>
-    <h2>Drop editors into any lesson page.</h2>
-  </div>
-  <div class="embed-docs">
-    <article class="card">
-      <h3>Simple editor</h3>
-<pre><code>&lt;div id="lesson-editor"&gt;&lt;/div&gt;
-&lt;script src="/assets/generated/mylang-embed.js"&gt;&lt;/script&gt;
-&lt;script&gt;
-  MyLangEmbeds.createSimpleEditor("#lesson-editor", {
-    content: "fun add(a: int, b: int): int { return a + b }"
-  })
-&lt;/script&gt;</code></pre>
-    </article>
-    <article class="card">
-      <h3>Workspace editor</h3>
-<pre><code>MyLangEmbeds.createWorkspaceEditor("#workspace", {
-  activePath: "/main.my",
-  files: [
-    { path: "/main.my", content: "import { greet } from './greeter.my'\nconsole.log(greet('MyLang'))" },
-    { path: "/greeter.my", content: "export fun greet(name: string): string { return $\"Hello {name}\" }" }
-  ]
-})</code></pre>
-    </article>
+    <h2>Bring the editors into your own site.</h2>
+    <p class="lead">The full embedding guide now lives on its own page with copy-ready setup snippets for both editor modes.</p>
+    <div class="actions">
+      <a class="button secondary" href="/embed/">Open the embed guide</a>
+    </div>
   </div>
 </section>
 
@@ -135,7 +117,7 @@ let name = maybeUser!.name</code></pre>
   window.addEventListener("DOMContentLoaded", () => {
     MyLangEmbeds.createSimpleEditor("#simple-editor", {
       content: `class Counter(var value: int) {
-  fun increment(): int {
+  increment(): int {
     this.value = this.value + 1
     return this.value
   }

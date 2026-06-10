@@ -1,33 +1,113 @@
 import { describe, it } from "node:test";
-import { mkdtemp, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect } from "../test/expect";
-import { loadCachedProgram, storeCachedProgram } from "./programCache";
+import { cacheProgram } from "./programCache";
 import type { Program } from "compiler/ast/ast";
 
 describe("runtime program cache", () => {
-  it("stores and reloads programs by source path, salt, and mtime", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-program-cache-"));
-    const sourceFilePath = join(dir, "runtime.d.ts");
-    const mtimeMs = (await stat(dir)).mtimeMs;
-    const program: Program = {
-      kind: "Program",
-      body: [
-        {
-          kind: "VarStatement",
-          declarationKind: "const",
-          name: { kind: "Identifier", name: "answer" },
-          declarations: []
-        } as unknown as Program["body"][number]
-      ]
+  it("stores and reloads programs by source path and hash in localStorage", async () => {
+    const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const storageState = new Map<string, string>();
+    const fakeStorage = {
+      getItem(key: string): string | null {
+        return storageState.get(key) ?? null;
+      },
+      setItem(key: string, value: string): void {
+        storageState.set(key, value);
+      },
     };
 
-    expect(await loadCachedProgram(sourceFilePath, mtimeMs, "salt-a")).toBe(null);
-    await storeCachedProgram(sourceFilePath, mtimeMs, "salt-a", program);
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: fakeStorage,
+    });
 
-    expect(await loadCachedProgram(sourceFilePath, mtimeMs, "salt-a")).toEqual(program);
-    expect(await loadCachedProgram(sourceFilePath, mtimeMs + 1, "salt-a")).toBe(null);
-    expect(await loadCachedProgram(sourceFilePath, mtimeMs, "salt-b")).toBe(null);
+    try {
+      const sourceFilePath = "/runtime/runtime.d.ts";
+      const program: Program = {
+        kind: "Program",
+        body: [
+          {
+            kind: "VarStatement",
+            declarationKind: "const",
+            name: { kind: "Identifier", name: "answer" },
+            declarations: []
+          } as unknown as Program["body"][number]
+        ]
+      };
+      let generateCount = 0;
+
+      const first = await cacheProgram(sourceFilePath, "hash-a", async () => {
+        generateCount += 1;
+        return program;
+      });
+      const second = await cacheProgram(sourceFilePath, "hash-a", async () => {
+        generateCount += 1;
+        return {
+          ...program,
+          body: [],
+        };
+      });
+      const third = await cacheProgram(sourceFilePath, "hash-b", async () => {
+        generateCount += 1;
+        return {
+          ...program,
+          body: [],
+        };
+      });
+
+      expect(storageState.has("mylang.runtime.program-cache.v1./runtime/runtime.d.ts")).toBe(true);
+      expect(storageState.has("mylang.runtime.program-cache.v1./runtime/runtime.d.ts_hash")).toBe(true);
+      expect(first).toEqual(program);
+      expect(second).toEqual(program);
+      expect(third.body).toEqual([]);
+      expect(generateCount).toBe(2);
+    } finally {
+      if (previousDescriptor) {
+        Object.defineProperty(globalThis, "localStorage", previousDescriptor);
+      } else {
+        delete (globalThis as { localStorage?: unknown }).localStorage;
+      }
+    }
+  });
+
+  it("falls back to in-memory storage when localStorage is unavailable", async () => {
+    const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+
+    try {
+      const sourceFilePath = "/runtime/fallback.d.ts";
+      const program: Program = {
+        kind: "Program",
+        body: []
+      };
+      let generateCount = 0;
+
+      const first = await cacheProgram(sourceFilePath, "hash-a", async () => {
+        generateCount += 1;
+        return program;
+      });
+      const second = await cacheProgram(sourceFilePath, "hash-a", async () => {
+        generateCount += 1;
+        return {
+          ...program,
+          body: [
+            {
+              kind: "VarStatement",
+              declarationKind: "const",
+              name: { kind: "Identifier", name: "later" },
+              declarations: []
+            } as unknown as Program["body"][number]
+          ]
+        };
+      });
+
+      expect(first).toEqual(program);
+      expect(second).toEqual(program);
+      expect(generateCount).toBe(1);
+    } finally {
+      if (previousDescriptor) {
+        Object.defineProperty(globalThis, "localStorage", previousDescriptor);
+      }
+    }
   });
 });

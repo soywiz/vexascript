@@ -1,26 +1,8 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 
-const programCacheStub = resolve(__dirname, "src/assets/browser-stubs/programCache.ts");
-
-function browserCompilerStubs() {
-  return {
-    name: "mylang-browser-compiler-stubs",
-    resolveId(source: string, importer?: string) {
-      if ((source === "./programCache" || source === "./programCache.ts") && importer?.includes("/compiler/runtime/")) {
-        return programCacheStub;
-      }
-      if (source.endsWith("/compiler/runtime/programCache") || source.endsWith("/compiler/runtime/programCache.ts")) {
-        return programCacheStub;
-      }
-      return null;
-    }
-  };
-}
-
 export default defineConfig({
   base: "/assets/generated/",
-  plugins: [browserCompilerStubs()],
   root: __dirname,
   publicDir: false,
   build: {
@@ -43,10 +25,6 @@ export default defineConfig({
       {
         find: "compiler/runtime/ecmascriptDeclarations",
         replacement: resolve(__dirname, "../plugins/monaco/src/browser-stubs/ecmascriptDeclarations.ts")
-      },
-      {
-        find: /.*compiler\/runtime\/programCache$/,
-        replacement: resolve(__dirname, "src/assets/browser-stubs/programCache.ts")
       },
       {
         find: "vscode-languageserver/node.js",

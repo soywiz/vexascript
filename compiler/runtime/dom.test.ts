@@ -32,4 +32,11 @@ describe("bundled dom runtime declarations", () => {
     expect(source).not.toContain("interface DedicatedWorkerGlobalScope");
     expect(source).not.toContain("declare function importScripts");
   });
+
+  it("keeps the DOM loader browser-safe", async () => {
+    const source = await readFile(join(process.cwd(), "compiler", "runtime", "domDeclarations.ts"), "utf8");
+
+    expect(source).not.toContain("process.cwd()");
+    expect(source).toContain("fetch(domDeclarationUrl)");
+  });
 });

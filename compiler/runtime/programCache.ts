@@ -1,51 +1,87 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { Program } from "compiler/ast/ast";
 
 const PROGRAM_CACHE_VERSION = 1;
-const CACHE_DIR = join(tmpdir(), "mylang-runtime-program-cache");
+const STORAGE_KEY_PREFIX = `mylang.runtime.program-cache.v${PROGRAM_CACHE_VERSION}.`;
+const memoryStorage = new Map<string, string>();
 
-interface CachedProgramFile {
-  version: number;
-  mtimeMs: number;
-  program: Program;
+interface CacheStorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
 }
 
-function cacheFilePath(sourceFilePath: string, cacheSalt: string): string {
-  const key = createHash("sha1").update(`${sourceFilePath}\0${cacheSalt}`).digest("hex");
-  return join(CACHE_DIR, `${key}.json`);
-}
-
-export async function loadCachedProgram(
-  sourceFilePath: string,
-  mtimeMs: number,
-  cacheSalt: string
-): Promise<Program | null> {
+function getStorage(): CacheStorageLike {
   try {
-    const raw = await readFile(cacheFilePath(sourceFilePath, cacheSalt), "utf8");
-    const parsed = JSON.parse(raw) as CachedProgramFile;
-    if (parsed.version !== PROGRAM_CACHE_VERSION || parsed.mtimeMs !== mtimeMs) {
-      return null;
+    const storage = globalThis.localStorage;
+    if (
+      storage &&
+      typeof storage.getItem === "function" &&
+      typeof storage.setItem === "function"
+    ) {
+      return storage;
     }
-    return parsed.program;
   } catch {
-    return null;
+    // Accessing localStorage can throw in restricted environments.
   }
+
+  return {
+    getItem(key: string): string | null {
+      return memoryStorage.get(key) ?? null;
+    },
+    setItem(key: string, value: string): void {
+      memoryStorage.set(key, value);
+    },
+  };
 }
 
-export async function storeCachedProgram(
+function programKey(sourceFilePath: string): string {
+  return `${STORAGE_KEY_PREFIX}${sourceFilePath}`;
+}
+
+function hashKey(sourceFilePath: string): string {
+  return `${programKey(sourceFilePath)}_hash`;
+}
+
+async function hashText(source: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-1", new TextEncoder().encode(source));
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export async function cacheProgram(
   sourceFilePath: string,
-  mtimeMs: number,
-  cacheSalt: string,
-  program: Program
-): Promise<void> {
-  await mkdir(CACHE_DIR, { recursive: true });
-  const payload: CachedProgramFile = {
-    version: PROGRAM_CACHE_VERSION,
-    mtimeMs,
-    program
-  };
-  await writeFile(cacheFilePath(sourceFilePath, cacheSalt), JSON.stringify(payload), "utf8");
+  hash: string,
+  generate: () => Promise<Program>
+): Promise<Program> {
+  const storage = getStorage();
+  const cachedProgramKey = programKey(sourceFilePath);
+  const cachedHashKey = hashKey(sourceFilePath);
+  const expectedHash = await hashText(`${PROGRAM_CACHE_VERSION}\0${hash}`);
+
+  if (
+    storage.getItem(cachedHashKey) !== expectedHash ||
+    storage.getItem(cachedProgramKey) === null
+  ) {
+    const program = await generate();
+    const serializedProgram = JSON.stringify(program);
+    try {
+      storage.setItem(cachedProgramKey, serializedProgram);
+      storage.setItem(cachedHashKey, expectedHash);
+    } catch {
+      // Ignore storage failures and still return the freshly generated program.
+    }
+    return program;
+  }
+
+  try {
+    return JSON.parse(storage.getItem(cachedProgramKey)!) as Program;
+  } catch {
+    const program = await generate();
+    const serializedProgram = JSON.stringify(program);
+    try {
+      storage.setItem(cachedProgramKey, serializedProgram);
+      storage.setItem(cachedHashKey, expectedHash);
+    } catch {
+      // Ignore storage failures and still return the freshly generated program.
+    }
+    return program;
+  }
 }
