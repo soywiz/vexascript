@@ -281,13 +281,18 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const diagnostics: TranspileDiagnostic[] = [];
   const file = options.sourceFilePath ?? "<unknown>";
   const emitSourceMap = options.emitSourceMap ?? true;
-  const sourceLines = source.split("\n");
+  let sourceLines: string[] | null = null;
+
+  function getSourceLines(): string[] {
+    sourceLines ??= source.split("\n");
+    return sourceLines;
+  }
 
   function makeDiagnostic(message: string, range: SourceRange | null | undefined, code: string): TranspileDiagnostic {
     const line = (range?.start.line ?? 0) + 1;
     const column = (range?.start.column ?? 0) + 1;
     const endColumn = range?.end ? range.end.column + 1 : column + 1;
-    const sourceLine = sourceLines[line - 1] ?? "";
+    const sourceLine = getSourceLines()[line - 1] ?? "";
     return { file, line, column, endColumn, code, message, sourceLine };
   }
 

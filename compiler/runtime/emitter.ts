@@ -1904,25 +1904,26 @@ function collectEmitProgramRuntimeContext(
     })));
   }
 
-  walkAst(contextProgram, (node) => {
-    if (node.kind === "MemberExpression") {
-      const member = node as MemberExpression;
-      if (!member.computed && member.property.kind === "Identifier") {
-        const name = (member.property as Identifier).name;
-        if (!extensionProperties.has(name) && importedNames.has(name)) {
-          const objectType = expressionTypes?.get(member.object);
-          if (objectType?.kind === "builtin") {
-            extensionProperties.set(name, objectType.name === "int" ? "number" : objectType.name);
-          } else if (objectType?.kind === "named") {
-            extensionProperties.set(name, objectType.name);
-          } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
-            extensionProperties.set(name, "Array");
+  if (importedNames.size > 0) {
+    walkAst(contextProgram, (node) => {
+      if (node.kind === "MemberExpression") {
+        const member = node as MemberExpression;
+        if (!member.computed && member.property.kind === "Identifier") {
+          const name = (member.property as Identifier).name;
+          if (!extensionProperties.has(name) && importedNames.has(name)) {
+            const objectType = expressionTypes?.get(member.object);
+            if (objectType?.kind === "builtin") {
+              extensionProperties.set(name, objectType.name === "int" ? "number" : objectType.name);
+            } else if (objectType?.kind === "named") {
+              extensionProperties.set(name, objectType.name);
+            } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
+              extensionProperties.set(name, "Array");
+            }
           }
         }
       }
-      return;
-    }
-  });
+    });
+  }
 
   const variableDelegates = collectVariableDelegates(contextProgram, expressionTypes);
 
