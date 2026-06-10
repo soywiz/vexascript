@@ -1,4 +1,4 @@
-import { access, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -68,6 +68,7 @@ async function ensureGeneratedSyntaxModule(): Promise<void> {
     return;
   }
 
+  await mkdir(dirname(generatedSyntaxModulePath), { recursive: true });
   await writeFile(generatedSyntaxModulePath, nextContent, "utf8");
   console.log("[website] Regenerated website syntax module.");
 }

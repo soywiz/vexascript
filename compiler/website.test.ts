@@ -77,6 +77,7 @@ describe("website project", () => {
     expect(buildScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
     expect(buildScript.includes("createPortableMonarchLanguage")).toBe(true);
     expect(buildScript.includes("VEXA_PRIMITIVE_TYPES")).toBe(true);
+    expect(buildScript.includes("mkdir(dirname(generatedSyntaxModulePath), { recursive: true })")).toBe(true);
     expect(buildScript.includes("eleventy")).toBe(true);
     expect(buildScript.includes("vite")).toBe(true);
     expect(eleventyConfig.includes('./src/siteContent.mjs')).toBe(true);
