@@ -175,10 +175,14 @@ export class TypeChecker {
     // Also collect declarations nested inside namespace bodies so types like
     // `moment.Moment` (declared as `namespace moment { interface Moment }`) are
     // available for member resolution when referenced as namedType("Moment").
-    const nestedFromExternals = this.collectNestedNamespaceDeclarations([...ambientDeclarations, ...externalDeclarations]);
-    this.collectClassStatements(nestedFromExternals);
-    this.collectInterfaceStatements(nestedFromExternals);
-    this.collectTypeAliasStatements(nestedFromExternals);
+    const nestedAmbientDeclarations = this.collectNestedNamespaceDeclarations(ambientDeclarations);
+    const nestedExternalDeclarations = this.collectNestedNamespaceDeclarations(externalDeclarations);
+    this.collectClassStatements(nestedAmbientDeclarations);
+    this.collectClassStatements(nestedExternalDeclarations);
+    this.collectInterfaceStatements(nestedAmbientDeclarations);
+    this.collectInterfaceStatements(nestedExternalDeclarations);
+    this.collectTypeAliasStatements(nestedAmbientDeclarations);
+    this.collectTypeAliasStatements(nestedExternalDeclarations);
     // Imported extension operator overloads (e.g. `import { operator+ }`) are
     // registered so a cross-file operator like `a + b` resolves to the overload.
     this.collectExtensionOperators(ambientDeclarations);
@@ -5536,12 +5540,7 @@ export class TypeChecker {
   }
 
   private collectExtensionMethods(program: Program): void {
-    for (const statement of program.body) {
-      const candidate = statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration
-        : statement;
-      if (candidate?.kind !== "FunctionStatement") continue;
-      const extension = candidate as FunctionStatement;
+    for (const extension of declarationIndexForStatements(program.body).functions) {
       if (!extension.receiverType || extension.operator) continue;
       const methods = this.extensionMethodsByReceiver.get(extension.receiverType.name) ?? new Map<string, AnalysisType>();
       methods.set(extension.name.name, functionType(
@@ -5561,22 +5560,17 @@ export class TypeChecker {
 
   private collectExtensionOperators(statements: readonly Statement[] | Program): void {
     const body = "body" in statements ? statements.body : statements;
-    for (const statement of body) {
-      const candidate = statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration
-        : statement;
-      if (candidate?.kind !== "FunctionStatement") {
-        continue;
-      }
-      const extension = candidate as FunctionStatement;
+    for (const extension of declarationIndexForStatements(body).functions) {
       if (!extension.receiverType || !extension.operator) {
         continue;
       }
       const receiverName = extension.receiverType.name;
-      this.extensionOperatorsByReceiver.set(receiverName, [
-        ...(this.extensionOperatorsByReceiver.get(receiverName) ?? []),
-        extension
-      ]);
+      const existing = this.extensionOperatorsByReceiver.get(receiverName);
+      if (existing) {
+        existing.push(extension);
+        continue;
+      }
+      this.extensionOperatorsByReceiver.set(receiverName, [extension]);
     }
   }
 
