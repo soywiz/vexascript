@@ -1,0 +1,80 @@
+---
+layout: layout.njk
+title: MyLang CLI Guide
+---
+<section class="section">
+  <div class="section-heading">
+    <p class="eyebrow">MyLang CLI</p>
+    <h1>Compile, bundle, run, inspect, and format from the terminal.</h1>
+    <p class="lead">The <code>mylang</code> CLI covers build pipelines, syntax exports, language-server entrypoints, testing, and inspection tools for day-to-day compiler work.</p>
+  </div>
+  <div class="cli-layout">
+    <article class="card cli-overview">
+      <h3>Core commands</h3>
+      <div class="cli-command-list">
+        <div>
+          <code>build &lt;input&gt;</code>
+          <p>Compile a MyLang file to JavaScript, with optional bundling and JSX factory overrides.</p>
+        </div>
+        <div>
+          <code>bundle &lt;input&gt;</code>
+          <p>Bundle a MyLang entry file and all referenced modules as ESM output.</p>
+        </div>
+        <div>
+          <code>run &lt;input&gt;</code>
+          <p>Transpile and execute a MyLang file with Node.js.</p>
+        </div>
+        <div>
+          <code>test [paths...]</code>
+          <p>Discover and run <code>.test.my</code> files with the built-in inline helpers.</p>
+        </div>
+        <div>
+          <code>format &lt;input&gt;</code>
+          <p>Format a file in place, optionally writing a copy to a separate output path.</p>
+        </div>
+        <div>
+          <code>tokens &lt;input&gt;</code> / <code>ast &lt;input&gt;</code>
+          <p>Inspect the tokenizer output or print a simplified AST for debugging parser behavior.</p>
+        </div>
+        <div>
+          <code>syntax</code>, <code>lsp</code>, <code>mcp</code>
+          <p>Export editor grammars, start the language server, or run the MCP navigation server.</p>
+        </div>
+      </div>
+    </article>
+    <article class="card cli-flags">
+      <h3>Useful switches</h3>
+      <div class="cli-flag-grid">
+        <div>
+          <code>-o, --out &lt;file&gt;</code>
+          <p>Available on <code>build</code>, <code>bundle</code>, and <code>format</code> to control the output path.</p>
+        </div>
+        <div>
+          <code>--target &lt;mode&gt;</code>
+          <p>Use <code>conservative</code> or <code>optimized</code> transpilation modes on build-oriented commands.</p>
+        </div>
+        <div>
+          <code>--bundle</code>
+          <p>Tell <code>build</code> to emit bundled ESM instead of a single-file JavaScript output.</p>
+        </div>
+        <div>
+          <code>--jsx-factory</code> / <code>--jsx-fragment-factory</code>
+          <p>Override JSX emit targets for projects that do not use the default React-style factories.</p>
+        </div>
+        <div>
+          <code>--root &lt;dir&gt;</code>
+          <p>Set the workspace root for the <code>mcp</code> server when resolving files and symbols.</p>
+        </div>
+        <div>
+          <code>--monaco</code>, <code>--vscode</code>, <code>--textmate</code>, <code>--codemirror</code>
+          <p>Select editor syntax export targets from the <code>syntax</code> command, or use <code>--target &lt;name&gt;</code> for the explicit target id.</p>
+        </div>
+      </div>
+    </article>
+  </div>
+{% highlightMyLang %}
+pnpm tsx compiler/cli.ts build src/main.my --out dist/main.js --target optimized
+pnpm tsx compiler/cli.ts syntax --monaco
+pnpm tsx compiler/cli.ts test samples/
+{% endhighlightMyLang %}
+</section>

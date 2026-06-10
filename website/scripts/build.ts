@@ -1,11 +1,13 @@
-import { access } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { createPortableMonarchLanguage, MYLANG_PRIMITIVE_TYPES } from "../../compiler/syntax.ts";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const websiteRoot = resolve(scriptDirectory, "..");
 const projectRoot = resolve(websiteRoot, "..");
+const generatedSyntaxModulePath = resolve(websiteRoot, "src/generated/mylang-monarch-language.mjs");
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -45,6 +47,31 @@ async function ensureCompilerBundle(): Promise<void> {
   await run("pnpm", ["build"], projectRoot);
 }
 
+function renderGeneratedSyntaxModule(): string {
+  const portableLanguage = createPortableMonarchLanguage();
+  return [
+    `export const mylangPortableLanguage = ${JSON.stringify(portableLanguage, null, 2)};`,
+    "",
+    `export const mylangPrimitiveTypes = ${JSON.stringify([...MYLANG_PRIMITIVE_TYPES], null, 2)};`,
+    "",
+    "export default mylangPortableLanguage;",
+    ""
+  ].join("\n");
+}
+
+async function ensureGeneratedSyntaxModule(): Promise<void> {
+  const nextContent = renderGeneratedSyntaxModule();
+  const previousContent = await readFile(generatedSyntaxModulePath, "utf8").catch(() => null);
+  if (previousContent === nextContent) {
+    console.log("[website] Reusing generated website syntax module.");
+    return;
+  }
+
+  await writeFile(generatedSyntaxModulePath, nextContent, "utf8");
+  console.log("[website] Regenerated website syntax module.");
+}
+
 await ensureCompilerBundle();
+await ensureGeneratedSyntaxModule();
 await run("pnpm", ["exec", "vite", "build", "--config", "vite.config.ts"], websiteRoot);
 await run("pnpm", ["exec", "eleventy", "--config", "eleventy.config.mjs"], websiteRoot);

@@ -1504,6 +1504,13 @@ export class TypeChecker {
           break;
         }
         this.validateKnownMemberAccess(member, objectType, scope);
+        const memberSymbol = this.resolveKnownMemberSymbol(member, objectType);
+        if (memberSymbol && member.property.kind === "Identifier") {
+          this.identifierResolutions.push({
+            identifier: member.property as Node & { kind: "Identifier"; name: string },
+            symbol: memberSymbol
+          });
+        }
         result = this.resolveOptionalAccessType(this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE, member.optional === true);
         break;
       }
@@ -5046,6 +5053,9 @@ export class TypeChecker {
         if (!current.parent) {
           return symbol;
         }
+        if (symbol.implicitReceiver === true) {
+          return symbol;
+        }
         if (usageOffset === undefined || symbol.declaredOffset < 0 || symbol.declaredOffset <= usageOffset) {
           return symbol;
         }
@@ -5904,6 +5914,68 @@ export class TypeChecker {
       return null;
     }
     return classMembers.get(memberName) ?? null;
+  }
+
+  private resolveKnownMemberSymbol(member: MemberExpression, objectType: AnalysisType): AnalysisSymbol | null {
+    if (member.computed || member.property.kind !== "Identifier") {
+      return null;
+    }
+
+    const resolvedObjectType = this.resolveConstrainedNamedExpressionType(member.object, objectType) ?? objectType;
+    const memberName = (member.property as Node & { kind: "Identifier"; name: string }).name;
+
+    if (resolvedObjectType.kind === "union") {
+      for (const type of resolvedObjectType.types) {
+        if (this.isNullishType(type)) {
+          continue;
+        }
+        const symbol = this.resolveKnownMemberSymbol(member, type);
+        if (symbol) {
+          return symbol;
+        }
+      }
+      return null;
+    }
+
+    if (resolvedObjectType.kind === "intersection") {
+      for (const type of resolvedObjectType.types) {
+        const symbol = this.resolveKnownMemberSymbol(member, type);
+        if (symbol) {
+          return symbol;
+        }
+      }
+      return null;
+    }
+
+    if (resolvedObjectType.kind !== "named") {
+      return null;
+    }
+
+    return this.findNamedTypeMemberSymbol(resolvedObjectType.name, memberName);
+  }
+
+  private findNamedTypeMemberSymbol(typeName: string, memberName: string): AnalysisSymbol | null {
+    const classStatement = this.classStatementsByName.get(typeName);
+    if (!classStatement) {
+      return null;
+    }
+
+    const classScope = this.bound.scopeByNode.get(classStatement);
+    const classSymbol = classScope?.symbols.get(memberName);
+    if (classSymbol) {
+      return classSymbol;
+    }
+
+    if (!classStatement.extendsType) {
+      return null;
+    }
+
+    const extendsType = this.typeFromTypeNameLoose(classStatement.extendsType.name);
+    if (extendsType.kind !== "named") {
+      return null;
+    }
+
+    return this.findNamedTypeMemberSymbol(extendsType.name, memberName);
   }
 
   private resolveComputedMemberType(objectType: AnalysisType, propertyType: AnalysisType): AnalysisType {

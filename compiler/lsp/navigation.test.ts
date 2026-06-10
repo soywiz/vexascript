@@ -244,6 +244,68 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("supports rename, hover, and definition for class members", () => {
+    const source = dedent`
+      class Counter(var value: int) {
+        increment(): int => value
+      }
+
+      val counter = Counter(41)
+      counter.increment()
+    `;
+    const analysis = analysisOf(source);
+
+    expect(createPrepareRename(analysis, 0, 18)).toEqual({
+      range: {
+        start: { line: 0, character: 18 },
+        end: { line: 0, character: 23 }
+      },
+      placeholder: "value"
+    });
+
+    expect(createPrepareRename(analysis, 1, 2)).toEqual({
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 11 }
+      },
+      placeholder: "increment"
+    });
+
+    expect(createHover(analysis, 5, 9)?.contents).toEqual({
+      kind: "plaintext",
+      value: "method increment: () => int"
+    });
+
+    expect(createDefinitionLocation(analysis, URI, 5, 9)).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 11 }
+      }
+    });
+
+    expect(createRenameWorkspaceEdit(analysis, URI, 5, 9, "next")).toEqual({
+      changes: {
+        [URI]: [
+          {
+            range: {
+              start: { line: 1, character: 2 },
+              end: { line: 1, character: 11 }
+            },
+            newText: "next"
+          },
+          {
+            range: {
+              start: { line: 5, character: 8 },
+              end: { line: 5, character: 17 }
+            },
+            newText: "next"
+          }
+        ]
+      }
+    });
+  });
+
   it("returns references including declaration", () => {
     const source =
       "let value = 1\nfun demo() {\n  let local = value\n  return value + local\n}\n";

@@ -19,7 +19,7 @@ class User(val name: string, val score: int)
 
 sync fun loadMessage(user: User): string {
   let bonus = fetchBonus(user.name)
-  return $"Hello {user.name}, score: {user.score + bonus}"
+  return `Hello ${user.name}, score: ${user.score + bonus}`
 }
 {% endhighlightMyLang %}
   </div>
@@ -92,6 +92,17 @@ namespace Tools {
 }
 {% endhighlightMyLang %}
     </article>
+  </div>
+</section>
+
+<section id="cli" class="section alt">
+  <div class="section-heading">
+    <p class="eyebrow">MyLang CLI</p>
+    <h2>Compile, bundle, run, inspect, and format from the terminal.</h2>
+    <p class="lead">The CLI guide lives on its own page, with the core commands, supported switches, and copy-ready examples for compiler, syntax, and test workflows.</p>
+    <div class="actions">
+      <a class="button secondary" href="/cli/">Open the CLI guide</a>
+    </div>
   </div>
 </section>
 

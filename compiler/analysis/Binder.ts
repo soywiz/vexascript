@@ -624,14 +624,14 @@ export class Binder {
     for (const member of statement.members) {
       if (member.kind === "InterfacePropertyMember") {
         const propertyType = this.typeFromAnnotationLoose(member.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: member.name.name,
-          kind: "variable",
-          node: member.name,
-          implicitReceiver: true,
-          type: propertyType,
-          valueType: typeToString(propertyType)
-        }, -1);
+      this.declare(scope, {
+        name: member.name.name,
+        kind: "variable",
+        node: member.name,
+        implicitReceiver: true,
+        type: propertyType,
+        valueType: typeToString(propertyType)
+      });
         continue;
       }
       const methodType = functionType(
@@ -651,7 +651,7 @@ export class Binder {
         implicitReceiver: true,
         type: methodType,
         valueType: typeToString(methodType)
-      }, -1);
+      });
     }
   }
 
@@ -666,7 +666,7 @@ export class Binder {
         implicitReceiver: true,
         type: parameterType,
         valueType: typeToString(parameterType)
-      }, -1);
+      });
     }
     for (const constructor of statement.members.filter(
       (member): member is ClassMethodMember => member.kind === "ClassMethodMember" && member.name.name === "constructor"
@@ -683,7 +683,7 @@ export class Binder {
           implicitReceiver: true,
           type: parameterType,
           valueType: typeToString(parameterType)
-        }, -1);
+        });
       }
     }
     const className = statement.name.name;
@@ -699,7 +699,7 @@ export class Binder {
           ...(member.static === true ? { implicitReceiverClassName: className } : {}),
           type: fieldType,
           valueType: typeToString(fieldType)
-        }, -1);
+        });
         continue;
       }
       if (member.accessorKind === "get") {
@@ -712,7 +712,7 @@ export class Binder {
           ...(member.static === true ? { implicitReceiverClassName: className } : {}),
           type: propertyType,
           valueType: typeToString(propertyType)
-        }, -1);
+        });
         continue;
       }
       if (member.accessorKind === "set") {
@@ -725,7 +725,7 @@ export class Binder {
           ...(member.static === true ? { implicitReceiverClassName: className } : {}),
           type: propertyType,
           valueType: typeToString(propertyType)
-        }, -1);
+        });
         continue;
       }
       const methodType = functionType(
@@ -746,7 +746,7 @@ export class Binder {
         ...(member.static === true ? { implicitReceiverClassName: className } : {}),
         type: methodType,
         valueType: typeToString(methodType)
-      }, -1);
+      });
     }
   }
 

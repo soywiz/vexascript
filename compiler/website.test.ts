@@ -5,11 +5,12 @@ import { cacheProgram } from "./runtime/programCache";
 
 describe("website project", () => {
   it("documents and exposes both MyLang Monaco embedding modes", async () => {
-    const [embedSource, landingPage, layoutSource, syntaxPage] = await Promise.all([
+    const [embedSource, landingPage, layoutSource, syntaxPage, cliPage] = await Promise.all([
       readFile("website/src/assets/mylang-embed.ts", "utf8"),
       readFile("website/src/index.njk", "utf8"),
       readFile("website/src/_includes/layout.njk", "utf8"),
       readFile("website/src/syntax.njk", "utf8"),
+      readFile("website/src/cli.njk", "utf8"),
     ]);
 
     expect(embedSource.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
@@ -26,28 +27,50 @@ describe("website project", () => {
     expect(embedSource.includes("selection?: monaco.IRange")).toBe(true);
     expect(embedSource.includes("stabilizeEditorLayout")).toBe(true);
     expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);
+    expect(layoutSource.includes('href="/cli/"')).toBe(true);
     expect(landingPage.includes("{% highlightMyLang %}")).toBe(true);
     expect(landingPage.includes("MyLangEmbeds.createSimpleEditor")).toBe(true);
     expect(landingPage.includes("MyLangEmbeds.createWorkspaceEditor")).toBe(true);
+    expect(landingPage.includes('<section id="cli" class="section alt">')).toBe(true);
+    expect(landingPage.includes("Compile, bundle, run, inspect, and format from the terminal.")).toBe(true);
+    expect(landingPage.includes('href="/cli/"')).toBe(true);
+    expect(landingPage.includes("Open the CLI guide")).toBe(true);
+    expect(landingPage.includes("pnpm tsx compiler/cli.ts build src/main.my --out dist/main.js --target optimized")).toBe(false);
     expect(landingPage.includes("const counterSnippet = `class Counter")).toBe(true);
     expect(landingPage.includes("startLineNumber: 4")).toBe(true);
     expect(landingPage.includes("fun increment(): int")).toBe(false);
     expect(syntaxPage.includes("This page renders the canonical")).toBe(false);
     expect(syntaxPage.includes('class="doc-content"')).toBe(false);
     expect(syntaxPage.includes('class="section"')).toBe(true);
+    expect(cliPage.includes("pnpm tsx compiler/cli.ts build src/main.my --out dist/main.js --target optimized")).toBe(true);
+    expect(cliPage.includes("<code>--bundle</code>")).toBe(true);
+    expect(cliPage.includes("<code>--root &lt;dir&gt;</code>")).toBe(true);
   });
 
   it("keeps the website build wired through Vite and 11ty after preparing the compiler bundle", async () => {
-    const [buildScript, packageJsonText] = await Promise.all([
+    const [buildScript, packageJsonText, eleventyConfig, generatedSyntaxModule, syntaxHighlighter] = await Promise.all([
       readFile("website/scripts/build.ts", "utf8"),
       readFile("website/package.json", "utf8"),
+      readFile("website/eleventy.config.mjs", "utf8"),
+      readFile("website/src/generated/mylang-monarch-language.mjs", "utf8"),
+      readFile("website/src/syntaxHighlight.mjs", "utf8"),
     ]);
     const packageJson = JSON.parse(packageJsonText) as { scripts?: Record<string, string> };
 
     expect(packageJson.scripts?.["build"]).toBe("tsx scripts/build.ts");
     expect(buildScript.includes("ensureCompilerBundle")).toBe(true);
+    expect(buildScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
+    expect(buildScript.includes("createPortableMonarchLanguage")).toBe(true);
+    expect(buildScript.includes("MYLANG_PRIMITIVE_TYPES")).toBe(true);
     expect(buildScript.includes("eleventy")).toBe(true);
     expect(buildScript.includes("vite")).toBe(true);
+    expect(eleventyConfig.includes('./src/siteContent.mjs')).toBe(true);
+    expect(eleventyConfig.includes('./src/syntaxHighlight.mjs')).toBe(true);
+    expect(eleventyConfig.includes('config.addShortcode("year", function()')).toBe(true);
+    expect(eleventyConfig.includes('config.addPairedShortcode("highlightMyLang", function(content)')).toBe(true);
+    expect(generatedSyntaxModule.includes("export const mylangPortableLanguage =")).toBe(true);
+    expect(generatedSyntaxModule.includes("export const mylangPrimitiveTypes =")).toBe(true);
+    expect(syntaxHighlighter.includes("mylangPrimitiveTypes")).toBe(true);
   });
 
   it("keeps embedded syntax pages using toned-down top-level heading sizes", async () => {
@@ -57,6 +80,8 @@ describe("website project", () => {
     expect(siteCss.includes('font-size: clamp(2.2rem, 5vw, 4rem)')).toBe(true);
     expect(siteCss.includes('.section > h2')).toBe(true);
     expect(siteCss.includes('font-size: clamp(1.6rem, 3vw, 2.4rem)')).toBe(true);
+    expect(siteCss.includes('.cli-layout')).toBe(true);
+    expect(siteCss.includes('.cli-command-list')).toBe(true);
     expect(siteCss.includes('.token-keyword-declaration')).toBe(true);
     expect(siteCss.includes('.syntax-block')).toBe(true);
   });

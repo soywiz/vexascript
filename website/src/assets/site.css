@@ -80,6 +80,12 @@ h3 { font-size: 1.35rem; margin: 0 0 0.6rem; }
 .page-hero p { max-width: 72ch; }
 
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.cli-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
 .card {
   padding: 1.35rem;
   border-radius: 1.3rem;
@@ -88,6 +94,21 @@ h3 { font-size: 1.35rem; margin: 0 0 0.6rem; }
   box-shadow: 0 18px 55px rgba(28, 36, 71, 0.08);
 }
 .alt .card { background: #f7f8ff; }
+.cli-command-list,
+.cli-flag-grid {
+  display: grid;
+  gap: 1rem;
+}
+.cli-command-list p,
+.cli-flag-grid p {
+  margin: 0.45rem 0 0;
+  color: #4f5872;
+}
+.cli-overview code,
+.cli-flags code {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
 
 .code-panel, .editor-shell {
   border-radius: 1.5rem;
@@ -208,6 +229,6 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 .doc-content p,
 .doc-content li { color: #32405f; }
 @media (max-width: 900px) {
-  .hero, .grid, .embed-docs { grid-template-columns: 1fr; }
+  .hero, .grid, .embed-docs, .cli-layout { grid-template-columns: 1fr; }
   .site-header { align-items: flex-start; flex-direction: column; }
 }
