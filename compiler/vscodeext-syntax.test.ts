@@ -56,6 +56,7 @@ describe("VS Code extension syntax highlighting", () => {
 
     expect(keywordPatterns.join(" ")).toContain("let");
     expect(keywordPatterns.join(" ")).toContain("import");
+    expect(keywordPatterns.join(" ")).toContain("export");
     expect(keywordPatterns.join(" ")).toContain("from");
     expect(keywordPatterns.join(" ")).toContain("var");
     expect(keywordPatterns.join(" ")).toContain("val");
@@ -132,5 +133,32 @@ describe("VS Code extension syntax highlighting", () => {
     // Tag names and attribute names get dedicated scopes.
     expect(serialized).toContain("entity.name.tag.mylang");
     expect(serialized).toContain("entity.other.attribute-name.mylang");
+  });
+
+  it("includes richer declaration, type, property, call, and template-string scopes", async () => {
+    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
+    const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {
+      patterns?: Array<{ include?: string }>;
+      repository?: Record<string, { patterns?: Array<{ name?: string; match?: string; include?: string }> }>;
+    };
+
+    const topLevelIncludes = (grammar.patterns ?? []).map((pattern) => pattern.include);
+    expect(topLevelIncludes).toContain("#declarations");
+    expect(topLevelIncludes).toContain("#types");
+    expect(topLevelIncludes).toContain("#members");
+    expect(topLevelIncludes).toContain("#calls");
+
+    const repository = grammar.repository ?? {};
+    expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(function|fun)"))).toBe(true);
+    expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(class|interface|enum|type)"))).toBe(true);
+    expect(repository["types"]?.patterns?.some((pattern) => pattern.name === "entity.name.type.mylang")).toBe(true);
+    expect(repository["members"]?.patterns?.some((pattern) => pattern.name === "variable.other.property.mylang")).toBe(true);
+    expect(repository["calls"]?.patterns?.some((pattern) => pattern.name === "entity.name.function.call.mylang")).toBe(true);
+    expect(repository["template-interpolation"]).toBeDefined();
+
+    const serialized = JSON.stringify(repository);
+    expect(serialized).toContain("string.quoted.template.mylang");
+    expect(serialized).toContain("meta.template.expression.mylang");
+    expect(serialized).toContain("support.type.primitive.mylang");
   });
 });

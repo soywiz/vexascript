@@ -15,6 +15,12 @@
       "include": "#jsx"
     },
     {
+      "include": "#declarations"
+    },
+    {
+      "include": "#types"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -22,6 +28,12 @@
     },
     {
       "include": "#operators"
+    },
+    {
+      "include": "#members"
+    },
+    {
+      "include": "#calls"
     },
     {
       "include": "#identifiers"
@@ -110,6 +122,88 @@
               "match": "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})"
             }
           ]
+        },
+        {
+          "name": "string.quoted.template.mylang",
+          "begin": "`",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.mylang"
+            }
+          },
+          "end": "`",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.mylang"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.mylang",
+              "match": "\\\\(?:[nrt'\"\\\\`$]|u[0-9A-Fa-f]{4})"
+            },
+            {
+              "include": "#template-interpolation"
+            }
+          ]
+        }
+      ]
+    },
+    "template-interpolation": {
+      "name": "meta.template.expression.mylang",
+      "begin": "\\$\\{",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.mylang"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.mylang"
+        }
+      },
+      "patterns": [
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(function|fun)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.mylang"
+            },
+            "2": {
+              "name": "entity.name.function.mylang"
+            }
+          }
+        },
+        {
+          "match": "\\b(class|interface|enum|type)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.mylang"
+            },
+            "2": {
+              "name": "entity.name.type.mylang"
+            }
+          }
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.mylang",
+          "match": "\\b(string|number|boolean|int|long|bigint|numeric|unknown|any|void|never|object)\\b"
+        },
+        {
+          "name": "entity.name.type.mylang",
+          "match": "\\b[A-Z][_$A-Za-z0-9]*\\b"
         }
       ]
     },
@@ -117,7 +211,7 @@
       "patterns": [
         {
           "name": "keyword.declaration.mylang",
-          "match": "\\b(import|from|let|var|val|const|by|function|fun|declare|class|interface|enum|extends|implements|override|readonly|keyof|infer|async|sync)\\b"
+          "match": "\\b(import|export|from|let|var|val|const|by|function|fun|declare|class|interface|enum|extends|implements|override|readonly|keyof|infer|async|sync)\\b"
         },
         {
           "name": "keyword.control.mylang",
@@ -178,6 +272,26 @@
         {
           "name": "keyword.operator.assignment.mylang",
           "match": "="
+        }
+      ]
+    },
+    "members": {
+      "patterns": [
+        {
+          "name": "variable.other.property.mylang",
+          "match": "\\b[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*:)"
+        },
+        {
+          "name": "variable.other.property.mylang",
+          "match": "(?<=\\.)[_$A-Za-z][_$A-Za-z0-9]*\\b"
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "name": "entity.name.function.call.mylang",
+          "match": "(?<!\\.)\\b(?!(?:import|export|from|let|var|val|const|by|function|fun|declare|class|interface|enum|extends|implements|override|readonly|keyof|infer|async|sync|if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new|in|is|instanceof|typeof|void|delete|await|yield|type|fn|true|false|null|undefined|string|number|boolean|int|long|bigint|numeric|unknown|any|void|never|object)\\b)[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*\\()"
         }
       ]
     },

@@ -1,5 +1,5 @@
 export const MYLANG_KEYWORD_DECLARATIONS = [
-  "import", "from", "let", "var", "val", "const", "by", "function", "fun",
+  "import", "export", "from", "let", "var", "val", "const", "by", "function", "fun",
   "declare", "class", "interface", "enum", "extends", "implements",
   "override", "readonly", "keyof", "infer", "async", "sync"
 ] as const;
@@ -13,6 +13,10 @@ export const MYLANG_KEYWORD_CONTROLS = [
 
 export const MYLANG_STORAGE_TYPES = ["type", "fn"] as const;
 export const MYLANG_CONSTANTS = ["true", "false", "null", "undefined"] as const;
+export const MYLANG_PRIMITIVE_TYPES = [
+  "string", "number", "boolean", "int", "long", "bigint", "numeric",
+  "unknown", "any", "void", "never", "object"
+] as const;
 
 export const SYNTAX_TARGETS = [
   "monaco",
@@ -158,6 +162,13 @@ export function createPortableLanguageConfiguration(): PortableLanguageConfigura
 }
 
 export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
+  const keywordAlternation = [
+    ...MYLANG_KEYWORD_DECLARATIONS,
+    ...MYLANG_KEYWORD_CONTROLS,
+    ...MYLANG_STORAGE_TYPES,
+    ...MYLANG_CONSTANTS,
+    ...MYLANG_PRIMITIVE_TYPES
+  ].join("|");
   return {
     name: "MyLang",
     scopeName: "source.mylang",
@@ -166,9 +177,13 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       { include: "#strings" },
       { include: "#regexps" },
       { include: "#jsx" },
+      { include: "#declarations" },
+      { include: "#types" },
       { include: "#keywords" },
       { include: "#numbers" },
       { include: "#operators" },
+      { include: "#members" },
+      { include: "#calls" },
       { include: "#identifiers" },
     ],
     repository: {
@@ -213,7 +228,56 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
             endCaptures: { "0": { name: "punctuation.definition.string.end.mylang" } },
             patterns: [{ name: "constant.character.escape.mylang", match: "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})" }],
           },
+          {
+            name: "string.quoted.template.mylang",
+            begin: "`",
+            beginCaptures: { "0": { name: "punctuation.definition.string.begin.mylang" } },
+            end: "`",
+            endCaptures: { "0": { name: "punctuation.definition.string.end.mylang" } },
+            patterns: [
+              { name: "constant.character.escape.mylang", match: "\\\\(?:[nrt'\"\\\\`$]|u[0-9A-Fa-f]{4})" },
+              { include: "#template-interpolation" }
+            ],
+          },
         ],
+      },
+      "template-interpolation": {
+        name: "meta.template.expression.mylang",
+        begin: "\\$\\{",
+        beginCaptures: { "0": { name: "punctuation.section.embedded.begin.mylang" } },
+        end: "\\}",
+        endCaptures: { "0": { name: "punctuation.section.embedded.end.mylang" } },
+        patterns: [{ include: "$self" }],
+      },
+      declarations: {
+        patterns: [
+          {
+            match: "\\b(function|fun)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
+            captures: {
+              "1": { name: "keyword.declaration.mylang" },
+              "2": { name: "entity.name.function.mylang" }
+            }
+          },
+          {
+            match: "\\b(class|interface|enum|type)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
+            captures: {
+              "1": { name: "storage.type.mylang" },
+              "2": { name: "entity.name.type.mylang" }
+            }
+          }
+        ]
+      },
+      types: {
+        patterns: [
+          {
+            name: "support.type.primitive.mylang",
+            match: `\\b(${MYLANG_PRIMITIVE_TYPES.join("|")})\\b`
+          },
+          {
+            name: "entity.name.type.mylang",
+            match: "\\b[A-Z][_$A-Za-z0-9]*\\b"
+          }
+        ]
       },
       keywords: {
         patterns: [
@@ -238,6 +302,20 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
           { name: "keyword.operator.bitwise.mylang", match: "(&|\\||\\^)" },
           { name: "keyword.operator.assignment.mylang", match: "=" },
         ],
+      },
+      members: {
+        patterns: [
+          { name: "variable.other.property.mylang", match: "\\b[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*:)" },
+          { name: "variable.other.property.mylang", match: "(?<=\\.)[_$A-Za-z][_$A-Za-z0-9]*\\b" }
+        ]
+      },
+      calls: {
+        patterns: [
+          {
+            name: "entity.name.function.call.mylang",
+            match: `(?<!\\.)\\b(?!(?:${keywordAlternation})\\b)[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*\\()`
+          }
+        ]
       },
       identifiers: {
         patterns: [{ name: "variable.other.mylang", match: "\\b[_A-Za-z][_A-Za-z0-9]*\\b" }],

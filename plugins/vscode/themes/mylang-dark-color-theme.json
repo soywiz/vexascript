@@ -3,6 +3,21 @@
   "type": "dark",
   "tokenColors": [
     {
+      "scope": [
+        "comment.line.double-slash.mylang",
+        "comment.block.mylang"
+      ],
+      "settings": {
+        "foreground": "#6A9955"
+      }
+    },
+    {
+      "scope": "comment.line.documentation.mylang",
+      "settings": {
+        "foreground": "#608B4E"
+      }
+    },
+    {
       "scope": "keyword.declaration.mylang",
       "settings": {
         "foreground": "#569CD6"
@@ -24,6 +39,61 @@
       "scope": "constant.language.mylang",
       "settings": {
         "foreground": "#569CD6"
+      }
+    },
+    {
+      "scope": [
+        "support.type.primitive.mylang",
+        "entity.name.type.mylang"
+      ],
+      "settings": {
+        "foreground": "#4EC9B0"
+      }
+    },
+    {
+      "scope": [
+        "entity.name.function.mylang",
+        "entity.name.function.call.mylang"
+      ],
+      "settings": {
+        "foreground": "#DCDCAA"
+      }
+    },
+    {
+      "scope": "variable.other.property.mylang",
+      "settings": {
+        "foreground": "#9CDCFE"
+      }
+    },
+    {
+      "scope": [
+        "string.quoted.double.mylang",
+        "string.quoted.single.mylang",
+        "string.quoted.template.mylang"
+      ],
+      "settings": {
+        "foreground": "#CE9178"
+      }
+    },
+    {
+      "scope": "string.regexp.mylang",
+      "settings": {
+        "foreground": "#D16969"
+      }
+    },
+    {
+      "scope": "constant.numeric.integer.mylang",
+      "settings": {
+        "foreground": "#B5CEA8"
+      }
+    },
+    {
+      "scope": [
+        "punctuation.section.embedded.begin.mylang",
+        "punctuation.section.embedded.end.mylang"
+      ],
+      "settings": {
+        "foreground": "#C586C0"
       }
     },
     {
