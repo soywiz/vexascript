@@ -1,5 +1,5 @@
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { Node, Program, UnaryExpression } from "compiler/ast/ast";
+import type { CallExpression, MemberExpression, Node, Program, UnaryExpression } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import type { Range } from "vscode-languageserver/node.js";
 
@@ -29,16 +29,32 @@ function nodeRange(node: Node): AutoAwaitDecoration["range"] | null {
   if (!node.firstToken || !node.lastToken) {
     return null;
   }
+  const anchorToken = autoAwaitAnchorToken(node);
   return {
     start: {
-      line: node.firstToken.range.start.line,
-      character: node.firstToken.range.start.column
+      line: anchorToken.range.start.line,
+      character: anchorToken.range.start.column
     },
     end: {
       line: node.lastToken.range.end.line,
       character: node.lastToken.range.end.column
     }
   };
+}
+
+function autoAwaitAnchorToken(node: Node) {
+  if (
+    node.kind === "CallExpression" &&
+    (node as CallExpression).callee.kind === "MemberExpression"
+  ) {
+    const member = (node as CallExpression).callee as MemberExpression;
+    return member.property.firstToken ?? node.firstToken!;
+  }
+  if (node.kind === "MemberExpression") {
+    const member = node as MemberExpression;
+    return member.property.firstToken ?? node.firstToken!;
+  }
+  return node.firstToken!;
 }
 
 /**

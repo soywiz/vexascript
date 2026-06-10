@@ -66,6 +66,23 @@ describe("auto-await decorations", () => {
     expect(decorations[0]!.range.start.line).toBe(3);
   });
 
+  it("anchors chained implicit awaits to the line of the chained member call", () => {
+    const source = dedent`
+      declare class Fetch { arrayBuffer(): Promise<ArrayBuffer> }
+      declare fun fetch(path: string): Promise<Fetch>
+      sync fun loadBytes(): Uint8Array {
+        val res = fetch("file.bin")
+          .arrayBuffer()
+        return Uint8Array(res)
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
+
+    expect(decorations.map((decoration) => decoration.range.start.line)).toEqual([3, 4]);
+  });
+
   it("does not mark go-protected expressions, local references, or non-sync functions", () => {
     const source = dedent`
       async fun fetchValue(): Promise<int> { return 1 }
