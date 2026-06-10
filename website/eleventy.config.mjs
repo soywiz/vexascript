@@ -11,7 +11,7 @@ export default function eleventyConfig(config) {
   config.addPassthroughCopy({ "src/assets/site.css": "assets/site.css" });
 
   config.addShortcode("year", () => String(new Date().getUTCFullYear()));
-  config.addPairedShortcode("highlightMyLang", (content) => renderHighlightedCodeBlock(String(content), "mylang"));
+  config.addPairedShortcode("highlightMyLang", (content) => renderHighlightedCodeBlock(String(content).trim(), "mylang"));
   config.addGlobalData("syntaxDocumentHtml", async () => {
     const syntaxDocument = await loadSyntaxDocument(projectRoot);
     return renderMarkdownDocument(syntaxDocument);
