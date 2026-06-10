@@ -19,7 +19,7 @@ This section is the fast onboarding map for agents and contributors.
   - Source location tests: `compiler/sourceLocations.test.ts`
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface and local Node-backed implementation, injectable into compiler project services that need file reads: `compiler/vfs.ts`
-  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` or `.ts` file), used by the semantic project index and the LSP cross-file features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
+  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
   - Project configuration loading from package.json dependencies and tsconfig.json JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
@@ -115,7 +115,7 @@ This section is the fast onboarding map for agents and contributors.
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, and rename operations to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`
-  - Completion: `compiler/lsp/completion.ts`
+  - Completion, including member/extension completion over imports resolved through the shared module resolver: `compiler/lsp/completion.ts`
   - Diagnostics: `compiler/lsp/diagnostics.ts`
   - Cross-file type diagnostics: `compiler/lsp/crossFileTypeDiagnostics.ts`
   - Member diagnostics: `compiler/lsp/memberDiagnostics.ts`
