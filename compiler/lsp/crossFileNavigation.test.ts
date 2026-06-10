@@ -8,7 +8,7 @@ import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
-import { collectImportedTypeDeclarations } from "./importedDeclarations";
+import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveDefinitionAcrossFiles,
   resolveMemberHoverAcrossFiles,
@@ -325,6 +325,68 @@ describe("cross-file navigation", () => {
     expect(hover?.range).toEqual({
       start: { line: 3, character: 8 },
       end: { line: 3, character: 9 }
+    });
+  });
+
+  it("resolves definition and hover for imported object type alias members", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
+    const scenariosPath = join(root, "scenarios.my");
+    const mainPath = join(root, "main.my");
+
+    const scenariosSource = dedent`
+      export type Scenario = {
+        label: string,
+        source: string,
+        showTree?: boolean
+      }
+    `;
+    const mainSource = dedent`
+      import { Scenario } from "./scenarios.my"
+      function lex(source: string) {}
+      function summarizeScenario(scenario: Scenario): string {
+        const tokens = lex(scenario.source)
+      }
+    `;
+
+    await writeFile(scenariosPath, scenariosSource, "utf8");
+    await writeFile(mainPath, mainSource, "utf8");
+
+    const baseSession = createAnalysisSession(mainSource);
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root]
+    });
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+
+    const definition = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 3,
+      character: mainSource.split("\n")[3]!.indexOf(".source") + 2,
+      session,
+      sourceRoots: [root]
+    });
+    const hover = await resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 3,
+      character: mainSource.split("\n")[3]!.indexOf(".source") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(definition).toEqual({
+      uri: pathToFileURL(scenariosPath).toString(),
+      range: {
+        start: { line: 2, character: 2 },
+        end: { line: 2, character: 8 }
+      }
+    });
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "member { label: string, source: string, showTree: boolean | undefined }.source: string"
     });
   });
 

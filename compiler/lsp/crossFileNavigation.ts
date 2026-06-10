@@ -2,6 +2,11 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { candidateImportTargetFilePaths, resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import {
+  findMatchingTypeDelimiter,
+  findTopLevelTypeCharacter,
+  splitTopLevelDelimitedTypeText
+} from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
@@ -42,6 +47,7 @@ import type {
   SwitchStatement,
   ThrowStatement,
   TryStatement,
+  TypeAliasStatement,
   UnaryExpression,
   UpdateExpression,
   VarStatement,
@@ -117,6 +123,12 @@ interface ClassMemberInfo {
 }
 
 type TypeLikeDeclaration = ClassStatement | InterfaceStatement;
+
+interface ObjectTypeMemberInfo {
+  memberName: string;
+  typeLabel: string;
+  kind: "field" | "method";
+}
 const TYPE_ANNOTATION_KEYS = new Set([
   "typeAnnotation",
   "returnType",
@@ -532,6 +544,55 @@ async function fallbackInterfaceMemberRangeInFile(
   return null;
 }
 
+async function fallbackTypeAliasMemberRangeInFile(
+  filePath: string,
+  typeAliasName: string,
+  memberName: string
+): Promise<{ start: { line: number; character: number }; end: { line: number; character: number } } | null> {
+  const source = await readFile(filePath, "utf8");
+  const lines = source.split("\n");
+  const typePattern = new RegExp(`\\btype\\s+${typeAliasName}\\b`);
+  const memberPattern = new RegExp(`\\b${memberName}\\b`);
+
+  let typeLine = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (typePattern.test(lines[i] ?? "")) {
+      typeLine = i;
+      break;
+    }
+  }
+  if (typeLine < 0) {
+    return null;
+  }
+
+  let braceDepth = 0;
+  let enteredBody = false;
+  for (let i = typeLine; i < lines.length; i += 1) {
+    const lineText = lines[i] ?? "";
+    for (const char of lineText) {
+      if (char === "{") {
+        braceDepth += 1;
+        enteredBody = true;
+      } else if (char === "}") {
+        braceDepth -= 1;
+      }
+    }
+    if (enteredBody && braceDepth <= 0) {
+      break;
+    }
+    const match = memberPattern.exec(lineText);
+    if (!match) {
+      continue;
+    }
+    return {
+      start: { line: i, character: match.index },
+      end: { line: i, character: match.index + memberName.length }
+    };
+  }
+
+  return null;
+}
+
 function functionTypeLabelFromParameters(
   parameters: FunctionParameter[],
   returnTypeName?: string
@@ -620,6 +681,62 @@ function classMemberInfoByName(
   return null;
 }
 
+function parseObjectTypeMemberInfo(
+  objectTypeText: string,
+  memberName: string
+): ObjectTypeMemberInfo | null {
+  const targetTypeText = objectTypeText.trim();
+  if (!targetTypeText.startsWith("{") || !targetTypeText.endsWith("}")) {
+    return null;
+  }
+
+  const body = targetTypeText.slice(1, -1).trim();
+  if (body.length === 0) {
+    return null;
+  }
+
+  for (const entry of splitTopLevelDelimitedTypeText(body, new Set([",", ";"]))) {
+    const trimmedEntry = entry.trim();
+    if (trimmedEntry.length === 0) {
+      continue;
+    }
+
+    const methodOpenParen = findTopLevelTypeCharacter(trimmedEntry, "(");
+    const propertyColon = findTopLevelTypeCharacter(trimmedEntry, ":");
+    if (methodOpenParen >= 0 && (propertyColon < 0 || methodOpenParen < propertyColon)) {
+      const closeParen = findMatchingTypeDelimiter(trimmedEntry, methodOpenParen, "(", ")");
+      const arrowIndex = closeParen >= 0 ? trimmedEntry.indexOf("=>", closeParen) : -1;
+      if (closeParen < 0 || arrowIndex < 0) {
+        continue;
+      }
+      const candidateName = trimmedEntry.slice(0, methodOpenParen).trim().replace(/\?$/, "");
+      if (candidateName !== memberName) {
+        continue;
+      }
+      return {
+        memberName,
+        kind: "method",
+        typeLabel: trimmedEntry.slice(methodOpenParen).trim()
+      };
+    }
+
+    if (propertyColon < 0) {
+      continue;
+    }
+    const candidateName = trimmedEntry.slice(0, propertyColon).trim().replace(/\?$/, "");
+    if (candidateName !== memberName) {
+      continue;
+    }
+    return {
+      memberName,
+      kind: "field",
+      typeLabel: trimmedEntry.slice(propertyColon + 1).trim()
+    };
+  }
+
+  return null;
+}
+
 async function resolveTypeDefinitionAcrossFiles(
   context: ResolveContext,
   typeName: string
@@ -636,6 +753,38 @@ async function resolveTypeDefinitionAcrossFiles(
     currentFilePath,
     predicate: (statement): statement is TypeLikeDeclaration =>
       statement.kind === "ClassStatement" || statement.kind === "InterfaceStatement",
+    includeRuntime: true,
+    sourceRoots: roots,
+    ...(context.getSessionForFilePath
+      ? { getSessionForFilePath: context.getSessionForFilePath }
+      : {})
+  });
+
+  if (!resolved) {
+    return null;
+  }
+
+  return {
+    declaration: resolved.declaration,
+    filePath: resolved.filePath === "" ? await getEcmaScriptRuntimeDeclarationFilePath() : resolved.filePath
+  };
+}
+
+async function resolveTypeAliasDefinitionAcrossFiles(
+  context: ResolveContext,
+  typeName: string
+): Promise<{ declaration: TypeAliasStatement; filePath: string } | null> {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath || !context.session.ast) {
+    return null;
+  }
+
+  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
+  const resolved = await resolveTopLevelDeclarationAcrossFiles({
+    ast: context.session.ast,
+    name: typeName,
+    currentFilePath,
+    predicate: (statement): statement is TypeAliasStatement => statement.kind === "TypeAliasStatement",
     includeRuntime: true,
     sourceRoots: roots,
     ...(context.getSessionForFilePath
@@ -989,23 +1138,24 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
-  if (
-    !objectType ||
-    (objectType.kind !== "named" && objectType.kind !== "array" && objectType.kind !== "builtin")
-  ) {
+  if (!objectType) {
     return null;
   }
 
   const memberName = (memberExpression.property as Identifier).name;
+  const objectTypeLabel = typeToString(objectType);
+  const structuralMember = parseObjectTypeMemberInfo(objectTypeLabel, memberName);
 
   // Candidate receiver type names to match against, mirroring the type checker's
   // extension lookup (e.g. an `int` literal also matches extensions on `number`).
   const receiverTypeNames =
     objectType.kind === "array"
       ? ["Array"]
-      : objectType.name === "int"
+      : (objectType.kind === "named" || objectType.kind === "builtin") && objectType.name === "int"
         ? ["int", "number"]
-        : [objectType.name];
+        : objectType.kind === "named" || objectType.kind === "builtin"
+          ? [objectType.name]
+          : [];
 
   // A member access on a concrete class/interface may resolve to one of its own
   // members first.
@@ -1044,6 +1194,76 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
           uri: pathToUri(memberFilePath),
           range
         };
+      }
+    }
+
+    const typeAliasResolution = await resolveTypeAliasDefinitionAcrossFiles(context, receiverTypeNames[0]!);
+    if (typeAliasResolution) {
+      const range = await fallbackTypeAliasMemberRangeInFile(
+        typeAliasResolution.filePath,
+        typeAliasResolution.declaration.name.name,
+        memberName
+      );
+      if (range) {
+        return {
+          uri: pathToUri(typeAliasResolution.filePath),
+          range
+        };
+      }
+    }
+  }
+
+  if (structuralMember && objectType.kind === "named") {
+    const typeAliasResolution = await resolveTypeAliasDefinitionAcrossFiles(context, objectType.name);
+    if (typeAliasResolution) {
+      const range = await fallbackTypeAliasMemberRangeInFile(
+        typeAliasResolution.filePath,
+        typeAliasResolution.declaration.name.name,
+        memberName
+      );
+      if (range) {
+        return {
+          uri: pathToUri(typeAliasResolution.filePath),
+          range
+        };
+      }
+    }
+  }
+
+  if (structuralMember) {
+    for (const statement of context.session.ast.body) {
+      if (statement.kind !== "ImportStatement") {
+        continue;
+      }
+      const importStatement = statement as ImportStatement;
+      const targetFilePath = await resolveImportTargetInContext(
+        uriToFilePath(context.uri)!,
+        importStatement.from.value,
+        context
+      );
+      if (!targetFilePath) {
+        continue;
+      }
+      const targetSession = await getSessionForFilePath(targetFilePath, context);
+      if (!targetSession?.ast) {
+        continue;
+      }
+      for (const targetStatement of targetSession.ast.body) {
+        const declaration = unwrapExportedDeclaration(targetStatement);
+        if (!declaration || declaration.kind !== "TypeAliasStatement") {
+          continue;
+        }
+        const candidateRange = await fallbackTypeAliasMemberRangeInFile(
+          targetFilePath,
+          (declaration as TypeAliasStatement).name.name,
+          memberName
+        );
+        if (candidateRange) {
+          return {
+            uri: pathToUri(targetFilePath),
+            range: candidateRange
+          };
+        }
       }
     }
   }
@@ -1669,17 +1889,30 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
   }
 
   const objectType = context.session.analysis.getExpressionTypes().get(memberExpression.object);
-  if (!objectType || (objectType.kind !== "named" && objectType.kind !== "array")) {
-    return null;
-  }
-
-  const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
-  const classResolution = await resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
-  if (!classResolution) {
+  if (!objectType) {
     return null;
   }
 
   const memberName = (memberExpression.property as Identifier).name;
+  const objectTypeLabel = typeToString(objectType);
+  const structuralMember = parseObjectTypeMemberInfo(objectTypeLabel, memberName);
+  const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.kind === "named" ? objectType.name : null;
+  const classResolution = resolvedClassName
+    ? await resolveTypeDefinitionAcrossFiles(context, resolvedClassName)
+    : null;
+  if (!classResolution) {
+    if (!structuralMember) {
+      return null;
+    }
+    const memberRange = nodeRange(memberExpression.property) ?? nodeRange(memberExpression);
+    return {
+      contents: {
+        kind: "plaintext",
+        value: `${structuralMember.kind === "method" ? "method" : "member"} ${objectTypeLabel}.${memberName}: ${structuralMember.typeLabel}`
+      },
+      ...(memberRange ? { range: memberRange } : {})
+    };
+  }
   const resolvedMember = classResolution.declaration.kind === "ClassStatement"
     ? await resolveClassMember(
       classResolution.declaration,
@@ -1714,16 +1947,18 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
       }
     );
   const fallbackMember = classMemberInfoByName(classResolution.declaration, memberName);
-  if (!resolvedMember && !fallbackMember) {
+  if (!resolvedMember && !fallbackMember && !structuralMember) {
     return null;
   }
-  const prefix = (resolvedMember?.kind ?? (fallbackMember?.sourceKind === "method" ? "method" : "field")) === "method" ? "method" : "member";
+  const resolvedKind = resolvedMember?.kind
+    ?? (fallbackMember?.sourceKind === "method" ? "method" : fallbackMember ? "field" : structuralMember?.kind);
+  const prefix = resolvedKind === "method" ? "method" : "member";
 
   const memberRange = nodeRange(memberExpression.property) ?? nodeRange(memberExpression);
   return {
     contents: {
       kind: "plaintext",
-      value: `${prefix} ${typeToString(objectType)}.${memberName}: ${resolvedMember?.typeName ?? fallbackMember!.typeLabel}`
+      value: `${prefix} ${objectTypeLabel}.${memberName}: ${resolvedMember?.typeName ?? fallbackMember?.typeLabel ?? structuralMember!.typeLabel}`
     },
     ...(memberRange ? { range: memberRange } : {})
   };
