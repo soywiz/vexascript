@@ -8,6 +8,7 @@ import type { ParserOptions } from "compiler/parser/parser";
 import { basename, extname } from "node:path";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
 import {
+  createEmitProgramRuntimeSeed,
   createEmitProgramRuntimeContext,
   emitProgramStatementPairs,
   type EmitOptions
@@ -127,6 +128,7 @@ export interface TranspileOptions {
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+let cachedEcmaScriptRuntimeEmitSeed: ReturnType<typeof createEmitProgramRuntimeSeed> | null = null;
 
 function toVlqSigned(value: number): number {
   if (value < 0) {
@@ -198,9 +200,10 @@ function emitProgramStatementSegments(
   autoAwaitExpressions: ReadonlySet<Node>,
   contextProgram: Program = program,
   emitOptions: EmitOptions = {},
-  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
+  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
+  baseRuntimeSeed?: ReturnType<typeof createEmitProgramRuntimeSeed>
 ): { statement: Statement; emitted: string }[] {
-  const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions);
+  const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions, baseRuntimeSeed);
   return emitProgramStatementPairs(
     program,
     expressionTypes,
@@ -356,11 +359,11 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   // built-in, ambient, and imported declarations lets the emitter lower calls
   // (`Point(...)` / `Uint8Array(...)` -> `new ...(...)`), operators and
   // extension properties that resolve outside the source file.
-  const runtimeDeclarations = getEcmaScriptRuntimeProgram().body;
+  const runtimeProgram = getEcmaScriptRuntimeProgram();
+  cachedEcmaScriptRuntimeEmitSeed ??= createEmitProgramRuntimeSeed(runtimeProgram);
   const contextProgram: Program = {
     ...programForEmission,
     body: [
-      ...runtimeDeclarations,
       ...ambientDeclarations,
       ...externalDeclarations,
       ...programForEmission.body
@@ -380,7 +383,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     },
-    staticImplicitReceiverIdentifiers
+    staticImplicitReceiverIdentifiers,
+    cachedEcmaScriptRuntimeEmitSeed
   );
   const emittedWithOffsets = options.preserveSourceLineOffsets
     ? emitSegmentsWithSourceLineOffsets(emittedSegments)

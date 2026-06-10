@@ -1713,6 +1713,22 @@ interface EmitProgramRuntimeContext {
   jsxFragmentFactory: string;
 }
 
+interface EmitProgramRuntimeSeed {
+  overloadBuckets: Map<string, FunctionStatement[]>;
+  operators: Map<string, RuntimeOperatorInfo[]>;
+  extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
+  importedExtensionRuntimeNames: Map<string, string[]>;
+  extensionProperties: Map<string, string>;
+  classNames: Set<string>;
+  interfaceNames: Set<string>;
+  interfaceMembers: Map<string, InterfaceStatement["members"]>;
+  interfaceMethodNames: Map<string, Set<string>>;
+  constructableCandidates: Array<{ variableName: string; typeName: string }>;
+  parameterNames: Map<string, string[]>;
+  javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
+  jsNames: Map<string, string>;
+}
+
 function appendMapArrayValue<T>(map: Map<string, T[]>, key: string, value: T): void {
   const existing = map.get(key);
   if (existing) {
@@ -1733,11 +1749,33 @@ function appendUniqueMapArrayValue(map: Map<string, string[]>, key: string, valu
   map.set(key, [value]);
 }
 
-function collectEmitProgramRuntimeContext(
-  contextProgram: Program,
-  expressionTypes?: ReadonlyMap<Node, AnalysisType>,
-  options: EmitOptions = {}
-): EmitProgramRuntimeContext {
+function cloneMapArrayValues<T>(map: Map<string, T[]>): Map<string, T[]> {
+  return new Map(Array.from(map.entries(), ([key, values]) => [key, [...values]]));
+}
+
+function cloneSetMapValues<T>(map: Map<string, Set<T>>): Map<string, Set<T>> {
+  return new Map(Array.from(map.entries(), ([key, values]) => [key, new Set(values)]));
+}
+
+function cloneRuntimeSeed(seed: EmitProgramRuntimeSeed): EmitProgramRuntimeSeed {
+  return {
+    overloadBuckets: cloneMapArrayValues(seed.overloadBuckets),
+    operators: cloneMapArrayValues(seed.operators),
+    extensionMethods: cloneMapArrayValues(seed.extensionMethods),
+    importedExtensionRuntimeNames: cloneMapArrayValues(seed.importedExtensionRuntimeNames),
+    extensionProperties: new Map(seed.extensionProperties),
+    classNames: new Set(seed.classNames),
+    interfaceNames: new Set(seed.interfaceNames),
+    interfaceMembers: new Map(seed.interfaceMembers),
+    interfaceMethodNames: cloneSetMapValues(seed.interfaceMethodNames),
+    constructableCandidates: [...seed.constructableCandidates],
+    parameterNames: cloneMapArrayValues(seed.parameterNames),
+    javaScriptImplementations: new Map(seed.javaScriptImplementations),
+    jsNames: new Map(seed.jsNames)
+  };
+}
+
+export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgramRuntimeSeed {
   const overloadBuckets = new Map<string, FunctionStatement[]>();
   const operators = new Map<string, RuntimeOperatorInfo[]>();
   const extensionMethods = new Map<string, RuntimeExtensionMethodInfo[]>();
@@ -1747,20 +1785,12 @@ function collectEmitProgramRuntimeContext(
   const interfaceNames = new Set<string>();
   const interfaceMembers = new Map<string, InterfaceStatement["members"]>();
   const interfaceMethodNames = new Map<string, Set<string>>();
-  const constructableOnlyNames = new Set<string>();
   const constructableCandidates: Array<{ variableName: string; typeName: string }> = [];
   const parameterNames = new Map<string, string[]>();
   const javaScriptImplementations = new Map<string, JavaScriptImplementationInfo>();
   const jsNames = new Map<string, string>();
-  const importedNames = new Set<string>();
 
   for (const statement of contextProgram.body) {
-    if (statement.kind === "ImportStatement") {
-      for (const specifier of (statement as ImportStatement).specifiers) {
-        importedNames.add((specifier.local ?? specifier.imported).name);
-      }
-    }
-
     const candidate = unwrapExportedDeclaration(statement);
     if (!candidate) {
       continue;
@@ -1885,6 +1915,110 @@ function collectEmitProgramRuntimeContext(
     }
   }
 
+  return {
+    overloadBuckets,
+    operators,
+    extensionMethods,
+    importedExtensionRuntimeNames,
+    extensionProperties,
+    classNames,
+    interfaceNames,
+    interfaceMembers,
+    interfaceMethodNames,
+    constructableCandidates,
+    parameterNames,
+    javaScriptImplementations,
+    jsNames
+  };
+}
+
+function collectEmitProgramRuntimeContext(
+  contextProgram: Program,
+  expressionTypes?: ReadonlyMap<Node, AnalysisType>,
+  options: EmitOptions = {},
+  baseSeed?: EmitProgramRuntimeSeed
+): EmitProgramRuntimeContext {
+  const seed = baseSeed ? cloneRuntimeSeed(baseSeed) : createEmitProgramRuntimeSeed({ ...contextProgram, body: [] });
+  const overloadBuckets = seed.overloadBuckets;
+  const operators = seed.operators;
+  const extensionMethods = seed.extensionMethods;
+  const importedExtensionRuntimeNames = seed.importedExtensionRuntimeNames;
+  const extensionProperties = seed.extensionProperties;
+  const classNames = seed.classNames;
+  const interfaceNames = seed.interfaceNames;
+  const interfaceMembers = seed.interfaceMembers;
+  const interfaceMethodNames = seed.interfaceMethodNames;
+  const constructableOnlyNames = new Set<string>();
+  const constructableCandidates = seed.constructableCandidates;
+  const parameterNames = seed.parameterNames;
+  const javaScriptImplementations = seed.javaScriptImplementations;
+  const jsNames = seed.jsNames;
+  const importedNames = new Set<string>();
+
+  for (const statement of contextProgram.body) {
+    if (statement.kind === "ImportStatement") {
+      for (const specifier of (statement as ImportStatement).specifiers) {
+        importedNames.add((specifier.local ?? specifier.imported).name);
+      }
+    }
+
+    const statementSeed = createEmitProgramRuntimeSeed({ ...contextProgram, body: [statement] });
+    for (const [name, functions] of statementSeed.overloadBuckets) {
+      const existing = overloadBuckets.get(name);
+      if (existing) {
+        existing.push(...functions);
+      } else {
+        overloadBuckets.set(name, [...functions]);
+      }
+    }
+    for (const [key, values] of statementSeed.operators) {
+      for (const value of values) {
+        appendMapArrayValue(operators, key, value);
+      }
+    }
+    for (const [key, values] of statementSeed.extensionMethods) {
+      for (const value of values) {
+        appendMapArrayValue(extensionMethods, key, value);
+      }
+    }
+    for (const [key, values] of statementSeed.importedExtensionRuntimeNames) {
+      for (const value of values) {
+        appendUniqueMapArrayValue(importedExtensionRuntimeNames, key, value);
+      }
+    }
+    for (const [key, value] of statementSeed.extensionProperties) {
+      extensionProperties.set(key, value);
+    }
+    for (const value of statementSeed.classNames) {
+      classNames.add(value);
+    }
+    for (const value of statementSeed.interfaceNames) {
+      interfaceNames.add(value);
+    }
+    for (const [key, value] of statementSeed.interfaceMembers) {
+      interfaceMembers.set(key, value);
+    }
+    for (const [key, values] of statementSeed.interfaceMethodNames) {
+      const existing = interfaceMethodNames.get(key) ?? new Set<string>();
+      for (const value of values) {
+        existing.add(value);
+      }
+      interfaceMethodNames.set(key, existing);
+    }
+    constructableCandidates.push(...statementSeed.constructableCandidates);
+    for (const [key, value] of statementSeed.parameterNames) {
+      if (!parameterNames.has(key)) {
+        parameterNames.set(key, value);
+      }
+    }
+    for (const [key, value] of statementSeed.javaScriptImplementations) {
+      javaScriptImplementations.set(key, value);
+    }
+    for (const [key, value] of statementSeed.jsNames) {
+      jsNames.set(key, value);
+    }
+  }
+
   for (const candidate of constructableCandidates) {
     const methodNames = interfaceMethodNames.get(candidate.typeName);
     if (methodNames?.has("constructor") && !methodNames.has("call") && candidate.variableName !== "Boolean") {
@@ -1954,9 +2088,10 @@ export interface EmittedProgramStatement {
 export function createEmitProgramRuntimeContext(
   contextProgram: Program,
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
-  options: EmitOptions = {}
+  options: EmitOptions = {},
+  baseSeed?: EmitProgramRuntimeSeed
 ): EmitProgramRuntimeContext {
-  return collectEmitProgramRuntimeContext(contextProgram, expressionTypes, options);
+  return collectEmitProgramRuntimeContext(contextProgram, expressionTypes, options, baseSeed);
 }
 
 export function emitProgramStatements(
