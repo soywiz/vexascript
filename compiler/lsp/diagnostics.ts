@@ -8,7 +8,7 @@ import { createAnalysisSession } from "./analysisSession";
 import {
   classifySemanticDiagnosticMessage,
   mapAnalysisIssueCodeToDiagnosticCode,
-  MYLANG_DIAGNOSTIC_CODES
+  VEXA_DIAGNOSTIC_CODES
 } from "./diagnosticCodes";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
 
@@ -33,7 +33,7 @@ export function collectDiagnosticsFromSession(
   for (const issue of session.parserErrors) {
     const token = issue.token;
     diagnostics.push({
-      code: MYLANG_DIAGNOSTIC_CODES.PARSER_ERROR,
+      code: VEXA_DIAGNOSTIC_CODES.PARSER_ERROR,
       severity: DiagnosticSeverity.Error,
       range: token
         ? {
@@ -48,13 +48,13 @@ export function collectDiagnosticsFromSession(
           }
         : fallbackRange(),
       message: issue.message,
-      source: "mylang-ls"
+      source: "vexa-ls"
     });
   }
 
   if (session.tokenizeError) {
     diagnostics.push({
-      code: MYLANG_DIAGNOSTIC_CODES.TOKENIZE_ERROR,
+      code: VEXA_DIAGNOSTIC_CODES.TOKENIZE_ERROR,
       severity: DiagnosticSeverity.Error,
       range: {
         start: {
@@ -67,17 +67,17 @@ export function collectDiagnosticsFromSession(
         }
       },
       message: session.tokenizeError.message,
-      source: "mylang-ls"
+      source: "vexa-ls"
     });
   }
 
   if (session.fatalError) {
     diagnostics.push({
-      code: MYLANG_DIAGNOSTIC_CODES.FATAL_ERROR,
+      code: VEXA_DIAGNOSTIC_CODES.FATAL_ERROR,
       severity: DiagnosticSeverity.Error,
       range: fallbackRange(),
       message: session.fatalError,
-      source: "mylang-ls"
+      source: "vexa-ls"
     });
   }
 
@@ -91,7 +91,7 @@ export function collectDiagnosticsFromSession(
         code:
           mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
           classifySemanticDiagnosticMessage(issue.message) ??
-          MYLANG_DIAGNOSTIC_CODES.SEMANTIC_ERROR,
+          VEXA_DIAGNOSTIC_CODES.SEMANTIC_ERROR,
         severity: DiagnosticSeverity.Error,
         range: issue.range ?? {
           start: {
@@ -104,7 +104,7 @@ export function collectDiagnosticsFromSession(
           }
         },
         message: issue.message,
-        source: "mylang-sema",
+        source: "vexa-sema",
         ...(issue.data ? { data: issue.data } : {})
       });
     }
@@ -113,14 +113,14 @@ export function collectDiagnosticsFromSession(
   const anyIndex = text.indexOf("any");
   if (anyIndex >= 0) {
     diagnostics.push({
-      code: MYLANG_DIAGNOSTIC_CODES.STYLE_AVOID_ANY,
+      code: VEXA_DIAGNOSTIC_CODES.STYLE_AVOID_ANY,
       severity: DiagnosticSeverity.Warning,
       range: {
         start: positionAt(anyIndex),
         end: positionAt(anyIndex + 3)
       },
-      message: "MyLang: avoid 'any' when possible.",
-      source: "mylang-ls"
+      message: "VexaScript: avoid 'any' when possible.",
+      source: "vexa-ls"
     });
   }
 

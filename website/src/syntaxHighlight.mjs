@@ -1,4 +1,4 @@
-import portableLanguage, { mylangPrimitiveTypes } from "./generated/mylang-monarch-language.mjs";
+import portableLanguage, { vexaPrimitiveTypes } from "./generated/vexa-monarch-language.mjs";
 
 const declarationKeywords = new Set([
   ...portableLanguage.declarationKeywords
@@ -6,7 +6,7 @@ const declarationKeywords = new Set([
 const controlKeywords = new Set([
   ...portableLanguage.controlKeywords
 ]);
-const primitiveTypes = new Set(mylangPrimitiveTypes);
+const primitiveTypes = new Set(vexaPrimitiveTypes);
 
 const compiledRules = new Map(
   Object.entries(portableLanguage.tokenizer).map(([state, rules]) => [
@@ -144,14 +144,14 @@ function highlightWithPortableLanguage(source, language) {
   return output.join("");
 }
 
-export function highlightMyLangHtml(source) {
+export function highlightVexaScriptHtml(source) {
   return highlightWithPortableLanguage(source, portableLanguage);
 }
 
-export function renderHighlightedCodeBlock(source, language = "mylang") {
+export function renderHighlightedCodeBlock(source, language = "vexa") {
   const normalizedLanguage = language.trim().toLowerCase();
-  const html = normalizedLanguage === "mylang"
-    ? highlightMyLangHtml(source)
+  const html = normalizedLanguage === "vexa"
+    ? highlightVexaScriptHtml(source)
     : escapeHtml(source);
   return `<pre class="syntax-block"><code class="language-${escapeHtml(normalizedLanguage)}">${html}</code></pre>`;
 }

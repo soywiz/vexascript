@@ -190,7 +190,7 @@ interface ExtensionMemberCompletionCandidate {
   returnTypeName?: string | null;
 }
 
-const COMPLETION_RECOVERY_MEMBER = "__mylang_completion__";
+const COMPLETION_RECOVERY_MEMBER = "__vexa_completion__";
 
 function operatorSymbolFromMemberName(name: string): string | null {
   return name.startsWith("operator") ? name.slice("operator".length) || null : null;

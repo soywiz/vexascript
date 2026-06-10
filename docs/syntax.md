@@ -1,12 +1,12 @@
-# MyLang Supported Syntax
+# VexaScript Supported Syntax
 
-This document tracks the language syntax currently supported by MyLang.
+This document tracks the language syntax currently supported by VexaScript.
 
 ## Variables
 
 ### Declaration keywords
 
-MyLang supports variable declaration statements using:
+VexaScript supports variable declaration statements using:
 
 - `let`
 - `var`
@@ -15,7 +15,7 @@ MyLang supports variable declaration statements using:
 
 Examples:
 
-```mylang
+```vexa
 let a = 1
 var b = 2
 val c: Num
@@ -32,7 +32,7 @@ Variable declarations support:
 
 Examples:
 
-```mylang
+```vexa
 let name: UserName = currentUser
 let counter: Int
 let enabled
@@ -50,7 +50,7 @@ Variables may use a Kotlin-like `by` delegate instead of an initializer. The del
 
 Assignments, compound assignments, and update expressions use the delegate setter/value path, so `x = x + 1`, `x += 1`, `x++`, `++x`, `x--`, and `--x` all route through the custom accessor.
 
-```mylang
+```vexa
 fun useState(value: number) {
   return [value, (newValue: number) => { value = newValue }]
 }
@@ -63,9 +63,9 @@ count++
 
 ### Destructuring declarations
 
-Variable declarations support nested object and array binding patterns. Object bindings may use shorthand names, property aliases, inline type annotations, defaults, and rest bindings. In MyLang object destructuring, `:` introduces an inline type annotation and `::` renames a source property to a local binding. Array bindings may use holes, inline type annotations, defaults, nested patterns, and rest bindings. When the initializer has a tuple type, each introduced array binding receives the corresponding tuple element type unless an inline binding annotation overrides it. TypeScript mode keeps TypeScript destructuring rules: object binding `:` renames properties and destructuring patterns do not accept inline binding type annotations.
+Variable declarations support nested object and array binding patterns. Object bindings may use shorthand names, property aliases, inline type annotations, defaults, and rest bindings. In VexaScript object destructuring, `:` introduces an inline type annotation and `::` renames a source property to a local binding. Array bindings may use holes, inline type annotations, defaults, nested patterns, and rest bindings. When the initializer has a tuple type, each introduced array binding receives the corresponding tuple element type unless an inline binding annotation overrides it. TypeScript mode keeps TypeScript destructuring rules: object binding `:` renames properties and destructuring patterns do not accept inline binding type annotations.
 
-```mylang
+```vexa
 let { id, name :: displayName, nested :: { value = 1 }, ...rest } = source
 let { name : string, title :: displayTitle : string } = props
 const [first : string, , third = 3, ...tail] = values
@@ -76,7 +76,7 @@ const [result, setResult] = useState(0) // result: int, setResult: (newValue: in
 
 Functions can be declared with `fun` or TypeScript-style `function`. Both forms support `async` and generator modifiers when emitted to JavaScript:
 
-```mylang
+```vexa
 async function load(id: string): Promise<Response> {
   return await fetch(id)
 }
@@ -99,7 +99,7 @@ The `sync` modifier declares a function that behaves like `async` internally (it
 - The return type is written **without** the `Promise<...>` wrapper. `sync fun load(): Response` is internally an async function returning `Promise<Response>`; from the outside (and from other functions) the call is observed as `Promise<Response>`, so it participates in auto-await just like any other Promise.
 - Inside a `sync` function body, **any** subexpression whose type is `Promise<T>` is **automatically awaited** wherever it is used as a value, and its observed type becomes `T`. This applies everywhere — expression statements, variable initializers, assignment right-hand sides, call arguments, operands, array/object elements, and member receivers. This also works for Promise-returning functions imported from other files, including functions whose `Promise` return type is inferred from their body rather than annotated — the imported value's type is resolved from its declaring file, so calling it inside a `sync` function auto-awaits just like a local call.
 
-```mylang
+```vexa
 sync fun fetchValue(): int {
   return 1
 }
@@ -118,7 +118,7 @@ When the receiver of a member access is a Promise, it is awaited before the memb
 - `return` expressions (a returned Promise is flattened by the surrounding async function).
 - **Bare references to a local variable or parameter.** Auto-await only happens at the point a Promise is *produced* (a call, a member call, ...), not when an already-stored Promise value is read. Once a Promise is held in a variable it keeps its `Promise<T>` type until it is awaited explicitly.
 
-```mylang
+```vexa
 sync fun demo(): void {
   let stored = go fetchValue()  // stored: Promise<int>  (go opts out)
   let alias = stored            // alias: Promise<int>   (local reference, not awaited)
@@ -132,7 +132,7 @@ sync fun demo(): void {
 
 To opt out of the implicit await and obtain the underlying `Promise<T>`, prefix the expression with the contextual `go` operator. `go expr` is never awaited and keeps the `Promise<T>` type, in any position:
 
-```mylang
+```vexa
 sync fun main(): void {
   let pending: Promise<int> = go fetchValue()  // let pending = fetchValue();
   go fetchValue()                              // fire-and-forget: fetchValue();
@@ -147,15 +147,15 @@ Because `go` only has meaning where implicit auto-await happens, it is only allo
 
 A TypeScript `this` parameter may appear first in a function-like parameter list for type analysis. It is erased during JavaScript emission:
 
-```mylang
+```vexa
 function bind(this: Loader, id: string): string {
   return id
 }
 ```
 
-Type assertions with `as Type`, const assertions, and non-null assertions are parsed and erased during JavaScript emission. Const assertions keep the analyzed expression type without attempting to resolve `const` as a named type. Non-null assertions remove `null` and `undefined` from the analyzed expression type without changing runtime output. The angle-bracket cast `<Type>value` is TypeScript-only because MyLang reserves `<` for embedded XML/JSX:
+Type assertions with `as Type`, const assertions, and non-null assertions are parsed and erased during JavaScript emission. Const assertions keep the analyzed expression type without attempting to resolve `const` as a named type. Non-null assertions remove `null` and `undefined` from the analyzed expression type without changing runtime output. The angle-bracket cast `<Type>value` is TypeScript-only because VexaScript reserves `<` for embedded XML/JSX:
 
-```mylang
+```vexa
 let name = value as string
 let precise = [1, 2] as const
 let definitelyName = maybeName!
@@ -164,14 +164,14 @@ let definitelyName = maybeName!
 
 ### Function declarations
 
-MyLang supports function declarations with both keywords:
+VexaScript supports function declarations with both keywords:
 
 - `fun`
 - `function`
 
 Examples:
 
-```mylang
+```vexa
 fun add(a, b) {
   return a + b
 }
@@ -185,7 +185,7 @@ function sum(a, b) {
 
 Runtime `namespace` and identifier-named `module` declarations group values behind a JavaScript object. Exported variables, functions, classes, enums, and nested namespaces become object members; declarations without `export` remain private to the generated namespace closure. Semantic analysis validates exported member access, and member completion offers the exported namespace surface.
 
-```mylang
+```vexa
 namespace Tools {
   const prefix = "v"
   export const version = 1
@@ -199,11 +199,11 @@ Runtime namespaces are lowered to the conventional JavaScript namespace object p
 
 ### Ambient declarations
 
-MyLang supports ambient declarations with `declare` for functions, classes (including `abstract class`), variables (`var` / `let` / `const` / `val`), type aliases, interfaces, enums, namespaces, and modules. Ambient declarations can also be wrapped in TypeScript-style `export declare`. In `typescript` parser mode, ambient external modules may use a string-literal name such as `declare module "pixi.js"`. Ambient namespace and module bodies preserve supported declarations in the AST, participate in scoped semantic analysis and semantic highlighting, and are erased during JavaScript emission. Unsupported declaration-file members are recovered as opaque regions so large third-party `.d.ts` files remain parseable.
+VexaScript supports ambient declarations with `declare` for functions, classes (including `abstract class`), variables (`var` / `let` / `const` / `val`), type aliases, interfaces, enums, namespaces, and modules. Ambient declarations can also be wrapped in TypeScript-style `export declare`. In `typescript` parser mode, ambient external modules may use a string-literal name such as `declare module "pixi.js"`. Ambient namespace and module bodies preserve supported declarations in the AST, participate in scoped semantic analysis and semantic highlighting, and are erased during JavaScript emission. Unsupported declaration-file members are recovered as opaque regions so large third-party `.d.ts` files remain parseable.
 
 Example:
 
-```mylang
+```vexa
 declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;
 declare type MomentFactory = (input: moment.MomentInput) => moment.Moment;
 export declare abstract class Clock {}
@@ -236,7 +236,7 @@ Function parameters support:
 
 Examples:
 
-```mylang
+```vexa
 fun test(a, v, c?, d: Int = demo) {
   return d
 }
@@ -248,7 +248,7 @@ fun collect(label: string, ...values: int[]) {
 
 Parameters also support object and array binding patterns, including nesting, property aliases with `::`, inline binding type annotations with `:`, defaults, holes, and rest bindings. The introduced binding names are available throughout the function body, and the patterns are preserved in emitted JavaScript with type-only annotations erased:
 
-```mylang
+```vexa
 function unpack(
   { id, nested :: { value = 1 }, label : string, name :: displayName : string, ...metadata },
   [first : string, , ...tail] = values
@@ -261,7 +261,7 @@ function unpack(
 
 Functions support optional return type annotation:
 
-```mylang
+```vexa
 fun demo(a, b): Int {
   return a + b
 }
@@ -269,7 +269,7 @@ fun demo(a, b): Int {
 
 When the body is just a single returned expression, declarations and class methods can also use `=>` shorthand:
 
-```mylang
+```vexa
 fun demo(a, b): Int => a + b
 
 class Point(val x: number, val y: number) {
@@ -307,7 +307,7 @@ The annotated declaration itself is omitted from JavaScript output. Templates ar
 
 ### Custom JavaScript names
 
-The `@JsName("...")` annotation overrides the final JavaScript name of a declaration. It can be applied to functions, classes, enums, interfaces and variables. The source name is still used inside MyLang, but JavaScript emission uses the supplied name for both the declaration and every reference to it:
+The `@JsName("...")` annotation overrides the final JavaScript name of a declaration. It can be applied to functions, classes, enums, interfaces and variables. The source name is still used inside VexaScript, but JavaScript emission uses the supplied name for both the declaration and every reference to it:
 
 ```my
 @JsName("rgba")
@@ -324,7 +324,7 @@ Member property names are not affected by `@JsName`; only the renamed declaratio
 
 ### Test files
 
-The CLI `test` command discovers files ending in `.test.my`. Each test file receives inline `test(call)` and `assert(cond, message = "assert failed")` helpers without imports:
+The CLI `test` command discovers files ending in `.test.vx`. Each test file receives inline `test(call)` and `assert(cond, message = "assert failed")` helpers without imports:
 
 ```my
 test(() => {
@@ -426,7 +426,7 @@ The receiver's base type name drives runtime mangling (the type arguments are er
 
 Function declarations support generic type parameters, and explicit generic type arguments on calls specialize parameter and return types:
 
-```mylang
+```vexa
 fun identity<T>(value: T): T {
   return value
 }
@@ -436,11 +436,11 @@ let name: string = identity<string>("Ada")
 
 ### Function expressions and arrow functions
 
-MyLang parser supports TypeScript-style function expressions and arrow functions in expression position.
+VexaScript parser supports TypeScript-style function expressions and arrow functions in expression position.
 
 Examples:
 
-```mylang
+```vexa
 [1, 2, 3, 4].map(a => 10)
 [1, 2, 3, 4].map((it) => 10)
 [1, 2, 3, 4].map(function(it: number) { return 10 })
@@ -448,11 +448,11 @@ Examples:
 
 ### Tail lambdas
 
-MyLang also supports Kotlin/Swift-style tail lambdas after call expressions and brace lambdas inside call argument lists. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The explicit `{ arg1, arg2 -> ... }` form is always a lambda.
+VexaScript also supports Kotlin/Swift-style tail lambdas after call expressions and brace lambdas inside call argument lists. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The explicit `{ arg1, arg2 -> ... }` form is always a lambda.
 
 The body after `->` may be a single expression or a sequence of statements. When it contains more than one statement, the lambda has a block body, and a final expression statement is emitted as an implicit `return`:
 
-```mylang
+```vexa
 [1, 2, 3].map {
   const doubled = it * 2
   doubled + 1 // implicit return
@@ -466,7 +466,7 @@ new Promise({ resolve, reject ->
 
 Examples:
 
-```mylang
+```vexa
 [1, 2, 3, 4].map { it }
 [1, 2, 3, 4].map() { it }
 [1, 2, 3, 4].map { a, b, c -> a + b + c }
@@ -478,9 +478,9 @@ consumeOptions({ options })
 
 ## Imports
 
-MyLang supports ES module imports at top level, including named imports, aliases, default imports, namespace imports, side-effect imports, and type-only imports:
+VexaScript supports ES module imports at top level, including named imports, aliases, default imports, namespace imports, side-effect imports, and type-only imports:
 
-```mylang
+```vexa
 import { Point } from "./a"
 import { Point, Vector as Vec } from "./geometry/types"
 import React from "react"
@@ -492,9 +492,9 @@ import type { Shape } from "./types"
 
 Type-only imports participate in semantic analysis as bindings but are omitted from emitted JavaScript output.
 
-Relative imports can target local `.ts` files as well as `.my` files. Extensionless resolution checks the direct path, then `.my`, then `.ts`. During `mylang run` and CLI bundling, local TypeScript modules are parsed in TypeScript mode, type-checked with their exported declarations available to the importing MyLang file, transpiled to JavaScript, and inlined into the same executable module. This supports TypeScript runtime declarations such as classes, functions, variables, enums, destructuring, arrow functions, and async functions; type-only constructs such as interfaces and type aliases remain analysis-only and are erased from emitted JavaScript.
+Relative imports can target local `.ts` files as well as `.vx` files. Extensionless resolution checks the direct path, then `.vx`, then `.ts`. During `vexa run` and CLI bundling, local TypeScript modules are parsed in TypeScript mode, type-checked with their exported declarations available to the importing VexaScript file, transpiled to JavaScript, and inlined into the same executable module. This supports TypeScript runtime declarations such as classes, functions, variables, enums, destructuring, arrow functions, and async functions; type-only constructs such as interfaces and type aliases remain analysis-only and are erased from emitted JavaScript.
 
-```mylang
+```vexa
 import { Color, Person, describePerson } from "./helpers"
 
 const ada = Person("Ada", 36)
@@ -504,7 +504,7 @@ console.log(Color.Green)
 
 Extension operator overloads declared in another file (for example `fun Point.operator+`) can be imported by their `operator` name so the operator resolves across files:
 
-```mylang
+```vexa
 import { Point, operator+ } from "./geometry"
 val sum = Point(1, 2) + Point(3, 4)
 ```
@@ -513,9 +513,9 @@ An `operator+` binding is not a real runtime export: it is installed on the rece
 
 ## Exports
 
-MyLang supports ES module exports for declarations, named export lists, re-exports, default exports, and type-only export lists:
+VexaScript supports ES module exports for declarations, named export lists, re-exports, default exports, and type-only export lists:
 
-```mylang
+```vexa
 export const answer: number = 42
 export function add(a: number, b: number): number {
   return a + b
@@ -542,7 +542,7 @@ Type-only exports and exported type aliases/interfaces participate in analysis b
 
 Class methods support `async` and generator modifiers:
 
-```mylang
+```vexa
 class Store {
   async save() {
     return await persist(this)
@@ -557,16 +557,16 @@ class Store {
 
 ### Class declarations
 
-MyLang supports class declarations:
+VexaScript supports class declarations:
 
-```mylang
+```vexa
 class Demo {
 }
 ```
 
-In MyLang mode, class braces are optional for empty class declarations:
+In VexaScript mode, class braces are optional for empty class declarations:
 
-```mylang
+```vexa
 class Point
 ```
 
@@ -579,7 +579,7 @@ Class declarations also support:
 
 Examples:
 
-```mylang
+```vexa
 class Base<T> {
 }
 
@@ -597,7 +597,7 @@ Class bodies support TypeScript-style property accessors. Getter accessors must 
 
 Example:
 
-```mylang
+```vexa
 class Box {
   get value(): string {
     return this.raw
@@ -617,7 +617,7 @@ class Rect {
 
 TypeScript-style constructors can promote parameters to instance properties by adding an access modifier (`public`, `private`, or `protected`) and/or `readonly`. Parameter properties participate in type analysis, access-control and readonly diagnostics, member completion/navigation, and are initialized automatically during JavaScript emission.
 
-```mylang
+```vexa
 class User {
   constructor(public readonly id: string, private age: int = 0) {
   }
@@ -634,9 +634,9 @@ Modifiers are only valid on parameters of a class `constructor`; ordinary functi
 
 A class can satisfy an interface by delegating missing interface members to another value with `by` in its heritage clause. The delegate can be written as an expression, or as the common single-shorthand brace form used to expose an existing instance member. The delegated expression must resolve to a value assignable to the interface.
 
-For each interface property or method that the class does not declare itself, MyLang synthesizes a forwarding member at JavaScript emission time. Explicit class members win over delegated members with the same name.
+For each interface property or method that the class does not declare itself, VexaScript synthesizes a forwarding member at JavaScript emission time. Explicit class members win over delegated members with the same name.
 
-```mylang
+```vexa
 interface Shape {
   area: number
   fill(color: string): string
@@ -648,7 +648,7 @@ class MyDemo(val shape: Shape) : Shape by { shape } {
 
 This is equivalent to writing the forwarding members by hand:
 
-```mylang
+```vexa
 class MyDemo(val shape: Shape) : Shape {
   area => shape.area
   fill(color: string) {
@@ -670,19 +670,19 @@ Each primary constructor parameter currently supports:
 
 Example:
 
-```mylang
+```vexa
 class Point(val x: number, val y: number) {
 }
 ```
 
-```mylang
+```vexa
 class Point(x: number, y: number) {
 }
 ```
 
-This form also allows omitting braces in MyLang mode:
+This form also allows omitting braces in VexaScript mode:
 
-```mylang
+```vexa
 class Point(val x: number, val y: number)
 ```
 
@@ -701,7 +701,7 @@ Class fields support:
 
 Examples:
 
-```mylang
+```vexa
 class Demo {
   a = 10
   b: Int = 20
@@ -716,7 +716,7 @@ class Demo {
 
 Class members can be methods, including `constructor`. Methods support access modifiers (`public`, `private`, `protected`), `static`, and `abstract` signatures inside abstract classes. Derived class methods can use `super` calls and `super.member` access to reference inherited base-class behavior:
 
-```mylang
+```vexa
 class Demo {
   constructor() {
   }
@@ -730,7 +730,7 @@ Method signatures support the same parameter syntax as function declarations.
 
 Class fields and methods also support the `override` modifier when redefining members from a base class:
 
-```mylang
+```vexa
 class Base {
   value: string
 }
@@ -742,9 +742,9 @@ class Child extends Base {
 
 ### Interfaces
 
-MyLang supports interface declarations, including generic parameters and `extends`:
+VexaScript supports interface declarations, including generic parameters and `extends`:
 
-```mylang
+```vexa
 interface PairStore<K, V> extends Iterable<K> {
   keys: K[]
   values: V[]
@@ -757,11 +757,11 @@ interface PairStore<K, V> extends Iterable<K> {
 
 ### Enums
 
-MyLang supports TypeScript-style `enum` and `const enum` declarations with numeric auto-increment members, numeric initializers, and string initializers. Enum declarations create a named semantic type, enum member access is checked as a known member, and non-ambient enums emit JavaScript runtime enum objects. Ambient `declare enum` declarations participate in analysis but are omitted from emitted JavaScript.
+VexaScript supports TypeScript-style `enum` and `const enum` declarations with numeric auto-increment members, numeric initializers, and string initializers. Enum declarations create a named semantic type, enum member access is checked as a known member, and non-ambient enums emit JavaScript runtime enum objects. Ambient `declare enum` declarations participate in analysis but are omitted from emitted JavaScript.
 
 Examples:
 
-```mylang
+```vexa
 enum Direction {
   Up,
   Down = 4,
@@ -779,9 +779,9 @@ let direction: Direction = Direction.Up
 
 ### Type aliases
 
-MyLang supports type aliases for naming another supported type annotation form. Aliases may be generic and can be used anywhere a type annotation is accepted:
+VexaScript supports type aliases for naming another supported type annotation form. Aliases may be generic and can be used anywhere a type annotation is accepted:
 
-```mylang
+```vexa
 type Text = string
 type Boxed<T> = Box<T>
 type Status = "ready" | "done"
@@ -881,15 +881,15 @@ Supported assignment operators:
 
 ### Conditional and comma operators
 
-MyLang supports ternary conditional expressions:
+VexaScript supports ternary conditional expressions:
 
-```mylang
+```vexa
 condition ? whenTrue : whenFalse
 ```
 
 Comma expressions are supported at the lowest expression precedence. They evaluate operands left-to-right and use the final operand type during semantic analysis:
 
-```mylang
+```vexa
 let value: string = (log(), "ok")
 for (let i = 0; i < 10; i++, total += i) {
   work
@@ -900,29 +900,29 @@ Comma-delimited lists such as call arguments and array elements remain separate 
 
 ### Regular expression literals
 
-MyLang supports JavaScript-style regular expression literals in expression positions. They are emitted unchanged and are inferred semantically as `RegExp` named values, which can be supplied by ambient declarations or host TypeScript definitions.
+VexaScript supports JavaScript-style regular expression literals in expression positions. They are emitted unchanged and are inferred semantically as `RegExp` named values, which can be supplied by ambient declarations or host TypeScript definitions.
 
-```mylang
+```vexa
 declare class RegExp {}
 let matcher: RegExp = /a[0-9]+/gi
 ```
 
 ### Type assertions
 
-MyLang supports TypeScript-style `value as TypeName` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
+VexaScript supports TypeScript-style `value as TypeName` assertions in expressions. Assertions are erased during JavaScript emission and the semantic checker treats the expression as the asserted target type. The checker reports an unsafe assertion when neither the source type nor target type is assignable to the other.
 
-```mylang
+```vexa
 let value: unknown = readValue()
 let name: string = value as string
 ```
 
-The angle-bracket cast form `<TypeName>value` is **not** available in MyLang, because `<` always begins an embedded XML/JSX element (see [Embedded XML / JSX](#embedded-xml--jsx)). The angle-bracket cast remains available only when the parser runs in TypeScript mode with JSX disabled (the default for `.d.ts`-style consumption).
+The angle-bracket cast form `<TypeName>value` is **not** available in VexaScript, because `<` always begins an embedded XML/JSX element (see [Embedded XML / JSX](#embedded-xml--jsx)). The angle-bracket cast remains available only when the parser runs in TypeScript mode with JSX disabled (the default for `.d.ts`-style consumption).
 
 ### Embedded XML / JSX
 
-MyLang supports embedding XML directly in expressions, exactly like JSX/TSX. There is a single MyLang mode and it always enables this: a `<` in expression position that is followed by a tag name (or `>` for a fragment) starts an element instead of a less-than operator.
+VexaScript supports embedding XML directly in expressions, exactly like JSX/TSX. There is a single VexaScript mode and it always enables this: a `<` in expression position that is followed by a tag name (or `>` for a fragment) starts an element instead of a less-than operator.
 
-```mylang
+```vexa
 val greeting = <div class="greeting" id={userId}>Hello {name}!</div>
 val list = <ul>{items.map((item) => <li key={item.id}>{item.name}</li>)}</ul>
 val fragment = <><Header/><Body {...props}/></>
@@ -942,7 +942,7 @@ Embedded XML is transpiled with the classic React runtime: elements become `Reac
 React.createElement("div", { class: "greeting" }, "Hi ", name)
 ```
 
-The element factory and fragment factory are configurable. They default to the classic React runtime (`React.createElement` / `React.Fragment`) but can be overridden through the emitter/transpile options `jsxFactory` and `jsxFragmentFactory`, the `mylang build` flags `--jsx-factory` and `--jsx-fragment-factory`, or a project-level `tsconfig.json` (`compilerOptions.jsxFactory` and `compilerOptions.jsxFragmentFactory`). A `tsconfig.json` with `compilerOptions.jsxImportSource` set to `"preact"` is mapped to Preact's classic factories (`h` and `Fragment`) while MyLang emits classic JSX factory calls.
+The element factory and fragment factory are configurable. They default to the classic React runtime (`React.createElement` / `React.Fragment`) but can be overridden through the emitter/transpile options `jsxFactory` and `jsxFragmentFactory`, the `vexa build` flags `--jsx-factory` and `--jsx-fragment-factory`, or a project-level `tsconfig.json` (`compilerOptions.jsxFactory` and `compilerOptions.jsxFragmentFactory`). A `tsconfig.json` with `compilerOptions.jsxImportSource` set to `"preact"` is mapped to Preact's classic factories (`h` and `Fragment`) while VexaScript emits classic JSX factory calls.
 
 ```json
 {
@@ -965,7 +965,7 @@ In TypeScript mode, embedded XML is opt-in through the `jsx` parser option; enab
 
 Range expressions are supported with `start ... end` (inclusive) and `start ..< end` (exclusive), matching Swift syntax:
 
-```mylang
+```vexa
 0 ... 10   // inclusive: 0, 1, 2, ..., 10
 0 ..< 10   // exclusive: 0, 1, 2, ..., 9
 ```
@@ -988,7 +988,7 @@ Optional member and computed access include `undefined` in their inferred result
 
 Array literals preserve TypeScript/JavaScript sparse holes during emission and runtime execution. A hole contributes `undefined` to semantic element inference, so `[1, , 3]` is compatible with an `(int | undefined)[]` expectation and emits as a sparse JavaScript array. TypeScript-style tuple type annotations use square brackets, including labeled tuple elements such as `[value: T, setter: (newValue: T) => void]`.
 
-```mylang
+```vexa
 let values: (int | undefined)[] = [1, , 3]
 let state: [value: int, setter: (newValue: int) => void] = [0, (newValue: int) => {}]
 ```
@@ -997,7 +997,7 @@ let state: [value: int, setter: (newValue: int) => void] = [0, (newValue: int) =
 
 Object literals support explicit properties, shorthand properties, spread properties, computed keys, string literal keys, number literal keys, optional trailing commas, and later properties override earlier spread properties during semantic shape inference:
 
-```mylang
+```vexa
 let name = "Ada"
 let base = { id: 1, name: "Base" }
 let user = { name, ...base, name: "Grace", [dynamicKey]: value, "display name": name, 1: value, }
@@ -1009,7 +1009,7 @@ Object spread operands are semantically checked as object-compatible values. Kno
 
 Function call expressions are supported, including calls chained from member access, optional calls, spread arguments, and optional generic type arguments:
 
-```mylang
+```vexa
 hello.world[0].test(arg1, arg2)
 maybeCallback?.(arg1, arg2)
 collect("label", ...values)
@@ -1024,7 +1024,7 @@ positional arguments; the compiler reorders them into the callee's positional
 parameter order when emitting JavaScript. Editor completion suggests the
 available parameter names (for example `url:`) inside an argument list.
 
-```mylang
+```vexa
 fun connect(host: string, port: number) {}
 
 connect(port: 8080, host: "localhost")   // reordered to connect("localhost", 8080)
@@ -1038,7 +1038,7 @@ let point = Point(y: 2, x: 1)             // reordered to new Point(1, 2)
 
 A declared class can be called directly to instantiate it. `ClassName(arguments)` is equivalent to `new ClassName(arguments)`. Constructor-only ECMAScript globals from ambient declarations use the same class-call style, including calls with generic type arguments such as `Map<string, number>(entries)`:
 
-```mylang
+```vexa
 class Point(val x: int, val y: int)
 let point = Point(1, 2)
 let scores = Map<string, number>([["Ada", 3]])
@@ -1046,7 +1046,7 @@ let scores = Map<string, number>([["Ada", 3]])
 
 TypeScript-style `new` expressions are also supported, including constructor arguments, generic type arguments, and member-based constructor targets:
 
-```mylang
+```vexa
 new instance()
 new instance
 new Map<string, string>()
@@ -1059,7 +1059,7 @@ new hello.world[0].test(arg1, arg2)
 
 Within `if` and `else` branches, stable identifier types are narrowed by `is`, `instanceof`, and range-membership (`in`) checks. The false branch excludes the checked member from union types, and negated checks reverse the branch narrowing. `is` is emitted as JavaScript `instanceof`.
 
-```mylang
+```vexa
 if (value is Cat) {
   value.meow()
 } else {
@@ -1075,7 +1075,7 @@ if (value in 0 ... 10) {
 
 Blocks are supported with braces:
 
-```mylang
+```vexa
 {
   let a = 1
   let b = 2
@@ -1084,7 +1084,7 @@ Blocks are supported with braces:
 
 ### While
 
-```mylang
+```vexa
 while (condition) {
   doWork
 }
@@ -1092,9 +1092,9 @@ while (condition) {
 
 ### With
 
-MyLang supports TypeScript-style `with` statements. The object expression and body are visited during semantic analysis, and the statement is preserved during JavaScript emission.
+VexaScript supports TypeScript-style `with` statements. The object expression and body are visited during semantic analysis, and the statement is preserved during JavaScript emission.
 
-```mylang
+```vexa
 with (scope) {
   use(value)
 }
@@ -1102,9 +1102,9 @@ with (scope) {
 
 ### Switch statements
 
-MyLang supports `switch` statements with `case` and `default` clauses. Semantic analysis reports an error when a switch body contains more than one `default` clause. It also reports non-empty cases that can fall through to a following case; add an explicit `break`, `return`, `throw`, or `continue` when a case should stop before the next label. LSP diagnostics expose dedicated codes for duplicate defaults and switch fallthrough.
+VexaScript supports `switch` statements with `case` and `default` clauses. Semantic analysis reports an error when a switch body contains more than one `default` clause. It also reports non-empty cases that can fall through to a following case; add an explicit `break`, `return`, `throw`, or `continue` when a case should stop before the next label. LSP diagnostics expose dedicated codes for duplicate defaults and switch fallthrough.
 
-```mylang
+```vexa
 switch (value) {
   case 1:
     break
@@ -1115,7 +1115,7 @@ switch (value) {
 
 ### Do-while
 
-```mylang
+```vexa
 do {
   work
 } while (condition)
@@ -1123,9 +1123,9 @@ do {
 
 ### For
 
-MyLang supports TypeScript-style `for` loops:
+VexaScript supports TypeScript-style `for` loops:
 
-```mylang
+```vexa
 for (let i = 0; i < 10; i += 1) {
   work
 }
@@ -1133,23 +1133,23 @@ for (let i = 0; i < 10; i += 1) {
 
 Each clause is optional:
 
-```mylang
+```vexa
 for (;;) {
   break
 }
 ```
 
-MyLang also supports `for-in` without declaration keyword:
+VexaScript also supports `for-in` without declaration keyword:
 
-```mylang
+```vexa
 for (value in iterable) {
   work
 }
 ```
 
-MyLang also supports `for-of` without declaration keyword:
+VexaScript also supports `for-of` without declaration keyword:
 
-```mylang
+```vexa
 for (value of iterable) {
   work
 }
@@ -1157,7 +1157,7 @@ for (value of iterable) {
 
 Range iteration syntax is supported and transpiles to a classic index loop:
 
-```mylang
+```vexa
 for (a of 0 ... 10) console.log(a)
 ```
 
@@ -1175,9 +1175,9 @@ for (const value of iterable) {
 
 ### If / else
 
-MyLang supports TypeScript-style `if` statements with optional `else`:
+VexaScript supports TypeScript-style `if` statements with optional `else`:
 
-```mylang
+```vexa
 if (condition) {
   doWork
 } else {
@@ -1187,9 +1187,9 @@ if (condition) {
 
 ### Switch / case / default
 
-MyLang supports TypeScript-style `switch` statements with `case` and optional `default`. Non-empty cases must end control flow explicitly before the next label:
+VexaScript supports TypeScript-style `switch` statements with `case` and optional `default`. Non-empty cases must end control flow explicitly before the next label:
 
-```mylang
+```vexa
 switch (value) {
   case 1:
     return 1
@@ -1216,7 +1216,7 @@ Supported statements:
 
 Statements can be labeled. Labeled `break` targets may reference any active label, while labeled `continue` targets must reference a label whose statement is a loop.
 
-```mylang
+```vexa
 outer: while (running) {
   if (done) break outer
   continue outer
@@ -1229,9 +1229,9 @@ blockLabel: {
 
 ### Try / catch / finally
 
-MyLang supports TypeScript-style exception handling:
+VexaScript supports TypeScript-style exception handling:
 
-```mylang
+```vexa
 try {
   riskyWork()
 } catch (err) {
@@ -1250,7 +1250,7 @@ Statements can be separated by:
 
 Examples:
 
-```mylang
+```vexa
 let a = 1
 let b = 2;
 a += b
@@ -1258,7 +1258,7 @@ a += b
 
 ## Comments
 
-MyLang supports three comment styles:
+VexaScript supports three comment styles:
 
 - single-line comments with `//`
 - documentation comments with `///`
@@ -1266,7 +1266,7 @@ MyLang supports three comment styles:
 
 Examples:
 
-```mylang
+```vexa
 let a = 1 // single-line comment
 
 /// searches [sub] in [str]
@@ -1282,7 +1282,7 @@ let b = 2
 
 ## TypeScript parser mode
 
-When the parser runs in `typescript` mode directly or because a local `.ts`/`.tsx` module is imported into a MyLang module graph, it supports ES module imports (`import { ... } from "..."`, default imports, namespace imports, side-effect imports, and `import type`), ambient declarations (`declare function`, `declare type`, `declare abstract class`, `declare interface`, `declare enum`, `declare var/let/const`, and `export declare ...`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
+When the parser runs in `typescript` mode directly or because a local `.ts`/`.tsx` module is imported into a VexaScript module graph, it supports ES module imports (`import { ... } from "..."`, default imports, namespace imports, side-effect imports, and `import type`), ambient declarations (`declare function`, `declare type`, `declare abstract class`, `declare interface`, `declare enum`, `declare var/let/const`, and `export declare ...`), TypeScript-style `for` statements (including `for-in` / `for-of` with declaration iterators), `if` / `else` statements, `switch` / `case` / `default`, and `throw` / `try` / `catch` / `finally`.
 
 Example:
 

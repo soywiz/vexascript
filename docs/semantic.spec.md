@@ -1,6 +1,6 @@
-# MyLang Semantic Specification (Current Behavior)
+# VexaScript Semantic Specification (Current Behavior)
 
-This document describes the current semantic behavior implemented by MyLang analysis.
+This document describes the current semantic behavior implemented by VexaScript analysis.
 
 Scope:
 
@@ -9,7 +9,7 @@ Scope:
 
 ## Type Model
 
-MyLang currently uses these core type categories:
+VexaScript currently uses these core type categories:
 
 - Builtin scalar types: `int`, `number`, `string`, `boolean`, `bigint`, `long`.
 - Builtin value-like names exposed by binder: `true`, `false`, `null`, `undefined`, `console`.

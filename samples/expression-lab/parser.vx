@@ -1,6 +1,6 @@
-import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.my"
-import { lex } from "./lexer.my"
-import { Token, TokenKind } from "./tokens.my"
+import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.vx"
+import { lex } from "./lexer.vx"
+import { Token, TokenKind } from "./tokens.vx"
 
 class TokenStream(val tokens: Token[]) {
   position: int = 0

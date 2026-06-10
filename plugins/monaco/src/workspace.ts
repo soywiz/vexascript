@@ -1,7 +1,7 @@
-export const MAIN_DOCUMENT_URI = "file:///main.my";
+export const MAIN_DOCUMENT_URI = "file:///main.vx";
 export const RUNTIME_DOCUMENT_URI = "file:///es2025.d.ts";
-export const WORKSPACE_STORAGE_KEY = "mylang.monaco.workspace.v1";
-export const WORKSPACE_SESSION_STORAGE_KEY = "mylang.monaco.workspace-session.v1";
+export const WORKSPACE_STORAGE_KEY = "vexa.monaco.workspace.v1";
+export const WORKSPACE_SESSION_STORAGE_KEY = "vexa.monaco.workspace-session.v1";
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -21,7 +21,7 @@ export interface WorkspaceFile {
   path: string;
   uri: string;
   label: string;
-  language: "mylang" | "typescript";
+  language: "vexa" | "typescript";
   content: string;
   readOnly?: boolean;
 }
@@ -32,7 +32,7 @@ interface StoredWorkspaceSnapshot {
   folders: string[];
   files: Array<{
     path: string;
-    language: "mylang" | "typescript";
+    language: "vexa" | "typescript";
     content: string;
   }>;
 }
@@ -66,15 +66,15 @@ export function pathToUri(path: string): string {
   return `file://${normalizePath(path)}`;
 }
 
-function guessLanguage(path: string): "mylang" | "typescript" {
-  return path.endsWith(".d.ts") || path.endsWith(".ts") ? "typescript" : "mylang";
+function guessLanguage(path: string): "vexa" | "typescript" {
+  return path.endsWith(".d.ts") || path.endsWith(".ts") ? "typescript" : "vexa";
 }
 
 export function createFileEntry(
   path: string,
   content: string,
   options: {
-    language?: "mylang" | "typescript";
+    language?: "vexa" | "typescript";
     readOnly?: boolean;
     uri?: string;
   } = {}
@@ -160,14 +160,14 @@ function deserializeWorkspaceSnapshot(
         !!entry &&
         typeof entry.path === "string" &&
         typeof entry.content === "string" &&
-        (entry.language === "mylang" || entry.language === "typescript")
+        (entry.language === "vexa" || entry.language === "typescript")
       )
       .map((entry) => createFileEntry(entry.path, entry.content, { language: entry.language }));
     if (fileEntries.length === 0) {
-      fileEntries.push(createFileEntry("/main.my", defaultMainContent, { language: "mylang" }));
+      fileEntries.push(createFileEntry("/main.vx", defaultMainContent, { language: "vexa" }));
     }
-    if (!fileEntries.some((entry) => entry.path === "/main.my")) {
-      fileEntries.unshift(createFileEntry("/main.my", defaultMainContent, { language: "mylang" }));
+    if (!fileEntries.some((entry) => entry.path === "/main.vx")) {
+      fileEntries.unshift(createFileEntry("/main.vx", defaultMainContent, { language: "vexa" }));
     }
     const folderPaths = new Set<string>(folders.filter((entry): entry is string => typeof entry === "string"));
     for (const path of ensureFolderPaths([...folderPaths, ...fileEntries.map((entry) => entry.path)])) {
@@ -190,7 +190,7 @@ export function resolveWorkspaceEntries(
     deserializeWorkspaceSnapshot(storage?.getItem(storageKey) ?? null, defaultMainContent) ??
     sortEntries([
       createFolderEntry("/"),
-      createFileEntry("/main.my", defaultMainContent, { language: "mylang" }),
+      createFileEntry("/main.vx", defaultMainContent, { language: "vexa" }),
     ]);
 
   const runtimeEntries: WorkspaceEntry[] = [

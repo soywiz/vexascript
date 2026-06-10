@@ -13,8 +13,8 @@ export default function eleventyConfig(config) {
   config.addShortcode("year", function() {
     return String(new Date().getUTCFullYear());
   });
-  config.addPairedShortcode("highlightMyLang", function(content) {
-    return renderHighlightedCodeBlock(String(content).trim(), "mylang");
+  config.addPairedShortcode("highlightVexaScript", function(content) {
+    return renderHighlightedCodeBlock(String(content).trim(), "vexa");
   });
   config.addGlobalData("syntaxDocumentHtml", async function() {
     const syntaxDocument = await loadSyntaxDocument(projectRoot);

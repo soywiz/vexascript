@@ -8,7 +8,7 @@ import { runCommand } from "./io";
 
 describe("io utilities", () => {
   it("reports whether a file exists", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-io-"));
+    const dir = await mkdtemp(join(tmpdir(), "vexa-io-"));
     const filePath = join(dir, "fixture.txt");
 
     try {
@@ -23,7 +23,7 @@ describe("io utilities", () => {
   });
 
   it("reports whether a path is a directory", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-io-"));
+    const dir = await mkdtemp(join(tmpdir(), "vexa-io-"));
     const filePath = join(dir, "fixture.txt");
 
     try {

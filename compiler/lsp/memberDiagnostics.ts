@@ -11,7 +11,7 @@ import {
   resolveClassStatementAcrossFiles,
   resolveExpressionTypeName as resolveCrossFileExpressionTypeName
 } from "./classResolver";
-import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
+import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
 interface CollectMemberDiagnosticsParams {
   uri: string;
@@ -101,7 +101,7 @@ export async function collectCrossFileMemberDiagnostics(
     seen.add(key);
 
     diagnostics.push({
-      code: MYLANG_DIAGNOSTIC_CODES.MISSING_MEMBER,
+      code: VEXA_DIAGNOSTIC_CODES.MISSING_MEMBER,
       severity: DiagnosticSeverity.Error,
       range: {
         start: {
@@ -114,7 +114,7 @@ export async function collectCrossFileMemberDiagnostics(
         }
       },
       message: `Property '${memberName}' does not exist on type '${objectTypeName}'`,
-      source: "mylang-sema"
+      source: "vexa-sema"
     });
   }
 

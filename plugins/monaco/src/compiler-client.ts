@@ -1,5 +1,5 @@
 /**
- * LSP client backed by a Web Worker running the MyLang compiler directly.
+ * LSP client backed by a Web Worker running the VexaScript compiler directly.
  *
  * Replaces the WebSocket-based LspClient.  The interface is identical so
  * lsp-providers.ts and main.ts need only minimal changes (swap the import

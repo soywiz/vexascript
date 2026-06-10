@@ -1,6 +1,6 @@
 # Pending Tasks
 
-This document tracks the current technical backlog for MyLang.
+This document tracks the current technical backlog for VexaScript.
 
 ## High Priority
 

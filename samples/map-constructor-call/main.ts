@@ -1,5 +1,5 @@
 // Constructor-only ECMAScript globals require `new` in JavaScript, even when
-// the constructor is called with type arguments in MyLang.
+// the constructor is called with type arguments in VexaScript.
 const scores = new Map<string, number>([["Ada", 3], ["Grace", 5]])
 scores.set("Linus", 8)
 

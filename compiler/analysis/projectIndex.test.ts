@@ -7,9 +7,9 @@ import { getProjectIndex } from "./projectIndex";
 
 describe("ProjectIndex", () => {
   it("indexes top-level declarations and importer bindings across project files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-project-index-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-project-index-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     await writeFile(
       fileA,
@@ -33,8 +33,8 @@ describe("ProjectIndex", () => {
   });
 
   it("prefers open-document overrides for sessions and indexed declarations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-project-index-"));
-    const file = join(root, "override.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-project-index-"));
+    const file = join(root, "override.vx");
     await writeFile(file, "class Point\n", "utf8");
 
     const index = getProjectIndex([root]);

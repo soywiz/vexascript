@@ -11,8 +11,8 @@ function isClassStatement(statement: unknown): statement is ClassStatement {
 
 describe("resolveTopLevelDeclarationAcrossFiles", () => {
   it("uses open document sessions when an imported file is not yet visible through the VFS", async () => {
-    const currentFilePath = resolve("/workspace/app/main.my");
-    const importedFilePath = resolve("/workspace/app/Point.my");
+    const currentFilePath = resolve("/workspace/app/main.vx");
+    const importedFilePath = resolve("/workspace/app/Point.vx");
     const current = compileSource('import { Point } from "./Point";\nlet point: Point;');
     const imported = compileSource("class Point");
 

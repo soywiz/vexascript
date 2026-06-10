@@ -6,13 +6,13 @@ describe("monaco code lens commands", () => {
   it("extracts the payload for reference lenses", () => {
     const command: CodeLensCommand = {
       title: "3 references",
-      command: "mylang.showReferences",
+      command: "vexa.showReferences",
       arguments: [
-        "file:///main.my",
+        "file:///main.vx",
         { line: 12, character: 4 },
         [
           {
-            uri: "file:///main.my",
+            uri: "file:///main.vx",
             range: {
               start: { line: 12, character: 4 },
               end: { line: 12, character: 15 },
@@ -23,11 +23,11 @@ describe("monaco code lens commands", () => {
     };
 
     expect(extractShowReferencesPayload(command)).toEqual({
-      uri: "file:///main.my",
+      uri: "file:///main.vx",
       position: { line: 12, character: 4 },
       locations: [
         {
-          uri: "file:///main.my",
+          uri: "file:///main.vx",
           range: {
             start: { line: 12, character: 4 },
             end: { line: 12, character: 15 },
@@ -41,15 +41,15 @@ describe("monaco code lens commands", () => {
     expect(
       extractShowReferencesPayload({
         title: "broken",
-        command: "mylang.showReferences",
-        arguments: ["file:///main.my", { line: 1, character: 1 }, [{ nope: true }]],
+        command: "vexa.showReferences",
+        arguments: ["file:///main.vx", { line: 1, character: 1 }, [{ nope: true }]],
       })
     ).toBeNull();
   });
 
   it("rejects non-reference commands and malformed argument shapes", () => {
     const validLocation = {
-      uri: "file:///main.my",
+      uri: "file:///main.vx",
       range: {
         start: { line: 1, character: 2 },
         end: { line: 1, character: 3 },
@@ -58,34 +58,34 @@ describe("monaco code lens commands", () => {
 
     expect(extractShowReferencesPayload()).toBeNull();
     expect(extractShowReferencesPayload({ title: "rename", command: "editor.action.rename" })).toBeNull();
-    expect(extractShowReferencesPayload({ title: "refs", command: "mylang.showReferences" })).toBeNull();
+    expect(extractShowReferencesPayload({ title: "refs", command: "vexa.showReferences" })).toBeNull();
     expect(extractShowReferencesPayload({
       title: "refs",
-      command: "mylang.showReferences",
-      arguments: ["file:///main.my", { line: 1, character: 2 }],
+      command: "vexa.showReferences",
+      arguments: ["file:///main.vx", { line: 1, character: 2 }],
     })).toBeNull();
     expect(extractShowReferencesPayload({
       title: "refs",
-      command: "mylang.showReferences",
+      command: "vexa.showReferences",
       arguments: [123, { line: 1, character: 2 }, [validLocation]],
     })).toBeNull();
     expect(extractShowReferencesPayload({
       title: "refs",
-      command: "mylang.showReferences",
-      arguments: ["file:///main.my", { line: "1", character: 2 }, [validLocation]],
+      command: "vexa.showReferences",
+      arguments: ["file:///main.vx", { line: "1", character: 2 }, [validLocation]],
     })).toBeNull();
     expect(extractShowReferencesPayload({
       title: "refs",
-      command: "mylang.showReferences",
-      arguments: ["file:///main.my", { line: 1, character: 2 }, validLocation],
+      command: "vexa.showReferences",
+      arguments: ["file:///main.vx", { line: 1, character: 2 }, validLocation],
     })).toBeNull();
     expect(extractShowReferencesPayload({
       title: "refs",
-      command: "mylang.showReferences",
+      command: "vexa.showReferences",
       arguments: [
-        "file:///main.my",
+        "file:///main.vx",
         { line: 1, character: 2 },
-        [{ uri: "file:///main.my", range: { start: { line: 1, character: 2 }, end: { line: 1 } } }],
+        [{ uri: "file:///main.vx", range: { start: { line: 1, character: 2 }, end: { line: 1 } } }],
       ],
     })).toBeNull();
   });

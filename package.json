@@ -1,15 +1,15 @@
 {
-  "name": "mylang",
+  "name": "vexascript",
   "version": "0.1.0",
   "private": true,
   "description": "Node.js CLI project for a TypeScript-like language with compiler and language server",
   "type": "module",
   "bin": {
-    "mylang": "dist/mylang.js"
+    "vexa": "dist/vexa.js"
   },
   "scripts": {
-    "cli": "pnpm --silent build && node dist/mylang.js",
-    "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/mylang.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --external:esbuild --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.js",
+    "cli": "pnpm --silent build && node dist/vexa.js",
+    "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/vexa.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --external:esbuild --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/vexa.js",
     "test": "tsc --noEmit && node --import tsx --test --test-reporter spec",
     "coverage": "tsx --test --experimental-test-coverage",
     "vscodeext:install": "pnpm --dir plugins/vscode install",

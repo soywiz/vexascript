@@ -14,13 +14,13 @@ import {
 } from "./importFixes";
 
 function missingMemberDiagnostic(name: string, typeName: string): Diagnostic {
-  return { severity: 1, source: "mylang-sema", message: `Property '${name}' does not exist on type '${typeName}'`, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } };
+  return { severity: 1, source: "vexa-sema", message: `Property '${name}' does not exist on type '${typeName}'`, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } };
 }
 
 function undefinedVariableDiagnostic(name: string): Diagnostic {
   return {
     severity: 1,
-    source: "mylang-sema",
+    source: "vexa-sema",
     message: `Undefined variable '${name}'`,
     range: {
       start: { line: 0, character: 0 },
@@ -32,7 +32,7 @@ function undefinedVariableDiagnostic(name: string): Diagnostic {
 function unknownTypeDiagnostic(typeName: string): Diagnostic {
   return {
     severity: 1,
-    source: "mylang-sema",
+    source: "vexa-sema",
     message: `Unknown type '${typeName}'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface`,
     range: {
       start: { line: 0, character: 0 },
@@ -44,7 +44,7 @@ function unknownTypeDiagnostic(typeName: string): Diagnostic {
 function operatorNotDefinedDiagnostic(operator: string, leftType: string, rightType: string): Diagnostic {
   return {
     severity: 1,
-    source: "mylang-sema",
+    source: "vexa-sema",
     message: `Operator '${operator}' is not defined for types '${leftType}' and '${rightType}'`,
     range: {
       start: { line: 0, character: 0 },
@@ -54,10 +54,10 @@ function operatorNotDefinedDiagnostic(operator: string, leftType: string, rightT
 }
 
 describe("import quick fixes", () => {
-  it("suggests import from another .my file in source roots", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+  it("suggests import from another .vx file in source roots", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     await writeFile(fileA, "class Point\n", "utf8");
     await writeFile(fileB, "fun demo() {\n  return new Point()\n}\n", "utf8");
@@ -82,12 +82,12 @@ describe("import quick fixes", () => {
     const source = "fun demo() {\n  return new Point()\n}\n";
     const session = createAnalysisSession(source);
     const actions = await createAutoImportCodeActions({
-      uri: "file:///consumer.my",
+      uri: "file:///consumer.vx",
       ast: session.ast,
       diagnostics: [undefinedVariableDiagnostic("Point")],
       sourceRoots: [],
       getExportedSymbols: async () => [
-        { name: "Point", filePath: "/models/point.my", kind: "class" },
+        { name: "Point", filePath: "/models/point.vx", kind: "class" },
       ],
     });
 
@@ -96,9 +96,9 @@ describe("import quick fixes", () => {
   });
 
   it("merges import into existing import from the same file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     await writeFile(fileA, "class Point\nclass Vector\n", "utf8");
     const sourceB = 'import { Point } from "./a"\nfun demo() {\n  return new Vector()\n}\n';
@@ -120,9 +120,9 @@ describe("import quick fixes", () => {
   });
 
   it("does not suggest duplicate import when symbol is already imported", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     await writeFile(fileA, "class Point\n", "utf8");
     const sourceB = "import { Point } from \"./a\"\nfun demo() {\n  return new Point()\n}\n";
@@ -140,9 +140,9 @@ describe("import quick fixes", () => {
   });
 
   it("suggests import for a class used in a type annotation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     await writeFile(worldFile, "class TimeSpan(val ms: number)\n", "utf8");
     const sourceHello = "fun delay(time: TimeSpan) => time.ms\n";
@@ -164,9 +164,9 @@ describe("import quick fixes", () => {
   });
 
   it("suggests importing an extension operator overload for an undefined operator", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
-    const fileA = join(root, "other.my");
-    const fileB = join(root, "sample.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const fileA = join(root, "other.vx");
+    const fileB = join(root, "sample.vx");
 
     await writeFile(
       fileA,
@@ -191,9 +191,9 @@ describe("import quick fixes", () => {
   });
 
   it("builds completion-friendly auto-import suggestions filtered by prefix", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     await writeFile(fileA, "class Point\ninterface PointReader {}\ntype PointId = string\nclass Vector\n", "utf8");
     const sourceB = "fun demo() {\n  return Poi\n}\n";
@@ -219,14 +219,14 @@ describe("import quick fixes", () => {
     const source = "fun demo() {\n  return Poi\n}\n";
     const session = createAnalysisSession(source);
     const suggestions = await buildAutoImportSuggestions({
-      uri: "file:///consumer.my",
+      uri: "file:///consumer.vx",
       ast: session.ast,
       sourceRoots: [],
       prefix: "Poi",
       excludeSymbols: new Set(),
       getExportedSymbols: async () => [
-        { name: "Point", filePath: "/models/point.my", kind: "class" },
-        { name: "Vector", filePath: "/models/vector.my", kind: "class" },
+        { name: "Point", filePath: "/models/point.vx", kind: "class" },
+        { name: "Vector", filePath: "/models/vector.vx", kind: "class" },
       ],
     });
 
@@ -235,9 +235,9 @@ describe("import quick fixes", () => {
     expect(suggestions[0]?.importPath).toBe("./models/point");
   });
   it("suggests importing an exported extension property for a missing member", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
-    const durationFile = join(root, "duration.my");
-    const consumerFile = join(root, "consumer.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const durationFile = join(root, "duration.vx");
+    const consumerFile = join(root, "consumer.vx");
     await writeFile(durationFile, "export val number.milliseconds => this\n", "utf8");
     const source = "val duration = 10.milliseconds\n";
     await writeFile(consumerFile, source, "utf8");
@@ -258,9 +258,9 @@ describe("import quick fixes", () => {
   });
 
   it("filters extension auto-import suggestions by receiver type", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-fix-"));
-    const durationFile = join(root, "duration.my");
-    const consumerFile = join(root, "consumer.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const durationFile = join(root, "duration.vx");
+    const consumerFile = join(root, "consumer.vx");
     await writeFile(
       durationFile, dedent`
       export val number.milliseconds => this

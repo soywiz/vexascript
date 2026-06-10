@@ -11,7 +11,7 @@ const markdown = new MarkdownIt({
   linkify: true,
   typographer: false,
   highlight(content, language) {
-    return renderHighlightedCodeBlock(content, language || "mylang");
+    return renderHighlightedCodeBlock(content, language || "vexa");
   }
 });
 

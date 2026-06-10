@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "mylang: install plugin deps",
+      "label": "vexa: install plugin deps",
       "type": "shell",
       "command": "pnpm",
       "args": ["install"],
@@ -16,7 +16,7 @@
       "problemMatcher": []
     },
     {
-      "label": "mylang: bundle extension from plugin",
+      "label": "vexa: bundle extension from plugin",
       "type": "shell",
       "command": "pnpm",
       "args": ["run", "bundle-extension"],
@@ -30,10 +30,10 @@
       "problemMatcher": []
     },
     {
-      "label": "mylang: prepare from plugin",
+      "label": "vexa: prepare from plugin",
       "dependsOn": [
-        "mylang: install plugin deps",
-        "mylang: bundle extension from plugin"
+        "vexa: install plugin deps",
+        "vexa: bundle extension from plugin"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []

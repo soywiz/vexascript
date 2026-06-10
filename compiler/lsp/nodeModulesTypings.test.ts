@@ -35,10 +35,10 @@ async function makePackageWithTypings(root: string, pkgName: string, dts: string
 
 describe("node_modules typings resolution", () => {
   it("resolves typings from node_modules package.json typings field", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
-    const importerPath = join(root, "main.my");
+    const importerPath = join(root, "main.vx");
     const typings = await getNodeModuleTypings(importerPath, "pkg");
 
     expect(typings).not.toBeNull();
@@ -47,18 +47,18 @@ describe("node_modules typings resolution", () => {
   });
 
   it("returns null for unknown packages", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
-    const importerPath = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const importerPath = join(root, "main.vx");
     const typings = await getNodeModuleTypings(importerPath, "nonexistent-pkg");
     expect(typings).toBeNull();
   });
 
   it("walks up directory tree to find node_modules", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
     const subDir = join(root, "src", "sub");
     await mkdir(subDir, { recursive: true });
-    const importerPath = join(subDir, "main.my");
+    const importerPath = join(subDir, "main.vx");
 
     const typings = await getNodeModuleTypings(importerPath, "pkg");
     expect(typings).not.toBeNull();
@@ -66,10 +66,10 @@ describe("node_modules typings resolution", () => {
   });
 
   it("collectImportedTypeDeclarations loads node_modules declarations for default import", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
-    const mainPath = join(root, "main.my");
+    const mainPath = join(root, "main.vx");
     const source = `import pkg from "pkg"\npkg.helper()\n`;
     await writeFile(mainPath, source, "utf8");
 
@@ -88,10 +88,10 @@ describe("node_modules typings resolution", () => {
   });
 
   it("collectImportedSymbolTypes assigns named type to default import from node_modules", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
-    const mainPath = join(root, "main.my");
+    const mainPath = join(root, "main.vx");
     const source = `import pkg from "pkg"\n`;
     await writeFile(mainPath, source, "utf8");
 
@@ -106,10 +106,10 @@ describe("node_modules typings resolution", () => {
   });
 
   it("default import from node_modules gets named type instead of unknown in analysis", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
-    const mainPath = join(root, "main.my");
+    const mainPath = join(root, "main.vx");
     const source = `import pkg from "pkg"\n`;
     await writeFile(mainPath, source, "utf8");
 
@@ -127,13 +127,13 @@ describe("node_modules typings resolution", () => {
 
 
   it("assigns callable type to default imports from default function node_modules typings", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "renderer", dedent`
       export default function render(value: unknown): string;
       export function helper(): string;
     `);
 
-    const mainPath = join(root, "main.my");
+    const mainPath = join(root, "main.vx");
     const source = `import render from "renderer"\nconst html = render("page")\n`;
     await writeFile(mainPath, source, "utf8");
 
@@ -148,10 +148,10 @@ describe("node_modules typings resolution", () => {
   });
 
   it("findNodeModuleMemberLocation finds a member inside a namespace", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
-    const importerPath = join(root, "main.my");
+    const importerPath = join(root, "main.vx");
 
     const result = await findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "helper");
     expect(result).not.toBeNull();
@@ -160,19 +160,19 @@ describe("node_modules typings resolution", () => {
   });
 
   it("findNodeModuleMemberLocation returns null for non-existent member", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
-    const importerPath = join(root, "main.my");
+    const importerPath = join(root, "main.vx");
     const result = await findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "nonExistent");
     expect(result).toBeNull();
   });
 
   it("resolves namespace members from node_modules typings for member access hover", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-nm-typings-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
-    const mainPath = join(root, "main.my");
+    const mainPath = join(root, "main.vx");
     const source = `import pkg from "pkg"\npkg.helper()\n`;
     await writeFile(mainPath, source, "utf8");
 

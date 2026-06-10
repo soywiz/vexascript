@@ -1,4 +1,5 @@
 import { dirname, extname, resolve } from "node:path";
+import { LANGUAGE_FILE_EXTENSION } from "./language";
 import { localVfs, type Vfs } from "./vfs";
 
 
@@ -8,7 +9,7 @@ export function candidateImportTargetFilePaths(
 ): string[] {
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
-  return extname(direct) ? [direct] : [direct, `${direct}.my`, `${direct}.ts`];
+  return extname(direct) ? [direct] : [direct, `${direct}${LANGUAGE_FILE_EXTENSION}`, `${direct}.ts`];
 }
 
 /**
@@ -19,9 +20,9 @@ export function candidateImportTargetFilePaths(
  * Resolution order:
  *  1. The path resolved directly against the importer's directory, if it exists
  *     in the VFS or in an open editor/LSP session.
- *  2. The same path with a `.my` extension appended, when the import omits an
+ *  2. The same path with a `${LANGUAGE_FILE_EXTENSION}` extension appended, when the import omits an
  *     explicit extension.
- *  3. The same path with a `.ts` extension appended, so MyLang files can import
+ *  3. The same path with a `.ts` extension appended, so VexaScript files can import
  *     colocated TypeScript runtime modules without spelling the extension.
  *
  * This is the shared resolver used by the semantic project index and the LSP

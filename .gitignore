@@ -5,7 +5,7 @@ dist
 package-lock.json
 .pnpm-store
 
-**/.mylang-run-profile-*.mjs
+**/.vexa-run-profile-*.mjs
 **/*.cpuprofile
 website/_site
 website/src/assets/generated

@@ -1,5 +1,5 @@
 /*!
- * Bundled TypeScript DOM declarations for MyLang.
+ * Bundled TypeScript DOM declarations for VexaScript.
  * Source family: TypeScript lib.dom*.d.ts
  * Includes: dom, dom.iterable, dom.asynciterable.
  */

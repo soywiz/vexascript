@@ -88,7 +88,7 @@ describe("StrReader", () => {
     });
 
     it("reports source length", () => {
-        const reader = new StrReader("mylang");
-        expect(reader.length).toBe(6);
+        const reader = new StrReader("vexa");
+        expect(reader.length).toBe(4);
     });
 });

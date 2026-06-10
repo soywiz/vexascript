@@ -1,7 +1,7 @@
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { ANALYSIS_ISSUE_CODES, type AnalysisIssueCode } from "compiler/analysis/issueCodes";
 
-export const MYLANG_DIAGNOSTIC_CODES = {
+export const VEXA_DIAGNOSTIC_CODES = {
   PARSER_ERROR: "MYL1000",
   TOKENIZE_ERROR: "MYL1001",
   FATAL_ERROR: "MYL1002",
@@ -28,8 +28,8 @@ export const MYLANG_DIAGNOSTIC_CODES = {
   STYLE_AVOID_ANY: "MYL3001"
 } as const;
 
-export type MyLangDiagnosticCode =
-  (typeof MYLANG_DIAGNOSTIC_CODES)[keyof typeof MYLANG_DIAGNOSTIC_CODES];
+export type VexaScriptDiagnosticCode =
+  (typeof VEXA_DIAGNOSTIC_CODES)[keyof typeof VEXA_DIAGNOSTIC_CODES];
 
 export type CallDiagnosticKind =
   | "tooFewArguments"
@@ -90,7 +90,7 @@ function diagnosticCodeToString(diagnostic: Diagnostic): string | null {
   return null;
 }
 
-export function diagnosticHasCode(diagnostic: Diagnostic, code: MyLangDiagnosticCode): boolean {
+export function diagnosticHasCode(diagnostic: Diagnostic, code: VexaScriptDiagnosticCode): boolean {
   return diagnosticCodeToString(diagnostic) === code;
 }
 
@@ -158,123 +158,123 @@ export function parseOperatorNotDefinedDiagnostic(
   return operator && leftType && rightType ? { operator, leftType, rightType } : null;
 }
 
-export function classifySemanticDiagnosticMessage(message: string): MyLangDiagnosticCode | null {
+export function classifySemanticDiagnosticMessage(message: string): VexaScriptDiagnosticCode | null {
   if (UNDEFINED_VARIABLE_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE;
+    return VEXA_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE;
   }
   if (TYPE_MISMATCH_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.TYPE_MISMATCH;
+    return VEXA_DIAGNOSTIC_CODES.TYPE_MISMATCH;
   }
   if (UNKNOWN_TYPE_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.UNKNOWN_TYPE;
+    return VEXA_DIAGNOSTIC_CODES.UNKNOWN_TYPE;
   }
   if (MISSING_MEMBER_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.MISSING_MEMBER;
+    return VEXA_DIAGNOSTIC_CODES.MISSING_MEMBER;
   }
   if (CALL_TOO_FEW_ARGUMENTS_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS;
+    return VEXA_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS;
   }
   if (CALL_TOO_MANY_ARGUMENTS_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS;
+    return VEXA_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS;
   }
   if (CALL_UNEXPECTED_ARGUMENT_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT;
+    return VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT;
   }
   if (CALL_ARGUMENT_TYPE_MISMATCH_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH;
+    return VEXA_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH;
   }
   if (READONLY_REASSIGNMENT_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.READONLY_REASSIGNMENT;
+    return VEXA_DIAGNOSTIC_CODES.READONLY_REASSIGNMENT;
   }
   if (IMPLEMENTS_MISSING_MEMBER_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER;
+    return VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER;
   }
   if (IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
+    return VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
   }
   if (OPERATOR_NOT_DEFINED_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED;
+    return VEXA_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED;
   }
   if (NULLABLE_MEMBER_ACCESS_PATTERN.test(message)) {
-    return MYLANG_DIAGNOSTIC_CODES.NULLABLE_MEMBER_ACCESS;
+    return VEXA_DIAGNOSTIC_CODES.NULLABLE_MEMBER_ACCESS;
   }
   return null;
 }
 
 export function mapAnalysisIssueCodeToDiagnosticCode(
   issueCode: AnalysisIssueCode | undefined
-): MyLangDiagnosticCode | null {
+): VexaScriptDiagnosticCode | null {
   if (!issueCode) {
     return null;
   }
   switch (issueCode) {
     case ANALYSIS_ISSUE_CODES.IMPLEMENTS_MISSING_MEMBER:
-      return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER;
+      return VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER;
     case ANALYSIS_ISSUE_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER:
-      return MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
+      return VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER;
     case ANALYSIS_ISSUE_CODES.DUPLICATE_SWITCH_DEFAULT:
-      return MYLANG_DIAGNOSTIC_CODES.DUPLICATE_SWITCH_DEFAULT;
+      return VEXA_DIAGNOSTIC_CODES.DUPLICATE_SWITCH_DEFAULT;
     case ANALYSIS_ISSUE_CODES.SWITCH_CASE_FALLTHROUGH:
-      return MYLANG_DIAGNOSTIC_CODES.SWITCH_CASE_FALLTHROUGH;
+      return VEXA_DIAGNOSTIC_CODES.SWITCH_CASE_FALLTHROUGH;
     case ANALYSIS_ISSUE_CODES.NOT_ALL_CODE_PATHS_RETURN:
-      return MYLANG_DIAGNOSTIC_CODES.NOT_ALL_CODE_PATHS_RETURN;
+      return VEXA_DIAGNOSTIC_CODES.NOT_ALL_CODE_PATHS_RETURN;
     case ANALYSIS_ISSUE_CODES.RETURN_VALUE_REQUIRED:
-      return MYLANG_DIAGNOSTIC_CODES.RETURN_VALUE_REQUIRED;
+      return VEXA_DIAGNOSTIC_CODES.RETURN_VALUE_REQUIRED;
     case ANALYSIS_ISSUE_CODES.RETURN_TYPE_MISMATCH:
-      return MYLANG_DIAGNOSTIC_CODES.RETURN_TYPE_MISMATCH;
+      return VEXA_DIAGNOSTIC_CODES.RETURN_TYPE_MISMATCH;
     case ANALYSIS_ISSUE_CODES.YIELD_OUTSIDE_GENERATOR:
-      return MYLANG_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR;
+      return VEXA_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR;
     default:
       return null;
   }
 }
 
 export function isUndefinedVariableDiagnostic(diagnostic: Diagnostic): boolean {
-  if (diagnostic.source !== "mylang-sema") {
+  if (diagnostic.source !== "vexa-sema") {
     return false;
   }
   return (
-    diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE) ||
+    diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE) ||
     UNDEFINED_VARIABLE_PATTERN.test(diagnostic.message)
   );
 }
 
 export function isMissingMemberDiagnostic(diagnostic: Diagnostic): boolean {
-  if (diagnostic.source !== "mylang-sema") {
+  if (diagnostic.source !== "vexa-sema") {
     return false;
   }
   return (
-    diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.MISSING_MEMBER) ||
+    diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.MISSING_MEMBER) ||
     MISSING_MEMBER_PATTERN.test(diagnostic.message)
   );
 }
 
 export function isUnknownTypeDiagnostic(diagnostic: Diagnostic): boolean {
-  if (diagnostic.source !== "mylang-sema") {
+  if (diagnostic.source !== "vexa-sema") {
     return false;
   }
   return (
-    diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.UNKNOWN_TYPE) ||
+    diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.UNKNOWN_TYPE) ||
     UNKNOWN_TYPE_PATTERN.test(diagnostic.message)
   );
 }
 
 export function isOperatorNotDefinedDiagnostic(diagnostic: Diagnostic): boolean {
-  if (diagnostic.source !== "mylang-sema") {
+  if (diagnostic.source !== "vexa-sema") {
     return false;
   }
   return (
-    diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED) ||
+    diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED) ||
     OPERATOR_NOT_DEFINED_PATTERN.test(diagnostic.message)
   );
 }
 
 export function isTypeMismatchDiagnostic(diagnostic: Diagnostic): boolean {
-  if (diagnostic.source !== "mylang-sema") {
+  if (diagnostic.source !== "vexa-sema") {
     return false;
   }
   return (
-    diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.TYPE_MISMATCH) ||
+    diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.TYPE_MISMATCH) ||
     TYPE_MISMATCH_PATTERN.test(diagnostic.message)
   );
 }
@@ -296,19 +296,19 @@ function callDiagnosticKindFromMessage(message: string): CallDiagnosticKind | nu
 }
 
 export function getCallDiagnosticKind(diagnostic: Diagnostic): CallDiagnosticKind | null {
-  if (diagnostic.source !== "mylang-sema") {
+  if (diagnostic.source !== "vexa-sema") {
     return null;
   }
-  if (diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS)) {
+  if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS)) {
     return "tooFewArguments";
   }
-  if (diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS)) {
+  if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS)) {
     return "tooManyArguments";
   }
-  if (diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT)) {
+  if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT)) {
     return "unexpectedArgument";
   }
-  if (diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH)) {
+  if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH)) {
     return "argumentTypeMismatch";
   }
   return callDiagnosticKindFromMessage(diagnostic.message);

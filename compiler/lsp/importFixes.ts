@@ -141,7 +141,7 @@ export function hasImportedSymbol(ast: Program, symbolName: string): boolean {
 export function toImportPath(fromFilePath: string, targetFilePath: string): string {
   const fromDir = dirname(fromFilePath);
   const relativePath = relative(fromDir, targetFilePath).replace(/\\/g, "/");
-  const withoutExt = relativePath.endsWith(".my")
+  const withoutExt = relativePath.endsWith(".vx")
     ? relativePath.slice(0, -3)
     : relativePath;
   if (withoutExt.startsWith(".")) {

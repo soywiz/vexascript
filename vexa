@@ -1,0 +1,2 @@
+#!/bin/bash
+esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/vexa.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && node dist/vexa.js $*

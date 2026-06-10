@@ -4,10 +4,10 @@ import dedent from "compiler/utils/dedent";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { createAnalysisSession } from "./analysisSession";
 import { collectDiagnostics, collectDiagnosticsFromSession, createDocumentDiagnosticReport } from "./diagnostics";
-import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
+import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
 function diagnosticsFor(source: string) {
-  const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+  const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
   return collectDiagnostics(source, (offset) => doc.positionAt(offset));
 }
 
@@ -20,25 +20,25 @@ describe("lsp diagnostics", () => {
 
     const diagnostics = diagnosticsFor(source);
     const parserMessages = diagnostics
-      .filter((diagnostic) => diagnostic.source === "mylang-ls")
+      .filter((diagnostic) => diagnostic.source === "vexa-ls")
       .map((diagnostic) => diagnostic.message);
     const semanticMessages = diagnostics
-      .filter((diagnostic) => diagnostic.source === "mylang-sema")
+      .filter((diagnostic) => diagnostic.source === "vexa-sema")
       .map((diagnostic) => diagnostic.message);
 
     expect(parserMessages).toContain("Expected identifier in variable declaration");
     expect(semanticMessages).toContain("Undefined variable 'missing'");
     expect(
-      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.PARSER_ERROR)
+      diagnostics.some((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.PARSER_ERROR)
     ).toBe(true);
     expect(
-      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE)
+      diagnostics.some((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE)
     ).toBe(true);
   });
 
   it("uses precomputed semantic issues from the analysis session", () => {
     const source = "let ok = missing\n";
-    const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
     const session = createAnalysisSession(source);
 
     expect(session.semanticIssues.map((issue) => issue.message)).toContain(
@@ -70,7 +70,7 @@ describe("lsp diagnostics", () => {
     `);
 
     expect(
-      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.DUPLICATE_SWITCH_DEFAULT)
+      diagnostics.some((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.DUPLICATE_SWITCH_DEFAULT)
     ).toBe(true);
   });
 
@@ -83,7 +83,7 @@ describe("lsp diagnostics", () => {
 }`);
 
     expect(
-      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.SWITCH_CASE_FALLTHROUGH)
+      diagnostics.some((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.SWITCH_CASE_FALLTHROUGH)
     ).toBe(true);
   });
 
@@ -100,13 +100,13 @@ function empty(): int {
 `);
 
     const missingPath = diagnostics.find(
-      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.NOT_ALL_CODE_PATHS_RETURN
+      (diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.NOT_ALL_CODE_PATHS_RETURN
     );
     const wrongType = diagnostics.find(
-      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.RETURN_TYPE_MISMATCH
+      (diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.RETURN_TYPE_MISMATCH
     );
     const missingValue = diagnostics.find(
-      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.RETURN_VALUE_REQUIRED
+      (diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.RETURN_VALUE_REQUIRED
     );
 
     expect(missingPath?.range.start).toEqual({ line: 0, character: 9 });
@@ -119,10 +119,10 @@ function empty(): int {
   return "bad"
 }
 `;
-    const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
     const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
     const diagnostic = diagnostics.find(
-      (item) => item.code === MYLANG_DIAGNOSTIC_CODES.RETURN_TYPE_MISMATCH
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.RETURN_TYPE_MISMATCH
     );
 
     expect(diagnostic?.message).toBe("Type 'string' is not assignable to return type 'Promise<number>'");
@@ -138,7 +138,7 @@ function empty(): int {
     );
 
     const missingArgument = diagnostics.find(
-      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
+      (diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
     );
 
     expect(missingArgument?.range.start).toEqual({ line: 1, character: 7 });
@@ -153,7 +153,7 @@ function empty(): int {
     );
 
     expect(
-      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR)
+      diagnostics.some((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR)
     ).toBe(true);
   });
 
@@ -168,10 +168,10 @@ function empty(): int {
       let result: Point = b / Point(1, 3)
       `;
 
-    const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
     const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
     const diagnostic = diagnostics.find(
-      (item) => item.code === MYLANG_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.OPERATOR_NOT_DEFINED
     );
 
     expect(diagnostic?.message).toBe("Operator '/' is not defined for types 'unknown' and 'Point'");
@@ -187,7 +187,7 @@ function empty(): int {
       root.querySelector(".demo").querySelector("test")
       `;
 
-    const doc = TextDocument.create("file:///demo.my", "mylang", 1, source);
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
     const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
     const diagnostic = diagnostics.find(
       (item) =>
@@ -202,7 +202,7 @@ function empty(): int {
   it("creates a full document diagnostic report from a session", () => {
     const source = "function bad() {\n  yield 1\n}\n";
     const session = createAnalysisSession(source);
-    const doc = TextDocument.create("file:///demo.my", "mylang", 7, source);
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 7, source);
 
     const report = createDocumentDiagnosticReport(session, source, (offset) => doc.positionAt(offset), "7");
 
@@ -210,7 +210,7 @@ function empty(): int {
     if (report.kind === "full") {
       expect(report.resultId).toBe("7");
       expect(
-        report.items.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR)
+        report.items.some((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR)
       ).toBe(true);
     }
   });
@@ -225,7 +225,7 @@ function empty(): int {
     );
 
     expect(
-      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.NOT_ALL_CODE_PATHS_RETURN)
+      diagnostics.some((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.NOT_ALL_CODE_PATHS_RETURN)
     ).toBe(false);
   });
 
@@ -237,7 +237,7 @@ function empty(): int {
 
     const diagnostics = diagnosticsFor(source);
     expect(
-      diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.READONLY_REASSIGNMENT)
+      diagnostics.some((diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.READONLY_REASSIGNMENT)
     ).toBe(true);
   });
 
@@ -266,7 +266,7 @@ function empty(): int {
 
     const diagnostics = diagnosticsFor(source);
     const incompatible = diagnostics.find(
-      (diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER
+      (diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER
     );
     expect(incompatible).toBeDefined();
     expect(incompatible?.data).toEqual({

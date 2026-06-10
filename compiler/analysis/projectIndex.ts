@@ -297,7 +297,7 @@ export class ProjectIndex {
         const fullPath = resolve(current, entry.name);
         if (entry.isDirectory) {
           stack.push(fullPath);
-        } else if (entry.isFile && extname(entry.name) === ".my") {
+        } else if (entry.isFile && extname(entry.name) === ".vx") {
           files.push(fullPath);
         }
       }

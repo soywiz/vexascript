@@ -158,13 +158,13 @@ export function normalizeJsxText(raw: string): string {
     return pieces.join(" ");
 }
 
-export type ParseLanguage = "mylang" | "typescript";
+export type ParseLanguage = "vexa" | "typescript";
 
 export interface ParserOptions {
     language?: ParseLanguage;
     /**
      * Enables embedded XML/JSX and, when true, disables the `<Type>expr`
-     * angle-bracket cast. Only meaningful in TypeScript mode: MyLang always
+     * angle-bracket cast. Only meaningful in TypeScript mode: VexaScript always
      * behaves as if `jsx` were on (one mode that supports embedding XML). In
      * TypeScript mode it defaults to off so the angle-bracket cast keeps working.
      */
@@ -188,7 +188,7 @@ interface TokenCheckpoint {
     mutatedTokens: Map<number, Token>;
 }
 
-const RECOVERY_MARKERS_SYMBOL: unique symbol = Symbol("mylang.parseRecoveryMarkers");
+const RECOVERY_MARKERS_SYMBOL: unique symbol = Symbol("vexa.parseRecoveryMarkers");
 
 export class ParseError extends Error {
     token: Token | undefined;
@@ -206,7 +206,7 @@ export class Parser {
     public errors: ParseIssue[] = [];
     public readonly language: ParseLanguage;
     /**
-     * Effective JSX mode. MyLang always supports embedding XML; TypeScript
+     * Effective JSX mode. VexaScript always supports embedding XML; TypeScript
      * opts in through `jsx`. When on, the `<Type>expr` cast is disabled.
      */
     public readonly jsx: boolean;
@@ -214,7 +214,7 @@ export class Parser {
     private readonly tokenCheckpoints: TokenCheckpoint[] = [];
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
-        this.language = options.language ?? "mylang";
+        this.language = options.language ?? "vexa";
         this.jsx = this.language !== "typescript" ? true : (options.jsx ?? false);
     }
 
@@ -3619,7 +3619,7 @@ export class Parser {
         } else if (allowPropertyName && firstName.kind === "Identifier") {
             shorthand = true;
         }
-        if (!rest && this.language === "mylang" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+        if (!rest && this.language === "vexa" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             typeAnnotation = this.parseTypeAnnotationNode();
         }
@@ -5118,8 +5118,8 @@ export class Parser {
 
         let primaryConstructorParameters: ClassPrimaryConstructorParameter[] | undefined;
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
-            if (this.language !== "mylang") {
-                this.fail("Class primary constructor syntax is only available in MyLang mode", this.tokenAt());
+            if (this.language !== "vexa") {
+                this.fail("Class primary constructor syntax is only available in VexaScript mode", this.tokenAt());
             }
 
             this.tokens.skip();
@@ -5135,7 +5135,7 @@ export class Parser {
         let implementsTypes: Identifier[] | undefined;
         const classDelegates: ClassDelegate[] = [];
 
-        if (this.language === "mylang" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+        if (this.language === "vexa" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             const colonTypes: Identifier[] = [];
             while (this.tokens.hasMore) {
@@ -5197,7 +5197,7 @@ export class Parser {
 
         const openBrace = this.tokens.peek();
         if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
-            if (this.language === "mylang") {
+            if (this.language === "vexa") {
                 const statement: ClassStatement = {
                     kind: "ClassStatement",
                     name: this.buildIdentifierFromToken(classNameToken),
@@ -5688,14 +5688,14 @@ export class Parser {
             ) {
                 initializer = this.parseVarStatement();
             } else if (
-                this.language === "mylang" &&
+                this.language === "vexa" &&
                 initialToken?.type === "identifier" &&
                 secondToken?.type === "identifier" &&
                 (secondToken.value === "in" || secondToken.value === "of")
             ) {
                 const identifierToken = this.tokens.read();
                 if (identifierToken?.type !== "identifier") {
-                    this.fail("Expected identifier iterator in MyLang for-in/of statement", this.tokenAt(identifierToken));
+                    this.fail("Expected identifier iterator in VexaScript for-in/of statement", this.tokenAt(identifierToken));
                 }
                 initializer = this.buildIdentifierFromToken(identifierToken);
             } else {
@@ -5724,14 +5724,14 @@ export class Parser {
                     this.fail("for-in/of iterator declaration cannot have an initializer", iteratorDeclaration.firstToken);
                 }
             } else {
-                if (this.language !== "mylang") {
+                if (this.language !== "vexa") {
                     this.fail(
-                        "for-in/of without declaration keyword is only available in MyLang mode",
+                        "for-in/of without declaration keyword is only available in VexaScript mode",
                         initializer.firstToken
                     );
                 }
                 if (initializer.kind !== "Identifier") {
-                    this.fail("Expected identifier iterator in MyLang for-in/of statement", initializer.firstToken);
+                    this.fail("Expected identifier iterator in VexaScript for-in/of statement", initializer.firstToken);
                 }
             }
 

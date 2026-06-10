@@ -32,13 +32,13 @@ import {
   type WorkspaceEntry,
   type WorkspaceFile,
 } from "../../../plugins/monaco/src/workspace";
-import { createMyLangMonacoTheme, MYLANG_MONACO_THEME_NAME } from "../../../plugins/monaco/src/theme";
+import { createVexaScriptMonacoTheme, VEXA_MONACO_THEME_NAME } from "../../../plugins/monaco/src/theme";
 import bundledRuntime from "../../../compiler/runtime/es2025.d.ts?raw";
 
-interface MyLangEmbedFile {
+interface VexaScriptEmbedFile {
   path: string;
   content: string;
-  language?: "mylang" | "typescript";
+  language?: "vexa" | "typescript";
   readOnly?: boolean;
 }
 
@@ -58,7 +58,7 @@ interface SimpleEditorOptions {
 }
 
 interface WorkspaceEditorOptions {
-  files: MyLangEmbedFile[];
+  files: VexaScriptEmbedFile[];
   activePath?: string;
   height?: string;
   selection?: monaco.IRange;
@@ -94,7 +94,7 @@ const lspCompletionItemKinds: Record<number, monaco.languages.CompletionItemKind
 
 declare global {
   interface Window {
-    MyLangEmbeds?: {
+    VexaScriptEmbeds?: {
       createSimpleEditor(container: HTMLElement | string, options: SimpleEditorOptions): EditorHandle;
       createWorkspaceEditor(container: HTMLElement | string, options: WorkspaceEditorOptions): EditorHandle;
       monaco: typeof monaco;
@@ -135,7 +135,7 @@ function ensureAutoAwaitGlyphStyle(): void {
   }
   const style = document.createElement("style");
   style.textContent = `
-    .mylang-auto-await-glyph {
+    .vexa-auto-await-glyph {
       background-repeat: no-repeat;
       background-position: center center;
       background-size: 70%;
@@ -200,15 +200,15 @@ function toMonacoLanguageConfiguration(portable: PortableLanguageConfiguration):
   };
 }
 
-function registerMyLang(): void {
+function registerVexaScript(): void {
   monaco.languages.register({
-    id: "mylang",
-    extensions: [".my"],
-    aliases: ["MyLang", "mylang"],
-    mimetypes: ["text/x-mylang"],
+    id: "vexa",
+    extensions: [".vx"],
+    aliases: ["VexaScript", "vexa"],
+    mimetypes: ["text/x-vexa"],
   });
-  monaco.languages.setMonarchTokensProvider("mylang", toMonacoMonarchLanguage(createPortableMonarchLanguage()) as monaco.languages.IMonarchLanguage);
-  monaco.languages.setLanguageConfiguration("mylang", toMonacoLanguageConfiguration(createPortableLanguageConfiguration()));
+  monaco.languages.setMonarchTokensProvider("vexa", toMonacoMonarchLanguage(createPortableMonarchLanguage()) as monaco.languages.IMonarchLanguage);
+  monaco.languages.setLanguageConfiguration("vexa", toMonacoLanguageConfiguration(createPortableLanguageConfiguration()));
 }
 
 function completionEditRange(
@@ -335,7 +335,7 @@ function normalizePrepareRenameResult(
 }
 
 function registerCompletionProvider(): void {
-  monaco.languages.registerCompletionItemProvider("mylang", {
+  monaco.languages.registerCompletionItemProvider("vexa", {
     triggerCharacters: ["."],
     async provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position);
@@ -393,7 +393,7 @@ function registerCompletionProvider(): void {
 }
 
 function registerRenameProvider(): void {
-  monaco.languages.registerRenameProvider("mylang", {
+  monaco.languages.registerRenameProvider("vexa", {
     async resolveRenameLocation(model, position) {
       const reject: monaco.languages.RenameLocation & { rejectReason: string } = {
         range: new monaco.Range(1, 1, 1, 1),
@@ -432,7 +432,7 @@ function registerRenameProvider(): void {
 }
 
 function registerCodeActionProvider(): void {
-  monaco.languages.registerCodeActionProvider("mylang", {
+  monaco.languages.registerCodeActionProvider("vexa", {
     async provideCodeActions(model, range, context) {
       const session = createAnalysisSession(model.getValue());
       if (!session.ast) {
@@ -472,7 +472,7 @@ function hoverContentsToMarkdown(contents: unknown): monaco.IMarkdownString[] {
       continue;
     }
     if (typeof entry === "string") {
-      result.push({ value: `\`\`\`mylang\n${entry}\n\`\`\`` });
+      result.push({ value: `\`\`\`vexa\n${entry}\n\`\`\`` });
       continue;
     }
     if (typeof entry === "object") {
@@ -484,7 +484,7 @@ function hoverContentsToMarkdown(contents: unknown): monaco.IMarkdownString[] {
         result.push({ value: record.value, isTrusted: false });
         continue;
       }
-      result.push({ value: `\`\`\`${record.language ?? "mylang"}\n${record.value}\n\`\`\`` });
+      result.push({ value: `\`\`\`${record.language ?? "vexa"}\n${record.value}\n\`\`\`` });
     }
   }
   return result;
@@ -503,7 +503,7 @@ function toMonacoRange(range: {
 }
 
 function registerHoverProvider(): void {
-  monaco.languages.registerHoverProvider("mylang", {
+  monaco.languages.registerHoverProvider("vexa", {
     async provideHover(model, position) {
       const session = createAnalysisSession(model.getValue());
       if (!session.analysis) {
@@ -545,7 +545,7 @@ function registerDefinitionProvider(): void {
       : [];
   };
 
-  monaco.languages.registerDefinitionProvider("mylang", {
+  monaco.languages.registerDefinitionProvider("vexa", {
     provideDefinition,
   });
 }
@@ -556,7 +556,7 @@ function resolveContainer(container: HTMLElement | string): HTMLElement {
   }
   const element = document.querySelector<HTMLElement>(container);
   if (!element) {
-    throw new Error(`MyLang editor container not found: ${container}`);
+    throw new Error(`VexaScript editor container not found: ${container}`);
   }
   return element;
 }
@@ -565,14 +565,14 @@ function bootstrapMonaco(): void {
   if (bootstrapped) {
     return;
   }
-  registerMyLang();
+  registerVexaScript();
   registerCompletionProvider();
   registerHoverProvider();
   registerDefinitionProvider();
   registerRenameProvider();
   registerCodeActionProvider();
-  monaco.editor.defineTheme(MYLANG_MONACO_THEME_NAME, createMyLangMonacoTheme());
-  monaco.editor.setTheme(MYLANG_MONACO_THEME_NAME);
+  monaco.editor.defineTheme(VEXA_MONACO_THEME_NAME, createVexaScriptMonacoTheme());
+  monaco.editor.setTheme(VEXA_MONACO_THEME_NAME);
   bootstrapped = true;
 }
 
@@ -607,7 +607,7 @@ function applySelection(
   editor.revealRangeInCenter(selection);
 }
 
-function createFoldersForFiles(files: MyLangEmbedFile[]): WorkspaceEntry[] {
+function createFoldersForFiles(files: VexaScriptEmbedFile[]): WorkspaceEntry[] {
   const folderPaths = new Set<string>(["/"]);
   for (const file of files) {
     let current = normalizePath(file.path);
@@ -619,10 +619,10 @@ function createFoldersForFiles(files: MyLangEmbedFile[]): WorkspaceEntry[] {
   return [...folderPaths].sort().map((path) => createFolderEntry(path));
 }
 
-function createEntries(files: MyLangEmbedFile[]): WorkspaceEntry[] {
+function createEntries(files: VexaScriptEmbedFile[]): WorkspaceEntry[] {
   const normalizedFiles = files.length > 0
     ? files
-    : [{ path: "/main.my", content: "fun main(): string {\n  return \"Hello from MyLang\"\n}\n" }];
+    : [{ path: "/main.vx", content: "fun main(): string {\n  return \"Hello from VexaScript\"\n}\n" }];
   const fileEntries = normalizedFiles.map((file) => createFileEntry(file.path, file.content, {
     ...(file.language ? { language: file.language } : {}),
     ...(file.readOnly ? { readOnly: true } : {}),
@@ -653,8 +653,8 @@ function mapSeverity(severity: number | undefined): monaco.MarkerSeverity {
 }
 
 function updateDiagnostics(model: monaco.editor.ITextModel): void {
-  if (model.getLanguageId() !== "mylang") {
-    monaco.editor.setModelMarkers(model, "mylang", []);
+  if (model.getLanguageId() !== "vexa") {
+    monaco.editor.setModelMarkers(model, "vexa", []);
     return;
   }
   const session = createAnalysisSession(model.getValue());
@@ -668,7 +668,7 @@ function updateDiagnostics(model: monaco.editor.ITextModel): void {
   );
   monaco.editor.setModelMarkers(
     model,
-    "mylang",
+    "vexa",
     diagnostics.map((diagnostic) => ({
       severity: mapSeverity(diagnostic.severity),
       startLineNumber: diagnostic.range.start.line + 1,
@@ -677,7 +677,7 @@ function updateDiagnostics(model: monaco.editor.ITextModel): void {
       endColumn: diagnostic.range.end.character + 1,
       message: diagnostic.message,
       code: String(diagnostic.code ?? ""),
-      source: diagnostic.source ?? "mylang",
+      source: diagnostic.source ?? "vexa",
     }))
   );
 }
@@ -691,7 +691,7 @@ function updateAutoAwaitGlyphs(
     collection = editor.createDecorationsCollection();
     autoAwaitGlyphCollections.set(editor, collection);
   }
-  if (model.getLanguageId() !== "mylang") {
+  if (model.getLanguageId() !== "vexa") {
     collection.clear();
     return;
   }
@@ -708,7 +708,7 @@ function updateAutoAwaitGlyphs(
       endColumn: decoration.range.end.character + 1,
     },
     options: {
-      glyphMarginClassName: "mylang-auto-await-glyph",
+      glyphMarginClassName: "vexa-auto-await-glyph",
       glyphMarginHoverMessage: { value: decoration.message },
     },
   })));
@@ -743,7 +743,7 @@ function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, r
   ensureAutoAwaitGlyphStyle();
   const editor = monaco.editor.create(container, {
     model,
-    theme: MYLANG_MONACO_THEME_NAME,
+    theme: VEXA_MONACO_THEME_NAME,
     automaticLayout: true,
     minimap: { enabled: false },
     fontSize: 14,
@@ -782,8 +782,8 @@ function createSimpleEditor(container: HTMLElement | string, options: SimpleEdit
   bootstrapMonaco();
   const target = resolveContainer(container);
   setContainerHeight(target, options.height ?? "360px");
-  const path = normalizePath(options.path ?? `/snippet-${++modelCounter}.my`);
-  const model = monaco.editor.createModel(options.content, "mylang", monaco.Uri.parse(pathToUri(path)));
+  const path = normalizePath(options.path ?? `/snippet-${++modelCounter}.vx`);
+  const model = monaco.editor.createModel(options.content, "vexa", monaco.Uri.parse(pathToUri(path)));
   const editor = createEditor(target, model, options.readOnly ?? false);
   const disposeDiagnostics = wireDiagnostics(editor, model);
   applySelection(editor, options.selection);
@@ -803,7 +803,7 @@ function createSimpleEditor(container: HTMLElement | string, options: SimpleEdit
 function createTabButton(entry: WorkspaceFile, activeUri: string, onSelect: (entry: WorkspaceFile) => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `mylang-embed-tab${entry.uri === activeUri ? " is-active" : ""}`;
+  button.className = `vexa-embed-tab${entry.uri === activeUri ? " is-active" : ""}`;
   button.textContent = basename(entry.path);
   button.addEventListener("click", () => onSelect(entry));
   return button;
@@ -812,21 +812,21 @@ function createTabButton(entry: WorkspaceFile, activeUri: string, onSelect: (ent
 function createWorkspaceEditor(container: HTMLElement | string, options: WorkspaceEditorOptions): EditorHandle {
   bootstrapMonaco();
   const target = resolveContainer(container);
-  target.classList.add("mylang-embed-workspace");
+  target.classList.add("vexa-embed-workspace");
   target.textContent = "";
   setContainerHeight(target, options.height ?? "520px");
 
   const tabBar = document.createElement("div");
-  tabBar.className = "mylang-embed-tabs";
+  tabBar.className = "vexa-embed-tabs";
   const editorHost = document.createElement("div");
-  editorHost.className = "mylang-embed-editor";
+  editorHost.className = "vexa-embed-editor";
   target.append(tabBar, editorHost);
 
   const entries = createEntries(options.files);
-  const editableFiles = entries.filter((entry): entry is WorkspaceFile => entry.kind === "file" && entry.language === "mylang" && !entry.readOnly);
+  const editableFiles = entries.filter((entry): entry is WorkspaceFile => entry.kind === "file" && entry.language === "vexa" && !entry.readOnly);
   const activeEntry = editableFiles.find((entry) => entry.path === normalizePath(options.activePath ?? "")) ?? editableFiles[0];
   if (!activeEntry) {
-    throw new Error("MyLang workspace editor needs at least one editable MyLang file.");
+    throw new Error("VexaScript workspace editor needs at least one editable VexaScript file.");
   }
 
   const models = new Map<string, monaco.editor.ITextModel>();
@@ -897,7 +897,7 @@ function createWorkspaceEditor(container: HTMLElement | string, options: Workspa
   };
 }
 
-window.MyLangEmbeds = {
+window.VexaScriptEmbeds = {
   createSimpleEditor,
   createWorkspaceEditor,
   monaco,

@@ -31,7 +31,7 @@ interface ToolDefinition {
 type ToolArguments = Record<string, unknown>;
 
 const POSITION_PROPERTIES = {
-  file: { type: "string", description: "MyLang source file path." },
+  file: { type: "string", description: "VexaScript source file path." },
   line: { type: "number", description: "Zero-based line number." },
   character: { type: "number", description: "Zero-based UTF-16 character offset." },
   root: { type: "string", description: "Optional workspace root. Defaults to the current working directory." }
@@ -39,8 +39,8 @@ const POSITION_PROPERTIES = {
 
 const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
-    name: "mylang_workspace_symbols",
-    description: "Search top-level symbols and class members across a MyLang codebase.",
+    name: "vexa_workspace_symbols",
+    description: "Search top-level symbols and class members across a VexaScript codebase.",
     inputSchema: {
       type: "object",
       properties: {
@@ -50,8 +50,8 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: "mylang_document_symbols",
-    description: "List document symbols for a single MyLang file.",
+    name: "vexa_document_symbols",
+    description: "List document symbols for a single VexaScript file.",
     inputSchema: {
       type: "object",
       properties: { file: POSITION_PROPERTIES.file },
@@ -59,7 +59,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: "mylang_hover",
+    name: "vexa_hover",
     description: "Return hover/type information at a source position.",
     inputSchema: {
       type: "object",
@@ -68,7 +68,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: "mylang_definition",
+    name: "vexa_definition",
     description: "Navigate to the definition at a source position, including imported symbols and cross-file members.",
     inputSchema: {
       type: "object",
@@ -77,7 +77,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: "mylang_references",
+    name: "vexa_references",
     description: "Find references for the symbol at a source position across the codebase.",
     inputSchema: {
       type: "object",
@@ -89,7 +89,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: "mylang_signature_help",
+    name: "vexa_signature_help",
     description: "Return call signature help for the invocation around a source position.",
     inputSchema: {
       type: "object",
@@ -98,7 +98,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: "mylang_rename",
+    name: "vexa_rename",
     description: "Build or apply a cross-file rename for the symbol at a source position.",
     inputSchema: {
       type: "object",
@@ -199,7 +199,7 @@ async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<string[]> {
   return changedFiles;
 }
 
-export class MylangMcpCodebaseServer {
+export class VexaMcpCodebaseServer {
   private readonly sessionCache = new Map<string, Promise<AnalysisSession>>();
 
   constructor(private readonly cwd: string = process.cwd()) {}
@@ -257,21 +257,21 @@ export class MylangMcpCodebaseServer {
   async callTool(name: string, rawArguments: unknown): Promise<{ content: Array<{ type: "text"; text: string }> }> {
     const args = asObject(rawArguments);
     switch (name) {
-      case "mylang_workspace_symbols":
+      case "vexa_workspace_symbols":
         return textResult(await createWorkspaceSymbols({
           sourceRoots: [rootFromArgs(args, this.cwd)],
           query: optionalString(args, "query") ?? ""
         }));
-      case "mylang_document_symbols": {
+      case "vexa_document_symbols": {
         const session = await this.sessionForFile(fileFromArgs(args, this.cwd), [dirname(fileFromArgs(args, this.cwd))]);
         return textResult(session.ast ? createDocumentSymbols(session.ast) : []);
       }
-      case "mylang_hover": {
+      case "vexa_hover": {
         const context = await this.navigationContext(args);
         const localHover = context.session.analysis ? createHover(context.session.analysis, context.line, context.character) : null;
         return textResult(localHover);
       }
-      case "mylang_definition": {
+      case "vexa_definition": {
         const context = await this.navigationContext(args);
         const crossFile = await resolveDefinitionAcrossFiles(context);
         const local = !crossFile && context.session.analysis
@@ -279,18 +279,18 @@ export class MylangMcpCodebaseServer {
           : null;
         return textResult(crossFile ?? local);
       }
-      case "mylang_references": {
+      case "vexa_references": {
         const context = await this.navigationContext(args);
         return textResult(await resolveReferencesAcrossFiles(context, optionalBoolean(args, "includeDeclaration", true)));
       }
-      case "mylang_signature_help": {
+      case "vexa_signature_help": {
         const context = await this.navigationContext(args);
         const help = context.session.ast && context.session.analysis
           ? await createSignatureHelp(context.session.ast, context.session.analysis, context.line, context.character, context)
           : null;
         return textResult(help);
       }
-      case "mylang_rename": {
+      case "vexa_rename": {
         const context = await this.navigationContext(args);
         const edit = await resolveRenameAcrossFiles(context, requiredString(args, "newName"));
         if (!edit || !optionalBoolean(args, "apply", false)) {
@@ -310,7 +310,7 @@ export class MylangMcpCodebaseServer {
     }
     try {
       if (request.method === "initialize") {
-        return { jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "mylang", version: "0.1.0" } } };
+        return { jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "vexa", version: "0.1.0" } } };
       }
       if (request.method === "tools/list") {
         return { jsonrpc: "2.0", id: request.id, result: { tools: this.tools() } };
@@ -331,7 +331,7 @@ export class MylangMcpCodebaseServer {
 export async function runMcpServer(options: { input?: Readable; output?: Writable; cwd?: string } = {}): Promise<void> {
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
-  const server = new MylangMcpCodebaseServer(options.cwd ?? process.cwd());
+  const server = new VexaMcpCodebaseServer(options.cwd ?? process.cwd());
   const lines = createInterface({ input, crlfDelay: Infinity });
   for await (const line of lines) {
     const trimmed = line.trim();

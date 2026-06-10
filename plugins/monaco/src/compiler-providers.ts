@@ -1,4 +1,5 @@
 import * as monaco from "monaco-editor";
+import { LANGUAGE_FILE_EXTENSION, LANGUAGE_ID, LANGUAGE_MIME_TYPE, LANGUAGE_NAME, LANGUAGE_SHORT_NAME } from "compiler/language";
 import type { Vfs } from "compiler/vfs";
 import { createAnalysisSession, type AnalysisSession } from "compiler/lsp/analysisSession";
 import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "compiler/lsp/importedDeclarations";
@@ -30,7 +31,7 @@ import {
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles,
 } from "compiler/lsp/crossFileNavigation";
-import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
+import { createSemanticTokens, VEXA_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
 import { createSignatureHelp } from "compiler/lsp/signatureHelp";
 import { createDocumentSymbols } from "compiler/lsp/symbols";
 import {
@@ -43,7 +44,7 @@ import type { SymbolExport } from "compiler/lsp/importFixes";
 import { extractShowReferencesPayload } from "./codeLensCommands";
 import { markerToDiagnostic } from "./providerConversions";
 
-const LANG_ID = "mylang";
+const LANG_ID = LANGUAGE_ID;
 
 interface SessionState {
   version: number;
@@ -298,7 +299,7 @@ function hoverContentsToMarkdown(contents: unknown): monaco.IMarkdownString[] {
   for (const entry of entries) {
     if (!entry) continue;
     if (typeof entry === "string") {
-      result.push({ value: "```mylang\n" + entry + "\n```" });
+      result.push({ value: "```vexa\n" + entry + "\n```" });
       continue;
     }
     if (typeof entry === "object") {
@@ -308,7 +309,7 @@ function hoverContentsToMarkdown(contents: unknown): monaco.IMarkdownString[] {
         result.push({ value: record.value, isTrusted: false });
       } else {
         // plaintext MarkupContent or { language, value } MarkedString.
-        const lang = record.language ?? "mylang";
+        const lang = record.language ?? "vexa";
         result.push({ value: "```" + lang + "\n" + record.value + "\n```" });
       }
     }
@@ -343,9 +344,9 @@ function mapCodeLensCommand(command?: {
 export function registerLanguage(): void {
   monaco.languages.register({
     id: LANG_ID,
-    extensions: [".my"],
-    aliases: ["MyLang", "mylang"],
-    mimetypes: ["text/x-mylang"],
+    extensions: [LANGUAGE_FILE_EXTENSION],
+    aliases: [LANGUAGE_NAME, LANGUAGE_SHORT_NAME],
+    mimetypes: [LANGUAGE_MIME_TYPE],
   });
 
   monaco.languages.setMonarchTokensProvider(LANG_ID, toMonacoMonarchLanguage(createPortableMonarchLanguage()) as monaco.languages.IMonarchLanguage);
@@ -414,7 +415,7 @@ export function setModelDiagnostics(model: monaco.editor.ITextModel, markers: Ar
 }>): void {
   monaco.editor.setModelMarkers(
     model,
-    "mylang",
+    "vexa",
     markers.map((marker) => ({
       severity: mapSeverity(marker.severity),
       startLineNumber: marker.range.start.line + 1,
@@ -423,7 +424,7 @@ export function setModelDiagnostics(model: monaco.editor.ITextModel, markers: Ar
       endColumn: marker.range.end.character + 1,
       message: marker.message,
       code: String(marker.code ?? ""),
-      source: marker.source ?? "mylang",
+      source: marker.source ?? "vexa",
     }))
   );
 }
@@ -481,7 +482,7 @@ export async function updateAutoAwaitGlyphs(
   const decorations = createAutoAwaitDecorations(session.ast, session.analysis).map((decoration) => ({
     range: toMonacoRange(decoration.range),
     options: {
-      glyphMarginClassName: "mylang-auto-await-glyph",
+      glyphMarginClassName: "vexa-auto-await-glyph",
       glyphMarginHoverMessage: { value: decoration.message },
     },
   }));
@@ -850,7 +851,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
   });
 
   monaco.languages.registerDocumentSemanticTokensProvider(LANG_ID, {
-    getLegend: () => MYLANG_SEMANTIC_TOKENS_LEGEND,
+    getLegend: () => VEXA_SEMANTIC_TOKENS_LEGEND,
     async provideDocumentSemanticTokens(model) {
       const session = await getSessionAsync(model, cache, workspaceContext);
       const tokens = createSemanticTokens({
@@ -864,7 +865,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
   });
 
   monaco.languages.registerDocumentRangeSemanticTokensProvider(LANG_ID, {
-    getLegend: () => MYLANG_SEMANTIC_TOKENS_LEGEND,
+    getLegend: () => VEXA_SEMANTIC_TOKENS_LEGEND,
     async provideDocumentRangeSemanticTokens(model, range) {
       const session = await getSessionAsync(model, cache, workspaceContext);
       const tokens = createSemanticTokens({

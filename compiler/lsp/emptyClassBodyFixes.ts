@@ -18,7 +18,7 @@ function isClassStatement(node: Node): node is ClassStatement {
 
 /**
  * Offers a quick fix to drop an empty class body (`class Foo { }` to
- * `class Foo`). The brace-less form is valid MyLang, so when a class declares
+ * `class Foo`). The brace-less form is valid VexaScript, so when a class declares
  * no members and its body contains nothing but whitespace, the surrounding
  * braces are pure noise and can be removed.
  *

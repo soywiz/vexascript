@@ -1110,7 +1110,7 @@ let after = bind`));
   });
 
 
-  it("uses MyLang inline destructuring type annotations and double-colon renames", () => {
+  it("uses VexaScript inline destructuring type annotations and double-colon renames", () => {
     const source = dedent`
       function Page({ name : string, title :: displayTitle : string }) {
         let label = name + displayTitle
@@ -1291,7 +1291,7 @@ let after = bind`));
     expect(messages.some((message) => message.includes("'lol'"))).toBe(false);
   });
 
-  it("introduces MyLang for-in iterator variable in loop scope", () => {
+  it("introduces VexaScript for-in iterator variable in loop scope", () => {
     const source = dedent`
       let iterable = data
       for (value in iterable) {
@@ -2969,7 +2969,7 @@ let after = bind`));
 
   it("infers imported static field types from external class initializers", () => {
     const source = dedent`
-      import { Point } from "./geometry.my"
+      import { Point } from "./geometry.vx"
       Point.origin.x
     `;
     const externalSource = dedent`

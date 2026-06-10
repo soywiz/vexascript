@@ -595,7 +595,7 @@ export interface TryStatement extends Statement {
 }
 
 /**
- * Embedded XML/JSX support. MyLang always enables it; TypeScript enables it via
+ * Embedded XML/JSX support. VexaScript always enables it; TypeScript enables it via
  * the `jsx` parser option. An element such as `<div class="x">{value}</div>`
  * parses into a `JsxElement`, a fragment `<>...</>` into a `JsxFragment`.
  */

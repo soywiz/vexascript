@@ -1,4 +1,6 @@
-export const MYLANG_MONACO_THEME_NAME = "mylang-dark";
+import { LANGUAGE_THEME_ID } from "compiler/language";
+
+export const VEXA_MONACO_THEME_NAME = LANGUAGE_THEME_ID;
 
 export interface MonacoThemeRule {
   token: string;
@@ -13,7 +15,7 @@ export interface MonacoStandaloneThemeData {
   colors: Record<string, string>;
 }
 
-export function createMyLangMonacoTheme(): MonacoStandaloneThemeData {
+export function createVexaScriptMonacoTheme(): MonacoStandaloneThemeData {
   return {
     base: "vs-dark",
     inherit: true,

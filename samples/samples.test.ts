@@ -40,7 +40,7 @@ describe("samples test", async () => {
 
             const expected = await readFile(rexpected, 'utf-8')
             const result = await hookOutput(async () => {
-                await runFile(`${rfile}/main.my`, "conservative")
+                await runFile(`${rfile}/main.vx`, "conservative")
             })
             
             expect(result.trim()).toBe(expected.trim())

@@ -44,7 +44,7 @@ function isReferenceLocation(value: unknown): value is CodeLensReferenceLocation
 }
 
 export function extractShowReferencesPayload(command?: CodeLensCommand): ShowReferencesPayload | null {
-  if (!command || command.command !== "mylang.showReferences") return null;
+  if (!command || command.command !== "vexa.showReferences") return null;
   const args = command.arguments;
   if (!Array.isArray(args) || args.length !== 3) return null;
   const [uri, position, locations] = args;

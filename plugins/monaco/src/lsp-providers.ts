@@ -1,5 +1,5 @@
 /**
- * Monaco language feature providers backed by the MyLang LSP server.
+ * Monaco language feature providers backed by the VexaScript LSP server.
  *
  * Each provider translates between Monaco's coordinate system (1-based
  * lineNumber/column) and LSP's (0-based line/character), forwards the
@@ -8,6 +8,7 @@
  */
 
 import * as monaco from "monaco-editor";
+import { LANGUAGE_FILE_EXTENSION, LANGUAGE_ID, LANGUAGE_MIME_TYPE, LANGUAGE_NAME, LANGUAGE_SHORT_NAME } from "compiler/language";
 import {
   createPortableLanguageConfiguration,
   createPortableMonarchLanguage,
@@ -237,16 +238,16 @@ function workspaceEditToMonaco(edit: LspWorkspaceEdit): monaco.languages.Workspa
   return { edits };
 }
 
-// ── Register MyLang language definition ───────────────────────────────────────
+// ── Register VexaScript language definition ───────────────────────────────────────
 
-const LANG_ID = "mylang";
+const LANG_ID = LANGUAGE_ID;
 
 export function registerLanguage(): void {
   monaco.languages.register({
     id: LANG_ID,
-    extensions: [".my"],
-    aliases: ["MyLang", "mylang"],
-    mimetypes: ["text/x-mylang"],
+    extensions: [LANGUAGE_FILE_EXTENSION],
+    aliases: [LANGUAGE_NAME, LANGUAGE_SHORT_NAME],
+    mimetypes: [LANGUAGE_MIME_TYPE],
   });
 
   monaco.languages.setMonarchTokensProvider(
@@ -335,7 +336,7 @@ export function setModelDiagnostics(
       endColumn: d.range.end.character + 1,
       message: d.message,
       code: String(d.code ?? ""),
-      source: d.source ?? "mylang",
+      source: d.source ?? "vexa",
     }))
   );
 }

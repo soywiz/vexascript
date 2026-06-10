@@ -156,7 +156,7 @@ export function createReferenceCodeLenses(ast: Program, analysis: Analysis, uri:
       range: declaration.range,
       command: {
         title: `${references.length} reference${references.length === 1 ? "" : "s"}`,
-        command: "mylang.showReferences",
+        command: "vexa.showReferences",
         arguments: [uri, declaration.range.start, references.map((range) => ({ uri, range }))]
       }
     });

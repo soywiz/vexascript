@@ -6,7 +6,7 @@ import { createAnalysisSession } from "./analysisSession";
 import { collectDiagnostics } from "./diagnostics";
 import { createNullableAccessCodeActions } from "./nullableAccessFixes";
 
-const URI = "file:///demo.my";
+const URI = "file:///demo.vx";
 
 describe("nullable access quick fixes", () => {
   it("offers optional access and non-null assertion fixes on a nullable member access dot", () => {
@@ -17,7 +17,7 @@ describe("nullable access quick fixes", () => {
       let root: ElementLike
       root.querySelector(".demo").querySelector("test")
       `;
-    const doc = TextDocument.create(URI, "mylang", 1, source);
+    const doc = TextDocument.create(URI, "vexa", 1, source);
     const session = createAnalysisSession(source);
     const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
 

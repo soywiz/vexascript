@@ -10,9 +10,9 @@ import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 
 describe("cross-file member diagnostics", () => {
   it("reports unknown class members for imported classes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-member-diag-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = `class MyPoint(const x: number, const y: number) { }
 `;
@@ -48,9 +48,9 @@ fun demo() {
   });
 
   it("reports unknown members in chained imported member access", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-member-diag-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = `class MyPoint(const x: number, const y: string) {
   xx: MyOtherClass
@@ -85,9 +85,9 @@ fun demo() {
   });
 
   it("reports unknown members nested in arrow-function expressions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-member-diag-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = "class MyPoint(const x: number) { }\n";
     const helloSource =

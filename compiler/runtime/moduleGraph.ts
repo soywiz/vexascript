@@ -31,9 +31,9 @@ const typingsCacheByPath = new Map<string, CachedTypingsData>();
  * Resolves a project's local module graph and bundles it into a single
  * executable JavaScript module.
  *
- * MyLang local files (`./foo`, `../bar`) do not produce real ES module exports,
+ * VexaScript local files (`./foo`, `../bar`) do not produce real ES module exports,
  * so cross-file references cannot be resolved at runtime through the normal
- * module loader. For `run`, the entry file and every local `.my` or `.ts` module it
+ * module loader. For `run`, the entry file and every local `.vx` or `.ts` module it
  * imports (transitively) are transpiled and concatenated in dependency order
  * into one module, with the now-internal local `import` statements removed.
  *
@@ -44,7 +44,7 @@ const typingsCacheByPath = new Map<string, CachedTypingsData>();
 
 function isBundledLocalModulePath(filePath: string): boolean {
   const extension = extname(filePath).toLowerCase();
-  return extension === ".my" || extension === ".ts" || extension === ".tsx";
+  return extension === ".vx" || extension === ".ts" || extension === ".tsx";
 }
 
 function parserOptionsForModulePath(filePath: string): ParserOptions {
@@ -282,7 +282,7 @@ async function localImportSpecifiers(ast: Program, importerFilePath: string, vfs
 
 /**
  * Removes the emitted `import ... from "<local>"` / `import "<local>"`
- * statements that reference bundled local `.my`/`.ts` modules. Relative imports that
+ * statements that reference bundled local `.vx`/`.ts` modules. Relative imports that
  * resolve to JavaScript stay in the output for downstream bundlers
  * or Node.js to load normally.
  */

@@ -1,12 +1,12 @@
-import { builtinDescriptions, builtinSummary } from "./builtins.my"
-import { Environment, evaluate, formatNumber } from "./evaluator.my"
-import { lex } from "./lexer.my"
-import { formatMetrics, measure } from "./metrics.my"
-import { foldConstants } from "./optimizer.my"
-import { parseExpression } from "./parser.my"
-import { printExpr } from "./printer.my"
-import { Scenario, buildMonsterScenario, buildPipelineScenario, buildStressScenario, scenarios } from "./scenarios.my"
-import { previewTokens } from "./tokens.my"
+import { builtinDescriptions, builtinSummary } from "./builtins.vx"
+import { Environment, evaluate, formatNumber } from "./evaluator.vx"
+import { lex } from "./lexer.vx"
+import { formatMetrics, measure } from "./metrics.vx"
+import { foldConstants } from "./optimizer.vx"
+import { parseExpression } from "./parser.vx"
+import { printExpr } from "./printer.vx"
+import { Scenario, buildMonsterScenario, buildPipelineScenario, buildStressScenario, scenarios } from "./scenarios.vx"
+import { previewTokens } from "./tokens.vx"
 
 function summarizeScenario(scenario: Scenario): string {
   const tokens = lex(scenario.source)

@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileExists, isDirectory } from "./utils/fs";
 
-export interface MylangProject {
+export interface VexaProject {
   projectDir: string;
   dependencies: Record<string, string>;
   jsxFactory?: string;
@@ -106,10 +106,10 @@ function jsxOptionsFromTsConfig(tsconfig: TsConfigJson | null): { jsxFactory?: s
     };
   }
 
-  // MyLang currently emits classic JSX factory calls. TypeScript projects that
+  // VexaScript currently emits classic JSX factory calls. TypeScript projects that
   // use Preact's automatic runtime still describe the intended JSX provider via
   // jsxImportSource, so map that common configuration to Preact's classic
-  // factories until MyLang has an automatic JSX runtime emitter.
+  // factories until VexaScript has an automatic JSX runtime emitter.
   if (compilerOptions.jsxImportSource === "preact") {
     return { jsxFactory: "h", jsxFragmentFactory: "Fragment" };
   }
@@ -117,7 +117,7 @@ function jsxOptionsFromTsConfig(tsconfig: TsConfigJson | null): { jsxFactory?: s
   return {};
 }
 
-export async function loadProject(startPath: string): Promise<MylangProject | null> {
+export async function loadProject(startPath: string): Promise<VexaProject | null> {
   const startDir = (await fileExists(startPath) && !(await isDirectory(startPath)))
     ? dirname(startPath)
     : startPath;

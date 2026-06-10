@@ -34,7 +34,7 @@ async function parseTypingsProgram(typingsPath: string, options: ModuleResolutio
 
 /**
  * Detect the `export = X` name from a TypeScript declaration file. The
- * mylang parser represents `export = moment` as a top-level `ExprStatement`
+ * vexa parser represents `export = moment` as a top-level `ExprStatement`
  * whose expression is the exported `Identifier`.
  */
 function detectExportEqualsName(ast: Program): string | null {

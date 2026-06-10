@@ -1,13 +1,14 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { createPortableMonarchLanguage, MYLANG_PRIMITIVE_TYPES } from "../../compiler/syntax.ts";
+import { createPortableMonarchLanguage, VEXA_PRIMITIVE_TYPES } from "../../compiler/syntax.ts";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const websiteRoot = resolve(scriptDirectory, "..");
 const projectRoot = resolve(websiteRoot, "..");
-const generatedSyntaxModulePath = resolve(websiteRoot, "src/generated/mylang-monarch-language.mjs");
+const generatedSyntaxModulePath = resolve(websiteRoot, "src/generated/vexa-monarch-language.mjs");
+const builtSitePath = resolve(websiteRoot, "_site");
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -38,7 +39,7 @@ function run(command: string, args: string[], cwd: string): Promise<void> {
 }
 
 async function ensureCompilerBundle(): Promise<void> {
-  const cliBundle = resolve(projectRoot, "dist/mylang.js");
+  const cliBundle = resolve(projectRoot, "dist/vexa.js");
   if (await pathExists(cliBundle)) {
     console.log("[website] Reusing existing compiler CLI bundle.");
     return;
@@ -50,11 +51,11 @@ async function ensureCompilerBundle(): Promise<void> {
 function renderGeneratedSyntaxModule(): string {
   const portableLanguage = createPortableMonarchLanguage();
   return [
-    `export const mylangPortableLanguage = ${JSON.stringify(portableLanguage, null, 2)};`,
+    `export const vexaPortableLanguage = ${JSON.stringify(portableLanguage, null, 2)};`,
     "",
-    `export const mylangPrimitiveTypes = ${JSON.stringify([...MYLANG_PRIMITIVE_TYPES], null, 2)};`,
+    `export const vexaPrimitiveTypes = ${JSON.stringify([...VEXA_PRIMITIVE_TYPES], null, 2)};`,
     "",
-    "export default mylangPortableLanguage;",
+    "export default vexaPortableLanguage;",
     ""
   ].join("\n");
 }
@@ -71,7 +72,13 @@ async function ensureGeneratedSyntaxModule(): Promise<void> {
   console.log("[website] Regenerated website syntax module.");
 }
 
+async function cleanBuiltSite(): Promise<void> {
+  await rm(builtSitePath, { recursive: true, force: true });
+  console.log("[website] Cleared previous Eleventy output.");
+}
+
 await ensureCompilerBundle();
 await ensureGeneratedSyntaxModule();
 await run("pnpm", ["exec", "vite", "build", "--config", "vite.config.ts"], websiteRoot);
+await cleanBuiltSite();
 await run("pnpm", ["exec", "eleventy", "--config", "eleventy.config.mjs"], websiteRoot);

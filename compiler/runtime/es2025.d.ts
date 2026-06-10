@@ -1,5 +1,5 @@
 /*!
- * Bundled TypeScript runtime declarations for MyLang.
+ * Bundled TypeScript runtime declarations for VexaScript.
  * Source: https://github.com/microsoft/TypeScript/tree/main/src/lib
  * Entry point: es2025.d.ts
  * Excludes DOM, WebWorker, and ScriptHost libs by following only transitive `lib` references from es2025.

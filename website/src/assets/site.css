@@ -199,11 +199,11 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   min-height: 320px;
 }
 .workspace-demo { height: 560px; }
-.mylang-embed-workspace { display: grid; grid-template-rows: auto 1fr; border-radius: 1.5rem; overflow: visible; }
-.mylang-embed-tabs { display: flex; gap: 0.2rem; padding: 0.4rem; background: #101426; border-bottom: 1px solid rgba(255,255,255,0.1); }
-.mylang-embed-tab { border: 0; border-radius: 0.7rem; padding: 0.55rem 0.8rem; color: #c8d1ff; background: transparent; cursor: pointer; font-weight: 750; }
-.mylang-embed-tab.is-active { background: #242a47; color: white; }
-.mylang-embed-editor { min-width: 0; min-height: 0; overflow: visible; }
+.vexa-embed-workspace { display: grid; grid-template-rows: auto 1fr; border-radius: 1.5rem; overflow: visible; }
+.vexa-embed-tabs { display: flex; gap: 0.2rem; padding: 0.4rem; background: #101426; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.vexa-embed-tab { border: 0; border-radius: 0.7rem; padding: 0.55rem 0.8rem; color: #c8d1ff; background: transparent; cursor: pointer; font-weight: 750; }
+.vexa-embed-tab.is-active { background: #242a47; color: white; }
+.vexa-embed-editor { min-width: 0; min-height: 0; overflow: visible; }
 
 .embed-docs { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 

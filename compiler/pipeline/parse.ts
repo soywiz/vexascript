@@ -12,7 +12,7 @@ export interface ParseArtifacts {
 
 export function parseSource(source: string, options: ParserOptions = {}): ParseArtifacts {
   try {
-    // MyLang always supports embedded XML; TypeScript opts in via `jsx`.
+    // VexaScript always supports embedded XML; TypeScript opts in via `jsx`.
     const jsxEnabled = options.language !== "typescript" ? true : (options.jsx ?? false);
     const tokens = tokenize(source, { jsx: jsxEnabled });
     const parser = new Parser(new ListReader(tokens), options);

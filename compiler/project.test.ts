@@ -7,8 +7,8 @@ import { loadProject } from "./project";
 
 describe("project configuration", () => {
   it("loads dependencies from package.json and JSX factories from tsconfig.json", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-project-"));
-    const input = join(dir, "main.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    const input = join(dir, "main.vx");
     await writeFile(join(dir, "package.json"), JSON.stringify({ dependencies: { preact: "10.29.2" } }), "utf8");
     await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsxFactory: "h", jsxFragmentFactory: "Fragment" } }), "utf8");
     await writeFile(input, "", "utf8");
@@ -23,8 +23,8 @@ describe("project configuration", () => {
   });
 
   it("loads compilerOptions.lib entries from tsconfig.json", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-project-"));
-    const input = join(dir, "main.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    const input = join(dir, "main.vx");
     await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
     await writeFile(input, "", "utf8");
 
@@ -35,10 +35,10 @@ describe("project configuration", () => {
     });
   });
 
-  it("does not load legacy mylang.toml configuration", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-project-"));
-    const input = join(dir, "main.my");
-    await writeFile(join(dir, "mylang.toml"), "[jsx]\nfactory = \"h\"\n", "utf8");
+  it("does not load legacy vexa.toml configuration", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    const input = join(dir, "main.vx");
+    await writeFile(join(dir, "vexa.toml"), "[jsx]\nfactory = \"h\"\n", "utf8");
     await writeFile(input, "", "utf8");
 
     expect(await loadProject(input)).toBe(null);

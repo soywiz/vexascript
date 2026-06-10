@@ -1,10 +1,10 @@
-# MyLang
+# VexaScript
 
-MyLang is a language derived from TypeScript.
+VexaScript is a language derived from TypeScript.
 
 Node.js CLI project with:
 
-- Compiler CLI in a single bundle (`dist/mylang.js`).
+- Compiler CLI in a single bundle (`dist/vexa.js`).
 - Language Server embedded in the same CLI with `--language-server` or `--lsp`.
 
 ## Install
@@ -21,7 +21,7 @@ pnpm build
 
 This generates:
 
-- `dist/mylang.js` (single bundle for compiler + tooling + LSP)
+- `dist/vexa.js` (single bundle for compiler + tooling + LSP)
 
 ## Build and run CLI in one command
 
@@ -32,7 +32,7 @@ pnpm run cli <args>
 Example:
 
 ```bash
-pnpm run cli tokens example.my
+pnpm run cli tokens example.vx
 ```
 
 ## Tests (TDD)
@@ -41,7 +41,7 @@ pnpm run cli tokens example.my
 pnpm test
 ```
 
-MyLang test files use the `.test.my` suffix and have inline `test` and `assert` helpers available without imports:
+VexaScript test files use the `.test.vx` suffix and have inline `test` and `assert` helpers available without imports:
 
 ```my
 test(() => {
@@ -49,11 +49,11 @@ test(() => {
 })
 ```
 
-Run every `.test.my` file below the current directory, or pass one or more files/directories to limit discovery:
+Run every `.test.vx` file below the current directory, or pass one or more files/directories to limit discovery:
 
 ```bash
 pnpm run cli test
-pnpm run cli test compiler-tests math.test.my
+pnpm run cli test compiler-tests math.test.vx
 ```
 
 ## CLI usage
@@ -61,41 +61,41 @@ pnpm run cli test compiler-tests math.test.my
 ### Compile a file
 
 ```bash
-pnpm node dist/mylang.js build example.my -o example.js
+pnpm node dist/vexa.js build example.vx -o example.js
 ```
 
 ### View tokens
 
 ```bash
-pnpm node dist/mylang.js tokens example.my
+pnpm node dist/vexa.js tokens example.vx
 ```
 
 ### View simplified AST
 
 ```bash
-pnpm node dist/mylang.js ast example.my
+pnpm node dist/vexa.js ast example.vx
 ```
 
 ### Format a file
 
 ```bash
-pnpm node dist/mylang.js format example.my
+pnpm node dist/vexa.js format example.vx
 ```
 
 Overwrite the input file in place:
 
 ```bash
-pnpm node dist/mylang.js format example.my --write
+pnpm node dist/vexa.js format example.vx --write
 ```
 
 ### Start language server
 
 ```bash
-pnpm node dist/mylang.js --language-server
+pnpm node dist/vexa.js --language-server
 ```
 
 ```bash
-pnpm node dist/mylang.js --lsp
+pnpm node dist/vexa.js --lsp
 ```
 
 The LSP server communicates via `stdio` for editor integration.
@@ -103,7 +103,7 @@ The LSP server communicates via `stdio` for editor integration.
 You can also see this documented in CLI help:
 
 ```bash
-pnpm node dist/mylang.js --help
+pnpm node dist/vexa.js --help
 ```
 
 ## VS Code extension (local dev)

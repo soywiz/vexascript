@@ -1,6 +1,6 @@
-# MyLang Transpilation Design Notes
+# VexaScript Transpilation Design Notes
 
-This document captures the current transpilation design and emitter invariants used by MyLang.
+This document captures the current transpilation design and emitter invariants used by VexaScript.
 
 Scope:
 

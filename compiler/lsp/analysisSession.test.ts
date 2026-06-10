@@ -46,9 +46,9 @@ describe("lsp analysis session", () => {
 
   it("reuses cached session for same uri+version and rebuilds on version change", () => {
     const cache = new AnalysisSessionCache();
-    const uri = "file:///demo.my";
-    const docV1 = TextDocument.create(uri, "mylang", 1, "let a = 1\n");
-    const docV2 = TextDocument.create(uri, "mylang", 2, "let a = 2\n");
+    const uri = "file:///demo.vx";
+    const docV1 = TextDocument.create(uri, "vexa", 1, "let a = 1\n");
+    const docV2 = TextDocument.create(uri, "vexa", 2, "let a = 2\n");
 
     const sessionV1First = cache.getForDocument(docV1);
     const sessionV1Second = cache.getForDocument(docV1);
@@ -99,8 +99,8 @@ describe("lsp analysis session", () => {
   });
 
   it("includes DOM ambient declarations from tsconfig lib entries", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-lsp-dom-"));
-    const filePath = join(dir, "main.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-lsp-dom-"));
+    const filePath = join(dir, "main.vx");
     await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
     const source = 'const root: HTMLElement = document.createElement("main")\n';
     await writeFile(filePath, source, "utf8");
@@ -110,7 +110,7 @@ describe("lsp analysis session", () => {
       importedSymbolTypes: new Map(),
       ambientDeclarations: (await ensureDomProgram()).body
     }));
-    const session = await cache.getForDocumentAsync(TextDocument.create(`file://${filePath}`, "mylang", 1, source));
+    const session = await cache.getForDocumentAsync(TextDocument.create(`file://${filePath}`, "vexa", 1, source));
 
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });

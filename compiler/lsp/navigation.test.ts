@@ -13,7 +13,7 @@ import {
   createRenameWorkspaceEdit
 } from "./navigation";
 
-const URI = "file:///demo.my";
+const URI = "file:///demo.vx";
 
 function analysisOf(source: string): Analysis {
   const ast = parseFile(tokenizeReader(source));
@@ -117,7 +117,7 @@ describe("lsp navigation", () => {
 
   it("provides hover info for angle-bracket assertion expressions", () => {
     const source = "let p = <string>value\n";
-    // Angle-bracket casts are TypeScript-only (MyLang reserves `<...>` for JSX).
+    // Angle-bracket casts are TypeScript-only (VexaScript reserves `<...>` for JSX).
     const ast = parseFile(tokenizeReader(source, { jsx: false }), { language: "typescript" });
     const analysis = new Analysis(ast);
 

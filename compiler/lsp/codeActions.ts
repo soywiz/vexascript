@@ -1,6 +1,6 @@
 import type { CodeAction, WorkspaceEdit } from "vscode-languageserver/node.js";
 
-const DEFERRED_EDIT_KIND = "mylang.deferredEdit";
+const DEFERRED_EDIT_KIND = "vexa.deferredEdit";
 
 interface DeferredEditData {
   kind: typeof DEFERRED_EDIT_KIND;

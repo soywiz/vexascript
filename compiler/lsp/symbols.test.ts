@@ -54,9 +54,9 @@ describe("lsp symbols", () => {
   });
 
   it("finds workspace symbols across source roots", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-workspace-symbols-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-workspace-symbols-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     await writeFile(
       worldFile,

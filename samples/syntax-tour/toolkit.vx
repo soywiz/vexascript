@@ -1,4 +1,4 @@
-import type { Described, Pair } from "./types.my"
+import type { Described, Pair } from "./types.vx"
 
 export enum Direction {
   Up,

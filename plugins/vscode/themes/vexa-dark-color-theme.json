@@ -1,50 +1,50 @@
 {
-  "name": "MyLang Dark",
+  "name": "VexaScript Dark",
   "type": "dark",
   "tokenColors": [
     {
       "scope": [
-        "comment.line.double-slash.mylang",
-        "comment.block.mylang"
+        "comment.line.double-slash.vexa",
+        "comment.block.vexa"
       ],
       "settings": {
         "foreground": "#6A9955"
       }
     },
     {
-      "scope": "comment.line.documentation.mylang",
+      "scope": "comment.line.documentation.vexa",
       "settings": {
         "foreground": "#608B4E"
       }
     },
     {
-      "scope": "keyword.declaration.mylang",
+      "scope": "keyword.declaration.vexa",
       "settings": {
         "foreground": "#569CD6"
       }
     },
     {
-      "scope": "storage.type.mylang",
+      "scope": "storage.type.vexa",
       "settings": {
         "foreground": "#569CD6"
       }
     },
     {
-      "scope": "keyword.control.mylang",
+      "scope": "keyword.control.vexa",
       "settings": {
         "foreground": "#C586C0"
       }
     },
     {
-      "scope": "constant.language.mylang",
+      "scope": "constant.language.vexa",
       "settings": {
         "foreground": "#569CD6"
       }
     },
     {
       "scope": [
-        "support.type.primitive.mylang",
-        "entity.name.type.mylang"
+        "support.type.primitive.vexa",
+        "entity.name.type.vexa"
       ],
       "settings": {
         "foreground": "#4EC9B0"
@@ -52,78 +52,78 @@
     },
     {
       "scope": [
-        "entity.name.function.mylang",
-        "entity.name.function.call.mylang"
+        "entity.name.function.vexa",
+        "entity.name.function.call.vexa"
       ],
       "settings": {
         "foreground": "#DCDCAA"
       }
     },
     {
-      "scope": "variable.other.property.mylang",
+      "scope": "variable.other.property.vexa",
       "settings": {
         "foreground": "#9CDCFE"
       }
     },
     {
       "scope": [
-        "string.quoted.double.mylang",
-        "string.quoted.single.mylang",
-        "string.quoted.template.mylang"
+        "string.quoted.double.vexa",
+        "string.quoted.single.vexa",
+        "string.quoted.template.vexa"
       ],
       "settings": {
         "foreground": "#CE9178"
       }
     },
     {
-      "scope": "meta.template.expression.mylang variable.other.mylang",
+      "scope": "meta.template.expression.vexa variable.other.vexa",
       "settings": {
         "foreground": "#D4D4D4"
       }
     },
     {
-      "scope": "meta.template.expression.mylang variable.other.property.mylang",
+      "scope": "meta.template.expression.vexa variable.other.property.vexa",
       "settings": {
         "foreground": "#9CDCFE"
       }
     },
     {
-      "scope": "meta.template.expression.mylang entity.name.function.call.mylang",
+      "scope": "meta.template.expression.vexa entity.name.function.call.vexa",
       "settings": {
         "foreground": "#DCDCAA"
       }
     },
     {
       "scope": [
-        "meta.template.expression.mylang entity.name.type.mylang",
-        "meta.template.expression.mylang support.type.primitive.mylang"
+        "meta.template.expression.vexa entity.name.type.vexa",
+        "meta.template.expression.vexa support.type.primitive.vexa"
       ],
       "settings": {
         "foreground": "#4EC9B0"
       }
     },
     {
-      "scope": "meta.template.expression.mylang constant.numeric.integer.mylang",
+      "scope": "meta.template.expression.vexa constant.numeric.integer.vexa",
       "settings": {
         "foreground": "#B5CEA8"
       }
     },
     {
-      "scope": "string.regexp.mylang",
+      "scope": "string.regexp.vexa",
       "settings": {
         "foreground": "#D16969"
       }
     },
     {
-      "scope": "constant.numeric.integer.mylang",
+      "scope": "constant.numeric.integer.vexa",
       "settings": {
         "foreground": "#B5CEA8"
       }
     },
     {
       "scope": [
-        "punctuation.section.embedded.begin.mylang",
-        "punctuation.section.embedded.end.mylang"
+        "punctuation.section.embedded.begin.vexa",
+        "punctuation.section.embedded.end.vexa"
       ],
       "settings": {
         "foreground": "#C586C0"
@@ -131,16 +131,16 @@
     },
     {
       "scope": [
-        "entity.name.tag.mylang",
-        "punctuation.definition.tag.begin.mylang",
-        "punctuation.definition.tag.end.mylang"
+        "entity.name.tag.vexa",
+        "punctuation.definition.tag.begin.vexa",
+        "punctuation.definition.tag.end.vexa"
       ],
       "settings": {
         "foreground": "#4EC9B0"
       }
     },
     {
-      "scope": "entity.other.attribute-name.mylang",
+      "scope": "entity.other.attribute-name.vexa",
       "settings": {
         "foreground": "#9CDCFE"
       }

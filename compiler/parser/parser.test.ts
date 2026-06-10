@@ -1659,8 +1659,8 @@ describe("parseStatement", () => {
         });
     });
 
-    it("supports val declaration in for initializer in mylang mode", () => {
-        expect(parseStatement(tokenizeReader("for (val i = 0; i < 1; i += 1) break"), { language: "mylang" })).toEqual({
+    it("supports val declaration in for initializer in vexa mode", () => {
+        expect(parseStatement(tokenizeReader("for (val i = 0; i < 1; i += 1) break"), { language: "vexa" })).toEqual({
             kind: "ForStatement",
             initializer: {
                 kind: "VarStatement",
@@ -1745,8 +1745,8 @@ describe("parseStatement", () => {
         });
     });
 
-    it("parses MyLang for-in without declaration keyword", () => {
-        expect(parseStatement(tokenizeReader("for (value in iterable) break"), { language: "mylang" })).toEqual({
+    it("parses VexaScript for-in without declaration keyword", () => {
+        expect(parseStatement(tokenizeReader("for (value in iterable) break"), { language: "vexa" })).toEqual({
             kind: "ForStatement",
             iterationKind: "in",
             iterator: { kind: "Identifier", name: "value" },
@@ -1757,8 +1757,8 @@ describe("parseStatement", () => {
         });
     });
 
-    it("parses MyLang for-of without declaration keyword", () => {
-        expect(parseStatement(tokenizeReader("for (value of 0 ... 10) break"), { language: "mylang" })).toEqual({
+    it("parses VexaScript for-of without declaration keyword", () => {
+        expect(parseStatement(tokenizeReader("for (value of 0 ... 10) break"), { language: "vexa" })).toEqual({
             kind: "ForStatement",
             iterationKind: "of",
             iterator: { kind: "Identifier", name: "value" },
@@ -2710,11 +2710,11 @@ describe("parseStatement", () => {
         });
     });
 
-    it("parses mylang class colon syntax: BaseShape, Shape, Comparable<Circle>", () => {
+    it("parses vexa class colon syntax: BaseShape, Shape, Comparable<Circle>", () => {
         expect(
             parseStatement(
                 tokenizeReader("class Circle : BaseShape, Shape, Comparable<Circle> {}"),
-                { language: "mylang" }
+                { language: "vexa" }
             )
         ).toEqual({
             kind: "ClassStatement",
@@ -2728,11 +2728,11 @@ describe("parseStatement", () => {
         });
     });
 
-    it("parses mylang class colon syntax with single base type", () => {
+    it("parses vexa class colon syntax with single base type", () => {
         expect(
             parseStatement(
                 tokenizeReader("class Foo : Bar {}"),
-                { language: "mylang" }
+                { language: "vexa" }
             )
         ).toEqual({
             kind: "ClassStatement",
@@ -2974,7 +2974,7 @@ describe("parseStatement", () => {
         });
     });
 
-    it("parses class statement without braces in mylang mode", () => {
+    it("parses class statement without braces in vexa mode", () => {
         expect(parseStatement(tokenizeReader("class Point"))).toEqual({
             kind: "ClassStatement",
             name: { kind: "Identifier", name: "Point" },
@@ -3027,7 +3027,7 @@ describe("parseStatement", () => {
             parseStatement(tokenizeReader("class Point(val x: number, val y: number) {}"), {
                 language: "typescript"
             })
-        ).toThrow("Class primary constructor syntax is only available in MyLang mode");
+        ).toThrow("Class primary constructor syntax is only available in VexaScript mode");
     });
 
     it("treats 'val' as identifier in typescript parser mode", () => {
@@ -3232,11 +3232,11 @@ describe("parseStatement", () => {
         });
     });
 
-    it("parses 'declare function' as a function declaration in mylang mode", () => {
+    it("parses 'declare function' as a function declaration in vexa mode", () => {
         expect(
             parseStatement(
                 tokenizeReader("declare function moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;"),
-                { language: "mylang" }
+                { language: "vexa" }
             )
         ).toEqual({
             kind: "FunctionStatement",
@@ -3253,11 +3253,11 @@ describe("parseStatement", () => {
         });
     });
 
-    it("parses 'declare fun' as a function declaration in mylang mode", () => {
+    it("parses 'declare fun' as a function declaration in vexa mode", () => {
         expect(
             parseStatement(
                 tokenizeReader("declare fun moment(inp?: moment.MomentInput, strict?: boolean): moment.Moment;"),
-                { language: "mylang" }
+                { language: "vexa" }
             )
         ).toEqual({
             kind: "FunctionStatement",
@@ -3278,7 +3278,7 @@ describe("parseStatement", () => {
         expect(
             parseStatement(
                 tokenizeReader("declare class Console { log(a: number) }"),
-                { language: "mylang" }
+                { language: "vexa" }
             )
         ).toEqual({
             kind: "ClassStatement",
@@ -3337,7 +3337,7 @@ describe("parseStatement", () => {
     });
 
     it("parses 'declare var/let/const/val' declarations", () => {
-        expect(parseStatement(tokenizeReader("declare var console: Console"), { language: "mylang" })).toEqual({
+        expect(parseStatement(tokenizeReader("declare var console: Console"), { language: "vexa" })).toEqual({
             kind: "VarStatement",
             declared: true,
             declarationKind: "var",
@@ -3345,7 +3345,7 @@ describe("parseStatement", () => {
             typeAnnotation: { kind: "Identifier", name: "Console" }
         });
 
-        expect(parseStatement(tokenizeReader("declare let value = 1"), { language: "mylang" })).toEqual({
+        expect(parseStatement(tokenizeReader("declare let value = 1"), { language: "vexa" })).toEqual({
             kind: "VarStatement",
             declared: true,
             declarationKind: "let",
@@ -3361,7 +3361,7 @@ describe("parseStatement", () => {
             typeAnnotation: { kind: "Identifier", name: "boolean" }
         });
 
-        expect(parseStatement(tokenizeReader("declare val total: number"), { language: "mylang" })).toEqual({
+        expect(parseStatement(tokenizeReader("declare val total: number"), { language: "vexa" })).toEqual({
             kind: "VarStatement",
             declared: true,
             declarationKind: "val",
@@ -4725,7 +4725,7 @@ go = 7
 });
 
 describe("destructured parameters", () => {
-    it("parses MyLang binding element type annotations and double-colon renames", () => {
+    it("parses VexaScript binding element type annotations and double-colon renames", () => {
         const program = parseFile(tokenizeReader("function Page({ name : string, title :: displayTitle : string }, [count : int]) { return displayTitle }"));
 
         expect(program.body[0]).toMatchObject({
@@ -4826,7 +4826,7 @@ describe("JavaScript implementation annotations", () => {
 
     describe("embedded XML / JSX", () => {
         function jsxExpression(input: string) {
-            return parseExpression(tokenizeReader(input, { jsx: true }), { language: "mylang" });
+            return parseExpression(tokenizeReader(input, { jsx: true }), { language: "vexa" });
         }
 
         it("parses an element with attributes, text and expression children", () => {
@@ -4884,28 +4884,28 @@ describe("JavaScript implementation annotations", () => {
 
         it("reports an error when closing tags do not match", () => {
             const reader = tokenizeReader("<div></span>", { jsx: true });
-            const parser = new Parser(reader, { language: "mylang" });
+            const parser = new Parser(reader, { language: "vexa" });
             parser.parseExpression();
             expect(parser.errors.length).toBeGreaterThan(0);
         });
 
         it("reports an error for a corrupted expression inside a child container", () => {
             const reader = tokenizeReader("<div>{=}</div>", { jsx: true });
-            const parser = new Parser(reader, { language: "mylang" });
+            const parser = new Parser(reader, { language: "vexa" });
             parser.parseExpression();
             expect(parser.errors.length).toBeGreaterThan(0);
         });
 
         it("reports an error for a corrupted expression in a JSX attribute value", () => {
             const reader = tokenizeReader("<div attr={=} />", { jsx: true });
-            const parser = new Parser(reader, { language: "mylang" });
+            const parser = new Parser(reader, { language: "vexa" });
             parser.parseExpression();
             expect(parser.errors.length).toBeGreaterThan(0);
         });
 
         it("reports an error when a JSX attribute opens a brace without spread dots", () => {
             const reader = tokenizeReader("<div {props} />", { jsx: true });
-            const parser = new Parser(reader, { language: "mylang" });
+            const parser = new Parser(reader, { language: "vexa" });
             parser.parseExpression();
             expect(parser.errors.length).toBeGreaterThan(0);
             expect(parser.errors[0]?.message).toContain("'...'");
@@ -4913,7 +4913,7 @@ describe("JavaScript implementation annotations", () => {
 
         it("reports an error for a corrupted expression inside a spread attribute", () => {
             const reader = tokenizeReader("<div {...=} />", { jsx: true });
-            const parser = new Parser(reader, { language: "mylang" });
+            const parser = new Parser(reader, { language: "vexa" });
             parser.parseExpression();
             expect(parser.errors.length).toBeGreaterThan(0);
         });
@@ -4921,14 +4921,14 @@ describe("JavaScript implementation annotations", () => {
         it("throws an unterminated-element error when a JSX element has no closing tag", () => {
             expect(() => {
                 const reader = tokenizeReader("<div>hello", { jsx: true });
-                const parser = new Parser(reader, { language: "mylang" });
+                const parser = new Parser(reader, { language: "vexa" });
                 parser.parseExpression();
             }).toThrow("Unterminated");
         });
 
         it("reports an error for a corrupted expression inside a nested JSX child", () => {
             const reader = tokenizeReader("<outer><inner>{=}</inner></outer>", { jsx: true });
-            const parser = new Parser(reader, { language: "mylang" });
+            const parser = new Parser(reader, { language: "vexa" });
             parser.parseExpression();
             expect(parser.errors.length).toBeGreaterThan(0);
         });
@@ -4936,7 +4936,7 @@ describe("JavaScript implementation annotations", () => {
         it("recovers from a corrupted child expression and continues parsing the next statement", () => {
             const parser = new Parser(
                 tokenizeReader("let x = <div>{=}</div>; let ok = 1;", { jsx: true }),
-                { language: "mylang" }
+                { language: "vexa" }
             );
             const ast = parser.parseFile();
             expect(parser.errors.length).toBeGreaterThan(0);
@@ -4949,7 +4949,7 @@ describe("JavaScript implementation annotations", () => {
         it("recovers from a corrupted attribute value expression and continues parsing the next statement", () => {
             const parser = new Parser(
                 tokenizeReader("let x = <div attr={=} />; let ok = 1;", { jsx: true }),
-                { language: "mylang" }
+                { language: "vexa" }
             );
             const ast = parser.parseFile();
             expect(parser.errors.length).toBeGreaterThan(0);
@@ -4962,7 +4962,7 @@ describe("JavaScript implementation annotations", () => {
         it("recovers from a mismatched JSX closing tag and continues parsing the next statement", () => {
             const parser = new Parser(
                 tokenizeReader("let x = <div></span>; let ok = 1;", { jsx: true }),
-                { language: "mylang" }
+                { language: "vexa" }
             );
             const ast = parser.parseFile();
             expect(parser.errors.length).toBeGreaterThan(0);

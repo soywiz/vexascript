@@ -1,4 +1,4 @@
-// Constructor-only JavaScript runtime globals can be used with MyLang's
+// Constructor-only JavaScript runtime globals can be used with VexaScript's
 // class-call style and are emitted with `new` so they work at runtime.
 const bytes = Uint8Array(7)
 bytes[0] = 65

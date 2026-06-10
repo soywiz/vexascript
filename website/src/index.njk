@@ -1,27 +1,27 @@
 ---
 layout: layout.njk
-title: MyLang — A modern TypeScript-derived language
+title: VexaScript — A modern TypeScript-derived language
 ---
 <section class="hero">
   <div>
     <p class="eyebrow">TypeScript roots, modern language ergonomics</p>
-    <h1>Learn MyLang interactively.</h1>
-    <p class="lead">MyLang keeps the familiar JavaScript and TypeScript ecosystem while adding concise declarations, value classes, null-aware access, string templates, trailing lambdas, and sync-style asynchronous code.</p>
+    <h1>Learn VexaScript interactively.</h1>
+    <p class="lead">VexaScript keeps the familiar JavaScript and TypeScript ecosystem while adding concise declarations, value classes, function and operator overloading, delegated variables and classes, null-aware access, string templates, trailing lambdas, and await-less asynchronous code.</p>
     <div class="actions">
       <a class="button" href="#playground">Try the editor</a>
       <a class="button secondary" href="/syntax/">Open syntax reference</a>
     </div>
   </div>
-  <div class="code-panel" aria-label="MyLang code sample">
-    <div class="panel-title">hello.my</div>
-{% highlightMyLang %}
+  <div class="code-panel" aria-label="VexaScript code sample">
+    <div class="panel-title">hello.vx</div>
+{% highlightVexaScript %}
 class User(val name: string, val score: int)
 
 sync fun loadMessage(user: User): string {
   let bonus = fetchBonus(user.name)
   return `Hello ${user.name}, score: ${user.score + bonus}`
 }
-{% endhighlightMyLang %}
+{% endhighlightVexaScript %}
   </div>
 </section>
 
@@ -38,7 +38,7 @@ sync fun loadMessage(user: User): string {
     <article class="card">
       <h3>Concise declarations</h3>
       <p>Use <code>fun</code> or <code>function</code>, <code>val</code> for read-only values, and primary-constructor class members. Operator overloading and shorthand functions and properties.</p>
-{% highlightMyLang %}
+{% highlightVexaScript %}
 class Point(val x: number, val y: number) {
   operator+() => this
   operator-() => Point(-x, -y)
@@ -47,27 +47,27 @@ class Point(val x: number, val y: number) {
   operator*(scale: number) => Point(x * scale, y * scale)
   length => Math.hypot(x, y)
 }
-{% endhighlightMyLang %}
+{% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Null-aware access</h3>
       <p>Optional chaining, non-null assertions, and type analysis help make nullable flows explicit.</p>
-{% highlightMyLang %}
+{% highlightVexaScript %}
 let city = user.address?.city ?? "Unknown"
 let name = maybeUser!.name
-{% endhighlightMyLang %}
+{% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Sync async style</h3>
       <p><code>sync</code> await-less functions automatically await produced promises, while <code>go</code> avoids awaiting for manual orchestration.</p>
-{% highlightMyLang %}
+{% highlightVexaScript %}
 declare class Fetch { arrayBuffer(): Promise<ArrayBuffer> }
 declare fun fetch(str: string): Promise<Fetch>
 
 sync fun loadBytes(): Uint8Array {
   return Uint8Array(fetch('file.bin').arrayBuffer())
 }
-{% endhighlightMyLang %}
+{% endhighlightVexaScript %}
     </article>
   </div>
 </section>
@@ -80,40 +80,40 @@ sync fun loadBytes(): Uint8Array {
   <div class="grid">
     <article class="card">
       <h3>Operator overloading</h3>
-{% highlightMyLang %}
+{% highlightVexaScript %}
 class Vec2(val x: number, val y: number) {
   operator+(other: Vec2) => Vec2(x + other.x, y + other.y)
   operator-(other: Vec2) => Vec2(x - other.x, y - other.y)
 }
-{% endhighlightMyLang %}
+{% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>JSX with Preact</h3>
-{% highlightMyLang %}
+{% highlightVexaScript %}
 import { h } from "preact"
 
 fun Welcome(props: { name: string }) {
   return <section>Hello {props.name}</section>
 }
-{% endhighlightMyLang %}
+{% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>Implicit property access</h3>
-{% highlightMyLang %}
+{% highlightVexaScript %}
 class Counter(var value: int) {
   fun increment(): int {
     value++
     return value
   }
 }
-{% endhighlightMyLang %}
+{% endhighlightVexaScript %}
     </article>
   </div>
 </section>
 
 <section id="cli" class="section alt">
   <div class="section-heading">
-    <p class="eyebrow">MyLang CLI</p>
+    <p class="eyebrow">VexaScript CLI</p>
     <h2>Compile, bundle, run, inspect, and format from the terminal.</h2>
     <p class="lead">The CLI guide lives on its own page, with the core commands, supported switches, and copy-ready examples for compiler, syntax, and test workflows.</p>
     <div class="actions">
@@ -185,20 +185,20 @@ class Counter(var value: int) {
       endColumn: 22
     }
 
-    MyLangEmbeds.createSimpleEditor("#simple-editor", {
+    VexaScriptEmbeds.createSimpleEditor("#simple-editor", {
       content: counterSnippet,
       selection: counterSelection
     })
 
-    MyLangEmbeds.createWorkspaceEditor("#workspace-editor", {
-      activePath: "/main.my",
+    VexaScriptEmbeds.createWorkspaceEditor("#workspace-editor", {
+      activePath: "/main.vx",
       files: [
         {
-          path: "/main.my",
+          path: "/main.vx",
           content: counterSnippet
         },
         {
-          path: "/notes.my",
+          path: "/notes.vx",
           content: `// Same snippet, same initial selection, different host shell.
 // This workspace embed exists to compare the website integration against
 // the standalone Monaco app using the exact same code sample.`

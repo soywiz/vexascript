@@ -2,9 +2,9 @@
 
 ## Project context
 
-MyLang is a language derived from TypeScript with some features and ideas from Swift, Kotlin, C# and other languages.
+VexaScript is a language derived from TypeScript with some features and ideas from Swift, Kotlin, C# and other languages.
 
-- Monaco sample theme configuration, including editor token colors for MyLang-specific comment styling, lives in `plugins/monaco/src/theme.ts`.
+- Monaco sample theme configuration, including editor token colors for VexaScript-specific comment styling, lives in `plugins/monaco/src/theme.ts`.
 - Shared LSP declaration-documentation extraction for `///` and block doc comments lives in `compiler/lsp/documentation.ts`.
 - Instance-member `this.` add/remove quick fixes live in `compiler/lsp/thisFixes.ts`.
 

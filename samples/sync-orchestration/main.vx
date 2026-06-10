@@ -1,4 +1,4 @@
-import { auditLater, fetchPrice, fetchTaxRate } from "./services.my"
+import { auditLater, fetchPrice, fetchTaxRate } from "./services.vx"
 
 sync fun checkout(): int {
   const base = fetchPrice("book")

@@ -1,4 +1,4 @@
-import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.my"
+import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.vx"
 
 function foldBinary(operator: string, left: number, right: number): number {
   switch (operator) {

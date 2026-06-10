@@ -1,4 +1,4 @@
-import { Token, TokenKind, isDigit, isIdentifierPart, isIdentifierStart } from "./tokens.my"
+import { Token, TokenKind, isDigit, isIdentifierPart, isIdentifierStart } from "./tokens.vx"
 
 const SINGLE_CHAR_SYMBOLS = "+-*/%^=(),;"
 

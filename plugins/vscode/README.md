@@ -1,14 +1,14 @@
-# MyLang VS Code Extension
+# VexaScript VS Code Extension
 
-This extension wires VS Code `.my` files to the MyLang language server.
+This extension wires VS Code `.vx` files to the VexaScript language server.
 
 ## How it works
 
-- Registers language id `mylang` for `*.my`.
-- Adds syntax highlighting for `.my` via TextMate grammar (`source.mylang`).
-- Adds a custom language icon for `.my` without replacing the active file icon theme.
+- Registers language id `vexa` for `*.vx`.
+- Adds syntax highlighting for `.vx` via TextMate grammar (`source.vexa`).
+- Adds a custom language icon for `.vx` without replacing the active file icon theme.
 - Starts the bundled server using:
-  - `node ./dist/mylang.mjs --lsp`
+  - `node ./dist/vexa.mjs --lsp`
 - Uses stdio transport via `vscode-languageclient`.
 - Exposes LSP editor features including:
   - diagnostics
@@ -44,7 +44,7 @@ To create a `.vsix` package you can send/install:
 pnpm run package
 ```
 
-This writes `mylang-vscodeext.vsix` in `plugins/vscode`.
+This writes `vexa-vscodeext.vsix` in `plugins/vscode`.
 The packaging command uses `vsce --no-dependencies` because the extension dependencies are installed with PNPM and `vsce`'s default npm dependency scan can fail on PNPM's layout.
 The extension package bundles the VS Code client entrypoint into `dist/extension.js`, so the generated `.vsix` includes the `vscode-languageclient` runtime even though `vsce` is invoked with `--no-dependencies`.
 The extension manifest now declares the repository and uses an explicit `files` allowlist, so `vsce` packages only the runtime assets we ship.
@@ -59,11 +59,11 @@ pnpm run vscodeext:launch
 pnpm run vscodeext:package
 ```
 
-4. Open any `.my` file. It should be recognized as `mylang` and show parse/tokenizer diagnostics while editing.
+4. Open any `.vx` file. It should be recognized as `vexa` and show parse/tokenizer diagnostics while editing.
 
-The `.my` icon is contributed by the language itself and does not require selecting a separate icon theme.
+The `.vx` icon is contributed by the language itself and does not require selecting a separate icon theme.
 
 Alternative debug flow:
 
 - Open `plugins/vscode` in VS Code.
-- Run `F5` with the `Run MyLang Extension` launch config (`plugins/vscode/.vscode/launch.json`).
+- Run `F5` with the `Run VexaScript Extension` launch config (`plugins/vscode/.vscode/launch.json`).

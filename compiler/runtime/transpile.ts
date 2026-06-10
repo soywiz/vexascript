@@ -20,7 +20,7 @@ import type { Node } from "compiler/ast/ast";
 import type { AnalysisType } from "compiler/analysis/types";
 import type { SourceRange } from "compiler/parser/tokenizer";
 import {
-  MYLANG_DIAGNOSTIC_CODES,
+  VEXA_DIAGNOSTIC_CODES,
   classifySemanticDiagnosticMessage,
   mapAnalysisIssueCodeToDiagnosticCode
 } from "compiler/lsp/diagnosticCodes";
@@ -86,7 +86,7 @@ export interface TranspileOptions {
   /** Precomputed parse+analysis artifacts to reuse instead of recompiling the source. */
   compilationArtifacts?: CompilationArtifacts;
   sourceFilePath?: string;
-  /** Parser mode. Defaults to TypeScript for `.ts`/`.tsx` paths and MyLang otherwise. */
+  /** Parser mode. Defaults to TypeScript for `.ts`/`.tsx` paths and VexaScript otherwise. */
   parserOptions?: ParserOptions;
   outputFilePath?: string;
   target?: TranspileTarget;
@@ -240,7 +240,7 @@ function createSourceMap(
   sourceLinesByGeneratedLine: number[],
   options: TranspileOptions
 ): string {
-  const sourceFileName = basename(options.sourceFilePath ?? "input.my");
+  const sourceFileName = basename(options.sourceFilePath ?? "input.vx");
   const outputFileName = basename(options.outputFilePath ?? "output.js");
 
   const map: SourceMapV3 = {
@@ -303,15 +303,15 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     errors.push(
       formatMessageAtSourceRange(artifacts.tokenizeError.message, artifacts.tokenizeError.range)
     );
-    diagnostics.push(makeDiagnostic(artifacts.tokenizeError.message, artifacts.tokenizeError.range, MYLANG_DIAGNOSTIC_CODES.TOKENIZE_ERROR));
+    diagnostics.push(makeDiagnostic(artifacts.tokenizeError.message, artifacts.tokenizeError.range, VEXA_DIAGNOSTIC_CODES.TOKENIZE_ERROR));
   }
   if (artifacts.fatalError) {
     errors.push(artifacts.fatalError);
-    diagnostics.push(makeDiagnostic(artifacts.fatalError, null, MYLANG_DIAGNOSTIC_CODES.FATAL_ERROR));
+    diagnostics.push(makeDiagnostic(artifacts.fatalError, null, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR));
   }
   for (const issue of artifacts.parserIssues) {
     errors.push(formatParseIssue(issue));
-    diagnostics.push(makeDiagnostic(issue.message, issue.token?.range, MYLANG_DIAGNOSTIC_CODES.PARSER_ERROR));
+    diagnostics.push(makeDiagnostic(issue.message, issue.token?.range, VEXA_DIAGNOSTIC_CODES.PARSER_ERROR));
   }
   if (errors.length > 0) {
     return { code: "", warnings: [], errors, diagnostics };
@@ -336,7 +336,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     const code =
       mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
       classifySemanticDiagnosticMessage(issue.message) ??
-      MYLANG_DIAGNOSTIC_CODES.SEMANTIC_ERROR;
+      VEXA_DIAGNOSTIC_CODES.SEMANTIC_ERROR;
     diagnostics.push(makeDiagnostic(issue.message, range, code));
   }
   if (errors.length > 0) {
@@ -348,7 +348,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       code: "",
       warnings: [],
       errors: ["Internal error: compilation artifacts are incomplete"],
-      diagnostics: [makeDiagnostic("Internal error: compilation artifacts are incomplete", null, MYLANG_DIAGNOSTIC_CODES.FATAL_ERROR)]
+      diagnostics: [makeDiagnostic("Internal error: compilation artifacts are incomplete", null, VEXA_DIAGNOSTIC_CODES.FATAL_ERROR)]
     };
   }
 

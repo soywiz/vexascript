@@ -12,7 +12,7 @@ import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 function missingMemberDiagnostic(message: string): Diagnostic {
   return {
     severity: 1,
-    source: "mylang-sema",
+    source: "vexa-sema",
     message,
     range: {
       start: { line: 0, character: 0 },
@@ -23,9 +23,9 @@ function missingMemberDiagnostic(message: string): Diagnostic {
 
 describe("member quick fixes", () => {
   it("creates missing member in imported class file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-member-fix-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-fix-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = `class MyPoint(const x: number, const y: number) { }
 `;
@@ -56,8 +56,8 @@ fun demo() {
   });
 
   it("creates missing member in local class declaration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-member-fix-"));
-    const file = join(root, "demo.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-fix-"));
+    const file = join(root, "demo.vx");
     const source = `class MyPoint { }
 fun demo() {
   const point = new MyPoint()
@@ -82,8 +82,8 @@ fun demo() {
   });
 
   it("infers missing member type from assignment usage", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-member-fix-"));
-    const file = join(root, "demo.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-fix-"));
+    const file = join(root, "demo.vx");
     const source = `class MyPoint { }
 fun demo() {
   const point = new MyPoint()
@@ -112,9 +112,9 @@ fun demo() {
   });
 
   it("resolves class target from generic missing-member diagnostics", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-member-fix-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-fix-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = `class Map<K, V> {
 }

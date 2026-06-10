@@ -7,8 +7,9 @@ import { bundleModuleGraph } from "./runtime/moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./runtime/ecmascriptDeclarations";
 import { ensureDomProgram } from "./runtime/domDeclarations";
 import { format, toAstPreview, tokenize } from "./runtime/tooling";
-import { runMyLangTests } from "./runtime/testRunner";
-import { loadProject, type MylangProject } from "./project";
+import { runVexaScriptTests } from "./runtime/testRunner";
+import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "./language";
+import { loadProject, type VexaProject } from "./project";
 import { ensureDependencies } from "./deps";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
 import { runMcpServer } from "./mcpServer";
@@ -43,7 +44,7 @@ function printDiagnostic(diag: TranspileDiagnostic, useColor: boolean): void {
   }
 }
 
-async function ambientDeclarationsForProject(project: MylangProject | null) {
+async function ambientDeclarationsForProject(project: VexaProject | null) {
   const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
   if (!requested.has("dom")) {
     return [];
@@ -90,7 +91,7 @@ export function ensureLspTransportArg(argv: string[]): string[] {
   return [...argv, "--stdio"];
 }
 
-async function ensureRuntimeDependencies(sourcePath: string, project: MylangProject | null): Promise<void> {
+async function ensureRuntimeDependencies(sourcePath: string, project: VexaProject | null): Promise<void> {
   if (project && Object.keys(project.dependencies).length > 0) {
     await ensureDependencies(project.projectDir, project.dependencies);
     return;
@@ -112,7 +113,7 @@ async function buildFile(
   const sourcePath = resolve(process.cwd(), input);
   const source = await readFile(sourcePath, "utf8");
   const project = await loadProject(sourcePath);
-  const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".js"));
+  const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
   const ambientDeclarations = await ambientDeclarationsForProject(project);
   const result = transpile(source, {
     sourceFilePath: sourcePath,
@@ -156,7 +157,7 @@ async function bundleFile(
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
 
-  const outputPath = resolve(process.cwd(), out ?? input.replace(/\.[^.]+$/, ".mjs"));
+  const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".mjs"));
   const ambientDeclarations = await ambientDeclarationsForProject(project);
   const result = await bundleModuleGraph(sourcePath, target, {
     ambientDeclarations,
@@ -229,7 +230,7 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
 }
 
 async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
-  const outputPath = sourcePath.replace(/\.[^.]+$/, ".js");
+  const outputPath = replaceLanguageExtension(sourcePath, ".js");
   const project = await loadProject(sourcePath);
   const ambientDeclarations = await ambientDeclarationsForProject(project);
   const result = transpile(source, {
@@ -258,7 +259,7 @@ async function executeCompiled(
   const jsToExecute = `${result.code}${inlineSourceMap}\n//# sourceURL=${sourcePath}`;
   // Write a temp file next to the source so Node.js resolves node_modules from
   // the source's directory when the compiled code contains bare specifier imports.
-  const tmpPath = resolve(dirname(sourcePath), `.mylang-run-${process.pid}-${Date.now()}.mjs`);
+  const tmpPath = resolve(dirname(sourcePath), `.vexa-run-${process.pid}-${Date.now()}.mjs`);
   try {
     await writeFile(tmpPath, jsToExecute, "utf8");
     await import(pathToFileURL(tmpPath).href);
@@ -274,7 +275,7 @@ async function executeCompiled(
 }
 
 async function runTests(paths: string[]): Promise<void> {
-  const result = await runMyLangTests(paths, async (source, testFile) => {
+  const result = await runVexaScriptTests(paths, async (source, testFile) => {
     await executeSource(source, testFile, "conservative");
     console.log(`Passed: ${testFile}`);
   });
@@ -364,8 +365,8 @@ async function printSyntax(opts: {
 
 function createProgram(): Command {
   const program = new Command()
-    .name("mylang")
-    .description("MyLang compiler CLI - Soywiz Software 2026")
+    .name(LANGUAGE_CLI_BIN)
+    .description("VexaScript compiler CLI - Soywiz Software 2026")
     .version("0.1.0");
 
   program
@@ -385,7 +386,7 @@ function createProgram(): Command {
 
   program
     .command("mcp")
-    .description("Start the MyLang MCP codebase navigation server")
+    .description("Start the VexaScript MCP codebase navigation server")
     .option("--root <dir>", "Workspace root used to resolve relative file paths and scan symbols", process.cwd())
     .action(async (opts: { root?: string }) => {
       await runMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
@@ -393,7 +394,7 @@ function createProgram(): Command {
 
   program
     .command("syntax")
-    .description("Print embedded MyLang syntax definitions for editor integrations")
+    .description("Print embedded VexaScript syntax definitions for editor integrations")
     .option("--target <name>", `Syntax target: ${SYNTAX_TARGETS.join("|")}`)
     .option("--monaco", "Print Monaco-ready bundle source")
     .option("--monaco-language", "Print Monaco Monarch language JSON")
@@ -427,13 +428,13 @@ function createProgram(): Command {
 
   program
     .command("build")
-    .description("Compile a MyLang file to JavaScript")
+    .description("Compile a VexaScript file to JavaScript")
     .argument("<input>", "Input file")
     .option("-o, --out <file>", "Output file")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .option("--bundle", "Bundle the entry and all referenced MyLang, TypeScript, JavaScript, and package modules as ESM")
+    .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and package modules as ESM")
     .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
       if (opts.bundle) {
@@ -445,7 +446,7 @@ function createProgram(): Command {
 
   program
     .command("bundle")
-    .description("Bundle a MyLang entry file and its referenced modules as ESM")
+    .description("Bundle a VexaScript entry file and its referenced modules as ESM")
     .argument("<input>", "Input file")
     .option("-o, --out <file>", "Output file")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
@@ -458,7 +459,7 @@ function createProgram(): Command {
 
   program
     .command("run")
-    .description("Transpile and run a MyLang file with Node.js")
+    .description("Transpile and run a VexaScript file with Node.js")
     .argument("<input>", "Input file")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "conservative")
     .action(async (input: string, opts: { target?: string }) => {
@@ -468,7 +469,7 @@ function createProgram(): Command {
 
   program
     .command("test")
-    .description("Discover and run .test.my files with inline test and assert helpers")
+    .description(`Discover and run .test${LANGUAGE_FILE_EXTENSION} files with inline test and assert helpers`)
     .argument("[paths...]", "Test files or directories", [])
     .action(async (paths: string[]) => {
       await runTests(paths);
@@ -492,7 +493,7 @@ function createProgram(): Command {
 
   program
     .command("format")
-    .description("Format a MyLang file")
+    .description("Format a VexaScript file")
     .argument("<input>", "Input file")
     .option("-w, --write", "Deprecated: formatting now always overwrites the input file")
     .option("-o, --out <file>", "Output file")

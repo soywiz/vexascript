@@ -1,9 +1,10 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { LANGUAGE_FILE_EXTENSION } from "../language";
 
-export type MyLangTestExecutor = (source: string, filePath: string) => Promise<void>;
+export type VexaScriptTestExecutor = (source: string, filePath: string) => Promise<void>;
 
-export interface MyLangTestRunResult {
+export interface VexaScriptTestRunResult {
   testFiles: string[];
 }
 
@@ -14,16 +15,17 @@ fun assert(cond: boolean, message: string = "assert failed")
 `;
 
 const IGNORED_TEST_DIRECTORIES = new Set([".git", "dist", "node_modules"]);
+const TEST_FILE_SUFFIX = `.test${LANGUAGE_FILE_EXTENSION}`;
 
 export function appendTestRuntimeSource(source: string): string {
   return `${source}\n${TEST_RUNTIME_SOURCE}`;
 }
 
-export async function discoverMyLangTestFiles(path: string, cwd = process.cwd()): Promise<string[]> {
+export async function discoverVexaScriptTestFiles(path: string, cwd = process.cwd()): Promise<string[]> {
   const resolvedPath = resolve(cwd, path);
   const info = await stat(resolvedPath);
   if (info.isFile()) {
-    return resolvedPath.endsWith(".test.my") ? [resolvedPath] : [];
+    return resolvedPath.endsWith(TEST_FILE_SUFFIX) ? [resolvedPath] : [];
   }
   if (!info.isDirectory()) {
     return [];
@@ -37,24 +39,24 @@ export async function discoverMyLangTestFiles(path: string, cwd = process.cwd())
     }
     const entryPath = resolve(resolvedPath, entry.name);
     if (entry.isDirectory()) {
-      discovered.push(...await discoverMyLangTestFiles(entryPath, cwd));
-    } else if (entry.isFile() && entry.name.endsWith(".test.my")) {
+      discovered.push(...await discoverVexaScriptTestFiles(entryPath, cwd));
+    } else if (entry.isFile() && entry.name.endsWith(TEST_FILE_SUFFIX)) {
       discovered.push(entryPath);
     }
   }
   return discovered;
 }
 
-export async function runMyLangTests(
+export async function runVexaScriptTests(
   paths: string[],
-  executeTest: MyLangTestExecutor,
+  executeTest: VexaScriptTestExecutor,
   cwd = process.cwd()
-): Promise<MyLangTestRunResult> {
+): Promise<VexaScriptTestRunResult> {
   const roots = paths.length > 0 ? paths : [cwd];
-  const discovered = await Promise.all(roots.map((path) => discoverMyLangTestFiles(path, cwd)));
+  const discovered = await Promise.all(roots.map((path) => discoverVexaScriptTestFiles(path, cwd)));
   const testFiles = [...new Set(discovered.flat())].sort();
   if (testFiles.length === 0) {
-    throw new Error("No .test.my files found");
+    throw new Error(`No ${TEST_FILE_SUFFIX} files found`);
   }
 
   for (const testFile of testFiles) {

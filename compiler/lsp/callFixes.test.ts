@@ -5,12 +5,12 @@ import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { createCallFixCodeActions } from "./callFixes";
-import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
+import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
-const URI = "file:///demo.my";
+const URI = "file:///demo.vx";
 
 function diagnosticsFor(source: string) {
-  const document = TextDocument.create(URI, "mylang", 1, source);
+  const document = TextDocument.create(URI, "vexa", 1, source);
   const session = createAnalysisSession(source);
   const diagnostics = collectDiagnosticsFromSession(session, source, (offset) =>
     document.positionAt(offset)
@@ -103,13 +103,13 @@ fun demo() {
 }
 `;
     const session = createAnalysisSession(source);
-    const document = TextDocument.create(URI, "mylang", 1, source);
+    const document = TextDocument.create(URI, "vexa", 1, source);
     const argumentPosition = document.positionAt(source.lastIndexOf("3"));
     const diagnostics: Diagnostic[] = [
       {
         severity: 1,
-        source: "mylang-sema",
-        code: MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT,
+        source: "vexa-sema",
+        code: VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT,
         message: "custom message",
         range: {
           start: argumentPosition,

@@ -27,17 +27,17 @@ describe("LSP document features", () => {
 
   it("creates reference code lenses for top-level declarations", () => {
     const source = "fun add() {}\nadd()\n";
-    const lenses = createReferenceCodeLenses(parse(source), buildAnalysisForSource(source)!, "file:///test.my");
+    const lenses = createReferenceCodeLenses(parse(source), buildAnalysisForSource(source)!, "file:///test.vx");
     expect(lenses[0]?.command?.title).toBe("1 reference");
-    expect(lenses[0]?.command?.command).toBe("mylang.showReferences");
+    expect(lenses[0]?.command?.command).toBe("vexa.showReferences");
   });
 
   it("builds same-document call hierarchy", () => {
     const ast = parse("fun target() {}\nfun caller() { target() }\n");
-    const target = prepareCallHierarchy(ast, "file:///test.my", { line: 0, character: 5 })![0]!;
-    const caller = prepareCallHierarchy(ast, "file:///test.my", { line: 1, character: 5 })![0]!;
-    expect(createOutgoingCalls(ast, "file:///test.my", caller)[0]?.to.name).toBe("target");
-    expect(createIncomingCalls(ast, "file:///test.my", target)[0]?.from.name).toBe("caller");
+    const target = prepareCallHierarchy(ast, "file:///test.vx", { line: 0, character: 5 })![0]!;
+    const caller = prepareCallHierarchy(ast, "file:///test.vx", { line: 1, character: 5 })![0]!;
+    expect(createOutgoingCalls(ast, "file:///test.vx", caller)[0]?.to.name).toBe("target");
+    expect(createIncomingCalls(ast, "file:///test.vx", target)[0]?.from.name).toBe("caller");
   });
 
   it("indents after an opening brace during on-type formatting", () => {

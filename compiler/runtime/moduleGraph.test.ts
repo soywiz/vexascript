@@ -8,7 +8,7 @@ import { bundleModuleGraph } from "./moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 
 async function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
-  const dir = await mkdtemp(join(tmpdir(), "mylang-module-graph-"));
+  const dir = await mkdtemp(join(tmpdir(), "vexa-module-graph-"));
   for (const [name, content] of Object.entries(files)) {
     const filePath = join(dir, name);
     await mkdir(join(filePath, ".."), { recursive: true });
@@ -24,11 +24,11 @@ describe("bundleModuleGraph", () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
       {
-        "other.my": "class Point(val x: number, val y: number)\n",
-        "main.my": 'import { Point } from "./other"\n\nconst p = Point(1, 2)\n'
+        "other.vx": "class Point(val x: number, val y: number)\n",
+        "main.vx": 'import { Point } from "./other"\n\nconst p = Point(1, 2)\n'
       },
       async (dir) => {
-        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
 
         expect(result.errors).toEqual([]);
         expect(result.code).toContain("class Point {");
@@ -42,11 +42,11 @@ describe("bundleModuleGraph", () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
       {
-        "dep.my":
+        "dep.vx":
           "class TimeSpan(val ms: number) {}\n" +
           "val number.seconds => TimeSpan(this * 1000.0)\n" +
           "fun delay(time: TimeSpan) => new Promise((resolve, reject) => { setTimeout(resolve, time.ms) })\n",
-        "main.my":
+        "main.vx":
           'import { delay, seconds } from "./dep"\n' +
           "sync fun demo() {\n" +
           "  delay(1.seconds)\n" +
@@ -55,7 +55,7 @@ describe("bundleModuleGraph", () => {
           "demo()\n"
       },
       async (dir) => {
-        const result = await bundleModuleGraph(join(dir, "main.my"), "optimized");
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "optimized");
 
         expect(result.errors).toEqual([]);
         // The imported `delay` returns a Promise (inferred cross-file), so each
@@ -70,17 +70,17 @@ describe("bundleModuleGraph", () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
       {
-        "other.my":
+        "other.vx":
           dedent`
           class Point(val x: number, val y: number)
           fun Point.operator+(other: Point) => Point(x + other.x, y + other.y)
           `,
-        "main.my":
+        "main.vx":
           'import { Point, operator+ } from "./other"\n\n' +
           "const sum = Point(1, 2) + Point(3, 4)\n"
       },
       async (dir) => {
-        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
 
         expect(result.errors).toEqual([]);
         expect(result.code).toContain("function Point$$operator$plus$$Point($this, other)");
@@ -95,14 +95,14 @@ describe("bundleModuleGraph", () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
       {
-        "base.my": "class Base(val value: number)\n",
-        "left.my": 'import { Base } from "./base"\nfun makeLeft() => Base(1)\n',
-        "right.my": 'import { Base } from "./base"\nfun makeRight() => Base(2)\n',
-        "main.my":
+        "base.vx": "class Base(val value: number)\n",
+        "left.vx": 'import { Base } from "./base"\nfun makeLeft() => Base(1)\n',
+        "right.vx": 'import { Base } from "./base"\nfun makeRight() => Base(2)\n',
+        "main.vx":
           'import { makeLeft } from "./left"\nimport { makeRight } from "./right"\nmakeLeft()\nmakeRight()\n'
       },
       async (dir) => {
-        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
 
         expect(result.errors).toEqual([]);
         const baseDefinitions = result.code.split("class Base {").length - 1;
@@ -111,7 +111,7 @@ describe("bundleModuleGraph", () => {
     );
   });
 
-  it("transpiles and inlines local TypeScript modules imported from MyLang", async () => {
+  it("transpiles and inlines local TypeScript modules imported from VexaScript", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
       {
@@ -122,7 +122,7 @@ describe("bundleModuleGraph", () => {
           "  describe(): string { return this.name + \":\" + this.age }\n" +
           "}\n" +
           "export function makePerson(name: string): Person { return new Person(name, 7) }\n",
-        "main.my":
+        "main.vx":
           'import { Color, Person, makePerson } from "./helpers"\n' +
           'const direct = Person("Ada", 36)\n' +
           'const made = makePerson("Grace")\n' +
@@ -131,7 +131,7 @@ describe("bundleModuleGraph", () => {
           'console.log(Color.Red, Color.Green, Color.Blue)\n'
       },
       async (dir) => {
-        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
 
         expect(result.errors).toEqual([]);
         expect(result.code).toContain("var Color;");
@@ -147,10 +147,10 @@ describe("bundleModuleGraph", () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
       {
-        "main.my": 'import { readFile } from "node:fs"\nreadFile("x")\n'
+        "main.vx": 'import { readFile } from "node:fs"\nreadFile("x")\n'
       },
       async (dir) => {
-        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
 
         expect(result.errors).toEqual([]);
         expect(result.code).toContain('import { readFile } from "node:fs";');
@@ -162,7 +162,7 @@ describe("bundleModuleGraph", () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
       {
-        "main.my": dedent`
+        "main.vx": dedent`
           interface MaybeRunner {
             run(): MaybeRunner
           }
@@ -171,7 +171,7 @@ describe("bundleModuleGraph", () => {
         `
       },
       async (dir) => {
-        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
 
         expect(result.errors.length).toBeGreaterThan(0);
         expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("MYL2019");
@@ -194,10 +194,10 @@ describe("bundleModuleGraph", () => {
           }
           export = moment;
         `,
-        "main.my": 'import moment from "moment"\nconsole.log(moment.parseZone("2026-06-07T00:00:00+02:00").format("YYYY-MM-DD"))\n'
+        "main.vx": 'import moment from "moment"\nconsole.log(moment.parseZone("2026-06-07T00:00:00+02:00").format("YYYY-MM-DD"))\n'
       },
       async (dir) => {
-        const result = await bundleModuleGraph(join(dir, "main.my"), "conservative");
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
 
         expect(result.errors).toEqual([]);
       }

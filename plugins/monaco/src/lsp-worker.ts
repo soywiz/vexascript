@@ -1,5 +1,5 @@
 /**
- * Web Worker entry point for the MyLang LSP.
+ * Web Worker entry point for the VexaScript LSP.
  *
  * This worker runs the full LSP server in-browser using the
  * vscode-languageserver/browser MessagePort transport.  The main thread

@@ -9,11 +9,11 @@ const {
 let client;
 
 function activate(context) {
-  const outputChannel = window.createOutputChannel("MyLang LSP");
+  const outputChannel = window.createOutputChannel("VexaScript LSP");
   context.subscriptions.push(outputChannel);
 
   context.subscriptions.push(
-    commands.registerCommand("mylang.showReferences", (uri, position, locations) => {
+    commands.registerCommand("vexa.showReferences", (uri, position, locations) => {
       const targetUri = typeof uri === "string" ? Uri.parse(uri) : uri;
       const targetPosition = new Position(position.line, position.character);
       const targetLocations = (locations ?? []).map((location) =>
@@ -37,7 +37,7 @@ function activate(context) {
   const serverModule = path.resolve(
     context.extensionPath,
     "dist",
-    "mylang.mjs"
+    "vexa.mjs"
   );
 
   const serverOptions = {
@@ -53,26 +53,26 @@ function activate(context) {
     }
   };
 
-  const mylangConfig = workspace.getConfiguration("mylang");
+  const vexaConfig = workspace.getConfiguration("vexa");
   const clientOptions = {
     documentSelector: [
-      { scheme: "file", language: "mylang" },
-      { scheme: "file", pattern: "**/*.my" }
+      { scheme: "file", language: "vexa" },
+      { scheme: "file", pattern: "**/*.vx" }
     ],
     outputChannel,
     traceOutputChannel: outputChannel,
     synchronize: {
-      fileEvents: workspace.createFileSystemWatcher("**/*.my"),
-      configurationSection: "mylang"
+      fileEvents: workspace.createFileSystemWatcher("**/*.vx"),
+      configurationSection: "vexa"
     },
     initializationOptions: {
-      enableReferenceCodeLens: mylangConfig.get("referenceCodeLens.enabled", false)
+      enableReferenceCodeLens: vexaConfig.get("referenceCodeLens.enabled", false)
     }
   };
 
   client = new LanguageClient(
-    "mylang-lsp",
-    "MyLang Language Server",
+    "vexa-lsp",
+    "VexaScript Language Server",
     serverOptions,
     clientOptions
   );
@@ -85,7 +85,7 @@ function activate(context) {
 /**
  * Renders gutter icons on the lines that contain an `await` — explicit awaits in async/sync
  * functions and the implicit awaits the compiler inserts inside `sync` functions (similar to
- * Kotlin's suspend-call markers). The line list comes from the custom `mylang/autoAwaitDecorations`
+ * Kotlin's suspend-call markers). The line list comes from the custom `vexa/autoAwaitDecorations`
  * LSP request.
  */
 function registerAutoAwaitGutterIcons(context, client, ready) {
@@ -96,15 +96,15 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
   context.subscriptions.push(decorationType);
 
   let pending;
-  const isMyLang = (document) =>
-    document && (document.languageId === "mylang" || document.uri.fsPath.endsWith(".my"));
+  const isVexaScript = (document) =>
+    document && (document.languageId === "vexa" || document.uri.fsPath.endsWith(".vx"));
 
   async function updateEditor(editor) {
-    if (!editor || !isMyLang(editor.document)) {
+    if (!editor || !isVexaScript(editor.document)) {
       return;
     }
     try {
-      const decorations = await client.sendRequest("mylang/autoAwaitDecorations", {
+      const decorations = await client.sendRequest("vexa/autoAwaitDecorations", {
         textDocument: { uri: editor.document.uri.toString() }
       });
       const ranges = (decorations ?? []).map(

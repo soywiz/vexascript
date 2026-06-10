@@ -4,21 +4,21 @@ import { describe, it } from "node:test";
 import { expect } from "compiler/test/expect";
 
 describe("VS Code color theme", () => {
-  it("defines explicit JSX colors for the MyLang theme", async () => {
-    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "mylang-dark-color-theme.json");
+  it("defines explicit JSX colors for the VexaScript theme", async () => {
+    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "vexa-dark-color-theme.json");
     const theme = JSON.parse(await readFile(themePath, "utf8")) as {
       tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
     };
 
-    const jsxTagRule = theme.tokenColors.find((rule) => Array.isArray(rule.scope) && rule.scope.includes("entity.name.tag.mylang"));
-    const jsxAttributeRule = theme.tokenColors.find((rule) => rule.scope === "entity.other.attribute-name.mylang");
+    const jsxTagRule = theme.tokenColors.find((rule) => Array.isArray(rule.scope) && rule.scope.includes("entity.name.tag.vexa"));
+    const jsxAttributeRule = theme.tokenColors.find((rule) => rule.scope === "entity.other.attribute-name.vexa");
 
     expect(jsxTagRule?.settings.foreground).toBe("#4EC9B0");
     expect(jsxAttributeRule?.settings.foreground).toBe("#9CDCFE");
   });
 
   it("defines richer colors for functions, types, properties, strings, numbers, and comments", async () => {
-    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "mylang-dark-color-theme.json");
+    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "vexa-dark-color-theme.json");
     const theme = JSON.parse(await readFile(themePath, "utf8")) as {
       tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
     };
@@ -27,16 +27,16 @@ describe("VS Code color theme", () => {
       Array.isArray(rule.scope) ? rule.scope.includes(scope) : rule.scope === scope
     );
 
-    expect(findRule("entity.name.function.call.mylang")?.settings.foreground).toBe("#DCDCAA");
-    expect(findRule("entity.name.type.mylang")?.settings.foreground).toBe("#4EC9B0");
-    expect(findRule("variable.other.property.mylang")?.settings.foreground).toBe("#9CDCFE");
-    expect(findRule("string.quoted.template.mylang")?.settings.foreground).toBe("#CE9178");
-    expect(findRule("constant.numeric.integer.mylang")?.settings.foreground).toBe("#B5CEA8");
-    expect(findRule("comment.line.double-slash.mylang")?.settings.foreground).toBe("#6A9955");
+    expect(findRule("entity.name.function.call.vexa")?.settings.foreground).toBe("#DCDCAA");
+    expect(findRule("entity.name.type.vexa")?.settings.foreground).toBe("#4EC9B0");
+    expect(findRule("variable.other.property.vexa")?.settings.foreground).toBe("#9CDCFE");
+    expect(findRule("string.quoted.template.vexa")?.settings.foreground).toBe("#CE9178");
+    expect(findRule("constant.numeric.integer.vexa")?.settings.foreground).toBe("#B5CEA8");
+    expect(findRule("comment.line.double-slash.vexa")?.settings.foreground).toBe("#6A9955");
   });
 
   it("recolors template interpolations like regular expressions instead of plain strings", async () => {
-    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "mylang-dark-color-theme.json");
+    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "vexa-dark-color-theme.json");
     const theme = JSON.parse(await readFile(themePath, "utf8")) as {
       tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
     };
@@ -45,8 +45,8 @@ describe("VS Code color theme", () => {
       Array.isArray(rule.scope) ? rule.scope.includes(scope) : rule.scope === scope
     );
 
-    expect(findRule("meta.template.expression.mylang variable.other.mylang")?.settings.foreground).toBe("#D4D4D4");
-    expect(findRule("meta.template.expression.mylang variable.other.property.mylang")?.settings.foreground).toBe("#9CDCFE");
-    expect(findRule("meta.template.expression.mylang entity.name.function.call.mylang")?.settings.foreground).toBe("#DCDCAA");
+    expect(findRule("meta.template.expression.vexa variable.other.vexa")?.settings.foreground).toBe("#D4D4D4");
+    expect(findRule("meta.template.expression.vexa variable.other.property.vexa")?.settings.foreground).toBe("#9CDCFE");
+    expect(findRule("meta.template.expression.vexa entity.name.function.call.vexa")?.settings.foreground).toBe("#DCDCAA");
   });
 });

@@ -43,7 +43,7 @@ import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 import {
   createSemanticTokens,
-  MYLANG_SEMANTIC_TOKENS_LEGEND
+  VEXA_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 import { loadProject } from "compiler/project";
@@ -92,7 +92,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
   ]);
   return { externalDeclarations, importedSymbolTypes, ambientDeclarations };
 }, () => refreshDiagnostics());
-const REFRESH_DIAGNOSTICS_COMMAND = "mylang.refreshDiagnostics";
+const REFRESH_DIAGNOSTICS_COMMAND = "vexa.refreshDiagnostics";
 
 function candidateCharacters(character: number): number[] {
   const candidates = [character];
@@ -215,7 +215,7 @@ connection.onInitialize((params) => {
       documentSymbolProvider: true,
       workspaceSymbolProvider: true,
       semanticTokensProvider: {
-        legend: MYLANG_SEMANTIC_TOKENS_LEGEND,
+        legend: VEXA_SEMANTIC_TOKENS_LEGEND,
         full: true,
         range: true
       },
@@ -642,7 +642,7 @@ connection.onCodeLens((params) => {
 
 // Custom request: the editor asks for the lines that receive an implicit `await` so it can render
 // gutter icons (similar to Kotlin's suspend-call markers). Not part of the standard LSP protocol.
-connection.onRequest("mylang/autoAwaitDecorations", (params: { textDocument: { uri: string }; range?: Range }) => {
+connection.onRequest("vexa/autoAwaitDecorations", (params: { textDocument: { uri: string }; range?: Range }) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) return [];
   const session = analysisSessions.getForDocument(doc);
@@ -679,7 +679,7 @@ connection.onDocumentOnTypeFormatting((params) => {
 });
 
 connection.onDidChangeConfiguration(async () => {
-  const config = await connection.workspace.getConfiguration("mylang");
+  const config = await connection.workspace.getConfiguration("vexa");
   const newEnabled = config?.inlayHints?.enabled === true;
   if (newEnabled !== inlayHintsEnabled) {
     inlayHintsEnabled = newEnabled;

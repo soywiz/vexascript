@@ -3,7 +3,7 @@ import { expect } from "../test/expect";
 import type { CodeAction } from "vscode-languageserver/node.js";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 
-const URI = "file:///demo.my";
+const URI = "file:///demo.vx";
 
 describe("deferred code actions", () => {
   it("defers edits into data and restores them in resolve", () => {

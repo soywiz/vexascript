@@ -1,19 +1,21 @@
-export const MYLANG_KEYWORD_DECLARATIONS = [
+import { LANGUAGE_NAME, LANGUAGE_SCOPE } from "./language";
+
+export const VEXA_KEYWORD_DECLARATIONS = [
   "import", "export", "from", "let", "var", "val", "const", "by", "function", "fun",
   "declare", "class", "interface", "enum", "extends", "implements",
   "override", "readonly", "keyof", "infer", "async", "sync"
 ] as const;
 
-export const MYLANG_KEYWORD_CONTROLS = [
+export const VEXA_KEYWORD_CONTROLS = [
   "if", "else", "return", "throw", "while", "for", "switch", "case",
   "default", "break", "continue", "do", "try", "catch", "finally",
   "new", "in", "is", "instanceof", "typeof", "void", "delete",
   "await", "yield"
 ] as const;
 
-export const MYLANG_STORAGE_TYPES = ["type", "fn"] as const;
-export const MYLANG_CONSTANTS = ["true", "false", "null", "undefined"] as const;
-export const MYLANG_PRIMITIVE_TYPES = [
+export const VEXA_STORAGE_TYPES = ["type", "fn"] as const;
+export const VEXA_CONSTANTS = ["true", "false", "null", "undefined"] as const;
+export const VEXA_PRIMITIVE_TYPES = [
   "string", "number", "boolean", "int", "long", "bigint", "numeric",
   "unknown", "any", "void", "never", "object"
 ] as const;
@@ -66,8 +68,8 @@ export interface PortableLanguageConfiguration {
 }
 
 export function createPortableMonarchLanguage(): PortableMonarchLanguage {
-  const declarationKeywords = [...MYLANG_KEYWORD_DECLARATIONS, ...MYLANG_STORAGE_TYPES] as string[];
-  const controlKeywords = [...MYLANG_KEYWORD_CONTROLS, ...MYLANG_CONSTANTS] as string[];
+  const declarationKeywords = [...VEXA_KEYWORD_DECLARATIONS, ...VEXA_STORAGE_TYPES] as string[];
+  const controlKeywords = [...VEXA_KEYWORD_CONTROLS, ...VEXA_CONSTANTS] as string[];
   return {
     defaultToken: "",
     keywords: [...declarationKeywords, ...controlKeywords],
@@ -163,15 +165,15 @@ export function createPortableLanguageConfiguration(): PortableLanguageConfigura
 
 export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
   const keywordAlternation = [
-    ...MYLANG_KEYWORD_DECLARATIONS,
-    ...MYLANG_KEYWORD_CONTROLS,
-    ...MYLANG_STORAGE_TYPES,
-    ...MYLANG_CONSTANTS,
-    ...MYLANG_PRIMITIVE_TYPES
+    ...VEXA_KEYWORD_DECLARATIONS,
+    ...VEXA_KEYWORD_CONTROLS,
+    ...VEXA_STORAGE_TYPES,
+    ...VEXA_CONSTANTS,
+    ...VEXA_PRIMITIVE_TYPES
   ].join("|");
   return {
-    name: "MyLang",
-    scopeName: "source.mylang",
+    name: LANGUAGE_NAME,
+    scopeName: LANGUAGE_SCOPE,
     patterns: [
       { include: "#comments" },
       { include: "#strings" },
@@ -190,63 +192,63 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       comments: {
         patterns: [
           {
-            name: "comment.line.documentation.mylang",
+            name: "comment.line.documentation.vexa",
             begin: "///",
-            beginCaptures: { "0": { name: "punctuation.definition.comment.mylang" } },
+            beginCaptures: { "0": { name: "punctuation.definition.comment.vexa" } },
             end: "$\\n?",
           },
           {
-            name: "comment.line.double-slash.mylang",
+            name: "comment.line.double-slash.vexa",
             begin: "//",
-            beginCaptures: { "0": { name: "punctuation.definition.comment.mylang" } },
+            beginCaptures: { "0": { name: "punctuation.definition.comment.vexa" } },
             end: "$\\n?",
           },
           {
-            name: "comment.block.mylang",
+            name: "comment.block.vexa",
             begin: "/\\*",
-            beginCaptures: { "0": { name: "punctuation.definition.comment.begin.mylang" } },
+            beginCaptures: { "0": { name: "punctuation.definition.comment.begin.vexa" } },
             end: "\\*/",
-            endCaptures: { "0": { name: "punctuation.definition.comment.end.mylang" } },
+            endCaptures: { "0": { name: "punctuation.definition.comment.end.vexa" } },
           },
         ],
       },
       strings: {
         patterns: [
           {
-            name: "string.quoted.double.mylang",
+            name: "string.quoted.double.vexa",
             begin: "\"",
-            beginCaptures: { "0": { name: "punctuation.definition.string.begin.mylang" } },
+            beginCaptures: { "0": { name: "punctuation.definition.string.begin.vexa" } },
             end: "\"",
-            endCaptures: { "0": { name: "punctuation.definition.string.end.mylang" } },
-            patterns: [{ name: "constant.character.escape.mylang", match: "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})" }],
+            endCaptures: { "0": { name: "punctuation.definition.string.end.vexa" } },
+            patterns: [{ name: "constant.character.escape.vexa", match: "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})" }],
           },
           {
-            name: "string.quoted.single.mylang",
+            name: "string.quoted.single.vexa",
             begin: "'",
-            beginCaptures: { "0": { name: "punctuation.definition.string.begin.mylang" } },
+            beginCaptures: { "0": { name: "punctuation.definition.string.begin.vexa" } },
             end: "'",
-            endCaptures: { "0": { name: "punctuation.definition.string.end.mylang" } },
-            patterns: [{ name: "constant.character.escape.mylang", match: "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})" }],
+            endCaptures: { "0": { name: "punctuation.definition.string.end.vexa" } },
+            patterns: [{ name: "constant.character.escape.vexa", match: "\\\\(?:[nrt'\"\\\\]|u[0-9A-Fa-f]{4})" }],
           },
           {
-            name: "string.quoted.template.mylang",
+            name: "string.quoted.template.vexa",
             begin: "`",
-            beginCaptures: { "0": { name: "punctuation.definition.string.begin.mylang" } },
+            beginCaptures: { "0": { name: "punctuation.definition.string.begin.vexa" } },
             end: "`",
-            endCaptures: { "0": { name: "punctuation.definition.string.end.mylang" } },
+            endCaptures: { "0": { name: "punctuation.definition.string.end.vexa" } },
             patterns: [
-              { name: "constant.character.escape.mylang", match: "\\\\(?:[nrt'\"\\\\`$]|u[0-9A-Fa-f]{4})" },
+              { name: "constant.character.escape.vexa", match: "\\\\(?:[nrt'\"\\\\`$]|u[0-9A-Fa-f]{4})" },
               { include: "#template-interpolation" }
             ],
           },
         ],
       },
       "template-interpolation": {
-        name: "meta.template.expression.mylang",
+        name: "meta.template.expression.vexa",
         begin: "\\$\\{",
-        beginCaptures: { "0": { name: "punctuation.section.embedded.begin.mylang" } },
+        beginCaptures: { "0": { name: "punctuation.section.embedded.begin.vexa" } },
         end: "\\}",
-        endCaptures: { "0": { name: "punctuation.section.embedded.end.mylang" } },
+        endCaptures: { "0": { name: "punctuation.section.embedded.end.vexa" } },
         patterns: [{ include: "$self" }],
       },
       declarations: {
@@ -254,15 +256,15 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
           {
             match: "\\b(function|fun)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
             captures: {
-              "1": { name: "keyword.declaration.mylang" },
-              "2": { name: "entity.name.function.mylang" }
+              "1": { name: "keyword.declaration.vexa" },
+              "2": { name: "entity.name.function.vexa" }
             }
           },
           {
             match: "\\b(class|interface|enum|type)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
             captures: {
-              "1": { name: "storage.type.mylang" },
-              "2": { name: "entity.name.type.mylang" }
+              "1": { name: "storage.type.vexa" },
+              "2": { name: "entity.name.type.vexa" }
             }
           }
         ]
@@ -270,89 +272,89 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       types: {
         patterns: [
           {
-            name: "support.type.primitive.mylang",
-            match: `\\b(${MYLANG_PRIMITIVE_TYPES.join("|")})\\b`
+            name: "support.type.primitive.vexa",
+            match: `\\b(${VEXA_PRIMITIVE_TYPES.join("|")})\\b`
           },
           {
-            name: "entity.name.type.mylang",
+            name: "entity.name.type.vexa",
             match: "\\b[A-Z][_$A-Za-z0-9]*\\b"
           }
         ]
       },
       keywords: {
         patterns: [
-          { name: "keyword.declaration.mylang", match: `\\b(${MYLANG_KEYWORD_DECLARATIONS.join("|")})\\b` },
-          { name: "keyword.control.mylang", match: `\\b(${MYLANG_KEYWORD_CONTROLS.join("|")})\\b` },
-          { name: "storage.type.mylang", match: `\\b(${MYLANG_STORAGE_TYPES.join("|")})\\b` },
-          { name: "constant.language.mylang", match: `\\b(${MYLANG_CONSTANTS.join("|")})\\b` },
+          { name: "keyword.declaration.vexa", match: `\\b(${VEXA_KEYWORD_DECLARATIONS.join("|")})\\b` },
+          { name: "keyword.control.vexa", match: `\\b(${VEXA_KEYWORD_CONTROLS.join("|")})\\b` },
+          { name: "storage.type.vexa", match: `\\b(${VEXA_STORAGE_TYPES.join("|")})\\b` },
+          { name: "constant.language.vexa", match: `\\b(${VEXA_CONSTANTS.join("|")})\\b` },
         ],
       },
       numbers: {
-        patterns: [{ name: "constant.numeric.integer.mylang", match: "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nN]|L)?\\b" }],
+        patterns: [{ name: "constant.numeric.integer.vexa", match: "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nN]|L)?\\b" }],
       },
       operators: {
         patterns: [
-          { name: "keyword.operator.assignment.compound.mylang", match: "(\\+=|-=|%=|\\*=|/=|&=|\\|=|&&=|\\|\\|=|\\?\\?=)" },
-          { name: "keyword.operator.arithmetic.mylang", match: "(\\*\\*|\\+|-|\\*|/|%)" },
-          { name: "keyword.operator.relational.mylang", match: "(<=|>=|<|>)" },
-          { name: "keyword.operator.equality.mylang", match: "(===|!==|==|!=)" },
-          { name: "keyword.operator.member.mylang", match: "(\\?\\.|!\\.)" },
-          { name: "keyword.operator.rename.mylang", match: "::" },
-          { name: "keyword.operator.logical.mylang", match: "(\\|\\||&&|\\?\\?)" },
-          { name: "keyword.operator.bitwise.mylang", match: "(&|\\||\\^)" },
-          { name: "keyword.operator.assignment.mylang", match: "=" },
+          { name: "keyword.operator.assignment.compound.vexa", match: "(\\+=|-=|%=|\\*=|/=|&=|\\|=|&&=|\\|\\|=|\\?\\?=)" },
+          { name: "keyword.operator.arithmetic.vexa", match: "(\\*\\*|\\+|-|\\*|/|%)" },
+          { name: "keyword.operator.relational.vexa", match: "(<=|>=|<|>)" },
+          { name: "keyword.operator.equality.vexa", match: "(===|!==|==|!=)" },
+          { name: "keyword.operator.member.vexa", match: "(\\?\\.|!\\.)" },
+          { name: "keyword.operator.rename.vexa", match: "::" },
+          { name: "keyword.operator.logical.vexa", match: "(\\|\\||&&|\\?\\?)" },
+          { name: "keyword.operator.bitwise.vexa", match: "(&|\\||\\^)" },
+          { name: "keyword.operator.assignment.vexa", match: "=" },
         ],
       },
       members: {
         patterns: [
-          { name: "variable.other.property.mylang", match: "\\b[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*:)" },
-          { name: "variable.other.property.mylang", match: "(?<=\\.)[_$A-Za-z][_$A-Za-z0-9]*\\b" }
+          { name: "variable.other.property.vexa", match: "\\b[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*:)" },
+          { name: "variable.other.property.vexa", match: "(?<=\\.)[_$A-Za-z][_$A-Za-z0-9]*\\b" }
         ]
       },
       calls: {
         patterns: [
           {
-            name: "entity.name.function.call.mylang",
+            name: "entity.name.function.call.vexa",
             match: `(?<!\\.)\\b(?!(?:${keywordAlternation})\\b)[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*\\()`
           }
         ]
       },
       identifiers: {
-        patterns: [{ name: "variable.other.mylang", match: "\\b[_A-Za-z][_A-Za-z0-9]*\\b" }],
+        patterns: [{ name: "variable.other.vexa", match: "\\b[_A-Za-z][_A-Za-z0-9]*\\b" }],
       },
       regexps: {
-        patterns: [{ name: "string.regexp.mylang", match: "/(?:\\\\.|\\[(?:\\\\.|[^\\]\\\\])*\\]|[^/\\\\\\r\\n])+/[A-Za-z]*" }],
+        patterns: [{ name: "string.regexp.vexa", match: "/(?:\\\\.|\\[(?:\\\\.|[^\\]\\\\])*\\]|[^/\\\\\\r\\n])+/[A-Za-z]*" }],
       },
       jsx: { patterns: [{ include: "#jsx-fragment" }, { include: "#jsx-self-closing-element" }, { include: "#jsx-paired-element" }] },
       "jsx-fragment": {
-        name: "meta.jsx.fragment.mylang",
+        name: "meta.jsx.fragment.vexa",
         begin: "(?<![\\w)\\]])(<)(>)",
-        beginCaptures: { "1": { name: "punctuation.definition.tag.begin.mylang" }, "2": { name: "punctuation.definition.tag.end.mylang" } },
+        beginCaptures: { "1": { name: "punctuation.definition.tag.begin.vexa" }, "2": { name: "punctuation.definition.tag.end.vexa" } },
         end: "(</)(>)",
-        endCaptures: { "1": { name: "punctuation.definition.tag.begin.mylang" }, "2": { name: "punctuation.definition.tag.end.mylang" } },
+        endCaptures: { "1": { name: "punctuation.definition.tag.begin.vexa" }, "2": { name: "punctuation.definition.tag.end.vexa" } },
         patterns: [{ include: "#jsx-children" }],
       },
       "jsx-self-closing-element": {
-        name: "meta.tag.self-closing.mylang",
+        name: "meta.tag.self-closing.vexa",
         begin: "(?<![\\w)\\]])(<)([_$A-Za-z][-_$A-Za-z0-9.]*)(?=[^<>]*/>)",
-        beginCaptures: { "1": { name: "punctuation.definition.tag.begin.mylang" }, "2": { name: "entity.name.tag.mylang" } },
+        beginCaptures: { "1": { name: "punctuation.definition.tag.begin.vexa" }, "2": { name: "entity.name.tag.vexa" } },
         end: "(/>)",
-        endCaptures: { "1": { name: "punctuation.definition.tag.end.mylang" } },
+        endCaptures: { "1": { name: "punctuation.definition.tag.end.vexa" } },
         patterns: [{ include: "#jsx-attributes" }],
       },
       "jsx-paired-element": {
-        name: "meta.tag.mylang",
+        name: "meta.tag.vexa",
         begin: "(?<![\\w)\\]])(<)([_$A-Za-z][-_$A-Za-z0-9.]*)",
-        beginCaptures: { "1": { name: "punctuation.definition.tag.begin.mylang" }, "2": { name: "entity.name.tag.mylang" } },
+        beginCaptures: { "1": { name: "punctuation.definition.tag.begin.vexa" }, "2": { name: "entity.name.tag.vexa" } },
         end: "(</)([_$A-Za-z][-_$A-Za-z0-9.]*)?\\s*(>)",
         endCaptures: {
-          "1": { name: "punctuation.definition.tag.begin.mylang" },
-          "2": { name: "entity.name.tag.mylang" },
-          "3": { name: "punctuation.definition.tag.end.mylang" },
+          "1": { name: "punctuation.definition.tag.begin.vexa" },
+          "2": { name: "entity.name.tag.vexa" },
+          "3": { name: "punctuation.definition.tag.end.vexa" },
         },
         patterns: [
           { include: "#jsx-attributes" },
-          { name: "punctuation.definition.tag.end.mylang", match: ">" },
+          { name: "punctuation.definition.tag.end.vexa", match: ">" },
           { include: "#jsx-children" },
         ],
       },
@@ -366,18 +368,18 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       },
       "jsx-attributes": {
         patterns: [
-          { match: "([_$A-Za-z][-_:$A-Za-z0-9]*)(?=\\s*=)", name: "entity.other.attribute-name.mylang" },
-          { match: "=", name: "keyword.operator.assignment.mylang" },
+          { match: "([_$A-Za-z][-_:$A-Za-z0-9]*)(?=\\s*=)", name: "entity.other.attribute-name.vexa" },
+          { match: "=", name: "keyword.operator.assignment.vexa" },
           { include: "#strings" },
           { include: "#jsx-expression" },
         ],
       },
       "jsx-expression": {
-        name: "meta.embedded.expression.mylang",
+        name: "meta.embedded.expression.vexa",
         begin: "\\{",
-        beginCaptures: { "0": { name: "punctuation.section.embedded.begin.mylang" } },
+        beginCaptures: { "0": { name: "punctuation.section.embedded.begin.vexa" } },
         end: "\\}",
-        endCaptures: { "0": { name: "punctuation.section.embedded.end.mylang" } },
+        endCaptures: { "0": { name: "punctuation.section.embedded.end.vexa" } },
         patterns: [{ include: "#jsx-expression" }, { include: "$self" }],
       },
     },
@@ -401,7 +403,7 @@ export function createVscodeLanguageConfiguration(): Record<string, unknown> {
 }
 
 export function createCodeMirrorLegacyModeSource(): string {
-  return `export const mylangMode = {
+  return `export const vexaMode = {
   start: [
     { regex: /\\/\\/\\/.*/, token: "comment meta" },
     { regex: /\\/\\/.*/, token: "comment" },
@@ -409,7 +411,7 @@ export function createCodeMirrorLegacyModeSource(): string {
     { regex: /"([^"\\\\]|\\\\.)*"/, token: "string" },
     { regex: /'([^'\\\\]|\\\\.)*'/, token: "string" },
     { regex: /\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nNL])?\\b/, token: "number" },
-    { regex: /\\b(?:${[...MYLANG_KEYWORD_DECLARATIONS, ...MYLANG_KEYWORD_CONTROLS, ...MYLANG_STORAGE_TYPES, ...MYLANG_CONSTANTS].join("|")})\\b/, token: "keyword" },
+    { regex: /\\b(?:${[...VEXA_KEYWORD_DECLARATIONS, ...VEXA_KEYWORD_CONTROLS, ...VEXA_STORAGE_TYPES, ...VEXA_CONSTANTS].join("|")})\\b/, token: "keyword" },
     { regex: /[{}()\\[\\]]/, token: "bracket" },
     { regex: /[;,.]/, token: "punctuation" },
     { regex: /[+\\-*/%&|^~<>!=?:]+/, token: "operator" },
@@ -427,7 +429,7 @@ export function createCodeMirrorLegacyModeSource(): string {
 }
 
 export function createPortableMonacoBundleSource(): string {
-  return `export const mylangMonacoSyntax = ${JSON.stringify({
+  return `export const vexaMonacoSyntax = ${JSON.stringify({
     language: createPortableMonarchLanguage(),
     configuration: createPortableLanguageConfiguration(),
   }, null, 2)};`;

@@ -1,7 +1,7 @@
-import "./side-effects.my"
-import { CompassDirection, Direction, Status, collect, defaultFormatter, describe, fetchLabel, fetchNumber, identity, joinWords, runtimeBoxValue, toolLabel, upper } from "./toolkit.my"
-import { Point, Rectangle, operator+, px, scale, isOrigin } from "./geometry.my"
-import type { Described, MaybeArray, MutablePair, NameKey, NameValue, Pair } from "./types.my"
+import "./side-effects.vx"
+import { CompassDirection, Direction, Status, collect, defaultFormatter, describe, fetchLabel, fetchNumber, identity, joinWords, runtimeBoxValue, toolLabel, upper } from "./toolkit.vx"
+import { Point, Rectangle, operator+, px, scale, isOrigin } from "./geometry.vx"
+import type { Described, MaybeArray, MutablePair, NameKey, NameValue, Pair } from "./types.vx"
 
 /*
   Syntax tour sample: keep this runnable while showing many supported forms.

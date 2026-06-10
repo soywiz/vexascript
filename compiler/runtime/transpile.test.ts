@@ -59,7 +59,7 @@ describe("transpile", () => {
   it("returns a source map for successful transpilation", () => {
     const source = "let value = 1\nlet doubled = value * 2";
     const result = transpile(source, {
-      sourceFilePath: "/tmp/demo.my",
+      sourceFilePath: "/tmp/demo.vx",
       outputFilePath: "/tmp/demo.js"
     });
 
@@ -74,7 +74,7 @@ describe("transpile", () => {
     };
     expect(sourceMap.version).toBe(3);
     expect(sourceMap.file).toBe("demo.js");
-    expect(sourceMap.sources).toEqual(["demo.my"]);
+    expect(sourceMap.sources).toEqual(["demo.vx"]);
     expect(sourceMap.sourcesContent).toEqual([source]);
     expect(sourceMap.mappings.length).toBeGreaterThan(0);
   });
@@ -89,7 +89,7 @@ describe("transpile", () => {
     expect(result.code).toContain("let value = 1;");
   });
 
-  it("rewrites mylang for-in loops to JavaScript for-of with const iterator", () => {
+  it("rewrites vexa for-in loops to JavaScript for-of with const iterator", () => {
     const source = [
       "declare class Console {",
       "  log(a: number)",
@@ -257,7 +257,7 @@ describe("transpile", () => {
     ].join("\n");
 
     const result = transpile(source, {
-      sourceFilePath: "/tmp/sample.my",
+      sourceFilePath: "/tmp/sample.vx",
       outputFilePath: "/tmp/sample.js",
       target: "conservative"
     });

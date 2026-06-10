@@ -1,19 +1,19 @@
 import { describe, it } from "node:test";
 import { expect } from "compiler/test/expect";
 import {
-  createMyLangMonacoTheme,
-  MYLANG_MONACO_THEME_NAME,
+  createVexaScriptMonacoTheme,
+  VEXA_MONACO_THEME_NAME,
 } from "./theme";
 
 describe("monaco theme", () => {
   it("defines distinct colors for regular and documentation comments", () => {
-    const theme = createMyLangMonacoTheme();
+    const theme = createVexaScriptMonacoTheme();
     const regularComment = theme.rules.find((rule) => rule.token === "comment");
     const docComment = theme.rules.find((rule) => rule.token === "comment.doc");
     const jsxTag = theme.rules.find((rule) => rule.token === "tag");
     const jsxAttribute = theme.rules.find((rule) => rule.token === "attribute.name");
 
-    expect(MYLANG_MONACO_THEME_NAME).toBe("mylang-dark");
+    expect(VEXA_MONACO_THEME_NAME).toBe("vexa-dark");
     expect(regularComment).toEqual({
       token: "comment",
       foreground: "6A9955",

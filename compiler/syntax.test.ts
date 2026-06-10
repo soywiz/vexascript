@@ -13,7 +13,7 @@ import {
 
 describe("shared syntax generators", () => {
   it("matches the checked-in VS Code TextMate grammar", async () => {
-    const grammarPath = resolve(process.cwd(), "plugins", "vscode", "syntaxes", "mylang.tmLanguage.json");
+    const grammarPath = resolve(process.cwd(), "plugins", "vscode", "syntaxes", "vexa.tmLanguage.json");
     const expected = `${JSON.stringify(createVscodeTmLanguageGrammar(), null, 2)}\n`;
     expect(await readFile(grammarPath, "utf8")).toBe(expected);
   });
@@ -30,7 +30,7 @@ describe("shared syntax generators", () => {
 
     expect(monacoLanguage).toEqual(createPortableMonarchLanguage());
     expect(monacoConfiguration).toEqual(createPortableLanguageConfiguration());
-    expect(renderSyntaxTarget("monaco")).toContain("export const mylangMonacoSyntax =");
+    expect(renderSyntaxTarget("monaco")).toContain("export const vexaMonacoSyntax =");
   });
 
   it("includes JSX tokenization in VS Code and Monaco syntax definitions", () => {
@@ -55,12 +55,12 @@ describe("shared syntax generators", () => {
     });
     expect(jsxAttributes.patterns).toContainEqual({
       match: "([_$A-Za-z][-_:$A-Za-z0-9]*)(?=\\s*=)",
-      name: "entity.other.attribute-name.mylang",
+      name: "entity.other.attribute-name.vexa",
     });
   });
 
   it("renders CodeMirror legacy mode source", () => {
     expect(renderSyntaxTarget("codemirror-legacy")).toBe(createCodeMirrorLegacyModeSource());
-    expect(renderSyntaxTarget("codemirror-legacy")).toContain("export const mylangMode =");
+    expect(renderSyntaxTarget("codemirror-legacy")).toContain("export const vexaMode =");
   });
 });

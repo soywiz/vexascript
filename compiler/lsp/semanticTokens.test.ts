@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
-import { createSemanticTokens, MYLANG_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
+import { createSemanticTokens, VEXA_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
 
 interface DecodedToken {
   line: number;
@@ -31,7 +31,7 @@ function decodeTokens(source: string, data: number[]): DecodedToken[] {
 
     const length = data[i + 2]!;
     const tokenTypeIndex = data[i + 3]!;
-    const tokenType = MYLANG_SEMANTIC_TOKENS_LEGEND.tokenTypes[tokenTypeIndex] ?? "unknown";
+    const tokenType = VEXA_SEMANTIC_TOKENS_LEGEND.tokenTypes[tokenTypeIndex] ?? "unknown";
     const lineText = lines[line] ?? "";
     const lexeme = lineText.slice(character, character + length);
     decoded.push({
@@ -74,7 +74,7 @@ describe("semantic tokens", () => {
 
   it("highlights angle-bracket assertion type names", () => {
     const source = "let value = <Point>raw\n";
-    // Angle-bracket casts are TypeScript-only (MyLang reserves `<...>` for JSX).
+    // Angle-bracket casts are TypeScript-only (VexaScript reserves `<...>` for JSX).
     const ast = parseFile(tokenizeReader(source, { jsx: false }), { language: "typescript" });
     const analysis = new Analysis(ast);
     const semantic = createSemanticTokens({

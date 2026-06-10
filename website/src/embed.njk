@@ -1,10 +1,10 @@
 ---
 layout: layout.njk
-title: MyLang Embed Guide
+title: VexaScript Embed Guide
 ---
 <section class="page-hero">
   <p class="eyebrow">Embedding API</p>
-  <h1>Embed MyLang editors in your own pages.</h1>
+  <h1>Embed VexaScript editors in your own pages.</h1>
   <p class="lead">Use the generated website bundle to drop a single-file lesson editor or a richer multi-file workspace into tutorials, docs, and demos.</p>
 </section>
 
@@ -16,20 +16,20 @@ title: MyLang Embed Guide
     <article class="card">
       <h3>Simple editor</h3>
 <pre><code>&lt;div id="lesson-editor"&gt;&lt;/div&gt;
-&lt;script src="/assets/generated/mylang-embed.js"&gt;&lt;/script&gt;
+&lt;script src="/assets/generated/vexa-embed.js"&gt;&lt;/script&gt;
 &lt;script&gt;
-  MyLangEmbeds.createSimpleEditor("#lesson-editor", {
+  VexaScriptEmbeds.createSimpleEditor("#lesson-editor", {
     content: "fun add(a: int, b: int): int { return a + b }"
   })
 &lt;/script&gt;</code></pre>
     </article>
     <article class="card">
       <h3>Workspace editor</h3>
-<pre><code>MyLangEmbeds.createWorkspaceEditor("#workspace", {
-  activePath: "/main.my",
+<pre><code>VexaScriptEmbeds.createWorkspaceEditor("#workspace", {
+  activePath: "/main.vx",
   files: [
-    { path: "/main.my", content: "import { greet } from './greeter.my'\nconsole.log(greet('MyLang'))" },
-    { path: "/greeter.my", content: "export fun greet(name: string): string { return $\"Hello {name}\" }" }
+    { path: "/main.vx", content: "import { greet } from './greeter.vx'\nconsole.log(greet('VexaScript'))" },
+    { path: "/greeter.vx", content: "export fun greet(name: string): string { return $\"Hello {name}\" }" }
   ]
 })</code></pre>
     </article>

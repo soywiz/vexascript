@@ -136,9 +136,9 @@ describe("signature help", () => {
   });
 
   it("provides signature help and docs for imported class methods", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-signature-help-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-signature-help-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = dedent`
       class Logger {
@@ -317,7 +317,7 @@ describe("signature help", () => {
       }
       export = pkg;
     `;
-    const root = await mkdtemp(join(tmpdir(), "mylang-sig-nm-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-sig-nm-"));
     const pkgDir = join(root, "node_modules", "pkg");
     await mkdir(pkgDir, { recursive: true });
     await writeFile(join(pkgDir, "index.d.ts"), MINI_DTS, "utf8");
@@ -327,7 +327,7 @@ describe("signature help", () => {
       "utf8"
     );
 
-    const mainPath = join(root, "main.my");
+    const mainPath = join(root, "main.vx");
     // line 1 (0-based), character 16 = inside the call parentheses
     const source = `import pkg from "pkg"\npkg.helper("x", 1)\n`;
     await writeFile(mainPath, source, "utf8");

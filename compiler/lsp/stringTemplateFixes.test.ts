@@ -4,7 +4,7 @@ import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createStringTemplateCodeActions } from "./stringTemplateFixes";
 
-const URI = "file:///demo.my";
+const URI = "file:///demo.vx";
 
 function positionToOffset(text: string, position: { line: number; character: number }): number {
   let line = 0;

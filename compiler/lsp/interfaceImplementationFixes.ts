@@ -12,7 +12,7 @@ import {
   diagnosticHasCode,
   IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN,
   IMPLEMENTS_MISSING_MEMBER_PATTERN,
-  MYLANG_DIAGNOSTIC_CODES
+  VEXA_DIAGNOSTIC_CODES
 } from "./diagnosticCodes";
 
 interface MissingImplementsDiagnostic {
@@ -59,11 +59,11 @@ interface ParsedFunctionType {
 }
 
 function parseImplementsDiagnostic(diagnostic: Diagnostic): ImplementsDiagnostic | null {
-  if (diagnostic.source !== "mylang-sema") {
+  if (diagnostic.source !== "vexa-sema") {
     return null;
   }
 
-  if (diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER)) {
+  if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER)) {
     const data = diagnostic.data;
     if (data && typeof data === "object") {
       const record = data as ImplementsIssueDataBase & Record<string, unknown>;
@@ -81,7 +81,7 @@ function parseImplementsDiagnostic(diagnostic: Diagnostic): ImplementsDiagnostic
     }
   }
 
-  if (diagnosticHasCode(diagnostic, MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER)) {
+  if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER)) {
     const data = diagnostic.data;
     if (data && typeof data === "object") {
       const record = data as ImplementsIncompatibleIssueData & Record<string, unknown>;

@@ -1290,7 +1290,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
 
   // Fallback: look for the member in node_modules .d.ts declarations. This
   // handles types whose namespace/interface is declared in a package's type
-  // definitions rather than a local .my file.
+  // definitions rather than a local .vx file.
   const nodeModulesDefinition = await resolveNodeModulesMemberDefinition(
     context,
     receiverTypeNames[0]!,

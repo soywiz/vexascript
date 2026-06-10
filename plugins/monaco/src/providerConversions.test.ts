@@ -14,7 +14,7 @@ describe("monaco provider conversions", () => {
         severity: 8,
         message: "Undefined variable 'Point'",
         code: "MYL2001",
-        source: "mylang-sema",
+        source: "vexa-sema",
       },
       { Error: 8, Warning: 4, Info: 2 }
     );
@@ -27,7 +27,7 @@ describe("monaco provider conversions", () => {
       severity: DiagnosticSeverity.Error,
       message: "Undefined variable 'Point'",
       code: "MYL2001",
-      source: "mylang-sema",
+      source: "vexa-sema",
     });
   });
 

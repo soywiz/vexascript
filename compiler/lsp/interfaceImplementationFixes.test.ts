@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
-import { MYLANG_DIAGNOSTIC_CODES } from "./diagnosticCodes";
+import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
 
 function semaDiagnostic(
@@ -15,7 +15,7 @@ function semaDiagnostic(
 ): Diagnostic {
   return {
     severity: 1,
-    source: "mylang-sema",
+    source: "vexa-sema",
     message,
     ...(extra ?? {}),
     range: {
@@ -27,8 +27,8 @@ function semaDiagnostic(
 
 describe("interface implementation quick fixes", () => {
   it("creates missing interface methods with Not implemented body", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-implements-fix-"));
-    const file = join(root, "demo.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-implements-fix-"));
+    const file = join(root, "demo.vx");
     const source = `interface MyInterface {
   say(a: number)
 }
@@ -45,7 +45,7 @@ class Map implements MyInterface {
       ast: session.ast,
       diagnostics: [
         semaDiagnostic("ignored", {
-          code: MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER,
+          code: VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_MISSING_MEMBER,
           data: {
             className: "Map",
             interfaceName: "MyInterface",
@@ -64,8 +64,8 @@ class Map implements MyInterface {
   });
 
   it("fixes incompatible implemented method signatures", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-implements-fix-"));
-    const file = join(root, "demo.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-implements-fix-"));
+    const file = join(root, "demo.vx");
     const source = `interface MyInterface {
   say(a: number)
 }
@@ -84,7 +84,7 @@ class Map implements MyInterface {
       ast: session.ast,
       diagnostics: [
         semaDiagnostic("ignored", {
-          code: MYLANG_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER,
+          code: VEXA_DIAGNOSTIC_CODES.IMPLEMENTS_INCOMPATIBLE_MEMBER,
           data: {
             className: "Map",
             interfaceName: "MyInterface",
@@ -103,8 +103,8 @@ class Map implements MyInterface {
   });
 
   it("supports message-pattern fallback when diagnostic metadata is missing", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-implements-fix-"));
-    const file = join(root, "demo.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-implements-fix-"));
+    const file = join(root, "demo.vx");
     const source = `interface MyInterface {
   say(a: number)
 }

@@ -2,14 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run MyLang Extension Host",
+      "name": "Run VexaScript Extension Host",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/plugins/vscode"
       ],
-      "preLaunchTask": "mylang: prepare vscode extension",
+      "preLaunchTask": "vexa: prepare vscode extension",
       "autoAttachChildProcesses": true
     }
   ]

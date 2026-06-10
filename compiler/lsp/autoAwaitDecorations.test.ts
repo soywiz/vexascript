@@ -119,9 +119,9 @@ describe("auto-await decorations", () => {
   });
 
   it("marks implicit awaits of a Promise-returning function imported from another file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-auto-await-"));
-    const depFile = join(root, "dep.my");
-    const mainFile = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-auto-await-"));
+    const depFile = join(root, "dep.vx");
+    const mainFile = join(root, "main.vx");
 
     // The imported `delay` has no return type annotation; its Promise return
     // type is inferred from its body in the dependency's own analysis.

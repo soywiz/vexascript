@@ -1,6 +1,6 @@
 # LSP Services Status
 
-This document tracks common Language Server Protocol services and their status in MyLang.
+This document tracks common Language Server Protocol services and their status in VexaScript.
 
 ## Core Language Features
 
@@ -51,7 +51,7 @@ This document tracks common Language Server Protocol services and their status i
 - Signature help supports functions and constructor calls (`new Class(...)`).
 - Inlay hints provide inferred type hints and parameter name hints (including constructor calls).
 - Document symbols include top-level declarations and class members.
-- Workspace symbol search scans `.my` files in source roots.
+- Workspace symbol search scans `.vx` files in source roots.
 - Code actions include declaration keyword replacements and auto-import fixes.
 - Diagnostics include parser and semantic issues, and keep semantic checks enabled after parser recovery.
 - Semantic tokens provide semantic highlighting for keywords, operators, literals, and symbols (`full` + `range`).

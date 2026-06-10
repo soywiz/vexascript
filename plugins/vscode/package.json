@@ -1,13 +1,13 @@
 {
-  "name": "mylang-vscodeext",
-  "displayName": "MyLang",
-  "description": "VS Code support for MyLang (.my) using the bundled MyLang LSP",
+  "name": "vexascript-vscodeext",
+  "displayName": "VexaScript",
+  "description": "VS Code support for VexaScript (.vx) using the bundled VexaScript LSP",
   "version": "0.0.1",
-  "publisher": "mylang",
+  "publisher": "vexa",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/soywiz/mylang.git"
+    "url": "https://github.com/soywiz/vexa.git"
   },
   "engines": {
     "vscode": "^1.74.0"
@@ -26,40 +26,40 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:mylang",
-    "workspaceContains:**/*.my",
+    "onLanguage:vexa",
+    "workspaceContains:**/*.vx",
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
-        "id": "mylang",
+        "id": "vexa",
         "aliases": [
-          "MyLang",
-          "mylang"
+          "VexaScript",
+          "vexa"
         ],
         "extensions": [
-          ".my"
+          ".vx"
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/mylang-file.svg",
-          "dark": "./icons/mylang-file.svg"
+          "light": "./icons/vexa-file.svg",
+          "dark": "./icons/vexa-file.svg"
         }
       }
     ],
     "grammars": [
       {
-        "language": "mylang",
-        "scopeName": "source.mylang",
-        "path": "./syntaxes/mylang.tmLanguage.json"
+        "language": "vexa",
+        "scopeName": "source.vexa",
+        "path": "./syntaxes/vexa.tmLanguage.json"
       }
     ],
     "configuration": {
-      "title": "MyLang",
+      "title": "VexaScript",
       "properties": {
-        "mylang.referenceCodeLens.enabled": {
+        "vexa.referenceCodeLens.enabled": {
           "type": "boolean",
           "default": false,
           "description": "Show inline reference counts (e.g. '2 references') above declarations."
@@ -68,20 +68,20 @@
     },
     "themes": [
       {
-        "label": "MyLang Dark",
+        "label": "VexaScript Dark",
         "uiTheme": "vs-dark",
-        "path": "./themes/mylang-dark-color-theme.json"
+        "path": "./themes/vexa-dark-color-theme.json"
       }
     ]
   },
   "scripts": {
     "lint": "echo \"No lint configured\"",
     "setup": "CI=true pnpm install",
-    "bundle-server": "rm -rf dist && mkdir -p dist && pnpm --dir ../.. exec esbuild compiler/lsp/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/vscode/dist/mylang.mjs --sourcemap --external:vscode-languageserver --external:vscode-languageserver/node.js --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp ../../compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp ../../compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/mylang.mjs",
+    "bundle-server": "rm -rf dist && mkdir -p dist && pnpm --dir ../.. exec esbuild compiler/lsp/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/vscode/dist/vexa.mjs --sourcemap --external:vscode-languageserver --external:vscode-languageserver/node.js --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp ../../compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp ../../compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/vexa.mjs",
     "stage-server-deps": "node scripts/stageServerDeps.mjs",
     "bundle-client": "pnpm exec esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
     "bundle-extension": "pnpm run bundle-server && pnpm run stage-server-deps && pnpm run bundle-client",
-    "package": "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out mylang-vscodeext.vsix",
+    "package": "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexa-vscodeext.vsix",
     "launch": "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)"
   },
   "dependencies": {

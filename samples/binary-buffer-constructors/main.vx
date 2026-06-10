@@ -1,4 +1,4 @@
-// Constructor-only ECMAScript binary-buffer globals can be called in MyLang's
+// Constructor-only ECMAScript binary-buffer globals can be called in VexaScript's
 // class-call style. The compiler emits JavaScript `new` calls and accepts the
 // typed ArrayBuffer/DataView generic constraint used by the standard library.
 const buffer = ArrayBuffer(4)

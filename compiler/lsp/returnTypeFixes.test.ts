@@ -3,7 +3,7 @@ import { expect } from "../test/expect";
 import { createAnalysisSession } from "./analysisSession";
 import { createReturnTypeCodeActions } from "./returnTypeFixes";
 
-const URI = "file:///demo.my";
+const URI = "file:///demo.vx";
 
 function positionToOffset(text: string, position: { line: number; character: number }): number {
   let line = 0;

@@ -8,7 +8,7 @@ import { createAnalysisSession, type AnalysisSession } from "compiler/lsp/analys
 import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
 import type { SymbolExport } from "compiler/lsp/importFixes";
 import { WorkspaceVfs } from "./workspaceVfs";
-import bundledSample from "../sample/main.my?raw";
+import bundledSample from "../sample/main.vx?raw";
 import bundledRuntime from "../../../compiler/runtime/es2025.d.ts?raw";
 import {
   pullDiagnostics,
@@ -17,8 +17,8 @@ import {
   updateAutoAwaitGlyphs,
 } from "./compiler-providers";
 import {
-  createMyLangMonacoTheme,
-  MYLANG_MONACO_THEME_NAME,
+  createVexaScriptMonacoTheme,
+  VEXA_MONACO_THEME_NAME,
 } from "./theme";
 import {
   createFileInWorkspace,
@@ -85,8 +85,8 @@ function filePathToWorkspaceUri(filePath: string): string {
   return pathToUri(filePath);
 }
 
-function isEditableMyLangFile(entry: WorkspaceEntry | undefined): entry is WorkspaceFile {
-  return !!entry && entry.kind === "file" && !entry.readOnly && entry.language === "mylang";
+function isEditableVexaScriptFile(entry: WorkspaceEntry | undefined): entry is WorkspaceFile {
+  return !!entry && entry.kind === "file" && !entry.readOnly && entry.language === "vexa";
 }
 
 function updateActiveFileLabel(entry: WorkspaceEntry | undefined, isDirty: boolean): void {
@@ -99,7 +99,7 @@ function updateActiveFileLabel(entry: WorkspaceEntry | undefined, isDirty: boole
 function setToolbarState(entry: WorkspaceEntry | undefined): void {
   const formatButton = document.getElementById("btn-format") as HTMLButtonElement | null;
   const saveButton = document.getElementById("btn-save") as HTMLButtonElement | null;
-  const enabled = isEditableMyLangFile(entry);
+  const enabled = isEditableVexaScriptFile(entry);
   if (formatButton) formatButton.disabled = !enabled;
   if (saveButton) saveButton.disabled = !enabled;
 }
@@ -189,8 +189,8 @@ async function main(): Promise<void> {
   setStatus("Loading compiler…", "connecting");
 
   registerLanguage();
-  monaco.editor.defineTheme(MYLANG_MONACO_THEME_NAME, createMyLangMonacoTheme());
-  monaco.editor.setTheme(MYLANG_MONACO_THEME_NAME);
+  monaco.editor.defineTheme(VEXA_MONACO_THEME_NAME, createVexaScriptMonacoTheme());
+  monaco.editor.setTheme(VEXA_MONACO_THEME_NAME);
 
   const storage = localStorageOrUndefined();
   let entries = resolveWorkspaceEntries(bundledSample, bundledRuntime, storage, WORKSPACE_STORAGE_KEY);
@@ -249,7 +249,7 @@ async function main(): Promise<void> {
   const getWorkspaceExportedSymbols = async (): Promise<SymbolExport[]> => {
     const symbols: SymbolExport[] = [];
     for (const entry of entries) {
-      if (entry.kind !== "file" || entry.language !== "mylang") {
+      if (entry.kind !== "file" || entry.language !== "vexa") {
         continue;
       }
       const filePath = entry.path;
@@ -304,7 +304,7 @@ async function main(): Promise<void> {
           window.clearTimeout(diagnosticsTimer);
         }
         diagnosticsTimer = window.setTimeout(() => {
-          if (activeUri === entry.uri && isEditableMyLangFile(activeEntry)) {
+          if (activeUri === entry.uri && isEditableVexaScriptFile(activeEntry)) {
             void pullDiagnostics(model, sessionCache, providerWorkspaceContext);
             void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
           }
@@ -331,7 +331,7 @@ async function main(): Promise<void> {
   const editorContainer = document.getElementById("editor-container")!;
   const editor = monaco.editor.create(editorContainer, {
     model: startupModel,
-    theme: MYLANG_MONACO_THEME_NAME,
+    theme: VEXA_MONACO_THEME_NAME,
     automaticLayout: true,
     minimap: { enabled: true },
     fontSize: 14,
@@ -452,7 +452,7 @@ async function main(): Promise<void> {
     }
     persistEditorSession();
     syncEditorState();
-    if (isEditableMyLangFile(entry)) {
+    if (isEditableVexaScriptFile(entry)) {
       void pullDiagnostics(model, sessionCache, providerWorkspaceContext);
       void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
     }
@@ -634,7 +634,7 @@ async function main(): Promise<void> {
   const createWorkspaceEntry = (kind: "file" | "folder"): void => {
     const selectedEntry = entries.find((entry) => entry.path === selectedPath) ?? entries[0];
     const parentFolderPath = selectedEntry?.kind === "folder" ? selectedEntry.path : selectedEntry ? selectedEntry.path.slice(0, selectedEntry.path.lastIndexOf("/")) || "/" : "/";
-    const name = window.prompt(kind === "file" ? "New file name" : "New folder name", kind === "file" ? "newFile.my" : "newFolder");
+    const name = window.prompt(kind === "file" ? "New file name" : "New folder name", kind === "file" ? "newFile.vx" : "newFolder");
     if (!name) return;
     entries = kind === "file"
       ? createFileInWorkspace(entries, parentFolderPath, name)

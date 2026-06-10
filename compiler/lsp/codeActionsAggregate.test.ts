@@ -6,7 +6,7 @@ import { createAnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
 import type { Range } from "vscode-languageserver/node.js";
 
-const URI = "file:///demo.my";
+const URI = "file:///demo.vx";
 
 function pointRange(line: number, character: number): Range {
   return {
@@ -106,7 +106,7 @@ describe("collectCodeActions aggregator", () => {
       return {
         message: issue.message,
         range,
-        source: "mylang-sema"
+        source: "vexa-sema"
       };
     });
     const actions = await collectCodeActions({

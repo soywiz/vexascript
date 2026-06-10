@@ -19,7 +19,7 @@ This section is the fast onboarding map for agents and contributors.
   - Source location tests: `compiler/sourceLocations.test.ts`
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface and local Node-backed implementation, injectable into compiler project services that need file reads: `compiler/vfs.ts`
-  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.my` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
+  - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.vx` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
   - Project configuration loading from package.json dependencies and tsconfig.json JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
@@ -45,26 +45,26 @@ This section is the fast onboarding map for agents and contributors.
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
-  - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.my` entry file together with its transitively imported local `.my` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before downstream JavaScript/package bundling): `compiler/runtime/moduleGraph.ts`
+  - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.vx` entry file together with its transitively imported local `.vx` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before downstream JavaScript/package bundling): `compiler/runtime/moduleGraph.ts`
   - Module-graph bundling tests: `compiler/runtime/moduleGraph.test.ts`
   - Runtime tooling helpers: `compiler/runtime/tooling.ts`
-  - MyLang test-file discovery/orchestration and inline test helpers used by the CLI test command: `compiler/runtime/testRunner.ts`
+  - VexaScript test-file discovery/orchestration and inline test helpers used by the CLI test command: `compiler/runtime/testRunner.ts`
   - Test-runner orchestration tests: `compiler/runtime/testRunner.test.ts`
   - Transpile tests: `compiler/runtime/transpile.test.ts`
   - Runtime integration tests: `compiler/runtime/runtime.integration.test.ts`
 - Runnable samples and sample-test harness: `samples/`, `samples/samples.test.ts`
-  - Each sample directory is discovered when it contains expected.txt; the harness runs main.my with runFile and compares captured console.log output to expected.txt.
+  - Each sample directory is discovered when it contains expected.txt; the harness runs main.vx with runFile and compares captured console.log output to expected.txt.
   - Sample-local package.json files are installed with pnpm install before execution when node_modules is missing, so samples can demonstrate npm package declarations and runtime dependencies.
   - Sample-local tsconfig.json files are loaded by `compiler/project.ts`; they can set JSX factories/import sources and `compilerOptions.lib` entries such as `dom` for DOM ambient declarations.
   - DOM-emulation sample: `samples/virtual-dom/` uses a lightweight local DOM shim plus `tsconfig.json` with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types without a heavy third-party runtime.
   - DefinitelyTyped sample: `samples/minimist/` uses the runtime-only `minimist` package together with `@types/minimist` to validate fallback resolution for npm packages that keep declarations in `node_modules/@types`.
   - Delegated-state sample: `samples/delegated-state/` validates end-to-end execution of Kotlin-style delegated variables backed by function and object delegates.
-  - Proxy theme-hooks sample: `samples/proxy-theme-hooks/` validates MyLang construction of ECMAScript `Proxy` instances and runtime `get`, `set`, and `has` traps over theme objects.
+  - Proxy theme-hooks sample: `samples/proxy-theme-hooks/` validates VexaScript construction of ECMAScript `Proxy` instances and runtime `get`, `set`, and `has` traps over theme objects.
   - Class-delegate sample: `samples/class-delegate/` validates interface-member forwarding generated from class `by` delegates.
   - Sync orchestration sample: `samples/sync-orchestration/` validates local-module imports of exported async functions plus `sync` auto-awaiting across call arguments, arrays, object literals, and `go` opt-out promises.
-  - Syntax tour sample: `samples/syntax-tour/` is a multi-file runnable fixture that exercises the broad supported MyLang syntax surface, JSX factory configuration, local imports, declarations/types, classes, extensions/operators, delegates, control flow, and async `sync` output.
+  - Syntax tour sample: `samples/syntax-tour/` is a multi-file runnable fixture that exercises the broad supported VexaScript syntax surface, JSX factory configuration, local imports, declarations/types, classes, extensions/operators, delegates, control flow, and async `sync` output.
   - Expression lab sample: `samples/expression-lab/` is a larger multi-file calculator fixture with lexer, parser, AST, optimizer, evaluator, and pretty-printer modules that stress imports, classes, enums, sequences, calls, assignments, loops, and heavier expression workloads for both correctness and performance.
-  - TypeScript import sample: `samples/typescript-import/` validates a `.my` entry importing a local `.ts` module with TypeScript enums, interfaces, type aliases, classes, generics, destructuring, arrow functions, and async functions that are transpiled into the bundled runtime output.
+  - TypeScript import sample: `samples/typescript-import/` validates a `.vx` entry importing a local `.ts` module with TypeScript enums, interfaces, type aliases, classes, generics, destructuring, arrow functions, and async functions that are transpiled into the bundled runtime output.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`
   - Formatter tests: `compiler/runtime/formatter.test.ts`
@@ -85,7 +85,7 @@ This section is the fast onboarding map for agents and contributors.
   - CLI entrypoint and commands: `compiler/cli.ts`
   - CLI tests: `compiler/cli.test.ts`
   - `test` command delegates test-file discovery and helper injection to `compiler/runtime/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
-  - `syntax` command prints embedded MyLang syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
+  - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Monaco browser plugin (project root: `plugins/monaco/`):
   - Static Monaco demo entrypoint: `plugins/monaco/src/main.ts`
   - Monaco-to-compiler provider adapter (in-process; does NOT use LSP, calls the
@@ -128,7 +128,7 @@ This section is the fast onboarding map for agents and contributors.
   - Document structure/navigation services: `compiler/lsp/documentFeatures.ts`
   - Semantic tokens: `compiler/lsp/semanticTokens.ts`
   - Inlay hints: `compiler/lsp/inlayHints.ts`
-  - Await gutter decorations (lines with an explicit `await` in async/sync functions or an implicit auto-`await` inside `sync` functions, served via the custom `mylang/autoAwaitDecorations` request and the Monaco glyph margin): `compiler/lsp/autoAwaitDecorations.ts`
+  - Await gutter decorations (lines with an explicit `await` in async/sync functions or an implicit auto-`await` inside `sync` functions, served via the custom `vexa/autoAwaitDecorations` request and the Monaco glyph margin): `compiler/lsp/autoAwaitDecorations.ts`
   - Code action orchestration: `compiler/lsp/codeActions.ts`
   - Shared code-action collection (used by the Node LSP server, browser-worker LSP server, and Monaco in-process providers): `compiler/lsp/codeActionsAggregate.ts`
   - Quick fixes: `compiler/lsp/importFixes.ts`, `compiler/lsp/typeFixes.ts`, `compiler/lsp/memberFixes.ts`, `compiler/lsp/callFixes.ts`, `compiler/lsp/keywordFixes.ts`, `compiler/lsp/interfaceImplementationFixes.ts`, `compiler/lsp/stringTemplateFixes.ts`, `compiler/lsp/thisFixes.ts`
@@ -145,13 +145,13 @@ This section is the fast onboarding map for agents and contributors.
   - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/syntax.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
   - Website build orchestrator, which ensures the compiler CLI bundle exists, regenerates the website-safe JS syntax module from the compiler's canonical syntax source, then runs Vite and 11ty: `website/scripts/build.ts`
   - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
-  - Website-only JS syntax highlighter and generated syntax artifact used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.mjs`, `website/src/generated/mylang-monarch-language.mjs`
+  - Website-only JS syntax highlighter and generated syntax artifact used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.mjs`, `website/src/generated/vexa-monarch-language.mjs`
   - Website content-loader tests: `website/src/siteContent.test.ts`
-  - Vite-powered embeddable Monaco helpers for single-file and multi-file tutorial editors: `website/vite.config.ts`, `website/src/assets/mylang-embed.ts`
+  - Vite-powered embeddable Monaco helpers for single-file and multi-file tutorial editors: `website/vite.config.ts`, `website/src/assets/vexa-embed.ts`
   - Website package scripts and type-checking configuration: `website/package.json`, `website/tsconfig.json`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`
-  - TextMate grammar generated from the compiler's shared syntax source and checked in for packaging: `plugins/vscode/syntaxes/mylang.tmLanguage.json`
+  - TextMate grammar generated from the compiler's shared syntax source and checked in for packaging: `plugins/vscode/syntaxes/vexa.tmLanguage.json`
   - VS Code extension manifest/config and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
   - Syntax tests: `compiler/vscodeext-syntax.test.ts`
 
@@ -166,7 +166,7 @@ This section is the fast onboarding map for agents and contributors.
 
 ### Test Fixtures and Auxiliary Utilities
 
-- Runtime sample fixture: `testFixtures/sample.my`
+- Runtime sample fixture: `testFixtures/sample.vx`
 - Third-party declaration samples: `testFixtures/PIXI.d.ts`, `testFixtures/threejs.d.ts`
 - TypeScript compatibility fixture: `testFixtures/typescript-supported.d.ts`
 - Fixture tests: `testFixtures/@test.test.ts`

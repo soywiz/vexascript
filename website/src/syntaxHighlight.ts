@@ -1,23 +1,23 @@
 import {
   createPortableMonarchLanguage,
-  MYLANG_CONSTANTS,
-  MYLANG_KEYWORD_CONTROLS,
-  MYLANG_KEYWORD_DECLARATIONS,
-  MYLANG_PRIMITIVE_TYPES,
-  MYLANG_STORAGE_TYPES,
+  VEXA_CONSTANTS,
+  VEXA_KEYWORD_CONTROLS,
+  VEXA_KEYWORD_DECLARATIONS,
+  VEXA_PRIMITIVE_TYPES,
+  VEXA_STORAGE_TYPES,
   type PortableMonarchLanguage,
   type PortableMonarchRule,
 } from "../../compiler/syntax.ts";
 
 const declarationKeywords = new Set([
-  ...MYLANG_KEYWORD_DECLARATIONS,
-  ...MYLANG_STORAGE_TYPES,
+  ...VEXA_KEYWORD_DECLARATIONS,
+  ...VEXA_STORAGE_TYPES,
 ]);
 const controlKeywords = new Set([
-  ...MYLANG_KEYWORD_CONTROLS,
-  ...MYLANG_CONSTANTS,
+  ...VEXA_KEYWORD_CONTROLS,
+  ...VEXA_CONSTANTS,
 ]);
-const primitiveTypes = new Set(MYLANG_PRIMITIVE_TYPES);
+const primitiveTypes = new Set(VEXA_PRIMITIVE_TYPES);
 
 interface CompiledRule {
   regex: RegExp;
@@ -167,14 +167,14 @@ function highlightWithPortableLanguage(
   return output.join("");
 }
 
-export function highlightMyLangHtml(source: string): string {
+export function highlightVexaScriptHtml(source: string): string {
   return highlightWithPortableLanguage(source, portableLanguage);
 }
 
-export function renderHighlightedCodeBlock(source: string, language = "mylang"): string {
+export function renderHighlightedCodeBlock(source: string, language = "vexa"): string {
   const normalizedLanguage = language.trim().toLowerCase();
-  const html = normalizedLanguage === "mylang"
-    ? highlightMyLangHtml(source)
+  const html = normalizedLanguage === "vexa"
+    ? highlightVexaScriptHtml(source)
     : escapeHtml(source);
   return `<pre class="syntax-block"><code class="language-${escapeHtml(normalizedLanguage)}">${html}</code></pre>`;
 }

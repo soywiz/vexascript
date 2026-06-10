@@ -9,10 +9,10 @@ export default defineConfig({
     emptyOutDir: true,
     outDir: resolve(__dirname, "src/assets/generated"),
     lib: {
-      entry: resolve(__dirname, "src/assets/mylang-embed.ts"),
-      name: "MyLangEmbeds",
+      entry: resolve(__dirname, "src/assets/vexa-embed.ts"),
+      name: "VexaScriptEmbeds",
       formats: ["iife"],
-      fileName: () => "mylang-embed.js"
+      fileName: () => "vexa-embed.js"
     },
     rollupOptions: {
       output: {

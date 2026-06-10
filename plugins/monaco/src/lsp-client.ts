@@ -1,7 +1,7 @@
 /**
  * Minimal JSON-RPC 2.0 client over a plain WebSocket.
  *
- * The MyLang LSP server speaks standard JSON-RPC framed with Content-Length
+ * The VexaScript LSP server speaks standard JSON-RPC framed with Content-Length
  * headers over stdio.  server.mjs strips those headers so that each WebSocket
  * frame carries exactly one raw JSON object.
  */

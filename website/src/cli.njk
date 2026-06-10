@@ -1,12 +1,12 @@
 ---
 layout: layout.njk
-title: MyLang CLI Guide
+title: VexaScript CLI Guide
 ---
 <section class="section">
   <div class="section-heading">
-    <p class="eyebrow">MyLang CLI</p>
+    <p class="eyebrow">VexaScript CLI</p>
     <h1>Compile, bundle, run, inspect, and format from the terminal.</h1>
-    <p class="lead">The <code>mylang</code> CLI covers build pipelines, syntax exports, language-server entrypoints, testing, and inspection tools for day-to-day compiler work.</p>
+    <p class="lead">The <code>vexa</code> CLI covers build pipelines, syntax exports, language-server entrypoints, testing, and inspection tools for day-to-day compiler work.</p>
   </div>
   <div class="cli-layout">
     <article class="card cli-overview">
@@ -14,19 +14,19 @@ title: MyLang CLI Guide
       <div class="cli-command-list">
         <div>
           <code>build &lt;input&gt;</code>
-          <p>Compile a MyLang file to JavaScript, with optional bundling and JSX factory overrides.</p>
+          <p>Compile a VexaScript file to JavaScript, with optional bundling and JSX factory overrides.</p>
         </div>
         <div>
           <code>bundle &lt;input&gt;</code>
-          <p>Bundle a MyLang entry file and all referenced modules as ESM output.</p>
+          <p>Bundle a VexaScript entry file and all referenced modules as ESM output.</p>
         </div>
         <div>
           <code>run &lt;input&gt;</code>
-          <p>Transpile and execute a MyLang file with Node.js.</p>
+          <p>Transpile and execute a VexaScript file with Node.js.</p>
         </div>
         <div>
           <code>test [paths...]</code>
-          <p>Discover and run <code>.test.my</code> files with the built-in inline helpers.</p>
+          <p>Discover and run <code>.test.vx</code> files with the built-in inline helpers.</p>
         </div>
         <div>
           <code>format &lt;input&gt;</code>
@@ -72,9 +72,9 @@ title: MyLang CLI Guide
       </div>
     </article>
   </div>
-{% highlightMyLang %}
-pnpm tsx compiler/cli.ts build src/main.my --out dist/main.js --target optimized
+{% highlightVexaScript %}
+pnpm tsx compiler/cli.ts build src/main.vx --out dist/main.js --target optimized
 pnpm tsx compiler/cli.ts syntax --monaco
 pnpm tsx compiler/cli.ts test samples/
-{% endhighlightMyLang %}
+{% endhighlightVexaScript %}
 </section>

@@ -1,4 +1,4 @@
-import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.my"
+import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.vx"
 
 export class Environment {
   private readonly values = new Map<string, number>()

@@ -11,8 +11,8 @@ test("comments and blank lines are ignored", () => {
 });
 
 test("top-level key-value string", () => {
-  const doc = parseToml('name = "mylang"');
-  assert.equal((doc[""] as Record<string, string>)["name"], "mylang");
+  const doc = parseToml('name = "vexa"');
+  assert.equal((doc[""] as Record<string, string>)["name"], "vexa");
 });
 
 test("section with string values", () => {

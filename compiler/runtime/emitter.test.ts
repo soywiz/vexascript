@@ -55,7 +55,7 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toContain('const counts = new Map([["one", 1]]);');
   });
 
-  it("emits mylang for-in as for-of const", () => {
+  it("emits vexa for-in as for-of const", () => {
     const program = parseFile(tokenizeReader("for (n in [1,2,3]) console.log(n)"));
     expect(emitProgram(program)).toContain("for (const n of [1, 2, 3]) console.log(n);");
   });
@@ -480,7 +480,7 @@ describe("emit destructured parameters", () => {
 
 describe("emit embedded XML / JSX", () => {
   function emit(src: string): string {
-    return emitProgram(parseFile(tokenizeReader(src, { jsx: true }), { language: "mylang" }));
+    return emitProgram(parseFile(tokenizeReader(src, { jsx: true }), { language: "vexa" }));
   }
 
   it("emits intrinsic elements with attributes and children via React.createElement", () => {
@@ -502,7 +502,7 @@ describe("emit embedded XML / JSX", () => {
   });
 
   it("honors a configurable jsxFactory and jsxFragmentFactory", () => {
-    const ast = parseFile(tokenizeReader("val d = <><span/></>", { jsx: true }), { language: "mylang" });
+    const ast = parseFile(tokenizeReader("val d = <><span/></>", { jsx: true }), { language: "vexa" });
     expect(emitProgram(ast, undefined, undefined, undefined, { jsxFactory: "h", jsxFragmentFactory: "Fragment" })).toBe(
       'const d = h(Fragment, null, h("span", null));'
     );

@@ -43,7 +43,7 @@ import { createInlayHints } from "./inlayHints";
 import { createDocumentSymbols } from "./symbols";
 import {
   createSemanticTokens,
-  MYLANG_SEMANTIC_TOKENS_LEGEND,
+  VEXA_SEMANTIC_TOKENS_LEGEND,
 } from "./semanticTokens";
 import {
   createDocumentHighlights,
@@ -127,7 +127,7 @@ export function startLspInWorker(): void {
       },
       documentSymbolProvider: true,
       semanticTokensProvider: {
-        legend: MYLANG_SEMANTIC_TOKENS_LEGEND,
+        legend: VEXA_SEMANTIC_TOKENS_LEGEND,
         full: true,
         range: true,
       },
@@ -399,7 +399,7 @@ export function startLspInWorker(): void {
   });
 
   connection.onDidChangeConfiguration(async () => {
-    const config = await connection.workspace.getConfiguration("mylang");
+    const config = await connection.workspace.getConfiguration("vexa");
     const newEnabled = config?.inlayHints?.enabled === true;
     if (newEnabled !== inlayHintsEnabled) {
       inlayHintsEnabled = newEnabled;

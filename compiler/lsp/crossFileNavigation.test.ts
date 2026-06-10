@@ -19,9 +19,9 @@ import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmasc
 
 describe("cross-file navigation", () => {
   it("resolves go-to-definition from imported symbol usage to original declaration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     const sourceA = "class Point\n";
     const sourceB = "import { Point } from \"./a\"\nfun demo() {\n  return new Point()\n}\n";
@@ -48,8 +48,8 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves go-to-definition for member access inside a trailing-lambda body", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const file = join(root, "other.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "other.vx");
 
     const source = dedent`
       class TimeSpan(val ms: number)
@@ -81,9 +81,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves go-to-definition from member access to class member declaration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
     const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  const point = new MyPoint()\n  point.x\n}\n";
@@ -110,8 +110,8 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves go-to-definition from operator usage to the operator declaration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const file = join(root, "point.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "point.vx");
 
     const source = dedent`
       class Point(val x: number, val y: number) {
@@ -147,9 +147,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves go-to-definition from a cross-file operator usage to the imported declaration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const other = join(root, "other.my");
-    const main = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const other = join(root, "other.vx");
+    const main = join(root, "main.vx");
 
     const otherSource = dedent`
       class Point(val x: number, val y: number)
@@ -189,9 +189,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves go-to-definition from a cross-file extension property usage to the imported declaration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const other = join(root, "other.my");
-    const main = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const other = join(root, "other.vx");
+    const main = join(root, "main.vx");
 
     const otherSource = dedent`
       class TimeSpan(val ms: number)
@@ -231,9 +231,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves go-to-definition from a cross-file extension method usage to the imported declaration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const other = join(root, "other.my");
-    const main = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const other = join(root, "other.vx");
+    const main = join(root, "main.vx");
 
     const otherSource = dedent`
       class Point(val x: number, val y: number)
@@ -273,8 +273,8 @@ describe("cross-file navigation", () => {
   });
 
   it("provides hover info for primary constructor members", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const file = join(root, "world.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "world.vx");
     const source = "class MyPoint(const x: number, const y: number) { }\n";
 
     await writeFile(file, source, "utf8");
@@ -299,9 +299,9 @@ describe("cross-file navigation", () => {
   });
 
   it("provides hover info for imported class member access", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
     const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  const point = new MyPoint()\n  point.y\n}\n";
@@ -329,9 +329,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves definition and hover for imported object type alias members", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const scenariosPath = join(root, "scenarios.my");
-    const mainPath = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const scenariosPath = join(root, "scenarios.vx");
+    const mainPath = join(root, "main.vx");
 
     const scenariosSource = dedent`
       export type Scenario = {
@@ -341,7 +341,7 @@ describe("cross-file navigation", () => {
       }
     `;
     const mainSource = dedent`
-      import { Scenario } from "./scenarios.my"
+      import { Scenario } from "./scenarios.vx"
       function lex(source: string) {}
       function summarizeScenario(scenario: Scenario): string {
         const tokens = lex(scenario.source)
@@ -391,9 +391,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves definition and hover for imported class members after an 'is' smart-cast", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-smart-cast-"));
-    const astPath = join(root, "ast.my");
-    const mainPath = join(root, "optimizer.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-smart-cast-"));
+    const astPath = join(root, "ast.vx");
+    const mainPath = join(root, "optimizer.vx");
     const astSource = dedent`
       export class NumberExpr(val value: number) {
         readonly kind = "number"
@@ -403,7 +403,7 @@ describe("cross-file navigation", () => {
       }
     `;
     const mainSource = dedent`
-      import { NumberExpr, UnaryExpr } from "./ast.my"
+      import { NumberExpr, UnaryExpr } from "./ast.vx"
       export function foldConstants(expression: NumberExpr | UnaryExpr): NumberExpr | UnaryExpr {
         if (expression is UnaryExpr) {
           expression.operator
@@ -455,8 +455,8 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves DOM type and member definitions from tsconfig lib declarations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-dom-"));
-    const file = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-dom-"));
+    const file = join(root, "main.vx");
     const source = dedent`
       fun createDocument(): Document => document
       const root: HTMLElement = createDocument().createElement("main")
@@ -499,9 +499,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves aliased imported class member definitions through the shared declaration resolver", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
     const sourceB = dedent`
@@ -534,8 +534,8 @@ describe("cross-file navigation", () => {
   });
 
   it("provides specialized hover info for generic member access", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const file = join(root, "generic.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "generic.vx");
     const source = dedent`
       class Map<K, V> {
         a: K
@@ -569,9 +569,9 @@ describe("cross-file navigation", () => {
   });
 
   it("provides hover info for inherited generic member access across files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = dedent`
       class Base<T> {
@@ -611,10 +611,10 @@ describe("cross-file navigation", () => {
   });
 
   it("finds references across importer files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
-    const fileC = join(root, "c.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
+    const fileC = join(root, "c.vx");
 
     const sourceA = "class Point\n";
     const sourceB = "import { Point } from \"./a\"\nfun first() {\n  return new Point()\n}\n";
@@ -664,9 +664,9 @@ describe("cross-file navigation", () => {
   });
 
   it("finds member references across files from usage", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
     const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  const point = new MyPoint()\n  point.x\n  point.x\n  point.y\n}\n";
@@ -721,9 +721,9 @@ describe("cross-file navigation", () => {
   });
 
   it("finds member references across files from declaration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = "class MyPoint(const x: number, const y: number) { }\n";
     const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  const point = new MyPoint()\n  point.x\n  point.x\n}\n";
@@ -764,9 +764,9 @@ describe("cross-file navigation", () => {
   });
 
   it("finds member references for instantiated generic classes across files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = dedent`
       class Map<K, V> {
@@ -834,9 +834,9 @@ describe("cross-file navigation", () => {
   });
 
   it("renames symbol across declaration and importer usages", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = "class MyPoint {}\n";
     const sourceB = "import { MyPoint } from \"./world\"\nfun demo() {\n  return new MyPoint()\n}\n";
@@ -886,8 +886,8 @@ describe("cross-file navigation", () => {
   });
 
   it("renames local function parameter symbols in the same file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const file = join(root, "local.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "local.vx");
     const source = `fun demo(arg: number) {
   return arg + arg
 }
@@ -935,8 +935,8 @@ describe("cross-file navigation", () => {
   });
 
   it("renames from the parameter declaration position even without extra files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const file = join(root, "decl.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "decl.vx");
     const source = `fun test3(a: string, b: int, arg3: int, arg4: int) {
 }
 `;
@@ -969,9 +969,9 @@ describe("cross-file navigation", () => {
   });
 
   it("finds references for imported type names used in implements clauses", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     const sourceA = "class Base\n";
     const sourceB = dedent`
@@ -1023,9 +1023,9 @@ describe("cross-file navigation", () => {
   });
 
   it("renames interface declarations across imports and implements clauses", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const fileA = join(root, "world.my");
-    const fileB = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
 
     const sourceA = dedent`
       interface Readable {
@@ -1087,8 +1087,8 @@ describe("cross-file navigation", () => {
     );
   });
   it("navigates array member definitions to the ECMAScript runtime declarations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-nav-"));
-    const file = join(root, "runtime.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "runtime.vx");
     const source = "fun demo() {\n  [1, 2].map { it * 2 }\n}\n";
 
     await writeFile(file, source, "utf8");
@@ -1110,9 +1110,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves go-to-definition on import path string to the imported file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-path-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-path-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     await writeFile(fileA, "class Foo\n", "utf8");
     await writeFile(fileB, `import { Foo } from "./a"\n`, "utf8");
@@ -1134,9 +1134,9 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves hover on import path string shows resolved file path", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-import-hover-"));
-    const fileA = join(root, "a.my");
-    const fileB = join(root, "b.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-hover-"));
+    const fileA = join(root, "a.vx");
+    const fileB = join(root, "b.vx");
 
     await writeFile(fileA, "class Foo\n", "utf8");
     await writeFile(fileB, `import { Foo } from "./a"\n`, "utf8");
@@ -1157,8 +1157,8 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves go-to-definition from a virtual-workspace import string to the imported file", async () => {
-    const mainPath = "/demo.my";
-    const pointPath = "/Point.my";
+    const mainPath = "/demo.vx";
+    const pointPath = "/Point.vx";
     const mainSource = 'import { Point } from "./Point"\n';
     const pointSource = "class Point(val x: number, val y: number)\n";
     const sessions = new Map([
@@ -1182,8 +1182,8 @@ describe("cross-file navigation", () => {
   });
 
   it("resolves imported class calls and operators in a virtual workspace", async () => {
-    const mainPath = "/demo.my";
-    const pointPath = "/Point.my";
+    const mainPath = "/demo.vx";
+    const pointPath = "/Point.vx";
     const pointSource = dedent`
       class Point(val x: number, val y: number) {
         operator+(other: Point): Point => Point(x + other.x, y + other.y)

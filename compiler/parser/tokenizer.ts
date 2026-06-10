@@ -934,7 +934,7 @@ export interface TokenizeOptions {
   /**
    * When enabled, embedded XML/JSX is recognized: a `<` in expression position
    * followed by a tag name (or `>` for a fragment) starts a JSX element instead
-   * of a less-than operator. MyLang always tokenizes with this on; TypeScript
+   * of a less-than operator. VexaScript always tokenizes with this on; TypeScript
    * mode enables it through the `jsx` parser option.
    */
   jsx?: boolean;

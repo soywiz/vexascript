@@ -2,14 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run MyLang Extension",
+      "name": "Run VexaScript Extension",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
-      "preLaunchTask": "mylang: prepare from plugin",
+      "preLaunchTask": "vexa: prepare from plugin",
       "autoAttachChildProcesses": true
     }
   ]

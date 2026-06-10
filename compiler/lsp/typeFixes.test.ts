@@ -34,14 +34,14 @@ function rangeForText(source: string, text: string) {
 describe("type quick fixes", () => {
   it("returns no actions when parsing or analysis artifacts are unavailable", async () => {
     const actionsWithoutAst = await createTypeFixCodeActions({
-      uri: "file:///tmp/main.my",
+      uri: "file:///tmp/main.vx",
       ast: null,
       analysis: createAnalysisSession("const value = 1\n").analysis,
       diagnostics: [],
       sourceRoots: ["/tmp"]
     });
     const actionsWithoutAnalysis = await createTypeFixCodeActions({
-      uri: "file:///tmp/main.my",
+      uri: "file:///tmp/main.vx",
       ast: createAnalysisSession("const value = 1\n").ast,
       analysis: null,
       diagnostics: [],
@@ -65,7 +65,7 @@ fun demo() {
     const diagnostics = collectSameFileDiagnostics(source, session);
 
     const actions = await createTypeFixCodeActions({
-      uri: "file:///tmp/main.my",
+      uri: "file:///tmp/main.vx",
       ast: session.ast,
       analysis: session.analysis,
       diagnostics,
@@ -73,7 +73,7 @@ fun demo() {
     });
 
     expect(actions.length).toBeGreaterThan(0);
-    const edit = actions[0]?.edit?.changes?.["file:///tmp/main.my"]?.[0];
+    const edit = actions[0]?.edit?.changes?.["file:///tmp/main.vx"]?.[0];
     expect(edit?.newText).toBe(": string");
     expect(edit?.range).toEqual({
       start: { line: 1, character: 3 },
@@ -90,7 +90,7 @@ takesInt("test")
     const diagnostics = collectSameFileDiagnostics(source, session);
 
     const actions = await createTypeFixCodeActions({
-      uri: "file:///tmp/main.my",
+      uri: "file:///tmp/main.vx",
       ast: session.ast,
       analysis: session.analysis,
       diagnostics,
@@ -113,7 +113,7 @@ fun demo() {
     const diagnostics = collectSameFileDiagnostics(source, session);
 
     const actions = await createTypeFixCodeActions({
-      uri: "file:///tmp/main.my",
+      uri: "file:///tmp/main.vx",
       ast: session.ast,
       analysis: session.analysis,
       diagnostics: [...diagnostics, ...diagnostics],
@@ -134,12 +134,12 @@ fun demo() {
 `;
     const computedSession = createAnalysisSession(computedSource);
     const computedActions = await createTypeFixCodeActions({
-      uri: "file:///tmp/main.my",
+      uri: "file:///tmp/main.vx",
       ast: computedSession.ast,
       analysis: computedSession.analysis,
       diagnostics: [
         {
-          source: "mylang-sema",
+          source: "vexa-sema",
           message: "Type 'string' is not assignable to type 'int'",
           range: rangeForText(computedSource, "\"test\"")
         }
@@ -157,12 +157,12 @@ fun demo() {
 `;
     const unknownSession = createAnalysisSession(unknownSource);
     const unknownActions = await createTypeFixCodeActions({
-      uri: "file:///tmp/main.my",
+      uri: "file:///tmp/main.vx",
       ast: unknownSession.ast,
       analysis: unknownSession.analysis,
       diagnostics: [
         {
-          source: "mylang-sema",
+          source: "vexa-sema",
           message: "Type 'unknown' is not assignable to type 'int'",
           range: rangeForText(unknownSource, "mystery")
         }
@@ -175,9 +175,9 @@ fun demo() {
   });
 
   it("changes member type in imported class from assignment mismatch", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-type-fix-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-type-fix-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = `class Point(val y: int)
 `;
@@ -208,7 +208,7 @@ fun demo() {
       diagnostics,
       sourceRoots: [root],
       getSessionForFilePath: () => null,
-      commandName: "mylang.refreshDiagnostics"
+      commandName: "vexa.refreshDiagnostics"
     });
 
     expect(actions.length).toBeGreaterThan(0);
@@ -216,13 +216,13 @@ fun demo() {
     const editText = actions[0]?.edit?.changes?.[worldUri]?.[0]?.newText;
     expect(editText).toBe("string");
     expect(actions[0]?.title).toBe("Change type of 'Point.y: int' to 'string'");
-    expect(actions[0]?.command?.command).toBe("mylang.refreshDiagnostics");
+    expect(actions[0]?.command?.command).toBe("vexa.refreshDiagnostics");
   });
 
   it("changes inherited generic member declaration type using specialized mismatch", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-type-fix-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-type-fix-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = `class Base<T> {
   value: T

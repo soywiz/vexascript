@@ -17,29 +17,29 @@ type VscodeExtPackage = {
 };
 
 describe("VS Code extension syntax highlighting", () => {
-  it("registers MyLang language configuration and grammar", async () => {
+  it("registers VexaScript language configuration and grammar", async () => {
     const extRoot = resolve(process.cwd(), "plugins", "vscode");
     const packageJsonPath = resolve(extRoot, "package.json");
     const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as VscodeExtPackage;
 
-    const language = pkg.contributes?.languages?.find((item) => item.id === "mylang");
+    const language = pkg.contributes?.languages?.find((item) => item.id === "vexa");
     expect(language).toBeDefined();
     expect(language?.configuration).toBe("./language-configuration.json");
-    expect(language?.icon?.light).toBe("./icons/mylang-file.svg");
-    expect(language?.icon?.dark).toBe("./icons/mylang-file.svg");
+    expect(language?.icon?.light).toBe("./icons/vexa-file.svg");
+    expect(language?.icon?.dark).toBe("./icons/vexa-file.svg");
     expect(pkg.contributes?.iconThemes).toBeUndefined();
     expect(await fileExists(resolve(extRoot, "language-configuration.json"))).toBe(true);
-    expect(await fileExists(resolve(extRoot, "icons", "mylang-file.svg"))).toBe(true);
+    expect(await fileExists(resolve(extRoot, "icons", "vexa-file.svg"))).toBe(true);
 
-    const grammar = pkg.contributes?.grammars?.find((item) => item.language === "mylang");
+    const grammar = pkg.contributes?.grammars?.find((item) => item.language === "vexa");
     expect(grammar).toBeDefined();
-    expect(grammar?.scopeName).toBe("source.mylang");
-    expect(grammar?.path).toBe("./syntaxes/mylang.tmLanguage.json");
-    expect(await fileExists(resolve(extRoot, "syntaxes", "mylang.tmLanguage.json"))).toBe(true);
+    expect(grammar?.scopeName).toBe("source.vexa");
+    expect(grammar?.path).toBe("./syntaxes/vexa.tmLanguage.json");
+    expect(await fileExists(resolve(extRoot, "syntaxes", "vexa.tmLanguage.json"))).toBe(true);
   });
 
   it("includes core keyword/string/operator patterns in grammar", async () => {
-    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
+    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/vexa.tmLanguage.json");
     const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {
       repository?: Record<string, { patterns?: Array<{ match?: string }> }>;
     };
@@ -96,19 +96,19 @@ describe("VS Code extension syntax highlighting", () => {
   });
 
   it("includes triple-slash documentation comment highlighting", async () => {
-    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
+    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/vexa.tmLanguage.json");
     const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {
       repository?: Record<string, { patterns?: Array<{ name?: string; begin?: string }> }>;
     };
 
     const commentPatterns = grammar.repository?.["comments"]?.patterns ?? [];
     expect(commentPatterns.some((pattern) =>
-      pattern.name === "comment.line.documentation.mylang" && pattern.begin === "///"
+      pattern.name === "comment.line.documentation.vexa" && pattern.begin === "///"
     )).toBe(true);
   });
 
   it("includes embedded XML/JSX highlighting patterns", async () => {
-    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
+    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/vexa.tmLanguage.json");
     const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {
       patterns?: Array<{ include?: string }>;
       repository?: Record<string, unknown>;
@@ -131,12 +131,12 @@ describe("VS Code extension syntax highlighting", () => {
 
     const serialized = JSON.stringify(grammar.repository);
     // Tag names and attribute names get dedicated scopes.
-    expect(serialized).toContain("entity.name.tag.mylang");
-    expect(serialized).toContain("entity.other.attribute-name.mylang");
+    expect(serialized).toContain("entity.name.tag.vexa");
+    expect(serialized).toContain("entity.other.attribute-name.vexa");
   });
 
   it("includes richer declaration, type, property, call, and template-string scopes", async () => {
-    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/mylang.tmLanguage.json");
+    const grammarPath = resolve(import.meta.dirname, "../plugins/vscode/syntaxes/vexa.tmLanguage.json");
     const grammar = JSON.parse(await readFile(grammarPath, "utf8")) as {
       patterns?: Array<{ include?: string }>;
       repository?: Record<string, { patterns?: Array<{ name?: string; match?: string; include?: string }> }>;
@@ -151,14 +151,14 @@ describe("VS Code extension syntax highlighting", () => {
     const repository = grammar.repository ?? {};
     expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(function|fun)"))).toBe(true);
     expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(class|interface|enum|type)"))).toBe(true);
-    expect(repository["types"]?.patterns?.some((pattern) => pattern.name === "entity.name.type.mylang")).toBe(true);
-    expect(repository["members"]?.patterns?.some((pattern) => pattern.name === "variable.other.property.mylang")).toBe(true);
-    expect(repository["calls"]?.patterns?.some((pattern) => pattern.name === "entity.name.function.call.mylang")).toBe(true);
+    expect(repository["types"]?.patterns?.some((pattern) => pattern.name === "entity.name.type.vexa")).toBe(true);
+    expect(repository["members"]?.patterns?.some((pattern) => pattern.name === "variable.other.property.vexa")).toBe(true);
+    expect(repository["calls"]?.patterns?.some((pattern) => pattern.name === "entity.name.function.call.vexa")).toBe(true);
     expect(repository["template-interpolation"]).toBeDefined();
 
     const serialized = JSON.stringify(repository);
-    expect(serialized).toContain("string.quoted.template.mylang");
-    expect(serialized).toContain("meta.template.expression.mylang");
-    expect(serialized).toContain("support.type.primitive.mylang");
+    expect(serialized).toContain("string.quoted.template.vexa");
+    expect(serialized).toContain("meta.template.expression.vexa");
+    expect(serialized).toContain("support.type.primitive.vexa");
   });
 });

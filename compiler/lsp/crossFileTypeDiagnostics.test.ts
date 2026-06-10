@@ -10,9 +10,9 @@ import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 
 describe("cross-file type diagnostics", () => {
   it("reports argument count and type errors for imported class methods", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = dedent`
       class Logger {
@@ -55,9 +55,9 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("reports missing constructor arguments for imported classes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     await writeFile(worldFile, "class Point(val x: number, val y: number)\n", "utf8");
     await writeFile(
@@ -91,9 +91,9 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("anchors member-call arity diagnostics on the member name", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = "class Logger {\n  log(value: number): int { return 0 }\n}\n";
     const helloSource = dedent`
@@ -133,7 +133,7 @@ describe("cross-file type diagnostics", () => {
 
     const session = createAnalysisSession(source);
     const diagnostics = await collectCrossFileTypeDiagnostics({
-      uri: "file:///demo.my",
+      uri: "file:///demo.vx",
       session,
       sourceRoots: []
     });
@@ -144,9 +144,9 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("reports non-callable member usage", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = "class Logger(val level: number)\n";
     const helloSource = dedent`
@@ -172,9 +172,9 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("supports variadic imported class methods", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = "class Logger {\n  log(...values: number[]): int { return 0 }\n}\n";
     const helloSource = dedent`
@@ -205,9 +205,9 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("reports cross-file incompatible assignment to class member", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = "class Point(val y: int)\n";
     const helloSource = dedent`
@@ -234,9 +234,9 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("specializes generic method arguments and return diagnostics across files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = dedent`
       class Map<K, V> {
@@ -272,9 +272,9 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("specializes inherited generic method arguments across files", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = dedent`
       class Base<T> {
@@ -311,9 +311,9 @@ describe("cross-file type diagnostics", () => {
   });
 
   it("reports cross-file call errors nested in arrow-function expressions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-cross-types-"));
-    const worldFile = join(root, "world.my");
-    const helloFile = join(root, "hello.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
 
     const worldSource = "class Logger { log(value: number): int { return 0 } }\n";
     const helloSource = dedent`

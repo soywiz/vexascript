@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { sourceWithCursor } from "./test/sourceWithCursor";
-import { MylangMcpCodebaseServer } from "./mcpServer";
+import { VexaMcpCodebaseServer } from "./mcpServer";
 import dedent from "compiler/utils/dedent";
 
 function textPayload(result: { content: Array<{ type: "text"; text: string }> }): unknown {
@@ -12,8 +12,8 @@ function textPayload(result: { content: Array<{ type: "text"; text: string }> })
 }
 
 describe("MCP codebase navigation server", () => {
-  it("advertises MyLang navigation tools through JSON-RPC", async () => {
-    const server = new MylangMcpCodebaseServer();
+  it("advertises VexaScript navigation tools through JSON-RPC", async () => {
+    const server = new VexaMcpCodebaseServer();
 
     const response = await server.handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" });
 
@@ -22,21 +22,21 @@ describe("MCP codebase navigation server", () => {
       id: 1,
       result: {
         tools: [
-          { name: "mylang_workspace_symbols" },
-          { name: "mylang_document_symbols" },
-          { name: "mylang_hover" },
-          { name: "mylang_definition" },
-          { name: "mylang_references" },
-          { name: "mylang_signature_help" },
-          { name: "mylang_rename" }
+          { name: "vexa_workspace_symbols" },
+          { name: "vexa_document_symbols" },
+          { name: "vexa_hover" },
+          { name: "vexa_definition" },
+          { name: "vexa_references" },
+          { name: "vexa_signature_help" },
+          { name: "vexa_rename" }
         ]
       }
     });
   });
 
   it("explores symbols and signatures in a workspace", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-mcp-"));
-    const main = join(dir, "main.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-mcp-"));
+    const main = join(dir, "main.vx");
     const { source, line, character } = sourceWithCursor(dedent`
       fun add(left: int, right: int): int {
         return left + right
@@ -46,10 +46,10 @@ describe("MCP codebase navigation server", () => {
       }
     `);
     await writeFile(main, source, "utf8");
-    const server = new MylangMcpCodebaseServer(dir);
+    const server = new VexaMcpCodebaseServer(dir);
 
-    const symbols = textPayload(await server.callTool("mylang_workspace_symbols", { root: dir, query: "add" })) as Array<{ name: string }>;
-    const signature = textPayload(await server.callTool("mylang_signature_help", {
+    const symbols = textPayload(await server.callTool("vexa_workspace_symbols", { root: dir, query: "add" })) as Array<{ name: string }>;
+    const signature = textPayload(await server.callTool("vexa_signature_help", {
       file: main,
       line,
       character,
@@ -62,8 +62,8 @@ describe("MCP codebase navigation server", () => {
   });
 
   it("returns and applies rename edits", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-mcp-rename-"));
-    const main = join(dir, "main.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-mcp-rename-"));
+    const main = join(dir, "main.vx");
     const { source, line, character } = sourceWithCursor(dedent`
       fun greet(name: string): string {
         return name
@@ -71,9 +71,9 @@ describe("MCP codebase navigation server", () => {
       let message = gr^^^eet("Ada")
     `);
     await writeFile(main, source, "utf8");
-    const server = new MylangMcpCodebaseServer(dir);
+    const server = new VexaMcpCodebaseServer(dir);
 
-    const dryRun = textPayload(await server.callTool("mylang_rename", {
+    const dryRun = textPayload(await server.callTool("vexa_rename", {
       file: main,
       line,
       character,
@@ -81,7 +81,7 @@ describe("MCP codebase navigation server", () => {
     })) as { edit: { changes: Record<string, unknown[]> } };
     expect(Object.values(dryRun.edit.changes).flat()).toHaveLength(2);
 
-    const applied = textPayload(await server.callTool("mylang_rename", {
+    const applied = textPayload(await server.callTool("vexa_rename", {
       file: main,
       line,
       character,

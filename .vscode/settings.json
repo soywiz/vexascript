@@ -1,6 +1,22 @@
 {
   "files.associations": {
-    "*.my": "mylang"
+    "*.vx": "vexa"
   },
+  "search.exclude": {
+    "website/src/assets/generated": true,
+    "website/src/generated": true,
+    "website/_site": true,
+  },
+  "files.exclude": {
+    "website/src/assets/generated": true,
+    "website/src/generated": true,
+    "website/_site": true,
+  },
+  "files.watcherExclude": {
+    "website/src/assets/generated": true,
+    "website/src/generated": true,
+    "website/_site": true,
+  },
+  "search.useIgnoreFiles": true,
   "typescript.tsserver.maxTsServerMemory": 4096
 }

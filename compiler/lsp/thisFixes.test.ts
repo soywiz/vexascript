@@ -19,14 +19,14 @@ describe("this quick fixes", () => {
 
     const session = createAnalysisSession(source);
     const actions = createThisCodeActions({
-      uri: "file:///demo.my",
+      uri: "file:///demo.vx",
       ast: session.ast,
       analysis: session.analysis,
       position: { line, character }
     });
 
     expect(actions.map((action) => action.title)).toContain("Add 'this.' to 'value'");
-    const edit = actions.find((action) => action.title === "Add 'this.' to 'value'")?.edit?.changes?.["file:///demo.my"]?.[0];
+    const edit = actions.find((action) => action.title === "Add 'this.' to 'value'")?.edit?.changes?.["file:///demo.vx"]?.[0];
     expect(edit?.newText).toBe("this.");
   });
 
@@ -43,14 +43,14 @@ describe("this quick fixes", () => {
 
     const session = createAnalysisSession(source);
     const actions = createThisCodeActions({
-      uri: "file:///demo.my",
+      uri: "file:///demo.vx",
       ast: session.ast,
       analysis: session.analysis,
       position: { line, character }
     });
 
     expect(actions.map((action) => action.title)).toContain("Remove 'this.' from 'value'");
-    const edit = actions.find((action) => action.title === "Remove 'this.' from 'value'")?.edit?.changes?.["file:///demo.my"]?.[0];
+    const edit = actions.find((action) => action.title === "Remove 'this.' from 'value'")?.edit?.changes?.["file:///demo.vx"]?.[0];
     expect(edit?.newText).toBe("");
   });
 
@@ -68,7 +68,7 @@ describe("this quick fixes", () => {
 
     const session = createAnalysisSession(source);
     const actions = createThisCodeActions({
-      uri: "file:///demo.my",
+      uri: "file:///demo.vx",
       ast: session.ast,
       analysis: session.analysis,
       position: { line, character }

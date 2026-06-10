@@ -12,14 +12,14 @@ describe("CLI", () => {
   });
 
   it("build command writes transpiled output", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "input.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "input.vx");
     const output = join(dir, "output.js");
     await writeFile(input, "let value = 1 + 2", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "build", input, "--out", output]);
+    await runCli(["node", "vexa", "build", input, "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain("let value = 1 + 2;");
@@ -31,18 +31,18 @@ describe("CLI", () => {
     };
     expect(sourceMap.version).toBe(3);
     expect(sourceMap.file).toBe("output.js");
-    expect(sourceMap.sources).toEqual(["input.my"]);
+    expect(sourceMap.sources).toEqual(["input.vx"]);
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Compiled:");
   });
 
   it("build command supports conservative target mode", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "input-target.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "input-target.vx");
     const output = join(dir, "output-target.js");
     await writeFile(input, "for (a of 0 ..< 3) console.log(a)", "utf8");
 
-    await runCli(["node", "mylang", "build", input, "--out", output, "--target", "conservative"]);
+    await runCli(["node", "vexa", "build", input, "--out", output, "--target", "conservative"]);
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain(
@@ -51,23 +51,23 @@ describe("CLI", () => {
   });
 
   it("build command uses JSX factories from tsconfig.json", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "input-jsx.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "input-jsx.vx");
     const output = join(dir, "output-jsx.js");
     await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsxFactory: "h", jsxFragmentFactory: "Fragment" } }), "utf8");
     await writeFile(input, "const view = <><span>hi</span></>", "utf8");
 
-    await runCli(["node", "mylang", "build", input, "--out", output]);
+    await runCli(["node", "vexa", "build", input, "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain('h(Fragment, null, h("span", null, "hi"))');
   });
 
-  it("build command creates an ESM bundle with MyLang, TypeScript, JavaScript, and package imports", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-bundle-"));
-    const input = join(dir, "main.my");
+  it("build command creates an ESM bundle with VexaScript, TypeScript, JavaScript, and package imports", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-"));
+    const input = join(dir, "main.vx");
     const output = join(dir, "bundle.mjs");
-    await writeFile(join(dir, "math.my"), "export fun double(value: number) => value * 2\n", "utf8");
+    await writeFile(join(dir, "math.vx"), "export fun double(value: number) => value * 2\n", "utf8");
     await writeFile(join(dir, "message.ts"), "import { suffix } from './suffix.js'; export const label: string = `answer${suffix}`;\n", "utf8");
     await writeFile(join(dir, "suffix.js"), "export const suffix = '-from-js';\n", "utf8");
     await mkdir(join(dir, "node_modules", "tiny-lib"), { recursive: true });
@@ -82,7 +82,7 @@ describe("CLI", () => {
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "build", input, "--bundle", "--out", output]);
+    await runCli(["node", "vexa", "build", input, "--bundle", "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).toContain("-from-js");
@@ -97,10 +97,10 @@ describe("CLI", () => {
   });
 
   it("bundle command is a direct alias for build --bundle", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-bundle-command-"));
-    const input = join(dir, "main.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-command-"));
+    const input = join(dir, "main.vx");
     const output = join(dir, "direct-bundle.mjs");
-    await writeFile(join(dir, "math.my"), "export fun triple(value: number) => value * 3\n", "utf8");
+    await writeFile(join(dir, "math.vx"), "export fun triple(value: number) => value * 3\n", "utf8");
     await writeFile(input, [
       'import { triple } from "./math"',
       'export const bundled = triple(14)'
@@ -108,7 +108,7 @@ describe("CLI", () => {
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "bundle", input, "--out", output]);
+    await runCli(["node", "vexa", "bundle", input, "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
     expect(outputCode).not.toContain('from "./math"');
@@ -118,29 +118,29 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
   });
 
-  it("run command executes testFixtures/sample.my", async () => {
+  it("run command executes testFixtures/sample.vx", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "run", "testFixtures/sample.my"]);
+    await runCli(["node", "vexa", "run", "testFixtures/sample.vx"]);
 
     expect(logSpy.mock.calls).toEqual([[42], [1], [2], [3], ['[a]'], ['[b]', { x: 4, y: 6 }]]);
   });
 
   it("run command supports conservative target mode", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "run-target.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "run-target.vx");
     await writeFile(input, "for (a of 0 ..< 3) console.log(a)", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "run", input, "--target", "conservative"]);
+    await runCli(["node", "vexa", "run", input, "--target", "conservative"]);
 
     expect(logSpy.mock.calls).toEqual([[0], [1], [2]]);
   });
 
   it("run command uses JSX factories from tsconfig.json", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "run-jsx.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "run-jsx.vx");
     await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsxFactory: "h", jsxFragmentFactory: "Fragment" } }), "utf8");
     await writeFile(input, [
       'const Fragment = "fragment"',
@@ -153,7 +153,7 @@ describe("CLI", () => {
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "run", input]);
+    await runCli(["node", "vexa", "run", input]);
 
     expect(logSpy.mock.calls[0]?.[0]).toEqual({
       type: "fragment",
@@ -163,32 +163,32 @@ describe("CLI", () => {
   });
 
   it("build command reports compilation errors to stderr and fails", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "broken.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "broken.vx");
     await writeFile(input, "let = 1", "utf8");
 
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(runCli(["node", "mylang", "build", input])).rejects.toThrow("Compilation failed");
+    await expect(runCli(["node", "vexa", "build", input])).rejects.toThrow("Compilation failed");
     expect(errorSpy).toHaveBeenCalled();
     expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain(" - ");
   });
 
   it("run command reports compilation errors to stderr and fails", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "broken-run.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "broken-run.vx");
     await writeFile(input, "let = 1", "utf8");
 
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(runCli(["node", "mylang", "run", input])).rejects.toThrow("Compilation failed");
+    await expect(runCli(["node", "vexa", "run", input])).rejects.toThrow("Compilation failed");
     expect(errorSpy).toHaveBeenCalled();
     expect(String(errorSpy.mock.calls[0]?.[0] ?? "")).toContain("error");
   });
 
   it("run command includes semantic diagnostic codes in stderr output", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "broken-nullable.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "broken-nullable.vx");
     await writeFile(input, [
       "interface MaybeRunner {",
       "  run(): MaybeRunner",
@@ -199,7 +199,7 @@ describe("CLI", () => {
 
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(runCli(["node", "mylang", "run", input])).rejects.toThrow("Compilation failed");
+    await expect(runCli(["node", "vexa", "run", input])).rejects.toThrow("Compilation failed");
     const rendered = errorSpy.mock.calls.map((call) => String(call[0] ?? "")).join("\n");
 
     expect(rendered).toContain("MYL2019");
@@ -207,13 +207,13 @@ describe("CLI", () => {
   });
 
   it("tokens command prints token list as JSON", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "tokens.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "tokens.vx");
     await writeFile(input, "a += 1", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "tokens", input]);
+    await runCli(["node", "vexa", "tokens", input]);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
     const tokens = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "[]")) as Array<{ type: string; value: string }>;
@@ -226,13 +226,13 @@ describe("CLI", () => {
   });
 
   it("ast command prints parsed AST as JSON", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "ast.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "ast.vx");
     await writeFile(input, "let myvar = 1 + 2;", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "ast", input]);
+    await runCli(["node", "vexa", "ast", input]);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}"))).toEqual({
@@ -256,53 +256,53 @@ describe("CLI", () => {
   it("syntax command prints Monaco bundle source by default", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "syntax"]);
+    await runCli(["node", "vexa", "syntax"]);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
     const output = String(logSpy.mock.calls[0]?.[0] ?? "");
-    expect(output).toContain("export const mylangMonacoSyntax =");
+    expect(output).toContain("export const vexaMonacoSyntax =");
     expect(output).toContain("\"defaultToken\"");
   });
 
   it("syntax command prints VS Code grammar JSON", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "syntax", "--vscode-grammar"]);
+    await runCli(["node", "vexa", "syntax", "--vscode-grammar"]);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
     const output = JSON.parse(String(logSpy.mock.calls[0]?.[0] ?? "{}")) as {
       scopeName?: string;
       repository?: Record<string, unknown>;
     };
-    expect(output.scopeName).toBe("source.mylang");
+    expect(output.scopeName).toBe("source.vexa");
     expect(output.repository).toBeDefined();
   });
 
   it("syntax command prints CodeMirror legacy mode source", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "syntax", "--codemirror"]);
+    await runCli(["node", "vexa", "syntax", "--codemirror"]);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
     const output = String(logSpy.mock.calls[0]?.[0] ?? "");
-    expect(output).toContain("export const mylangMode =");
+    expect(output).toContain("export const vexaMode =");
     expect(output).toContain("blockCommentStart");
   });
 
   it("syntax command rejects multiple targets", async () => {
-    await expect(runCli(["node", "mylang", "syntax", "--monaco", "--vscode"])).rejects.toThrow(
+    await expect(runCli(["node", "vexa", "syntax", "--monaco", "--vscode"])).rejects.toThrow(
       "Syntax output expects exactly one target"
     );
   });
 
   it("format command overwrites input file with formatted source", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "format.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "format.vx");
     await writeFile(input, "let a=1\na+=2", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "format", input]);
+    await runCli(["node", "vexa", "format", input]);
 
     expect(await readFile(input, "utf8")).toBe("let a = 1\na += 2\n");
     expect(logSpy).toHaveBeenCalledTimes(1);
@@ -310,27 +310,27 @@ describe("CLI", () => {
   });
 
   it("format command writes formatted source with --write", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-"));
-    const input = join(dir, "format-write.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
+    const input = join(dir, "format-write.vx");
     await writeFile(input, "let a=1\na+=2", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "format", input, "--write"]);
+    await runCli(["node", "vexa", "format", input, "--write"]);
 
     expect(await readFile(input, "utf8")).toBe("let a = 1\na += 2\n");
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Formatted:");
   });
 
-  it("test command discovers and executes .test.my files with test and assert helpers", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-tests-"));
-    const testFile = join(dir, "math.test.my");
+  it("test command discovers and executes .test.vx files with test and assert helpers", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-tests-"));
+    const testFile = join(dir, "math.test.vx");
     await writeFile(testFile, "test(() => { assert(1 + 1 == 2) })", "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runCli(["node", "mylang", "test", dir]);
+    await runCli(["node", "vexa", "test", dir]);
 
     expect(logSpy.mock.calls.map((call) => String(call[0]))).toEqual([
       `Passed: ${testFile}`,
@@ -339,50 +339,50 @@ describe("CLI", () => {
   });
 
   it("test command fails when an inline assertion fails", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mylang-cli-tests-"));
-    const testFile = join(dir, "failure.test.my");
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-tests-"));
+    const testFile = join(dir, "failure.test.vx");
     await writeFile(testFile, 'test(() => { assert(false, "expected true") })', "utf8");
 
-    await expect(runCli(["node", "mylang", "test", testFile])).rejects.toThrow("expected true");
+    await expect(runCli(["node", "vexa", "test", testFile])).rejects.toThrow("expected true");
   });
 
   it("adds --stdio when starting language server without transport arg", () => {
-    expect(ensureLspTransportArg(["node", "mylang", "--lsp"])).toEqual([
+    expect(ensureLspTransportArg(["node", "vexa", "--lsp"])).toEqual([
       "node",
-      "mylang",
+      "vexa",
       "--lsp",
       "--stdio"
     ]);
-    expect(ensureLspTransportArg(["node", "mylang", "lsp"])).toEqual([
+    expect(ensureLspTransportArg(["node", "vexa", "lsp"])).toEqual([
       "node",
-      "mylang",
+      "vexa",
       "lsp",
       "--stdio"
     ]);
   });
 
   it("keeps existing language server transport arg", () => {
-    expect(ensureLspTransportArg(["node", "mylang", "--lsp", "--stdio"])).toEqual([
+    expect(ensureLspTransportArg(["node", "vexa", "--lsp", "--stdio"])).toEqual([
       "node",
-      "mylang",
+      "vexa",
       "--lsp",
       "--stdio"
     ]);
-    expect(ensureLspTransportArg(["node", "mylang", "--lsp", "--node-ipc"])).toEqual([
+    expect(ensureLspTransportArg(["node", "vexa", "--lsp", "--node-ipc"])).toEqual([
       "node",
-      "mylang",
+      "vexa",
       "--lsp",
       "--node-ipc"
     ]);
-    expect(ensureLspTransportArg(["node", "mylang", "--lsp", "--socket=6010"])).toEqual([
+    expect(ensureLspTransportArg(["node", "vexa", "--lsp", "--socket=6010"])).toEqual([
       "node",
-      "mylang",
+      "vexa",
       "--lsp",
       "--socket=6010"
     ]);
-    expect(ensureLspTransportArg(["node", "mylang", "lsp", "--stdio"])).toEqual([
+    expect(ensureLspTransportArg(["node", "vexa", "lsp", "--stdio"])).toEqual([
       "node",
-      "mylang",
+      "vexa",
       "lsp",
       "--stdio"
     ]);

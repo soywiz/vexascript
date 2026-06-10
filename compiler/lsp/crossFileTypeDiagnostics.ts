@@ -11,7 +11,7 @@ import { walkAst } from "compiler/ast/traversal";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
 import type { AnalysisSession } from "./analysisSession";
-import { MYLANG_DIAGNOSTIC_CODES, type MyLangDiagnosticCode } from "./diagnosticCodes";
+import { VEXA_DIAGNOSTIC_CODES, type VexaScriptDiagnosticCode } from "./diagnosticCodes";
 import {
   createClassResolverCache,
   resolveConstructorSignature,
@@ -32,7 +32,7 @@ export interface CollectCrossFileTypeDiagnosticsParams {
 function diagnosticForNode(
   node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } },
   message: string,
-  code: MyLangDiagnosticCode
+  code: VexaScriptDiagnosticCode
 ): Diagnostic | null {
   if (!node.firstToken || !node.lastToken) {
     return null;
@@ -51,7 +51,7 @@ function diagnosticForNode(
       }
     },
     message,
-    source: "mylang-sema"
+    source: "vexa-sema"
   };
 }
 
@@ -144,7 +144,7 @@ export async function collectCrossFileTypeDiagnostics(
           diagnosticForNode(
             constructorDiagnosticNode(call),
             `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
-            MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
+            VEXA_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
           )
         );
       } else if (providedCount > totalCount) {
@@ -152,7 +152,7 @@ export async function collectCrossFileTypeDiagnostics(
           diagnosticForNode(
             constructorDiagnosticNode(call),
             `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
-            MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
+            VEXA_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
           )
         );
         for (let index = totalCount; index < providedCount; index += 1) {
@@ -160,7 +160,7 @@ export async function collectCrossFileTypeDiagnostics(
             diagnosticForNode(
               call.arguments[index] ?? constructorDiagnosticNode(call),
               `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
-              MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
+              VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
             )
           );
         }
@@ -205,7 +205,7 @@ export async function collectCrossFileTypeDiagnostics(
         diagnosticForNode(
           callee.property,
           `Property '${memberName}' of type '${objectTypeName}' is not callable`,
-          MYLANG_DIAGNOSTIC_CODES.TYPE_MISMATCH
+          VEXA_DIAGNOSTIC_CODES.TYPE_MISMATCH
         )
       );
       continue;
@@ -224,7 +224,7 @@ export async function collectCrossFileTypeDiagnostics(
         diagnosticForNode(
           callDiagnosticNode(call),
           `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
-          MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
+          VEXA_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
         )
       );
     } else if (!restParameter && providedCount > totalCount) {
@@ -232,7 +232,7 @@ export async function collectCrossFileTypeDiagnostics(
         diagnosticForNode(
           callDiagnosticNode(call),
           `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
-          MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
+          VEXA_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
         )
       );
       for (let index = totalCount; index < providedCount; index += 1) {
@@ -240,7 +240,7 @@ export async function collectCrossFileTypeDiagnostics(
           diagnosticForNode(
             call.arguments[index] ?? call,
             `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
-            MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
+            VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
           )
         );
       }
@@ -264,7 +264,7 @@ export async function collectCrossFileTypeDiagnostics(
         diagnosticForNode(
           argument,
           `Argument ${index + 1} of type '${argumentTypeName}' is not assignable to parameter '${parameter.name}' of type '${parameter.typeName}'`,
-          MYLANG_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH
+          VEXA_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH
         )
       );
     }
@@ -290,7 +290,7 @@ export async function collectCrossFileTypeDiagnostics(
         diagnosticForNode(
           constructorDiagnosticNode(node),
           `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
-          MYLANG_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
+          VEXA_DIAGNOSTIC_CODES.CALL_TOO_FEW_ARGUMENTS
         )
       );
     } else if (providedCount > totalCount) {
@@ -298,7 +298,7 @@ export async function collectCrossFileTypeDiagnostics(
         diagnosticForNode(
           constructorDiagnosticNode(node),
           `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
-          MYLANG_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
+          VEXA_DIAGNOSTIC_CODES.CALL_TOO_MANY_ARGUMENTS
         )
       );
       for (let index = totalCount; index < providedCount; index += 1) {
@@ -306,7 +306,7 @@ export async function collectCrossFileTypeDiagnostics(
           diagnosticForNode(
             node.arguments?.[index] ?? constructorDiagnosticNode(node),
             `Unexpected argument ${index + 1}; function expects at most ${totalCount} argument(s)`,
-            MYLANG_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
+            VEXA_DIAGNOSTIC_CODES.CALL_UNEXPECTED_ARGUMENT
           )
         );
       }
@@ -364,7 +364,7 @@ export async function collectCrossFileTypeDiagnostics(
       diagnosticForNode(
         assignment.right,
         `Type '${rightTypeName}' is not assignable to type '${leftTypeName}'`,
-        MYLANG_DIAGNOSTIC_CODES.TYPE_MISMATCH
+        VEXA_DIAGNOSTIC_CODES.TYPE_MISMATCH
       )
     );
   }

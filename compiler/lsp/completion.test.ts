@@ -222,7 +222,7 @@ describe("createCompletionItemsForPosition", () => {
       undefined,
       [
         {
-          symbol: { name: "Point", filePath: "/tmp/a.my", kind: "class" },
+          symbol: { name: "Point", filePath: "/tmp/a.vx", kind: "class" },
           importPath: "./a",
           range: {
             start: { line: 0, character: 0 },
@@ -251,10 +251,10 @@ describe("createCompletionItemsForPosition", () => {
       [],
       {
         text: source,
-        uri: "file:///consumer.my",
+        uri: "file:///consumer.vx",
         sourceRoots: [],
         getExportedSymbols: async () => [
-          { name: "Point", filePath: "/models/point.my", kind: "class" },
+          { name: "Point", filePath: "/models/point.vx", kind: "class" },
         ],
       }
     );
@@ -288,8 +288,8 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers DOM interface members for variables typed from tsconfig lib declarations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-"));
-    const file = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-"));
+    const file = join(root, "main.vx");
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
     const { source, line, character } = sourceWithCursor(dedent`
       fun createDocument(): Document => document
@@ -340,9 +340,9 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers imported extension members from TypeScript-extension modules", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-imported-ts-extension-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-imported-ts-extension-"));
     const durationFile = join(root, "duration.ts");
-    const consumerFile = join(root, "consumer.my");
+    const consumerFile = join(root, "consumer.vx");
     const durationSource = dedent`
       class TimeSpan(val ms: number)
       export val number.seconds => TimeSpan(this * 1000)
@@ -370,9 +370,9 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers auto-imported extension members for numeric literal member access", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-"));
-    const durationFile = join(root, "duration.my");
-    const consumerFile = join(root, "consumer.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-"));
+    const durationFile = join(root, "duration.vx");
+    const consumerFile = join(root, "consumer.vx");
     await writeFile(
       durationFile, dedent`
       class TimeSpan(val ms: number)
@@ -612,8 +612,8 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers members after accessing a nullable inherited DOM member", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-child-"));
-    const file = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-child-"));
+    const file = join(root, "main.vx");
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
     const { source, line, character } = sourceWithCursor(dedent`
       const root: HTMLElement = document.createElement("main")
@@ -633,8 +633,8 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers members after a DOM querySelector call receiver", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-query-selector-"));
-    const file = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-query-selector-"));
+    const file = join(root, "main.vx");
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
     const { source, line, character } = sourceWithCursor(dedent`
       const root: HTMLElement = document.createElement("main")
@@ -656,8 +656,8 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers members after an optional DOM querySelector call receiver", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-optional-query-selector-"));
-    const file = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-optional-query-selector-"));
+    const file = join(root, "main.vx");
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
     const { source, line, character } = sourceWithCursor(dedent`
       const root: HTMLElement = document.createElement("main")
@@ -679,8 +679,8 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers members after a non-null-asserted DOM querySelector call receiver", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-non-null-query-selector-"));
-    const file = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-non-null-query-selector-"));
+    const file = join(root, "main.vx");
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
     const { source, line, character } = sourceWithCursor(dedent`
       const root: HTMLElement = document.createElement("main")
@@ -702,8 +702,8 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers members after accessing a member on a non-null-asserted DOM querySelector result", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-dom-non-null-query-selector-child-"));
-    const file = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-non-null-query-selector-child-"));
+    const file = join(root, "main.vx");
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
     const { source, line, character } = sourceWithCursor(dedent`
       const root: HTMLElement = document.createElement("main")
@@ -993,7 +993,7 @@ describe("createCompletionItemsForPosition", () => {
       }
       export = pkg;
     `;
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-nm-"));
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-nm-"));
     const pkgDir = join(root, "node_modules", "pkg");
     await mkdir(pkgDir, { recursive: true });
     await writeFile(join(pkgDir, "index.d.ts"), MINI_DTS, "utf8");
@@ -1003,7 +1003,7 @@ describe("createCompletionItemsForPosition", () => {
       "utf8"
     );
 
-    const mainPath = join(root, "main.my");
+    const mainPath = join(root, "main.vx");
     const { source, line, character } = sourceWithCursor(dedent`
       import pkg from "pkg"
       pkg.^^^
@@ -1026,9 +1026,9 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers members from imported object type aliases", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-type-alias-"));
-    const scenariosPath = join(root, "scenarios.my");
-    const mainPath = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-type-alias-"));
+    const scenariosPath = join(root, "scenarios.vx");
+    const mainPath = join(root, "main.vx");
     await writeFile(scenariosPath, dedent`
       export type Scenario = {
         label: string,
@@ -1037,7 +1037,7 @@ describe("createCompletionItemsForPosition", () => {
       }
     `, "utf8");
     const first = sourceWithCursor(dedent`
-      import { Scenario } from "./scenarios.my"
+      import { Scenario } from "./scenarios.vx"
 
       function lex(source: string) {}
 
@@ -1065,7 +1065,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("source");
 
     const labelPrefix = sourceWithCursor(dedent`
-      import { Scenario } from "./scenarios.my"
+      import { Scenario } from "./scenarios.vx"
 
       function summarizeScenario(scenario: Scenario): string {
         return scenario.lab^^^
@@ -1090,7 +1090,7 @@ describe("createCompletionItemsForPosition", () => {
     expect(labelLabels).toContain("label");
 
     const second = sourceWithCursor(dedent`
-      import { Scenario } from "./scenarios.my"
+      import { Scenario } from "./scenarios.vx"
 
       function summarizeScenario(scenario: Scenario): string {
         return scenario.^^^
@@ -1118,9 +1118,9 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers members from a smart-cast 'is' check against an imported class", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-smart-cast-"));
-    const astPath = join(root, "ast.my");
-    const optimizerPath = join(root, "optimizer.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-smart-cast-"));
+    const astPath = join(root, "ast.vx");
+    const optimizerPath = join(root, "optimizer.vx");
     await writeFile(astPath, dedent`
       export class NumberExpr(val value: number) {
         readonly kind = "number"
@@ -1131,7 +1131,7 @@ describe("createCompletionItemsForPosition", () => {
       }
     `, "utf8");
     const marked = sourceWithCursor(dedent`
-      import { NumberExpr, UnaryExpr } from "./ast.my"
+      import { NumberExpr, UnaryExpr } from "./ast.vx"
 
       export function foldConstants(expression: any): any {
         if (expression is UnaryExpr) {
@@ -1175,9 +1175,9 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers smart-cast members for incomplete member access inside nested expressions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-smart-cast-nested-"));
-    const astPath = join(root, "ast.my");
-    const optimizerPath = join(root, "optimizer.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-smart-cast-nested-"));
+    const astPath = join(root, "ast.vx");
+    const optimizerPath = join(root, "optimizer.vx");
     await writeFile(astPath, dedent`
       export class NumberExpr(val value: number) {
         readonly kind = "number"
@@ -1188,7 +1188,7 @@ describe("createCompletionItemsForPosition", () => {
       }
     `, "utf8");
     const marked = sourceWithCursor(dedent`
-      import { NumberExpr, UnaryExpr } from "./ast.my"
+      import { NumberExpr, UnaryExpr } from "./ast.vx"
 
       export function foldConstants(expression: any): any {
         if (expression is UnaryExpr) {
@@ -1236,9 +1236,9 @@ describe("createCompletionItemsForPosition", () => {
   });
 
   it("offers members when imported aliases are expanded to structural object types", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mylang-completion-structural-type-"));
-    const scenariosPath = join(root, "scenarios.my");
-    const mainPath = join(root, "main.my");
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-structural-type-"));
+    const scenariosPath = join(root, "scenarios.vx");
+    const mainPath = join(root, "main.vx");
     await writeFile(scenariosPath, dedent`
       export type Scenario = {
         label: string,
@@ -1247,7 +1247,7 @@ describe("createCompletionItemsForPosition", () => {
       }
     `, "utf8");
     const { source, line, character } = sourceWithCursor(dedent`
-      import { Scenario } from "./scenarios.my"
+      import { Scenario } from "./scenarios.vx"
 
       function lex(source: string) {}
 

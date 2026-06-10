@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "mylang: install vscode extension deps",
+      "label": "vexa: install vscode extension deps",
       "type": "shell",
       "command": "pnpm",
       "args": ["install"],
@@ -16,7 +16,7 @@
       "problemMatcher": []
     },
     {
-      "label": "mylang: bundle vscode extension",
+      "label": "vexa: bundle vscode extension",
       "type": "shell",
       "command": "pnpm",
       "args": ["run", "bundle-extension"],
@@ -30,10 +30,10 @@
       "problemMatcher": []
     },
     {
-      "label": "mylang: prepare vscode extension",
+      "label": "vexa: prepare vscode extension",
       "dependsOn": [
-        "mylang: install vscode extension deps",
-        "mylang: bundle vscode extension"
+        "vexa: install vscode extension deps",
+        "vexa: bundle vscode extension"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []

@@ -107,7 +107,7 @@ const TOKEN_TYPE_INDEX: Record<TokenTypeName, number> = TOKEN_TYPES.reduce(
   {} as Record<TokenTypeName, number>
 );
 
-export const MYLANG_SEMANTIC_TOKENS_LEGEND: SemanticTokensLegend = {
+export const VEXA_SEMANTIC_TOKENS_LEGEND: SemanticTokensLegend = {
   tokenTypes: [...TOKEN_TYPES],
   tokenModifiers: []
 };

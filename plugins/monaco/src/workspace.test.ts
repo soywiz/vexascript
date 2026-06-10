@@ -36,10 +36,10 @@ describe("monaco static workspace", () => {
     const entries = resolveWorkspaceEntries("default", "runtime", new MemoryStorage());
     expect(findEntryByUri(entries, MAIN_DOCUMENT_URI)).toEqual({
       kind: "file",
-      path: "/main.my",
+      path: "/main.vx",
       uri: MAIN_DOCUMENT_URI,
-      label: "main.my",
-      language: "mylang",
+      label: "main.vx",
+      language: "vexa",
       content: "default",
     });
     expect(findEntryByUri(entries, RUNTIME_DOCUMENT_URI)).toEqual({
@@ -57,7 +57,7 @@ describe("monaco static workspace", () => {
     const storage = new MemoryStorage();
     const initial = resolveWorkspaceEntries("default", "runtime", storage);
     const withFolder = createFolderInWorkspace(initial, "/", "src");
-    const withFile = createFileInWorkspace(withFolder, "/src", "util.my");
+    const withFile = createFileInWorkspace(withFolder, "/src", "util.vx");
     const edited = updateFileContent(withFile, MAIN_DOCUMENT_URI, "saved");
     persistWorkspaceEntries(edited, storage);
 
@@ -65,29 +65,29 @@ describe("monaco static workspace", () => {
     const restoredMain = findEntryByUri(restored, MAIN_DOCUMENT_URI);
     expect(restoredMain?.kind === "file" ? restoredMain.content : null).toBe("saved");
     expect(storage.getItem(WORKSPACE_STORAGE_KEY)).not.toBeNull();
-    expect(listChildren(restored, "/src").map((entry) => entry.label)).toEqual(["util.my"]);
+    expect(listChildren(restored, "/src").map((entry) => entry.label)).toEqual(["util.vx"]);
   });
 
   it("exposes editable files through the Monaco workspace VFS", async () => {
     const entries = createFileInWorkspace(
       createFolderInWorkspace(resolveWorkspaceEntries("default", "runtime", new MemoryStorage()), "/", "src"),
       "/src",
-      "Point.my"
+      "Point.vx"
     );
-    const pointEntry = entries.find((entry) => entry.kind === "file" && entry.path === "/src/Point.my");
+    const pointEntry = entries.find((entry) => entry.kind === "file" && entry.path === "/src/Point.vx");
     const vfs = new WorkspaceVfs({
       getEntries: () => entries,
       readWorkspaceFile: (uri) => uri === pointEntry?.uri ? "class Point" : null
     });
 
-    expect(await vfs.fileExists("/src/Point.my")).toBe(true);
-    expect(await vfs.readFile("/src/Point.my")).toBe("class Point");
-    expect((await vfs.readDir("/src"))?.map((entry) => entry.name)).toEqual(["Point.my"]);
+    expect(await vfs.fileExists("/src/Point.vx")).toBe(true);
+    expect(await vfs.readFile("/src/Point.vx")).toBe("class Point");
+    expect((await vfs.readDir("/src"))?.map((entry) => entry.name)).toEqual(["Point.vx"]);
   });
 
   it("creates runtime and user entries in tree order", () => {
     const entries = resolveWorkspaceEntries("default", "runtime", new MemoryStorage());
-    expect(listChildren(entries, "/").map((entry) => entry.label)).toEqual(["runtime", "main.my"]);
+    expect(listChildren(entries, "/").map((entry) => entry.label)).toEqual(["runtime", "main.vx"]);
     expect(listChildren(entries, "/runtime").map((entry) => entry.label)).toEqual(["es2025.d.ts"]);
   });
 
@@ -97,16 +97,16 @@ describe("monaco static workspace", () => {
         createFileInWorkspace(
           createFolderInWorkspace(resolveWorkspaceEntries("default", "runtime", new MemoryStorage()), "/", "src"),
           "/src",
-          "util.my"
+          "util.vx"
         ),
         "/src",
         "nested"
       ),
       "/src/nested",
-      "deep.my"
+      "deep.vx"
     );
 
-    const withoutFile = deleteWorkspaceEntry(entries, "/src/util.my");
+    const withoutFile = deleteWorkspaceEntry(entries, "/src/util.vx");
     expect(listChildren(withoutFile, "/src").map((entry) => entry.label)).toEqual(["nested"]);
 
     const withoutFolder = deleteWorkspaceEntry(withoutFile, "/src/nested");
@@ -116,7 +116,7 @@ describe("monaco static workspace", () => {
   it("does not delete read-only runtime entries", () => {
     const entries = resolveWorkspaceEntries("default", "runtime", new MemoryStorage());
     const next = deleteWorkspaceEntry(entries, "/runtime");
-    expect(listChildren(next, "/").map((entry) => entry.label)).toEqual(["runtime", "main.my"]);
+    expect(listChildren(next, "/").map((entry) => entry.label)).toEqual(["runtime", "main.vx"]);
     expect(findEntryByUri(next, RUNTIME_DOCUMENT_URI)?.kind === "file" ? findEntryByUri(next, RUNTIME_DOCUMENT_URI)?.label : null).toBe("es2025.d.ts");
   });
 
@@ -143,7 +143,7 @@ describe("monaco static workspace", () => {
     const entries = resolveWorkspaceEntries("default", "runtime", storage);
 
     persistWorkspaceSession({
-      activeUri: "file:///missing.my",
+      activeUri: "file:///missing.vx",
       lineNumber: 5,
       column: 2,
     }, storage);
@@ -180,9 +180,9 @@ describe("monaco workspace VFS", () => {
       fetchText: async () => null,
     });
 
-    expect(await vfs.readFile("missing.my")).toBeNull();
-    expect(await vfs.fileExists("missing.my")).toBe(false);
-    expect(await vfs.stat("missing.my")).toBeNull();
+    expect(await vfs.readFile("missing.vx")).toBeNull();
+    expect(await vfs.fileExists("missing.vx")).toBe(false);
+    expect(await vfs.stat("missing.vx")).toBeNull();
     expect(await vfs.readDir("missing")).toBeNull();
   });
 });
