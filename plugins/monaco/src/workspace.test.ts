@@ -151,3 +151,38 @@ describe("monaco static workspace", () => {
     expect(resolveWorkspaceSession(entries, storage)).toBeNull();
   });
 });
+
+describe("monaco workspace VFS", () => {
+  it("normalizes paths, exposes entry metadata, and falls back to fetched text", async () => {
+    const entries = resolveWorkspaceEntries("default", "runtime", new MemoryStorage());
+    const vfs = new WorkspaceVfs({
+      getEntries: () => entries,
+      readWorkspaceFile: () => null,
+      fetchText: async (uri) => uri === "file:///external.ts" ? "export const external = 1" : null,
+    });
+
+    expect(await vfs.readFile("external.ts")).toBe("export const external = 1");
+    expect(await vfs.fileExists("external.ts")).toBe(true);
+    expect(await vfs.stat("external.ts")).toEqual({
+      mtimeMs: 1991437531,
+      isFile: true,
+      isDirectory: false,
+    });
+    expect(await vfs.stat("/runtime")).toEqual({ mtimeMs: 0, isFile: false, isDirectory: true });
+    expect((await vfs.readDir("runtime"))?.map((entry) => entry.name)).toEqual(["es2025.d.ts"]);
+  });
+
+  it("returns null for missing files and unknown directories", async () => {
+    const entries = resolveWorkspaceEntries("default", "runtime", new MemoryStorage());
+    const vfs = new WorkspaceVfs({
+      getEntries: () => entries,
+      readWorkspaceFile: () => null,
+      fetchText: async () => null,
+    });
+
+    expect(await vfs.readFile("missing.my")).toBeNull();
+    expect(await vfs.fileExists("missing.my")).toBe(false);
+    expect(await vfs.stat("missing.my")).toBeNull();
+    expect(await vfs.readDir("missing")).toBeNull();
+  });
+});
