@@ -304,6 +304,53 @@ describe("transpile", () => {
     expect(throwLine).toBe(11); // 0-based line alignment with source
   });
 
+  it("lowers defer to try/finally over the rest of the block", () => {
+    const source = [
+      "declare function open(): File",
+      "declare class File {",
+      "  close()",
+      "  read(): string",
+      "}",
+      "fun readFile(): string {",
+      "  val file = open()",
+      "  defer file.close()",
+      "  return file.read()",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const file = open();");
+    expect(result.code).toContain("try {");
+    expect(result.code).toContain("return file.read();");
+    expect(result.code).toContain("finally {");
+    expect(result.code).toContain("file.close();");
+  });
+
+  it("runs multiple defers in reverse order", () => {
+    const source = [
+      "declare class Console {",
+      "  log(value: string)",
+      "}",
+      "declare var console: Console",
+      "fun demo(): void {",
+      "  defer console.log(\"first\")",
+      "  defer console.log(\"second\")",
+      "  return",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    const secondIndex = result.code.indexOf("console.log(\"second\")");
+    const firstIndex = result.code.indexOf("console.log(\"first\")");
+    expect(secondIndex).toBeGreaterThanOrEqual(0);
+    expect(firstIndex).toBeGreaterThanOrEqual(0);
+    expect(secondIndex).toBeLessThan(firstIndex);
+  });
+
 
   it("auto-awaits Promise-typed statements inside sync functions", () => {
     const source = [

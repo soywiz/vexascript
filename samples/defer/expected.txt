@@ -1,0 +1,5 @@
+open
+read
+close-2
+close-1
+7

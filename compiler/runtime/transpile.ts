@@ -353,7 +353,9 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   }
 
   const target = options.target ?? "optimized";
-  const programForEmission = target === "conservative" ? artifacts.ast : lowerProgram(artifacts.ast);
+  const programForEmission = lowerProgram(artifacts.ast, {
+    lowerRangeForLoops: target !== "conservative"
+  });
   // Emission collects classes, constructor-only runtime globals, operator
   // overloads and extension properties from a context program. Including the
   // built-in, ambient, and imported declarations lets the emitter lower calls

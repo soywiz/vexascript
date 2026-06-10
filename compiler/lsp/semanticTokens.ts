@@ -154,6 +154,7 @@ const KEYWORDS = new Set([
   "try",
   "catch",
   "finally",
+  "defer",
   "new",
   "typeof",
   "void",
@@ -520,6 +521,9 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
       }
       case "ThrowStatement":
         visitExpression((statement as ThrowStatement).expression);
+        return;
+      case "DeferStatement":
+        visitExpression((statement as import("compiler/ast/ast").DeferStatement).expression);
         return;
       case "TryStatement": {
         const tryStatement = statement as TryStatement;

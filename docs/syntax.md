@@ -1241,6 +1241,27 @@ try {
 }
 ```
 
+### Defer
+
+`defer expression` schedules cleanup for the end of the current block. It wraps everything that remains in that block in a `try` / `finally`, so the deferred expression still runs when the block returns early or throws.
+
+```vexa
+val file = open()
+defer file.close()
+return file.read()
+```
+
+Equivalent to:
+
+```vexa
+val file = open()
+try {
+  return file.read()
+} finally {
+  file.close()
+}
+```
+
 ## Program structure
 
 Statements can be separated by:

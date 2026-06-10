@@ -24,6 +24,7 @@ import {
     CommaExpression,
     ContinueStatement,
     DebuggerStatement,
+    DeferStatement,
     DoWhileStatement,
     Expr,
     ExprStatement,
@@ -372,6 +373,9 @@ export class Parser {
         if (token?.type === "identifier" && token.value === "throw") {
             return this.parseThrowStatement();
         }
+        if (token?.type === "identifier" && token.value === "defer") {
+            return this.parseDeferStatement();
+        }
         if (token?.type === "identifier" && token.value === "continue") {
             return this.parseContinueStatement();
         }
@@ -627,6 +631,7 @@ export class Parser {
             token.value === "try" ||
             token.value === "catch" ||
             token.value === "finally" ||
+            token.value === "defer" ||
             token.value === "return" ||
             token.value === "throw" ||
             token.value === "break" ||
@@ -6046,6 +6051,27 @@ export class Parser {
             kind: "ThrowStatement",
             expression
         } as ThrowStatement, throwKeyword, this.getLastReadToken() ?? throwKeyword);
+    }
+
+    private parseDeferStatement(): DeferStatement {
+        const deferKeyword = this.tokens.read();
+        if (deferKeyword?.type !== "identifier" || deferKeyword.value !== "defer") {
+            this.fail("Expected 'defer' statement", this.tokenAt(deferKeyword));
+        }
+
+        const next = this.tokens.peek();
+        if (!next || this.isEofToken(next) || this.hasLineBreakBetween(deferKeyword, next)) {
+            this.fail("Expected expression after 'defer'", this.tokenAt(next));
+        }
+        if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
+            this.fail("Expected expression after 'defer'", this.tokenAt(next));
+        }
+
+        const expression = this.parseExpressionOrThrow();
+        return this.attachNodeBounds({
+            kind: "DeferStatement",
+            expression
+        } as DeferStatement, deferKeyword, this.getLastReadToken() ?? deferKeyword);
     }
 
 

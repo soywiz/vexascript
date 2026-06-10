@@ -236,6 +236,11 @@ describe("formatSource", () => {
       `.trimEnd());
   });
 
+  it("formats defer statements", () => {
+    expect(formatSource("defer file.close()"))
+      .toBe("defer file.close()");
+  });
+
   it("formats chained function calls", () => {
     expect(formatSource("hello.world[0].test(arg1,arg2)"))
       .toBe("hello.world[0].test(arg1, arg2)");

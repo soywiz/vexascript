@@ -467,6 +467,9 @@ export class TypeChecker {
         this.visitExpression(throwStatement.expression, scope);
         return;
       }
+      case "DeferStatement":
+        this.visitExpression((statement as import("compiler/ast/ast").DeferStatement).expression, scope);
+        return;
       case "TryStatement":
         this.visitTryStatement(statement as TryStatement, scope, flow);
         return;
@@ -4206,6 +4209,8 @@ export class TypeChecker {
         }
         return;
       }
+      case "DeferStatement":
+        return;
       default:
         return;
     }
@@ -4327,6 +4332,8 @@ export class TypeChecker {
           (tryStatement.catchClause === undefined || this.statementAlwaysExits(tryStatement.catchClause.body))
         );
       }
+      case "DeferStatement":
+        return false;
       case "WithStatement":
         return this.statementAlwaysExits((statement as WithStatement).body);
       case "LabeledStatement":

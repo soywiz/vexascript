@@ -70,7 +70,7 @@ const CONTROL_KEYWORDS_WITH_PAREN = new Set(["if", "for", "while", "with", "swit
 // with one of these, it is a statement block rather than a lambda parameter header.
 const STATEMENT_LEADING_KEYWORDS = new Set([
   "if", "for", "while", "with", "switch", "catch", "do", "try", "return", "throw",
-  "break", "continue", "let", "var", "val", "const", "function", "fun", "class",
+  "break", "continue", "defer", "let", "var", "val", "const", "function", "fun", "class",
   "enum", "interface", "type", "async", "sync", "await", "yield", "new", "delete",
   "void", "typeof", "import", "export", "case", "default", "else"
 ]);

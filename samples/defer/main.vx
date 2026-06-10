@@ -1,0 +1,9 @@
+fun readValue(): int {
+  console.log("open")
+  defer console.log("close-1")
+  defer console.log("close-2")
+  console.log("read")
+  return 7
+}
+
+console.log(readValue())

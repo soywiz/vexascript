@@ -410,6 +410,7 @@ export class Binder {
       case "TryStatement":
         this.bindTryStatement(statement as TryStatement, scope);
         return;
+      case "DeferStatement":
       case "ThrowStatement":
         return;
       default:

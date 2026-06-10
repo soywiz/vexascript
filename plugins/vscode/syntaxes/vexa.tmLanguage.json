@@ -215,7 +215,7 @@
         },
         {
           "name": "keyword.control.vexa",
-          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new|in|is|instanceof|typeof|void|delete|await|yield)\\b"
+          "match": "\\b(if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|defer|new|in|is|instanceof|typeof|void|delete|await|yield)\\b"
         },
         {
           "name": "storage.type.vexa",
@@ -291,7 +291,7 @@
       "patterns": [
         {
           "name": "entity.name.function.call.vexa",
-          "match": "(?<!\\.)\\b(?!(?:import|export|from|let|var|val|const|by|function|fun|declare|class|interface|enum|extends|implements|override|readonly|keyof|infer|async|sync|if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|new|in|is|instanceof|typeof|void|delete|await|yield|type|fn|true|false|null|undefined|string|number|boolean|int|long|bigint|numeric|unknown|any|void|never|object)\\b)[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*\\()"
+          "match": "(?<!\\.)\\b(?!(?:import|export|from|let|var|val|const|by|function|fun|declare|class|interface|enum|extends|implements|override|readonly|keyof|infer|async|sync|if|else|return|throw|while|for|switch|case|default|break|continue|do|try|catch|finally|defer|new|in|is|instanceof|typeof|void|delete|await|yield|type|fn|true|false|null|undefined|string|number|boolean|int|long|bigint|numeric|unknown|any|void|never|object)\\b)[_$A-Za-z][_$A-Za-z0-9]*\\b(?=\\s*\\()"
         }
       ]
     },

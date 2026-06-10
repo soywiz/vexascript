@@ -2166,6 +2166,22 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses defer statements", () => {
+        expect(parseStatement(tokenizeReader("defer file.close()"))).toEqual({
+            kind: "DeferStatement",
+            expression: {
+                kind: "CallExpression",
+                callee: {
+                    kind: "MemberExpression",
+                    object: { kind: "Identifier", name: "file" },
+                    computed: false,
+                    property: { kind: "Identifier", name: "close" },
+                },
+                arguments: []
+            }
+        });
+    });
+
     it("parses class statement with field, constructor, and method", () => {
         expect(
             parseStatement(

@@ -571,6 +571,11 @@ export interface ThrowStatement extends Statement {
     expression: Expr
 }
 
+export interface DeferStatement extends Statement {
+    kind: "DeferStatement"
+    expression: Expr
+}
+
 export interface ContinueStatement extends Statement {
     kind: "ContinueStatement"
     label?: Identifier
