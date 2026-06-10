@@ -34,4 +34,19 @@ describe("VS Code color theme", () => {
     expect(findRule("constant.numeric.integer.mylang")?.settings.foreground).toBe("#B5CEA8");
     expect(findRule("comment.line.double-slash.mylang")?.settings.foreground).toBe("#6A9955");
   });
+
+  it("recolors template interpolations like regular expressions instead of plain strings", async () => {
+    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "mylang-dark-color-theme.json");
+    const theme = JSON.parse(await readFile(themePath, "utf8")) as {
+      tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
+    };
+
+    const findRule = (scope: string) => theme.tokenColors.find((rule) =>
+      Array.isArray(rule.scope) ? rule.scope.includes(scope) : rule.scope === scope
+    );
+
+    expect(findRule("meta.template.expression.mylang variable.other.mylang")?.settings.foreground).toBe("#D4D4D4");
+    expect(findRule("meta.template.expression.mylang variable.other.property.mylang")?.settings.foreground).toBe("#9CDCFE");
+    expect(findRule("meta.template.expression.mylang entity.name.function.call.mylang")?.settings.foreground).toBe("#DCDCAA");
+  });
 });

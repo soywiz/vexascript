@@ -76,6 +76,39 @@
       }
     },
     {
+      "scope": "meta.template.expression.mylang variable.other.mylang",
+      "settings": {
+        "foreground": "#D4D4D4"
+      }
+    },
+    {
+      "scope": "meta.template.expression.mylang variable.other.property.mylang",
+      "settings": {
+        "foreground": "#9CDCFE"
+      }
+    },
+    {
+      "scope": "meta.template.expression.mylang entity.name.function.call.mylang",
+      "settings": {
+        "foreground": "#DCDCAA"
+      }
+    },
+    {
+      "scope": [
+        "meta.template.expression.mylang entity.name.type.mylang",
+        "meta.template.expression.mylang support.type.primitive.mylang"
+      ],
+      "settings": {
+        "foreground": "#4EC9B0"
+      }
+    },
+    {
+      "scope": "meta.template.expression.mylang constant.numeric.integer.mylang",
+      "settings": {
+        "foreground": "#B5CEA8"
+      }
+    },
+    {
       "scope": "string.regexp.mylang",
       "settings": {
         "foreground": "#D16969"
