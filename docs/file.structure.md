@@ -141,6 +141,11 @@ This section is the fast onboarding map for agents and contributors.
   - Shared declaration-documentation extraction for `///` and block doc comments used by completion/signature/hover surfaces: `compiler/lsp/documentation.ts`
   - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`): `compiler/lsp/importedDeclarations.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
+- Website and embeddable learning playground (project root: `website/`):
+  - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
+  - Website build orchestrator, which ensures the compiler CLI bundle exists before Vite bundles the embeddable Monaco helpers and 11ty emits the static site: `website/scripts/build.ts`
+  - Vite-powered embeddable Monaco helpers for single-file and multi-file tutorial editors: `website/vite.config.ts`, `website/src/assets/mylang-embed.ts`
+  - Website package scripts and type-checking configuration: `website/package.json`, `website/tsconfig.json`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`
   - TextMate grammar generated from the compiler's shared syntax source and checked in for packaging: `plugins/vscode/syntaxes/mylang.tmLanguage.json`

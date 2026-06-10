@@ -1,0 +1,166 @@
+---
+layout: layout.njk
+title: MyLang — A modern TypeScript-derived language
+---
+<section class="hero">
+  <div>
+    <p class="eyebrow">TypeScript roots, modern language ergonomics</p>
+    <h1>Learn MyLang interactively.</h1>
+    <p class="lead">MyLang keeps the familiar JavaScript and TypeScript ecosystem while adding concise declarations, value classes, null-aware access, string templates, trailing lambdas, and sync-style asynchronous code.</p>
+    <div class="actions">
+      <a class="button" href="#playground">Try the editor</a>
+      <a class="button secondary" href="#syntax">Explore syntax</a>
+    </div>
+  </div>
+  <div class="code-panel" aria-label="MyLang code sample">
+    <div class="panel-title">hello.my</div>
+<pre><code>class User(val name: string, val score: int)
+
+sync fun loadMessage(user: User): string {
+  let bonus = fetchBonus(user.name)
+  return $"Hello {user.name}, score: {user.score + bonus}"
+}</code></pre>
+  </div>
+</section>
+
+<section id="syntax" class="section alt">
+  <div class="section-heading">
+    <p class="eyebrow">Syntax tour</p>
+    <h2>Readable syntax for application code.</h2>
+    <p class="lead">The landing page mirrors the supported language documentation with focused examples you can paste into the playground.</p>
+  </div>
+  <div class="grid">
+    <article class="card">
+      <h3>Concise declarations</h3>
+      <p>Use <code>fun</code> or <code>function</code>, <code>val</code> for read-only values, and primary-constructor class members.</p>
+<pre><code>class Point(val x: number, val y: number)
+fun length(p: Point): number { return p.x + p.y }</code></pre>
+    </article>
+    <article class="card">
+      <h3>Null-aware access</h3>
+      <p>Optional chaining, non-null assertions, and type analysis help make nullable flows explicit.</p>
+<pre><code>let city = user.address?.city ?? "Unknown"
+let name = maybeUser!.name</code></pre>
+    </article>
+    <article class="card">
+      <h3>Sync async style</h3>
+      <p><code>sync</code> functions automatically await produced promises, while <code>go</code> keeps a promise for fire-and-forget or manual orchestration.</p>
+<pre><code>sync fun main(): int {
+  let value = fetchValue()
+  return value + 1
+}</code></pre>
+    </article>
+  </div>
+</section>
+
+<section id="examples" class="section">
+  <div class="section-heading">
+    <p class="eyebrow">Examples</p>
+    <h2>Patterns that teach the language.</h2>
+  </div>
+  <div class="grid">
+    <article class="card">
+      <h3>Trailing lambdas</h3>
+<pre><code>items.map { item ->
+  return item.name
+}</code></pre>
+    </article>
+    <article class="card">
+      <h3>Extension members</h3>
+<pre><code>extension string {
+  fun shout(): string { return this.toUpperCase() }
+}</code></pre>
+    </article>
+    <article class="card">
+      <h3>Namespaces</h3>
+<pre><code>namespace Tools {
+  export const version = 1
+}</code></pre>
+    </article>
+  </div>
+</section>
+
+<section id="playground" class="section alt">
+  <div class="section-heading">
+    <p class="eyebrow">Embedded Monaco</p>
+    <h2>Use the compiler and editor directly in lessons.</h2>
+    <p class="lead">The website bundle exposes two helpers: a simple single-file editor for snippets and a multi-file workspace editor for richer tutorials.</p>
+  </div>
+  <div class="editor-shell">
+    <div class="panel-title">Single-file snippet</div>
+    <div id="simple-editor" class="editor-demo"></div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="editor-shell">
+    <div class="panel-title">Multi-file workspace</div>
+    <div id="workspace-editor" class="workspace-demo"></div>
+  </div>
+</section>
+
+<section id="embed" class="section alt">
+  <div class="section-heading">
+    <p class="eyebrow">Embedding API</p>
+    <h2>Drop editors into any lesson page.</h2>
+  </div>
+  <div class="embed-docs">
+    <article class="card">
+      <h3>Simple editor</h3>
+<pre><code>&lt;div id="lesson-editor"&gt;&lt;/div&gt;
+&lt;script src="/assets/generated/mylang-embed.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  MyLangEmbeds.createSimpleEditor("#lesson-editor", {
+    content: "fun add(a: int, b: int): int { return a + b }"
+  })
+&lt;/script&gt;</code></pre>
+    </article>
+    <article class="card">
+      <h3>Workspace editor</h3>
+<pre><code>MyLangEmbeds.createWorkspaceEditor("#workspace", {
+  activePath: "/main.my",
+  files: [
+    { path: "/main.my", content: "import { greet } from './greeter.my'\nconsole.log(greet('MyLang'))" },
+    { path: "/greeter.my", content: "export fun greet(name: string): string { return $\"Hello {name}\" }" }
+  ]
+})</code></pre>
+    </article>
+  </div>
+</section>
+
+<script>
+  window.addEventListener("DOMContentLoaded", () => {
+    MyLangEmbeds.createSimpleEditor("#simple-editor", {
+      content: `class Counter(var value: int) {
+  fun increment(): int {
+    this.value = this.value + 1
+    return this.value
+  }
+}
+
+let counter = Counter(41)
+counter.increment()`
+    })
+
+    MyLangEmbeds.createWorkspaceEditor("#workspace-editor", {
+      activePath: "/main.my",
+      files: [
+        {
+          path: "/main.my",
+          content: `import { formatUser } from "./format.my"
+
+class User(val name: string, val score: int)
+
+let user = User("Ada", 42)
+formatUser(user.name, user.score)`
+        },
+        {
+          path: "/format.my",
+          content: `export fun formatUser(name: string, score: int): string {
+  return $"{name} has {score} points"
+}`
+        }
+      ]
+    })
+  })
+</script>

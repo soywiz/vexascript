@@ -7,3 +7,5 @@ package-lock.json
 
 **/.mylang-run-profile-*.mjs
 **/*.cpuprofile
+website/_site
+website/src/assets/generated

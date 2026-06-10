@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <meta name="description" content="Learn MyLang through syntax guides, examples, and embedded Monaco editors.">
+    <link rel="stylesheet" href="/assets/site.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/">MyLang</a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="#syntax">Syntax</a>
+        <a href="#examples">Examples</a>
+        <a href="#playground">Playground</a>
+        <a href="#embed">Embed</a>
+      </nav>
+    </header>
+    <main>{{ content | safe }}</main>
+    <footer class="site-footer">© {% year %} MyLang. Built with 11ty and Monaco.</footer>
+    <script src="/assets/generated/mylang-embed.js"></script>
+  </body>
+</html>
