@@ -26,6 +26,41 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Print runner hardware and distro info
+        shell: bash
+        run: |
+          echo "== Distro =="
+          if command -v lsb_release >/dev/null 2>&1; then
+            lsb_release -a
+          else
+            cat /etc/os-release
+          fi
+          echo
+          echo "== Kernel =="
+          uname -a
+          echo
+          echo "== CPU Summary =="
+          lscpu
+          echo
+          echo "== Core Counts =="
+          echo "Logical cores: $(nproc)"
+          echo "Sockets: $(lscpu | awk -F: '/Socket\\(s\\)/ {gsub(/^[ \\t]+/, \"\", $2); print $2}')"
+          echo "Cores per socket: $(lscpu | awk -F: '/Core\\(s\\) per socket/ {gsub(/^[ \\t]+/, \"\", $2); print $2}')"
+          echo "Threads per core: $(lscpu | awk -F: '/Thread\\(s\\) per core/ {gsub(/^[ \\t]+/, \"\", $2); print $2}')"
+          echo
+          echo "== CPU Model and Frequency =="
+          lscpu | awk -F: '
+            /Model name|CPU max MHz|CPU min MHz|CPU MHz|BogoMIPS/ {
+              gsub(/^[ \t]+/, "", $2);
+              print $1 ": " $2
+            }'
+          echo
+          echo "== Memory =="
+          free -h
+          echo
+          echo "== Memory Detail =="
+          grep -E 'MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree' /proc/meminfo
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
