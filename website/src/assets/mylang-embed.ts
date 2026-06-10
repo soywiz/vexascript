@@ -5,6 +5,10 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import * as monaco from "monaco-editor";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
+import {
+  createCompletionItemsForPosition,
+  createKeywordOnlyCompletionItems,
+} from "compiler/lsp/completion";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
 import {
   createPortableLanguageConfiguration,
@@ -53,6 +57,25 @@ interface WorkspaceEditorOptions {
 
 let bootstrapped = false;
 let modelCounter = 0;
+
+const completionItemKind = monaco.languages.CompletionItemKind;
+const lspCompletionItemKinds: Record<number, monaco.languages.CompletionItemKind> = {
+  1: completionItemKind.Text,
+  2: completionItemKind.Method,
+  3: completionItemKind.Function,
+  4: completionItemKind.Constructor,
+  5: completionItemKind.Field,
+  6: completionItemKind.Variable,
+  7: completionItemKind.Class,
+  8: completionItemKind.Interface,
+  9: completionItemKind.Module,
+  10: completionItemKind.Property,
+  13: completionItemKind.Enum,
+  14: completionItemKind.Keyword,
+  20: completionItemKind.EnumMember,
+  24: completionItemKind.Operator,
+  25: completionItemKind.TypeParameter,
+};
 
 declare global {
   interface Window {
@@ -155,6 +178,134 @@ function registerMyLang(): void {
   monaco.languages.setLanguageConfiguration("mylang", toMonacoLanguageConfiguration(createPortableLanguageConfiguration()));
 }
 
+function completionEditRange(
+  textEdit: unknown,
+  fallbackRange: monaco.IRange
+): monaco.IRange {
+  if (!textEdit || typeof textEdit !== "object") {
+    return fallbackRange;
+  }
+  if ("range" in textEdit) {
+    const editRange = (textEdit as {
+      range: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+      };
+    }).range;
+    return {
+      startLineNumber: editRange.start.line + 1,
+      startColumn: editRange.start.character + 1,
+      endLineNumber: editRange.end.line + 1,
+      endColumn: editRange.end.character + 1,
+    };
+  }
+  if ("insert" in textEdit) {
+    const editRange = (textEdit as {
+      insert: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+      };
+    }).insert;
+    return {
+      startLineNumber: editRange.start.line + 1,
+      startColumn: editRange.start.character + 1,
+      endLineNumber: editRange.end.line + 1,
+      endColumn: editRange.end.character + 1,
+    };
+  }
+  return fallbackRange;
+}
+
+function toMarkdown(value: unknown): monaco.IMarkdownString | string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return { value };
+  }
+  if (typeof value === "object" && "kind" in (value as Record<string, unknown>) && "value" in (value as Record<string, unknown>)) {
+    const content = value as { kind?: string; value: string };
+    return content.kind === "markdown" ? { value: content.value, isTrusted: false } : content.value;
+  }
+  return undefined;
+}
+
+function lspEditToMonaco(edit: {
+  range: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
+  newText: string;
+}): monaco.languages.TextEdit {
+  return {
+    range: {
+      startLineNumber: edit.range.start.line + 1,
+      startColumn: edit.range.start.character + 1,
+      endLineNumber: edit.range.end.line + 1,
+      endColumn: edit.range.end.character + 1,
+    },
+    text: edit.newText,
+  };
+}
+
+function registerCompletionProvider(): void {
+  monaco.languages.registerCompletionItemProvider("mylang", {
+    triggerCharacters: ["."],
+    async provideCompletionItems(model, position) {
+      const word = model.getWordUntilPosition(position);
+      const fallbackRange = new monaco.Range(
+        position.lineNumber,
+        word.startColumn,
+        position.lineNumber,
+        word.endColumn
+      );
+      const session = createAnalysisSession(model.getValue());
+      if (!session.ast || !session.analysis) {
+        return {
+          suggestions: createKeywordOnlyCompletionItems().map((item) => ({
+            label: item.label,
+            kind: lspCompletionItemKinds[item.kind ?? 0] ?? completionItemKind.Text,
+            insertText: item.insertText ?? item.label,
+            range: fallbackRange,
+          })),
+        };
+      }
+      const items = await createCompletionItemsForPosition(
+        session.ast,
+        position.lineNumber - 1,
+        position.column - 1,
+        session.analysis,
+        [],
+        {
+          text: model.getValue(),
+          recoverAnalysisSession: (source) => createAnalysisSession(
+            source,
+            session.externalDeclarations,
+            session.importedSymbolTypes,
+            session.ambientDeclarations
+          ),
+        }
+      );
+      return {
+        suggestions: items.map((item) => ({
+          label: item.label,
+          kind: lspCompletionItemKinds[item.kind ?? 0] ?? completionItemKind.Text,
+          detail: item.detail,
+          documentation: toMarkdown(item.documentation),
+          sortText: item.sortText,
+          filterText: item.filterText,
+          insertText: item.insertText ?? item.label,
+          insertTextRules: item.insertTextFormat === 2
+            ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+            : undefined,
+          range: completionEditRange(item.textEdit, fallbackRange),
+          additionalTextEdits: item.additionalTextEdits?.map(lspEditToMonaco),
+        })),
+      };
+    },
+  });
+}
+
 function resolveContainer(container: HTMLElement | string): HTMLElement {
   if (typeof container !== "string") {
     return container;
@@ -171,6 +322,7 @@ function bootstrapMonaco(): void {
     return;
   }
   registerMyLang();
+  registerCompletionProvider();
   monaco.editor.defineTheme(MYLANG_MONACO_THEME_NAME, createMyLangMonacoTheme());
   monaco.editor.setTheme(MYLANG_MONACO_THEME_NAME);
   bootstrapped = true;

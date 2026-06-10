@@ -14,6 +14,8 @@ describe("website project", () => {
     expect(embedSource.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
     expect(embedSource.includes("createSimpleEditor")).toBe(true);
     expect(embedSource.includes("createWorkspaceEditor")).toBe(true);
+    expect(embedSource.includes("createCompletionItemsForPosition")).toBe(true);
+    expect(embedSource.includes("registerCompletionItemProvider")).toBe(true);
     expect(embedSource.includes("selection?: monaco.IRange")).toBe(true);
     expect(embedSource.includes("stabilizeEditorLayout")).toBe(true);
     expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);
