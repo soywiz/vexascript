@@ -16,6 +16,10 @@ describe("website project", () => {
     expect(embedSource.includes("createWorkspaceEditor")).toBe(true);
     expect(embedSource.includes("createCompletionItemsForPosition")).toBe(true);
     expect(embedSource.includes("registerCompletionItemProvider")).toBe(true);
+    expect(embedSource.includes("registerRenameProvider")).toBe(true);
+    expect(embedSource.includes("registerCodeActionProvider")).toBe(true);
+    expect(embedSource.includes("editor.action.rename")).toBe(true);
+    expect(embedSource.includes("editor.action.quickFix")).toBe(true);
     expect(embedSource.includes("selection?: monaco.IRange")).toBe(true);
     expect(embedSource.includes("stabilizeEditorLayout")).toBe(true);
     expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);

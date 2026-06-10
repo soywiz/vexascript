@@ -5,17 +5,23 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import * as monaco from "monaco-editor";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
+import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems,
 } from "compiler/lsp/completion";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
 import {
+  createPrepareRename,
+  createRenameWorkspaceEdit,
+} from "compiler/lsp/navigation";
+import {
   createPortableLanguageConfiguration,
   createPortableMonarchLanguage,
   type PortableLanguageConfiguration,
   type PortableMonarchLanguage,
 } from "compiler/syntax";
+import { markerToDiagnostic } from "../../../plugins/monaco/src/providerConversions";
 import {
   createFileEntry,
   createFolderEntry,
@@ -248,6 +254,59 @@ function lspEditToMonaco(edit: {
   };
 }
 
+function toLspRange(range: monaco.IRange) {
+  return {
+    start: { line: range.startLineNumber - 1, character: range.startColumn - 1 },
+    end: { line: range.endLineNumber - 1, character: range.endColumn - 1 },
+  };
+}
+
+function workspaceEditToMonaco(edit: {
+  changes?: Record<string, Array<{
+    range: {
+      start: { line: number; character: number };
+      end: { line: number; character: number };
+    };
+    newText: string;
+  }>>;
+}): monaco.languages.WorkspaceEdit {
+  const edits: monaco.languages.IWorkspaceTextEdit[] = [];
+  for (const [uri, uriEdits] of Object.entries(edit.changes ?? {})) {
+    const resource = monaco.Uri.parse(uri);
+    for (const uriEdit of uriEdits) {
+      edits.push({ resource, textEdit: lspEditToMonaco(uriEdit), versionId: undefined });
+    }
+  }
+  return { edits };
+}
+
+function normalizePrepareRenameResult(
+  prepared: unknown
+): { range: monaco.IRange; text: string } | null {
+  if (!prepared || typeof prepared !== "object") {
+    return null;
+  }
+  if ("placeholder" in prepared && "range" in prepared) {
+    const value = prepared as {
+      placeholder: string;
+      range: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+      };
+    };
+    return {
+      range: {
+        startLineNumber: value.range.start.line + 1,
+        startColumn: value.range.start.character + 1,
+        endLineNumber: value.range.end.line + 1,
+        endColumn: value.range.end.character + 1,
+      },
+      text: value.placeholder,
+    };
+  }
+  return null;
+}
+
 function registerCompletionProvider(): void {
   monaco.languages.registerCompletionItemProvider("mylang", {
     triggerCharacters: ["."],
@@ -306,6 +365,78 @@ function registerCompletionProvider(): void {
   });
 }
 
+function registerRenameProvider(): void {
+  monaco.languages.registerRenameProvider("mylang", {
+    async resolveRenameLocation(model, position) {
+      const reject: monaco.languages.RenameLocation & { rejectReason: string } = {
+        range: new monaco.Range(1, 1, 1, 1),
+        text: "",
+        rejectReason: "Cannot rename this symbol",
+      };
+      const session = createAnalysisSession(model.getValue());
+      if (!session.analysis) {
+        return reject;
+      }
+      const prepared = createPrepareRename(
+        session.analysis,
+        position.lineNumber - 1,
+        position.column - 1
+      );
+      return normalizePrepareRenameResult(prepared) ?? reject;
+    },
+    async provideRenameEdits(model, position, newName) {
+      const session = createAnalysisSession(model.getValue());
+      if (!session.analysis) {
+        return { edits: [] };
+      }
+      const edit = createRenameWorkspaceEdit(
+        session.analysis,
+        model.uri.toString(),
+        position.lineNumber - 1,
+        position.column - 1,
+        newName
+      );
+      if (!edit) {
+        return { edits: [] };
+      }
+      return workspaceEditToMonaco(edit);
+    },
+  });
+}
+
+function registerCodeActionProvider(): void {
+  monaco.languages.registerCodeActionProvider("mylang", {
+    async provideCodeActions(model, range, context) {
+      const session = createAnalysisSession(model.getValue());
+      if (!session.ast) {
+        return { actions: [], dispose: () => {} };
+      }
+      const diagnostics = context.markers.map((marker) =>
+        markerToDiagnostic(marker, monaco.MarkerSeverity)
+      );
+      const actions = await collectCodeActions({
+        uri: model.uri.toString(),
+        text: model.getValue(),
+        ast: session.ast,
+        analysis: session.analysis,
+        range: toLspRange(range),
+        diagnostics,
+        sourceRoots: [],
+        getSessionForFilePath: () => null,
+      });
+      return {
+        actions: actions.map((action) => ({
+          title: action.title,
+          kind: action.kind,
+          isPreferred: action.isPreferred,
+          edit: action.edit ? workspaceEditToMonaco(action.edit) : undefined,
+        })),
+        dispose: () => {},
+      };
+    },
+  });
+}
+
 function resolveContainer(container: HTMLElement | string): HTMLElement {
   if (typeof container !== "string") {
     return container;
@@ -323,6 +454,8 @@ function bootstrapMonaco(): void {
   }
   registerMyLang();
   registerCompletionProvider();
+  registerRenameProvider();
+  registerCodeActionProvider();
   monaco.editor.defineTheme(MYLANG_MONACO_THEME_NAME, createMyLangMonacoTheme());
   monaco.editor.setTheme(MYLANG_MONACO_THEME_NAME);
   bootstrapped = true;
@@ -453,7 +586,7 @@ function wireDiagnostics(model: monaco.editor.ITextModel): () => void {
 }
 
 function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, readOnly: boolean): monaco.editor.IStandaloneCodeEditor {
-  return monaco.editor.create(container, {
+  const editor = monaco.editor.create(container, {
     model,
     theme: MYLANG_MONACO_THEME_NAME,
     automaticLayout: true,
@@ -474,6 +607,13 @@ function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, r
     "semanticHighlighting.enabled": true,
     bracketPairColorization: { enabled: true },
   });
+  editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F6, () => {
+    void editor.getAction("editor.action.rename")?.run();
+  });
+  editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Enter, () => {
+    void editor.getAction("editor.action.quickFix")?.run();
+  });
+  return editor;
 }
 
 function createSimpleEditor(container: HTMLElement | string, options: SimpleEditorOptions): EditorHandle {

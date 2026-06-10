@@ -36,8 +36,9 @@ sync fun loadMessage(user: User): string {
     <article class="card">
       <h3>Concise declarations</h3>
       <p>Use <code>fun</code> or <code>function</code>, <code>val</code> for read-only values, and primary-constructor class members.</p>
-<pre><code>class Point(val x: number, val y: number)
-fun length(p: Point): number { return p.x + p.y }</code></pre>
+<pre><code>class Point(val x: number, val y: number) {
+  length => Math.hypot(x, y)
+}</code></pre>
     </article>
     <article class="card">
       <h3>Null-aware access</h3>
@@ -48,9 +49,8 @@ let name = maybeUser!.name</code></pre>
     <article class="card">
       <h3>Sync async style</h3>
       <p><code>sync</code> functions automatically await produced promises, while <code>go</code> keeps a promise for fire-and-forget or manual orchestration.</p>
-<pre><code>sync fun main(): int {
-  let value = fetchValue()
-  return value + 1
+<pre><code>sync fun loadBytes(): Uint8Array {
+  return Uint8Array(fetch('file.bin').arrayBuffer())
 }</code></pre>
     </article>
   </div>
@@ -64,15 +64,14 @@ let name = maybeUser!.name</code></pre>
   <div class="grid">
     <article class="card">
       <h3>Trailing lambdas</h3>
-<pre><code>items.map { item ->
-  return item.name
-}</code></pre>
+<pre><code>items.map { it.name }</code></pre>
     </article>
     <article class="card">
       <h3>Extension members</h3>
-<pre><code>extension string {
-  fun shout(): string { return this.toUpperCase() }
-}</code></pre>
+<pre><code>fun string.shout(): string {
+  return this.toUpperCase()
+}
+</code></pre>
     </article>
     <article class="card">
       <h3>Namespaces</h3>
