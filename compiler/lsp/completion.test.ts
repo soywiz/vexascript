@@ -1087,6 +1087,124 @@ describe("createCompletionItemsForPosition", () => {
     expect(secondLabels).toContain("showTree");
   });
 
+  it("offers members from a smart-cast 'is' check against an imported class", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-smart-cast-"));
+    const astPath = join(root, "ast.my");
+    const optimizerPath = join(root, "optimizer.my");
+    await writeFile(astPath, dedent`
+      export class NumberExpr(val value: number) {
+        readonly kind = "number"
+      }
+
+      export class UnaryExpr(val operator: string, val operand: any) {
+        readonly kind = "unary"
+      }
+    `, "utf8");
+    const marked = sourceWithCursor(dedent`
+      import { NumberExpr, UnaryExpr } from "./ast.my"
+
+      export function foldConstants(expression: any): any {
+        if (expression is UnaryExpr) {
+          return expression.opera^^^
+        }
+      }
+    `);
+    await writeFile(optimizerPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const projectIndex = getProjectIndex([root]);
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(optimizerPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
+    });
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+      uri: pathToFileURL(optimizerPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
+    });
+    const session = createAnalysisSession(marked.source, externalDeclarations, importedSymbolTypes);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      marked.line,
+      marked.character,
+      session.analysis!,
+      [],
+      {
+        text: marked.source,
+        uri: pathToFileURL(optimizerPath).href,
+        sourceRoots: [root],
+        getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath),
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, externalDeclarations, importedSymbolTypes)
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("operator");
+    expect(labels).toContain("operand");
+  });
+
+  it("offers smart-cast members for incomplete member access inside nested expressions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-smart-cast-nested-"));
+    const astPath = join(root, "ast.my");
+    const optimizerPath = join(root, "optimizer.my");
+    await writeFile(astPath, dedent`
+      export class NumberExpr(val value: number) {
+        readonly kind = "number"
+      }
+
+      export class UnaryExpr(val operator: string, val operand: any) {
+        readonly kind = "unary"
+      }
+    `, "utf8");
+    const marked = sourceWithCursor(dedent`
+      import { NumberExpr, UnaryExpr } from "./ast.my"
+
+      export function foldConstants(expression: any): any {
+        if (expression is UnaryExpr) {
+          const operand = foldConstants(expression.operand)
+          if (operand is NumberExpr) {
+            return NumberExpr(expression.operat^^^)
+          }
+          return UnaryExpr(expression.operator, operand)
+        }
+      }
+    `);
+    await writeFile(optimizerPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const projectIndex = getProjectIndex([root]);
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(optimizerPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
+    });
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+      uri: pathToFileURL(optimizerPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
+    });
+    const session = createAnalysisSession(marked.source, externalDeclarations, importedSymbolTypes);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      marked.line,
+      marked.character,
+      session.analysis!,
+      [],
+      {
+        text: marked.source,
+        uri: pathToFileURL(optimizerPath).href,
+        sourceRoots: [root],
+        getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath),
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, externalDeclarations, importedSymbolTypes)
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("operator");
+    expect(labels).not.toContain("operand");
+  });
+
   it("offers members when imported aliases are expanded to structural object types", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-completion-structural-type-"));
     const scenariosPath = join(root, "scenarios.my");

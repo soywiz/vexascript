@@ -383,7 +383,7 @@ function recoveredReceiverTypeName(
     if (
       member.computed ||
       member.property.kind !== "Identifier" ||
-      (member.property as Identifier).name !== COMPLETION_RECOVERY_MEMBER
+      !(member.property as Identifier).name.includes(COMPLETION_RECOVERY_MEMBER)
     ) {
       return;
     }
@@ -2161,8 +2161,11 @@ function recoverSourceForMemberAccessCompletion(
     return null;
   }
   const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
+  const prefixStartCharacter = "memberAccessStartCharacter" in target
+    ? clampedCharacter - target.prefix.length
+    : clampedCharacter - target.prefix.length;
   lines[line] =
-    lineText.slice(0, clampedCharacter) +
+    lineText.slice(0, prefixStartCharacter) +
     COMPLETION_RECOVERY_MEMBER +
     lineText.slice(clampedCharacter);
   return lines.join("\n");

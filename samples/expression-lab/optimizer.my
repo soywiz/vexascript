@@ -27,7 +27,7 @@ export function foldConstants(expression: any): any {
   if (expression is UnaryExpr) {
     const operand = foldConstants(expression.operand)
     if (operand is NumberExpr) {
-      return NumberExpr(expression.operator == "-" ? -operand.value : operand.value)
+      return NumberExpr(expression.operato == "-" ? -operand.value : operand.value)
     }
     return UnaryExpr(expression.operator, operand)
   }

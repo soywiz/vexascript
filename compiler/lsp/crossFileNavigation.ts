@@ -29,6 +29,7 @@ import type {
   CommaExpression,
   DoWhileStatement,
   ExprStatement,
+  ExportStatement,
   ForStatement,
   FunctionStatement,
   FunctionParameter,
@@ -1024,6 +1025,14 @@ function findMemberExpressionAtPosition(
       case "FunctionStatement":
         for (const child of (statement as FunctionStatement).body.body) {
           visitStatement(child);
+        }
+        return;
+      case "ExportStatement":
+        {
+          const declaration = (statement as ExportStatement).declaration;
+          if (declaration) {
+            visitStatement(declaration);
+          }
         }
         return;
       case "ClassStatement":

@@ -3184,6 +3184,53 @@ describe("enum semantic analysis", () => {
     expect(analysis.getIssues()).toEqual([]);
   });
 
+  it("smart-casts identifiers for 'is' checks when accessing narrowed members", () => {
+    const source = dedent`
+      class NumberExpr(val value: number) {
+        readonly kind = "number"
+      }
+      class UnaryExpr(val operator: string, val operand: any) {
+        readonly kind = "unary"
+      }
+      function foldConstants(expression: NumberExpr | UnaryExpr): any {
+        if (expression is UnaryExpr) {
+          expression.operator
+          expression.operand
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message === "Property 'operator' does not exist on type 'UnaryExpr'")).toBe(false);
+    expect(messages.some((message) => message === "Property 'operand' does not exist on type 'UnaryExpr'")).toBe(false);
+  });
+
+  it("preserves outer smart-casts inside nested conditional blocks", () => {
+    const source = dedent`
+      class NumberExpr(val value: number) {
+        readonly kind = "number"
+      }
+      class UnaryExpr(val operator: string, val operand: any) {
+        readonly kind = "unary"
+      }
+      function foldConstants(expression: any): any {
+        if (expression is UnaryExpr) {
+          const operand = foldConstants(expression.operand)
+          if (operand is NumberExpr) {
+            expression.operator
+            expression.operand
+          }
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message === "Property 'operator' does not exist on type 'UnaryExpr'")).toBe(false);
+    expect(messages.some((message) => message === "Property 'operand' does not exist on type 'UnaryExpr'")).toBe(false);
+  });
+
 });
 
 describe("destructured parameter analysis", () => {

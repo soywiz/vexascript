@@ -228,10 +228,34 @@ export class TypeChecker {
     if (fallback.node === node) return fallback;
     const boundScope = this.bound.scopeByNode.get(node);
     if (!boundScope) return fallback;
-    if (boundScope.parent && boundScope.parent !== fallback && boundScope.parent.node === fallback.node) {
-      return { ...boundScope, parent: fallback };
+    const mergeFallbackNarrowings = (scope: Scope): Scope => {
+      const mergedSymbols = new Map(scope.symbols);
+      for (const [name, fallbackSymbol] of fallback.symbols) {
+        const currentSymbol = mergedSymbols.get(name);
+        if (
+          !currentSymbol ||
+          (currentSymbol.declaredOffset !== fallbackSymbol.declaredOffset && currentSymbol.node !== fallbackSymbol.node)
+        ) {
+          continue;
+        }
+        if (currentSymbol.type === fallbackSymbol.type && currentSymbol.valueType === fallbackSymbol.valueType) {
+          continue;
+        }
+        mergedSymbols.set(name, {
+          ...currentSymbol,
+          ...(fallbackSymbol.type !== undefined ? { type: fallbackSymbol.type } : {}),
+          ...(fallbackSymbol.valueType !== undefined ? { valueType: fallbackSymbol.valueType } : {})
+        });
+      }
+      return {
+        ...scope,
+        symbols: mergedSymbols
+      };
+    };
+    if (boundScope.parent && boundScope.parent !== fallback) {
+      return mergeFallbackNarrowings({ ...boundScope, parent: fallback });
     }
-    return boundScope;
+    return mergeFallbackNarrowings(boundScope);
   }
 
   private isInsideGeneratorFunction(): boolean {

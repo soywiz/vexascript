@@ -366,17 +366,17 @@ connection.onDocumentRangeFormatting((params): TextEdit[] => {
   return [createRangeFormatEdit(doc.getText(), params.range)];
 });
 
-connection.onDefinition((params) => {
+connection.onDefinition(async (params) => {
   const doc = documents.get(params.textDocument.uri);
   if (!doc) {
     return null;
   }
 
-  const session = analysisSessions.getForDocument(doc);
+  const session = await analysisSessions.getForDocumentAsync(doc);
   if (!session.analysis || !session.ast) {
     return null;
   }
-  return resolveDefinitionAcrossFiles({
+  return await resolveDefinitionAcrossFiles({
     uri: params.textDocument.uri,
     line: params.position.line,
     character: params.position.character,
@@ -390,12 +390,12 @@ connection.onDeclaration((params) => resolveDefinition(params.textDocument.uri, 
 connection.onTypeDefinition((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
 connection.onImplementation((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
 
-function resolveDefinition(uri: string, line: number, character: number) {
+async function resolveDefinition(uri: string, line: number, character: number) {
   const doc = documents.get(uri);
   if (!doc) return null;
-  const session = analysisSessions.getForDocument(doc);
+  const session = await analysisSessions.getForDocumentAsync(doc);
   if (!session.analysis || !session.ast) return null;
-  return resolveDefinitionAcrossFiles({
+  return await resolveDefinitionAcrossFiles({
     uri,
     line,
     character,
@@ -418,7 +418,7 @@ connection.onHover(async (params) => {
     return null;
   }
 
-  const session = analysisSessions.getForDocument(doc);
+  const session = await analysisSessions.getForDocumentAsync(doc);
   if (!session.analysis || !session.ast) {
     return null;
   }
