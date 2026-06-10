@@ -12,8 +12,10 @@ import {
 } from "compiler/lsp/completion";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
 import {
+  createDefinitionLocation,
   createPrepareRename,
   createRenameWorkspaceEdit,
+  createHover,
 } from "compiler/lsp/navigation";
 import {
   createPortableLanguageConfiguration,
@@ -437,6 +439,92 @@ function registerCodeActionProvider(): void {
   });
 }
 
+function hoverContentsToMarkdown(contents: unknown): monaco.IMarkdownString[] {
+  const entries = Array.isArray(contents) ? contents : [contents];
+  const result: monaco.IMarkdownString[] = [];
+  for (const entry of entries) {
+    if (!entry) {
+      continue;
+    }
+    if (typeof entry === "string") {
+      result.push({ value: `\`\`\`mylang\n${entry}\n\`\`\`` });
+      continue;
+    }
+    if (typeof entry === "object") {
+      const record = entry as { kind?: string; value?: string; language?: string };
+      if (typeof record.value !== "string") {
+        continue;
+      }
+      if (record.kind === "markdown") {
+        result.push({ value: record.value, isTrusted: false });
+        continue;
+      }
+      result.push({ value: `\`\`\`${record.language ?? "mylang"}\n${record.value}\n\`\`\`` });
+    }
+  }
+  return result;
+}
+
+function toMonacoRange(range: {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}): monaco.IRange {
+  return {
+    startLineNumber: range.start.line + 1,
+    startColumn: range.start.character + 1,
+    endLineNumber: range.end.line + 1,
+    endColumn: range.end.character + 1,
+  };
+}
+
+function registerHoverProvider(): void {
+  monaco.languages.registerHoverProvider("mylang", {
+    async provideHover(model, position) {
+      const session = createAnalysisSession(model.getValue());
+      if (!session.analysis) {
+        return null;
+      }
+      const hover = createHover(
+        session.analysis,
+        position.lineNumber - 1,
+        position.column - 1
+      );
+      if (!hover) {
+        return null;
+      }
+      return {
+        contents: hoverContentsToMarkdown(hover.contents),
+        range: hover.range ? toMonacoRange(hover.range) : undefined,
+      };
+    },
+  });
+}
+
+function registerDefinitionProvider(): void {
+  const provideDefinition = async (
+    model: monaco.editor.ITextModel,
+    position: monaco.IPosition
+  ): Promise<monaco.languages.Definition> => {
+    const session = createAnalysisSession(model.getValue());
+    if (!session.analysis) {
+      return [];
+    }
+    const location = createDefinitionLocation(
+      session.analysis,
+      model.uri.toString(),
+      position.lineNumber - 1,
+      position.column - 1
+    );
+    return location
+      ? [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }]
+      : [];
+  };
+
+  monaco.languages.registerDefinitionProvider("mylang", {
+    provideDefinition,
+  });
+}
+
 function resolveContainer(container: HTMLElement | string): HTMLElement {
   if (typeof container !== "string") {
     return container;
@@ -454,6 +542,8 @@ function bootstrapMonaco(): void {
   }
   registerMyLang();
   registerCompletionProvider();
+  registerHoverProvider();
+  registerDefinitionProvider();
   registerRenameProvider();
   registerCodeActionProvider();
   monaco.editor.defineTheme(MYLANG_MONACO_THEME_NAME, createMyLangMonacoTheme());
@@ -612,6 +702,13 @@ function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, r
   });
   editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Enter, () => {
     void editor.getAction("editor.action.quickFix")?.run();
+  });
+  editor.onKeyDown((event) => {
+    if (event.altKey && event.keyCode === monaco.KeyCode.Enter) {
+      event.preventDefault();
+      event.stopPropagation();
+      void editor.getAction("editor.action.quickFix")?.run();
+    }
   });
   return editor;
 }

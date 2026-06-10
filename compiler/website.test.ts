@@ -5,10 +5,11 @@ import { cacheProgram } from "./runtime/programCache";
 
 describe("website project", () => {
   it("documents and exposes both MyLang Monaco embedding modes", async () => {
-    const [embedSource, landingPage, layoutSource] = await Promise.all([
+    const [embedSource, landingPage, layoutSource, syntaxPage] = await Promise.all([
       readFile("website/src/assets/mylang-embed.ts", "utf8"),
       readFile("website/src/index.njk", "utf8"),
       readFile("website/src/_includes/layout.njk", "utf8"),
+      readFile("website/src/syntax.njk", "utf8"),
     ]);
 
     expect(embedSource.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
@@ -16,6 +17,8 @@ describe("website project", () => {
     expect(embedSource.includes("createWorkspaceEditor")).toBe(true);
     expect(embedSource.includes("createCompletionItemsForPosition")).toBe(true);
     expect(embedSource.includes("registerCompletionItemProvider")).toBe(true);
+    expect(embedSource.includes("registerHoverProvider")).toBe(true);
+    expect(embedSource.includes("registerDefinitionProvider")).toBe(true);
     expect(embedSource.includes("registerRenameProvider")).toBe(true);
     expect(embedSource.includes("registerCodeActionProvider")).toBe(true);
     expect(embedSource.includes("editor.action.rename")).toBe(true);
@@ -28,6 +31,9 @@ describe("website project", () => {
     expect(landingPage.includes("const counterSnippet = `class Counter")).toBe(true);
     expect(landingPage.includes("startLineNumber: 4")).toBe(true);
     expect(landingPage.includes("fun increment(): int")).toBe(false);
+    expect(syntaxPage.includes("This page renders the canonical")).toBe(false);
+    expect(syntaxPage.includes('class="doc-content"')).toBe(false);
+    expect(syntaxPage.includes('class="section"')).toBe(true);
   });
 
   it("keeps the website build wired through Vite and 11ty after preparing the compiler bundle", async () => {

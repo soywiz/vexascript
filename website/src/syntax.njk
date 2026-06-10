@@ -2,14 +2,6 @@
 layout: layout.njk
 title: MyLang Syntax Reference
 ---
-<section class="page-hero">
-  <p class="eyebrow">Syntax reference</p>
-  <h1>Supported MyLang syntax.</h1>
-  <p class="lead">This page renders the canonical `docs/syntax.md` document directly, so the website reference stays aligned with the repository documentation.</p>
-</section>
-
-<section class="doc-shell">
-  <article class="doc-content">
-    {{ syntaxDocumentHtml | safe }}
-  </article>
+<section class="section">
+  {{ syntaxDocumentHtml | safe }}
 </section>
