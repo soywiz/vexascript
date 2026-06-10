@@ -290,7 +290,7 @@ describe("cross-file navigation", () => {
 
     expect(hover?.contents).toEqual({
       kind: "plaintext",
-      value: "member MyPoint.x: number"
+      value: "x: number"
     });
     expect(hover?.range).toEqual({
       start: { line: 0, character: 20 },
@@ -320,7 +320,7 @@ describe("cross-file navigation", () => {
 
     expect(hover?.contents).toEqual({
       kind: "plaintext",
-      value: "member MyPoint.y: number"
+      value: "y: number"
     });
     expect(hover?.range).toEqual({
       start: { line: 3, character: 8 },
@@ -386,7 +386,7 @@ describe("cross-file navigation", () => {
     });
     expect(hover?.contents).toEqual({
       kind: "plaintext",
-      value: "member { label: string, source: string, showTree: boolean | undefined }.source: string"
+      value: "source: string"
     });
   });
 
@@ -430,7 +430,7 @@ describe("cross-file navigation", () => {
     expect(memberDefinition?.uri).toBe(pathToFileURL(getDomDeclarationFilePath()).toString());
     expect(memberHover?.contents).toEqual({
       kind: "plaintext",
-      value: "member HTMLElement.className: string"
+      value: "className: string"
     });
   });
 
@@ -496,7 +496,7 @@ describe("cross-file navigation", () => {
 
     expect(hover?.contents).toEqual({
       kind: "plaintext",
-      value: "member Map<string, int>.a: string"
+      value: "a: string"
     });
     expect(hover?.range).toEqual({
       start: { line: 6, character: 6 },
@@ -538,7 +538,7 @@ describe("cross-file navigation", () => {
 
     expect(hover?.contents).toEqual({
       kind: "plaintext",
-      value: "member Child.value: string"
+      value: "value: string"
     });
     expect(hover?.range).toEqual({
       start: { line: 3, character: 8 },

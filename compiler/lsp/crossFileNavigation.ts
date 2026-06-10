@@ -1852,11 +1852,9 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
 }
 
 function createMemberHoverContents(
-  className: string,
   member: ClassMemberInfo
 ): string {
-  const prefix = member.sourceKind === "method" ? "method" : "member";
-  return `${prefix} ${className}.${member.memberName}: ${member.typeLabel}`;
+  return `${member.memberName}: ${member.typeLabel}`;
 }
 
 export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Promise<Hover | null> {
@@ -1873,7 +1871,7 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
     return {
       contents: {
         kind: "plaintext",
-        value: createMemberHoverContents(declaration.className, declaration.member)
+        value: createMemberHoverContents(declaration.member)
       },
       range: declaration.member.range
     };
@@ -1908,7 +1906,7 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
     return {
       contents: {
         kind: "plaintext",
-        value: `${structuralMember.kind === "method" ? "method" : "member"} ${objectTypeLabel}.${memberName}: ${structuralMember.typeLabel}`
+        value: `${memberName}: ${structuralMember.typeLabel}`
       },
       ...(memberRange ? { range: memberRange } : {})
     };
@@ -1950,15 +1948,11 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
   if (!resolvedMember && !fallbackMember && !structuralMember) {
     return null;
   }
-  const resolvedKind = resolvedMember?.kind
-    ?? (fallbackMember?.sourceKind === "method" ? "method" : fallbackMember ? "field" : structuralMember?.kind);
-  const prefix = resolvedKind === "method" ? "method" : "member";
-
   const memberRange = nodeRange(memberExpression.property) ?? nodeRange(memberExpression);
   return {
     contents: {
       kind: "plaintext",
-      value: `${prefix} ${objectTypeLabel}.${memberName}: ${resolvedMember?.typeName ?? fallbackMember?.typeLabel ?? structuralMember!.typeLabel}`
+      value: `${memberName}: ${resolvedMember?.typeName ?? fallbackMember?.typeLabel ?? structuralMember!.typeLabel}`
     },
     ...(memberRange ? { range: memberRange } : {})
   };
