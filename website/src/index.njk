@@ -48,7 +48,7 @@ let name = maybeUser!.name</code></pre>
     </article>
     <article class="card">
       <h3>Sync async style</h3>
-      <p><code>sync</code> functions automatically await produced promises, while <code>go</code> keeps a promise for fire-and-forget or manual orchestration.</p>
+      <p><code>sync</code> await-less functions automatically await produced promises, while <code>go</code> avoids awaiting for manual orchestration.</p>
 <pre><code>sync fun loadBytes(): Uint8Array {
   return Uint8Array(fetch('file.bin').arrayBuffer())
 }</code></pre>
@@ -115,13 +115,10 @@ let name = maybeUser!.name</code></pre>
 <script>
   window.addEventListener("DOMContentLoaded", () => {
     const counterSnippet = `class Counter(var value: int) {
-  increment(): int {
-    this.value = this.value + 1
-    return this.value
-  }
+  increment(): int => ++value
 }
 
-let counter = Counter(41)
+val counter = Counter(41)
 counter.increment()`
     const counterSelection = {
       startLineNumber: 4,

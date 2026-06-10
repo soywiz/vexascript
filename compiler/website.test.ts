@@ -49,6 +49,15 @@ describe("website project", () => {
     expect(buildScript.includes("vite")).toBe(true);
   });
 
+  it("keeps embedded syntax pages using toned-down top-level heading sizes", async () => {
+    const siteCss = await readFile("website/src/assets/site.css", "utf8");
+
+    expect(siteCss.includes('.section > h1')).toBe(true);
+    expect(siteCss.includes('font-size: clamp(2.2rem, 5vw, 4rem)')).toBe(true);
+    expect(siteCss.includes('.section > h2')).toBe(true);
+    expect(siteCss.includes('font-size: clamp(1.6rem, 3vw, 2.4rem)')).toBe(true);
+  });
+
   it("keeps Monaco browser entrypoints wired for browser-safe runtime support", async () => {
     const [monacoMain, monacoViteConfig, browserFsStub, runtimeProgramCache] = await Promise.all([
       readFile("plugins/monaco/src/main.ts", "utf8"),
