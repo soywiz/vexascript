@@ -14,12 +14,14 @@ title: MyLang — A modern TypeScript-derived language
   </div>
   <div class="code-panel" aria-label="MyLang code sample">
     <div class="panel-title">hello.my</div>
-<pre><code>class User(val name: string, val score: int)
+{% highlightMyLang %}
+class User(val name: string, val score: int)
 
 sync fun loadMessage(user: User): string {
   let bonus = fetchBonus(user.name)
   return $"Hello {user.name}, score: {user.score + bonus}"
-}</code></pre>
+}
+{% endhighlightMyLang %}
   </div>
 </section>
 
@@ -36,22 +38,28 @@ sync fun loadMessage(user: User): string {
     <article class="card">
       <h3>Concise declarations</h3>
       <p>Use <code>fun</code> or <code>function</code>, <code>val</code> for read-only values, and primary-constructor class members.</p>
-<pre><code>class Point(val x: number, val y: number) {
+{% highlightMyLang %}
+class Point(val x: number, val y: number) {
   length => Math.hypot(x, y)
-}</code></pre>
+}
+{% endhighlightMyLang %}
     </article>
     <article class="card">
       <h3>Null-aware access</h3>
       <p>Optional chaining, non-null assertions, and type analysis help make nullable flows explicit.</p>
-<pre><code>let city = user.address?.city ?? "Unknown"
-let name = maybeUser!.name</code></pre>
+{% highlightMyLang %}
+let city = user.address?.city ?? "Unknown"
+let name = maybeUser!.name
+{% endhighlightMyLang %}
     </article>
     <article class="card">
       <h3>Sync async style</h3>
       <p><code>sync</code> await-less functions automatically await produced promises, while <code>go</code> avoids awaiting for manual orchestration.</p>
-<pre><code>sync fun loadBytes(): Uint8Array {
+{% highlightMyLang %}
+sync fun loadBytes(): Uint8Array {
   return Uint8Array(fetch('file.bin').arrayBuffer())
-}</code></pre>
+}
+{% endhighlightMyLang %}
     </article>
   </div>
 </section>
@@ -64,20 +72,25 @@ let name = maybeUser!.name</code></pre>
   <div class="grid">
     <article class="card">
       <h3>Trailing lambdas</h3>
-<pre><code>items.map { it.name }</code></pre>
+{% highlightMyLang %}
+items.map { it.name }
+{% endhighlightMyLang %}
     </article>
     <article class="card">
       <h3>Extension members</h3>
-<pre><code>fun string.shout(): string {
+{% highlightMyLang %}
+fun string.shout(): string {
   return this.toUpperCase()
 }
-</code></pre>
+{% endhighlightMyLang %}
     </article>
     <article class="card">
       <h3>Namespaces</h3>
-<pre><code>namespace Tools {
+{% highlightMyLang %}
+namespace Tools {
   export const version = 1
-}</code></pre>
+}
+{% endhighlightMyLang %}
     </article>
   </div>
 </section>

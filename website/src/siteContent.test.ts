@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadSyntaxDocument, renderMarkdownDocument } from "./siteContent.ts";
+import { highlightMyLangHtml } from "./syntaxHighlight.ts";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(testDirectory, "..", "..");
@@ -18,5 +19,15 @@ test("renderMarkdownDocument renders headings and fenced code blocks", () => {
   const html = renderMarkdownDocument("# Title\n\n```mylang\nlet value = 1\n```\n");
 
   assert.match(html, /<h1>Title<\/h1>/);
-  assert.match(html, /<pre><code class="language-mylang">let value = 1/);
+  assert.match(html, /<pre class="syntax-block"><code class="language-mylang">/);
+  assert.match(html, /token-keyword-declaration/);
+  assert.match(html, /token-number/);
+});
+
+test("highlightMyLangHtml applies shared token classes", () => {
+  const html = highlightMyLangHtml("sync fun load(): int {\n  return 1\n}");
+
+  assert.match(html, /token-keyword-declaration/);
+  assert.match(html, /token-keyword-control/);
+  assert.match(html, /token-number/);
 });

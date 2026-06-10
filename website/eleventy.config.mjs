@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadSyntaxDocument, renderMarkdownDocument } from "./src/siteContent.ts";
+import { renderHighlightedCodeBlock } from "./src/syntaxHighlight.ts";
 
 const configDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(configDirectory, "..");
@@ -10,6 +11,7 @@ export default function eleventyConfig(config) {
   config.addPassthroughCopy({ "src/assets/site.css": "assets/site.css" });
 
   config.addShortcode("year", () => String(new Date().getUTCFullYear()));
+  config.addPairedShortcode("highlightMyLang", (content) => renderHighlightedCodeBlock(String(content), "mylang"));
   config.addGlobalData("syntaxDocumentHtml", async () => {
     const syntaxDocument = await loadSyntaxDocument(projectRoot);
     return renderMarkdownDocument(syntaxDocument);

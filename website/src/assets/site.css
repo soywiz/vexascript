@@ -118,6 +118,57 @@ h3 { font-size: 1.35rem; margin: 0 0 0.6rem; }
 }
 .code-panel pre { margin: 0; padding: 1.2rem; overflow: auto; color: #e7ebff; }
 code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 0.94em; }
+.syntax-block {
+  margin: 1rem 0 0;
+  padding: 1rem 1.15rem;
+  overflow: auto;
+  border-radius: 1rem;
+  background: #101426;
+  color: #e7ebff;
+}
+.code-panel .syntax-block {
+  margin: 0;
+  padding: 1.2rem;
+  border-radius: 0;
+  background: transparent;
+}
+.syntax-block code {
+  display: block;
+  color: inherit;
+  white-space: pre;
+}
+.token-comment,
+.token-comment-doc {
+  color: #7d8cb3;
+}
+.token-comment-doc {
+  color: #8ea8ff;
+}
+.token-keyword-declaration {
+  color: #ff7fbe;
+}
+.token-keyword-control {
+  color: #7fc4ff;
+}
+.token-string {
+  color: #f9b66d;
+}
+.token-number {
+  color: #ffd966;
+}
+.token-operator {
+  color: #c4d0ff;
+}
+.token-delimiter {
+  color: #d9e0ff;
+}
+.token-tag,
+.token-attribute {
+  color: #7be0b1;
+}
+.token-identifier {
+  color: #f4f7ff;
+}
 
 .editor-demo, .workspace-demo {
   display: grid;
@@ -156,18 +207,6 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 .doc-content h3 { scroll-margin-top: 6rem; }
 .doc-content p,
 .doc-content li { color: #32405f; }
-.doc-content pre {
-  margin: 1.25rem 0;
-  padding: 1rem 1.15rem;
-  overflow: auto;
-  border-radius: 1rem;
-  background: #101426;
-  color: #e7ebff;
-}
-.doc-content code {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-}
-
 @media (max-width: 900px) {
   .hero, .grid, .embed-docs { grid-template-columns: 1fr; }
   .site-header { align-items: flex-start; flex-direction: column; }

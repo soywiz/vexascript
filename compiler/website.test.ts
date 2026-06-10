@@ -26,6 +26,7 @@ describe("website project", () => {
     expect(embedSource.includes("selection?: monaco.IRange")).toBe(true);
     expect(embedSource.includes("stabilizeEditorLayout")).toBe(true);
     expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);
+    expect(landingPage.includes("{% highlightMyLang %}")).toBe(true);
     expect(landingPage.includes("MyLangEmbeds.createSimpleEditor")).toBe(true);
     expect(landingPage.includes("MyLangEmbeds.createWorkspaceEditor")).toBe(true);
     expect(landingPage.includes("const counterSnippet = `class Counter")).toBe(true);
@@ -56,6 +57,8 @@ describe("website project", () => {
     expect(siteCss.includes('font-size: clamp(2.2rem, 5vw, 4rem)')).toBe(true);
     expect(siteCss.includes('.section > h2')).toBe(true);
     expect(siteCss.includes('font-size: clamp(1.6rem, 3vw, 2.4rem)')).toBe(true);
+    expect(siteCss.includes('.token-keyword-declaration')).toBe(true);
+    expect(siteCss.includes('.syntax-block')).toBe(true);
   });
 
   it("keeps Monaco browser entrypoints wired for browser-safe runtime support", async () => {
