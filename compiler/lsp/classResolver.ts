@@ -8,6 +8,7 @@ import type {
   BinaryExpression,
   CallExpression,
   ClassStatement,
+  ExportStatement,
   FunctionStatement,
   ImportStatement,
   InterfaceStatement,
@@ -36,6 +37,8 @@ import {
   resolveTopLevelDeclarationAcrossFiles
 } from "./declarationResolver";
 import { walkAst } from "compiler/ast/traversal";
+import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import {
   type ProjectContext,
   type ProjectSessionLike
@@ -181,6 +184,48 @@ export function findClassStatementInProgram(ast: Program, className: string): Cl
   return findTopLevelDeclarationInProgram(ast, className, isClassStatement);
 }
 
+function mergeInterfaceStatements(interfaceStatements: InterfaceStatement[]): InterfaceStatement | null {
+  const [first, ...rest] = interfaceStatements;
+  if (!first) {
+    return null;
+  }
+  return rest.reduce<InterfaceStatement>((merged, current) => {
+    const next: InterfaceStatement = {
+      ...merged,
+      members: [...merged.members, ...current.members],
+    };
+    const mergedTypeParameters = merged.typeParameters ?? current.typeParameters;
+    if (mergedTypeParameters) {
+      next.typeParameters = mergedTypeParameters;
+    }
+    const mergedExtendsTypes = [
+      ...(merged.extendsTypes ?? []),
+      ...(current.extendsTypes ?? [])
+    ];
+    if (mergedExtendsTypes.length > 0) {
+      next.extendsTypes = mergedExtendsTypes;
+    }
+    return next;
+  }, first);
+}
+
+function findMergedInterfaceStatementInProgram(ast: Program, interfaceName: string): InterfaceStatement | null {
+  const matches: InterfaceStatement[] = [];
+  for (const statement of ast.body) {
+    const declaration = statement.kind === "ExportStatement"
+      ? (statement as ExportStatement).declaration
+      : statement;
+    if (!declaration || declaration.kind !== "InterfaceStatement") {
+      continue;
+    }
+    const interfaceStatement = declaration as InterfaceStatement;
+    if (interfaceStatement.name.name === interfaceName) {
+      matches.push(interfaceStatement);
+    }
+  }
+  return mergeInterfaceStatements(matches);
+}
+
 export async function resolveClassStatementAcrossFiles(
   ast: Program,
   className: string,
@@ -238,9 +283,26 @@ export async function resolveInterfaceStatementAcrossFiles(
       : {})
   });
 
+  let mergedInterfaceStatement: InterfaceStatement | null = null;
+  if (resolved) {
+    const currentFilePath = options.uri ? uriToFilePath(options.uri) : null;
+    if (resolved.filePath === currentFilePath) {
+      mergedInterfaceStatement = findMergedInterfaceStatementInProgram(ast, interfaceName);
+    } else if (resolved.filePath === "") {
+      mergedInterfaceStatement = findMergedInterfaceStatementInProgram(getEcmaScriptRuntimeProgram(), interfaceName);
+    } else if (resolved.filePath === getDomDeclarationFilePath()) {
+      mergedInterfaceStatement = findMergedInterfaceStatementInProgram(await ensureDomProgram(), interfaceName);
+    } else if (options.getSessionForFilePath) {
+      const targetSession = await options.getSessionForFilePath(resolved.filePath);
+      if (targetSession?.ast) {
+        mergedInterfaceStatement = findMergedInterfaceStatementInProgram(targetSession.ast, interfaceName);
+      }
+    }
+  }
+
   const interfaceStatement = resolved
     ? {
-        interfaceStatement: resolved.declaration,
+        interfaceStatement: mergedInterfaceStatement ?? resolved.declaration,
         filePath: resolved.filePath
       }
     : null;

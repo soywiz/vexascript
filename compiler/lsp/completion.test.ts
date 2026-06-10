@@ -469,6 +469,50 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toEqual(expect.arrayContaining(["result", "value", "true"]));
   });
 
+  it("offers String members for variables annotated as string", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun demo(str: string) {
+        str.toLo^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("toLowerCase");
+    expect(labels).toContain("toLocaleLowerCase");
+  });
+
+  it("offers Number members for variables annotated as number", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun demo(value: number) {
+        value.toLoc^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("toLocaleString");
+    expect(labels).not.toContain("BigIntToLocaleStringOptions");
+  });
+
+  it("offers Boolean members for variables annotated as boolean", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun demo(flag: boolean) {
+        flag.val^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("valueOf");
+  });
+
   it("prioritizes class member completions for member access", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Point(val x: int, val y: int) {

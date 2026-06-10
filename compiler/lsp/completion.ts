@@ -75,6 +75,7 @@ import {
   resolveCallableSignature,
   resolveClassMember,
   resolveClassMemberNames,
+  resolveInterfaceStatementAcrossFiles,
   resolveInterfaceMember,
   resolveInterfaceMemberNames,
   resolveClassStatementAcrossFiles,
@@ -555,6 +556,23 @@ function arrayTypeNameToArrayAlias(typeName: string): string | null {
     elementType += "[]";
   }
   return `Array<${elementType}>`;
+}
+
+function boxedCompletionTypeName(typeName: string): string {
+  const normalizedTypeName = nonNullishTypeName(typeName) ?? typeName;
+  if (normalizedTypeName === "int" || normalizedTypeName === "number" || normalizedTypeName === "numeric") {
+    return "Number";
+  }
+  if (normalizedTypeName === "string") {
+    return "String";
+  }
+  if (normalizedTypeName === "boolean") {
+    return "Boolean";
+  }
+  if (normalizedTypeName === "bigint" || normalizedTypeName === "long") {
+    return "BigInt";
+  }
+  return normalizedTypeName;
 }
 
 function extensionReceiverMatches(receiverType: string, objectTypeName: string): boolean {
@@ -1803,7 +1821,7 @@ async function resolveTypeNameFromPath(
     if (!memberName || !currentTypeName) {
       return null;
     }
-    currentTypeName = nonNullishTypeName(currentTypeName);
+    currentTypeName = boxedCompletionTypeName(currentTypeName);
     if (!currentTypeName) {
       return null;
     }
@@ -1814,17 +1832,12 @@ async function resolveTypeNameFromPath(
       resolverCache
     );
     if (!classResolution) {
-      const interfaceStatement = (await resolveTopLevelDeclarationAcrossFiles({
+      const interfaceStatement = (await resolveInterfaceStatementAcrossFiles(
         ast,
-        name: baseTypeName(currentTypeName),
-        currentFilePath: resolverOptions.uri ? fileURLToPath(resolverOptions.uri) : null,
-        predicate: (statement): statement is InterfaceStatement => statement.kind === "InterfaceStatement",
-        includeRuntime: true,
-        sourceRoots: resolverOptions.sourceRoots ?? [],
-        ...(resolverOptions.getSessionForFilePath
-          ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
-          : {})
-      }))?.declaration;
+        baseTypeName(currentTypeName),
+        resolverOptions,
+        resolverCache
+      ))?.interfaceStatement;
       if (interfaceStatement) {
         const member = await resolveInterfaceMember(interfaceStatement, memberName, currentTypeName, {
           ast,
@@ -1970,7 +1983,7 @@ async function buildMemberCompletionItemsForType(
   resolverCache: ClassResolverCache
 ): Promise<CompletionItem[]> {
   // Array types (`T[]`) resolve their members from the declared `class Array<T>`.
-  const narrowedClassName = nonNullishTypeName(className) ?? className;
+  const narrowedClassName = boxedCompletionTypeName(className);
   const resolvedClassName = arrayTypeNameToArrayAlias(narrowedClassName) ?? narrowedClassName;
   const classStatement = (await resolveClassStatementAcrossFiles(
     ast,
@@ -1978,18 +1991,12 @@ async function buildMemberCompletionItemsForType(
     resolverOptions,
     resolverCache
   ))?.classStatement;
-  const interfaceStatement = (await resolveTopLevelDeclarationAcrossFiles({
+  const interfaceStatement = (await resolveInterfaceStatementAcrossFiles(
     ast,
-    name: baseTypeName(resolvedClassName),
-    currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
-    predicate: (statement): statement is InterfaceStatement => statement.kind === "InterfaceStatement",
-    includeRuntime: true,
-    sourceRoots: resolverOptions.sourceRoots ?? [],
-    ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),
-    ...(resolverOptions.getSessionForFilePath
-      ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
-      : {})
-  }))?.declaration;
+    baseTypeName(resolvedClassName),
+    resolverOptions,
+    resolverCache
+  ))?.interfaceStatement;
   const interfaceMembers: InterfaceCompletionMember[] = interfaceStatement
     ? await Promise.all(
       (await resolveInterfaceMemberNames(
