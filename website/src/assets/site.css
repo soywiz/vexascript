@@ -44,8 +44,8 @@ main { overflow: hidden; }
 
 h1, h2, h3 { line-height: 1.1; letter-spacing: -0.04em; color: #11182a; }
 h1 { font-size: clamp(3.2rem, 8vw, 6.8rem); margin: 0.4rem 0 1.25rem; }
-h2 { font-size: clamp(2rem, 5vw, 3.75rem); margin: 0 0 1rem; }
-h3 { font-size: 1.35rem; margin: 0 0 0.6rem; }
+h2 { font-size: clamp(2rem, 5vw, 3.75rem); margin: 1rem 0; }
+h3 { font-size: 1.35rem; margin: 0.6rem 0; }
 
 .lead { font-size: clamp(1.1rem, 2vw, 1.35rem); color: #4f5872; max-width: 62ch; }
 

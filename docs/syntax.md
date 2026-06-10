@@ -972,6 +972,19 @@ Range expressions are supported with `start ... end` (inclusive) and `start ..< 
 
 `...` is end-inclusive, so `0 ... 10` iterates/generates values from `0` to `10`. `..<` is end-exclusive, so `0 ..< 10` iterates/generates values from `0` to `9`.
 
+Useful in for loops:
+
+```vexa
+for (n of 0 ..< 10) {
+  console.log(n)
+}
+// equivalent to
+for (let n = 0; n < 10; n++) {
+  console.log(n)
+}
+```
+
+
 ### Member access
 
 Supported member access forms:
