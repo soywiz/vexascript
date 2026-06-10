@@ -209,7 +209,7 @@ async function collectNodeModulesTypings(
     const defaultExportName = detectDtsDefaultExportName(parsed.ast) ?? "";
     const loaded: CachedTypingsData = {
       declarations: [...parsed.ast.body],
-      analysis: compileSource(source, { language: "typescript" }, {}).analysis,
+      analysis: compileParsedSource(parsed, {}).analysis,
       defaultExportName,
       hasFunctionNamespaceDualExport: defaultExportName.length > 0
         ? hasFunctionNamespaceDualExport(parsed.ast, defaultExportName)
