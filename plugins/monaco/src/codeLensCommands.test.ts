@@ -46,4 +46,47 @@ describe("monaco code lens commands", () => {
       })
     ).toBeNull();
   });
+
+  it("rejects non-reference commands and malformed argument shapes", () => {
+    const validLocation = {
+      uri: "file:///main.my",
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 3 },
+      },
+    };
+
+    expect(extractShowReferencesPayload()).toBeNull();
+    expect(extractShowReferencesPayload({ title: "rename", command: "editor.action.rename" })).toBeNull();
+    expect(extractShowReferencesPayload({ title: "refs", command: "mylang.showReferences" })).toBeNull();
+    expect(extractShowReferencesPayload({
+      title: "refs",
+      command: "mylang.showReferences",
+      arguments: ["file:///main.my", { line: 1, character: 2 }],
+    })).toBeNull();
+    expect(extractShowReferencesPayload({
+      title: "refs",
+      command: "mylang.showReferences",
+      arguments: [123, { line: 1, character: 2 }, [validLocation]],
+    })).toBeNull();
+    expect(extractShowReferencesPayload({
+      title: "refs",
+      command: "mylang.showReferences",
+      arguments: ["file:///main.my", { line: "1", character: 2 }, [validLocation]],
+    })).toBeNull();
+    expect(extractShowReferencesPayload({
+      title: "refs",
+      command: "mylang.showReferences",
+      arguments: ["file:///main.my", { line: 1, character: 2 }, validLocation],
+    })).toBeNull();
+    expect(extractShowReferencesPayload({
+      title: "refs",
+      command: "mylang.showReferences",
+      arguments: [
+        "file:///main.my",
+        { line: 1, character: 2 },
+        [{ uri: "file:///main.my", range: { start: { line: 1, character: 2 }, end: { line: 1 } } }],
+      ],
+    })).toBeNull();
+  });
 });

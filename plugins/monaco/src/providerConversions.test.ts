@@ -30,4 +30,27 @@ describe("monaco provider conversions", () => {
       source: "mylang-sema",
     });
   });
+
+  it("maps non-error severities and unwraps Monaco object codes", () => {
+    const markerBase = {
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 1,
+      endColumn: 2,
+      message: "message",
+    };
+    const severities = { Error: 8, Warning: 4, Info: 2 };
+
+    expect(markerToDiagnostic({ ...markerBase, severity: 4, code: { value: 123 } }, severities)).toEqual({
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 1 },
+      },
+      severity: DiagnosticSeverity.Warning,
+      message: "message",
+      code: 123,
+    });
+    expect(markerToDiagnostic({ ...markerBase, severity: 2 }, severities).severity).toBe(DiagnosticSeverity.Information);
+    expect(markerToDiagnostic({ ...markerBase, severity: 1 }, severities).severity).toBe(DiagnosticSeverity.Hint);
+  });
 });
