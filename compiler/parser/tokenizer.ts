@@ -442,38 +442,29 @@ function readEscapedString(reader: StrReader, quoteCode: number, start: SourcePo
       value += "\r";
     } else if (escCode === CODE_T_LOWER) {
       value += "\t";
+    } else if (escCode === CODE_B_LOWER) {
+      value += "\b";
+    } else if (escCode === CODE_F_LOWER) {
+      value += "\f";
+    } else if (escCode === 118) {
+      value += "\v";
+    } else if (escCode === CODE_ZERO) {
+      value += "\0";
     } else if (
       escCode === CODE_BACKSLASH ||
       escCode === CODE_DOUBLE_QUOTE ||
-      escCode === CODE_SINGLE_QUOTE
+      escCode === CODE_SINGLE_QUOTE ||
+      escCode === CODE_SLASH ||
+      escCode === CODE_DOLLAR ||
+      escCode === CODE_STAR
     ) {
       value += String.fromCharCode(escCode);
+    } else if (escCode === CODE_X_LOWER) {
+      value += readHexEscape(reader, start, "string literal");
     } else if (escCode === CODE_U_LOWER) {
-      let hexCodePoint = 0;
-      for (let i = 0; i < 4; i++) {
-        if (!reader.hasMore) {
-          throw new TokenizeError("Invalid unicode escape sequence in string literal", {
-            start,
-            end: snapshot(reader)
-          });
-        }
-        const hexCode = advanceCode(reader);
-        if (!isHexDigitCode(hexCode)) {
-          throw new TokenizeError("Invalid unicode escape sequence in string literal", {
-            start,
-            end: snapshot(reader)
-          });
-        }
-        hexCodePoint <<= 4;
-        if (hexCode >= CODE_ZERO && hexCode <= CODE_NINE) {
-          hexCodePoint += hexCode - CODE_ZERO;
-        } else if (hexCode >= CODE_A_UPPER && hexCode <= CODE_F_UPPER) {
-          hexCodePoint += hexCode - CODE_A_UPPER + 10;
-        } else {
-          hexCodePoint += hexCode - CODE_A_LOWER + 10;
-        }
-      }
-      value += String.fromCharCode(hexCodePoint);
+      value += readUnicodeEscape(reader, start, "string literal");
+    } else if (isIdentifierStartCode(escCode) || (escCode >= 33 && escCode <= 126)) {
+      value += String.fromCharCode(escCode);
     } else {
       throw new TokenizeError(
         `Unsupported escape sequence \\${String.fromCharCode(escCode)} in string literal`,
@@ -488,6 +479,42 @@ function readEscapedString(reader: StrReader, quoteCode: number, start: SourcePo
     start,
     end: snapshot(reader)
   });
+}
+
+function readHexValue(reader: StrReader, length: number, errorMessage: string, start: SourcePosition): number {
+  let hexValue = 0;
+  for (let i = 0; i < length; i += 1) {
+    if (!reader.hasMore) {
+      throw new TokenizeError(errorMessage, {
+        start,
+        end: snapshot(reader)
+      });
+    }
+    const hexCode = advanceCode(reader);
+    if (!isHexDigitCode(hexCode)) {
+      throw new TokenizeError(errorMessage, {
+        start,
+        end: snapshot(reader)
+      });
+    }
+    hexValue <<= 4;
+    if (hexCode >= CODE_ZERO && hexCode <= CODE_NINE) {
+      hexValue += hexCode - CODE_ZERO;
+    } else if (hexCode >= CODE_A_UPPER && hexCode <= CODE_F_UPPER) {
+      hexValue += hexCode - CODE_A_UPPER + 10;
+    } else {
+      hexValue += hexCode - CODE_A_LOWER + 10;
+    }
+  }
+  return hexValue;
+}
+
+function readHexEscape(reader: StrReader, start: SourcePosition, context: string): string {
+  return String.fromCharCode(readHexValue(reader, 2, `Invalid hex escape sequence in ${context}`, start));
+}
+
+function readUnicodeEscape(reader: StrReader, start: SourcePosition, context: string): string {
+  return String.fromCharCode(readHexValue(reader, 4, `Invalid unicode escape sequence in ${context}`, start));
 }
 
 type TokenFragment = Omit<Token, "index">;
@@ -567,12 +594,29 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
         literalValue += "\r";
       } else if (escCode === CODE_T_LOWER) {
         literalValue += "\t";
+      } else if (escCode === CODE_B_LOWER) {
+        literalValue += "\b";
+      } else if (escCode === CODE_F_LOWER) {
+        literalValue += "\f";
+      } else if (escCode === 118) {
+        literalValue += "\v";
+      } else if (escCode === CODE_ZERO) {
+        literalValue += "\0";
       } else if (
         escCode === CODE_BACKSLASH ||
         escCode === CODE_DOUBLE_QUOTE ||
         escCode === CODE_SINGLE_QUOTE ||
-        escCode === CODE_BACKTICK
+        escCode === CODE_BACKTICK ||
+        escCode === CODE_SLASH ||
+        escCode === CODE_DOLLAR ||
+        escCode === CODE_STAR
       ) {
+        literalValue += String.fromCharCode(escCode);
+      } else if (escCode === CODE_X_LOWER) {
+        literalValue += readHexEscape(reader, start, "template literal");
+      } else if (escCode === CODE_U_LOWER) {
+        literalValue += readUnicodeEscape(reader, start, "template literal");
+      } else if (isIdentifierStartCode(escCode) || (escCode >= 33 && escCode <= 126)) {
         literalValue += String.fromCharCode(escCode);
       } else {
         throw new TokenizeError(
@@ -599,6 +643,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
       pushSymbol("(", interpolationOpen);
 
       let interpolationPendingComments: TokenComment[] = [];
+      let interpolationPreviousToken: Token | undefined = { type: "symbol", value: "(", index: -1, range: syntheticRangeAt(interpolationOpen) };
       let depth = 1;
       while (reader.hasMore) {
         const interpolationCode = reader.peekCode();
@@ -657,14 +702,32 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
 
         let type: Token["type"];
         let value: string;
-        if (interpolationCode === CODE_DOUBLE_QUOTE || interpolationCode === CODE_SINGLE_QUOTE) {
+        if (
+          interpolationCode === CODE_SLASH &&
+          reader.offset + 1 < reader.str.length &&
+          peekNextCode(reader) !== CODE_SLASH &&
+          peekNextCode(reader) !== CODE_STAR &&
+          peekNextCode(reader) !== CODE_EQUALS &&
+          tokenAllowsRegExpLiteral(interpolationPreviousToken)
+        ) {
+          type = "regexp";
+          value = readRegExpLiteral(reader, tokenStart);
+        } else if (interpolationCode === CODE_DOUBLE_QUOTE || interpolationCode === CODE_SINGLE_QUOTE) {
           type = "string";
           value = readEscapedString(reader, interpolationCode, tokenStart);
         } else if (interpolationCode === CODE_BACKTICK) {
-          throw new TokenizeError("Nested template literals are not supported yet", {
-            start: tokenStart,
-            end: snapshot(reader)
-          });
+          const nestedFragments = readTemplateAsConcatenation(reader, tokenStart);
+          for (const fragment of nestedFragments) {
+            pushFragment({
+              ...fragment,
+              ...(interpolationPendingComments.length > 0
+                ? { leadingComments: interpolationPendingComments }
+                : {})
+            });
+            interpolationPendingComments = [];
+            interpolationPreviousToken = { ...fragment, index: -1 };
+          }
+          continue;
         } else if (isIdentifierStartCode(interpolationCode)) {
           type = "identifier";
           value = readIdentifier(reader);
@@ -687,6 +750,7 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
             ? { leadingComments: interpolationPendingComments }
             : {})
         });
+        interpolationPreviousToken = { type, value, index: -1, range: { start: tokenStart, end: snapshot(reader) } };
         interpolationPendingComments = [];
       }
 

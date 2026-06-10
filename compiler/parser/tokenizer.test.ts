@@ -239,6 +239,53 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes nested template literals inside interpolations", () => {
+        expect(simplifyTokens("`outer ${`inner ${value}`}`")).toStrictEqual([
+            { type: "string", value: "outer " },
+            { type: "symbol", value: "+" },
+            { type: "symbol", value: "(" },
+            { type: "string", value: "inner " },
+            { type: "symbol", value: "+" },
+            { type: "symbol", value: "(" },
+            { type: "identifier", value: "value" },
+            { type: "symbol", value: ")" },
+            { type: "symbol", value: "+" },
+            { type: "string", value: "" },
+            { type: "symbol", value: ")" },
+            { type: "symbol", value: "+" },
+            { type: "string", value: "" }
+        ])
+    })
+
+    it("tokenizes regular expression literals inside template interpolations", () => {
+        expect(simplifyTokens("`${text.replace(/\\s+/g, \"\")}`")).toStrictEqual([
+            { type: "string", value: "" },
+            { type: "symbol", value: "+" },
+            { type: "symbol", value: "(" },
+            { type: "identifier", value: "text" },
+            { type: "symbol", value: "." },
+            { type: "identifier", value: "replace" },
+            { type: "symbol", value: "(" },
+            { type: "regexp", value: "/\\s+/g" },
+            { type: "symbol", value: "," },
+            { type: "string", value: "" },
+            { type: "symbol", value: ")" },
+            { type: "symbol", value: ")" },
+            { type: "symbol", value: "+" },
+            { type: "string", value: "" }
+        ])
+    })
+
+    it("supports common JavaScript escape sequences in strings and templates", () => {
+        expect(simplifyTokens("\"\\x41\\b\\f\\v\\0\\/\\$\\*\\w\"")).toStrictEqual([
+            { type: "string", value: "A\b\f\v\0/$*w" }
+        ])
+
+        expect(simplifyTokens("`\\x41\\b\\f\\v\\0\\/\\$\\*\\w`")).toStrictEqual([
+            { type: "string", value: "A\b\f\v\0/$*w" }
+        ])
+    })
+
     it("ignores single-line comments", () => {
         expect(simplifyTokens("let a = 1 // trailing\nlet b = 2")).toStrictEqual([
             { type: "identifier", value: "let" },

@@ -159,6 +159,7 @@ export interface ArrowFunctionExpression extends Node {
     async?: boolean
     sync?: boolean
     parameters: FunctionParameter[]
+    returnType?: Identifier
     body: Expr | BlockStatement
     contextualObjectLiteral?: ObjectLiteral
 }
@@ -169,6 +170,7 @@ export interface FunctionExpression extends Node {
     sync?: boolean
     generator?: boolean
     name?: Identifier
+    typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     parametersCloseParen?: Token
     returnType?: Identifier
@@ -248,12 +250,14 @@ export interface ImportSpecifier extends Node {
     kind: "ImportSpecifier"
     imported: Identifier
     local?: Identifier
+    typeOnly?: boolean
 }
 
 export interface ExportSpecifier extends Node {
     kind: "ExportSpecifier"
     exported: Identifier
     local?: Identifier
+    typeOnly?: boolean
 }
 
 export interface ExportStatement extends Statement {
@@ -528,6 +532,7 @@ export interface DoWhileStatement extends Statement {
 
 export interface ForStatement extends Statement {
     kind: "ForStatement"
+    await?: boolean
     iterationKind?: "in" | "of"
     iterator?: VarStatement | Expr
     iterable?: Expr

@@ -521,6 +521,34 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for object accessors and generic methods", () => {
+        const expr = parseExpression(
+            tokenizeReader("{ get value() { return current }, set value(next: number) { current = next }, async load() { return current }, spyOn<T>(obj: T) { return obj } }", { jsx: false }),
+            { language: "typescript" }
+        );
+        expect(expr).toMatchObject({
+            kind: "ObjectLiteral",
+            properties: [
+                { kind: "ObjectProperty", method: true },
+                { kind: "ObjectProperty", method: true },
+                {
+                    kind: "ObjectProperty",
+                    method: true,
+                    value: { kind: "FunctionExpression", async: true }
+                },
+                {
+                    kind: "ObjectProperty",
+                    key: { kind: "Identifier", name: "spyOn" },
+                    method: true,
+                    value: {
+                        kind: "FunctionExpression",
+                        parameters: [{ kind: "FunctionParameter", name: { kind: "Identifier", name: "obj" } }]
+                    }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for shorthand, spread, computed, and trailing-comma object literals", () => {
         expect(parseExpression(tokenizeReader('{a, ...base, [key]: value, "display name": name, 1: one,}'))).toEqual({
             kind: "ObjectLiteral",
@@ -842,6 +870,29 @@ describe("parseExpression", () => {
                     }
                 }
             ]
+        });
+    });
+
+    it("parses arrow functions with an explicit return type", () => {
+        expect(parseExpression(tokenizeReader("(node: Node): void => node", { jsx: false }), { language: "typescript" })).toEqual({
+            kind: "ArrowFunctionExpression",
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "node" },
+                    typeAnnotation: { kind: "Identifier", name: "Node" }
+                }
+            ],
+            returnType: { kind: "Identifier", name: "void" },
+            body: { kind: "Identifier", name: "node" }
+        });
+    });
+
+    it("parses tagged template expressions as call-like expressions", () => {
+        expect(parseExpression(tokenizeReader("dedent`hello`"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "dedent" },
+            arguments: [{ kind: "StringLiteral", value: "hello" }]
         });
     });
 
@@ -3459,6 +3510,40 @@ describe("parseStatement", () => {
                 }
             ],
             from: { kind: "StringLiteral", value: "./a" }
+        });
+    });
+
+    it("parses inline type-only import and export specifiers", () => {
+        expect(parseStatement(tokenizeReader("import { type AnalysisType, typeToString } from \"./types\""))).toEqual({
+            kind: "ImportStatement",
+            specifiers: [
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "AnalysisType" },
+                    typeOnly: true
+                },
+                {
+                    kind: "ImportSpecifier",
+                    imported: { kind: "Identifier", name: "typeToString" }
+                }
+            ],
+            from: { kind: "StringLiteral", value: "./types" }
+        });
+
+        expect(parseStatement(tokenizeReader("export { type AnalysisType, typeToString } from \"./types\""))).toEqual({
+            kind: "ExportStatement",
+            specifiers: [
+                {
+                    kind: "ExportSpecifier",
+                    exported: { kind: "Identifier", name: "AnalysisType" },
+                    typeOnly: true
+                },
+                {
+                    kind: "ExportSpecifier",
+                    exported: { kind: "Identifier", name: "typeToString" }
+                }
+            ],
+            from: { kind: "StringLiteral", value: "./types" }
         });
     });
 
