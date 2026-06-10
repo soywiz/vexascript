@@ -7,12 +7,13 @@ import { fileExists } from "./utils/fs";
 
 describe("website project", () => {
   it("documents and exposes both VexaScript Monaco embedding modes", async () => {
-    const [embedSource, landingPage, layoutSource, syntaxPage, cliPage] = await Promise.all([
+    const [embedSource, landingPage, layoutSource, syntaxPage, cliPage, notFoundPage] = await Promise.all([
       readFile("website/src/assets/vexa-embed.ts", "utf8"),
       readFile("website/src/index.njk", "utf8"),
       readFile("website/src/_includes/layout.njk", "utf8"),
       readFile("website/src/syntax.njk", "utf8"),
       readFile("website/src/cli.njk", "utf8"),
+      readFile("website/src/404.njk", "utf8"),
     ]);
 
     expect(embedSource.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
@@ -64,6 +65,9 @@ describe("website project", () => {
     expect(cliPage.includes("pnpm tsx compiler/cli.ts build src/main.vx --out dist/main.js --target optimized")).toBe(true);
     expect(cliPage.includes("<code>--bundle</code>")).toBe(true);
     expect(cliPage.includes("<code>--root &lt;dir&gt;</code>")).toBe(true);
+    expect(notFoundPage.includes("permalink: 404.html")).toBe(true);
+    expect(notFoundPage.includes("<h1>Page not found.</h1>")).toBe(true);
+    expect(notFoundPage.includes('href="/syntax/"')).toBe(true);
   });
 
   it("keeps the website build wired through Vite and 11ty after preparing the compiler bundle", async () => {
