@@ -10,6 +10,7 @@ import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems,
 } from "compiler/lsp/completion";
+import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
 import {
   createDefinitionLocation,
@@ -65,6 +66,12 @@ interface WorkspaceEditorOptions {
 
 let bootstrapped = false;
 let modelCounter = 0;
+let autoAwaitGlyphStyleInjected = false;
+
+const autoAwaitGlyphCollections = new WeakMap<
+  monaco.editor.ICodeEditor,
+  monaco.editor.IEditorDecorationsCollection
+>();
 
 const completionItemKind = monaco.languages.CompletionItemKind;
 const lspCompletionItemKinds: Record<number, monaco.languages.CompletionItemKind> = {
@@ -120,6 +127,24 @@ function basename(path: string): string {
   const normalized = normalizePath(path);
   const lastSlash = normalized.lastIndexOf("/");
   return normalized.slice(lastSlash + 1);
+}
+
+function ensureAutoAwaitGlyphStyle(): void {
+  if (autoAwaitGlyphStyleInjected) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.textContent = `
+    .mylang-auto-await-glyph {
+      background-repeat: no-repeat;
+      background-position: center center;
+      background-size: 70%;
+      cursor: default;
+      background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="%23c586c0" stroke-width="1.2"/><path d="M8 4.2v5.1" fill="none" stroke="%23c586c0" stroke-width="1.4" stroke-linecap="round"/><path d="M5.6 7.1 8 9.6l2.4-2.5" fill="none" stroke="%23c586c0" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+    }
+  `;
+  document.head.append(style);
+  autoAwaitGlyphStyleInjected = true;
 }
 
 function toMonacoMonarchLanguage(portable: PortableMonarchLanguage): Record<string, unknown> {
@@ -657,13 +682,51 @@ function updateDiagnostics(model: monaco.editor.ITextModel): void {
   );
 }
 
-function wireDiagnostics(model: monaco.editor.ITextModel): () => void {
+function updateAutoAwaitGlyphs(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  model: monaco.editor.ITextModel
+): void {
+  let collection = autoAwaitGlyphCollections.get(editor);
+  if (!collection) {
+    collection = editor.createDecorationsCollection();
+    autoAwaitGlyphCollections.set(editor, collection);
+  }
+  if (model.getLanguageId() !== "mylang") {
+    collection.clear();
+    return;
+  }
+  const session = createAnalysisSession(model.getValue());
+  if (!session.ast || !session.analysis) {
+    collection.clear();
+    return;
+  }
+  collection.set(createAutoAwaitDecorations(session.ast, session.analysis).map((decoration) => ({
+    range: {
+      startLineNumber: decoration.range.start.line + 1,
+      startColumn: decoration.range.start.character + 1,
+      endLineNumber: decoration.range.end.line + 1,
+      endColumn: decoration.range.end.character + 1,
+    },
+    options: {
+      glyphMarginClassName: "mylang-auto-await-glyph",
+      glyphMarginHoverMessage: { value: decoration.message },
+    },
+  })));
+}
+
+function wireDiagnostics(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  model: monaco.editor.ITextModel
+): () => void {
   let timer: number | undefined;
   const refresh = (): void => {
     if (timer !== undefined) {
       window.clearTimeout(timer);
     }
-    timer = window.setTimeout(() => updateDiagnostics(model), 100);
+    timer = window.setTimeout(() => {
+      updateDiagnostics(model);
+      updateAutoAwaitGlyphs(editor, model);
+    }, 100);
   };
   const changeDisposable = model.onDidChangeContent(refresh);
   refresh();
@@ -671,11 +734,13 @@ function wireDiagnostics(model: monaco.editor.ITextModel): () => void {
     if (timer !== undefined) {
       window.clearTimeout(timer);
     }
+    autoAwaitGlyphCollections.get(editor)?.clear();
     changeDisposable.dispose();
   };
 }
 
 function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, readOnly: boolean): monaco.editor.IStandaloneCodeEditor {
+  ensureAutoAwaitGlyphStyle();
   const editor = monaco.editor.create(container, {
     model,
     theme: MYLANG_MONACO_THEME_NAME,
@@ -720,7 +785,7 @@ function createSimpleEditor(container: HTMLElement | string, options: SimpleEdit
   const path = normalizePath(options.path ?? `/snippet-${++modelCounter}.my`);
   const model = monaco.editor.createModel(options.content, "mylang", monaco.Uri.parse(pathToUri(path)));
   const editor = createEditor(target, model, options.readOnly ?? false);
-  const disposeDiagnostics = wireDiagnostics(model);
+  const disposeDiagnostics = wireDiagnostics(editor, model);
   applySelection(editor, options.selection);
   stabilizeEditorLayout(editor);
   return {
@@ -766,6 +831,7 @@ function createWorkspaceEditor(container: HTMLElement | string, options: Workspa
 
   const models = new Map<string, monaco.editor.ITextModel>();
   const disposers = new Map<string, () => void>();
+  let editor: monaco.editor.IStandaloneCodeEditor | null = null;
   const ensureModel = (entry: WorkspaceFile): monaco.editor.ITextModel => {
     const existing = models.get(entry.uri);
     if (existing) {
@@ -773,12 +839,17 @@ function createWorkspaceEditor(container: HTMLElement | string, options: Workspa
     }
     const model = monaco.editor.createModel(entry.content, entry.language, monaco.Uri.parse(entry.uri));
     models.set(entry.uri, model);
-    disposers.set(entry.uri, wireDiagnostics(model));
+    if (editor) {
+      disposers.set(entry.uri, wireDiagnostics(editor, model));
+    }
     return model;
   };
 
   let activeModel = ensureModel(activeEntry);
-  const editor = createEditor(editorHost, activeModel, false);
+  editor = createEditor(editorHost, activeModel, false);
+  for (const [uri, model] of models.entries()) {
+    disposers.set(uri, wireDiagnostics(editor, model));
+  }
   applySelection(editor, options.selection);
   stabilizeEditorLayout(editor);
 
@@ -792,12 +863,14 @@ function createWorkspaceEditor(container: HTMLElement | string, options: Workspa
         stabilizeEditorLayout(editor);
         renderTabs();
         updateDiagnostics(activeModel);
+        updateAutoAwaitGlyphs(editor, activeModel);
       }));
     }
   };
 
   renderTabs();
   updateDiagnostics(activeModel);
+  updateAutoAwaitGlyphs(editor, activeModel);
 
   return {
     editor,

@@ -27,6 +27,10 @@ describe("website project", () => {
     expect(embedSource.includes("selection?: monaco.IRange")).toBe(true);
     expect(embedSource.includes("stabilizeEditorLayout")).toBe(true);
     expect(embedSource.includes('scrollbar: { vertical: "visible", horizontal: "visible", alwaysConsumeMouseWheel: false }')).toBe(true);
+    expect(embedSource.includes('import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations"')).toBe(true);
+    expect(embedSource.includes("glyphMargin: true")).toBe(true);
+    expect(embedSource.includes('glyphMarginClassName: "mylang-auto-await-glyph"')).toBe(true);
+    expect(embedSource.includes("function updateAutoAwaitGlyphs(")).toBe(true);
     expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);
     expect(layoutSource.includes('href="/cli/"')).toBe(true);
     expect(landingPage.includes("{% highlightMyLang %}")).toBe(true);
