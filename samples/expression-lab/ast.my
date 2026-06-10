@@ -1,0 +1,36 @@
+export class NumberExpr(val value: number) {
+  readonly kind = "number"
+}
+
+export class VariableExpr(val name: string) {
+  readonly kind = "variable"
+}
+
+export class UnaryExpr(val operator: string, val operand: any) {
+  readonly kind = "unary"
+}
+
+export class BinaryExpr(val left: any, val operator: string, val right: any) {
+  readonly kind = "binary"
+}
+
+export class CallExpr(val callee: string, val args: any[]) {
+  readonly kind = "call"
+}
+
+export class AssignExpr(val name: string, val value: any) {
+  readonly kind = "assign"
+}
+
+export class SequenceExpr(val expressions: any[]) {
+  readonly kind = "sequence"
+}
+
+export type Expr =
+  | NumberExpr
+  | VariableExpr
+  | UnaryExpr
+  | BinaryExpr
+  | CallExpr
+  | AssignExpr
+  | SequenceExpr

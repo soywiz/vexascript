@@ -1,0 +1,54 @@
+import { Token, TokenKind, isDigit, isIdentifierPart, isIdentifierStart } from "./tokens.my"
+
+const SINGLE_CHAR_SYMBOLS = "+-*/%^=(),;"
+
+export function lex(source: string): Token[] {
+  const tokens: Token[] = []
+  let index = 0
+
+  while (index < source.length) {
+    const current = source[index]!
+
+    if (current == " " || current == "\n" || current == "\t" || current == "\r") {
+      index++
+      continue
+    }
+
+    if (isDigit(current)) {
+      const start = index
+      index++
+      while (index < source.length && isDigit(source[index]!)) {
+        index++
+      }
+      if (source[index] == ".") {
+        index++
+        while (index < source.length && isDigit(source[index]!)) {
+          index++
+        }
+      }
+      tokens.push(Token(TokenKind.Number, source.slice(start, index), start))
+      continue
+    }
+
+    if (isIdentifierStart(current)) {
+      const start = index
+      index++
+      while (index < source.length && isIdentifierPart(source[index]!)) {
+        index++
+      }
+      tokens.push(Token(TokenKind.Identifier, source.slice(start, index), start))
+      continue
+    }
+
+    if (SINGLE_CHAR_SYMBOLS.includes(current)) {
+      tokens.push(Token(TokenKind.Symbol, current, index))
+      index++
+      continue
+    }
+
+    throw new Error(`Unexpected character '${current}' at ${index}`)
+  }
+
+  tokens.push(Token(TokenKind.EOF, "<eof>", index))
+  return tokens
+}

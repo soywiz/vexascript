@@ -63,6 +63,7 @@ This section is the fast onboarding map for agents and contributors.
   - Class-delegate sample: `samples/class-delegate/` validates interface-member forwarding generated from class `by` delegates.
   - Sync orchestration sample: `samples/sync-orchestration/` validates local-module imports of exported async functions plus `sync` auto-awaiting across call arguments, arrays, object literals, and `go` opt-out promises.
   - Syntax tour sample: `samples/syntax-tour/` is a multi-file runnable fixture that exercises the broad supported MyLang syntax surface, JSX factory configuration, local imports, declarations/types, classes, extensions/operators, delegates, control flow, and async `sync` output.
+  - Expression lab sample: `samples/expression-lab/` is a larger multi-file calculator fixture with lexer, parser, AST, optimizer, evaluator, and pretty-printer modules that stress imports, classes, enums, sequences, calls, assignments, loops, and heavier expression workloads for both correctness and performance.
   - TypeScript import sample: `samples/typescript-import/` validates a `.my` entry importing a local `.ts` module with TypeScript enums, interfaces, type aliases, classes, generics, destructuring, arrow functions, and async functions that are transpiled into the bundled runtime output.
 - Formatter:
   - Formatter logic: `compiler/runtime/formatter.ts`

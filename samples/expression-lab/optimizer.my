@@ -1,0 +1,57 @@
+import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.my"
+
+function foldBinary(operator: string, left: number, right: number): number {
+  switch (operator) {
+    case "+":
+      return left + right
+    case "-":
+      return left - right
+    case "*":
+      return left * right
+    case "/":
+      return left / right
+    case "%":
+      return left % right
+    case "^":
+      return left ** right
+    default:
+      throw new Error(`Unsupported operator '${operator}'`)
+  }
+}
+
+export function foldConstants(expression: any): any {
+  if (expression is NumberExpr) {
+    return expression
+  }
+
+  if (expression is UnaryExpr) {
+    const operand = foldConstants(expression.operand)
+    if (operand is NumberExpr) {
+      return NumberExpr(expression.operator == "-" ? -operand.value : operand.value)
+    }
+    return UnaryExpr(expression.operator, operand)
+  }
+
+  if (expression is BinaryExpr) {
+    const left = foldConstants(expression.left)
+    const right = foldConstants(expression.right)
+    if (left is NumberExpr && right is NumberExpr) {
+      return NumberExpr(foldBinary(expression.operator, left.value, right.value))
+    }
+    return BinaryExpr(left, expression.operator, right)
+  }
+
+  if (expression is CallExpr) {
+    return CallExpr(expression.callee, expression.args.map { arg -> foldConstants(arg) })
+  }
+
+  if (expression is AssignExpr) {
+    return AssignExpr(expression.name, foldConstants(expression.value))
+  }
+
+  if (expression is SequenceExpr) {
+    return SequenceExpr(expression.expressions.map { item -> foldConstants(item) })
+  }
+
+  return expression
+}

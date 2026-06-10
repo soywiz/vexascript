@@ -1,0 +1,63 @@
+import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.my"
+
+function precedence(expression: any): int {
+  if (expression is SequenceExpr) return 1
+  if (expression is AssignExpr) return 2
+  if (expression is BinaryExpr) {
+    switch (expression.operator) {
+      case "+":
+      case "-":
+        return 3
+      case "*":
+      case "/":
+      case "%":
+        return 4
+      case "^":
+        return 5
+      default:
+        return 3
+    }
+  }
+  if (expression is UnaryExpr) return 6
+  return 7
+}
+
+function maybeWrap(expression: any, text: string, parentPrecedence: int): string {
+  return precedence(expression) < parentPrecedence ? `(${text})` : text
+}
+
+export function printExpr(expression: any, parentPrecedence: int = 0): string {
+  if (expression is NumberExpr) {
+    return `${expression.value}`
+  }
+
+  if (expression is VariableExpr) {
+    return expression.name
+  }
+
+  if (expression is UnaryExpr) {
+    const text = `${expression.operator}${printExpr(expression.operand, precedence(expression))}`
+    return maybeWrap(expression, text, parentPrecedence)
+  }
+
+  if (expression is BinaryExpr) {
+    const text = `${printExpr(expression.left, precedence(expression))} ${expression.operator} ${printExpr(expression.right, precedence(expression) + (expression.operator == "^" ? -1 : 0))}`
+    return maybeWrap(expression, text, parentPrecedence)
+  }
+
+  if (expression is CallExpr) {
+    return `${expression.callee}(${expression.args.map { arg -> printExpr(arg) }.join(", ")})`
+  }
+
+  if (expression is AssignExpr) {
+    const text = `${expression.name} = ${printExpr(expression.value, precedence(expression))}`
+    return maybeWrap(expression, text, parentPrecedence)
+  }
+
+  if (expression is SequenceExpr) {
+    const text = expression.expressions.map { item -> printExpr(item) }.join("; ")
+    return maybeWrap(expression, text, parentPrecedence)
+  }
+
+  return "<unknown>"
+}

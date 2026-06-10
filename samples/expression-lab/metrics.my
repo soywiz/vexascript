@@ -1,0 +1,111 @@
+import { Expr, AssignExpr, BinaryExpr, CallExpr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.my"
+
+export type ExprMetrics = {
+  nodes: number,
+  depth: number,
+  assignments: number,
+  calls: number,
+  binaries: number,
+  variables: number
+}
+
+function mergeDepth(depths: number[]): number {
+  let best = 0.0
+  for (value of depths) {
+    if (value > best) {
+      best = value
+    }
+  }
+  return best
+}
+
+export function measure(expression: any): ExprMetrics {
+  if (expression is NumberExpr) {
+    return { nodes: 1, depth: 1, assignments: 0, calls: 0, binaries: 0, variables: 0 }
+  }
+
+  if (expression is VariableExpr) {
+    return { nodes: 1, depth: 1, assignments: 0, calls: 0, binaries: 0, variables: 1 }
+  }
+
+  if (expression is UnaryExpr) {
+    const operand = measure(expression.operand)
+    return {
+      nodes: operand.nodes + 1,
+      depth: operand.depth + 1,
+      assignments: operand.assignments,
+      calls: operand.calls,
+      binaries: operand.binaries,
+      variables: operand.variables
+    }
+  }
+
+  if (expression is BinaryExpr) {
+    const left = measure(expression.left)
+    const right = measure(expression.right)
+    return {
+      nodes: left.nodes + right.nodes + 1,
+      depth: mergeDepth([left.depth, right.depth]) + 1,
+      assignments: left.assignments + right.assignments,
+      calls: left.calls + right.calls,
+      binaries: left.binaries + right.binaries + 1,
+      variables: left.variables + right.variables
+    }
+  }
+
+  if (expression is CallExpr) {
+    const argMetrics = expression.args.map { arg -> measure(arg) }
+    let nodes = 1.0
+    let depth = 1.0
+    let assignments = 0.0
+    let calls = 1.0
+    let binaries = 0.0
+    let variables = 0.0
+    for (entry of argMetrics) {
+      nodes += entry.nodes
+      assignments += entry.assignments
+      calls += entry.calls
+      binaries += entry.binaries
+      variables += entry.variables
+      depth = Math.max(depth, entry.depth + 1)
+    }
+    return { nodes, depth, assignments, calls, binaries, variables }
+  }
+
+  if (expression is AssignExpr) {
+    const value = measure(expression.value)
+    return {
+      nodes: value.nodes + 1,
+      depth: value.depth + 1,
+      assignments: value.assignments + 1,
+      calls: value.calls,
+      binaries: value.binaries,
+      variables: value.variables + 1
+    }
+  }
+
+  if (expression is SequenceExpr) {
+    const items = expression.expressions.map { item -> measure(item) }
+    let nodes = 1.0
+    let depth = 1.0
+    let assignments = 0.0
+    let calls = 0.0
+    let binaries = 0.0
+    let variables = 0.0
+    for (entry of items) {
+      nodes += entry.nodes
+      assignments += entry.assignments
+      calls += entry.calls
+      binaries += entry.binaries
+      variables += entry.variables
+      depth = Math.max(depth, entry.depth + 1)
+    }
+    return { nodes, depth, assignments, calls, binaries, variables }
+  }
+
+  return { nodes: 1, depth: 1, assignments: 0, calls: 0, binaries: 0, variables: 0 }
+}
+
+export function formatMetrics(metrics: ExprMetrics): string {
+  return `nodes=${metrics.nodes},depth=${metrics.depth},assign=${metrics.assignments},calls=${metrics.calls},binary=${metrics.binaries},vars=${metrics.variables}`
+}

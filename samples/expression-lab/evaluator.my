@@ -1,0 +1,114 @@
+import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.my"
+
+export class Environment {
+  private readonly values = new Map<string, number>()
+
+  has(name: string): boolean {
+    return values.has(name)
+  }
+
+  get(name: string): number {
+    const value = values.get(name)
+    if (value == undefined) {
+      throw new Error(`Unknown variable '${name}'`)
+    }
+    return value!
+  }
+
+  set(name: string, value: number): number {
+    values.set(name, value)
+    return value
+  }
+
+  snapshot(): string {
+    const parts: string[] = []
+    for (entry of values.entries()) {
+      parts.push(`${entry[0]}=${formatNumber(entry[1])}`)
+    }
+    return parts.join(",")
+  }
+}
+
+export function formatNumber(value: number): string {
+  const rounded = Math.round(value * 1000) / 1000
+  return `${rounded}`
+}
+
+function callBuiltin(name: string, args: number[]): number {
+  switch (name) {
+    case "max":
+      return Math.max(...args)
+    case "min":
+      return Math.min(...args)
+    case "avg": {
+      let total = 0.0
+      for (value of args) {
+        total += value
+      }
+      return total / args.length
+    }
+    case "pow":
+      return args[0]! ** args[1]!
+    case "clamp":
+      return Math.max(args[1]!, Math.min(args[2]!, args[0]!))
+    case "abs":
+      return Math.abs(args[0]!)
+    default:
+      throw new Error(`Unknown function '${name}'`)
+  }
+}
+
+export function evaluate(expression: any, environment: Environment = Environment()): number {
+  if (expression is NumberExpr) {
+    return expression.value
+  }
+
+  if (expression is VariableExpr) {
+    return environment.get(expression.name)
+  }
+
+  if (expression is UnaryExpr) {
+    const value = evaluate(expression.operand, environment)
+    return expression.operator == "-" ? -value : value
+  }
+
+  if (expression is BinaryExpr) {
+    const left = evaluate(expression.left, environment)
+    const right = evaluate(expression.right, environment)
+    switch (expression.operator) {
+      case "+":
+        return left + right
+      case "-":
+        return left - right
+      case "*":
+        return left * right
+      case "/":
+        return left / right
+      case "%":
+        return left % right
+      case "^":
+        return left ** right
+      default:
+        throw new Error(`Unsupported operator '${expression.operator}'`)
+    }
+  }
+
+  if (expression is CallExpr) {
+    const args = expression.args.map { arg -> evaluate(arg, environment) }
+    return callBuiltin(expression.callee, args)
+  }
+
+  if (expression is AssignExpr) {
+    return environment.set(expression.name, evaluate(expression.value, environment))
+  }
+
+  if (expression is SequenceExpr) {
+    let result = 0.0
+    for (item of expression.expressions) {
+      result = evaluate(item, environment)
+    }
+    return result
+  }
+
+  throw new Error("Unsupported expression")
+}

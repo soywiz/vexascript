@@ -1,0 +1,96 @@
+export type Scenario = {
+  label: string,
+  source: string,
+  showTree?: boolean
+}
+
+export const scenarios: Scenario[] = [
+  {
+    label: "billing",
+    source: "rate = 1.25; subtotal = 19 * 4 + 6 / 3; total = subtotal * rate; total - 3",
+    showTree: true
+  },
+  {
+    label: "functions",
+    source: "pow(2, 8) + clamp(100, 0, 50) - min(3, 9, 12) + abs(-4)",
+    showTree: true
+  },
+  {
+    label: "variables",
+    source: "alpha = 7; beta = alpha * (alpha - 3); gamma = beta / 2; gamma + alpha",
+    showTree: true
+  },
+  {
+    label: "averages",
+    source: "base = avg(3, 9, 12, 18); spread = max(4, 12, 2) - min(4, 12, 2); base + spread",
+    showTree: true
+  },
+  {
+    label: "nested",
+    source: "seed = 5; left = pow(seed + 1, 2) * (seed - 3); right = clamp(left + avg(4, 8, 12), 10, 40); (right - min(seed, 2, 9)) + abs(-seed)",
+    showTree: true
+  },
+  {
+    label: "cascade",
+    source: "a = 1; b = a + 2; c = b * 3; d = c - 4; e = d / 5; f = pow(e + 6, 2); g = max(f, c, b); g - min(a, b, c)",
+    showTree: true
+  }
+]
+
+export function buildStressScenario(width: int = 32): Scenario {
+  const parts: string[] = ["seed = 3", "acc = 0"]
+
+  for (index of 1 ... width) {
+    parts.push(`v${index} = (${index} + seed) * ${(index % 5) + 1} - ${(index % 3)} + pow(${(index % 4) + 2}, 2)`)
+    parts.push(`acc = acc + v${index}`)
+  }
+
+  parts.push(`result = acc + max(v${width}, v${width - 1}, seed) - min(v1, v2, seed)`)
+  parts.push("result")
+
+  return {
+    label: "stress",
+    source: parts.join("; "),
+    showTree: false
+  }
+}
+
+export function buildPipelineScenario(width: int = 24): Scenario {
+  const parts: string[] = ["seed = 11", "rolling = 0", "checksum = 1"]
+
+  for (index of 1 ... width) {
+    parts.push(`step${index} = pow(${(index % 5) + 2}, 2) + (${index} * seed) - ${(index % 7)}`)
+    parts.push(`rolling = rolling + step${index}`)
+    parts.push(`checksum = max(checksum, step${index}, rolling % 97)`)
+    parts.push(`delta${index} = clamp(rolling - step${index}, 0, 9999)`)
+  }
+
+  parts.push(`finalValue = rolling + checksum - min(step1, step2, seed) + avg(delta1, delta2, delta3, delta4)`)
+  parts.push("finalValue")
+
+  return {
+    label: "pipeline",
+    source: parts.join("; "),
+    showTree: false
+  }
+}
+
+export function buildMonsterScenario(width: int = 48): Scenario {
+  const parts: string[] = ["origin = 2", "acc = 0", "floor = 0"]
+
+  for (index of 1 ... width) {
+    parts.push(`block${index} = pow(origin + ${(index % 6) + 2}, 2) + (${index} * ${(index % 5) + 3}) - ${(index % 4)}`)
+    parts.push(`scaled${index} = clamp(block${index} + max(origin, ${index}, ${index + 3}), 0, 99999)`)
+    parts.push(`floor = floor + min(block${index}, scaled${index}, ${(index % 9) + 1})`)
+    parts.push(`acc = acc + scaled${index} - floor + avg(${(index % 3) + 1}, ${(index % 5) + 2}, ${(index % 7) + 3})`)
+  }
+
+  parts.push(`summary = acc + floor + max(block${width}, scaled${width}, origin) - min(block1, scaled2, origin)`)
+  parts.push("summary")
+
+  return {
+    label: "monster",
+    source: parts.join("; "),
+    showTree: false
+  }
+}

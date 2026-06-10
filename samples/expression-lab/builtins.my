@@ -1,0 +1,26 @@
+export type BuiltinInfo = {
+  name: string,
+  arity: string,
+  description: string
+}
+
+export const builtins: BuiltinInfo[] = [
+  { name: "max", arity: "variadic", description: "largest value" },
+  { name: "min", arity: "variadic", description: "smallest value" },
+  { name: "avg", arity: "variadic", description: "average value" },
+  { name: "pow", arity: "2", description: "power" },
+  { name: "clamp", arity: "3", description: "bounds a value" },
+  { name: "abs", arity: "1", description: "absolute value" }
+]
+
+export function builtinSummary(): string {
+  return builtins
+    .map { entry -> `${entry.name}:${entry.arity}` }
+    .join(",")
+}
+
+export function builtinDescriptions(): string {
+  return builtins
+    .map { entry -> `${entry.name}=${entry.description}` }
+    .join("|")
+}

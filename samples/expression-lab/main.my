@@ -1,0 +1,50 @@
+import { builtinDescriptions, builtinSummary } from "./builtins.my"
+import { Environment, evaluate, formatNumber } from "./evaluator.my"
+import { lex } from "./lexer.my"
+import { formatMetrics, measure } from "./metrics.my"
+import { foldConstants } from "./optimizer.my"
+import { parseExpression } from "./parser.my"
+import { printExpr } from "./printer.my"
+import { Scenario, buildMonsterScenario, buildPipelineScenario, buildStressScenario, scenarios } from "./scenarios.my"
+import { previewTokens } from "./tokens.my"
+
+function summarizeScenario(scenario: Scenario): string {
+  const tokens = lex(scenario.source)
+  const parsed = parseExpression(scenario.source)
+  const folded = foldConstants(parsed)
+  const environment = Environment()
+  const value = evaluate(folded, environment)
+  const metrics = measure(parsed)
+  const parts = [
+    `scenario=${scenario.label}`,
+    `tokens=${tokens.length}`,
+    `preview=${previewTokens(tokens, 8)}`,
+    `value=${formatNumber(value)}`,
+    `env=${environment.snapshot()}`,
+    `metrics=${formatMetrics(metrics)}`
+  ]
+
+  if (scenario.showTree) {
+    parts.push(`ast=${printExpr(parsed)}`)
+    parts.push(`folded=${printExpr(folded)}`)
+  } else {
+    parts.push(`chars=${scenario.source.length}`)
+    parts.push(`tail=${scenario.source.slice(Math.max(0, scenario.source.length - 28))}`)
+  }
+
+  return parts.join(" | ")
+}
+
+console.log(`builtins:${builtinSummary()}`)
+console.log(`builtin-notes:${builtinDescriptions()}`)
+
+const allScenarios = [
+  ...scenarios,
+  buildStressScenario(36),
+  buildPipelineScenario(28),
+  buildMonsterScenario(52)
+]
+
+for (scenario of allScenarios) {
+  console.log(summarizeScenario(scenario))
+}

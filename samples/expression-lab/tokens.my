@@ -1,0 +1,34 @@
+export enum TokenKind {
+  Number = "number",
+  Identifier = "identifier",
+  Symbol = "symbol",
+  EOF = "eof"
+}
+
+export class Token(val kind: TokenKind, val text: string, val index: int) {
+  describe(): string {
+    return `${kind}@${index}:${text}`
+  }
+}
+
+const LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+const DIGITS = "0123456789"
+
+export fun isDigit(value: string): boolean {
+  return DIGITS.includes(value)
+}
+
+export fun isIdentifierStart(value: string): boolean {
+  return LETTERS.includes(value)
+}
+
+export fun isIdentifierPart(value: string): boolean {
+  return isIdentifierStart(value) || isDigit(value)
+}
+
+export fun previewTokens(tokens: Token[], limit: int = 10): string {
+  return tokens
+    .slice(0, limit)
+    .map { token -> token.describe() }
+    .join("|")
+}

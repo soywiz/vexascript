@@ -1,0 +1,157 @@
+import { AssignExpr, BinaryExpr, CallExpr, Expr, NumberExpr, SequenceExpr, UnaryExpr, VariableExpr } from "./ast.my"
+import { lex } from "./lexer.my"
+import { Token, TokenKind } from "./tokens.my"
+
+class TokenStream(val tokens: Token[]) {
+  position: int = 0
+
+  peek(offset: int = 0): Token {
+    return this.tokens[this.position + offset] ?? this.tokens[this.tokens.length - 1]!
+  }
+
+  read(): Token {
+    const token = this.peek()
+    this.position++
+    return token
+  }
+
+  match(text: string): boolean {
+    if (this.peek().text != text) {
+      return false
+    }
+    this.read()
+    return true
+  }
+
+  expect(text: string): Token {
+    const token = this.read()
+    if (token.text != text) {
+      throw new Error(`Expected '${text}' but got '${token.text}' at ${token.index}`)
+    }
+    return token
+  }
+
+  expectKind(kind: TokenKind): Token {
+    const token = this.read()
+    if (token.kind != kind) {
+      throw new Error(`Expected ${kind} but got ${token.kind} at ${token.index}`)
+    }
+    return token
+  }
+}
+
+function parsePrimary(stream: TokenStream): any {
+  const token = stream.peek()
+
+  if (token.kind == TokenKind.Number) {
+    stream.read()
+    return NumberExpr(Number(token.text))
+  }
+
+  if (token.kind == TokenKind.Identifier) {
+    stream.read()
+    let expression: any = VariableExpr(token.text)
+    while (stream.match("(")) {
+      const args: any[] = []
+      if (!stream.match(")")) {
+        do {
+          args.push(parseAssignment(stream))
+        } while (stream.match(","))
+        stream.expect(")")
+      }
+      expression = CallExpr(token.text, args)
+    }
+    return expression
+  }
+
+  if (stream.match("(")) {
+    const expression = parseAssignment(stream)
+    stream.expect(")")
+    return expression
+  }
+
+  throw new Error(`Unexpected token '${token.text}' at ${token.index}`)
+}
+
+function parseUnary(stream: TokenStream): any {
+  if (stream.match("+")) {
+    return UnaryExpr("+", parseUnary(stream))
+  }
+  if (stream.match("-")) {
+    return UnaryExpr("-", parseUnary(stream))
+  }
+  return parsePrimary(stream)
+}
+
+function parsePower(stream: TokenStream): any {
+  let left = parseUnary(stream)
+  while (stream.match("^")) {
+    left = BinaryExpr(left, "^", parsePower(stream))
+  }
+  return left
+}
+
+function parseMultiplicative(stream: TokenStream): any {
+  let left = parsePower(stream)
+  while (true) {
+    if (stream.match("*")) {
+      left = BinaryExpr(left, "*", parsePower(stream))
+      continue
+    }
+    if (stream.match("/")) {
+      left = BinaryExpr(left, "/", parsePower(stream))
+      continue
+    }
+    if (stream.match("%")) {
+      left = BinaryExpr(left, "%", parsePower(stream))
+      continue
+    }
+    break
+  }
+  return left
+}
+
+function parseAdditive(stream: TokenStream): any {
+  let left = parseMultiplicative(stream)
+  while (true) {
+    if (stream.match("+")) {
+      left = BinaryExpr(left, "+", parseMultiplicative(stream))
+      continue
+    }
+    if (stream.match("-")) {
+      left = BinaryExpr(left, "-", parseMultiplicative(stream))
+      continue
+    }
+    break
+  }
+  return left
+}
+
+function parseAssignment(stream: TokenStream): any {
+  const left = parseAdditive(stream)
+  if (left is VariableExpr && stream.match("=")) {
+    return AssignExpr(left.name, parseAssignment(stream))
+  }
+  return left
+}
+
+export function parseExpression(source: string): any {
+  const stream = TokenStream(lex(source))
+  const expressions: any[] = []
+
+  while (stream.peek().kind != TokenKind.EOF) {
+    expressions.push(parseAssignment(stream))
+    if (stream.peek().kind == TokenKind.EOF) {
+      break
+    }
+    stream.expect(";")
+  }
+
+  if (expressions.length == 0) {
+    return SequenceExpr([])
+  }
+  if (expressions.length == 1) {
+    return expressions[0]!
+  }
+  return SequenceExpr(expressions)
+}
