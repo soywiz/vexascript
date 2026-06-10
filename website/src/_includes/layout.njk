@@ -6,8 +6,8 @@
     <title>{{ title }}</title>
     <meta name="description" content="Learn VexaScript through syntax guides, examples, and embedded Monaco editors.">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="/assets/site.css">
-    <link rel="stylesheet" href="/assets/generated/style.css">
+    <link rel="stylesheet" href="{{ generatedAssetHrefs.siteCss }}">
+    <link rel="stylesheet" href="{{ generatedAssetHrefs.generatedStyleCss }}">
   </head>
   <body>
     <header class="site-header">
@@ -25,6 +25,6 @@
     </header>
     <main>{{ content | safe }}</main>
     <footer class="site-footer">© {% year %} VexaScript by Soywiz Software. Built with 11ty and Monaco.</footer>
-    <script src="/assets/generated/vexa-embed.js"></script>
+    <script src="{{ generatedAssetHrefs.generatedEmbedJs }}"></script>
   </body>
 </html>

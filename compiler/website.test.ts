@@ -34,7 +34,8 @@ describe("website project", () => {
     expect(embedSource.includes("glyphMargin: true")).toBe(true);
     expect(embedSource.includes('glyphMarginClassName: "vexa-auto-await-glyph"')).toBe(true);
     expect(embedSource.includes("function updateAutoAwaitGlyphs(")).toBe(true);
-    expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);
+    expect(layoutSource.includes('generatedAssetHrefs.generatedStyleCss')).toBe(true);
+    expect(layoutSource.includes('generatedAssetHrefs.generatedEmbedJs')).toBe(true);
     expect(layoutSource.includes('href="/cli/"')).toBe(true);
     expect(layoutSource.includes('class="brand-icon"')).toBe(true);
     expect(layoutSource.includes('src="/favicon.svg"')).toBe(true);
@@ -94,6 +95,9 @@ describe("website project", () => {
     expect(eleventyConfig.includes('./src/siteContent.mjs')).toBe(true);
     expect(eleventyConfig.includes('./src/syntaxHighlight.mjs')).toBe(true);
     expect(eleventyConfig.includes('{ "src/assets/favicon.svg": "favicon.svg" }')).toBe(true);
+    expect(eleventyConfig.includes('config.addGlobalData("generatedAssetHrefs"')).toBe(true);
+    expect(eleventyConfig.includes('src/assets/generated/vexa-embed.js')).toBe(true);
+    expect(eleventyConfig.includes('src/assets/generated/style.css')).toBe(true);
     expect(eleventyConfig.includes('config.addShortcode("year", function()')).toBe(true);
     expect(eleventyConfig.includes('config.addPairedShortcode("highlightVexaScript", function(content)')).toBe(true);
     expect(prepareScript.includes('src/generated/vexa-monarch-language.mjs')).toBe(true);

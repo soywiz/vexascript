@@ -4,7 +4,7 @@
   "description": "VS Code support for VexaScript (.vx) using the bundled VexaScript LSP",
   "version": "0.0.1",
   "publisher": "vexa",
-  "icon": "icons/vexa-file.svg",
+  "icon": "icons/vexa-file.png",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -83,7 +83,8 @@
     "bundle-client": "pnpm exec esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
     "bundle-extension": "pnpm run bundle-server && pnpm run stage-server-deps && pnpm run bundle-client",
     "package": "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexa-vscodeext.vsix",
-    "launch": "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)"
+    "launch": "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)",
+    "install": "pnpm package && code --install-extension vexa-vscodeext.vsix"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

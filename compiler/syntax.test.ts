@@ -40,7 +40,7 @@ describe("shared syntax generators", () => {
     const jsxAttributes = repository["jsx-attributes"] as { patterns: Array<Record<string, unknown>> };
 
     expect(monacoLanguage.tokenizer["root"]).toContainEqual({
-      match: String.raw`<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`,
+      match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`,
       token: "tag",
       next: "@jsx_tag",
     });
@@ -57,6 +57,26 @@ describe("shared syntax generators", () => {
       match: "([_$A-Za-z][-_:$A-Za-z0-9]*)(?=\\s*=)",
       name: "entity.other.attribute-name.vexa",
     });
+  });
+
+  it("does not treat generic type arguments as JSX in Monaco syntax", () => {
+    const monacoLanguage = createPortableMonarchLanguage();
+    const rootRules = monacoLanguage.tokenizer["root"] ?? [];
+    const jsxStartRule = rootRules.find((rule) =>
+      rule.token === "tag" && rule.next === "@jsx_tag" && rule.match.includes("<")
+    );
+    const source = "declare fun fetch(str: string): Promise<ArrayBuffer>";
+
+    expect(jsxStartRule).toBeDefined();
+
+    const jsxStartRuleMatch = jsxStartRule?.match ?? "";
+    const jsxStartRegex = new RegExp(jsxStartRuleMatch, "my");
+    jsxStartRegex.lastIndex = source.indexOf("<");
+    expect(jsxStartRegex.exec(source)).toBe(null);
+
+    const jsxSource = "return <FetchView />";
+    jsxStartRegex.lastIndex = jsxSource.indexOf("<");
+    expect(jsxStartRegex.exec(jsxSource)?.[0]).toBe("<FetchView");
   });
 
   it("renders CodeMirror legacy mode source", () => {
