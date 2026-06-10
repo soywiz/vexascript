@@ -5,17 +5,22 @@ import { cacheProgram } from "./runtime/programCache";
 
 describe("website project", () => {
   it("documents and exposes both MyLang Monaco embedding modes", async () => {
-    const [embedSource, landingPage] = await Promise.all([
+    const [embedSource, landingPage, layoutSource] = await Promise.all([
       readFile("website/src/assets/mylang-embed.ts", "utf8"),
       readFile("website/src/index.njk", "utf8"),
+      readFile("website/src/_includes/layout.njk", "utf8"),
     ]);
 
     expect(embedSource.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
     expect(embedSource.includes("createSimpleEditor")).toBe(true);
     expect(embedSource.includes("createWorkspaceEditor")).toBe(true);
+    expect(embedSource.includes("selection?: monaco.IRange")).toBe(true);
+    expect(embedSource.includes("stabilizeEditorLayout")).toBe(true);
+    expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);
     expect(landingPage.includes("MyLangEmbeds.createSimpleEditor")).toBe(true);
     expect(landingPage.includes("MyLangEmbeds.createWorkspaceEditor")).toBe(true);
-    expect(landingPage.includes("increment(): int")).toBe(true);
+    expect(landingPage.includes("const counterSnippet = `class Counter")).toBe(true);
+    expect(landingPage.includes("startLineNumber: 4")).toBe(true);
     expect(landingPage.includes("fun increment(): int")).toBe(false);
   });
 

@@ -41,12 +41,14 @@ interface SimpleEditorOptions {
   path?: string;
   readOnly?: boolean;
   height?: string;
+  selection?: monaco.IRange;
 }
 
 interface WorkspaceEditorOptions {
   files: MyLangEmbedFile[];
   activePath?: string;
   height?: string;
+  selection?: monaco.IRange;
 }
 
 let bootstrapped = false;
@@ -178,9 +180,31 @@ function setContainerHeight(container: HTMLElement, height?: string): void {
   if (height && !container.style.height) {
     container.style.height = height;
   }
+  if (!container.style.width) {
+    container.style.width = "100%";
+  }
   if (!container.style.minHeight) {
     container.style.minHeight = "320px";
   }
+}
+
+function stabilizeEditorLayout(editor: monaco.editor.IStandaloneCodeEditor): void {
+  editor.layout();
+  window.requestAnimationFrame(() => {
+    editor.layout();
+    window.requestAnimationFrame(() => editor.layout());
+  });
+}
+
+function applySelection(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  selection?: monaco.IRange
+): void {
+  if (!selection) {
+    return;
+  }
+  editor.setSelection(selection);
+  editor.revealRangeInCenter(selection);
 }
 
 function createFoldersForFiles(files: MyLangEmbedFile[]): WorkspaceEntry[] {
@@ -284,13 +308,19 @@ function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, r
     minimap: { enabled: false },
     fontSize: 14,
     lineNumbers: "on",
+    lineNumbersMinChars: 2,
+    lineDecorationsWidth: 12,
     scrollBeyondLastLine: false,
+    wordWrap: "off",
     tabSize: 4,
     insertSpaces: true,
+    renderWhitespace: "selection",
     readOnly,
+    scrollbar: { vertical: "visible", horizontal: "visible" },
     glyphMargin: true,
     lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
     "semanticHighlighting.enabled": true,
+    bracketPairColorization: { enabled: true },
   });
 }
 
@@ -302,6 +332,8 @@ function createSimpleEditor(container: HTMLElement | string, options: SimpleEdit
   const model = monaco.editor.createModel(options.content, "mylang", monaco.Uri.parse(pathToUri(path)));
   const editor = createEditor(target, model, options.readOnly ?? false);
   const disposeDiagnostics = wireDiagnostics(model);
+  applySelection(editor, options.selection);
+  stabilizeEditorLayout(editor);
   return {
     editor,
     getValue: () => model.getValue(),
@@ -358,6 +390,8 @@ function createWorkspaceEditor(container: HTMLElement | string, options: Workspa
 
   let activeModel = ensureModel(activeEntry);
   const editor = createEditor(editorHost, activeModel, false);
+  applySelection(editor, options.selection);
+  stabilizeEditorLayout(editor);
 
   const renderTabs = (): void => {
     tabBar.textContent = "";
@@ -365,6 +399,8 @@ function createWorkspaceEditor(container: HTMLElement | string, options: Workspa
       tabBar.appendChild(createTabButton(entry, activeModel.uri.toString(), (nextEntry) => {
         activeModel = ensureModel(nextEntry);
         editor.setModel(activeModel);
+        applySelection(editor, nextEntry.path === activeEntry.path ? options.selection : undefined);
+        stabilizeEditorLayout(editor);
         renderTabs();
         updateDiagnostics(activeModel);
       }));

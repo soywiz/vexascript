@@ -115,8 +115,7 @@ let name = maybeUser!.name</code></pre>
 
 <script>
   window.addEventListener("DOMContentLoaded", () => {
-    MyLangEmbeds.createSimpleEditor("#simple-editor", {
-      content: `class Counter(var value: int) {
+    const counterSnippet = `class Counter(var value: int) {
   increment(): int {
     this.value = this.value + 1
     return this.value
@@ -125,6 +124,16 @@ let name = maybeUser!.name</code></pre>
 
 let counter = Counter(41)
 counter.increment()`
+    const counterSelection = {
+      startLineNumber: 4,
+      startColumn: 5,
+      endLineNumber: 4,
+      endColumn: 22
+    }
+
+    MyLangEmbeds.createSimpleEditor("#simple-editor", {
+      content: counterSnippet,
+      selection: counterSelection
     })
 
     MyLangEmbeds.createWorkspaceEditor("#workspace-editor", {
@@ -132,20 +141,16 @@ counter.increment()`
       files: [
         {
           path: "/main.my",
-          content: `import { formatUser } from "./format.my"
-
-class User(val name: string, val score: int)
-
-let user = User("Ada", 42)
-formatUser(user.name, user.score)`
+          content: counterSnippet
         },
         {
-          path: "/format.my",
-          content: `export fun formatUser(name: string, score: int): string {
-  return $"{name} has {score} points"
-}`
+          path: "/notes.my",
+          content: `// Same snippet, same initial selection, different host shell.
+// This workspace embed exists to compare the website integration against
+// the standalone Monaco app using the exact same code sample.`
         }
-      ]
+      ],
+      selection: counterSelection
     })
   })
 </script>
