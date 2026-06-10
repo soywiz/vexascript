@@ -691,7 +691,7 @@ function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, r
     insertSpaces: true,
     renderWhitespace: "selection",
     readOnly,
-    scrollbar: { vertical: "visible", horizontal: "visible" },
+    scrollbar: { vertical: "visible", horizontal: "visible", alwaysConsumeMouseWheel: false },
     glyphMargin: true,
     lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
     "semanticHighlighting.enabled": true,

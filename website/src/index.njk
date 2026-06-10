@@ -37,9 +37,14 @@ sync fun loadMessage(user: User): string {
   <div class="grid">
     <article class="card">
       <h3>Concise declarations</h3>
-      <p>Use <code>fun</code> or <code>function</code>, <code>val</code> for read-only values, and primary-constructor class members.</p>
+      <p>Use <code>fun</code> or <code>function</code>, <code>val</code> for read-only values, and primary-constructor class members. Operator overloading and shorthand functions and properties.</p>
 {% highlightMyLang %}
 class Point(val x: number, val y: number) {
+  operator+() => this
+  operator-() => Point(-x, -y)
+  operator+(other: Point) => Point(x + other.x, y + other.y)
+  operator-(other: Point) => Point(x - other.x, y - other.y)
+  operator*(scale: number) => Point(x * scale, y * scale)
   length => Math.hypot(x, y)
 }
 {% endhighlightMyLang %}
@@ -56,6 +61,9 @@ let name = maybeUser!.name
       <h3>Sync async style</h3>
       <p><code>sync</code> await-less functions automatically await produced promises, while <code>go</code> avoids awaiting for manual orchestration.</p>
 {% highlightMyLang %}
+declare class Fetch { arrayBuffer(): Promise<ArrayBuffer> }
+declare fun fetch(str: string): Promise<Fetch>
+
 sync fun loadBytes(): Uint8Array {
   return Uint8Array(fetch('file.bin').arrayBuffer())
 }
@@ -71,24 +79,32 @@ sync fun loadBytes(): Uint8Array {
   </div>
   <div class="grid">
     <article class="card">
-      <h3>Trailing lambdas</h3>
+      <h3>Operator overloading</h3>
 {% highlightMyLang %}
-items.map { it.name }
-{% endhighlightMyLang %}
-    </article>
-    <article class="card">
-      <h3>Extension members</h3>
-{% highlightMyLang %}
-fun string.shout(): string {
-  return this.toUpperCase()
+class Vec2(val x: number, val y: number) {
+  operator+(other: Vec2) => Vec2(x + other.x, y + other.y)
+  operator-(other: Vec2) => Vec2(x - other.x, y - other.y)
 }
 {% endhighlightMyLang %}
     </article>
     <article class="card">
-      <h3>Namespaces</h3>
+      <h3>JSX with Preact</h3>
 {% highlightMyLang %}
-namespace Tools {
-  export const version = 1
+import { h } from "preact"
+
+fun Welcome(props: { name: string }) {
+  return <section>Hello {props.name}</section>
+}
+{% endhighlightMyLang %}
+    </article>
+    <article class="card">
+      <h3>Implicit property access</h3>
+{% highlightMyLang %}
+class Counter(var value: int) {
+  fun increment(): int {
+    value++
+    return value
+  }
 }
 {% endhighlightMyLang %}
     </article>
@@ -138,12 +154,30 @@ namespace Tools {
 
 <script>
   window.addEventListener("DOMContentLoaded", () => {
-    const counterSnippet = `class Counter(var value: int) {
-  increment(): int => ++value
-}
+    function dedent(strings, ...values) {
+      const raw = String.raw({ raw: strings }, ...values).replace(/^\n+/, "")
+      const lines = raw.split("\n")
+      const indents = lines
+        .filter((line) => line.trim() !== "")
+        .map((line) => line.match(/^\s*/)?.[0].length ?? 0)
+      const margin = indents.length > 0 ? Math.min(...indents) : 0
+      return lines.map((line) => line.slice(margin)).join("\n").trim()
+    }
+    const counterSnippet = dedent`
+      class Counter(var value: int) {
+        increment(): int => ++value
+      }
 
-val counter = Counter(41)
-counter.increment()`
+      val counter = Counter(41)
+      counter.increment()
+
+      declare class Fetch { arrayBuffer(): Promise<ArrayBuffer> }
+      declare fun fetch(str: string): Promise<Fetch>
+
+      sync fun loadBytes(): Uint8Array {
+        return Uint8Array(fetch('file.bin').arrayBuffer())
+      }
+    `
     const counterSelection = {
       startLineNumber: 4,
       startColumn: 5,

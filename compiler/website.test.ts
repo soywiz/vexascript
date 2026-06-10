@@ -26,6 +26,7 @@ describe("website project", () => {
     expect(embedSource.includes("editor.action.quickFix")).toBe(true);
     expect(embedSource.includes("selection?: monaco.IRange")).toBe(true);
     expect(embedSource.includes("stabilizeEditorLayout")).toBe(true);
+    expect(embedSource.includes('scrollbar: { vertical: "visible", horizontal: "visible", alwaysConsumeMouseWheel: false }')).toBe(true);
     expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);
     expect(layoutSource.includes('href="/cli/"')).toBe(true);
     expect(landingPage.includes("{% highlightMyLang %}")).toBe(true);
@@ -36,9 +37,19 @@ describe("website project", () => {
     expect(landingPage.includes('href="/cli/"')).toBe(true);
     expect(landingPage.includes("Open the CLI guide")).toBe(true);
     expect(landingPage.includes("pnpm tsx compiler/cli.ts build src/main.my --out dist/main.js --target optimized")).toBe(false);
-    expect(landingPage.includes("const counterSnippet = `class Counter")).toBe(true);
+    expect(landingPage.includes("Operator overloading")).toBe(true);
+    expect(landingPage.includes("JSX with Preact")).toBe(true);
+    expect(landingPage.includes("Implicit property access")).toBe(true);
+    expect(landingPage.includes("operator+(other: Vec2) => Vec2(x + other.x, y + other.y)")).toBe(true);
+    expect(landingPage.includes('import { h } from "preact"')).toBe(true);
+    expect(landingPage.includes("return <section>Hello {props.name}</section>")).toBe(true);
+    expect(landingPage.includes("value++")).toBe(true);
+    expect(landingPage.includes("function dedent(strings, ...values)")).toBe(true);
+    expect(landingPage.includes("String.raw({ raw: strings }, ...values)")).toBe(true);
+    expect(landingPage.includes('const counterSnippet = dedent`')).toBe(true);
     expect(landingPage.includes("startLineNumber: 4")).toBe(true);
-    expect(landingPage.includes("fun increment(): int")).toBe(false);
+    expect(landingPage.includes("fun increment(): int")).toBe(true);
+    expect(landingPage.includes('.find(str1)')).toBe(false);
     expect(syntaxPage.includes("This page renders the canonical")).toBe(false);
     expect(syntaxPage.includes('class="doc-content"')).toBe(false);
     expect(syntaxPage.includes('class="section"')).toBe(true);
@@ -82,6 +93,8 @@ describe("website project", () => {
     expect(siteCss.includes('font-size: clamp(1.6rem, 3vw, 2.4rem)')).toBe(true);
     expect(siteCss.includes('.cli-layout')).toBe(true);
     expect(siteCss.includes('.cli-command-list')).toBe(true);
+    expect(siteCss.includes('.editor-shell { overflow: visible; }')).toBe(true);
+    expect(siteCss.includes('.mylang-embed-workspace { display: grid; grid-template-rows: auto 1fr; border-radius: 1.5rem; overflow: visible; }')).toBe(true);
     expect(siteCss.includes('.token-keyword-declaration')).toBe(true);
     expect(siteCss.includes('.syntax-block')).toBe(true);
   });
