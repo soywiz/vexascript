@@ -1,7 +1,6 @@
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import type { Vfs } from "compiler/vfs";
 import { fileURLToPath } from "node:url";
-import { resolve as resolvePath } from "node:path";
 import type {
   ArrayLiteral,
   AsExpression,
@@ -62,6 +61,7 @@ import {
 } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import { compileSource } from "compiler/pipeline/compile";
+import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { readDocumentationFromProgramDeclaration } from "./documentation";
 import {
@@ -569,10 +569,6 @@ function extensionReceiverMatches(receiverType: string, objectTypeName: string):
   return receiverType === normalized || (normalized === "int" && receiverType === "number");
 }
 
-function resolveImportTargetFilePath(importerFilePath: string, importPath: string): string {
-  return resolvePath(importerFilePath.replace(/[/\\][^/\\]+$/, ""), importPath.endsWith(".my") ? importPath : `${importPath}.my`);
-}
-
 function inferExtensionReturnTypeName(
   statement: Statement,
   analysis: Analysis | null
@@ -690,7 +686,13 @@ async function collectAvailableExtensionMembers(
       continue;
     }
     const importStatement = statement as ImportStatement;
-    const targetFilePath = resolveImportTargetFilePath(currentFilePath, importStatement.from.value);
+    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value, {
+      ...(options.vfs ? { vfs: options.vfs } : {}),
+      getSessionForFilePath: options.getSessionForFilePath
+    });
+    if (!targetFilePath) {
+      continue;
+    }
     const importedSession = await options.getSessionForFilePath(targetFilePath);
     const importedAst = importedSession?.ast;
     const importedAnalysis = importedSession?.analysis ?? null;

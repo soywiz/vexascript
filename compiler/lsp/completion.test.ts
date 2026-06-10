@@ -339,6 +339,36 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toEqual(expect.arrayContaining(["second", "doubledLength"]));
   });
 
+  it("offers imported extension members from TypeScript-extension modules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-imported-ts-extension-"));
+    const durationFile = join(root, "duration.ts");
+    const consumerFile = join(root, "consumer.my");
+    const durationSource = dedent`
+      class TimeSpan(val ms: number)
+      export val number.seconds => TimeSpan(this * 1000)
+    `;
+    await writeFile(durationFile, durationSource, "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { seconds } from "./duration"
+      10.^^^
+    `);
+    await writeFile(consumerFile, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const durationSession = createAnalysisSession(durationSource);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(consumerFile).toString(),
+      getSessionForFilePath: (filePath) => filePath === durationFile
+        ? durationSession
+        : filePath === consumerFile
+          ? session
+          : null
+    });
+
+    expect(items.some((item) => item.label === "seconds" && item.detail === "Extension property: number")).toBe(true);
+  });
+
   it("offers auto-imported extension members for numeric literal member access", async () => {
     const root = await mkdtemp(join(tmpdir(), "mylang-completion-"));
     const durationFile = join(root, "duration.my");

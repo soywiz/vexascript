@@ -19,7 +19,8 @@ single `BUILTIN_TYPE_NAMES` in `compiler/analysis/types.ts`, shared
 `compiler/ast/traversal.ts`, and shared LSP quick-fix target lookup via
 `compiler/lsp/nodeSearch.ts` backed by `compiler/ast/traversal.ts`, and shared
 cross-file top-level declaration resolution via
-`compiler/lsp/declarationResolver.ts`). Future quick fixes should use
+`compiler/lsp/declarationResolver.ts`, and imported extension-member completion
+now reuses `compiler/moduleResolution.ts`). Future quick fixes should use
 `nodeSearch.ts`/`walkAst` instead of adding bespoke recursive visitors, and LSP
 features that need top-level declarations across imports/runtime/project files
 should use `declarationResolver.ts` instead of open-coding import walks. The
