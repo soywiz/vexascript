@@ -35,6 +35,7 @@ import type {
   ReturnStatement,
   Statement,
   TypeAnnotation,
+  TypeAliasStatement,
   SwitchStatement,
   ThrowStatement,
   TryStatement,
@@ -49,7 +50,16 @@ import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import type { AnalysisType } from "compiler/analysis/types";
-import { baseTypeName, parseTypeNameShape, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
+import {
+  baseTypeName,
+  findMatchingTypeDelimiter,
+  findTopLevelTypeCharacter,
+  parseTypeNameShape,
+  splitTopLevelDelimitedTypeText,
+  splitTopLevelTypeText,
+  stripEnclosingTypeParens,
+  substituteTypeNameText
+} from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import { compileSource } from "compiler/pipeline/compile";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
@@ -105,6 +115,12 @@ const CompletionItemKind = {
 
 type CompletionItemKind = (typeof CompletionItemKind)[keyof typeof CompletionItemKind];
 type InterfaceCompletionMember = {
+  name: string;
+  detail: string;
+  kind: typeof CompletionItemKind.Field | typeof CompletionItemKind.Method;
+};
+
+type TypeAliasCompletionMember = {
   name: string;
   detail: string;
   kind: typeof CompletionItemKind.Field | typeof CompletionItemKind.Method;
@@ -896,7 +912,7 @@ async function buildClassMemberCompletionItems(
 
 function buildInterfaceMemberCompletionItems(
   prefix: string,
-  resolvedMembers: InterfaceCompletionMember[]
+  resolvedMembers: Array<InterfaceCompletionMember | TypeAliasCompletionMember>
 ): CompletionItem[] {
   const items: CompletionItem[] = [];
   const seen = new Set<string>();
@@ -916,6 +932,92 @@ function buildInterfaceMemberCompletionItems(
     });
   }
   return items;
+}
+
+function typeAliasSubstitutions(
+  typeAlias: TypeAliasStatement,
+  objectTypeName: string
+): Map<string, string> {
+  const substitutions = new Map<string, string>();
+  const parsedObjectType = parseTypeNameShape(objectTypeName);
+  const declaredTypeParameters = typeAlias.typeParameters ?? [];
+  for (let i = 0; i < declaredTypeParameters.length; i += 1) {
+    const parameterName = declaredTypeParameters[i]?.name.name;
+    if (!parameterName) {
+      continue;
+    }
+    substitutions.set(parameterName, parsedObjectType.typeArguments[i] ?? parameterName);
+  }
+  return substitutions;
+}
+
+function parseObjectTypeTextMembers(
+  objectTypeText: string,
+  substitutions: Map<string, string> = new Map()
+): TypeAliasCompletionMember[] {
+  const targetTypeText = objectTypeText.trim();
+  if (!targetTypeText.startsWith("{") || !targetTypeText.endsWith("}")) {
+    return [];
+  }
+
+  const body = targetTypeText.slice(1, -1).trim();
+  if (body.length === 0) {
+    return [];
+  }
+
+  const members: TypeAliasCompletionMember[] = [];
+
+  for (const entry of splitTopLevelDelimitedTypeText(body, new Set([",", ";"]))) {
+    const trimmedEntry = entry.trim();
+    if (trimmedEntry.length === 0) {
+      continue;
+    }
+
+    const methodOpenParen = findTopLevelTypeCharacter(trimmedEntry, "(");
+    const propertyColon = findTopLevelTypeCharacter(trimmedEntry, ":");
+    if (methodOpenParen >= 0 && (propertyColon < 0 || methodOpenParen < propertyColon)) {
+      const closeParen = findMatchingTypeDelimiter(trimmedEntry, methodOpenParen, "(", ")");
+      const arrowIndex = closeParen >= 0 ? trimmedEntry.indexOf("=>", closeParen) : -1;
+      if (closeParen < 0 || arrowIndex < 0) {
+        continue;
+      }
+      const name = trimmedEntry.slice(0, methodOpenParen).trim().replace(/\?$/, "");
+      if (!name) {
+        continue;
+      }
+      members.push({
+        name,
+        kind: CompletionItemKind.Method,
+        detail: `Type alias method: ${substituteTypeNameText(trimmedEntry.slice(methodOpenParen).trim(), substitutions)}`
+      });
+      continue;
+    }
+
+    if (propertyColon < 0) {
+      continue;
+    }
+    const name = trimmedEntry.slice(0, propertyColon).trim().replace(/\?$/, "");
+    if (!name) {
+      continue;
+    }
+    members.push({
+      name,
+      kind: CompletionItemKind.Field,
+      detail: `Type alias property: ${substituteTypeNameText(trimmedEntry.slice(propertyColon + 1).trim(), substitutions)}`
+    });
+  }
+
+  return members;
+}
+
+function parseTypeAliasObjectMembers(
+  typeAlias: TypeAliasStatement,
+  objectTypeName: string
+): TypeAliasCompletionMember[] {
+  return parseObjectTypeTextMembers(
+    typeAlias.targetType.name,
+    typeAliasSubstitutions(typeAlias, objectTypeName)
+  );
 }
 
 function classResolverOptionsFromCompletionOptions(options: CompletionRequestOptions): ClassResolverOptions {
@@ -1487,9 +1589,9 @@ function inferClassNameFromAstVariableInitializer(
   return bestClassName;
 }
 
-function inferTypeNameFromAstVariableAnnotation(
+function inferTypeNameFromAstBindingAnnotation(
   ast: Program,
-  variableName: string,
+  bindingName: string,
   line: number
 ): string | null {
   let bestLine = -1;
@@ -1513,7 +1615,7 @@ function inferTypeNameFromAstVariableAnnotation(
     typeAnnotation: TypeAnnotation | undefined,
     declarationLine: number
   ): void => {
-    if (name !== variableName || declarationLine > line) {
+    if (name !== bindingName || declarationLine > line) {
       return;
     }
     const typeName = typeNameFromAnnotation(typeAnnotation);
@@ -1528,6 +1630,16 @@ function inferTypeNameFromAstVariableAnnotation(
 
   const visitStatements = (statements: Statement[]): void => {
     for (const statement of statements) {
+      if (statement.kind === "FunctionStatement") {
+        const fn = statement as FunctionStatement;
+        for (const parameter of fn.parameters) {
+          for (const identifier of bindingIdentifiers(parameter.name)) {
+            const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+            considerDeclaration(identifier.name, parameter.typeAnnotation, declarationLine);
+          }
+        }
+      }
+
       if (statement.kind === "VarStatement") {
         const varStatement = statement as VarStatement;
         if (varStatement.declarations && varStatement.declarations.length > 0) {
@@ -1582,8 +1694,21 @@ function inferTypeNameFromAstVariableAnnotation(
           visitStatements(tryStatement.finallyBlock.body);
         }
       } else if (statement.kind === "ClassStatement") {
-        for (const member of (statement as ClassStatement).members) {
+        const classStatement = statement as ClassStatement;
+        for (const parameter of classStatement.primaryConstructorParameters ?? []) {
+          for (const identifier of bindingIdentifiers(parameter.name)) {
+            const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+            considerDeclaration(identifier.name, parameter.typeAnnotation, declarationLine);
+          }
+        }
+        for (const member of classStatement.members) {
           if (member.kind === "ClassMethodMember") {
+            for (const parameter of member.parameters) {
+              for (const identifier of bindingIdentifiers(parameter.name)) {
+                const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+                considerDeclaration(identifier.name, parameter.typeAnnotation, declarationLine);
+              }
+            }
             visitStatements(member.body.body);
           }
         }
@@ -1629,7 +1754,7 @@ async function resolveTypeNameFromPath(
     if (narrowedExpressionTypeName && narrowedExpressionTypeName !== "unknown") {
       return narrowedExpressionTypeName;
     }
-    const annotatedTypeName = inferTypeNameFromAstVariableAnnotation(ast, identifierAtCursor.name, line);
+    const annotatedTypeName = inferTypeNameFromAstBindingAnnotation(ast, identifierAtCursor.name, line);
     if (annotatedTypeName) {
       return annotatedTypeName;
     }
@@ -1654,7 +1779,7 @@ async function resolveTypeNameFromPath(
       const symbol = visibleSymbols.find((candidate) => candidate.name === firstSegment);
       if (!symbol) {
         currentTypeName =
-          inferTypeNameFromAstVariableAnnotation(ast, firstSegment, line) ??
+          inferTypeNameFromAstBindingAnnotation(ast, firstSegment, line) ??
           inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
         if (!currentTypeName) {
           return null;
@@ -1668,7 +1793,7 @@ async function resolveTypeNameFromPath(
   currentTypeName = nonNullishTypeName(currentTypeName);
   if (!currentTypeName || currentTypeName === "unknown") {
     currentTypeName =
-      inferTypeNameFromAstVariableAnnotation(ast, firstSegment, line) ??
+      inferTypeNameFromAstBindingAnnotation(ast, firstSegment, line) ??
       inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
   }
   for (let index = 1; index < pathSegments.length; index += 1) {
@@ -1892,6 +2017,22 @@ async function buildMemberCompletionItemsForType(
       })
     ).then((members) => members.filter((member): member is InterfaceCompletionMember => member !== null))
     : [];
+  const typeAliasStatement = (await resolveTopLevelDeclarationAcrossFiles({
+    ast,
+    name: baseTypeName(resolvedClassName),
+    currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
+    predicate: (statement): statement is TypeAliasStatement => statement.kind === "TypeAliasStatement",
+    includeRuntime: true,
+    sourceRoots: resolverOptions.sourceRoots ?? [],
+    ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),
+    ...(resolverOptions.getSessionForFilePath
+      ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
+      : {})
+  }))?.declaration;
+  const typeAliasMembers = typeAliasStatement
+    ? parseTypeAliasObjectMembers(typeAliasStatement, resolvedClassName)
+    : [];
+  const objectTypeMembers = parseObjectTypeTextMembers(resolvedClassName);
   return [
     ...await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis),
     ...(classStatement
@@ -1912,7 +2053,11 @@ async function buildMemberCompletionItemsForType(
         )
       : interfaceStatement
         ? buildInterfaceMemberCompletionItems(prefix, interfaceMembers)
-        : [])
+        : typeAliasMembers.length > 0
+          ? buildInterfaceMemberCompletionItems(prefix, typeAliasMembers)
+          : objectTypeMembers.length > 0
+            ? buildInterfaceMemberCompletionItems(prefix, objectTypeMembers)
+          : [])
   ];
 }
 

@@ -15,6 +15,7 @@ import {
   createKeywordOnlyCompletionItems
 } from "./completion";
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
+import { getProjectIndex } from "./projectAnalysis";
 
 describe("createCompletionItemsForPosition", () => {
   it("includes in-scope variables and parameters inside function body", async () => {
@@ -992,5 +993,152 @@ describe("createCompletionItemsForPosition", () => {
     const labels = items.map((item) => item.label);
     expect(labels).toContain("helper");
     expect(labels).toContain("parse");
+  });
+
+  it("offers members from imported object type aliases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-type-alias-"));
+    const scenariosPath = join(root, "scenarios.my");
+    const mainPath = join(root, "main.my");
+    await writeFile(scenariosPath, dedent`
+      export type Scenario = {
+        label: string,
+        source: string,
+        showTree?: boolean
+      }
+    `, "utf8");
+    const first = sourceWithCursor(dedent`
+      import { Scenario } from "./scenarios.my"
+
+      function lex(source: string) {}
+
+      function summarizeScenario(scenario: Scenario): string {
+        const tokens = lex(scenario.sou^^^)
+      }
+    `);
+    await writeFile(mainPath, first.source, "utf8");
+
+    const session = createAnalysisSession(first.source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      first.line,
+      first.character,
+      session.analysis!,
+      [],
+      {
+        text: first.source,
+        uri: pathToFileURL(mainPath).href,
+        sourceRoots: [root]
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("source");
+
+    const labelPrefix = sourceWithCursor(dedent`
+      import { Scenario } from "./scenarios.my"
+
+      function summarizeScenario(scenario: Scenario): string {
+        return scenario.lab^^^
+      }
+    `);
+    await writeFile(mainPath, labelPrefix.source, "utf8");
+    const labelSession = createAnalysisSession(labelPrefix.source);
+    const labelItems = await createCompletionItemsForPosition(
+      labelSession.ast!,
+      labelPrefix.line,
+      labelPrefix.character,
+      labelSession.analysis!,
+      [],
+      {
+        text: labelPrefix.source,
+        uri: pathToFileURL(mainPath).href,
+        sourceRoots: [root]
+      }
+    );
+    const labelLabels = labelItems.map((item) => item.label);
+
+    expect(labelLabels).toContain("label");
+
+    const second = sourceWithCursor(dedent`
+      import { Scenario } from "./scenarios.my"
+
+      function summarizeScenario(scenario: Scenario): string {
+        return scenario.^^^
+      }
+    `);
+    await writeFile(mainPath, second.source, "utf8");
+    const secondSession = createAnalysisSession(second.source);
+    const secondItems = await createCompletionItemsForPosition(
+      secondSession.ast!,
+      second.line,
+      second.character,
+      secondSession.analysis!,
+      [],
+      {
+        text: second.source,
+        uri: pathToFileURL(mainPath).href,
+        sourceRoots: [root]
+      }
+    );
+    const secondLabels = secondItems.map((item) => item.label);
+
+    expect(secondLabels).toContain("label");
+    expect(secondLabels).toContain("source");
+    expect(secondLabels).toContain("showTree");
+  });
+
+  it("offers members when imported aliases are expanded to structural object types", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mylang-completion-structural-type-"));
+    const scenariosPath = join(root, "scenarios.my");
+    const mainPath = join(root, "main.my");
+    await writeFile(scenariosPath, dedent`
+      export type Scenario = {
+        label: string,
+        source: string,
+        showTree?: boolean
+      }
+    `, "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { Scenario } from "./scenarios.my"
+
+      function lex(source: string) {}
+
+      function summarizeScenario(scenario: Scenario): string {
+        const tokens = lex(scenario.lab^^^)
+      }
+    `);
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const projectIndex = getProjectIndex([root]);
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
+    });
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
+    });
+    const session = createAnalysisSession(source, externalDeclarations, importedSymbolTypes);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: pathToFileURL(mainPath).href,
+        sourceRoots: [root],
+        getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath),
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, externalDeclarations, importedSymbolTypes)
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("label");
+    expect(labels).not.toContain("Lowercase");
   });
 });

@@ -273,7 +273,7 @@ connection.onCompletion(async (params) => {
     return createKeywordOnlyCompletionItems();
   }
 
-  const session = analysisSessions.getForDocument(doc);
+  const session = await analysisSessions.getForDocumentAsync(doc);
   if (!session.ast) {
     return createKeywordOnlyCompletionItems();
   }

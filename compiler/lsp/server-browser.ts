@@ -144,10 +144,10 @@ export function startLspInWorker(): void {
     refreshDiagnostics();
   });
 
-  connection.onCompletion((params) => {
+  connection.onCompletion(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return createKeywordOnlyCompletionItems();
-    const session = analysisSessions.getForDocument(doc);
+    const session = await analysisSessions.getForDocumentAsync(doc);
     if (!session.ast) return createKeywordOnlyCompletionItems();
     const text = doc.getText();
     completionPrefixAt(text, doc.offsetAt(params.position));
