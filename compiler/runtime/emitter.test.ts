@@ -41,16 +41,16 @@ describe("emitProgram", () => {
   });
 
   it("emits constructor-only globals as constructor invocations across merged ambient interfaces", () => {
-    const program = parseFile(tokenizeReader(`
-declare interface MapConstructor {
-  new <K, V>(entries?: readonly (readonly [K, V])[] | null): Map<K, V>
-}
-declare interface MapConstructor {
-  groupBy<K, T>(items: Iterable<T>, keySelector: (item: T, index: number) => K): Map<K, T[]>
-}
-declare var Map: MapConstructor
-const counts = Map<string, number>([["one", 1]])
-`));
+    const program = parseFile(tokenizeReader(dedent`
+      declare interface MapConstructor {
+        new <K, V>(entries?: readonly (readonly [K, V])[] | null): Map<K, V>
+      }
+      declare interface MapConstructor {
+        groupBy<K, T>(items: Iterable<T>, keySelector: (item: T, index: number) => K): Map<K, T[]>
+      }
+      declare var Map: MapConstructor
+      const counts = Map<string, number>([["one", 1]])
+    `));
 
     expect(emitProgram(program)).toContain('const counts = new Map([["one", 1]]);');
   });

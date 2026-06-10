@@ -67,8 +67,7 @@ describe("lsp diagnostics", () => {
         default:
           break
       }
-      `
-    );
+    `);
 
     expect(
       diagnostics.some((diagnostic) => diagnostic.code === MYLANG_DIAGNOSTIC_CODES.DUPLICATE_SWITCH_DEFAULT)

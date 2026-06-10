@@ -18,8 +18,7 @@ describe("cross-file type diagnostics", () => {
       class Logger {
         log(value: number, text: string): int { return 0 }
       }
-      
-`;
+    `;
     const helloSource = dedent`
       import { Logger } from "./world"
       fun demo() {
@@ -29,8 +28,7 @@ describe("cross-file type diagnostics", () => {
         logger.log(1)
         logger.log(1, "ok", 2)
       }
-      
-`;
+    `;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -69,8 +67,7 @@ describe("cross-file type diagnostics", () => {
         new Point()
         Point()
       }
-      
-`,
+    `,
       "utf8"
     );
 
@@ -105,8 +102,7 @@ describe("cross-file type diagnostics", () => {
         const logger = new Logger()
         logger.log()
       }
-      
-`;
+    `;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -133,8 +129,7 @@ describe("cross-file type diagnostics", () => {
         const logger = new Logger()
         logger.log()
       }
-      
-`;
+    `;
 
     const session = createAnalysisSession(source);
     const diagnostics = await collectCrossFileTypeDiagnostics({
@@ -160,8 +155,7 @@ describe("cross-file type diagnostics", () => {
         const logger = new Logger(1)
         logger.level(10)
       }
-      
-`;
+    `;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -191,8 +185,7 @@ describe("cross-file type diagnostics", () => {
         logger.log(1, 2, 3)
         logger.log(1, "bad")
       }
-      
-`;
+    `;
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");

@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { sourceWithCursor } from "./test/sourceWithCursor";
 import { MylangMcpCodebaseServer } from "./mcpServer";
+import dedent from "compiler/utils/dedent";
 
 function textPayload(result: { content: Array<{ type: "text"; text: string }> }): unknown {
   return JSON.parse(result.content[0]!.text) as unknown;
@@ -36,7 +37,7 @@ describe("MCP codebase navigation server", () => {
   it("explores symbols and signatures in a workspace", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-mcp-"));
     const main = join(dir, "main.my");
-    const { source, line, character } = sourceWithCursor(`
+    const { source, line, character } = sourceWithCursor(dedent`
       fun add(left: int, right: int): int {
         return left + right
       }
@@ -63,7 +64,7 @@ describe("MCP codebase navigation server", () => {
   it("returns and applies rename edits", async () => {
     const dir = await mkdtemp(join(tmpdir(), "mylang-mcp-rename-"));
     const main = join(dir, "main.my");
-    const { source, line, character } = sourceWithCursor(`
+    const { source, line, character } = sourceWithCursor(dedent`
       fun greet(name: string): string {
         return name
       }

@@ -2,11 +2,12 @@ import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import { bindingIdentifiers } from "../ast/bindingPatterns";
 import { parseSource } from "../pipeline/parse";
+import dedent from "compiler/utils/dedent";
 import { declarationIndexForStatements } from "./declarationIndex";
 
 describe("declarationIndex", () => {
   it("indexes top-level declarations in one pass and caches by statement array", () => {
-    const source = `
+    const source = dedent`
       export interface TopLevel { value: string }
       export class Box {}
       export type Alias = string
