@@ -24,7 +24,8 @@
     "source-map": "^0.7.6",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12",
-    "esbuild": "^0.21.5"
+    "esbuild": "^0.21.5",
+    "markdown-it": "^14.2.0"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

@@ -1,10 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { createRequire } from "node:module";
+import MarkdownIt from "markdown-it";
 import { renderHighlightedCodeBlock } from "./syntaxHighlight.mjs";
-
-const require = createRequire(import.meta.url);
-const MarkdownIt = require("../node_modules/.pnpm/markdown-it@14.2.0/node_modules/markdown-it/dist/index.cjs.js");
 
 const markdown = new MarkdownIt({
   html: false,
