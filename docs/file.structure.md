@@ -83,6 +83,7 @@ This section is the fast onboarding map for agents and contributors.
   - Compile phase tests: `compiler/pipeline/compile.test.ts`
 - CLI:
   - CLI entrypoint and commands: `compiler/cli.ts`
+  - Shared root-package compiler version loader used by the CLI and MCP server so `package.json` stays the source of truth: `compiler/compilerVersion.ts`
   - CLI tests: `compiler/cli.test.ts`
   - `test` command delegates test-file discovery and helper injection to `compiler/runtime/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
@@ -112,7 +113,7 @@ This section is the fast onboarding map for agents and contributors.
   - Monaco package manifest and Vite config: `plugins/monaco/package.json`, `plugins/monaco/vite.config.ts`
 - LSP server and features:
   - Server entrypoint: `compiler/lsp/server.ts`
-  - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, and rename operations to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
+  - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`
   - Completion, including member/extension completion over imports resolved through the shared module resolver: `compiler/lsp/completion.ts`

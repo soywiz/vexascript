@@ -8,6 +8,7 @@ type RootPackageJson = {
 };
 
 type VscodePackageJson = {
+  icon?: string;
   license?: string;
   repository?: { type?: string; url?: string };
   files?: string[];
@@ -30,6 +31,7 @@ describe("VS Code extension packaging", () => {
     const packageJsonPath = resolve(process.cwd(), "plugins", "vscode", "package.json");
     const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as VscodePackageJson;
 
+    expect(pkg.icon).toBe("icons/vexa-file.svg");
     expect(pkg.license).toBe("Apache-2.0");
     expect(pkg.repository).toEqual({
       type: "git",

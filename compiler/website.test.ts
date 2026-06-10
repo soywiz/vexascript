@@ -35,6 +35,8 @@ describe("website project", () => {
     expect(embedSource.includes("function updateAutoAwaitGlyphs(")).toBe(true);
     expect(layoutSource.includes('/assets/generated/style.css')).toBe(true);
     expect(layoutSource.includes('href="/cli/"')).toBe(true);
+    expect(layoutSource.includes('class="brand-icon"')).toBe(true);
+    expect(layoutSource.includes('src="/favicon.svg"')).toBe(true);
     expect(landingPage.includes("{% highlightVexaScript %}")).toBe(true);
     expect(landingPage.includes("VexaScriptEmbeds.createSimpleEditor")).toBe(true);
     expect(landingPage.includes("VexaScriptEmbeds.createWorkspaceEditor")).toBe(true);
@@ -65,8 +67,10 @@ describe("website project", () => {
   });
 
   it("keeps the website build wired through Vite and 11ty after preparing the compiler bundle", async () => {
-    const [buildScript, packageJsonText, eleventyConfig, syntaxHighlighter, faviconExists] = await Promise.all([
+    const [buildScript, devScript, prepareScript, packageJsonText, eleventyConfig, syntaxHighlighter, faviconExists] = await Promise.all([
       readFile("website/scripts/build.ts", "utf8"),
+      readFile("website/scripts/dev.ts", "utf8"),
+      readFile("website/scripts/prepare.ts", "utf8"),
       readFile("website/package.json", "utf8"),
       readFile("website/eleventy.config.mjs", "utf8"),
       readFile("website/src/syntaxHighlight.mjs", "utf8"),
@@ -75,11 +79,12 @@ describe("website project", () => {
     const packageJson = JSON.parse(packageJsonText) as { scripts?: Record<string, string> };
 
     expect(packageJson.scripts?.["build"]).toBe("tsx scripts/build.ts");
+    expect(packageJson.scripts?.["dev"]).toBe("tsx scripts/dev.ts");
     expect(buildScript.includes("ensureCompilerBundle")).toBe(true);
     expect(buildScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
-    expect(buildScript.includes("createPortableMonarchLanguage")).toBe(true);
-    expect(buildScript.includes("VEXA_PRIMITIVE_TYPES")).toBe(true);
-    expect(buildScript.includes("mkdir(dirname(generatedSyntaxModulePath), { recursive: true })")).toBe(true);
+    expect(devScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
+    expect(devScript.includes("websiteRoot")).toBe(true);
+    expect(devScript.includes('eleventy')).toBe(true);
     expect(buildScript.includes("eleventy")).toBe(true);
     expect(buildScript.includes("vite")).toBe(true);
     expect(eleventyConfig.includes('./src/siteContent.mjs')).toBe(true);
@@ -87,9 +92,9 @@ describe("website project", () => {
     expect(eleventyConfig.includes('{ "src/assets/favicon.svg": "favicon.svg" }')).toBe(true);
     expect(eleventyConfig.includes('config.addShortcode("year", function()')).toBe(true);
     expect(eleventyConfig.includes('config.addPairedShortcode("highlightVexaScript", function(content)')).toBe(true);
-    expect(buildScript.includes('src/generated/vexa-monarch-language.mjs')).toBe(true);
-    expect(buildScript.includes("export const vexaPortableLanguage =")).toBe(true);
-    expect(buildScript.includes("export const vexaPrimitiveTypes =")).toBe(true);
+    expect(prepareScript.includes('src/generated/vexa-monarch-language.mjs')).toBe(true);
+    expect(prepareScript.includes("export const vexaPortableLanguage =")).toBe(true);
+    expect(prepareScript.includes("export const vexaPrimitiveTypes =")).toBe(true);
     expect(syntaxHighlighter.includes("vexaPrimitiveTypes")).toBe(true);
     expect(faviconExists).toBe(true);
   });
@@ -105,6 +110,7 @@ describe("website project", () => {
     expect(siteCss.includes('.section > h2')).toBe(true);
     expect(siteCss.includes('font-size: clamp(1.6rem, 3vw, 2.4rem)')).toBe(true);
     expect(siteCss.includes('.cli-layout')).toBe(true);
+    expect(siteCss.includes('.brand-icon')).toBe(true);
     expect(siteCss.includes('.cli-command-list')).toBe(true);
     expect(siteCss.includes('.editor-shell { overflow: visible; }')).toBe(true);
     expect(siteCss.includes('.vexa-embed-workspace { display: grid; grid-template-rows: auto 1fr; border-radius: 1.5rem; overflow: visible; }')).toBe(true);

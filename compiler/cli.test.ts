@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, it } from "node:test";
 import { expect, vi } from "./test/expect";
 import { ensureLspTransportArg, runCli } from "./cli";
+import { COMPILER_VERSION } from "./compilerVersion";
 
 describe("CLI", () => {
   afterEach(() => {
@@ -262,6 +263,17 @@ describe("CLI", () => {
     const output = String(logSpy.mock.calls[0]?.[0] ?? "");
     expect(output).toContain("export const vexaMonacoSyntax =");
     expect(output).toContain("\"defaultToken\"");
+  });
+
+  it("reports the compiler version from the root package.json", async () => {
+    const stdoutWriteSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((...args: unknown[]) => {
+      throw new Error(`process.exit:${typeof args[0] === "number" ? args[0] : 0}`);
+    });
+    await expect(runCli(["node", "vexa", "--version"])).rejects.toThrow(`process.exit:0`);
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(stdoutWriteSpy.mock.calls.some((call) => String(call[0] ?? "").includes(COMPILER_VERSION))).toBe(true);
   });
 
   it("syntax command prints VS Code grammar JSON", async () => {

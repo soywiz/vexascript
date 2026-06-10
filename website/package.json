@@ -7,7 +7,7 @@
     "build": "tsx scripts/build.ts",
     "build:site": "eleventy --config eleventy.config.mjs",
     "build:embeds": "vite build --config vite.config.ts",
-    "dev": "eleventy --serve --config eleventy.config.mjs --watch",
+    "dev": "tsx scripts/dev.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -4,6 +4,7 @@
   "description": "VS Code support for VexaScript (.vx) using the bundled VexaScript LSP",
   "version": "0.0.1",
   "publisher": "vexa",
+  "icon": "icons/vexa-file.svg",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

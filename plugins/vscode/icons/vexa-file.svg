@@ -1,28 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="vexa-file-bg" x1="10" y1="6" x2="54" y2="60" gradientUnits="userSpaceOnUse">
+    <linearGradient id="vexa-favicon-bg" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#14b8a6" />
-      <stop offset="100%" stop-color="#0f766e" />
-    </linearGradient>
-    <linearGradient id="vexa-file-accent" x1="18" y1="20" x2="46" y2="46"
-      gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#f8fafc" />
-      <stop offset="100%" stop-color="#cbd5e1" />
+      <stop offset="100%" stop-color="#115e59" />
     </linearGradient>
   </defs>
-  <path d="M16 4h22l10 10v38a8 8 0 0 1-8 8H16a8 8 0 0 1-8-8V12a8 8 0 0 1 8-8Z"
-    fill="url(#vexa-file-bg)" />
-  <path d="M38 4v10h10" fill="#ecfeff" fill-opacity="0.45" />
-  <g transform="translate(-4, 0)">
-    <path d="M18 18h28" stroke="#99f6e4" stroke-opacity="0.45" stroke-width="2"
-      stroke-linecap="round" />
-    <path d="M18 47h28" stroke="#99f6e4" stroke-opacity="0.4" stroke-width="2"
-      stroke-linecap="round" />
-    <g transform="translate(-6, 0)">
-      <path d="M20 22h6l6 16 6-16h6l-9 20h-6Z" fill="url(#vexa-file-accent)" />
-    </g>
-    <g transform="translate(10, 0)">
-  <path d="M22 42l6-8-6-8h5l4 6 4-6h5l-6 8 6 8h-5l-4-6-4 6Z" fill="#ecfeff" />
-    </g>
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#vexa-favicon-bg)" />
+  <g transform="translate(-6, 0)">
+    <path d="M16 18h8l8 21 8-21h8L36 46h-8Z" fill="#f8fafc" />
+  </g>
+  <g transform="translate(13, 0)">
+    <path d="M18 46l8-10-8-10h7l5 7 5-7h7l-8 10 8 10h-7l-5-7-5 7Z" fill="#ccfbf1" />
   </g>
 </svg>

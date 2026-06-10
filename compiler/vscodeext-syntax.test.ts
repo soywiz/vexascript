@@ -5,6 +5,7 @@ import { expect } from "./test/expect";
 import { fileExists } from "./utils/fs";
 
 type VscodeExtPackage = {
+  icon?: string;
   contributes?: {
     languages?: Array<{
       id?: string;
@@ -22,6 +23,7 @@ describe("VS Code extension syntax highlighting", () => {
     const packageJsonPath = resolve(extRoot, "package.json");
     const pkg = JSON.parse(await readFile(packageJsonPath, "utf8")) as VscodeExtPackage;
 
+    expect(pkg.icon).toBe("icons/vexa-file.svg");
     const language = pkg.contributes?.languages?.find((item) => item.id === "vexa");
     expect(language).toBeDefined();
     expect(language?.configuration).toBe("./language-configuration.json");

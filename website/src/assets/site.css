@@ -25,7 +25,26 @@ a { color: #5b45ff; }
   border-bottom: 1px solid rgba(26, 34, 64, 0.08);
 }
 
-.brand { font-weight: 800; letter-spacing: -0.04em; color: #172033; text-decoration: none; font-size: 1.35rem; }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #172033;
+  text-decoration: none;
+  font-size: 1.35rem;
+}
+
+.brand-icon {
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 auto;
+}
+
+.brand span {
+  display: inline-block;
+}
 .nav { display: flex; flex-wrap: wrap; gap: 1rem; }
 .nav a { color: #4f5872; text-decoration: none; font-weight: 650; }
 .nav a:hover { color: #5b45ff; }

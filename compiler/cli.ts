@@ -13,6 +13,7 @@ import { loadProject, type VexaProject } from "./project";
 import { ensureDependencies } from "./deps";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
 import { runMcpServer } from "./mcpServer";
+import { COMPILER_VERSION } from "./compilerVersion";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
@@ -366,8 +367,8 @@ async function printSyntax(opts: {
 function createProgram(): Command {
   const program = new Command()
     .name(LANGUAGE_CLI_BIN)
-    .description("VexaScript compiler CLI - Soywiz Software 2026")
-    .version("0.1.0");
+    .description(`VexaScript compiler CLI - ${COMPILER_VERSION} - Soywiz Software 2026`)
+    .version(COMPILER_VERSION);
 
   program
     .command("lsp")

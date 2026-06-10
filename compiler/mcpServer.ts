@@ -10,6 +10,7 @@ import { pathToUri, uriToFilePath } from "./lsp/importFixes";
 import { resolveDefinitionAcrossFiles, resolveReferencesAcrossFiles, resolveRenameAcrossFiles } from "./lsp/crossFileNavigation";
 import { createSignatureHelp } from "./lsp/signatureHelp";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./lsp/symbols";
+import { COMPILER_VERSION } from "./compilerVersion";
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -310,7 +311,15 @@ export class VexaMcpCodebaseServer {
     }
     try {
       if (request.method === "initialize") {
-        return { jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "vexa", version: "0.1.0" } } };
+        return {
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            protocolVersion: "2024-11-05",
+            capabilities: { tools: {} },
+            serverInfo: { name: "vexa", version: COMPILER_VERSION }
+          }
+        };
       }
       if (request.method === "tools/list") {
         return { jsonrpc: "2.0", id: request.id, result: { tools: this.tools() } };
@@ -345,4 +354,3 @@ export async function runMcpServer(options: { input?: Readable; output?: Writabl
     }
   }
 }
-

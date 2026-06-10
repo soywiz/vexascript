@@ -3,6 +3,7 @@
   "version": "0.9.0",
   "private": true,
   "description": "Node.js CLI project for VexaScript, a TypeScript-like language with compiler and language server",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "vexa": "dist/vexa.js"
@@ -18,7 +19,9 @@
     "vscodeext:package": "pnpm --dir plugins/vscode run package",
     "vscodeext:launch": "pnpm --dir plugins/vscode run launch",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
-    "monaco": "pnpm --dir plugins/monaco monaco"
+    "monaco": "pnpm --dir plugins/monaco monaco",
+    "website:build": "pnpm --dir website build",
+    "website": "pnpm --dir website dev"
   },
   "dependencies": {
     "commander": "^13.1.0",

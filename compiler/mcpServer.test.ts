@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { sourceWithCursor } from "./test/sourceWithCursor";
 import { VexaMcpCodebaseServer } from "./mcpServer";
+import { COMPILER_VERSION } from "./compilerVersion";
 import dedent from "compiler/utils/dedent";
 
 function textPayload(result: { content: Array<{ type: "text"; text: string }> }): unknown {
@@ -30,6 +31,23 @@ describe("MCP codebase navigation server", () => {
           { name: "vexa_signature_help" },
           { name: "vexa_rename" }
         ]
+      }
+    });
+  });
+
+  it("reports the compiler version from the root package.json during initialize", async () => {
+    const server = new VexaMcpCodebaseServer();
+
+    const response = await server.handleRequest({ jsonrpc: "2.0", id: 1, method: "initialize" });
+
+    expect(response).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        serverInfo: {
+          name: "vexa",
+          version: COMPILER_VERSION
+        }
       }
     });
   });
