@@ -1,8 +1,19 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadSyntaxDocument, renderMarkdownDocument } from "./src/siteContent.ts";
+
+const configDirectory = dirname(fileURLToPath(import.meta.url));
+const projectRoot = resolve(configDirectory, "..");
+
 export default function eleventyConfig(config) {
   config.addPassthroughCopy({ "src/assets/generated": "assets/generated" });
   config.addPassthroughCopy({ "src/assets/site.css": "assets/site.css" });
 
   config.addShortcode("year", () => String(new Date().getUTCFullYear()));
+  config.addGlobalData("syntaxDocumentHtml", async () => {
+    const syntaxDocument = await loadSyntaxDocument(projectRoot);
+    return renderMarkdownDocument(syntaxDocument);
+  });
 
   return {
     dir: {
