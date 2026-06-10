@@ -183,6 +183,11 @@ export interface ParseRecoveryMarker {
     recoveryHint?: RecoveryHint;
 }
 
+interface TokenCheckpoint {
+    offset: number;
+    mutatedTokens: Map<number, Token>;
+}
+
 const RECOVERY_MARKERS_SYMBOL: unique symbol = Symbol("mylang.parseRecoveryMarkers");
 
 export class ParseError extends Error {
@@ -206,6 +211,7 @@ export class Parser {
      */
     public readonly jsx: boolean;
     private readonly recoveryMarkers: ParseRecoveryMarker[] = [];
+    private readonly tokenCheckpoints: TokenCheckpoint[] = [];
 
     constructor(public tokens: ListReader<Token>, options: ParserOptions = {}) {
         this.language = options.language ?? "mylang";
@@ -772,6 +778,43 @@ export class Parser {
         );
     }
 
+    private beginTokenCheckpoint(): TokenCheckpoint {
+        const checkpoint: TokenCheckpoint = {
+            offset: this.tokens.offset,
+            mutatedTokens: new Map()
+        };
+        this.tokenCheckpoints.push(checkpoint);
+        return checkpoint;
+    }
+
+    private restoreTokenCheckpoint(checkpoint: TokenCheckpoint): void {
+        this.tokens.offset = checkpoint.offset;
+        for (const [index, token] of checkpoint.mutatedTokens) {
+            this.tokens.items[index] = token;
+        }
+        if (this.tokenCheckpoints[this.tokenCheckpoints.length - 1] === checkpoint) {
+            this.tokenCheckpoints.pop();
+        }
+    }
+
+    private commitTokenCheckpoint(checkpoint: TokenCheckpoint): void {
+        if (this.tokenCheckpoints[this.tokenCheckpoints.length - 1] === checkpoint) {
+            this.tokenCheckpoints.pop();
+        }
+    }
+
+    private recordTokenMutation(index: number): void {
+        const token = this.tokens.items[index];
+        if (!token) {
+            return;
+        }
+        for (const checkpoint of this.tokenCheckpoints) {
+            if (!checkpoint.mutatedTokens.has(index)) {
+                checkpoint.mutatedTokens.set(index, token);
+            }
+        }
+    }
+
     private consumeGenericCloseAngle(): boolean {
         const token = this.tokens.peek();
         if (token?.type !== "symbol" || ![">", ">>", ">>>"].includes(token.value)) {
@@ -783,6 +826,7 @@ export class Parser {
             return true;
         }
 
+        this.recordTokenMutation(this.tokens.offset);
         this.tokens.items[this.tokens.offset] = {
             ...token,
             value: token.value.slice(1),
@@ -2917,10 +2961,10 @@ export class Parser {
     }
 
     private tryParseAngleBracketTypeAssertion(): AsExpression | null {
-        const startOffset = this.tokens.offset;
-        const startItems = this.tokens.items.slice();
+        const checkpoint = this.beginTokenCheckpoint();
         const open = this.tokens.peek();
         if (!(open?.type === "symbol" && open.value === "<")) {
+            this.commitTokenCheckpoint(checkpoint);
             return null;
         }
 
@@ -2928,19 +2972,18 @@ export class Parser {
         try {
             const typeAnnotation = this.parseTypeAnnotationNode();
             if (!this.consumeGenericCloseAngle()) {
-                this.tokens.offset = startOffset;
-                this.tokens.items = startItems;
+                this.restoreTokenCheckpoint(checkpoint);
                 return null;
             }
             const expression = this.parseUnary();
+            this.commitTokenCheckpoint(checkpoint);
             return this.attachNodeBounds({
                 kind: "AsExpression",
                 expression,
                 typeAnnotation
             } as AsExpression, open, expression.lastToken ?? this.getLastReadToken() ?? open);
         } catch (error) {
-            this.tokens.offset = startOffset;
-            this.tokens.items = startItems;
+            this.restoreTokenCheckpoint(checkpoint);
             if (error instanceof ParseError) {
                 return null;
             }
@@ -3183,10 +3226,10 @@ export class Parser {
      * the token position) when the lookahead does not match.
      */
     private tryParseReceiverTypeArguments(): Identifier[] | null {
-        const startOffset = this.tokens.offset;
-        const startItems = this.tokens.items.slice();
+        const checkpoint = this.beginTokenCheckpoint();
         const open = this.tokens.peek();
         if (!(open?.type === "symbol" && open.value === "<")) {
+            this.commitTokenCheckpoint(checkpoint);
             return null;
         }
 
@@ -3203,13 +3246,11 @@ export class Parser {
                 if (this.consumeGenericCloseAngle()) {
                     break;
                 }
-                this.tokens.offset = startOffset;
-                this.tokens.items = startItems;
+                this.restoreTokenCheckpoint(checkpoint);
                 return null;
             }
         } catch (error) {
-            this.tokens.offset = startOffset;
-            this.tokens.items = startItems;
+            this.restoreTokenCheckpoint(checkpoint);
             if (error instanceof ParseError) {
                 return null;
             }
@@ -3218,19 +3259,19 @@ export class Parser {
 
         const next = this.tokens.peek();
         if (!(next?.type === "symbol" && next.value === ".")) {
-            this.tokens.offset = startOffset;
-            this.tokens.items = startItems;
+            this.restoreTokenCheckpoint(checkpoint);
             return null;
         }
 
+        this.commitTokenCheckpoint(checkpoint);
         return typeArguments;
     }
 
     private tryParseInvocationTypeArguments(): Identifier[] | null {
-        const startOffset = this.tokens.offset;
-        const startItems = this.tokens.items.slice();
+        const checkpoint = this.beginTokenCheckpoint();
         const open = this.tokens.peek();
         if (!(open?.type === "symbol" && open.value === "<")) {
+            this.commitTokenCheckpoint(checkpoint);
             return null;
         }
 
@@ -3249,13 +3290,11 @@ export class Parser {
                 if (this.consumeGenericCloseAngle()) {
                     break;
                 }
-                this.tokens.offset = startOffset;
-                this.tokens.items = startItems;
+                this.restoreTokenCheckpoint(checkpoint);
                 return null;
             }
         } catch (error) {
-            this.tokens.offset = startOffset;
-            this.tokens.items = startItems;
+            this.restoreTokenCheckpoint(checkpoint);
             if (error instanceof ParseError) {
                 return null;
             }
@@ -3264,11 +3303,11 @@ export class Parser {
 
         const next = this.tokens.peek();
         if (!(next?.type === "symbol" && next.value === "(")) {
-            this.tokens.offset = startOffset;
-            this.tokens.items = startItems;
+            this.restoreTokenCheckpoint(checkpoint);
             return null;
         }
 
+        this.commitTokenCheckpoint(checkpoint);
         return typeArguments;
     }
 
@@ -3364,16 +3403,15 @@ export class Parser {
         name: Identifier;
         typeAnnotation?: Identifier;
     } | null {
-        const startOffset = this.tokens.offset;
-        const startItems = this.tokens.items.slice();
+        const checkpoint = this.beginTokenCheckpoint();
         const restore = (): null => {
-            this.tokens.offset = startOffset;
-            this.tokens.items = startItems;
+            this.restoreTokenCheckpoint(checkpoint);
             return null;
         };
 
         const receiverToken = this.tokens.peek();
         if (receiverToken?.type !== "identifier") {
+            this.commitTokenCheckpoint(checkpoint);
             return null;
         }
         this.tokens.skip();
@@ -3417,6 +3455,7 @@ export class Parser {
         }
         this.tokens.skip();
 
+        this.commitTokenCheckpoint(checkpoint);
         return {
             receiverType: this.buildIdentifierFromToken(receiverToken),
             ...(receiverTypeArguments ? { receiverTypeArguments } : {}),

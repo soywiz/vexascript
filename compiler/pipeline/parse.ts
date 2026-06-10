@@ -19,7 +19,7 @@ export function parseSource(source: string, options: ParserOptions = {}): ParseA
     const ast = parser.parseFile();
     return {
       ast,
-      parserIssues: [...parser.errors],
+      parserIssues: parser.errors,
       tokenizeError: null,
       fatalError: null
     };

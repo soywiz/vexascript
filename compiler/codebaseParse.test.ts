@@ -21,36 +21,41 @@ async function collectTypeScriptFiles(rootDir: string): Promise<string[]> {
   return files.sort();
 }
 
+let compilerTypeScriptFilesPromise: Promise<string[]> | undefined;
+
+async function compilerTypeScriptFiles(): Promise<string[]> {
+  compilerTypeScriptFilesPromise ??= collectTypeScriptFiles(join(process.cwd(), "compiler"));
+  return compilerTypeScriptFilesPromise;
+}
+
 describe("Parse compiler codebase", () => {
   const expectedStrictFailures = [
     "compiler/runtime/dom.d.ts: Expected ';', newline, or '}' between statements @ 8454:20 | Expected a number literal, string literal, identifier, '(', '[' or '{' @ 8455:0 | Expected ';', newline, or end of file between statements @ 39166:33 | Expected ';', newline, or end of file between statements @ 39167:45 | Expected ';', newline, or end of file between statements @ 39168:33 | Expected ';', newline, or end of file between statements @ 39222:49 | Expected ';', newline, or end of file between statements @ 39223:47"
   ];
 
   it("discovers every TypeScript file under compiler/ for parser profiling", async () => {
-    const compilerRoot = join(process.cwd(), "compiler");
-    const files = await collectTypeScriptFiles(compilerRoot);
+    const files = await compilerTypeScriptFiles();
 
     expect(files.length > 0).toBe(true);
     expect(files.every((filePath) => filePath.endsWith(".ts"))).toBe(true);
   });
 
   it("parses the compiler codebase in typescript mode, except for the tracked compatibility gaps", async () => {
-    const compilerRoot = join(process.cwd(), "compiler");
-    const files = await collectTypeScriptFiles(compilerRoot);
+    const cwdPrefix = `${process.cwd()}/`;
+    const files = await compilerTypeScriptFiles();
     const failures: string[] = [];
     let parsedFileCount = 0;
 
     for (const filePath of files) {
       const source = await readFile(filePath, "utf8");
       const parsed = parseSource(source, { language: "typescript", jsx: filePath.endsWith(".tsx") });
-      const messages = [
-        ...parsed.parserIssues.map((issue) => `${issue.message} @ ${issue.token?.range.start.line}:${issue.token?.range.start.column}`),
-        ...(parsed.tokenizeError ? [`${parsed.tokenizeError.message} @ ${parsed.tokenizeError.range.start.line}:${parsed.tokenizeError.range.start.column}`] : []),
-        ...(parsed.fatalError ? [parsed.fatalError] : [])
-      ];
-
-      if (!parsed.ast || messages.length > 0) {
-        failures.push(`${filePath.replace(`${process.cwd()}/`, "")}: ${messages.join(" | ") || "missing AST"}`);
+      if (!parsed.ast || parsed.parserIssues.length > 0 || parsed.tokenizeError || parsed.fatalError) {
+        const messages = [
+          ...parsed.parserIssues.map((issue) => `${issue.message} @ ${issue.token?.range.start.line}:${issue.token?.range.start.column}`),
+          ...(parsed.tokenizeError ? [`${parsed.tokenizeError.message} @ ${parsed.tokenizeError.range.start.line}:${parsed.tokenizeError.range.start.column}`] : []),
+          ...(parsed.fatalError ? [parsed.fatalError] : [])
+        ];
+        failures.push(`${filePath.replace(cwdPrefix, "")}: ${messages.join(" | ") || "missing AST"}`);
         continue;
       }
 
