@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="vexa-favicon-bg" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#14b8a6" />
+      <stop offset="100%" stop-color="#115e59" />
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#vexa-favicon-bg)" />
+  <g transform="translate(-6, 0)">
+  <path d="M16 18h8l8 21 8-21h8L36 46h-8Z" fill="#f8fafc" />
+  </g>
+  <g transform="translate(13, 0)">
+  <path d="M18 46l8-10-8-10h7l5 7 5-7h7l-8 10 8 10h-7l-5-7-5 7Z" fill="#ccfbf1" />
+  </g>
+</svg>

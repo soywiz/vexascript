@@ -1,14 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f766e" />
-      <stop offset="100%" stop-color="#155e75" />
+    <linearGradient id="vexa-file-bg" x1="10" y1="6" x2="54" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#14b8a6" />
+      <stop offset="100%" stop-color="#0f766e" />
+    </linearGradient>
+    <linearGradient id="vexa-file-accent" x1="18" y1="20" x2="46" y2="46"
+      gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#cbd5e1" />
     </linearGradient>
   </defs>
-  <rect x="8" y="4" width="48" height="56" rx="8" fill="url(#bg)" />
-  <path d="M44 4v14h12" fill="#ffffff" fill-opacity="0.35" />
-  <path d="M24 22h5l5 9 5-9h5l-8 14v8h-4v-8z" fill="#ffffff" />
-  <circle cx="20" cy="47" r="3" fill="#ffffff" fill-opacity="0.85" />
-  <circle cx="32" cy="47" r="3" fill="#ffffff" fill-opacity="0.85" />
-  <circle cx="44" cy="47" r="3" fill="#ffffff" fill-opacity="0.85" />
+  <path d="M16 4h22l10 10v38a8 8 0 0 1-8 8H16a8 8 0 0 1-8-8V12a8 8 0 0 1 8-8Z"
+    fill="url(#vexa-file-bg)" />
+  <path d="M38 4v10h10" fill="#ecfeff" fill-opacity="0.45" />
+  <g transform="translate(-4, 0)">
+    <path d="M18 18h28" stroke="#99f6e4" stroke-opacity="0.45" stroke-width="2"
+      stroke-linecap="round" />
+    <path d="M18 47h28" stroke="#99f6e4" stroke-opacity="0.4" stroke-width="2"
+      stroke-linecap="round" />
+    <g transform="translate(-6, 0)">
+      <path d="M20 22h6l6 16 6-16h6l-9 20h-6Z" fill="url(#vexa-file-accent)" />
+    </g>
+    <g transform="translate(10, 0)">
+  <path d="M22 42l6-8-6-8h5l4 6 4-6h5l-6 8 6 8h-5l-4-6-4 6Z" fill="#ecfeff" />
+    </g>
+  </g>
 </svg>

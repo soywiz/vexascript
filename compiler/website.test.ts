@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { cacheProgram } from "./runtime/programCache";
+import { fileExists } from "./utils/fs";
 
 describe("website project", () => {
   it("documents and exposes both VexaScript Monaco embedding modes", async () => {
@@ -63,12 +65,13 @@ describe("website project", () => {
   });
 
   it("keeps the website build wired through Vite and 11ty after preparing the compiler bundle", async () => {
-    const [buildScript, packageJsonText, eleventyConfig, generatedSyntaxModule, syntaxHighlighter] = await Promise.all([
+    const [buildScript, packageJsonText, eleventyConfig, generatedSyntaxModule, syntaxHighlighter, faviconExists] = await Promise.all([
       readFile("website/scripts/build.ts", "utf8"),
       readFile("website/package.json", "utf8"),
       readFile("website/eleventy.config.mjs", "utf8"),
       readFile("website/src/generated/vexa-monarch-language.mjs", "utf8"),
       readFile("website/src/syntaxHighlight.mjs", "utf8"),
+      fileExists(resolve(process.cwd(), "website", "src", "assets", "favicon.svg")),
     ]);
     const packageJson = JSON.parse(packageJsonText) as { scripts?: Record<string, string> };
 
@@ -82,15 +85,20 @@ describe("website project", () => {
     expect(buildScript.includes("vite")).toBe(true);
     expect(eleventyConfig.includes('./src/siteContent.mjs')).toBe(true);
     expect(eleventyConfig.includes('./src/syntaxHighlight.mjs')).toBe(true);
+    expect(eleventyConfig.includes('{ "src/assets/favicon.svg": "favicon.svg" }')).toBe(true);
     expect(eleventyConfig.includes('config.addShortcode("year", function()')).toBe(true);
     expect(eleventyConfig.includes('config.addPairedShortcode("highlightVexaScript", function(content)')).toBe(true);
     expect(generatedSyntaxModule.includes("export const vexaPortableLanguage =")).toBe(true);
     expect(generatedSyntaxModule.includes("export const vexaPrimitiveTypes =")).toBe(true);
     expect(syntaxHighlighter.includes("vexaPrimitiveTypes")).toBe(true);
+    expect(faviconExists).toBe(true);
   });
 
   it("keeps embedded syntax pages using toned-down top-level heading sizes", async () => {
-    const siteCss = await readFile("website/src/assets/site.css", "utf8");
+    const [siteCss, layoutSource] = await Promise.all([
+      readFile("website/src/assets/site.css", "utf8"),
+      readFile("website/src/_includes/layout.njk", "utf8"),
+    ]);
 
     expect(siteCss.includes('.section > h1')).toBe(true);
     expect(siteCss.includes('font-size: clamp(2.2rem, 5vw, 4rem)')).toBe(true);
@@ -102,6 +110,8 @@ describe("website project", () => {
     expect(siteCss.includes('.vexa-embed-workspace { display: grid; grid-template-rows: auto 1fr; border-radius: 1.5rem; overflow: visible; }')).toBe(true);
     expect(siteCss.includes('.token-keyword-declaration')).toBe(true);
     expect(siteCss.includes('.syntax-block')).toBe(true);
+    expect(layoutSource.includes('rel="icon"')).toBe(true);
+    expect(layoutSource.includes('href="/favicon.svg"')).toBe(true);
   });
 
   it("keeps Monaco browser entrypoints wired for browser-safe runtime support", async () => {
