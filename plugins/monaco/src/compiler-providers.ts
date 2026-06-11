@@ -42,7 +42,7 @@ import {
 } from "compiler/syntax";
 import type { SymbolExport } from "compiler/lsp/importFixes";
 import { extractShowReferencesPayload } from "./codeLensCommands";
-import { markerToDiagnostic } from "./providerConversions";
+import { completionInsertText, markerToDiagnostic } from "./providerConversions";
 
 const LANG_ID = LANGUAGE_ID;
 
@@ -344,9 +344,9 @@ function mapCodeLensCommand(command?: {
 export function registerLanguage(): void {
   monaco.languages.register({
     id: LANG_ID,
-    extensions: [LANGUAGE_FILE_EXTENSION],
+    extensions: [LANGUAGE_FILE_EXTENSION, ".ts", ".d.ts"],
     aliases: [LANGUAGE_NAME, LANGUAGE_SHORT_NAME],
-    mimetypes: [LANGUAGE_MIME_TYPE],
+    mimetypes: [LANGUAGE_MIME_TYPE, "text/typescript", "application/typescript"],
   });
 
   monaco.languages.setMonarchTokensProvider(LANG_ID, toMonacoMonarchLanguage(createPortableMonarchLanguage()) as monaco.languages.IMonarchLanguage);
@@ -487,6 +487,7 @@ export async function updateAutoAwaitGlyphs(
     },
   }));
   collection.set(decorations);
+  editor.render(true);
 }
 
 export function registerProviders(workspaceContext?: ProviderWorkspaceContext, { enableInlayHints = false, enableReferenceCodeLens = false }: { enableInlayHints?: boolean; enableReferenceCodeLens?: boolean } = {}): Map<string, SessionState> {
@@ -501,12 +502,15 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
         const keywordItems = createKeywordOnlyCompletionItems();
         const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
         return {
-          suggestions: keywordItems.map((item) => ({
-            label: item.label,
-            kind: LSP_CIK[item.kind ?? 0] ?? CIK.Text,
-            insertText: item.insertText ?? item.label,
-            range,
-          })),
+          suggestions: keywordItems.map((item) => {
+            const insert = completionInsertText(item);
+            return {
+              ...insert,
+              label: item.label,
+              kind: LSP_CIK[item.kind ?? 0] ?? CIK.Text,
+              range,
+            };
+          }),
         };
       }
       const items = await createCompletionItemsForPosition(
@@ -528,20 +532,23 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
       );
       const defaultRange = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
       return {
-        suggestions: items.map((item) => ({
-          label: item.label,
-          kind: LSP_CIK[item.kind ?? 0] ?? CIK.Text,
-          detail: item.detail,
-          documentation: toMarkdown(item.documentation),
-          sortText: item.sortText,
-          filterText: item.filterText,
-          insertText: item.insertText ?? item.label,
-          insertTextRules: item.insertTextFormat === 2
-            ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
-            : undefined,
-          range: completionEditRange(item.textEdit, defaultRange),
-          additionalTextEdits: item.additionalTextEdits?.map(lspEditToMonaco),
-        })),
+        suggestions: items.map((item) => {
+          const insert = completionInsertText(item);
+          return {
+            ...insert,
+            label: item.label,
+            kind: LSP_CIK[item.kind ?? 0] ?? CIK.Text,
+            detail: item.detail,
+            documentation: toMarkdown(item.documentation),
+            sortText: item.sortText,
+            filterText: item.filterText,
+            insertTextRules: insert.insertTextFormat === 2
+              ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+              : undefined,
+            range: completionEditRange(item.textEdit, defaultRange),
+            additionalTextEdits: item.additionalTextEdits?.map(lspEditToMonaco),
+          };
+        }),
       };
     },
   });

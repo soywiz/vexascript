@@ -21,7 +21,7 @@ export interface WorkspaceFile {
   path: string;
   uri: string;
   label: string;
-  language: "vexa" | "typescript";
+  language: "vexa";
   content: string;
   readOnly?: boolean;
 }
@@ -66,8 +66,12 @@ export function pathToUri(path: string): string {
   return `file://${normalizePath(path)}`;
 }
 
-function guessLanguage(path: string): "vexa" | "typescript" {
-  return path.endsWith(".d.ts") || path.endsWith(".ts") ? "typescript" : "vexa";
+function normalizeEditorLanguage(language?: "vexa" | "typescript"): "vexa" {
+  return language === "typescript" ? "vexa" : "vexa";
+}
+
+function guessLanguage(_path: string): "vexa" {
+  return "vexa";
 }
 
 export function createFileEntry(
@@ -85,7 +89,7 @@ export function createFileEntry(
     path: normalized,
     uri: options.uri ?? pathToUri(normalized),
     label: basename(normalized),
-    language: options.language ?? guessLanguage(normalized),
+    language: normalizeEditorLanguage(options.language ?? guessLanguage(normalized)),
     content,
     ...(options.readOnly ? { readOnly: true } : {}),
   };
@@ -162,7 +166,7 @@ function deserializeWorkspaceSnapshot(
         typeof entry.content === "string" &&
         (entry.language === "vexa" || entry.language === "typescript")
       )
-      .map((entry) => createFileEntry(entry.path, entry.content, { language: entry.language }));
+      .map((entry) => createFileEntry(entry.path, entry.content, { language: normalizeEditorLanguage(entry.language) }));
     if (fileEntries.length === 0) {
       fileEntries.push(createFileEntry("/main.vx", defaultMainContent, { language: "vexa" }));
     }
@@ -196,7 +200,7 @@ export function resolveWorkspaceEntries(
   const runtimeEntries: WorkspaceEntry[] = [
     createFolderEntry("/runtime", true),
     createFileEntry("/runtime/es2025.d.ts", runtimeContent, {
-      language: "typescript",
+      language: "vexa",
       readOnly: true,
       uri: RUNTIME_DOCUMENT_URI,
     }),

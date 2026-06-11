@@ -5,26 +5,21 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "./moduleResolution";
 import { compileSource } from "./pipeline/compile";
-import type { Vfs, VfsDirEntry, VfsStat } from "./vfs";
+import { Vfs, VfsStat } from "./vfs";
 
-
-class MemoryVfs implements Vfs {
-  constructor(private readonly files: Set<string>) {}
-
-  async readFile(path: string): Promise<string | null> {
-    return this.files.has(resolve(path)) ? "" : null;
+class MemoryVfs extends Vfs {
+  constructor(private readonly files: Set<string>) {
+    super();
   }
 
-  async fileExists(path: string): Promise<boolean> {
-    return this.files.has(resolve(path));
+  override async readFile(path: string): Promise<string> {
+    if (!this.files.has(resolve(path))) throw new Error("Can't find file")
+    return "";
   }
 
-  async stat(path: string): Promise<VfsStat | null> {
-    return this.files.has(resolve(path)) ? { mtimeMs: 1, isFile: true, isDirectory: false } : null;
-  }
-
-  async readDir(_path: string): Promise<VfsDirEntry[] | null> {
-    return null;
+  override async stat(path: string): Promise<VfsStat> {
+    if (!this.files.has(resolve(path))) throw new Error(`${path} not found`);
+    return { mtimeMs: 1, isFile: true, isDirectory: false };
   }
 }
 

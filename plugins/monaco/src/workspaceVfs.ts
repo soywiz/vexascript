@@ -1,4 +1,4 @@
-import type { Vfs, VfsDirEntry, VfsStat } from "compiler/vfs";
+import { Vfs, VfsDirEntry, VfsStat } from "compiler/vfs";
 import type { WorkspaceEntry } from "./workspace";
 import { pathToUri } from "./workspace";
 
@@ -29,41 +29,36 @@ export interface WorkspaceVfsOptions {
   fetchText?(uri: string): Promise<string | null>;
 }
 
-export class WorkspaceVfs implements Vfs {
-  constructor(private readonly options: WorkspaceVfsOptions) {}
+export class WorkspaceVfs extends Vfs {
+  constructor(private readonly options: WorkspaceVfsOptions) {
+    super()
+  }
 
-  async readFile(path: string): Promise<string | null> {
+  override async readFile(path: string): Promise<string> {
     const normalized = normalizePath(path);
     const uri = pathToUri(normalized);
     const workspaceSource = this.options.readWorkspaceFile(uri);
     if (workspaceSource !== null) {
       return workspaceSource;
     }
-    return this.options.fetchText?.(uri) ?? null;
+    const result = await this.options.fetchText?.(uri)!;
+    if (!result) {
+      throw new Error(`'${path}' doesn't exists`)
+    }
+    return result!
   }
 
-  async fileExists(path: string): Promise<boolean> {
-    const normalized = normalizePath(path);
-    const uri = pathToUri(normalized);
-    const entry = this.options.getEntries().find((item) => item.kind === "file" && item.path === normalized);
-    if (entry) {
-      return true;
-    }
-    if (this.options.readWorkspaceFile(uri) !== null) {
-      return true;
-    }
-    return (await this.options.fetchText?.(uri)) !== null;
-  }
-
-  async stat(path: string): Promise<VfsStat | null> {
+  override async stat(path: string): Promise<VfsStat> {
     const normalized = normalizePath(path);
     const entries = this.options.getEntries();
     const entry = entries.find((item) => item.path === normalized);
     if (!entry) {
       const fetched = await this.options.fetchText?.(pathToUri(normalized));
-      return fetched === null || fetched === undefined
-        ? null
-        : { mtimeMs: contentVersion(fetched), isFile: true, isDirectory: false };
+      if (fetched === null || fetched === undefined) {
+        throw new Error(`'${path}' doesn't exists`)
+      }
+        
+      return { mtimeMs: contentVersion(fetched), isFile: true, isDirectory: false };
     }
     if (entry.kind === "folder") {
       return { mtimeMs: 0, isFile: false, isDirectory: true };
@@ -72,11 +67,11 @@ export class WorkspaceVfs implements Vfs {
     return { mtimeMs: contentVersion(source), isFile: true, isDirectory: false };
   }
 
-  async readDir(path: string): Promise<VfsDirEntry[] | null> {
+  override async readDir(path: string): Promise<VfsDirEntry[]> {
     const normalized = normalizePath(path);
     const children = this.options.getEntries().filter((entry) => dirname(entry.path) === normalized && entry.path !== normalized);
     if (children.length === 0 && !this.options.getEntries().some((entry) => entry.path === normalized && entry.kind === "folder")) {
-      return null;
+      throw new Error(`'${path}' doesn't exists`)
     }
     return children.map((entry) => ({
       name: entry.label,

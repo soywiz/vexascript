@@ -48,6 +48,7 @@ interface LspCompletionItem {
   filterText?: string;
   insertText?: string;
   insertTextFormat?: number; // 1=plain, 2=snippet
+  command?: { title: string; command: string; arguments?: unknown[] };
   textEdit?: { range: LspRange; newText: string };
   additionalTextEdits?: LspTextEdit[];
   data?: unknown;
@@ -245,9 +246,9 @@ const LANG_ID = LANGUAGE_ID;
 export function registerLanguage(): void {
   monaco.languages.register({
     id: LANG_ID,
-    extensions: [LANGUAGE_FILE_EXTENSION],
+    extensions: [LANGUAGE_FILE_EXTENSION, ".ts", ".d.ts"],
     aliases: [LANGUAGE_NAME, LANGUAGE_SHORT_NAME],
-    mimetypes: [LANGUAGE_MIME_TYPE],
+    mimetypes: [LANGUAGE_MIME_TYPE, "text/typescript", "application/typescript"],
   });
 
   monaco.languages.setMonarchTokensProvider(
@@ -401,6 +402,13 @@ export function registerProviders(
                 item.insertTextFormat === 2
                   ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
                   : undefined,
+              command: item.command
+                ? {
+                    id: item.command.command,
+                    title: item.command.title,
+                    ...(item.command.arguments ? { arguments: item.command.arguments } : {}),
+                  }
+                : undefined,
               range: item.textEdit
                 ? toMonacoRange(item.textEdit.range)
                 : defaultRange,

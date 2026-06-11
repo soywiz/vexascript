@@ -23,16 +23,38 @@ function fallbackRange() {
   };
 }
 
+function diagnosticKey(diagnostic: Diagnostic): string {
+  return [
+    diagnostic.source ?? "",
+    String(diagnostic.code ?? ""),
+    diagnostic.message,
+    diagnostic.range.start.line,
+    diagnostic.range.start.character,
+    diagnostic.range.end.line,
+    diagnostic.range.end.character
+  ].join("|");
+}
+
 export function collectDiagnosticsFromSession(
   session: AnalysisSession,
   text: string,
   positionAt: (offset: number) => Position
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
+  const seen = new Set<string>();
+
+  const pushDiagnostic = (diagnostic: Diagnostic): void => {
+    const key = diagnosticKey(diagnostic);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    diagnostics.push(diagnostic);
+  };
 
   for (const issue of session.parserErrors) {
     const token = issue.token;
-    diagnostics.push({
+    pushDiagnostic({
       code: VEXA_DIAGNOSTIC_CODES.PARSER_ERROR,
       severity: DiagnosticSeverity.Error,
       range: token
@@ -53,7 +75,7 @@ export function collectDiagnosticsFromSession(
   }
 
   if (session.tokenizeError) {
-    diagnostics.push({
+    pushDiagnostic({
       code: VEXA_DIAGNOSTIC_CODES.TOKENIZE_ERROR,
       severity: DiagnosticSeverity.Error,
       range: {
@@ -72,7 +94,7 @@ export function collectDiagnosticsFromSession(
   }
 
   if (session.fatalError) {
-    diagnostics.push({
+    pushDiagnostic({
       code: VEXA_DIAGNOSTIC_CODES.FATAL_ERROR,
       severity: DiagnosticSeverity.Error,
       range: fallbackRange(),
@@ -87,7 +109,7 @@ export function collectDiagnosticsFromSession(
       if (!token && !issue.range) {
         continue;
       }
-      diagnostics.push({
+      pushDiagnostic({
         code:
           mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
           classifySemanticDiagnosticMessage(issue.message) ??
@@ -112,7 +134,7 @@ export function collectDiagnosticsFromSession(
 
   const anyIndex = text.indexOf("any");
   if (anyIndex >= 0) {
-    diagnostics.push({
+    pushDiagnostic({
       code: VEXA_DIAGNOSTIC_CODES.STYLE_AVOID_ANY,
       severity: DiagnosticSeverity.Warning,
       range: {

@@ -1,6 +1,6 @@
-import { readFile, stat } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
 import { fileExists, isDirectory } from "./utils/fs";
+import { dirname, resolve } from "./utils/path";
+import { vfs } from "./vfs";
 
 export interface VexaProject {
   projectDir: string;
@@ -47,7 +47,7 @@ function stringRecord(section: Record<string, unknown> | undefined): Record<stri
 async function readJsonFile<T>(path: string): Promise<T | null> {
   let mtimeMs = -1;
   try {
-    mtimeMs = (await stat(path)).mtimeMs;
+    mtimeMs = (await vfs().stat(path)).mtimeMs;
   } catch {
     return null;
   }
@@ -58,7 +58,7 @@ async function readJsonFile<T>(path: string): Promise<T | null> {
   }
 
   try {
-    const value = JSON.parse(await readFile(path, "utf8")) as T;
+    const value = JSON.parse(await vfs().readFile(path)) as T;
     jsonFileCache.set(path, { mtimeMs, value });
     return value;
   } catch {

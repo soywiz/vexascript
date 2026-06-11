@@ -34,9 +34,14 @@ describe("bundled dom runtime declarations", () => {
   });
 
   it("keeps the DOM loader browser-safe", async () => {
-    const source = await readFile(join(process.cwd(), "compiler", "runtime", "domDeclarations.ts"), "utf8");
+    const [wrapperSource, sharedSource] = await Promise.all([
+      readFile(join(process.cwd(), "compiler", "runtime", "domDeclarations.ts"), "utf8"),
+      readFile(join(process.cwd(), "compiler", "runtime", "domDeclarations.shared.ts"), "utf8")
+    ]);
 
-    expect(source).not.toContain("process.cwd()");
-    expect(source).toContain("fetch(domDeclarationUrl)");
+    expect(sharedSource).not.toContain("node:fs");
+    expect(sharedSource).not.toContain("node:path");
+    expect(sharedSource).not.toContain("node:url");
+    expect(wrapperSource).toContain('setRuntimeDeclarationsHost(nodeRuntimeDeclarationsHost)');
   });
 });

@@ -8,8 +8,28 @@ title: VexaScript Playground
   <div id="playground-workbench" class="workbench-demo"></div>
 </section>
 
+<style>
+  #playground-workbench {
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+
 <script>
   window.addEventListener("DOMContentLoaded", () => {
+    function withEmbeds(callback) {
+      if (window.VexaScriptEmbeds) {
+        callback(window.VexaScriptEmbeds)
+        return
+      }
+      window.addEventListener("vexa-embeds-ready", () => {
+        if (!window.VexaScriptEmbeds) {
+          throw new Error("VexaScriptEmbeds finished loading without exposing the expected API")
+        }
+        callback(window.VexaScriptEmbeds)
+      }, { once: true })
+    }
+
     function dedent(strings, ...values) {
       const raw = String.raw({ raw: strings }, ...values).replace(/^\n+/, "")
       const lines = raw.split("\n")
@@ -20,70 +40,78 @@ title: VexaScript Playground
       return lines.map((line) => line.slice(margin)).join("\n").trim()
     }
 
-    VexaScriptEmbeds.createWorkbenchEditor("#playground-workbench", {
-      activePath: "/src/main.vx",
-      height: "min(78vh, 980px)",
-      storageKey: "vexa.playground.workbench.v4",
-      sessionStorageKey: "vexa.playground.workbench.session.v4",
-      files: [
-        {
-          path: "/src/main.vx",
-          content: dedent`
-            import { increment } from "./counter.vx"
-            import { Point, operator+, operator-, operator* } from "./point.vx"
-            import { TimeSpan, delay, seconds, milliseconds } from "./time.vx"
+    withEmbeds((embeds) => {
+      embeds.createWorkbenchEditor("#playground-workbench", {
+        activePath: "/src/main.vx",
+        height: "100vh",
+        inlayHints: true,
+        storageKey: "vexa.playground.workbench.v4",
+        sessionStorageKey: "vexa.playground.workbench.session.v4",
+        files: [
+          {
+            path: "/src/main.vx",
+            content: dedent`
+              import { increment } from "./counter.vx"
+              import { Point, operator+, operator-, operator* } from "./point.vx"
+              import { TimeSpan, delay, seconds, milliseconds } from "./time.vx"
 
-            val current = increment(41)
-            console.log(current.toString())
-            console.log(-Point(1, 2) + (Point(3, 4) * 2))
+              val current = increment(41)
+              console.log(current.toString())
+              console.log(-Point(1, 2) + (Point(3, 4) * 2))
 
-            sync fun example() {
-              console.log(increment(41))
-              delay(1.seconds)
-              console.log(increment(42))
-              delay(250.milliseconds)
-              console.log(TimeSpan(500.0).ms)
-            }
-
-            example()
-          `
-        },
-        {
-          path: "/src/counter.vx",
-          content: dedent`
-            export fun increment(value: int): int {
-              return value + 1
-            }
-          `
-        },
-        {
-          path: "/src/point.vx",
-          content: dedent`
-            export class Point(val x: number, val y: number) {
-              operator+() => this
-              operator-() => Point(-x, -y)
-              operator+(other: Point) => Point(x + other.x, y + other.y)
-              operator-(other: Point) => Point(x - other.x, y - other.y)
-              operator*(scale: number) => Point(x * scale, y * scale)
-            }
-          `
-        },
-        {
-          path: "/src/time.vx",
-          content: dedent`
-            export class TimeSpan(val ms: number)
-
-            export val number.seconds => TimeSpan(this * 1000.0)
-            export val number.milliseconds => TimeSpan(this)
-
-            export fun delay(time: TimeSpan) {
-              return new Promise { resolve, reject ->
-                setTimeout(resolve, time.ms)
+              sync fun example() {
+                console.log(increment(41))
+                delay(1.seconds)
+                console.log(increment(42))
+                delay(250.milliseconds)
+                console.log(TimeSpan(500.0).ms)
               }
-            }
-          `
-        }
-      ]
+
+              val app = document.querySelector("#app")
+              val summary = document.createElement("pre")
+              summary.textContent = "Preview width: ${window.innerWidth}px"
+              app?.append(summary)
+
+              example()
+            `
+          },
+          {
+            path: "/src/counter.vx",
+            content: dedent`
+              export fun increment(value: int): int {
+                return value + 1
+              }
+            `
+          },
+          {
+            path: "/src/point.vx",
+            content: dedent`
+              export class Point(val x: number, val y: number) {
+                operator+() => this
+                operator-() => Point(-x, -y)
+                operator+(other: Point) => Point(x + other.x, y + other.y)
+                operator-(other: Point) => Point(x - other.x, y - other.y)
+                operator*(scale: number) => Point(x * scale, y * scale)
+              }
+            `
+          },
+          {
+            path: "/src/time.vx",
+            content: dedent`
+              export class TimeSpan(val ms: number)
+
+              export val number.seconds => TimeSpan(this * 1000.0)
+              export val number.milliseconds => TimeSpan(this)
+
+              export fun delay(time: TimeSpan) {
+                return new Promise { resolve, reject ->
+                  setTimeout(resolve, time.ms)
+                }
+              }
+            `
+          }
+        ]
+      })
     })
   })
 </script>

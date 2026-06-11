@@ -5,8 +5,8 @@ import {
   formatSemanticIssue
 } from "compiler/pipeline/compile";
 import type { ParserOptions } from "compiler/parser/parser";
-import { basename, extname } from "node:path";
 import { formatMessageAtSourceRange } from "compiler/sourceLocations";
+import { basename, extname } from "compiler/utils/path";
 import {
   createEmitProgramRuntimeSeed,
   createEmitProgramRuntimeContext,

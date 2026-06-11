@@ -440,6 +440,7 @@ export interface InterfacePropertyMember extends Node {
 export interface InterfaceMethodMember extends Node {
     kind: "InterfaceMethodMember"
     name: Identifier
+    accessorKind?: "get" | "set"
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     returnType?: Identifier

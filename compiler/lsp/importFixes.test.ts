@@ -72,9 +72,9 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toHaveLength(1);
-    expect(actions[0]?.title).toBe("Import 'Point' from './a'");
+    expect(actions[0]?.title).toBe("Import 'Point' from './a.vx'");
     expect(actions[0]?.edit?.changes?.[pathToFileURL(fileB).toString()]?.[0]?.newText).toBe(
-      "import { Point } from \"./a\"\n"
+      "import { Point } from \"./a.vx\"\n"
     );
   });
 
@@ -92,7 +92,7 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toHaveLength(1);
-    expect(actions[0]?.title).toBe("Import 'Point' from './models/point'");
+    expect(actions[0]?.title).toBe("Import 'Point' from './models/point.vx'");
   });
 
   it("merges import into existing import from the same file", async () => {
@@ -101,7 +101,7 @@ describe("import quick fixes", () => {
     const fileB = join(root, "b.vx");
 
     await writeFile(fileA, "class Point\nclass Vector\n", "utf8");
-    const sourceB = 'import { Point } from "./a"\nfun demo() {\n  return new Vector()\n}\n';
+    const sourceB = 'import { Point } from "./a.vx"\nfun demo() {\n  return new Vector()\n}\n';
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
@@ -113,9 +113,9 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toHaveLength(1);
-    expect(actions[0]?.title).toBe("Import 'Vector' from './a'");
+    expect(actions[0]?.title).toBe("Import 'Vector' from './a.vx'");
     const edit = actions[0]?.edit?.changes?.[pathToFileURL(fileB).toString()]?.[0];
-    expect(edit?.newText).toBe('import { Point, Vector } from "./a"');
+    expect(edit?.newText).toBe('import { Point, Vector } from "./a.vx"');
     expect(edit?.range.start).toEqual({ line: 0, character: 0 });
   });
 
@@ -125,7 +125,7 @@ describe("import quick fixes", () => {
     const fileB = join(root, "b.vx");
 
     await writeFile(fileA, "class Point\n", "utf8");
-    const sourceB = "import { Point } from \"./a\"\nfun demo() {\n  return new Point()\n}\n";
+    const sourceB = "import { Point } from \"./a.vx\"\nfun demo() {\n  return new Point()\n}\n";
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
@@ -157,9 +157,9 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toHaveLength(1);
-    expect(actions[0]?.title).toBe("Import 'TimeSpan' from './world'");
+    expect(actions[0]?.title).toBe("Import 'TimeSpan' from './world.vx'");
     expect(actions[0]?.edit?.changes?.[pathToFileURL(helloFile).toString()]?.[0]?.newText).toBe(
-      'import { TimeSpan } from "./world"\n'
+      'import { TimeSpan } from "./world.vx"\n'
     );
   });
 
@@ -173,7 +173,7 @@ describe("import quick fixes", () => {
       "class Point(val x: number, val y: number)\nfun Point.operator+(other: Point): Point => Point(x + other.x, y + other.y)\n",
       "utf8"
     );
-    const sourceB = 'import { Point } from "./other"\nval p = Point(1, 2) + Point(3, 4)\n';
+    const sourceB = 'import { Point } from "./other.vx"\nval p = Point(1, 2) + Point(3, 4)\n';
     await writeFile(fileB, sourceB, "utf8");
 
     const sessionB = createAnalysisSession(sourceB);
@@ -185,9 +185,9 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toHaveLength(1);
-    expect(actions[0]?.title).toBe("Import 'operator+' from './other'");
+    expect(actions[0]?.title).toBe("Import 'operator+' from './other.vx'");
     const edit = actions[0]?.edit?.changes?.[pathToFileURL(fileB).toString()]?.[0];
-    expect(edit?.newText).toBe('import { Point, operator+ } from "./other"');
+    expect(edit?.newText).toBe('import { Point, operator+ } from "./other.vx"');
   });
 
   it("builds completion-friendly auto-import suggestions filtered by prefix", async () => {
@@ -212,7 +212,7 @@ describe("import quick fixes", () => {
     expect(suggestions.find((suggestion) => suggestion.symbol.name === "Point")?.symbol.kind).toBe("class");
     expect(suggestions.find((suggestion) => suggestion.symbol.name === "PointId")?.symbol.kind).toBe("type");
     expect(suggestions.find((suggestion) => suggestion.symbol.name === "PointReader")?.symbol.kind).toBe("interface");
-    expect(suggestions[0]?.importPath).toBe("./a");
+    expect(suggestions[0]?.importPath).toBe("./a.vx");
   });
 
   it("builds auto-import suggestions from virtual exported symbols", async () => {
@@ -232,7 +232,7 @@ describe("import quick fixes", () => {
 
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]?.symbol.name).toBe("Point");
-    expect(suggestions[0]?.importPath).toBe("./models/point");
+    expect(suggestions[0]?.importPath).toBe("./models/point.vx");
   });
   it("suggests importing an exported extension property for a missing member", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
@@ -251,9 +251,9 @@ describe("import quick fixes", () => {
     });
 
     expect(actions).toHaveLength(1);
-    expect(actions[0]?.title).toBe("Import 'milliseconds' from './duration'");
+    expect(actions[0]?.title).toBe("Import 'milliseconds' from './duration.vx'");
     expect(actions[0]?.edit?.changes?.[pathToFileURL(consumerFile).toString()]?.[0]?.newText).toBe(
-      'import { milliseconds } from "./duration"\n'
+      'import { milliseconds } from "./duration.vx"\n'
     );
   });
 

@@ -1,4 +1,3 @@
-import { extname } from "node:path";
 import type { ParserOptions } from "compiler/parser/parser";
 import type {
   FunctionStatement,
@@ -21,8 +20,10 @@ import {
   type AnalysisType
 } from "compiler/analysis/types";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
-import { localVfs, type Vfs } from "compiler/vfs";
+import { localVfs } from "compiler/localVfs";
+import type { Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { extname } from "compiler/utils/path";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
 interface CachedTypingsData {

@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { candidateImportTargetFilePaths, resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import {
@@ -78,6 +76,8 @@ import {
   scanProjectMyFiles
 } from "./projectAnalysis";
 import { findNodeModuleMemberLocation } from "./nodeModulesTypings";
+import { dirname, resolve } from "compiler/utils/path";
+import { vfs } from "compiler/vfs";
 
 function boxedNavigationTypeName(typeName: string): string {
   if (typeName === "int" || typeName === "number" || typeName === "numeric") {
@@ -98,6 +98,7 @@ function boxedNavigationTypeName(typeName: string): string {
 interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
+  ambientDeclarations?: Statement[];
 }
 
 interface ResolveContext {
@@ -109,6 +110,23 @@ interface ResolveContext {
   vfs?: import("compiler/vfs").Vfs;
   getSessionForFilePath?: (filePath: string) => SessionLike | null | Promise<SessionLike | null>;
 }
+
+function effectiveSourceRoots(
+  sourceRoots: string[],
+  fallbackFilePath: string | null
+): string[] {
+  if (sourceRoots.length > 0) {
+    return sourceRoots;
+  }
+  if (!fallbackFilePath) {
+    return [];
+  }
+  const fallbackRoot = dirname(fallbackFilePath);
+  return fallbackRoot === "/" ? [] : [fallbackRoot];
+}
+
+const VIRTUAL_DOM_DECLARATION_FILE_PATH = "/runtime/dom.d.ts";
+const VIRTUAL_ECMA_DECLARATION_FILE_PATH = "/runtime/es2025.d.ts";
 
 interface CanonicalSymbol {
   name: string;
@@ -251,6 +269,33 @@ async function getSessionForFilePath(filePath: string, context: ResolveContext):
       ? { getSessionForFilePath: context.getSessionForFilePath }
       : {})
   });
+}
+
+async function preferVirtualRuntimeDeclarationFilePath(
+  filePath: string,
+  context: ResolveContext
+): Promise<string> {
+  const virtualCandidate = filePath === getDomDeclarationFilePath() || filePath.endsWith("/dom.d.ts")
+    ? VIRTUAL_DOM_DECLARATION_FILE_PATH
+    : filePath === await getEcmaScriptRuntimeDeclarationFilePath() || filePath.endsWith("/es2025.d.ts")
+      ? VIRTUAL_ECMA_DECLARATION_FILE_PATH
+      : null;
+  if (!virtualCandidate) {
+    return filePath;
+  }
+
+  if (context.getSessionForFilePath) {
+    const session = await context.getSessionForFilePath(virtualCandidate);
+    if (session?.ast) {
+      return virtualCandidate;
+    }
+  }
+
+  if (context.vfs && await context.vfs.fileExists(virtualCandidate)) {
+    return virtualCandidate;
+  }
+
+  return filePath;
 }
 
 async function resolveImportTargetInContext(
@@ -513,11 +558,15 @@ function classMemberDeclarationRangeByName(
 }
 
 async function fallbackInterfaceMemberRangeInFile(
+  context: ResolveContext,
   filePath: string,
   interfaceName: string,
   memberName: string
 ): Promise<{ start: { line: number; character: number }; end: { line: number; character: number } } | null> {
-  const source = await readFile(filePath, "utf8");
+  const source = await readTextDocument(context, filePath);
+  if (source === null) {
+    return null;
+  }
   const lines = source.split("\n");
   const interfacePattern = new RegExp(`\\binterface\\s+${interfaceName}\\b`);
   const memberPattern = new RegExp(`\\b${memberName}\\b`);
@@ -562,11 +611,15 @@ async function fallbackInterfaceMemberRangeInFile(
 }
 
 async function fallbackTypeAliasMemberRangeInFile(
+  context: ResolveContext,
   filePath: string,
   typeAliasName: string,
   memberName: string
 ): Promise<{ start: { line: number; character: number }; end: { line: number; character: number } } | null> {
-  const source = await readFile(filePath, "utf8");
+  const source = await readTextDocument(context, filePath);
+  if (source === null) {
+    return null;
+  }
   const lines = source.split("\n");
   const typePattern = new RegExp(`\\btype\\s+${typeAliasName}\\b`);
   const memberPattern = new RegExp(`\\b${memberName}\\b`);
@@ -608,6 +661,18 @@ async function fallbackTypeAliasMemberRangeInFile(
   }
 
   return null;
+}
+
+async function readTextDocument(context: ResolveContext, filePath: string): Promise<string | null> {
+  const virtualSource = await context.vfs?.readFile?.(filePath);
+  if (typeof virtualSource === "string") {
+    return virtualSource;
+  }
+  try {
+    return await vfs().readFile(filePath);
+  } catch {
+    return null;
+  }
 }
 
 function functionTypeLabelFromParameters(
@@ -763,7 +828,7 @@ async function resolveTypeDefinitionAcrossFiles(
     return null;
   }
 
-  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
+  const roots = effectiveSourceRoots(context.sourceRoots, currentFilePath);
   const resolved = await resolveTopLevelDeclarationAcrossFiles({
     ast: context.session.ast,
     name: typeName,
@@ -778,13 +843,39 @@ async function resolveTypeDefinitionAcrossFiles(
   });
 
   if (!resolved) {
-    return null;
+    const ambientDeclaration = findAmbientTypeDeclaration(context.session.ambientDeclarations ?? [], typeName);
+    if (!ambientDeclaration) {
+      return null;
+    }
+    return {
+      declaration: ambientDeclaration,
+      filePath: await preferVirtualRuntimeDeclarationFilePath(getDomDeclarationFilePath(), context)
+    };
   }
 
+  const resolvedFilePath = resolved.filePath === ""
+    ? await getEcmaScriptRuntimeDeclarationFilePath()
+    : resolved.filePath;
   return {
     declaration: resolved.declaration,
-    filePath: resolved.filePath === "" ? await getEcmaScriptRuntimeDeclarationFilePath() : resolved.filePath
+    filePath: await preferVirtualRuntimeDeclarationFilePath(resolvedFilePath, context)
   };
+}
+
+function findAmbientTypeDeclaration(
+  declarations: Statement[],
+  typeName: string
+): TypeLikeDeclaration | null {
+  for (const statement of declarations) {
+    const unwrapped = unwrapExportedDeclaration(statement) ?? statement;
+    if (unwrapped.kind === "ClassStatement" || unwrapped.kind === "InterfaceStatement") {
+      const declaration = unwrapped as TypeLikeDeclaration;
+      if (declaration.name.name === typeName) {
+        return declaration;
+      }
+    }
+  }
+  return null;
 }
 
 async function resolveTypeAliasDefinitionAcrossFiles(
@@ -796,7 +887,7 @@ async function resolveTypeAliasDefinitionAcrossFiles(
     return null;
   }
 
-  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
+  const roots = effectiveSourceRoots(context.sourceRoots, currentFilePath);
   const resolved = await resolveTopLevelDeclarationAcrossFiles({
     ast: context.session.ast,
     name: typeName,
@@ -1211,11 +1302,14 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
         )
         : null;
       const memberOwner = interfaceMemberDeclaration?.declaration ?? classResolution.declaration;
-      const memberFilePath = interfaceMemberDeclaration?.filePath ?? classResolution.filePath;
+      const memberFilePath = await preferVirtualRuntimeDeclarationFilePath(
+        interfaceMemberDeclaration?.filePath ?? classResolution.filePath,
+        context
+      );
       const range = classMemberDeclarationRangeByName(memberOwner, memberName)
         ?? (
           memberOwner.kind === "InterfaceStatement"
-            ? await fallbackInterfaceMemberRangeInFile(memberFilePath, memberOwner.name.name, memberName)
+            ? await fallbackInterfaceMemberRangeInFile(context, memberFilePath, memberOwner.name.name, memberName)
             : null
         );
       if (range) {
@@ -1229,6 +1323,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     const typeAliasResolution = await resolveTypeAliasDefinitionAcrossFiles(context, receiverTypeNames[0]!);
     if (typeAliasResolution) {
       const range = await fallbackTypeAliasMemberRangeInFile(
+        context,
         typeAliasResolution.filePath,
         typeAliasResolution.declaration.name.name,
         memberName
@@ -1246,6 +1341,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     const typeAliasResolution = await resolveTypeAliasDefinitionAcrossFiles(context, objectType.name);
     if (typeAliasResolution) {
       const range = await fallbackTypeAliasMemberRangeInFile(
+        context,
         typeAliasResolution.filePath,
         typeAliasResolution.declaration.name.name,
         memberName
@@ -1283,6 +1379,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
           continue;
         }
         const candidateRange = await fallbackTypeAliasMemberRangeInFile(
+          context,
           targetFilePath,
           (declaration as TypeAliasStatement).name.name,
           memberName
@@ -1370,7 +1467,7 @@ async function resolveExtensionMemberDefinitionAcrossFiles(
     return null;
   }
 
-  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(currentFilePath)];
+  const roots = effectiveSourceRoots(context.sourceRoots, currentFilePath);
   const resolved = await resolveTopLevelDeclarationAcrossFiles({
     ast: context.session.ast,
     name: memberName,
@@ -1722,7 +1819,7 @@ async function resolveMemberReferencesAcrossFiles(
     return [];
   }
 
-  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(memberSymbol.filePath)];
+  const roots = effectiveSourceRoots(context.sourceRoots, memberSymbol.filePath);
   const files = await scanProjectMyFiles(roots, context.vfs);
   const locations: Location[] = [];
   const seen = new Set<string>();
@@ -2008,7 +2105,7 @@ export async function resolveReferencesAcrossFiles(
     return localFallbackReferences;
   }
 
-  const roots = context.sourceRoots.length > 0 ? context.sourceRoots : [dirname(symbol.filePath)];
+  const roots = effectiveSourceRoots(context.sourceRoots, symbol.filePath);
   const projectIndex = getProjectIndex(roots, context.vfs);
   const files = await scanProjectMyFiles(roots, context.vfs);
   const locations: Location[] = [];

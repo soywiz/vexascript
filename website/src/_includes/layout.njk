@@ -26,6 +26,9 @@
     </header>
     <main>{{ content | safe }}</main>
     <footer class="site-footer">© {% year %} VexaScript by Soywiz Software. Built with 11ty and Monaco.</footer>
-    <script src="{{ generatedAssetHrefs.generatedEmbedJs }}"></script>
+    <script
+      src="{{ generatedAssetHrefs.generatedEmbedJs }}"
+      onload="if (window.VexaScriptEmbeds) window.dispatchEvent(new Event('vexa-embeds-ready'))"
+    ></script>
   </body>
 </html>

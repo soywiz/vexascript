@@ -1,7 +1,6 @@
 import { rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { ensureGeneratedSyntaxModule, pathExists, run } from "./prepare.ts";
+import { dirname, fileURLToPath, resolve } from "compiler/utils/path.ts";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const websiteRoot = resolve(scriptDirectory, "..");
@@ -19,13 +18,12 @@ async function ensureCompilerBundle(): Promise<void> {
 }
 
 async function cleanBuiltSite(): Promise<void> {
-  await rm(builtSitePath, { recursive: true, force: true });
+  await rm(builtSitePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   console.log("[website] Cleared previous Eleventy output.");
 }
 
 await ensureCompilerBundle();
 await ensureGeneratedSyntaxModule();
-await run("pnpm", ["exec", "vite", "build", "--config", "vite.config.ts"], websiteRoot);
-await run("pnpm", ["exec", "vite", "build", "--config", "vite.playground.config.ts"], websiteRoot);
+await run("pnpm", ["exec", "tsx", "scripts/buildEmbed.ts"], websiteRoot);
 await cleanBuiltSite();
 await run("pnpm", ["exec", "eleventy", "--config", "eleventy.config.mjs"], websiteRoot);

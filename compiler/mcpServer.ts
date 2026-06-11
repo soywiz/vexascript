@@ -1,7 +1,5 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
 import type { WorkspaceEdit } from "vscode-languageserver/node.js";
 import { createAnalysisSession, type AnalysisSession } from "./lsp/analysisSession";
 import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./lsp/importedDeclarations";
@@ -11,6 +9,8 @@ import { resolveDefinitionAcrossFiles, resolveReferencesAcrossFiles, resolveRena
 import { createSignatureHelp } from "./lsp/signatureHelp";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./lsp/symbols";
 import { COMPILER_VERSION } from "./compilerVersion";
+import { dirname, resolve } from "./utils/path";
+import { vfs } from "./vfs";
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -183,7 +183,7 @@ async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<string[]> {
     if (!filePath || edits.length === 0) {
       continue;
     }
-    const source = await readFile(filePath, "utf8");
+    const source = await vfs().readFile(filePath);
     const ordered = [...edits].sort((a, b) => {
       const lineDelta = b.range.start.line - a.range.start.line;
       return lineDelta !== 0 ? lineDelta : b.range.start.character - a.range.start.character;
@@ -194,7 +194,7 @@ async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<string[]> {
       const end = editStartOffset(updated, editItem.range.end.line, editItem.range.end.character);
       updated = `${updated.slice(0, start)}${editItem.newText}${updated.slice(end)}`;
     }
-    await writeFile(filePath, updated, "utf8");
+    await vfs().writeFile(filePath, updated);
     changedFiles.push(filePath);
   }
   return changedFiles;
@@ -217,7 +217,7 @@ export class VexaMcpCodebaseServer {
     }
 
     const promise = (async () => {
-      const source = await readFile(resolvedPath, "utf8");
+      const source = await vfs().readFile(resolvedPath);
       const baseSession = createAnalysisSession(source);
       if (!baseSession.ast) {
         return baseSession;

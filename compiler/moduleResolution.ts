@@ -1,6 +1,7 @@
-import { dirname, extname, resolve } from "node:path";
 import { LANGUAGE_FILE_EXTENSION } from "./language";
-import { localVfs, type Vfs } from "./vfs";
+import { localVfs } from "./localVfs";
+import { dirname, extname, resolve } from "./utils/path";
+import type { Vfs } from "./vfs";
 
 
 export function candidateImportTargetFilePaths(
@@ -107,8 +108,10 @@ async function declarationPathInPackage(pkgDir: string, vfs: Vfs): Promise<strin
 
 async function declarationPathInPnpmVirtualStore(nodeModulesDir: string, packageName: string, vfs: Vfs): Promise<string | null> {
   const storeDir = resolve(nodeModulesDir, ".pnpm");
-  const entries = await vfs.readDir(storeDir);
-  if (!entries) {
+  let entries;
+  try {
+    entries = await vfs.readDir(storeDir);
+  } catch {
     return null;
   }
   for (const entry of entries) {

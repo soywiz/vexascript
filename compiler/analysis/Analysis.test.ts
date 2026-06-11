@@ -5,6 +5,7 @@ import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
 import { namedType } from "./types";
+import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import dedent from "compiler/utils/dedent";
 
 function namesOfVisibleSymbolsAt(source: string, line: number, character: number): string[] {
@@ -49,6 +50,96 @@ describe("Analysis", () => {
 
     expect(analysis.getVisibleSymbolsAt(2, 0).map((symbol) => symbol.name)).toEqual(expect.arrayContaining(["Id", "lookup"]));
     expect(analysis.getIssues().map((issue) => issue.message)).toContain("Argument 1 of type 'int' is not assignable to parameter 'id' of type 'string'");
+  });
+
+  it("treats function values as assignable to the ambient Function type", () => {
+    const source = dedent`
+      declare function setTimeout(handler: TimerHandler, timeout?: number): number
+      declare type TimerHandler = string | Function
+      declare class TimeSpan { ms: number }
+
+      function delay<T>(resolve: (arg1: T) => void, time: TimeSpan) {
+        setTimeout(resolve, time.ms)
+      }
+    `;
+    const ast = parseFile(tokenizeReader(source), { language: "typescript" });
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).not.toContain(
+      "Argument 1 of type '(arg1: T) => void' is not assignable to parameter 'handler' of type 'TimerHandler'"
+    );
+  });
+
+  it("expands ambient type aliases before checking function assignability", () => {
+    const ambientSource = dedent`
+      declare type TimerHandler = string | Function
+      declare function setTimeout(handler: TimerHandler, timeout?: number): number
+    `;
+    const ambientProgram = parseFile(tokenizeReader(ambientSource), { language: "typescript" });
+    const source = dedent`
+      export fun delay() {
+        setTimeout(() => {}, 1)
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)), { ambientDeclarations: ambientProgram.body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).not.toContain(
+      "Argument 1 of type '() => void' is not assignable to parameter 'handler' of type 'TimerHandler'"
+    );
+  });
+
+  it("treats DOM accessor declarations as property types", () => {
+    const source = dedent`
+      declare interface Node {
+        get textContent(): string
+        set textContent(value: string | null)
+      }
+      declare interface HTMLElement extends Node {}
+      declare function createElement(tagName: string): HTMLElement
+
+      const summary = createElement("pre")
+      summary.textContent = "Preview width: 1261px"
+    `;
+    const ast = parseFile(tokenizeReader(source), { language: "typescript" });
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).not.toContain(
+      "Type 'string' is not assignable to type '(value: string | null) => void'"
+    );
+  });
+
+  it("enforces inferred generic DOM constraints on method calls", async () => {
+    const source = "document.body.appendChild(10)\n";
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Type argument 'int' does not satisfy constraint 'Node' for type parameter 'T'"
+    );
+  });
+
+  it("accepts DOM append calls with elements returned from createElement", async () => {
+    const source = dedent`
+      val app = document.querySelector("#app")
+      val summary = document.createElement("pre")
+      summary.textContent = "Preview width: 1261px"
+      app?.append(summary)
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("accepts DOM appendChild calls with elements returned from createElement", async () => {
+    const source = dedent`
+      val summary = document.createElement("pre")
+      document.body.appendChild(summary)
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
   it("builds nested scopes and exposes function parameters/local variables", () => {
@@ -763,6 +854,17 @@ let after = bind`));
       "Expected at most 1 argument(s), but got 2",
       "Unexpected argument 2; function expects at most 1 argument(s)"
     ]));
+  });
+
+  it("contextually types Promise executors for class calls without new", () => {
+    const source = dedent`
+      let promise: Promise<int> = Promise { resolve, reject ->
+        resolve(123)
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
 

@@ -5397,6 +5397,7 @@ export class Parser {
                 this.tokens.skip();
             }
 
+            let accessorKind: "get" | "set" | undefined;
             let memberNameToken = this.tokens.read();
             if (
                 memberNameToken?.type === "identifier" &&
@@ -5404,6 +5405,7 @@ export class Parser {
                 this.tokens.peek() &&
                 ["identifier", "string", "number"].includes(this.tokens.peek()!.type)
             ) {
+                accessorKind = memberNameToken.value as "get" | "set";
                 memberNameToken = this.tokens.read();
             }
             if (!memberNameToken || !["identifier", "string", "number"].includes(memberNameToken.type)) {
@@ -5447,6 +5449,9 @@ export class Parser {
                     name: this.attachNodeBounds({ kind: "Identifier", name: memberName } as Identifier, memberNameToken, memberNameToken),
                     parameters
                 };
+                if (accessorKind) {
+                    member.accessorKind = accessorKind;
+                }
                 if (methodTypeParameters.length > 0) {
                     member.typeParameters = methodTypeParameters;
                 }

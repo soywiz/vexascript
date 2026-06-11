@@ -1,5 +1,3 @@
-import { dirname, relative } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   ImportStatement,
   Program,
@@ -7,6 +5,7 @@ import type {
 } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { getProjectIndex, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
+import { dirname, fileURLToPath, pathToFileURL, relative } from "compiler/utils/path";
 import {
   parseMissingMemberDiagnostic,
   parseOperatorNotDefinedDiagnostic,
@@ -141,13 +140,10 @@ export function hasImportedSymbol(ast: Program, symbolName: string): boolean {
 export function toImportPath(fromFilePath: string, targetFilePath: string): string {
   const fromDir = dirname(fromFilePath);
   const relativePath = relative(fromDir, targetFilePath).replace(/\\/g, "/");
-  const withoutExt = relativePath.endsWith(".vx")
-    ? relativePath.slice(0, -3)
-    : relativePath;
-  if (withoutExt.startsWith(".")) {
-    return withoutExt;
+  if (relativePath.startsWith(".")) {
+    return relativePath;
   }
-  return `./${withoutExt}`;
+  return `./${relativePath}`;
 }
 
 function chooseBestExport(

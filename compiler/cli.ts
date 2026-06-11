@@ -1,6 +1,3 @@
-import { readFile, stat, writeFile, unlink } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { transpile, type TranspileDiagnostic, type TranspileTarget } from "./runtime/transpile";
 import { bundleModuleGraph } from "./runtime/moduleGraph";
@@ -14,6 +11,8 @@ import { ensureDependencies } from "./deps";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
 import { runMcpServer } from "./mcpServer";
 import { COMPILER_VERSION } from "./compilerVersion";
+import { basename, dirname, pathToFileURL, resolve } from "./utils/path";
+import { vfs } from "./vfs";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
@@ -112,7 +111,7 @@ async function buildFile(
   jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
 ): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
-  const source = await readFile(sourcePath, "utf8");
+  const source = (await vfs().readFile(sourcePath))!;
   const project = await loadProject(sourcePath);
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
   const ambientDeclarations = await ambientDeclarationsForProject(project);
@@ -135,10 +134,10 @@ async function buildFile(
   if (result.sourceMap) {
     const sourceMapPath = `${outputPath}.map`;
     const sourceMapFileName = basename(sourceMapPath);
-    await writeFile(sourceMapPath, result.sourceMap, "utf8");
+    await vfs().writeFile(sourceMapPath, result.sourceMap);
     outputCode = `${outputCode}\n//# sourceMappingURL=${sourceMapFileName}`;
   }
-  await writeFile(outputPath, outputCode, "utf8");
+  await vfs().writeFile(outputPath, outputCode);
 
   console.log(`Compiled: ${sourcePath} -> ${outputPath}`);
   if (result.warnings.length > 0) {
@@ -194,7 +193,7 @@ async function bundleFile(
     throw new Error(`Bundling failed for ${sourcePath}`);
   }
 
-  await writeFile(outputPath, outputCode, "utf8");
+  await vfs().writeFile(outputPath, outputCode);
   console.log(`Bundled: ${sourcePath} -> ${outputPath}`);
   if (result.warnings.length > 0) {
     for (const warning of result.warnings) {
@@ -206,7 +205,7 @@ async function bundleFile(
 async function loadPackageJsonDeps(dir: string): Promise<Record<string, string> | null> {
   const pkgPath = resolve(dir, "package.json");
   try {
-    const raw = await readFile(pkgPath, "utf8");
+    const raw = (await vfs().readFile(pkgPath))!;
     const parsed = JSON.parse(raw) as { dependencies?: Record<string, string> };
     return parsed.dependencies ?? null;
   } catch {
@@ -262,10 +261,10 @@ async function executeCompiled(
   // the source's directory when the compiled code contains bare specifier imports.
   const tmpPath = resolve(dirname(sourcePath), `.vexa-run-${process.pid}-${Date.now()}.mjs`);
   try {
-    await writeFile(tmpPath, jsToExecute, "utf8");
+    await vfs().writeFile(tmpPath, jsToExecute);
     await import(pathToFileURL(tmpPath).href);
   } finally {
-    await unlink(tmpPath).catch(() => undefined);
+    await vfs().unlink(tmpPath).catch(() => undefined);
   }
 
   if (result.warnings.length > 0) {
@@ -285,26 +284,26 @@ async function runTests(paths: string[]): Promise<void> {
 
 async function printTokens(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
-  const source = await readFile(sourcePath, "utf8");
+  const source = await vfs().readFile(sourcePath);
   console.log(JSON.stringify(tokenize(source), null, 2));
 }
 
 async function printAst(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
-  const source = await readFile(sourcePath, "utf8");
+  const source = await vfs().readFile(sourcePath);
   console.log(JSON.stringify(toAstPreview(source), null, 2));
 }
 
 async function formatFile(input: string, opts: { write?: boolean; out?: string }): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
-  const source = await readFile(sourcePath, "utf8");
+  const source = await vfs().readFile(sourcePath);
   const formatted = format(source);
   const formattedWithTrailingNewline = `${formatted}\n`;
 
-  await writeFile(sourcePath, formattedWithTrailingNewline, "utf8");
+  await vfs().writeFile(sourcePath, formattedWithTrailingNewline);
   if (opts.out) {
     const outputPath = resolve(process.cwd(), opts.out);
-    await writeFile(outputPath, formattedWithTrailingNewline, "utf8");
+    await vfs().writeFile(outputPath, formattedWithTrailingNewline);
     console.log(`Formatted: ${sourcePath} (and wrote copy to ${outputPath})`);
     return;
   }
@@ -522,7 +521,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
-    const existsOnDisk = await stat(resolve(process.cwd(), firstArg)).then(() => true, () => false);
+    const existsOnDisk = await vfs().stat(resolve(process.cwd(), firstArg)).then(() => true, () => false);
     if (looksLikeFile || existsOnDisk) {
       await createProgram().parseAsync([argv[0]!, argv[1]!, "run", ...argv.slice(2)]);
       return;

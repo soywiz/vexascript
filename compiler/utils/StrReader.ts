@@ -1,13 +1,13 @@
 export class StrReader {
-    #offset: number = 0
-    #line: number = 0
-    #column: number = 0
+    private _offset: number = 0
+    private _line: number = 0
+    private _column: number = 0
 
     constructor(public str: string) {
     }
 
     get offset() {
-        return this.#offset
+        return this._offset
     }
 
     get length() {
@@ -15,40 +15,40 @@ export class StrReader {
     }
 
     get line() {
-        return this.#line
+        return this._line
     }
 
     get column() {
-        return this.#column
+        return this._column
     }
 
     get hasMore() {
-        return this.#offset < this.length
+        return this._offset < this.length
     }
 
     get eof() {
-        return this.#offset >= this.length
+        return this._offset >= this.length
     }
 
     peek() {
-        return this.str.charAt(this.#offset)
+        return this.str.charAt(this._offset)
     }
 
     peekCode() {
-        return this.str.charCodeAt(this.#offset)
+        return this.str.charCodeAt(this._offset)
     }
 
     skip(count: number = 1) {
-        const initial = this.#offset
+        const initial = this._offset
         let remaining = count
-        while (remaining > 0 && this.#offset < this.length) {
-            const code = this.str.charCodeAt(this.#offset)
-            this.#offset += 1
+        while (remaining > 0 && this._offset < this.length) {
+            const code = this.str.charCodeAt(this._offset)
+            this._offset += 1
             if (code === 10) {
-                this.#line += 1
-                this.#column = 0
+                this._line += 1
+                this._column = 0
             } else {
-                this.#column += 1
+                this._column += 1
             }
             remaining -= 1
         }

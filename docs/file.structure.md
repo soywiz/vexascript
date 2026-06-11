@@ -18,7 +18,8 @@ This section is the fast onboarding map for agents and contributors.
   - Shared user-facing source coordinate formatting: `compiler/sourceLocations.ts`
   - Source location tests: `compiler/sourceLocations.test.ts`
 - Module resolution and virtual file access:
-  - Shared asynchronous virtual file-system interface and local Node-backed implementation, injectable into compiler project services that need file reads: `compiler/vfs.ts`
+  - Shared asynchronous virtual file-system interface used across compiler, LSP, runtime bundling, and browser adapters: `compiler/vfs.ts`
+  - Node-only local disk implementation of that VFS contract for CLI/LSP/test flows: `compiler/localVfs.ts`
   - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.vx` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
   - Project configuration loading from package.json dependencies and tsconfig.json JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
@@ -36,8 +37,10 @@ This section is the fast onboarding map for agents and contributors.
   - Analysis issue codes/contracts: `compiler/analysis/issueCodes.ts`
   - Analysis tests: `compiler/analysis/Analysis.test.ts`
 - Embedded runtime declarations:
-  - Current ambient ECMAScript runtime declarations consumed by the compiler from bundled TypeScript declarations: `compiler/runtime/es2025.d.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
-  - Bundled TypeScript DOM declarations and loader used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/dom.d.ts`, `compiler/runtime/domDeclarations.ts`
+  - Shared runtime-declaration host contract that lets Node/browser adapters provide bundled declaration sources without hard-wiring shared compiler code to `fs/path/url`: `compiler/runtime/declarationHost.ts`
+  - Node runtime-declaration host that reads bundled `compiler/runtime/es2025.d.ts` and `compiler/runtime/dom.d.ts` from disk for the CLI/LSP/test environment: `compiler/runtime/nodeDeclarationHost.ts`
+  - Shared ECMAScript runtime declaration parsing/cache logic plus the Node bootstrap wrapper used by compiler consumers: `compiler/runtime/ecmascriptDeclarations.shared.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
+  - Shared DOM runtime declaration parsing/cache logic plus the Node bootstrap wrapper used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/domDeclarations.shared.ts`, `compiler/runtime/domDeclarations.ts`
   - Shared browser-safe cache for parsed runtime declaration programs, backed by `localStorage` when available and an in-memory fallback otherwise: `compiler/runtime/programCache.ts`
 - Emitter / transpilation:
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
@@ -145,11 +148,11 @@ This section is the fast onboarding map for agents and contributors.
   - LSP tests: `compiler/lsp/*.test.ts`
 - Website and embeddable learning playground (project root: `website/`):
   - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/syntax.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/playground.njk`, `website/src/blog/index.njk`, `website/src/blog/article1.njk`, `website/src/404.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
-  - Website build orchestrator, which ensures the compiler CLI bundle exists, regenerates the website-safe JS syntax module from the compiler's canonical syntax source, then runs Vite and 11ty: `website/scripts/build.ts`
+  - Website build orchestrator, which ensures the compiler CLI bundle exists, regenerates the website-safe JS syntax module from the compiler's canonical syntax source, then runs the esbuild embed bundler and 11ty: `website/scripts/build.ts`
   - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
   - Website-only JS syntax highlighter and generated syntax artifact used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.mjs`, `website/src/generated/vexa-monarch-language.mjs`
   - Website content-loader tests: `website/src/siteContent.test.ts`
-  - Vite-powered embeddable Monaco helpers for single-file and multi-file tutorial editors: `website/vite.config.ts`, `website/src/assets/vexa-embed.ts`
+  - Esbuild-powered embeddable Monaco helpers for single-file, tabbed, workspace, and full workbench tutorial editors: `website/scripts/buildEmbed.ts`, `website/src/assets/vexa-embed.ts`, `website/src/generated/embed-asset-manifest.ts`, `website/src/generated/*.browser.ts`
   - Website package scripts and type-checking configuration: `website/package.json`, `website/tsconfig.json`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`

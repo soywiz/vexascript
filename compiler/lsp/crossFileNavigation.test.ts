@@ -16,6 +16,22 @@ import {
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
+import { Vfs } from "compiler/vfs";
+
+class MyVfs extends Vfs {
+    constructor(public virtualDomPath: string, public domSource: string) {
+      super()
+    }
+
+    override async readFile(filePath: string) {
+      if (filePath !== this.virtualDomPath) throw new Error()
+      return this.domSource
+    }
+    override async stat(filePath: string) {
+      if (filePath !== this.virtualDomPath) throw new Error()
+      return { mtimeMs: 0, isFile: true, isDirectory: false }
+    }
+}
 
 describe("cross-file navigation", () => {
   it("resolves go-to-definition from imported symbol usage to original declaration", async () => {
@@ -1291,6 +1307,102 @@ describe("cross-file navigation", () => {
         end: { line: 0, character: 11 }
       }
     });
+  });
+
+  it("resolves DOM member definitions to the virtual runtime model in a virtual workspace", async () => {
+    const mainPath = "/src/main.vx";
+    const virtualDomPath = "/runtime/dom.d.ts";
+    const mainSource = 'const div = document.createElement("div")\n';
+    const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const domSession = createAnalysisSession(domSource);
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: mainSource.indexOf("createElement") + 2,
+      session: mainSession,
+      sourceRoots: [],
+      vfs: new MyVfs(virtualDomPath, domSource),
+      getSessionForFilePath: (filePath) => {
+        if (filePath === mainPath) {
+          return mainSession;
+        }
+        if (filePath === virtualDomPath) {
+          return domSession;
+        }
+        return null;
+      }
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(virtualDomPath).toString());
+    expect(location?.range).toBeTruthy();
+  });
+
+  it("resolves inherited DOM member definitions like querySelector in a virtual workspace", async () => {
+    const mainPath = "/src/main.vx";
+    const virtualDomPath = "/runtime/dom.d.ts";
+    const mainSource = 'const app = document.querySelector("#app")\n';
+    const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const domSession = createAnalysisSession(domSource);
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: mainSource.indexOf("querySelector") + 2,
+      session: mainSession,
+      sourceRoots: [],
+      vfs: new MyVfs(virtualDomPath, domSource),
+      getSessionForFilePath: (filePath) => {
+        if (filePath === mainPath) {
+          return mainSession;
+        }
+        if (filePath === virtualDomPath) {
+          return domSession;
+        }
+        return null;
+      }
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(virtualDomPath).toString());
+    expect(location?.range).toBeTruthy();
+  });
+
+  it("resolves inherited DOM member definitions when the main file uses ambient DOM declarations but the runtime file session is standalone", async () => {
+    const mainPath = "/src/main.vx";
+    const virtualDomPath = "/runtime/dom.d.ts";
+    const mainSource = 'const app = document.querySelector("#app")\n';
+    const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const domSession = createAnalysisSession(domSource);
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: mainSource.indexOf("querySelector") + 2,
+      session: mainSession,
+      sourceRoots: [],
+      vfs: new MyVfs(virtualDomPath, domSource),
+      getSessionForFilePath: (filePath) => {
+        if (filePath === mainPath) {
+          return mainSession;
+        }
+        if (filePath === virtualDomPath) {
+          return domSession;
+        }
+        return null;
+      }
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(virtualDomPath).toString());
+    expect(location?.range).toBeTruthy();
   });
 
 });

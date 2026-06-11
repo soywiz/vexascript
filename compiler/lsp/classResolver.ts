@@ -312,6 +312,7 @@ export async function resolveInterfaceStatementAcrossFiles(
   });
 
   let mergedInterfaceStatement: InterfaceStatement | null = null;
+  let resolvedFilePath: string | null = null;
   if (resolved) {
     const currentFilePath = options.uri ? uriToFilePath(options.uri) : null;
     if (resolved.filePath === currentFilePath) {
@@ -326,12 +327,31 @@ export async function resolveInterfaceStatementAcrossFiles(
         mergedInterfaceStatement = findMergedInterfaceStatementInProgram(targetSession.ast, interfaceName);
       }
     }
+    resolvedFilePath = resolved.filePath;
+  } else {
+    const localInterfaceStatement = findMergedInterfaceStatementInProgram(ast, interfaceName);
+    if (localInterfaceStatement) {
+      mergedInterfaceStatement = localInterfaceStatement;
+      resolvedFilePath = options.uri ? uriToFilePath(options.uri) : null;
+    } else {
+      const ecmaScriptInterfaceStatement = findMergedInterfaceStatementInProgram(getEcmaScriptRuntimeProgram(), interfaceName);
+      if (ecmaScriptInterfaceStatement) {
+        mergedInterfaceStatement = ecmaScriptInterfaceStatement;
+        resolvedFilePath = "";
+      } else {
+        const domInterfaceStatement = findMergedInterfaceStatementInProgram(await ensureDomProgram(), interfaceName);
+        if (domInterfaceStatement) {
+          mergedInterfaceStatement = domInterfaceStatement;
+          resolvedFilePath = getDomDeclarationFilePath();
+        }
+      }
+    }
   }
 
-  const interfaceStatement = resolved
+  const interfaceStatement = resolved || mergedInterfaceStatement
     ? {
-        interfaceStatement: mergedInterfaceStatement ?? resolved.declaration,
-        filePath: resolved.filePath
+        interfaceStatement: mergedInterfaceStatement ?? resolved!.declaration,
+        filePath: resolvedFilePath ?? ""
       }
     : null;
   cache.interfaceStatementByName.set(interfaceName, interfaceStatement);

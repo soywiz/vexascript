@@ -35,7 +35,7 @@ describe("deferred code actions", () => {
 
   it("preserves existing action data through defer and resolve", () => {
     const original: CodeAction = {
-      title: "Import 'Point' from './a'",
+      title: "Import 'Point' from './a.vx'",
       kind: "quickfix",
       data: {
         existing: true
@@ -48,7 +48,7 @@ describe("deferred code actions", () => {
                 start: { line: 0, character: 0 },
                 end: { line: 0, character: 0 }
               },
-              newText: "import { Point } from \"./a\"\n"
+              newText: "import { Point } from \"./a.vx\"\n"
             }
           ]
         }

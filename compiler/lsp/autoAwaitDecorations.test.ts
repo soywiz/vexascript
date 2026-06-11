@@ -8,6 +8,7 @@ import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
 import { collectImportedSymbolTypes } from "./importedDeclarations";
+import { parseSource } from "compiler/pipeline/parse";
 
 describe("auto-await decorations", () => {
   it("marks lines where a Promise is implicitly awaited inside a sync function", () => {
@@ -149,6 +150,63 @@ describe("auto-await decorations", () => {
     const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
     expect(decorations.map((decoration) => decoration.range.start.line)).toEqual([2, 3]);
     expect(decorations[0]!.message).toContain("Implicit await");
+  });
+
+  it("marks implicit awaits for a workspace-style imported delay helper using ambient runtime declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-auto-await-workspace-"));
+    const depFile = join(root, "time.vx");
+    const mainFile = join(root, "main.vx");
+
+    const ambientRuntimeSource = dedent`
+      declare class Promise<T> {
+        constructor(executor: ((arg1: T) => void, (reason: any) => void) => void)
+      }
+      declare type TimerHandler = ((value: any) => void) | string
+      declare fun setTimeout(handler: TimerHandler, timeout?: number): number
+    `;
+    const parsedAmbientRuntime = parseSource(ambientRuntimeSource);
+    expect(parsedAmbientRuntime.ast).toBeTruthy();
+    const ambientDeclarations = parsedAmbientRuntime.ast!.body;
+
+    const depSource = dedent`
+      class TimeSpan(val ms: number)
+      val number.seconds => TimeSpan(this * 1000.0)
+      val number.milliseconds => TimeSpan(this)
+
+      fun delay(time: TimeSpan) {
+        return new Promise { resolve, reject ->
+          setTimeout(resolve, time.ms)
+        }
+      }
+    `;
+    const mainSource = dedent`
+      import { delay, seconds, milliseconds, TimeSpan } from "./time"
+
+      sync fun demo() {
+        delay(1.seconds)
+        delay(250.milliseconds)
+        console.log(TimeSpan(500.0).ms)
+      }
+    `;
+
+    await writeFile(depFile, depSource, "utf8");
+    await writeFile(mainFile, mainSource, "utf8");
+
+    const baseSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+      uri: pathToFileURL(mainFile).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: async (filePath) => {
+        if (filePath !== depFile) {
+          return null;
+        }
+        return createAnalysisSession(depSource, [], new Map(), ambientDeclarations);
+      },
+    });
+    const session = createAnalysisSession(mainSource, [], importedSymbolTypes, ambientDeclarations);
+
+    const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
+    expect(decorations.map((decoration) => decoration.range.start.line)).toEqual([3, 4]);
   });
 
   it("restricts decorations to the requested range", () => {

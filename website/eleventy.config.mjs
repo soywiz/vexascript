@@ -9,8 +9,15 @@ const projectRoot = resolve(configDirectory, "..");
 
 async function versionedAssetHref(sourceRelativePath, publicPath) {
   const assetPath = resolve(configDirectory, sourceRelativePath);
-  const { mtimeMs } = await stat(assetPath);
-  return `${publicPath}?v=${Math.trunc(mtimeMs)}`;
+  try {
+    const { mtimeMs } = await stat(assetPath);
+    return `${publicPath}?v=${Math.trunc(mtimeMs)}`;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return publicPath;
+    }
+    throw error;
+  }
 }
 
 export default function eleventyConfig(config) {
@@ -33,7 +40,6 @@ export default function eleventyConfig(config) {
       siteCss: await versionedAssetHref("src/assets/site.css", "/assets/site.css"),
       generatedStyleCss: await versionedAssetHref("src/assets/generated/style.css", "/assets/generated/style.css"),
       generatedEmbedJs: await versionedAssetHref("src/assets/generated/vexa-embed.js", "/assets/generated/vexa-embed.js"),
-      generatedPlaygroundHtml: await versionedAssetHref("src/assets/generated/playground/index.html", "/assets/generated/playground/index.html"),
     };
   });
 

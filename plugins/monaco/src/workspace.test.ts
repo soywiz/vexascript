@@ -47,7 +47,7 @@ describe("monaco static workspace", () => {
       path: "/runtime/es2025.d.ts",
       uri: RUNTIME_DOCUMENT_URI,
       label: "es2025.d.ts",
-      language: "typescript",
+      language: "vexa",
       content: "runtime",
       readOnly: true,
     });
@@ -180,9 +180,9 @@ describe("monaco workspace VFS", () => {
       fetchText: async () => null,
     });
 
-    expect(await vfs.readFile("missing.vx")).toBeNull();
     expect(await vfs.fileExists("missing.vx")).toBe(false);
-    expect(await vfs.stat("missing.vx")).toBeNull();
-    expect(await vfs.readDir("missing")).toBeNull();
+    await expect(vfs.readFile("missing.vx")).rejects.toThrow(/doesn't exists/);
+    await expect(vfs.stat("missing.vx")).rejects.toThrow(/doesn't exists/);
+    await expect(vfs.readDir("missing")).rejects.toThrow(/doesn't exists/);
   });
 });

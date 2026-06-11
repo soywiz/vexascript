@@ -1,7 +1,7 @@
 import type { ExprStatement, FunctionStatement, Identifier, InterfaceStatement, NamespaceStatement, Program, Statement } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
 import { resolveNodeModulesTypingsPath, type ModuleResolutionOptions } from "compiler/moduleResolution";
-import { localVfs } from "compiler/vfs";
+import { localVfs } from "compiler/localVfs";
 import { nodeRange } from "./ranges";
 import type { Range } from "vscode-languageserver";
 

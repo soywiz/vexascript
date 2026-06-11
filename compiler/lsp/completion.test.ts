@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,6 +14,7 @@ import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
 } from "./completion";
+import { resolveDefinitionAcrossFiles } from "./crossFileNavigation";
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 import { getProjectIndex } from "./projectAnalysis";
 
@@ -223,7 +224,7 @@ describe("createCompletionItemsForPosition", () => {
       [
         {
           symbol: { name: "Point", filePath: "/tmp/a.vx", kind: "class" },
-          importPath: "./a",
+          importPath: "./a.vx",
           range: {
             start: { line: 0, character: 0 },
             end: { line: 0, character: 0 }
@@ -234,9 +235,9 @@ describe("createCompletionItemsForPosition", () => {
     const point = items.find((item) => item.label === "Point");
 
     expect(point).toBeDefined();
-    expect(point?.detail).toBe("Auto import from ./a");
+    expect(point?.detail).toBe("Auto import from ./a.vx");
     expect(point?.additionalTextEdits?.[0]?.newText).toBe(
-      "import { Point } from \"./a\"\n"
+      "import { Point } from \"./a.vx\"\n"
     );
   });
 
@@ -261,9 +262,9 @@ describe("createCompletionItemsForPosition", () => {
     const point = items.find((item) => item.label === "Point");
 
     expect(point).toBeDefined();
-    expect(point?.detail).toBe("Auto import from ./models/point");
+    expect(point?.detail).toBe("Auto import from ./models/point.vx");
     expect(point?.additionalTextEdits?.[0]?.newText).toBe(
-      "import { Point } from \"./models/point\"\n"
+      "import { Point } from \"./models/point.vx\"\n"
     );
   });
 
@@ -443,11 +444,11 @@ describe("createCompletionItemsForPosition", () => {
     });
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
-    expect(byLabel.get("milliseconds")?.detail).toBe("Auto import extension from ./duration");
+    expect(byLabel.get("milliseconds")?.detail).toBe("Auto import extension from ./duration.vx");
     expect(byLabel.get("milliseconds")?.additionalTextEdits?.[0]?.newText).toBe(
-      "import { milliseconds } from \"./duration\"\n"
+      "import { milliseconds } from \"./duration.vx\"\n"
     );
-    expect(byLabel.get("seconds")?.detail).toBe("Auto import extension from ./duration");
+    expect(byLabel.get("seconds")?.detail).toBe("Auto import extension from ./duration.vx");
   });
 
   it("resolves chained members after extension properties", async () => {
@@ -716,6 +717,167 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toEqual(expect.arrayContaining(["nodeType", "parentNode", "textContent"]));
   });
 
+  it("offers Document members while typing a DOM method prefix", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-document-"));
+    const file = join(root, "main.vx");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      document.crea^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("createElement");
+  });
+
+  it("returns call snippets for DOM method completions", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      document.crea^^^
+    `);
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      ambientDeclarations,
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const createElement = items.find((item) => item.label === "createElement");
+
+    expect(createElement?.insertText).toBe("createElement($1)");
+    expect(createElement?.insertTextFormat).toBe(2);
+    expect(createElement?.command).toEqual({
+      title: "Trigger parameter hints",
+      command: "editor.action.triggerParameterHints",
+    });
+  });
+
+  it("offers Document members immediately after a bare dot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-document-dot-"));
+    const file = join(root, "main.vx");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      document.^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("createElement");
+  });
+
+  it("offers Document members from ambient declarations without project roots", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      document.crea^^^
+    `);
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      ambientDeclarations,
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("createElement");
+  });
+
+  it("resolves go-to-definition for DOM members from ambient declarations with an absolute project root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-definition-"));
+    const file = join(root, "main.vx");
+    const { source, line, character } = sourceWithCursor(dedent`
+      document.createEleme^^^nt("div")
+    `);
+    await writeFile(file, source, "utf8");
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line,
+      character,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri.endsWith("dom.d.ts")).toBe(true);
+  });
+
+  it("offers Document members while typing a DOM method prefix in an imported workspace file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-document-imported-"));
+    const file = join(root, "main.vx");
+    const counterFile = join(root, "counter.vx");
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: { lib: ["es2025", "dom"] } }), "utf8");
+    await writeFile(counterFile, 'export fun increment(value: int): int => value + 1\n', "utf8");
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { increment } from "./counter.vx"
+
+      val current = increment(41)
+      document.crea^^^
+    `);
+    await writeFile(file, source, "utf8");
+
+    const baseSession = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: async (filePath) => {
+        if (filePath !== counterFile) {
+          return null;
+        }
+        const counterSource = await readFile(counterFile, "utf8");
+        return createAnalysisSession(counterSource, [], new Map(), (await ensureDomProgram()).body);
+      }
+    });
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: async (filePath) => {
+        if (filePath !== counterFile) {
+          return null;
+        }
+        const counterSource = await readFile(counterFile, "utf8");
+        return createAnalysisSession(counterSource, [], new Map(), (await ensureDomProgram()).body);
+      }
+    });
+    const session = createAnalysisSession(source, externalDeclarations, importedSymbolTypes, (await ensureDomProgram()).body);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(file).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: async (filePath) => {
+        if (filePath !== counterFile) {
+          return null;
+        }
+        const counterSource = await readFile(counterFile, "utf8");
+        return createAnalysisSession(counterSource, [], new Map(), (await ensureDomProgram()).body);
+      },
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("createElement");
+  });
+
   it("offers members after a DOM querySelector call receiver", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-query-selector-"));
     const file = join(root, "main.vx");
@@ -737,6 +899,25 @@ describe("createCompletionItemsForPosition", () => {
     const labels = items.map((item) => item.label);
 
     expect(labels).toEqual(expect.arrayContaining(["nodeType", "parentNode", "textContent", "querySelector"]));
+  });
+
+  it("keeps DOM property completions as plain text", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      const root: HTMLElement = document.createElement("main")
+      root.^^^
+    `);
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      ambientDeclarations,
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+    });
+    const nodeType = items.find((item) => item.label === "nodeType");
+
+    expect(nodeType?.insertText).toBeUndefined();
+    expect(nodeType?.insertTextFormat).toBeUndefined();
   });
 
   it("offers members after an optional DOM querySelector call receiver", async () => {

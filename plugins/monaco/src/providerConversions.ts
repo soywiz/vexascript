@@ -1,5 +1,14 @@
-import type { Diagnostic } from "vscode-languageserver/node.js";
+import type { CompletionItem, Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "compiler/lsp/diagnosticSeverity";
+
+const CompletionItemKind = {
+  Method: 2,
+  Function: 3,
+} as const;
+
+const CompletionItemInsertTextFormat = {
+  Snippet: 2,
+} as const;
 
 export interface MonacoMarkerSeverityValues {
   Error: number;
@@ -16,6 +25,43 @@ export interface MonacoLikeMarker {
   message: string;
   code?: string | number | { value?: string | number };
   source?: string;
+}
+
+export interface MonacoLikeCompletionInsert {
+  insertText: string;
+  insertTextFormat?: number;
+  command?: {
+    title: string;
+    command: string;
+  };
+}
+
+function isCallableCompletionItem(item: Pick<CompletionItem, "kind" | "label">): boolean {
+  if (item.kind !== CompletionItemKind.Method && item.kind !== CompletionItemKind.Function) {
+    return false;
+  }
+  return /^[A-Za-z_][A-Za-z0-9_]*$/u.test(item.label);
+}
+
+export function completionInsertText(item: Pick<CompletionItem, "kind" | "label" | "insertText" | "insertTextFormat">): MonacoLikeCompletionInsert {
+  if (item.insertText) {
+    return {
+      insertText: item.insertText,
+      ...(item.insertTextFormat !== undefined ? { insertTextFormat: item.insertTextFormat } : {}),
+      ...(item.command ? { command: item.command } : {}),
+    };
+  }
+  if (isCallableCompletionItem(item)) {
+    return {
+      insertText: `${item.label}($1)`,
+      insertTextFormat: CompletionItemInsertTextFormat.Snippet,
+      command: {
+        title: "Trigger parameter hints",
+        command: "editor.action.triggerParameterHints",
+      },
+    };
+  }
+  return { insertText: item.label };
 }
 
 export function markerToDiagnostic(

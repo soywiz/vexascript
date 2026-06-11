@@ -1,12 +1,9 @@
-/// <reference types="vite/client" />
-
 import "monaco-editor/min/vs/editor/editor.main.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import * as monaco from "monaco-editor";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
 import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
+import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
 import {
   createCompletionItemsForPosition,
@@ -14,26 +11,41 @@ import {
 } from "compiler/lsp/completion";
 import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
+import {
+  createDocumentHighlights,
+  createFoldingRanges,
+  createOnTypeFormattingEdits,
+  createSelectionRanges,
+} from "compiler/lsp/documentFeatures";
 import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "compiler/lsp/importedDeclarations";
+import { createFullDocumentFormatEdit, createRangeFormatEdit } from "compiler/lsp/formatting";
+import { createInlayHints } from "compiler/lsp/inlayHints";
 import {
   createPrepareRename,
   createHover,
 } from "compiler/lsp/navigation";
 import {
   resolveDefinitionAcrossFiles,
+  resolveReferencesAcrossFiles,
   resolveMemberHoverAcrossFiles,
   resolveRenameAcrossFiles,
 } from "compiler/lsp/crossFileNavigation";
+import { createSemanticTokens, VEXA_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
+import { createSignatureHelp } from "compiler/lsp/signatureHelp";
+import { createDocumentSymbols } from "compiler/lsp/symbols";
 import {
   createPortableLanguageConfiguration,
   createPortableMonarchLanguage,
   type PortableLanguageConfiguration,
   type PortableMonarchLanguage,
 } from "compiler/syntax";
+import { bundledDomRuntimeUrl, bundledRuntimeUrl, editorWorkerUrl } from "../generated/embed-asset-manifest";
+import { parseSource } from "compiler/pipeline/parse";
+import type { Statement } from "compiler/ast/ast";
 import type { SymbolExport } from "compiler/lsp/importFixes";
 import { bundleModuleGraph } from "compiler/runtime/moduleGraph";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
-import { markerToDiagnostic } from "../../../plugins/monaco/src/providerConversions";
+import { completionInsertText, markerToDiagnostic } from "../../../plugins/monaco/src/providerConversions";
 import { WorkspaceVfs } from "../../../plugins/monaco/src/workspaceVfs";
 import {
   createFileInWorkspace,
@@ -48,7 +60,6 @@ import {
   type WorkspaceFile,
 } from "../../../plugins/monaco/src/workspace";
 import { createVexaScriptMonacoTheme, VEXA_MONACO_THEME_NAME } from "../../../plugins/monaco/src/theme";
-import bundledRuntime from "../../../compiler/runtime/es2025.d.ts?raw";
 
 interface VexaScriptEmbedFile {
   path: string;
@@ -79,6 +90,7 @@ interface SimpleEditorOptions {
   path?: string;
   readOnly?: boolean;
   height?: string;
+  inlayHints?: boolean;
   selection?: monaco.IRange;
 }
 
@@ -86,6 +98,7 @@ interface WorkspaceEditorOptions {
   files: VexaScriptEmbedFile[];
   activePath?: string;
   height?: string;
+  inlayHints?: boolean;
   selection?: monaco.IRange;
 }
 
@@ -97,18 +110,34 @@ interface WorkbenchEditorOptions extends WorkspaceEditorOptions {
 
 interface EmbedWorkspaceContext {
   vfs: WorkspaceVfs;
-  getSessionForFilePath(filePath: string): ReturnType<typeof createAnalysisSession> | null;
+  getSessionForFilePath(filePath: string): ReturnType<typeof createAnalysisSession> | null | Promise<ReturnType<typeof createAnalysisSession> | null>;
   getExportedSymbols(): Promise<SymbolExport[]>;
+  getRevision(): number;
 }
 
 interface StoredWorkbenchWorkspaceSnapshot {
   entries: WorkspaceEntry[];
 }
 
+function inlayHintsStorageKey(storageKey: string): string {
+  return `${storageKey}.inlayHints`;
+}
+
 let bootstrapped = false;
 let modelCounter = 0;
 let autoAwaitGlyphStyleInjected = false;
+let cachedDomAmbientDeclarations: Statement[] | null = null;
+let bundledRuntimeContent: string | null = null;
+let bundledDomRuntimeContent: string | null = null;
+let bundledRuntimeLoadPromise: Promise<{ runtime: string; dom: string }> | null = null;
+let embeddedRuntimeReady = false;
+let embeddedRuntimeReadyPromise: Promise<void> | null = null;
 const embedWorkspaceContextsByUri = new Map<string, EmbedWorkspaceContext>();
+const modelSessionCache = new Map<string, {
+  versionId: number;
+  workspaceRevision: number;
+  session: Promise<ReturnType<typeof createAnalysisSession>>;
+}>();
 const DEFAULT_WORKBENCH_STORAGE_KEY = "vexa.embed.workbench.v1";
 const DEFAULT_WORKBENCH_SESSION_STORAGE_KEY = "vexa.embed.workbench.session.v1";
 
@@ -116,6 +145,7 @@ const autoAwaitGlyphCollections = new WeakMap<
   monaco.editor.ICodeEditor,
   monaco.editor.IEditorDecorationsCollection
 >();
+const pendingRuntimeReadyRefreshes = new Map<string, Promise<void>>();
 
 const completionItemKind = monaco.languages.CompletionItemKind;
 const lspCompletionItemKinds: Record<number, monaco.languages.CompletionItemKind> = {
@@ -136,6 +166,21 @@ const lspCompletionItemKinds: Record<number, monaco.languages.CompletionItemKind
   25: completionItemKind.TypeParameter,
 };
 
+const RUNTIME_LOADING_PLACEHOLDER = "// Loading runtime declarations...\n";
+
+const documentSymbolKind = monaco.languages.SymbolKind;
+const lspDocumentSymbolKinds: Record<number, monaco.languages.SymbolKind> = {
+  5: documentSymbolKind.Class,
+  6: documentSymbolKind.Method,
+  7: documentSymbolKind.Property,
+  8: documentSymbolKind.Field,
+  10: documentSymbolKind.Enum,
+  11: documentSymbolKind.Interface,
+  12: documentSymbolKind.Function,
+  13: documentSymbolKind.Variable,
+  22: documentSymbolKind.EnumMember,
+};
+
 declare global {
   interface Window {
     VexaScriptEmbeds?: {
@@ -149,11 +194,8 @@ declare global {
 }
 
 self.MonacoEnvironment = {
-  getWorker(_id: string, label: string): Worker {
-    if (label === "typescript" || label === "javascript") {
-      return new tsWorker();
-    }
-    return new editorWorker();
+  getWorker(_id: string, _label: string): Worker {
+    return new Worker(editorWorkerUrl, { type: "module" });
   },
 };
 
@@ -175,6 +217,68 @@ function basename(path: string): string {
   return normalized.slice(lastSlash + 1);
 }
 
+function isRuntimeDeclarationPath(path: string): boolean {
+  const normalized = normalizePath(path);
+  return normalized === "/runtime/dom.d.ts" || normalized === "/runtime/es2025.d.ts";
+}
+
+async function loadTextAsset(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load asset: ${url}`);
+  }
+  return response.text();
+}
+
+function ensureBundledRuntimeContents(): Promise<{ runtime: string; dom: string }> {
+  if (bundledRuntimeContent !== null && bundledDomRuntimeContent !== null) {
+    return Promise.resolve({ runtime: bundledRuntimeContent, dom: bundledDomRuntimeContent });
+  }
+  if (!bundledRuntimeLoadPromise) {
+    bundledRuntimeLoadPromise = Promise.all([
+      loadTextAsset(bundledRuntimeUrl),
+      loadTextAsset(bundledDomRuntimeUrl),
+    ]).then(([runtime, dom]) => {
+      bundledRuntimeContent = runtime;
+      bundledDomRuntimeContent = dom;
+      return { runtime, dom };
+    });
+  }
+  return bundledRuntimeLoadPromise;
+}
+
+function createBundledRuntimeEntries(): WorkspaceEntry[] {
+  return [
+    createFolderEntry("/runtime", true),
+    createFileEntry("/runtime/es2025.d.ts", bundledRuntimeContent ?? RUNTIME_LOADING_PLACEHOLDER, {
+      language: "vexa",
+      readOnly: true,
+      uri: pathToUri("/runtime/es2025.d.ts"),
+    }),
+    createFileEntry("/runtime/dom.d.ts", bundledDomRuntimeContent ?? RUNTIME_LOADING_PLACEHOLDER, {
+      language: "vexa",
+      readOnly: true,
+      uri: pathToUri("/runtime/dom.d.ts"),
+    }),
+  ];
+}
+
+function ensureEmbeddedRuntimeReady(): Promise<void> {
+  if (embeddedRuntimeReady) {
+    return Promise.resolve();
+  }
+  if (!embeddedRuntimeReadyPromise) {
+    embeddedRuntimeReadyPromise = Promise.all([
+      ensureBundledRuntimeContents(),
+      ensureEcmaScriptRuntimeProgram(),
+      getDomAmbientDeclarations(),
+    ]).then(() => {
+      embeddedRuntimeReady = true;
+    });
+  }
+  return embeddedRuntimeReadyPromise;
+}
+
 function ensureAutoAwaitGlyphStyle(): void {
   if (autoAwaitGlyphStyleInjected) {
     return;
@@ -191,6 +295,21 @@ function ensureAutoAwaitGlyphStyle(): void {
   `;
   document.head.append(style);
   autoAwaitGlyphStyleInjected = true;
+}
+
+function shouldDebugDiagnosticsRefresh(): boolean {
+  try {
+    return window.localStorage.getItem("vexa.debug.gutter") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function logDiagnosticsRefresh(reason: string, model: monaco.editor.ITextModel): void {
+  if (!shouldDebugDiagnosticsRefresh()) {
+    return;
+  }
+  console.debug("[vexa][diagnostics]", reason, model.uri.toString(), `v${model.getVersionId()}`);
 }
 
 function toMonacoMonarchLanguage(portable: PortableMonarchLanguage): Record<string, unknown> {
@@ -249,9 +368,9 @@ function toMonacoLanguageConfiguration(portable: PortableLanguageConfiguration):
 function registerVexaScript(): void {
   monaco.languages.register({
     id: "vexa",
-    extensions: [".vx"],
+    extensions: [".vx", ".ts", ".d.ts"],
     aliases: ["VexaScript", "vexa"],
-    mimetypes: ["text/x-vexa"],
+    mimetypes: ["text/x-vexa", "text/typescript", "application/typescript"],
   });
   monaco.languages.setMonarchTokensProvider("vexa", toMonacoMonarchLanguage(createPortableMonarchLanguage()) as monaco.languages.IMonarchLanguage);
   monaco.languages.setLanguageConfiguration("vexa", toMonacoLanguageConfiguration(createPortableLanguageConfiguration()));
@@ -259,25 +378,45 @@ function registerVexaScript(): void {
 
 async function getSessionForModel(model: monaco.editor.ITextModel): Promise<ReturnType<typeof createAnalysisSession>> {
   const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-  const baseSession = createAnalysisSession(model.getValue());
-  if (!baseSession.ast || !workspaceContext) {
-    return baseSession;
+  const workspaceRevision = workspaceContext?.getRevision() ?? 0;
+  const cached = modelSessionCache.get(model.uri.toString());
+  if (cached && cached.versionId === model.getVersionId() && cached.workspaceRevision === workspaceRevision) {
+    return cached.session;
   }
-  const resolverContext = {
-    uri: model.uri.toString(),
-    sourceRoots: [],
-    vfs: workspaceContext.vfs,
-    getSessionForFilePath: workspaceContext.getSessionForFilePath,
-    getExportedSymbols: workspaceContext.getExportedSymbols,
-  };
-  const [externalDeclarations, importedSymbolTypes] = await Promise.all([
-    collectImportedTypeDeclarations(baseSession.ast, resolverContext),
-    collectImportedSymbolTypes(baseSession.ast, resolverContext),
-  ]);
-  if (externalDeclarations.length === 0 && importedSymbolTypes.size === 0) {
-    return baseSession;
-  }
-  return createAnalysisSession(model.getValue(), externalDeclarations, importedSymbolTypes);
+  const session = (async () => {
+    const ambientDeclarations = await getDomAmbientDeclarations();
+    const baseSession = createAnalysisSession(model.getValue(), [], new Map(), ambientDeclarations);
+    if (!baseSession.ast || !workspaceContext) {
+      return baseSession;
+    }
+    const resolverContext = {
+      uri: model.uri.toString(),
+      sourceRoots: [],
+      vfs: workspaceContext.vfs,
+      getSessionForFilePath: workspaceContext.getSessionForFilePath,
+      getExportedSymbols: workspaceContext.getExportedSymbols,
+    };
+    const [externalDeclarations, importedSymbolTypes] = await Promise.all([
+      collectImportedTypeDeclarations(baseSession.ast, resolverContext),
+      collectImportedSymbolTypes(baseSession.ast, resolverContext),
+    ]);
+    if (externalDeclarations.length === 0 && importedSymbolTypes.size === 0) {
+      return baseSession;
+    }
+    return createAnalysisSession(model.getValue(), externalDeclarations, importedSymbolTypes, ambientDeclarations);
+  })();
+  modelSessionCache.set(model.uri.toString(), {
+    versionId: model.getVersionId(),
+    workspaceRevision,
+    session,
+  });
+  session.catch(() => {
+    const current = modelSessionCache.get(model.uri.toString());
+    if (current?.session === session) {
+      modelSessionCache.delete(model.uri.toString());
+    }
+  });
+  return session;
 }
 
 function completionEditRange(
@@ -403,6 +542,22 @@ function normalizePrepareRenameResult(
   return null;
 }
 
+function resolverContext(model: monaco.editor.ITextModel, workspaceContext?: EmbedWorkspaceContext) {
+  return {
+    uri: model.uri.toString(),
+    sourceRoots: [],
+    ...(workspaceContext ? {
+      vfs: workspaceContext.vfs,
+      getSessionForFilePath: workspaceContext.getSessionForFilePath,
+      getExportedSymbols: workspaceContext.getExportedSymbols,
+    } : {}),
+  };
+}
+
+function toMonacoPos(position: { line: number; character: number }): monaco.IPosition {
+  return { lineNumber: position.line + 1, column: position.character + 1 };
+}
+
 function registerCompletionProvider(): void {
   monaco.languages.registerCompletionItemProvider("vexa", {
     triggerCharacters: ["."],
@@ -417,12 +572,18 @@ function registerCompletionProvider(): void {
       const session = await getSessionForModel(model);
       if (!session.ast || !session.analysis) {
         return {
-          suggestions: createKeywordOnlyCompletionItems().map((item) => ({
-            label: item.label,
-            kind: lspCompletionItemKinds[item.kind ?? 0] ?? completionItemKind.Text,
-            insertText: item.insertText ?? item.label,
-            range: fallbackRange,
-          })),
+          suggestions: createKeywordOnlyCompletionItems().map((item) => {
+            const insert = completionInsertText(item);
+            return {
+              ...insert,
+              label: item.label,
+              kind: lspCompletionItemKinds[item.kind ?? 0] ?? completionItemKind.Text,
+              insertTextRules: insert.insertTextFormat === 2
+                ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+                : undefined,
+              range: fallbackRange,
+            };
+          }),
         };
       }
       const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
@@ -434,13 +595,8 @@ function registerCompletionProvider(): void {
         [],
         {
           text: model.getValue(),
-          uri: model.uri.toString(),
-          sourceRoots: [],
-          ...(workspaceContext ? {
-            vfs: workspaceContext.vfs,
-            getSessionForFilePath: workspaceContext.getSessionForFilePath,
-            getExportedSymbols: workspaceContext.getExportedSymbols,
-          } : {}),
+          ...resolverContext(model, workspaceContext),
+          ambientDeclarations: session.ambientDeclarations,
           recoverAnalysisSession: (source) => createAnalysisSession(
             source,
             session.externalDeclarations,
@@ -450,20 +606,23 @@ function registerCompletionProvider(): void {
         }
       );
       return {
-        suggestions: items.map((item) => ({
-          label: item.label,
-          kind: lspCompletionItemKinds[item.kind ?? 0] ?? completionItemKind.Text,
-          detail: item.detail,
-          documentation: toMarkdown(item.documentation),
-          sortText: item.sortText,
-          filterText: item.filterText,
-          insertText: item.insertText ?? item.label,
-          insertTextRules: item.insertTextFormat === 2
-            ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
-            : undefined,
-          range: completionEditRange(item.textEdit, fallbackRange),
-          additionalTextEdits: item.additionalTextEdits?.map(lspEditToMonaco),
-        })),
+        suggestions: items.map((item) => {
+          const insert = completionInsertText(item);
+          return {
+            ...insert,
+            label: item.label,
+            kind: lspCompletionItemKinds[item.kind ?? 0] ?? completionItemKind.Text,
+            detail: item.detail,
+            documentation: toMarkdown(item.documentation),
+            sortText: item.sortText,
+            filterText: item.filterText,
+            insertTextRules: insert.insertTextFormat === 2
+              ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+              : undefined,
+            range: completionEditRange(item.textEdit, fallbackRange),
+            additionalTextEdits: item.additionalTextEdits?.map(lspEditToMonaco),
+          };
+        }),
       };
     },
   });
@@ -498,13 +657,7 @@ function registerRenameProvider(): void {
         line: position.lineNumber - 1,
         character: position.column - 1,
         session,
-        uri: model.uri.toString(),
-        sourceRoots: [],
-        ...(workspaceContext ? {
-          vfs: workspaceContext.vfs,
-          getSessionForFilePath: workspaceContext.getSessionForFilePath,
-          getExportedSymbols: workspaceContext.getExportedSymbols,
-        } : {}),
+        ...resolverContext(model, workspaceContext),
       }, newName);
       if (!edit) {
         return { edits: [] };
@@ -526,18 +679,12 @@ function registerCodeActionProvider(): void {
         markerToDiagnostic(marker, monaco.MarkerSeverity)
       );
       const actions = await collectCodeActions({
-        uri: model.uri.toString(),
         text: model.getValue(),
         ast: session.ast,
         analysis: session.analysis,
         range: toLspRange(range),
         diagnostics,
-        sourceRoots: [],
-        ...(workspaceContext ? {
-          vfs: workspaceContext.vfs,
-          getSessionForFilePath: workspaceContext.getSessionForFilePath,
-          getExportedSymbols: workspaceContext.getExportedSymbols,
-        } : {}),
+        ...resolverContext(model, workspaceContext),
       });
       return {
         actions: actions.map((action) => ({
@@ -548,6 +695,31 @@ function registerCodeActionProvider(): void {
         })),
         dispose: () => {},
       };
+    },
+  });
+}
+
+function registerFormattingProviders(): void {
+  monaco.languages.registerDocumentFormattingEditProvider("vexa", {
+    provideDocumentFormattingEdits(model) {
+      return [lspEditToMonaco(createFullDocumentFormatEdit(model.getValue()))];
+    },
+  });
+
+  monaco.languages.registerDocumentRangeFormattingEditProvider("vexa", {
+    provideDocumentRangeFormattingEdits(model, range) {
+      return [lspEditToMonaco(createRangeFormatEdit(model.getValue(), toLspRange(range)))];
+    },
+  });
+
+  monaco.languages.registerOnTypeFormattingEditProvider("vexa", {
+    autoFormatTriggerCharacters: ["\n", "}"],
+    provideOnTypeFormattingEdits(model, position, character) {
+      return createOnTypeFormattingEdits(
+        model.getValue(),
+        { line: position.lineNumber - 1, character: position.column - 1 },
+        character
+      ).map(lspEditToMonaco);
     },
   });
 }
@@ -603,11 +775,7 @@ function registerHoverProvider(): void {
             line: position.lineNumber - 1,
             character: position.column - 1,
             session,
-            uri: model.uri.toString(),
-            sourceRoots: [],
-            vfs: workspaceContext.vfs,
-            getSessionForFilePath: workspaceContext.getSessionForFilePath,
-            getExportedSymbols: workspaceContext.getExportedSymbols,
+            ...resolverContext(model, workspaceContext),
           }) ?? createHover(session.analysis, position.lineNumber - 1, position.column - 1)
         : createHover(session.analysis, position.lineNumber - 1, position.column - 1);
       if (!hover) {
@@ -636,11 +804,7 @@ function registerDefinitionProvider(): void {
           line: position.lineNumber - 1,
           character: position.column - 1,
           session,
-          uri: model.uri.toString(),
-          sourceRoots: [],
-          vfs: workspaceContext.vfs,
-          getSessionForFilePath: workspaceContext.getSessionForFilePath,
-          getExportedSymbols: workspaceContext.getExportedSymbols,
+          ...resolverContext(model, workspaceContext),
         })
       : null;
     return location
@@ -650,6 +814,241 @@ function registerDefinitionProvider(): void {
 
   monaco.languages.registerDefinitionProvider("vexa", {
     provideDefinition,
+  });
+  monaco.languages.registerDeclarationProvider("vexa", {
+    provideDeclaration: provideDefinition,
+  });
+  monaco.languages.registerTypeDefinitionProvider("vexa", {
+    provideTypeDefinition: provideDefinition,
+  });
+  monaco.languages.registerImplementationProvider("vexa", {
+    provideImplementation: provideDefinition,
+  });
+}
+
+function registerSignatureHelpProvider(): void {
+  monaco.languages.registerSignatureHelpProvider("vexa", {
+    signatureHelpTriggerCharacters: ["(", ","],
+    signatureHelpRetriggerCharacters: [","],
+    async provideSignatureHelp(model, position) {
+      const session = await getSessionForModel(model);
+      if (!session.ast || !session.analysis) {
+        return null;
+      }
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+      const help = await createSignatureHelp(
+        session.ast,
+        session.analysis,
+        position.lineNumber - 1,
+        position.column - 1,
+        resolverContext(model, workspaceContext)
+      );
+      if (!help) {
+        return null;
+      }
+      return {
+        value: {
+          signatures: help.signatures.map((signature) => ({
+            label: signature.label,
+            documentation: toMarkdown(signature.documentation),
+            parameters: (signature.parameters ?? []).map((parameter) => ({
+              label: parameter.label,
+              documentation: toMarkdown(parameter.documentation),
+            })),
+          })),
+          activeSignature: help.activeSignature ?? 0,
+          activeParameter: help.activeParameter ?? 0,
+        },
+        dispose: () => {},
+      };
+    },
+  });
+}
+
+function registerReferenceAndHighlightProviders(): void {
+  monaco.languages.registerReferenceProvider("vexa", {
+    async provideReferences(model, position, context) {
+      const session = await getSessionForModel(model);
+      if (!session.analysis || !session.ast) {
+        return [];
+      }
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+      const locations = workspaceContext
+        ? await resolveReferencesAcrossFiles(
+            {
+              line: position.lineNumber - 1,
+              character: position.column - 1,
+              session,
+              ...resolverContext(model, workspaceContext),
+            },
+            context.includeDeclaration
+          )
+        : [];
+      return locations.map((location) => ({ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }));
+    },
+  });
+
+  monaco.languages.registerDocumentHighlightProvider("vexa", {
+    async provideDocumentHighlights(model, position) {
+      const session = await getSessionForModel(model);
+      if (!session.analysis) {
+        return [];
+      }
+      return createDocumentHighlights(session.analysis, position.lineNumber - 1, position.column - 1).map((highlight) => ({
+        range: toMonacoRange(highlight.range),
+        kind: highlight.kind === 2
+          ? monaco.languages.DocumentHighlightKind.Write
+          : monaco.languages.DocumentHighlightKind.Read,
+      }));
+    },
+  });
+}
+
+function registerLinkedEditingProvider(): void {
+  monaco.languages.registerLinkedEditingRangeProvider("vexa", {
+    async provideLinkedEditingRanges(model, position) {
+      const session = await getSessionForModel(model);
+      if (!session.analysis) {
+        return null;
+      }
+      const ranges = session.analysis.getRenameRangesAt(position.lineNumber - 1, position.column - 1);
+      if (ranges.length <= 1) {
+        return null;
+      }
+      return {
+        ranges: ranges.map(toMonacoRange),
+        wordPattern: /[A-Za-z_][A-Za-z0-9_]*/,
+      };
+    },
+  });
+}
+
+function registerDocumentStructureProviders(): void {
+  monaco.languages.registerDocumentSymbolProvider("vexa", {
+    async provideDocumentSymbols(model) {
+      const session = await getSessionForModel(model);
+      if (!session.ast) {
+        return [];
+      }
+      const mapSymbol = (symbol: {
+        name: string;
+        kind: number;
+        range: { start: { line: number; character: number }; end: { line: number; character: number } };
+        selectionRange: { start: { line: number; character: number }; end: { line: number; character: number } };
+        children?: unknown[];
+      }): monaco.languages.DocumentSymbol => ({
+        name: symbol.name,
+        detail: "",
+        kind: lspDocumentSymbolKinds[symbol.kind] ?? documentSymbolKind.Variable,
+        range: toMonacoRange(symbol.range),
+        selectionRange: toMonacoRange(symbol.selectionRange),
+        tags: [],
+        children: (symbol.children as typeof symbol[] | undefined)?.map(mapSymbol) ?? [],
+      });
+      return createDocumentSymbols(session.ast).map(mapSymbol);
+    },
+  });
+
+  monaco.languages.registerFoldingRangeProvider("vexa", {
+    async provideFoldingRanges(model) {
+      const session = await getSessionForModel(model);
+      if (!session.ast) {
+        return [];
+      }
+      return createFoldingRanges(session.ast).map((range) => ({
+        start: range.startLine + 1,
+        end: range.endLine + 1,
+        kind: range.kind === "comment"
+          ? monaco.languages.FoldingRangeKind.Comment
+          : range.kind === "imports"
+            ? monaco.languages.FoldingRangeKind.Imports
+            : monaco.languages.FoldingRangeKind.Region,
+      }));
+    },
+  });
+
+  monaco.languages.registerSelectionRangeProvider("vexa", {
+    async provideSelectionRanges(model, positions) {
+      const session = await getSessionForModel(model);
+      if (!session.ast) {
+        return [];
+      }
+      return createSelectionRanges(
+        session.ast,
+        positions.map((position) => ({ line: position.lineNumber - 1, character: position.column - 1 }))
+      ).map((selectionRange) => {
+        const chain: monaco.languages.SelectionRange[] = [];
+        let current: typeof selectionRange | undefined = selectionRange;
+        while (current) {
+          chain.push({ range: toMonacoRange(current.range) });
+          current = current.parent;
+        }
+        return chain;
+      });
+    },
+  });
+}
+
+function registerInlayHintsProvider(): void {
+  monaco.languages.registerInlayHintsProvider("vexa", {
+    async provideInlayHints(model, range) {
+      const session = await getSessionForModel(model);
+      if (!session.ast || !session.analysis) {
+        return { hints: [], dispose: () => {} };
+      }
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+      const hints = await createInlayHints(
+        session.ast,
+        session.analysis,
+        toLspRange(range),
+        resolverContext(model, workspaceContext)
+      );
+      return {
+        hints: hints.map((hint) => ({
+          position: toMonacoPos(hint.position),
+          label: typeof hint.label === "string" ? hint.label : hint.label.map((part) => part.value).join(""),
+          kind: hint.kind === 1
+            ? monaco.languages.InlayHintKind.Type
+            : hint.kind === 2
+              ? monaco.languages.InlayHintKind.Parameter
+              : undefined,
+          tooltip: toMarkdown(hint.tooltip),
+          paddingLeft: hint.paddingLeft,
+          paddingRight: hint.paddingRight,
+        })),
+        dispose: () => {},
+      };
+    },
+  });
+}
+
+function registerSemanticTokensProviders(): void {
+  monaco.languages.registerDocumentSemanticTokensProvider("vexa", {
+    getLegend: () => VEXA_SEMANTIC_TOKENS_LEGEND,
+    async provideDocumentSemanticTokens(model) {
+      const session = await getSessionForModel(model);
+      const tokens = createSemanticTokens({
+        text: model.getValue(),
+        ast: session.ast,
+        analysis: session.analysis,
+      });
+      return tokens?.data ? { data: new Uint32Array(tokens.data) } : null;
+    },
+    releaseDocumentSemanticTokens: () => {},
+  });
+
+  monaco.languages.registerDocumentRangeSemanticTokensProvider("vexa", {
+    getLegend: () => VEXA_SEMANTIC_TOKENS_LEGEND,
+    async provideDocumentRangeSemanticTokens(model, range) {
+      const session = await getSessionForModel(model);
+      const tokens = createSemanticTokens({
+        text: model.getValue(),
+        ast: session.ast,
+        analysis: session.analysis,
+        range: toLspRange(range),
+      });
+      return tokens?.data ? { data: new Uint32Array(tokens.data) } : { data: new Uint32Array() };
+    },
   });
 }
 
@@ -668,12 +1067,20 @@ function bootstrapMonaco(): void {
   if (bootstrapped) {
     return;
   }
+  void ensureBundledRuntimeContents();
   registerVexaScript();
   registerCompletionProvider();
   registerHoverProvider();
+  registerSignatureHelpProvider();
   registerDefinitionProvider();
+  registerReferenceAndHighlightProviders();
   registerRenameProvider();
+  registerLinkedEditingProvider();
   registerCodeActionProvider();
+  registerFormattingProviders();
+  registerDocumentStructureProviders();
+  registerInlayHintsProvider();
+  registerSemanticTokensProviders();
   monaco.editor.defineTheme(VEXA_MONACO_THEME_NAME, createVexaScriptMonacoTheme());
   monaco.editor.setTheme(VEXA_MONACO_THEME_NAME);
   bootstrapped = true;
@@ -726,6 +1133,22 @@ function applySelectionOrPosition(
   editor.revealPositionInCenter(selectionOrPosition);
 }
 
+function shouldTriggerMemberCompletionAfterTyping(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  typedText: string
+): boolean {
+  if (!/^[A-Za-z_]$/u.test(typedText)) {
+    return false;
+  }
+  const model = editor.getModel();
+  const position = editor.getPosition();
+  if (!model || !position) {
+    return false;
+  }
+  const linePrefix = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+  return /(?:\?\.|!\.|\.)(?:\s*[A-Za-z_][A-Za-z0-9_]*)$/u.test(linePrefix);
+}
+
 function createFoldersForFiles(files: VexaScriptEmbedFile[]): WorkspaceEntry[] {
   const folderPaths = new Set<string>(["/"]);
   for (const file of files) {
@@ -743,19 +1166,36 @@ function createEntries(files: VexaScriptEmbedFile[]): WorkspaceEntry[] {
     ? files
     : [{ path: "/main.vx", content: "fun main(): string {\n  return \"Hello from VexaScript\"\n}\n" }];
   const fileEntries = normalizedFiles.map((file) => createFileEntry(file.path, file.content, {
-    ...(file.language ? { language: file.language } : {}),
+    ...(file.language ? { language: file.language === "typescript" ? "vexa" : file.language } : {}),
     ...(file.readOnly ? { readOnly: true } : {}),
   }));
   return [
     ...createFoldersForFiles(normalizedFiles),
     ...fileEntries,
-    createFolderEntry("/runtime", true),
-    createFileEntry("/runtime/es2025.d.ts", bundledRuntime, {
-      language: "typescript",
-      readOnly: true,
-      uri: "file:///es2025.d.ts",
-    }),
+    ...createBundledRuntimeEntries(),
   ];
+}
+
+function normalizeDomSourceForParser(source: string): string {
+  return source.replace(/`[^`]*`/g, "string");
+}
+
+async function getDomAmbientDeclarations(): Promise<Statement[]> {
+  if (cachedDomAmbientDeclarations) {
+    return cachedDomAmbientDeclarations;
+  }
+  const { dom } = await ensureBundledRuntimeContents();
+  const parsed = parseSource(normalizeDomSourceForParser(dom), { language: "typescript" });
+  const errors = [
+    ...parsed.parserIssues.map((issue) => issue.message),
+    ...(parsed.tokenizeError ? [parsed.tokenizeError.message] : []),
+    ...(parsed.fatalError ? [parsed.fatalError] : []),
+  ];
+  if (!parsed.ast || errors.length > 0) {
+    throw new Error(`Embedded DOM declarations must parse without errors: ${errors.join("; ")}`);
+  }
+  cachedDomAmbientDeclarations = parsed.ast.body;
+  return cachedDomAmbientDeclarations;
 }
 
 function serializeEditableWorkbenchEntries(entries: WorkspaceEntry[]): StoredWorkbenchWorkspaceSnapshot {
@@ -787,7 +1227,7 @@ function deserializeWorkbenchEntries(snapshotText: string | null): WorkspaceEntr
         typeof entry.content === "string" &&
         (entry.language === "vexa" || entry.language === "typescript")
       ) {
-        entries.push(createFileEntry(entry.path, entry.content, { language: entry.language }));
+        entries.push(createFileEntry(entry.path, entry.content, { language: entry.language === "typescript" ? "vexa" : entry.language }));
       }
     }
     return entries.length > 0 ? entries : null;
@@ -869,6 +1309,51 @@ async function updateAutoAwaitGlyphs(
       glyphMarginHoverMessage: { value: decoration.message },
     },
   })));
+  editor.render(true);
+}
+
+function refreshDiagnosticsAndGlyphs(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  model: monaco.editor.ITextModel,
+  reason: string
+): void {
+  if (!embeddedRuntimeReady) {
+    const refreshKey = model.uri.toString();
+    if (!pendingRuntimeReadyRefreshes.has(refreshKey)) {
+      pendingRuntimeReadyRefreshes.set(
+        refreshKey,
+        ensureEmbeddedRuntimeReady()
+          .then(() => {
+            pendingRuntimeReadyRefreshes.delete(refreshKey);
+            if (model.isDisposed()) {
+              return;
+            }
+            refreshDiagnosticsAndGlyphs(editor, model, `${reason}-runtime-ready`);
+          })
+          .catch((error) => {
+            pendingRuntimeReadyRefreshes.delete(refreshKey);
+            console.error("[vexa-embed:runtime-ready]", error);
+          })
+      );
+    }
+    return;
+  }
+  logDiagnosticsRefresh(reason, model);
+  void updateDiagnostics(model);
+  if (editor.getModel() !== model) {
+    return;
+  }
+  void updateAutoAwaitGlyphs(editor, model);
+}
+
+function schedulePostLayoutDiagnosticsRefresh(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  model: monaco.editor.ITextModel,
+  reason = "post-layout"
+): void {
+  window.requestAnimationFrame(() => {
+    refreshDiagnosticsAndGlyphs(editor, model, reason);
+  });
 }
 
 function wireDiagnostics(
@@ -881,12 +1366,12 @@ function wireDiagnostics(
       window.clearTimeout(timer);
     }
     timer = window.setTimeout(() => {
-      void updateDiagnostics(model);
-      void updateAutoAwaitGlyphs(editor, model);
+      refreshDiagnosticsAndGlyphs(editor, model, "content-change");
     }, 100);
   };
   const changeDisposable = model.onDidChangeContent(refresh);
   refresh();
+  schedulePostLayoutDiagnosticsRefresh(editor, model, "wire-init-post-layout");
   return () => {
     if (timer !== undefined) {
       window.clearTimeout(timer);
@@ -896,7 +1381,12 @@ function wireDiagnostics(
   };
 }
 
-function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, readOnly: boolean): monaco.editor.IStandaloneCodeEditor {
+function createEditor(
+  container: HTMLElement,
+  model: monaco.editor.ITextModel,
+  readOnly: boolean,
+  options: { inlayHints?: boolean } = {}
+): monaco.editor.IStandaloneCodeEditor {
   ensureAutoAwaitGlyphStyle();
   const editor = monaco.editor.create(container, {
     model,
@@ -915,6 +1405,7 @@ function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, r
     readOnly,
     scrollbar: { vertical: "visible", horizontal: "visible", alwaysConsumeMouseWheel: false },
     glyphMargin: true,
+    inlayHints: { enabled: options.inlayHints ? "on" : "off" },
     lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.On },
     "semanticHighlighting.enabled": true,
     bracketPairColorization: { enabled: true },
@@ -932,6 +1423,14 @@ function createEditor(container: HTMLElement, model: monaco.editor.ITextModel, r
       void editor.getAction("editor.action.quickFix")?.run();
     }
   });
+  editor.onDidType((typedText) => {
+    if (!shouldTriggerMemberCompletionAfterTyping(editor, typedText)) {
+      return;
+    }
+    void Promise.resolve().then(() => {
+      editor.trigger("vexa", "editor.action.triggerSuggest", {});
+    });
+  });
   return editor;
 }
 
@@ -941,7 +1440,7 @@ function createSimpleEditor(container: HTMLElement | string, options: SimpleEdit
   setContainerHeight(target, options.height ?? "360px");
   const path = normalizePath(options.path ?? `/snippet-${++modelCounter}.vx`);
   const model = monaco.editor.createModel(options.content, "vexa", monaco.Uri.parse(pathToUri(path)));
-  const editor = createEditor(target, model, options.readOnly ?? false);
+  const editor = createEditor(target, model, options.readOnly ?? false, { inlayHints: options.inlayHints });
   const disposeDiagnostics = wireDiagnostics(editor, model);
   applySelection(editor, options.selection);
   stabilizeEditorLayout(editor);
@@ -1008,7 +1507,7 @@ function createTabbedEditor(container: HTMLElement | string, options: WorkspaceE
   };
 
   let activeModel = ensureModel(activeEntry);
-  editor = createEditor(editorHost, activeModel, false);
+  editor = createEditor(editorHost, activeModel, false, { inlayHints: options.inlayHints });
   for (const [uri, model] of models.entries()) {
     disposers.set(uri, wireDiagnostics(editor, model));
   }
@@ -1095,6 +1594,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="back" title="Back" aria-label="Back"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="forward" title="Forward" aria-label="Forward"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="format" title="Format" aria-label="Format"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></button>
+        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="toggle-inlay-hints" title="Disable inlay hints" aria-label="Disable inlay hints"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="save" title="Save" aria-label="Save"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="reset-workspace" title="Reset workspace" aria-label="Reset workspace"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="run" title="Run" aria-label="Run"><i class="fa-solid fa-play" aria-hidden="true"></i></button>
@@ -1145,7 +1645,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const createInitialWorkbenchEntries = (): WorkspaceEntry[] => createEntries(options.files);
   const initialEditableEntries = createInitialWorkbenchEntries().filter(
-    (entry) => entry.path !== "/runtime" && entry.path !== "/runtime/es2025.d.ts"
+    (entry) => entry.path !== "/runtime" && entry.path !== "/runtime/es2025.d.ts" && entry.path !== "/runtime/dom.d.ts"
   );
   const initialWorkbenchSnapshot = JSON.stringify(
     serializeEditableWorkbenchEntries(initialEditableEntries)
@@ -1154,12 +1654,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     ...((allowWorkspaceWrites
       ? deserializeWorkbenchEntries(storage?.getItem(entriesStorageKey) ?? null)
       : null) ?? initialEditableEntries),
-    createFolderEntry("/runtime", true),
-    createFileEntry("/runtime/es2025.d.ts", bundledRuntime, {
-      language: "typescript",
-      readOnly: true,
-      uri: "file:///es2025.d.ts",
-    }),
+    ...createBundledRuntimeEntries(),
   ];
 
   const editableFiles = (): WorkspaceFile[] =>
@@ -1174,6 +1669,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const backButton = shell.querySelector<HTMLButtonElement>('[data-action="back"]')!;
   const forwardButton = shell.querySelector<HTMLButtonElement>('[data-action="forward"]')!;
   const formatButton = shell.querySelector<HTMLButtonElement>('[data-action="format"]')!;
+  const toggleInlayHintsButton = shell.querySelector<HTMLButtonElement>('[data-action="toggle-inlay-hints"]')!;
   const saveButton = shell.querySelector<HTMLButtonElement>('[data-action="save"]')!;
   const resetWorkspaceButton = shell.querySelector<HTMLButtonElement>('[data-action="reset-workspace"]')!;
   const runButton = shell.querySelector<HTMLButtonElement>('[data-action="run"]')!;
@@ -1191,12 +1687,24 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const historyBack: string[] = [];
   const historyForward: string[] = [];
   const collapsedFolders = new Set<string>();
+  let workspaceRevision = 0;
   let activeUri = pathToUri(normalizePath(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
   let selectedPath = normalizePath(dirname(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
   let contextMenuEntry: WorkspaceEntry | null = null;
   const workspaceSessionCache = new Map<string, { content: string; session: ReturnType<typeof createAnalysisSession> }>();
   const previewChannelId = `vexa-preview-${Math.random().toString(36).slice(2)}`;
   let savedSnapshot = JSON.stringify(serializeEditableWorkbenchEntries(entries));
+  const initialInlayHintsEnabled = (() => {
+    const storedValue = storage?.getItem(inlayHintsStorageKey(entriesStorageKey));
+    if (storedValue === "true") {
+      return true;
+    }
+    if (storedValue === "false") {
+      return false;
+    }
+    return options.inlayHints ?? false;
+  })();
+  let inlayHintsEnabled = initialInlayHintsEnabled;
 
   const ensureModel = (entry: WorkspaceFile): monaco.editor.ITextModel => {
     const existing = models.get(entry.uri);
@@ -1222,7 +1730,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     readWorkspaceFile: (uri) => getWorkspaceFileSource(uri),
   });
 
-  const getWorkspaceSessionForFilePath = (filePath: string): ReturnType<typeof createAnalysisSession> | null => {
+  const getWorkspaceSessionForFilePath = async (filePath: string): Promise<ReturnType<typeof createAnalysisSession> | null> => {
     const uri = pathToUri(filePath);
     const source = getWorkspaceFileSource(uri);
     if (source === null) {
@@ -1232,7 +1740,9 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     if (cached && cached.content === source) {
       return cached.session;
     }
-    const session = createAnalysisSession(source);
+    const session = isRuntimeDeclarationPath(filePath)
+      ? createAnalysisSession(source)
+      : createAnalysisSession(source, [], new Map(), await getDomAmbientDeclarations());
     workspaceSessionCache.set(uri, { content: source, session });
     return session;
   };
@@ -1243,7 +1753,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       if (entry.kind !== "file" || entry.language !== "vexa") {
         continue;
       }
-      const session = getWorkspaceSessionForFilePath(entry.path);
+      const session = await getWorkspaceSessionForFilePath(entry.path);
       for (const declaration of collectTopLevelDeclarationsFromAst(session?.ast ?? null)) {
         symbols.push({
           name: declaration.name,
@@ -1261,13 +1771,14 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     vfs: workspaceVfs,
     getSessionForFilePath: getWorkspaceSessionForFilePath,
     getExportedSymbols: getWorkspaceExportedSymbols,
+    getRevision: () => workspaceRevision,
   };
 
   const initialEntry = editableFiles().find((entry) => entry.uri === activeUri) ?? editableFiles()[0];
   if (!initialEntry) {
     throw new Error("VexaScript workbench editor needs at least one editable file.");
   }
-  const editor = createEditor(editorHost, ensureModel(initialEntry), !allowWorkspaceWrites);
+  const editor = createEditor(editorHost, ensureModel(initialEntry), !allowWorkspaceWrites, { inlayHints: inlayHintsEnabled });
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     persist();
     refreshToolbarState();
@@ -1282,6 +1793,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   });
   const bindEditableModel = (entry: WorkspaceFile): monaco.editor.ITextModel => {
     const model = ensureModel(entry);
+    const hadWorkspaceContext = embedWorkspaceContextsByUri.has(entry.uri);
     embedWorkspaceContextsByUri.set(entry.uri, workspaceContext);
     if (!disposers.has(entry.uri)) {
       disposers.set(entry.uri, wireDiagnostics(editor, model));
@@ -1293,6 +1805,10 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         refreshToolbarState();
         renderTree();
       }));
+    }
+    if (!hadWorkspaceContext) {
+      refreshDiagnosticsAndGlyphs(editor, model, "workspace-context-attached");
+      schedulePostLayoutDiagnosticsRefresh(editor, model, "workspace-context-post-layout");
     }
     return model;
   };
@@ -1339,9 +1855,53 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       : '<i class="fa-solid fa-up-right-and-down-left-from-center" aria-hidden="true"></i>';
   };
 
+  const syncInlayHintsButton = (): void => {
+    toggleInlayHintsButton.title = inlayHintsEnabled ? "Disable inlay hints" : "Enable inlay hints";
+    toggleInlayHintsButton.setAttribute("aria-label", inlayHintsEnabled ? "Disable inlay hints" : "Enable inlay hints");
+    toggleInlayHintsButton.classList.toggle("is-active", inlayHintsEnabled);
+    toggleInlayHintsButton.innerHTML = inlayHintsEnabled
+      ? '<i class="fa-solid fa-comment-dots" aria-hidden="true"></i>'
+      : '<i class="fa-regular fa-comment-dots" aria-hidden="true"></i>';
+  };
+
+  const applyInlayHintsPreference = (): void => {
+    editor.updateOptions({
+      inlayHints: { enabled: inlayHintsEnabled ? "on" : "off" },
+    });
+    storage?.setItem(inlayHintsStorageKey(entriesStorageKey), String(inlayHintsEnabled));
+    syncInlayHintsButton();
+    stabilizeEditorLayout(editor);
+    editor.render(true);
+  };
+
   const syncEntryContent = (uri: string, content: string): void => {
     entries = updateFileContent(entries, uri, content);
     workspaceSessionCache.delete(uri);
+    modelSessionCache.delete(uri);
+    workspaceRevision += 1;
+  };
+
+  const refreshBundledRuntimeEntries = async (): Promise<void> => {
+    const { runtime, dom } = await ensureBundledRuntimeContents();
+    for (const [path, content] of [
+      ["/runtime/es2025.d.ts", runtime],
+      ["/runtime/dom.d.ts", dom],
+    ] as const) {
+      const uri = pathToUri(path);
+      const existingEntry = entries.find((entry): entry is WorkspaceFile => entry.kind === "file" && entry.path === path);
+      if (!existingEntry || existingEntry.content === content) {
+        continue;
+      }
+      entries = updateFileContent(entries, uri, content);
+      workspaceSessionCache.delete(uri);
+      modelSessionCache.delete(uri);
+      workspaceRevision += 1;
+      const model = models.get(uri);
+      if (model && model.getValue() !== content) {
+        model.setValue(content);
+      }
+    }
+    renderTree();
   };
 
   const clearOutput = (): void => {
@@ -1468,10 +2028,29 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     }
     runButton.disabled = true;
     try {
-      const result = await bundleModuleGraph(activeEntry.path, "optimized", { vfs: workspaceVfs });
+      await ensureEmbeddedRuntimeReady();
+      const result = await bundleModuleGraph(activeEntry.path, "optimized", {
+        vfs: workspaceVfs,
+        ambientDeclarations: await getDomAmbientDeclarations(),
+      });
       if (result.errors.length > 0) {
-        for (const error of result.errors) {
-          appendOutput("error", error);
+        const seenMessages = new Set<string>();
+        for (const diagnostic of result.diagnostics) {
+          const message = `${diagnostic.message} at ${diagnostic.line}:${diagnostic.column}`;
+          if (seenMessages.has(message)) {
+            continue;
+          }
+          seenMessages.add(message);
+          appendOutput("error", message);
+        }
+        if (seenMessages.size === 0) {
+          for (const error of result.errors) {
+            if (seenMessages.has(error)) {
+              continue;
+            }
+            seenMessages.add(error);
+            appendOutput("error", error);
+          }
         }
         previewFrame.srcdoc = buildPreviewDocument("");
         return;
@@ -1572,6 +2151,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     newFileToolbarButton.disabled = !allowWorkspaceWrites;
     newFolderToolbarButton.disabled = !allowWorkspaceWrites;
     runButton.disabled = activeEntry?.kind !== "file" || activeEntry.language !== "vexa";
+    syncInlayHintsButton();
   };
 
   const openFile = (
@@ -1593,13 +2173,13 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     const model = entry.readOnly ? ensureModel(entry) : bindEditableModel(entry);
     editor.setModel(model);
     editor.updateOptions({ readOnly: !allowWorkspaceWrites || !!entry.readOnly });
-    applySelectionOrPosition(
+  applySelectionOrPosition(
       editor,
       selectionOrPosition ?? (entry.path === normalizePath(options.activePath ?? "") ? options.selection : undefined)
     );
     stabilizeEditorLayout(editor);
-    void updateDiagnostics(model);
-    void updateAutoAwaitGlyphs(editor, model);
+    refreshDiagnosticsAndGlyphs(editor, model, "open-file");
+    schedulePostLayoutDiagnosticsRefresh(editor, model, "open-file-post-layout");
     renderTabs();
     renderTree();
     refreshToolbarState();
@@ -1638,6 +2218,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     if (entries.some((candidate) => candidate.path === entry.path)) {
       return;
     }
+    workspaceRevision += 1;
     const deletedPrefix = `${entry.path}/`;
     for (const [uri, model] of models.entries()) {
       const candidate = previousEntries.find((workspaceEntry) => workspaceEntry.kind === "file" && workspaceEntry.uri === uri);
@@ -1646,6 +2227,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       }
       embedWorkspaceContextsByUri.delete(uri);
       workspaceSessionCache.delete(uri);
+      modelSessionCache.delete(uri);
       disposers.get(uri)?.();
       disposers.delete(uri);
       contentListeners.get(uri)?.dispose();
@@ -1681,13 +2263,9 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     const nextEntriesWithoutRuntime = deserializeWorkbenchEntries(initialWorkbenchSnapshot) ?? initialEditableEntries;
     entries = [
       ...nextEntriesWithoutRuntime,
-      createFolderEntry("/runtime", true),
-      createFileEntry("/runtime/es2025.d.ts", bundledRuntime, {
-        language: "typescript",
-        readOnly: true,
-        uri: "file:///es2025.d.ts",
-      }),
+      ...createBundledRuntimeEntries(),
     ];
+    workspaceRevision += 1;
     collapsedFolders.clear();
     contextMenuEntry = null;
     for (const [uri, model] of [...models.entries()]) {
@@ -1695,6 +2273,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       if (!nextEntry) {
         embedWorkspaceContextsByUri.delete(uri);
         workspaceSessionCache.delete(uri);
+        modelSessionCache.delete(uri);
         disposers.get(uri)?.();
         disposers.delete(uri);
         contentListeners.get(uri)?.dispose();
@@ -1762,6 +2341,10 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
   });
   formatButton.addEventListener("click", () => {
     void editor.getAction("editor.action.formatDocument")?.run();
+  });
+  toggleInlayHintsButton.addEventListener("click", () => {
+    inlayHintsEnabled = !inlayHintsEnabled;
+    applyInlayHintsPreference();
   });
   saveButton.addEventListener("click", () => {
     persist();
@@ -1866,15 +2449,23 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     }
   });
 
-  openFile(initialEntry.path, options.selection, false);
   syncExpandButton();
+  applyInlayHintsPreference();
   window.addEventListener("message", handlePreviewMessage);
   const handleViewportToggle = (): void => {
     syncExpandButton();
     stabilizeEditorLayout(editor);
   };
   window.addEventListener("resize", handleViewportToggle);
-  void runCurrentWorkspace();
+  void ensureEmbeddedRuntimeReady()
+    .then(async () => {
+      await refreshBundledRuntimeEntries();
+      openFile(initialEntry.path, options.selection, false);
+      await runCurrentWorkspace();
+    })
+    .catch((error) => {
+      appendOutput("error", error instanceof Error ? error.stack || error.message : String(error));
+    });
 
   return {
     editor,

@@ -1,18 +1,13 @@
-import { access, stat } from "node:fs/promises";
+import { vfs } from "compiler/vfs";
 
 export async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
+  return vfs().fileExists(path)
 }
 
 export async function isDirectory(path: string): Promise<boolean> {
   try {
-    return (await stat(path)).isDirectory();
+    return (await vfs().stat(path))?.isDirectory || false
   } catch {
-    return false;
+    return false
   }
 }

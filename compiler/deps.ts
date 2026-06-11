@@ -1,16 +1,17 @@
-import { writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { fileExists } from "./utils/fs";
 import { runCommand } from "./utils/io";
+import { resolve } from "./utils/path";
+import { vfs } from "./vfs";
 
 async function isPackageInstalled(projectDir: string, pkg: string): Promise<boolean> {
+  //console.error('isPackageInstalled', resolve(projectDir, "node_modules", pkg))
   return fileExists(resolve(projectDir, "node_modules", pkg));
 }
 
 async function ensurePackageJson(projectDir: string): Promise<void> {
   const pkgPath = resolve(projectDir, "package.json");
   if (!(await fileExists(pkgPath))) {
-    await writeFile(pkgPath, JSON.stringify({ type: "module" }, null, 2) + "\n", "utf8");
+    await vfs().writeFile(pkgPath, JSON.stringify({ type: "module" }, null, 2) + "\n");
   }
 }
 
@@ -39,7 +40,7 @@ export async function ensureDependencies(
     return version && version !== "*" ? `${pkg}@${version}` : pkg;
   });
 
-  console.log(`Installing dependencies: ${specs.join(", ")}`);
+  console.error(`Installing dependencies: ${specs.join(", ")}`);
   const args = pm === "pnpm" ? ["add", ...specs] : ["install", ...specs];
   await runCommand(pm, args, { cwd: projectDir });
 }

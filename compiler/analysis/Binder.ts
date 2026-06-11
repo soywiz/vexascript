@@ -625,14 +625,38 @@ export class Binder {
     for (const member of statement.members) {
       if (member.kind === "InterfacePropertyMember") {
         const propertyType = this.typeFromAnnotationLoose(member.typeAnnotation) ?? UNKNOWN_TYPE;
-      this.declare(scope, {
-        name: member.name.name,
-        kind: "variable",
-        node: member.name,
-        implicitReceiver: true,
-        type: propertyType,
-        valueType: typeToString(propertyType)
-      });
+        this.declare(scope, {
+          name: member.name.name,
+          kind: "variable",
+          node: member.name,
+          implicitReceiver: true,
+          type: propertyType,
+          valueType: typeToString(propertyType)
+        });
+        continue;
+      }
+      if (member.accessorKind === "get") {
+        const propertyType = this.typeFromAnnotationLoose(member.returnType) ?? UNKNOWN_TYPE;
+        this.declare(scope, {
+          name: member.name.name,
+          kind: "variable",
+          node: member.name,
+          implicitReceiver: true,
+          type: propertyType,
+          valueType: typeToString(propertyType)
+        });
+        continue;
+      }
+      if (member.accessorKind === "set") {
+        const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+        this.declare(scope, {
+          name: member.name.name,
+          kind: "variable",
+          node: member.name,
+          implicitReceiver: true,
+          type: propertyType,
+          valueType: typeToString(propertyType)
+        });
         continue;
       }
       const methodType = functionType(

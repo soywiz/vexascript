@@ -2,7 +2,6 @@
 
 import "monaco-editor/min/vs/editor/editor.main.css";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import * as monaco from "monaco-editor";
 import { createAnalysisSession, type AnalysisSession } from "compiler/lsp/analysisSession";
 import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
@@ -52,10 +51,7 @@ import {
 import { registerEditorShortcuts } from "./editorShortcuts";
 
 self.MonacoEnvironment = {
-  getWorker(_id: string, label: string): Worker {
-    if (label === "typescript" || label === "javascript") {
-      return new tsWorker();
-    }
+  getWorker(_id: string, _label: string): Worker {
     return new editorWorker();
   },
 };
@@ -361,6 +357,13 @@ async function main(): Promise<void> {
     editor.revealPositionInCenter(selectionOrPosition);
   };
 
+  const schedulePostLayoutAutoAwaitRefresh = (model: monaco.editor.ITextModel): void => {
+    window.requestAnimationFrame(() => {
+      void pullDiagnostics(model, sessionCache, providerWorkspaceContext);
+      void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
+    });
+  };
+
   const persistEditorSession = (): void => {
     const model = editor.getModel();
     const position = editor.getPosition();
@@ -455,6 +458,7 @@ async function main(): Promise<void> {
     if (isEditableVexaScriptFile(entry)) {
       void pullDiagnostics(model, sessionCache, providerWorkspaceContext);
       void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
+      schedulePostLayoutAutoAwaitRefresh(model);
     }
   };
 
@@ -663,6 +667,7 @@ async function main(): Promise<void> {
   editor.focus();
   void pullDiagnostics(startupModel, sessionCache, providerWorkspaceContext);
   void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
+  schedulePostLayoutAutoAwaitRefresh(startupModel);
   persistEditorSession();
   syncEditorState();
   setStatus("Compiler Connected", "connected");

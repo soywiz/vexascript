@@ -1,6 +1,5 @@
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import type { Vfs } from "compiler/vfs";
-import { fileURLToPath } from "node:url";
 import type {
   ArrayLiteral,
   AsExpression,
@@ -44,7 +43,7 @@ import type {
   WhileStatement,
   WithStatement
 } from "compiler/ast/ast";
-import { walkAst } from "compiler/ast/traversal";
+import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
@@ -85,6 +84,7 @@ import {
 } from "./classResolver";
 import { comparePosition, containsPosition, nodeRange, rangeSize } from "./ranges";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
+import { fileURLToPath } from "compiler/utils/path";
 
 const CompletionItemKind = {
   Text: 1,
@@ -171,6 +171,7 @@ export interface CompletionRequestOptions {
   text?: string;
   uri?: string;
   sourceRoots?: string[];
+  ambientDeclarations?: Statement[];
   vfs?: Vfs;
   getSessionForFilePath?: (filePath: string) => CompletionSessionLike | null | Promise<CompletionSessionLike | null>;
   getExportedSymbols?: SymbolExportProvider;
@@ -192,6 +193,38 @@ interface ExtensionMemberCompletionCandidate {
 }
 
 const COMPLETION_RECOVERY_MEMBER = "__vexa_completion__";
+const CompletionItemInsertTextFormat = {
+  PlainText: 1,
+  Snippet: 2,
+} as const;
+const CompletionCommand = {
+  TriggerParameterHints: "editor.action.triggerParameterHints",
+} as const;
+
+function isCallableCompletionLabel(label: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/u.test(label);
+}
+
+function withCallSnippet(item: CompletionItem): CompletionItem {
+  if (item.insertText) {
+    return item;
+  }
+  if (item.kind !== CompletionItemKind.Method && item.kind !== CompletionItemKind.Function) {
+    return item;
+  }
+  if (!isCallableCompletionLabel(item.label)) {
+    return item;
+  }
+  return {
+    ...item,
+    insertText: `${item.label}($1)`,
+    insertTextFormat: CompletionItemInsertTextFormat.Snippet,
+    command: {
+      title: "Trigger parameter hints",
+      command: CompletionCommand.TriggerParameterHints,
+    },
+  };
+}
 
 function operatorSymbolFromMemberName(name: string): string | null {
   return name.startsWith("operator") ? name.slice("operator".length) || null : null;
@@ -2032,6 +2065,9 @@ async function buildMemberCompletionItemsForType(
       })
     ).then((members) => members.filter((member): member is InterfaceCompletionMember => member !== null))
     : [];
+  const ambientInterfaceMembers = !interfaceStatement && options.ambientDeclarations
+    ? collectAmbientInterfaceCompletionMembers(options.ambientDeclarations, baseTypeName(resolvedClassName))
+    : [];
   const typeAliasStatement = (await resolveTopLevelDeclarationAcrossFiles({
     ast,
     name: baseTypeName(resolvedClassName),
@@ -2069,6 +2105,8 @@ async function buildMemberCompletionItemsForType(
         )
       : interfaceStatement
         ? buildInterfaceMemberCompletionItems(prefix, interfaceMembers)
+        : ambientInterfaceMembers.length > 0
+          ? buildInterfaceMemberCompletionItems(prefix, ambientInterfaceMembers)
         : typeAliasMembers.length > 0
           ? buildInterfaceMemberCompletionItems(prefix, typeAliasMembers)
           : objectTypeMembers.length > 0
@@ -2159,6 +2197,39 @@ async function buildMemberAccessCompletions(
     return null;
   }
   return allowRecovery ? buildRecoveredMemberAccessCompletions(line, character, options) : null;
+}
+
+function collectAmbientInterfaceCompletionMembers(
+  ambientDeclarations: Statement[],
+  interfaceName: string
+): InterfaceCompletionMember[] {
+  const items: InterfaceCompletionMember[] = [];
+  for (const statement of ambientDeclarations) {
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
+    if (declaration.kind !== "InterfaceStatement") {
+      continue;
+    }
+    const interfaceStatement = declaration as InterfaceStatement;
+    if (interfaceStatement.name.name !== interfaceName) {
+      continue;
+    }
+    for (const member of interfaceStatement.members) {
+      if (member.kind === "InterfacePropertyMember") {
+        items.push({
+          name: member.name.name,
+          detail: `Interface property: ${member.typeAnnotation?.name ?? "unknown"}`,
+          kind: CompletionItemKind.Field
+        });
+      } else if (member.kind === "InterfaceMethodMember") {
+        items.push({
+          name: member.name.name,
+          detail: `Interface method: ${member.returnType?.name ?? "unknown"}`,
+          kind: CompletionItemKind.Method
+        });
+      }
+    }
+  }
+  return items;
 }
 
 function recoverSourceForMemberAccessCompletion(
@@ -2274,7 +2345,7 @@ export async function createCompletionItemsForPosition(
     options
   );
   if (memberCompletions && memberCompletions.length > 0) {
-    return memberCompletions;
+    return memberCompletions.map(withCallSnippet);
   }
   const memberTarget = parseMemberAccessTarget(options.text, line, character);
   const literalReceiverType = memberTarget ? inferLiteralTypeName(memberTarget.objectPath) : null;
@@ -2287,7 +2358,7 @@ export async function createCompletionItemsForPosition(
       resolvedAnalysis
     );
     if (literalExtensionCompletions.length > 0) {
-      return literalExtensionCompletions;
+      return literalExtensionCompletions.map(withCallSnippet);
     }
   }
 
@@ -2410,7 +2481,7 @@ export async function createCompletionItemsForPosition(
     });
   }
 
-  return items;
+  return items.map(withCallSnippet);
 }
 
 export function createKeywordOnlyCompletionItems(): CompletionItem[] {

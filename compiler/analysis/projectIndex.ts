@@ -1,4 +1,3 @@
-import { extname, resolve } from "node:path";
 import type { Analysis } from "./Analysis";
 import type {
   ClassStatement,
@@ -15,7 +14,9 @@ import type {
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { compileSource } from "compiler/pipeline/compile";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
-import { localVfs, type Vfs } from "compiler/vfs";
+import { localVfs } from "compiler/localVfs";
+import { extname, resolve } from "compiler/utils/path";
+import type { Vfs } from "compiler/vfs";
 
 export interface ProjectSessionLike {
   ast: Program | null;
@@ -285,8 +286,10 @@ export class ProjectIndex {
       if (!current) {
         continue;
       }
-      const entries = await this.vfs.readDir(current);
-      if (!entries) {
+      let entries;
+      try {
+        entries = await this.vfs.readDir(current);
+      } catch {
         continue;
       }
 
@@ -323,7 +326,12 @@ export class ProjectIndex {
 
   private async getDiskSession(filePath: string): Promise<CachedDiskSession | null> {
     const normalized = resolve(filePath);
-    const fileStats = await this.vfs.stat(normalized);
+    let fileStats;
+    try {
+      fileStats = await this.vfs.stat(normalized);
+    } catch {
+      return null;
+    }
     if (!fileStats || fileStats.isFile === false) {
       return null;
     }
@@ -332,7 +340,12 @@ export class ProjectIndex {
       return cached;
     }
 
-    const source = await this.vfs.readFile(normalized);
+    let source;
+    try {
+      source = await this.vfs.readFile(normalized);
+    } catch {
+      return null;
+    }
     if (source === null) {
       return null;
     }

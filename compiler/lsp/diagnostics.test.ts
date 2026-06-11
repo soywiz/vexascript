@@ -59,6 +59,28 @@ describe("lsp diagnostics", () => {
     );
   });
 
+  it("deduplicates repeated diagnostics with the same range, code, and message", () => {
+    const source = "let ok = missing\n";
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
+    const session = createAnalysisSession(source);
+    const duplicate = session.semanticIssues[0];
+    if (!duplicate) {
+      throw new Error("Expected at least one semantic issue");
+    }
+    session.semanticIssues.push(duplicate);
+
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) =>
+      doc.positionAt(offset)
+    );
+    const undefinedVariableDiagnostics = diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === VEXA_DIAGNOSTIC_CODES.UNDEFINED_VARIABLE &&
+        diagnostic.message === "Undefined variable 'missing'"
+    );
+
+    expect(undefinedVariableDiagnostics).toHaveLength(1);
+  });
+
   it("assigns a semantic diagnostic code to duplicate switch defaults", () => {
     const diagnostics = diagnosticsFor(dedent`
       switch (value) {

@@ -4,10 +4,10 @@
  * Differences from server.ts (the Node.js/stdio version):
  *   - Uses vscode-languageserver/browser transport (BrowserMessageReader/Writer)
  *     so the entire server runs inside a Web Worker.
- *   - Cross-file features are unavailable because the worker has no Node file
- *     system roots or project index resolver. Shared collectors are still reused
- *     with empty source roots so single-file features stay in parity.
- *   - Single-file equivalents from navigation.ts are used instead.
+ *   - Workspace-wide file-system navigation is unavailable because the worker
+ *     has no Node file system roots or project index resolver. Shared
+ *     collectors still run with empty source roots so single-file features and
+ *     ambient runtime navigation stay in parity.
  */
 
 import {
@@ -31,8 +31,8 @@ import {
   createKeywordOnlyCompletionItems,
 } from "./completion";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
+import { resolveDefinitionAcrossFiles } from "./crossFileNavigation";
 import {
-  createDefinitionLocation,
   createHover,
   createPrepareRename,
   createRenameWorkspaceEdit,
@@ -209,7 +209,14 @@ export function startLspInWorker(): void {
     if (!doc) return null;
     const session = analysisSessions.getForDocument(doc);
     if (!session.analysis) return null;
-    return createDefinitionLocation(session.analysis, uri, line, character);
+    return resolveDefinitionAcrossFiles({
+      uri,
+      line,
+      character,
+      session,
+      sourceRoots: [],
+      getSessionForFilePath: () => null
+    });
   }
 
   connection.onDefinition((p) =>

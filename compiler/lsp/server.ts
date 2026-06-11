@@ -9,7 +9,6 @@ import {
   type Range,
   type TextEdit
 } from "vscode-languageserver/node.js";
-import { fileURLToPath } from "node:url";
 import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocument";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { createDocumentDiagnosticReport } from "./diagnostics";
@@ -36,7 +35,6 @@ import {
   createHover,
   createPrepareRename
 } from "./navigation";
-import { resolve as resolvePath } from "node:path";
 import { createSignatureHelp } from "./signatureHelp";
 import { createInlayHints } from "./inlayHints";
 import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
@@ -58,6 +56,7 @@ import {
   createIncomingCalls,
   createOutgoingCalls
 } from "./documentFeatures";
+import { fileURLToPath, resolve as resolvePath } from "compiler/utils/path";
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(LspTextDocument);

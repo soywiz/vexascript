@@ -19,7 +19,8 @@ title: VexaScript Embed Guide
 &lt;script src="/assets/generated/vexa-embed.js"&gt;&lt;/script&gt;
 &lt;script&gt;
   VexaScriptEmbeds.createSimpleEditor("#lesson-editor", {
-    content: "fun add(a: int, b: int): int { return a + b }"
+    content: "fun add(a: int, b: int): int { return a + b }",
+    inlayHints: false
   })
 &lt;/script&gt;</code></pre>
     </article>
@@ -38,6 +39,7 @@ title: VexaScript Embed Guide
 <pre><code>VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
   activePath: "/src/main.vx",
   allowWorkspaceWrites: true,
+  inlayHints: true,
   files: [
     { path: "/src/main.vx", content: "import { greet } from './greeter.vx'\nconsole.log(greet('VexaScript'))" },
     { path: "/src/greeter.vx", content: "export fun greet(name: string): string => $\"Hello {name}\"" }
@@ -52,7 +54,7 @@ title: VexaScript Embed Guide
     <p class="eyebrow">Embedded Monaco</p>
     <h2>Use the compiler and editor directly in lessons.</h2>
     <p class="lead">The website bundle exposes three helpers: a simple single-file editor, a multi-tab editor, and a full workbench editor with a workspace tree, toolbar, formatting, and save controls.</p>
-    <p class="lead">Workbench embeds also support <code>allowWorkspaceWrites</code> to enable or disable editing, saving, and workspace mutations, plus a reset button that restores the original embedded files.</p>
+    <p class="lead">Embeds also support an <code>inlayHints</code> flag so each host can turn hints on or off, while workbench embeds additionally support <code>allowWorkspaceWrites</code> to enable or disable editing, saving, and workspace mutations plus a reset button that restores the original embedded files.</p>
   </div>
 </section>
 
@@ -79,6 +81,19 @@ title: VexaScript Embed Guide
 
 <script>
   window.addEventListener("DOMContentLoaded", () => {
+    function withEmbeds(callback) {
+      if (window.VexaScriptEmbeds) {
+        callback(window.VexaScriptEmbeds)
+        return
+      }
+      window.addEventListener("vexa-embeds-ready", () => {
+        if (!window.VexaScriptEmbeds) {
+          throw new Error("VexaScriptEmbeds finished loading without exposing the expected API")
+        }
+        callback(window.VexaScriptEmbeds)
+      }, { once: true })
+    }
+
     function dedent(strings, ...values) {
       const raw = String.raw({ raw: strings }, ...values).replace(/^\n+/, "")
       const lines = raw.split("\n")
@@ -110,54 +125,59 @@ title: VexaScript Embed Guide
       endColumn: 22
     }
 
-    VexaScriptEmbeds.createSimpleEditor("#simple-editor", {
-      content: counterSnippet,
-      selection: counterSelection
-    })
+    withEmbeds((embeds) => {
+      embeds.createSimpleEditor("#simple-editor", {
+        content: counterSnippet,
+        inlayHints: false,
+        selection: counterSelection
+      })
 
-    VexaScriptEmbeds.createTabbedEditor("#workspace-editor", {
-      activePath: "/main.vx",
-      files: [
-        {
-          path: "/main.vx",
-          content: counterSnippet
-        },
-        {
-          path: "/notes.vx",
-          content: `// Same snippet, same initial selection, different host shell.
+      embeds.createTabbedEditor("#workspace-editor", {
+        activePath: "/main.vx",
+        files: [
+          {
+            path: "/main.vx",
+            content: counterSnippet
+          },
+          {
+            path: "/notes.vx",
+            content: `// Same snippet, same initial selection, different host shell.
 // This workspace embed exists to compare the website integration against
 // the standalone Monaco app using the exact same code sample.`
-        }
-      ],
-      selection: counterSelection
-    })
+          }
+        ],
+        inlayHints: false,
+        selection: counterSelection
+      })
 
-    VexaScriptEmbeds.createWorkbenchEditor("#workbench-editor", {
-      activePath: "/src/main.vx",
-      allowWorkspaceWrites: true,
-      files: [
-        {
-          path: "/src/main.vx",
-          content: dedent`
+      embeds.createWorkbenchEditor("#workbench-editor", {
+        activePath: "/src/main.vx",
+        allowWorkspaceWrites: true,
+        inlayHints: true,
+        files: [
+          {
+            path: "/src/main.vx",
+            content: dedent`
             import { increment } from "./counter.vx"
 
             val current = increment(41)
             console.log(current.toString())
           `
-        },
-        {
-          path: "/src/counter.vx",
-          content: dedent`
+          },
+          {
+            path: "/src/counter.vx",
+            content: dedent`
             export fun increment(value: int): int {
               return value + 1
             }
           `
-        },
-        {
-          path: "/README.vx",
-          content: "// Edit files, switch tabs, create new files, and format from the toolbar."
-        }
-      ]
+          },
+          {
+            path: "/README.vx",
+            content: "// Edit files, switch tabs, create new files, and format from the toolbar."
+          }
+        ]
+      })
     })
   })
 </script>

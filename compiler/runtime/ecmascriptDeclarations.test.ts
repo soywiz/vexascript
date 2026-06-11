@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
   getEcmaScriptRuntimeProgram,
@@ -10,12 +11,12 @@ import {
 
 describe("TypeScript runtime declarations", () => {
   it("loads the bundled es2025 declaration file as the runtime source", async () => {
-    expect((await getEcmaScriptRuntimeDeclarationFilePath()).endsWith(TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME)).toBe(true);
+    expect(getEcmaScriptRuntimeDeclarationFilePath().endsWith(TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME)).toBe(true);
   });
 
   it("parses the bundled runtime and exposes ambient globals from TypeScript libs", async () => {
-    const program = await getEcmaScriptRuntimeProgram();
-    const source = await readFile(await getEcmaScriptRuntimeDeclarationFilePath(), "utf8");
+    const program = getEcmaScriptRuntimeProgram();
+    const source = await readFile(getEcmaScriptRuntimeDeclarationFilePath(), "utf8");
 
     expect(program.body.length > 0).toBe(true);
     expect(source).toContain("interface Array<T>");
@@ -24,10 +25,16 @@ describe("TypeScript runtime declarations", () => {
   });
 
   it("reuses the cached runtime program and runtime node index between calls", async () => {
-    const first = await getEcmaScriptRuntimeProgram();
-    const second = await getEcmaScriptRuntimeProgram();
+    const first = getEcmaScriptRuntimeProgram();
+    const second = getEcmaScriptRuntimeProgram();
 
     expect(first).toBe(second);
     expect(isEcmaScriptRuntimeNode(first.body[0]!)).toBe(true);
+  });
+
+  it("boots the Node VFS from the Node declaration host", async () => {
+    const source = await readFile(join(process.cwd(), "compiler", "runtime", "nodeDeclarationHost.ts"), "utf8");
+
+    expect(source).toContain('import "compiler/localVfs";');
   });
 });
