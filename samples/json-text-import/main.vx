@@ -1,0 +1,7 @@
+import data from "./data.json"
+import message from "./message.txt"
+
+console.log(data.title)
+console.log(data.count + 4)
+console.log(data.enabled)
+console.log(message.trim())

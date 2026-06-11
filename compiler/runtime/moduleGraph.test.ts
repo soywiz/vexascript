@@ -1,3 +1,4 @@
+import { Script, createContext } from "node:vm";
 import { describe, it } from "node:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -139,6 +140,39 @@ describe("bundleModuleGraph", () => {
         expect(result.code).toContain("function makePerson(name)");
         expect(result.code).not.toContain('from "./helpers"');
         expect(result.code).toContain('const direct = new Person("Ada", 36);');
+      }
+    );
+  });
+
+
+  it("inlines local JSON and text imports as runtime constants", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "metadata.json": JSON.stringify({ title: "Asset imports", count: 2 }),
+        "message.txt": "hello from text",
+        "main.vx":
+          'import metadata from "./metadata.json"\n' +
+          'import message from "./message.txt"\n' +
+          'console.log(metadata.title + ":" + metadata.count)\n' +
+          'console.log(message.toUpperCase())\n'
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).toContain('const metadata = {"title":"Asset imports","count":2};');
+        expect(result.code).toContain('const message = "hello from text";');
+        expect(result.code).not.toContain('from "./metadata.json"');
+        expect(result.code).not.toContain('from "./message.txt"');
+
+        const logs: unknown[][] = [];
+        new Script(result.code).runInContext(createContext({
+          console: {
+            log: (...args: unknown[]) => logs.push(args)
+          }
+        }));
+        expect(logs).toEqual([["Asset imports:2"], ["HELLO FROM TEXT"]]);
       }
     );
   });

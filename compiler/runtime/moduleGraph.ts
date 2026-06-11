@@ -11,8 +11,15 @@ import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { compileParsedSource, compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { AnalysisType } from "compiler/analysis/types";
-import { functionType, intersectionType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
+import {
+  builtinType,
+  functionType,
+  intersectionType,
+  namedType,
+  objectTypeWithProperties,
+  UNKNOWN_TYPE,
+  type AnalysisType
+} from "compiler/analysis/types";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { localVfs, type Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
@@ -47,6 +54,11 @@ function isBundledLocalModulePath(filePath: string): boolean {
   return extension === ".vx" || extension === ".ts" || extension === ".tsx";
 }
 
+function isInlineAssetModulePath(filePath: string): boolean {
+  const extension = extname(filePath).toLowerCase();
+  return extension === ".json" || extension === ".txt";
+}
+
 function parserOptionsForModulePath(filePath: string): ParserOptions {
   const extension = extname(filePath).toLowerCase();
   if (extension === ".ts") {
@@ -64,6 +76,14 @@ async function resolveLocalModulePath(importerFilePath: string, importPath: stri
   }
   const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs });
   return targetPath && isBundledLocalModulePath(targetPath) ? targetPath : null;
+}
+
+async function resolveInlineAssetModulePath(importerFilePath: string, importPath: string, vfs: Vfs): Promise<string | null> {
+  if (!importPath.startsWith(".")) {
+    return null;
+  }
+  const targetPath = await resolveImportTargetFilePath(importerFilePath, importPath, { vfs });
+  return targetPath && isInlineAssetModulePath(targetPath) ? targetPath : null;
 }
 
 function declarationName(statement: Statement): string | null {
@@ -102,6 +122,71 @@ function callableTypeFromDefaultExportedFunction(declarations: readonly Statemen
     );
   }
   return null;
+}
+
+function jsonValueType(value: unknown): AnalysisType {
+  if (typeof value === "string") {
+    return builtinType("string");
+  }
+  if (typeof value === "number") {
+    return builtinType("number");
+  }
+  if (typeof value === "boolean") {
+    return builtinType("boolean");
+  }
+  if (value === null) {
+    return builtinType("null");
+  }
+  if (Array.isArray(value)) {
+    return namedType("Array", [value.length > 0 ? jsonValueType(value[0]) : UNKNOWN_TYPE]);
+  }
+  if (typeof value === "object") {
+    const properties: Record<string, AnalysisType> = {};
+    for (const [key, propertyValue] of Object.entries(value as Record<string, unknown>)) {
+      properties[key] = jsonValueType(propertyValue);
+    }
+    return objectTypeWithProperties(properties);
+  }
+  return UNKNOWN_TYPE;
+}
+
+function assetImportBindingNames(statement: ImportStatement): string[] {
+  const names: string[] = [];
+  if (statement.defaultImport) {
+    names.push(statement.defaultImport.name);
+  }
+  if (statement.namespaceImport) {
+    names.push(statement.namespaceImport.name);
+  }
+  for (const specifier of statement.specifiers) {
+    names.push((specifier.local ?? specifier.imported).name);
+  }
+  return names;
+}
+
+function emitAssetImportBindings(
+  statement: ImportStatement,
+  assetPath: string,
+  source: string
+): { code: string; importedType: AnalysisType } {
+  const extension = extname(assetPath).toLowerCase();
+  const value = extension === ".json" ? JSON.parse(source) : source;
+  const literal = JSON.stringify(value);
+  const importedType = extension === ".json" ? jsonValueType(value) : builtinType("string");
+  const lines: string[] = [];
+
+  if (statement.defaultImport) {
+    lines.push(`const ${statement.defaultImport.name} = ${literal};`);
+  }
+  if (statement.namespaceImport) {
+    lines.push(`const ${statement.namespaceImport.name} = ${literal};`);
+  }
+  for (const specifier of statement.specifiers) {
+    const localName = (specifier.local ?? specifier.imported).name;
+    lines.push(`const ${localName} = ${literal}[${JSON.stringify(specifier.imported.name)}];`);
+  }
+
+  return { code: lines.join("\n"), importedType };
 }
 
 /**
@@ -280,6 +365,25 @@ async function localImportSpecifiers(ast: Program, importerFilePath: string, vfs
   return imports;
 }
 
+async function localAssetImportSpecifiers(
+  ast: Program,
+  importerFilePath: string,
+  vfs: Vfs
+): Promise<{ statement: ImportStatement; targetPath: string }[]> {
+  const imports: { statement: ImportStatement; targetPath: string }[] = [];
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const targetPath = await resolveInlineAssetModulePath(importerFilePath, importStatement.from.value, vfs);
+    if (targetPath) {
+      imports.push({ statement: importStatement, targetPath });
+    }
+  }
+  return imports;
+}
+
 /**
  * Removes the emitted `import ... from "<local>"` / `import "<local>"`
  * statements that reference bundled local `.vx`/`.ts` modules. Relative imports that
@@ -363,6 +467,23 @@ export async function bundleModuleGraph(
     const bundledSpecifiers = new Set<string>();
     if (ast) {
       await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, vfs);
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, vfs)) {
+        bundledSpecifiers.add(statement.from.value);
+        const assetSource = await loadSource(targetPath);
+        if (assetSource === null) {
+          errors.push(`Unable to read asset module '${targetPath}'`);
+          continue;
+        }
+        try {
+          const { importedType } = emitAssetImportBindings(statement, targetPath, assetSource);
+          for (const bindingName of assetImportBindingNames(statement)) {
+            importedSymbolTypes.set(bindingName, importedType);
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errors.push(`Unable to load asset module '${targetPath}': ${message}`);
+        }
+      }
       for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, vfs)) {
         bundledSpecifiers.add(statement.from.value);
         await visit(targetPath);
@@ -417,7 +538,30 @@ export async function bundleModuleGraph(
     errors.push(...result.errors);
     diagnostics.push(...result.diagnostics);
     warnings.push(...result.warnings);
-    emittedByPath.set(filePath, stripBundledImports(result.code, bundledSpecifiers));
+
+    const assetBindingChunks: string[] = [];
+    if (ast) {
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, vfs)) {
+        const assetSource = await loadSource(targetPath);
+        if (assetSource === null) {
+          continue;
+        }
+        try {
+          const { code } = emitAssetImportBindings(statement, targetPath, assetSource);
+          if (code) {
+            assetBindingChunks.push(code);
+          }
+        } catch {
+          // The earlier type-collection pass already recorded the load error.
+        }
+      }
+    }
+
+    const emittedCode = stripBundledImports(result.code, bundledSpecifiers);
+    emittedByPath.set(
+      filePath,
+      [...assetBindingChunks, emittedCode].filter((chunk) => chunk.trim().length > 0).join("\n")
+    );
 
     inProgress.delete(filePath);
     order.push(filePath);

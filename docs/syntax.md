@@ -492,14 +492,18 @@ import type { Shape } from "./types"
 
 Type-only imports participate in semantic analysis as bindings but are omitted from emitted JavaScript output.
 
-Relative imports can target local `.ts` files as well as `.vx` files. Extensionless resolution checks the direct path, then `.vx`, then `.ts`. During `vexa run` and CLI bundling, local TypeScript modules are parsed in TypeScript mode, type-checked with their exported declarations available to the importing VexaScript file, transpiled to JavaScript, and inlined into the same executable module. This supports TypeScript runtime declarations such as classes, functions, variables, enums, destructuring, arrow functions, and async functions; type-only constructs such as interfaces and type aliases remain analysis-only and are erased from emitted JavaScript.
+Relative imports can target local `.ts`/`.tsx` files as well as `.vx` files. Extensionless resolution checks the direct path, then `.vx`, `.ts`, `.tsx`, `.json`, and `.txt`. During `vexa run` and CLI bundling, local TypeScript modules are parsed in TypeScript mode, type-checked with their exported declarations available to the importing VexaScript file, transpiled to JavaScript, and inlined into the same executable module. This supports TypeScript runtime declarations such as classes, functions, variables, enums, destructuring, arrow functions, and async functions; type-only constructs such as interfaces and type aliases remain analysis-only and are erased from emitted JavaScript. Local JSON and text assets can be imported as default imports; JSON imports are parsed and inlined as JavaScript values, while text imports are inlined as strings.
 
 ```vexa
 import { Color, Person, describePerson } from "./helpers"
+import config from "./config.json"
+import readme from "./readme.txt"
 
 const ada = Person("Ada", 36)
 console.log(describePerson(ada))
 console.log(Color.Green)
+console.log(config.title)
+console.log(readme.trim())
 ```
 
 Extension operator overloads declared in another file (for example `fun Point.operator+`) can be imported by their `operator` name so the operator resolves across files:
