@@ -4,6 +4,7 @@ dist
 .vite
 package-lock.json
 .pnpm-store
+.tmp-ts-lib
 
 **/.vexa-run-profile-*.mjs
 **/*.cpuprofile
