@@ -90,6 +90,44 @@ describe("cross-file type diagnostics", () => {
     ).toHaveLength(2);
   });
 
+  it("reports importing a symbol that the target module does not export", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
+
+    await writeFile(worldFile, "class Point(val x: int)\n", "utf8");
+    await writeFile(
+      helloFile,
+      dedent`
+      import { Point, MissingPoint } from "./world"
+      fun demo() {
+        Point(1)
+      }
+      `,
+      "utf8"
+    );
+
+    const session = createAnalysisSession(dedent`
+      import { Point, MissingPoint } from "./world"
+      fun demo() {
+        Point(1)
+      }
+      `);
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      "Module './world' has no exported symbol 'MissingPoint'"
+    );
+    expect(
+      diagnostics.find((diagnostic) => diagnostic.message === "Module './world' has no exported symbol 'MissingPoint'")
+        ?.range.start
+    ).toEqual({ line: 0, character: 16 });
+  });
+
   it("anchors member-call arity diagnostics on the member name", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
     const worldFile = join(root, "world.vx");

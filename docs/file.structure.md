@@ -150,9 +150,10 @@ This section is the fast onboarding map for agents and contributors.
   - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/syntax.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/playground.njk`, `website/src/blog/index.njk`, `website/src/blog/article1.njk`, `website/src/404.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
   - Website build orchestrator, which ensures the compiler CLI bundle exists, regenerates the website-safe JS syntax module from the compiler's canonical syntax source, then runs the esbuild embed bundler and 11ty: `website/scripts/build.ts`
   - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
-  - Website-only JS syntax highlighter and generated syntax artifact used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.mjs`, `website/src/generated/vexa-monarch-language.mjs`
+  - Website-only syntax highlighter sources used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.ts`, `website/src/syntaxHighlight.mjs`
   - Website content-loader tests: `website/src/siteContent.test.ts`
-  - Esbuild-powered embeddable Monaco helpers for single-file, tabbed, workspace, and full workbench tutorial editors: `website/scripts/buildEmbed.ts`, `website/src/assets/vexa-embed.ts`, `website/src/generated/embed-asset-manifest.ts`, `website/src/generated/*.browser.ts`
+  - Esbuild-powered embeddable Monaco helper sources for single-file, tabbed, workspace, and full workbench tutorial editors: `website/scripts/buildEmbed.ts`, `website/src/assets/vexa-embed.ts`
+  - Generated website build artifacts are created during `website/scripts/build.ts` and `website/scripts/buildEmbed.ts`; keep this map focused on checked-in source files so architecture consistency tests pass in a clean checkout.
   - Website package scripts and type-checking configuration: `website/package.json`, `website/tsconfig.json`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`

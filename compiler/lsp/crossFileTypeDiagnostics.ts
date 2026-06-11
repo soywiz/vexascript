@@ -1,6 +1,7 @@
 import type {
   AssignmentExpression,
   CallExpression,
+  ImportStatement,
   Identifier,
   MemberExpression,
   NewExpression,
@@ -21,6 +22,10 @@ import {
   resolveExpressionTypeName,
   type ClassResolverSessionLike
 } from "./classResolver";
+import { getProjectSessionForFilePath } from "./projectAnalysis";
+import { topLevelDeclarationNames } from "./declarationResolver";
+import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { uriToFilePath } from "./importFixes";
 
 export interface CollectCrossFileTypeDiagnosticsParams {
   uri: string;
@@ -83,6 +88,10 @@ function collectAssignmentExpressions(program: Program): AssignmentExpression[] 
   return assignments;
 }
 
+function collectImportStatements(program: Program): ImportStatement[] {
+  return program.body.filter((statement): statement is ImportStatement => statement.kind === "ImportStatement");
+}
+
 export async function collectCrossFileTypeDiagnostics(
   params: CollectCrossFileTypeDiagnosticsParams
 ): Promise<Diagnostic[]> {
@@ -110,6 +119,7 @@ export async function collectCrossFileTypeDiagnostics(
       : {})
   };
   const resolverCache = createClassResolverCache();
+  const currentFilePath = uriToFilePath(params.uri);
 
   const pushDiagnostic = (diagnostic: Diagnostic | null): void => {
     if (!diagnostic) {
@@ -126,6 +136,45 @@ export async function collectCrossFileTypeDiagnostics(
     seen.add(key);
     diagnostics.push(diagnostic);
   };
+
+  for (const importStatement of collectImportStatements(session.ast)) {
+    if (!currentFilePath) {
+      continue;
+    }
+    if (importStatement.specifiers.length === 0) {
+      continue;
+    }
+    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value, {
+      ...(params.getSessionForFilePath
+        ? { getSessionForFilePath: params.getSessionForFilePath }
+        : {}),
+    });
+    if (!targetFilePath) {
+      continue;
+    }
+    const targetSession = await getProjectSessionForFilePath(targetFilePath, options);
+    if (!targetSession?.ast) {
+      continue;
+    }
+    const exportedNames = new Set<string>();
+    for (const statement of targetSession.ast.body) {
+      for (const name of topLevelDeclarationNames(statement)) {
+        exportedNames.add(name);
+      }
+    }
+    for (const specifier of importStatement.specifiers) {
+      if (exportedNames.has(specifier.imported.name)) {
+        continue;
+      }
+      pushDiagnostic(
+        diagnosticForNode(
+          specifier.imported,
+          `Module '${importStatement.from.value}' has no exported symbol '${specifier.imported.name}'`,
+          VEXA_DIAGNOSTIC_CODES.IMPORT_MISSING_EXPORT
+        )
+      );
+    }
+  }
 
   for (const call of collectCallExpressions(session.ast)) {
     const constructorSignature = await resolveConstructorSignature(
