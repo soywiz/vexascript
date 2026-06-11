@@ -9,7 +9,9 @@ export function candidateImportTargetFilePaths(
 ): string[] {
   const baseDir = dirname(importerFilePath);
   const direct = resolve(baseDir, importPath);
-  return extname(direct) ? [direct] : [direct, `${direct}${LANGUAGE_FILE_EXTENSION}`, `${direct}.ts`];
+  return extname(direct)
+    ? [direct]
+    : [direct, `${direct}${LANGUAGE_FILE_EXTENSION}`, `${direct}.ts`, `${direct}.tsx`, `${direct}.json`, `${direct}.txt`];
 }
 
 /**
@@ -22,8 +24,10 @@ export function candidateImportTargetFilePaths(
  *     in the VFS or in an open editor/LSP session.
  *  2. The same path with a `${LANGUAGE_FILE_EXTENSION}` extension appended, when the import omits an
  *     explicit extension.
- *  3. The same path with a `.ts` extension appended, so VexaScript files can import
+ *  3. The same path with a `.ts` or `.tsx` extension appended, so VexaScript files can import
  *     colocated TypeScript runtime modules without spelling the extension.
+ *  4. The same path with a `.json` or `.txt` extension appended for local
+ *     data/text asset imports.
  *
  * This is the shared resolver used by the semantic project index and the LSP
  * cross-file features so they all agree on how local module paths map to files,

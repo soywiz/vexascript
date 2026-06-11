@@ -66,6 +66,19 @@ describe("resolveImportTargetFilePath", () => {
     expect(await resolveImportTargetFilePath(importer, "./utils.vx")).toBe(target);
   });
 
+
+  it("appends .json and .txt extensions for local asset imports", async () => {
+    const importer = join(root, "main.vx");
+    await writeFile(importer, "");
+    const jsonTarget = join(root, "config.json");
+    const textTarget = join(root, "message.txt");
+    await writeFile(jsonTarget, "{}", "utf8");
+    await writeFile(textTarget, "hello", "utf8");
+
+    expect(await resolveImportTargetFilePath(importer, "./config")).toBe(jsonTarget);
+    expect(await resolveImportTargetFilePath(importer, "./message")).toBe(textTarget);
+  });
+
   it("resolves imports relative to the importing file's directory", async () => {
     const nestedDir = join(root, "nested");
     await mkdir(nestedDir);

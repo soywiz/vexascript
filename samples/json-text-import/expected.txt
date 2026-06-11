@@ -1,0 +1,4 @@
+Direct asset imports
+7
+true
+VexaScript can inline text files.
