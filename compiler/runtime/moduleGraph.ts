@@ -22,7 +22,7 @@ import {
 } from "compiler/analysis/types";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { localVfs, type Vfs } from "compiler/vfs";
-import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
+import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
 interface CachedTypingsData {
@@ -403,6 +403,21 @@ function stripBundledImports(code: string, bundledSpecifiers: ReadonlySet<string
     .join("\n");
 }
 
+function stripBundledModuleSyntax(code: string, bundledSpecifiers: ReadonlySet<string>): string {
+  return stripBundledImports(code, bundledSpecifiers)
+    .split("\n")
+    .map((line) => {
+      if (/^\s*export\s+\{.*\}\s*;?\s*$/.test(line)) {
+        return "";
+      }
+      if (/^\s*export\s*=\s*.+;?\s*$/.test(line)) {
+        return "";
+      }
+      return line.replace(/^(\s*)export\s+(default\s+)?/, "$1");
+    })
+    .join("\n");
+}
+
 export async function bundleModuleGraph(
   entryFilePath: string,
   target: TranspileTarget,
@@ -557,7 +572,7 @@ export async function bundleModuleGraph(
       }
     }
 
-    const emittedCode = stripBundledImports(result.code, bundledSpecifiers);
+    const emittedCode = stripBundledModuleSyntax(result.code, bundledSpecifiers);
     emittedByPath.set(
       filePath,
       [...assetBindingChunks, emittedCode].filter((chunk) => chunk.trim().length > 0).join("\n")

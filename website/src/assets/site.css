@@ -287,12 +287,24 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   cursor: pointer;
 }
 .vexa-embed-toolbar-button { padding: 0.35rem 0.7rem; font-size: 0.78rem; }
+.vexa-embed-toolbar-button-icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2rem;
+  padding: 0;
+  font-size: 0.9rem;
+}
+.vexa-embed-toolbar-button-icon-only i {
+  pointer-events: none;
+}
 .vexa-embed-toolbar-icon { width: 2rem; height: 2rem; font-size: 1rem; }
 .vexa-embed-toolbar-button:disabled,
 .vexa-embed-toolbar-icon:disabled { opacity: 0.45; cursor: default; }
 .vexa-embed-workbench-status { margin-left: 0.5rem; color: #9fdab9; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
 .vexa-embed-workbench-tabs { display: flex; gap: 0.2rem; padding: 0.4rem; background: #252526; border-bottom: 1px solid #323232; overflow-x: auto; }
-.vexa-embed-workbench-body { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 0; height: 100%; overflow: visible; }
+.vexa-embed-workbench-body { display: grid; grid-template-columns: 260px minmax(0, 1fr) minmax(280px, 360px); min-height: 0; height: 100%; overflow: visible; }
 .vexa-embed-workbench-sidebar { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; background: #252526; border-right: 1px solid #323232; }
 .vexa-embed-workbench-sidebar-header {
   display: flex;
@@ -319,6 +331,49 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 .vexa-embed-tree-item:hover { background: #2f2f2f; }
 .vexa-embed-tree-item.is-active { background: #30353a; color: #ffffff; }
 .vexa-embed-workbench-editor { min-width: 0; min-height: 0; overflow: visible; }
+.vexa-embed-workbench-runner {
+  display: grid;
+  grid-template-rows: auto minmax(180px, 1fr) minmax(140px, 220px);
+  min-height: 0;
+  background: #181818;
+  border-left: 1px solid #323232;
+}
+.vexa-embed-workbench-runner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid #323232;
+}
+.vexa-embed-workbench-runner-title {
+  color: #d4d4d4;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.vexa-embed-workbench-preview {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #101113;
+}
+.vexa-embed-workbench-output {
+  margin: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.9rem;
+  border-top: 1px solid #323232;
+  background: #111214;
+  color: #d4d4d4;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
 
 .embed-docs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 
@@ -386,5 +441,10 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
     min-height: 220px;
     border-right: 0;
     border-bottom: 1px solid #323232;
+  }
+  .vexa-embed-workbench-runner {
+    min-height: 360px;
+    border-left: 0;
+    border-top: 1px solid #323232;
   }
 }

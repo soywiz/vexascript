@@ -139,6 +139,9 @@ describe("bundleModuleGraph", () => {
         expect(result.code).toContain("class Person {");
         expect(result.code).toContain("function makePerson(name)");
         expect(result.code).not.toContain('from "./helpers"');
+        expect(result.code).not.toContain("export class Person");
+        expect(result.code).not.toContain("export function makePerson");
+        expect(result.code).not.toContain("export var Color");
         expect(result.code).toContain('const direct = new Person("Ada", 36);');
       }
     );

@@ -42,6 +42,10 @@ export function getEcmaScriptRuntimeProgram(): Program {
   return cachedProgram;
 }
 
+export async function ensureEcmaScriptRuntimeProgram(): Promise<Program> {
+  return getEcmaScriptRuntimeProgram();
+}
+
 export function isEcmaScriptRuntimeNode(node: Node): boolean {
   if (!cachedProgram || !cachedNodes) return false;
   return cachedNodes.has(node);

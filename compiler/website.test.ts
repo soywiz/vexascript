@@ -19,10 +19,12 @@ describe("website project", () => {
     ]);
 
     expect(embedSource.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
+    expect(embedSource.includes('import "@fortawesome/fontawesome-free/css/all.min.css"')).toBe(true);
     expect(embedSource.includes("createSimpleEditor")).toBe(true);
     expect(embedSource.includes("createTabbedEditor")).toBe(true);
     expect(embedSource.includes("createWorkspaceEditor")).toBe(true);
     expect(embedSource.includes("createWorkbenchEditor")).toBe(true);
+    expect(embedSource.includes("bundleModuleGraph")).toBe(true);
     expect(embedSource.includes("createCompletionItemsForPosition")).toBe(true);
     expect(embedSource.includes("registerCompletionItemProvider")).toBe(true);
     expect(embedSource.includes("registerHoverProvider")).toBe(true);
@@ -65,6 +67,15 @@ describe("website project", () => {
     expect(embedPage.includes("VexaScriptEmbeds.createWorkspaceEditor")).toBe(true);
     expect(embedPage.includes("VexaScriptEmbeds.createWorkbenchEditor")).toBe(true);
     expect(embedSource.includes('data-action="expand"')).toBe(true);
+    expect(embedSource.includes('fa-solid fa-arrow-left')).toBe(true);
+    expect(embedSource.includes('fa-solid fa-arrow-right')).toBe(true);
+    expect(embedSource.includes('fa-solid fa-wand-magic-sparkles')).toBe(true);
+    expect(embedSource.includes('fa-solid fa-floppy-disk')).toBe(true);
+    expect(embedSource.includes('fa-solid fa-play')).toBe(true);
+    expect(embedSource.includes('fa-solid fa-up-right-and-down-left-from-center')).toBe(true);
+    expect(embedSource.includes('data-action="run"')).toBe(true);
+    expect(embedSource.includes('vexa-embed-workbench-preview')).toBe(true);
+    expect(embedSource.includes('vexa-workbench-console')).toBe(true);
     expect(embedPage.includes("function dedent(strings, ...values)")).toBe(true);
     expect(embedPage.includes("String.raw({ raw: strings }, ...values)")).toBe(true);
     expect(embedPage.includes('const counterSnippet = dedent`')).toBe(true);
@@ -103,6 +114,7 @@ describe("website project", () => {
     expect(packageJson.scripts?.["build"]).toBe("tsx scripts/build.ts");
     expect(packageJson.scripts?.["dev"]).toBe("tsx scripts/dev.ts");
     expect(packageJson.scripts?.["build:playground"]).toBe("vite build --config vite.playground.config.ts");
+    expect((JSON.parse(packageJsonText) as { dependencies?: Record<string, string> }).dependencies?.["@fortawesome/fontawesome-free"]).toBeTruthy();
     expect(buildScript.includes("ensureCompilerBundle")).toBe(true);
     expect(buildScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
     expect(buildScript.includes('vite.playground.config.ts')).toBe(true);
@@ -147,6 +159,10 @@ describe("website project", () => {
     expect(siteCss.includes('.workbench-demo { height: 760px; }')).toBe(true);
     expect(siteCss.includes('.vexa-embed-workbench-shell {')).toBe(true);
     expect(siteCss.includes('.vexa-embed-workbench.is-expanded {')).toBe(true);
+    expect(siteCss.includes('.vexa-embed-toolbar-button-icon-only')).toBe(true);
+    expect(siteCss.includes('.vexa-embed-workbench-runner {')).toBe(true);
+    expect(siteCss.includes('.vexa-embed-workbench-preview {')).toBe(true);
+    expect(siteCss.includes('.vexa-embed-workbench-output {')).toBe(true);
     expect(siteCss.includes('.token-keyword-declaration')).toBe(true);
     expect(siteCss.includes('.syntax-block')).toBe(true);
     expect(layoutSource.includes('rel="icon"')).toBe(true);

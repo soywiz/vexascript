@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import "monaco-editor/min/vs/editor/editor.main.css";
+import "@fortawesome/fontawesome-free/css/all.min.css";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import * as monaco from "monaco-editor";
@@ -30,6 +31,7 @@ import {
   type PortableMonarchLanguage,
 } from "compiler/syntax";
 import type { SymbolExport } from "compiler/lsp/importFixes";
+import { bundleModuleGraph } from "compiler/runtime/moduleGraph";
 import { markerToDiagnostic } from "../../../plugins/monaco/src/providerConversions";
 import { WorkspaceVfs } from "../../../plugins/monaco/src/workspaceVfs";
 import {
@@ -66,6 +68,7 @@ interface TabbedEditorHandle extends EditorHandle {
 interface WorkbenchEditorHandle extends TabbedEditorHandle {
   save(): void;
   getEntries(): WorkspaceEntry[];
+  run(): Promise<void>;
 }
 
 interface SimpleEditorOptions {
@@ -1036,11 +1039,12 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         <div class="vexa-embed-workbench-file-name">main.vx</div>
       </div>
       <div class="vexa-embed-workbench-toolbar">
-        <button type="button" class="vexa-embed-toolbar-button" data-action="back">Back</button>
-        <button type="button" class="vexa-embed-toolbar-button" data-action="forward">Forward</button>
-        <button type="button" class="vexa-embed-toolbar-button" data-action="format">Format</button>
-        <button type="button" class="vexa-embed-toolbar-button" data-action="save">Save</button>
-        <button type="button" class="vexa-embed-toolbar-button" data-action="expand">Expand</button>
+        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="back" title="Back" aria-label="Back"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
+        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="forward" title="Forward" aria-label="Forward"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="format" title="Format" aria-label="Format"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></button>
+        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="save" title="Save" aria-label="Save"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i></button>
+        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="run" title="Run" aria-label="Run"><i class="fa-solid fa-play" aria-hidden="true"></i></button>
+        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="expand" title="Expand" aria-label="Expand"><i class="fa-solid fa-up-right-and-down-left-from-center" aria-hidden="true"></i></button>
         <div class="vexa-embed-workbench-status">Compiler Ready</div>
       </div>
     </div>
@@ -1057,6 +1061,14 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         <div class="vexa-embed-workbench-tree"></div>
       </aside>
       <div class="vexa-embed-workbench-editor"></div>
+      <aside class="vexa-embed-workbench-runner">
+        <div class="vexa-embed-workbench-runner-header">
+          <div class="vexa-embed-workbench-runner-title">Preview</div>
+          <button type="button" class="vexa-embed-toolbar-button" data-action="clear-output">Clear</button>
+        </div>
+        <iframe class="vexa-embed-workbench-preview" title="VexaScript preview" sandbox="allow-scripts allow-modals"></iframe>
+        <pre class="vexa-embed-workbench-output" aria-live="polite"></pre>
+      </aside>
     </div>
   `;
   target.appendChild(shell);
@@ -1083,7 +1095,11 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const forwardButton = shell.querySelector<HTMLButtonElement>('[data-action="forward"]')!;
   const formatButton = shell.querySelector<HTMLButtonElement>('[data-action="format"]')!;
   const saveButton = shell.querySelector<HTMLButtonElement>('[data-action="save"]')!;
+  const runButton = shell.querySelector<HTMLButtonElement>('[data-action="run"]')!;
   const expandButton = shell.querySelector<HTMLButtonElement>('[data-action="expand"]')!;
+  const clearOutputButton = shell.querySelector<HTMLButtonElement>('[data-action="clear-output"]')!;
+  const previewFrame = shell.querySelector<HTMLIFrameElement>(".vexa-embed-workbench-preview")!;
+  const outputPanel = shell.querySelector<HTMLElement>(".vexa-embed-workbench-output")!;
 
   const models = new Map<string, monaco.editor.ITextModel>();
   const disposers = new Map<string, () => void>();
@@ -1091,6 +1107,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const historyForward: string[] = [];
   let activeUri = pathToUri(normalizePath(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
   const workspaceSessionCache = new Map<string, { content: string; session: ReturnType<typeof createAnalysisSession> }>();
+  const previewChannelId = `vexa-preview-${Math.random().toString(36).slice(2)}`;
 
   const ensureModel = (entry: WorkspaceFile): monaco.editor.ITextModel => {
     const existing = models.get(entry.uri);
@@ -1188,11 +1205,148 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const isExpanded = (): boolean => target.classList.contains("is-expanded");
 
   const syncExpandButton = (): void => {
-    expandButton.textContent = isExpanded() ? "Collapse" : "Expand";
+    expandButton.title = isExpanded() ? "Collapse" : "Expand";
+    expandButton.setAttribute("aria-label", isExpanded() ? "Collapse" : "Expand");
+    expandButton.innerHTML = isExpanded()
+      ? '<i class="fa-solid fa-down-left-and-up-right-to-center" aria-hidden="true"></i>'
+      : '<i class="fa-solid fa-up-right-and-down-left-from-center" aria-hidden="true"></i>';
   };
 
   const syncEntryContent = (uri: string, content: string): void => {
     entries = updateFileContent(entries, uri, content);
+    workspaceSessionCache.delete(uri);
+  };
+
+  const clearOutput = (): void => {
+    outputPanel.textContent = "";
+  };
+
+  const appendOutput = (level: string, message: string): void => {
+    const prefix = level === "log" ? "" : `[${level}] `;
+    outputPanel.textContent = `${outputPanel.textContent}${prefix}${message}\n`;
+    outputPanel.scrollTop = outputPanel.scrollHeight;
+  };
+
+  const stringifyConsoleValue = (value: unknown, seen = new WeakSet<object>()): string => {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (typeof value === "number" || typeof value === "boolean" || value === null || value === undefined) {
+      return String(value);
+    }
+    if (typeof value === "function") {
+      return `[Function ${value.name || "anonymous"}]`;
+    }
+    if (value instanceof Error) {
+      return value.stack || value.message || String(value);
+    }
+    if (typeof value === "object") {
+      if (seen.has(value)) {
+        return "[Circular]";
+      }
+      seen.add(value);
+      try {
+        return JSON.stringify(value, (_key, nestedValue) => {
+          if (typeof nestedValue === "object" && nestedValue !== null) {
+            if (seen.has(nestedValue)) {
+              return "[Circular]";
+            }
+            seen.add(nestedValue);
+          }
+          if (typeof nestedValue === "bigint") {
+            return nestedValue.toString();
+          }
+          return nestedValue;
+        }, 2);
+      } catch {
+        return Object.prototype.toString.call(value);
+      }
+    }
+    return String(value);
+  };
+
+  const buildPreviewDocument = (code: string): string => `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; min-height: 100%; background: #101113; color: #f3f4f6; font-family: ui-sans-serif, system-ui, sans-serif; }
+      body { padding: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      const channelId = ${JSON.stringify(previewChannelId)};
+      const send = (level, args) => {
+        parent.postMessage({ type: "vexa-workbench-console", channelId, level, args }, "*");
+      };
+      const forward = (level) => (...args) => send(level, args);
+      console.log = forward("log");
+      console.info = forward("info");
+      console.warn = forward("warn");
+      console.error = forward("error");
+      window.onerror = (message, _source, _line, _column, error) => {
+        send("error", [error?.stack || error?.message || String(message)]);
+      };
+      window.onunhandledrejection = (event) => {
+        const reason = event.reason;
+        send("error", [reason?.stack || reason?.message || String(reason)]);
+      };
+      try {
+${code.split("\n").map((line) => `        ${line}`).join("\n")}
+      } catch (error) {
+        send("error", [error?.stack || error?.message || String(error)]);
+      }
+    </script>
+  </body>
+</html>`;
+
+  const handlePreviewMessage = (event: MessageEvent): void => {
+    const payload = event.data;
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      payload.type !== "vexa-workbench-console" ||
+      payload.channelId !== previewChannelId
+    ) {
+      return;
+    }
+    const args = Array.isArray(payload.args) ? payload.args : [];
+    appendOutput(payload.level ?? "log", args.map((arg) => stringifyConsoleValue(arg)).join(" "));
+  };
+
+  const runCurrentWorkspace = async (): Promise<void> => {
+    clearOutput();
+    const activeEntry = entries.find((entry): entry is WorkspaceFile => entry.kind === "file" && entry.uri === activeUri);
+    if (!activeEntry) {
+      appendOutput("error", "No active file to run.");
+      return;
+    }
+    runButton.disabled = true;
+    try {
+      const result = await bundleModuleGraph(activeEntry.path, "optimized", { vfs: workspaceVfs });
+      if (result.errors.length > 0) {
+        for (const error of result.errors) {
+          appendOutput("error", error);
+        }
+        previewFrame.srcdoc = buildPreviewDocument("");
+        return;
+      }
+      if (result.diagnostics.length > 0) {
+        for (const diagnostic of result.diagnostics) {
+          appendOutput("warn", `${diagnostic.file}:${diagnostic.line}:${diagnostic.column} ${diagnostic.message}`);
+        }
+      }
+      previewFrame.srcdoc = buildPreviewDocument(result.code);
+    } catch (error) {
+      appendOutput("error", error instanceof Error ? error.stack || error.message : String(error));
+      previewFrame.srcdoc = buildPreviewDocument("");
+    } finally {
+      runButton.disabled = false;
+    }
   };
 
   const renderTree = (): void => {
@@ -1234,6 +1388,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     fileNameLabel.textContent = activeEntry?.label ?? "No file";
     formatButton.disabled = activeEntry?.kind !== "file" || activeEntry.language !== "vexa" || !!activeEntry.readOnly;
     saveButton.disabled = false;
+    runButton.disabled = activeEntry?.kind !== "file" || activeEntry.language !== "vexa";
   };
 
   const openFile = (
@@ -1313,12 +1468,16 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     void editor.getAction("editor.action.formatDocument")?.run();
   });
   saveButton.addEventListener("click", () => persist());
+  runButton.addEventListener("click", () => {
+    void runCurrentWorkspace();
+  });
   expandButton.addEventListener("click", () => {
     target.classList.toggle("is-expanded");
     document.body.classList.toggle("vexa-workbench-expanded", isExpanded());
     syncExpandButton();
     stabilizeEditorLayout(editor);
   });
+  clearOutputButton.addEventListener("click", () => clearOutput());
   shell.querySelector<HTMLButtonElement>('[data-action="new-file"]')?.addEventListener("click", () => {
     const name = window.prompt("New file name", "newFile.vx");
     if (!name) {
@@ -1346,15 +1505,20 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   openFile(initialEntry.path, options.selection, false);
   syncExpandButton();
+  window.addEventListener("message", handlePreviewMessage);
   const handleViewportToggle = (): void => {
     syncExpandButton();
     stabilizeEditorLayout(editor);
   };
   window.addEventListener("resize", handleViewportToggle);
+  void runCurrentWorkspace();
 
   return {
     editor,
     openFile,
+    async run() {
+      await runCurrentWorkspace();
+    },
     save() {
       persist();
     },
@@ -1379,6 +1543,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         dispose();
       }
       document.body.classList.remove("vexa-workbench-expanded");
+      window.removeEventListener("message", handlePreviewMessage);
       window.removeEventListener("resize", handleViewportToggle);
       editorOpenerDisposable.dispose();
       editor.dispose();
