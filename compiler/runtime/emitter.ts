@@ -145,9 +145,85 @@ interface RuntimeVariableDelegateInfo {
 
 let activeVariableDelegates: Map<string, RuntimeVariableDelegateInfo> = new Map();
 let activeImportedExtensionRuntimeNames: Map<string, string[]> = new Map();
+// activeExtensionThis is saved/restored locally within each extension method emission
+// and intentionally excluded from ActiveEmitState (it is not a top-level call context).
 let activeExtensionThis = false;
 let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
 let activeStaticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map();
+
+// ActiveEmitState groups all module-level emit globals that must be saved and
+// restored around each emitProgramStatementPairs call. The typed interface
+// ensures TypeScript catches any new field that is added to the globals but
+// forgotten in captureActiveEmitState / restoreActiveEmitState.
+// NOTE: activeExtensionThis is excluded — it is managed locally within each
+// extension method emission and is not a top-level call context.
+interface ActiveEmitState {
+  programOverloads: Map<string, RuntimeOverloadInfo[]>;
+  operators: Map<string, RuntimeOperatorInfo[]>;
+  extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
+  extensionProperties: Map<string, string>;
+  classNames: Set<string>;
+  interfaceNames: Set<string>;
+  interfaceMembers: Map<string, InterfaceStatement["members"]>;
+  constructableOnlyNames: Set<string>;
+  parameterNames: Map<string, string[]>;
+  javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
+  jsNames: Map<string, string>;
+  variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
+  importedExtensionRuntimeNames: Map<string, string[]>;
+  implicitReceiverIdentifiers: ReadonlySet<Node>;
+  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string>;
+  expressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
+  autoAwaitExpressions: ReadonlySet<Node>;
+  jsxFactory: string;
+  jsxFragmentFactory: string;
+}
+
+function captureActiveEmitState(): ActiveEmitState {
+  return {
+    programOverloads: activeProgramOverloads,
+    operators: activeOperators,
+    extensionMethods: activeExtensionMethods,
+    extensionProperties: activeExtensionProperties,
+    classNames: activeClassNames,
+    interfaceNames: activeInterfaceNames,
+    interfaceMembers: activeInterfaceMembers,
+    constructableOnlyNames: activeConstructableOnlyNames,
+    parameterNames: activeParameterNames,
+    javaScriptImplementations: activeJavaScriptImplementations,
+    jsNames: activeJsNames,
+    variableDelegates: activeVariableDelegates,
+    importedExtensionRuntimeNames: activeImportedExtensionRuntimeNames,
+    implicitReceiverIdentifiers: activeImplicitReceiverIdentifiers,
+    staticImplicitReceiverIdentifiers: activeStaticImplicitReceiverIdentifiers,
+    expressionTypes: activeExpressionTypes,
+    autoAwaitExpressions: activeAutoAwaitExpressions,
+    jsxFactory: activeJsxFactory,
+    jsxFragmentFactory: activeJsxFragmentFactory
+  };
+}
+
+function restoreActiveEmitState(state: ActiveEmitState): void {
+  activeProgramOverloads = state.programOverloads;
+  activeOperators = state.operators;
+  activeExtensionMethods = state.extensionMethods;
+  activeExtensionProperties = state.extensionProperties;
+  activeClassNames = state.classNames;
+  activeInterfaceNames = state.interfaceNames;
+  activeInterfaceMembers = state.interfaceMembers;
+  activeConstructableOnlyNames = state.constructableOnlyNames;
+  activeParameterNames = state.parameterNames;
+  activeJavaScriptImplementations = state.javaScriptImplementations;
+  activeJsNames = state.jsNames;
+  activeVariableDelegates = state.variableDelegates;
+  activeImportedExtensionRuntimeNames = state.importedExtensionRuntimeNames;
+  activeImplicitReceiverIdentifiers = state.implicitReceiverIdentifiers;
+  activeStaticImplicitReceiverIdentifiers = state.staticImplicitReceiverIdentifiers;
+  activeExpressionTypes = state.expressionTypes;
+  activeAutoAwaitExpressions = state.autoAwaitExpressions;
+  activeJsxFactory = state.jsxFactory;
+  activeJsxFragmentFactory = state.jsxFragmentFactory;
+}
 
 const PREC_COMMA = 1;
 const PREC_ASSIGNMENT = 2;
@@ -2147,31 +2223,7 @@ export function emitProgramStatementPairs(
   runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
 ): EmittedProgramStatement[] {
-  const previous = activeExpressionTypes;
-  const previousOverloads = activeProgramOverloads;
-  const previousOperators = activeOperators;
-  const previousExtensionMethods = activeExtensionMethods;
-  const previousExtensionProperties = activeExtensionProperties;
-  const previousClassNames = activeClassNames;
-  const previousInterfaceNames = activeInterfaceNames;
-  const previousInterfaceMembers = activeInterfaceMembers;
-  const previousConstructableOnlyNames = activeConstructableOnlyNames;
-  const previousParameterNames = activeParameterNames;
-  const previousJavaScriptImplementations = activeJavaScriptImplementations;
-  const previousJsNames = activeJsNames;
-  const previousVariableDelegates = activeVariableDelegates;
-  const previousImportedExtensionRuntimeNames = activeImportedExtensionRuntimeNames;
-  const previousImplicitReceiverIdentifiers = activeImplicitReceiverIdentifiers;
-  const previousStaticImplicitReceiverIdentifiers = activeStaticImplicitReceiverIdentifiers;
-  const previousAutoAwaitExpressions = activeAutoAwaitExpressions;
-  const previousJsxFactory = activeJsxFactory;
-  const previousJsxFragmentFactory = activeJsxFragmentFactory;
-  activeExpressionTypes = expressionTypes;
-  activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
-  activeStaticImplicitReceiverIdentifiers = staticImplicitReceiverIdentifiers;
-  activeAutoAwaitExpressions = autoAwaitExpressions;
-  activeJsxFactory = runtimeContext.jsxFactory;
-  activeJsxFragmentFactory = runtimeContext.jsxFragmentFactory;
+  const saved = captureActiveEmitState();
   activeProgramOverloads = runtimeContext.overloads;
   activeOperators = runtimeContext.operators;
   activeExtensionMethods = runtimeContext.extensionMethods;
@@ -2185,30 +2237,18 @@ export function emitProgramStatementPairs(
   activeJsNames = runtimeContext.jsNames;
   activeVariableDelegates = runtimeContext.variableDelegates;
   activeImportedExtensionRuntimeNames = runtimeContext.importedExtensionRuntimeNames;
+  activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
+  activeStaticImplicitReceiverIdentifiers = staticImplicitReceiverIdentifiers;
+  activeExpressionTypes = expressionTypes;
+  activeAutoAwaitExpressions = autoAwaitExpressions;
+  activeJsxFactory = runtimeContext.jsxFactory;
+  activeJsxFragmentFactory = runtimeContext.jsxFragmentFactory;
   try {
     return program.body.map((statement) => ({
       statement,
       emitted: emitStatement(statement)
     }));
   } finally {
-    activeExpressionTypes = previous;
-    activeProgramOverloads = previousOverloads;
-    activeOperators = previousOperators;
-    activeExtensionMethods = previousExtensionMethods;
-    activeExtensionProperties = previousExtensionProperties;
-    activeClassNames = previousClassNames;
-    activeInterfaceNames = previousInterfaceNames;
-    activeInterfaceMembers = previousInterfaceMembers;
-    activeConstructableOnlyNames = previousConstructableOnlyNames;
-    activeParameterNames = previousParameterNames;
-    activeJavaScriptImplementations = previousJavaScriptImplementations;
-    activeJsNames = previousJsNames;
-    activeVariableDelegates = previousVariableDelegates;
-    activeImportedExtensionRuntimeNames = previousImportedExtensionRuntimeNames;
-    activeImplicitReceiverIdentifiers = previousImplicitReceiverIdentifiers;
-    activeStaticImplicitReceiverIdentifiers = previousStaticImplicitReceiverIdentifiers;
-    activeAutoAwaitExpressions = previousAutoAwaitExpressions;
-    activeJsxFactory = previousJsxFactory;
-    activeJsxFragmentFactory = previousJsxFragmentFactory;
+    restoreActiveEmitState(saved);
   }
 }

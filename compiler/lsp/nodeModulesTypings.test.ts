@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import { getNodeModuleTypings, findNodeModuleMemberLocation } from "./nodeModulesTypings";
-import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
+import { collectImportedTypeDeclarations, collectImportedSymbolTypes, collectAllImportedDeclarations } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
 import { namedType, typeToString } from "compiler/analysis/types";
@@ -205,5 +205,39 @@ describe("node_modules typings resolution", () => {
     const hover = richSession.analysis?.getHoverAt(1, 5);
     expect(hover?.contents).not.toContain("unknown");
     expect(hover?.contents).toContain("Result");
+  });
+
+  it("collectAllImportedDeclarations produces the same declarations and symbol types as calling both functions separately", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "pkg", MINI_DTS);
+
+    const mainPath = join(root, "main.vx");
+    const source = `import pkg from "pkg"\npkg.helper()\n`;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+
+    const [combined, separateDeclarations, separateSymbolTypes] = await Promise.all([
+      collectAllImportedDeclarations(session.ast!, ctx),
+      collectImportedTypeDeclarations(session.ast!, ctx),
+      collectImportedSymbolTypes(session.ast!, ctx)
+    ]);
+
+    expect(combined.externalDeclarations.length).toBe(separateDeclarations.length);
+    expect(combined.importedSymbolTypes.size).toBe(separateSymbolTypes.size);
+    for (const [key, value] of separateSymbolTypes) {
+      expect(typeToString(combined.importedSymbolTypes.get(key)!)).toBe(typeToString(value));
+    }
+  });
+
+  it("collectAllImportedDeclarations returns empty results for unknown file URI", async () => {
+    const session = createAnalysisSession(`import pkg from "pkg"\n`);
+    const result = await collectAllImportedDeclarations(session.ast!, {
+      sourceRoots: [],
+      getSessionForFilePath: () => null
+    });
+    expect(result.externalDeclarations).toEqual([]);
+    expect(result.importedSymbolTypes.size).toBe(0);
   });
 });

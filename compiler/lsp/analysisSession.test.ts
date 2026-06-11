@@ -114,4 +114,52 @@ describe("lsp analysis session", () => {
 
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
+
+  it("getForDocumentAsync reuses an in-flight resolution instead of duplicating work", async () => {
+    const source = "let a = 1\n";
+    const doc = TextDocument.create("file:///test.vx", "vexa", 1, source);
+    let resolveCount = 0;
+
+    const cache = new AnalysisSessionCache(async () => {
+      resolveCount++;
+      // Simulate async work
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { externalDeclarations: [], importedSymbolTypes: new Map() };
+    });
+
+    // Trigger async resolution via getForDocument (which populates the pending queue)
+    cache.getForDocument(doc);
+
+    // Both async calls should share the in-flight resolution
+    const [s1, s2] = await Promise.all([
+      cache.getForDocumentAsync(doc),
+      cache.getForDocumentAsync(doc)
+    ]);
+
+    expect(s1).toBe(s2);
+    // The resolver was fired at most twice: once from getForDocument, once at most from async
+    expect(resolveCount).toBeLessThanOrEqual(2);
+  });
+
+  it("getForDocumentAsync does not reuse a pending resolution for a different version", async () => {
+    const source1 = "let a = 1\n";
+    const source2 = "let b = 2\n";
+    const docV1 = TextDocument.create("file:///test.vx", "vexa", 1, source1);
+    const docV2 = TextDocument.create("file:///test.vx", "vexa", 2, source2);
+
+    let callCount = 0;
+    const cache = new AnalysisSessionCache(async () => {
+      callCount++;
+      return { externalDeclarations: [], importedSymbolTypes: new Map() };
+    });
+
+    // Establish a v1 session in the cache
+    await cache.getForDocumentAsync(docV1);
+
+    // Requesting v2 must not reuse v1's resolution and must produce its own session
+    const sessionV2 = await cache.getForDocumentAsync(docV2);
+    expect(sessionV2.ast?.body.length).toBeGreaterThan(0);
+    // The resolver was called at least once for v1 and at least once for v2
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
 });

@@ -15,7 +15,7 @@ import { createDocumentDiagnosticReport } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
-import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { buildAutoImportSuggestions } from "./importFixes";
 import { collectCodeActions } from "./codeActionsAggregate";
@@ -74,9 +74,8 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments
   };
   const filePath = uriToFilePath(document.uri);
-  const [externalDeclarations, importedSymbolTypes, ambientDeclarations] = await Promise.all([
-    collectImportedTypeDeclarations(baseSession.ast, context),
-    collectImportedSymbolTypes(baseSession.ast, context),
+  const [{ externalDeclarations, importedSymbolTypes }, ambientDeclarations] = await Promise.all([
+    collectAllImportedDeclarations(baseSession.ast, context),
     (async () => {
       if (!filePath) {
         return [];

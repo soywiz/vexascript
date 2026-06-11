@@ -2,7 +2,7 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { WorkspaceEdit } from "vscode-languageserver/node.js";
 import { createAnalysisSession, type AnalysisSession } from "./lsp/analysisSession";
-import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./lsp/importedDeclarations";
+import { collectAllImportedDeclarations } from "./lsp/importedDeclarations";
 import { createDefinitionLocation, createHover } from "./lsp/navigation";
 import { pathToUri, uriToFilePath } from "./lsp/importFixes";
 import { resolveDefinitionAcrossFiles, resolveReferencesAcrossFiles, resolveRenameAcrossFiles } from "./lsp/crossFileNavigation";
@@ -228,10 +228,7 @@ export class VexaMcpCodebaseServer {
         sourceRoots,
         getSessionForFilePath: async (nextPath: string) => this.sessionForFile(nextPath, sourceRoots)
       };
-      const [externalDeclarations, importedSymbolTypes] = await Promise.all([
-        collectImportedTypeDeclarations(baseSession.ast, context),
-        collectImportedSymbolTypes(baseSession.ast, context)
-      ]);
+      const { externalDeclarations, importedSymbolTypes } = await collectAllImportedDeclarations(baseSession.ast, context);
       return externalDeclarations.length > 0 || importedSymbolTypes.size > 0
         ? createAnalysisSession(source, externalDeclarations, importedSymbolTypes)
         : baseSession;
