@@ -15,7 +15,7 @@ interface TokenPosition {
   column: number;
 }
 
-interface RangedToken {
+export interface RangedToken {
   range: {
     start: TokenPosition;
     end: TokenPosition;
@@ -32,6 +32,14 @@ function tokenPositionToLspPosition(position: TokenPosition): Position {
     line: position.line,
     character: position.column
   };
+}
+
+export function tokenStartPosition(token: RangedToken): Position {
+  return tokenPositionToLspPosition(token.range.start);
+}
+
+export function tokenEndPosition(token: RangedToken): Position {
+  return tokenPositionToLspPosition(token.range.end);
 }
 
 export function tokenRange(token: RangedToken | undefined): NodeRange | null {

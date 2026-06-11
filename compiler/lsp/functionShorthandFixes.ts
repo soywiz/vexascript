@@ -9,7 +9,7 @@ import type {
 import { walkAst } from "compiler/ast/traversal";
 import { type CodeAction, type Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
-import { containsPosition, nodeRange, rangeSize, tokenRange, type Position } from "./ranges";
+import { containsPosition, nodeRange, rangeSize, tokenEndPosition, tokenRange, tokenStartPosition, type Position } from "./ranges";
 
 interface FunctionLikeTarget {
   node: FunctionStatement | ClassMethodMember;
@@ -98,14 +98,8 @@ function shorthandRange(node: FunctionStatement | ClassMethodMember): Range | nu
     }
 
     return {
-      start: {
-        line: nameLastToken.range.end.line,
-        character: nameLastToken.range.end.column
-      },
-      end: {
-        line: bodyLastToken.range.end.line,
-        character: bodyLastToken.range.end.column
-      }
+      start: tokenEndPosition(nameLastToken),
+      end: tokenEndPosition(bodyLastToken)
     };
   }
 
@@ -116,14 +110,8 @@ function shorthandRange(node: FunctionStatement | ClassMethodMember): Range | nu
   }
 
   return {
-    start: {
-      line: closeParen.range.end.line,
-      character: closeParen.range.end.column
-    },
-    end: {
-      line: body.lastToken.range.end.line,
-      character: body.lastToken.range.end.column
-    }
+    start: tokenEndPosition(closeParen),
+    end: tokenEndPosition(body.lastToken)
   };
 }
 
@@ -141,14 +129,8 @@ function fullBodyRange(node: FunctionStatement | ClassMethodMember): Range | nul
   }
 
   return {
-    start: {
-      line: closeParen.range.end.line,
-      character: closeParen.range.end.column
-    },
-    end: {
-      line: bodyLastToken.range.end.line,
-      character: bodyLastToken.range.end.column
-    }
+    start: tokenEndPosition(closeParen),
+    end: tokenEndPosition(bodyLastToken)
   };
 }
 
@@ -198,14 +180,8 @@ function getterAccessorPrefixRange(node: ClassMethodMember): Range | null {
   }
 
   return {
-    start: {
-      line: accessorToken.range.start.line,
-      character: accessorToken.range.start.column
-    },
-    end: {
-      line: bodyLastToken.range.end.line,
-      character: bodyLastToken.range.end.column
-    }
+    start: tokenStartPosition(accessorToken),
+    end: tokenEndPosition(bodyLastToken)
   };
 }
 
@@ -217,14 +193,8 @@ function getterShorthandMemberRange(node: ClassMethodMember): Range | null {
   }
 
   return {
-    start: {
-      line: nameFirstToken.range.start.line,
-      character: nameFirstToken.range.start.column
-    },
-    end: {
-      line: bodyLastToken.range.end.line,
-      character: bodyLastToken.range.end.column
-    }
+    start: tokenStartPosition(nameFirstToken),
+    end: tokenEndPosition(bodyLastToken)
   };
 }
 

@@ -27,6 +27,20 @@ should use `declarationResolver.ts` instead of open-coding import walks. The
 remaining items below are larger refactors that need their own focused change
 with tests:
 
+- Extract a shared LSP request-handler core from `compiler/lsp/server.ts` and
+  `compiler/lsp/server-browser.ts`. Both register ~20 nearly identical handlers
+  (completion, code actions, formatting, navigation, rename, symbols, signature
+  help, folding, semantic tokens, inlay hints, call hierarchy); only the
+  workspace/cross-file context differs. A `serverCore.ts` taking the context as
+  a parameter would shrink both entrypoints to thin adapters and stop the two
+  servers from drifting apart.
+- Split `compiler/lsp/completion.ts` (~2.5k lines) by completion strategy
+  (member completion, import completion, keyword fallback) with shared types in
+  a small model module.
+- Split `compiler/lsp/crossFileNavigation.ts` (~2.2k lines) by operation
+  (definition, hover, references, rename) with shared cross-file member/type
+  resolution helpers.
+
 ## Transpilation and Runtime
 
 All current transpilation/runtime backlog items are implemented. Future gaps

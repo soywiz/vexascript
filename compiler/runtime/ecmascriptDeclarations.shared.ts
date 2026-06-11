@@ -23,6 +23,7 @@ interface CachedRuntimeProgram {
 }
 
 let cachedRuntimeProgram: CachedRuntimeProgram | null = null;
+let runtimeProgramLoad: Promise<CachedRuntimeProgram> | null = null;
 
 function collectNodes(root: Program): WeakSet<object> {
   const nodes = new WeakSet<object>();
@@ -75,8 +76,20 @@ export function getEcmaScriptRuntimeProgram(): Program {
 }
 
 export async function ensureEcmaScriptRuntimeProgram(): Promise<Program> {
-  if (!cachedRuntimeProgram) {
-    cachedRuntimeProgram = await loadRuntimeProgram();
+  if (cachedRuntimeProgram) {
+    return cachedRuntimeProgram.program;
+  }
+
+  // Concurrent callers share one in-flight load; a failed load is cleared so
+  // a later call can retry instead of caching the rejection forever.
+  if (!runtimeProgramLoad) {
+    runtimeProgramLoad = loadRuntimeProgram();
+  }
+  try {
+    cachedRuntimeProgram = await runtimeProgramLoad;
+  } catch (error) {
+    runtimeProgramLoad = null;
+    throw error;
   }
 
   return cachedRuntimeProgram.program;

@@ -16,6 +16,7 @@ interface CachedDomProgram {
 }
 
 let cachedDomProgram: CachedDomProgram | null = null;
+let domProgramLoad: Promise<CachedDomProgram> | null = null;
 
 function collectNodes(root: Program): WeakSet<object> {
   const nodes = new WeakSet<object>();
@@ -62,8 +63,20 @@ export function getDomDeclarationFilePath(): string {
 }
 
 export async function ensureDomProgram(): Promise<Program> {
-  if (!cachedDomProgram) {
-    cachedDomProgram = await loadDomProgram();
+  if (cachedDomProgram) {
+    return cachedDomProgram.program;
+  }
+
+  // Concurrent callers share one in-flight load; a failed load is cleared so
+  // a later call can retry instead of caching the rejection forever.
+  if (!domProgramLoad) {
+    domProgramLoad = loadDomProgram();
+  }
+  try {
+    cachedDomProgram = await domProgramLoad;
+  } catch (error) {
+    domProgramLoad = null;
+    throw error;
   }
 
   return cachedDomProgram.program;

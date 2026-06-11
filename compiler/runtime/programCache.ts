@@ -46,6 +46,23 @@ async function hashText(source: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
+async function generateAndPersist(
+  storage: CacheStorageLike,
+  cachedProgramKey: string,
+  cachedHashKey: string,
+  expectedHash: string,
+  generate: () => Promise<Program>
+): Promise<Program> {
+  const program = await generate();
+  try {
+    storage.setItem(cachedProgramKey, JSON.stringify(program));
+    storage.setItem(cachedHashKey, expectedHash);
+  } catch {
+    // Ignore storage failures and still return the freshly generated program.
+  }
+  return program;
+}
+
 export async function cacheProgram(
   sourceFilePath: string,
   hash: string,
@@ -56,32 +73,15 @@ export async function cacheProgram(
   const cachedHashKey = hashKey(sourceFilePath);
   const expectedHash = await hashText(`${PROGRAM_CACHE_VERSION}\0${hash}`);
 
-  if (
-    storage.getItem(cachedHashKey) !== expectedHash ||
-    storage.getItem(cachedProgramKey) === null
-  ) {
-    const program = await generate();
-    const serializedProgram = JSON.stringify(program);
-    try {
-      storage.setItem(cachedProgramKey, serializedProgram);
-      storage.setItem(cachedHashKey, expectedHash);
-    } catch {
-      // Ignore storage failures and still return the freshly generated program.
-    }
-    return program;
+  const cachedProgram =
+    storage.getItem(cachedHashKey) === expectedHash ? storage.getItem(cachedProgramKey) : null;
+  if (cachedProgram === null) {
+    return generateAndPersist(storage, cachedProgramKey, cachedHashKey, expectedHash, generate);
   }
 
   try {
-    return JSON.parse(storage.getItem(cachedProgramKey)!) as Program;
+    return JSON.parse(cachedProgram) as Program;
   } catch {
-    const program = await generate();
-    const serializedProgram = JSON.stringify(program);
-    try {
-      storage.setItem(cachedProgramKey, serializedProgram);
-      storage.setItem(cachedHashKey, expectedHash);
-    } catch {
-      // Ignore storage failures and still return the freshly generated program.
-    }
-    return program;
+    return generateAndPersist(storage, cachedProgramKey, cachedHashKey, expectedHash, generate);
   }
 }
