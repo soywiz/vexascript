@@ -5,7 +5,17 @@ on:
     branches:
       - main
       - master
+    paths:
+      - "compiler/**"
+      - "plugins/**"
+      - "samples/**"
+      - "testFixtures/**"
   pull_request:
+    paths:
+      - "compiler/**"
+      - "plugins/**"
+      - "samples/**"
+      - "testFixtures/**"
 
 jobs:
   test:
