@@ -10,7 +10,6 @@ import {
   createKeywordOnlyCompletionItems,
 } from "compiler/lsp/completion";
 import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
-import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
 import {
   createDocumentHighlights,
   createFoldingRanges,
@@ -60,6 +59,14 @@ import {
   type WorkspaceFile,
 } from "../../../plugins/monaco/src/workspace";
 import { createVexaScriptMonacoTheme, VEXA_MONACO_THEME_NAME } from "../../../plugins/monaco/src/theme";
+import { collectWorkspaceDiagnostics } from "../../../plugins/monaco/src/workspaceDiagnostics";
+import {
+  createWorkbenchBrowserHistorySnapshot,
+  pushWorkbenchBrowserHistorySnapshot,
+  readWorkbenchBrowserHistorySnapshot,
+  writeWorkbenchBrowserHistorySnapshot,
+  type WorkbenchBrowserHistorySnapshot,
+} from "./workbenchBrowserHistory";
 
 interface VexaScriptEmbedFile {
   path: string;
@@ -1259,14 +1266,8 @@ async function updateDiagnostics(model: monaco.editor.ITextModel): Promise<void>
     return;
   }
   const session = await getSessionForModel(model);
-  const diagnostics = collectDiagnosticsFromSession(
-    session,
-    model.getValue(),
-    (offset) => {
-      const position = model.getPositionAt(offset);
-      return { line: position.lineNumber - 1, character: position.column - 1 };
-    }
-  );
+  const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+  const diagnostics = await collectWorkspaceDiagnostics(model, session, workspaceContext);
   monaco.editor.setModelMarkers(
     model,
     "vexa",
@@ -1696,11 +1697,12 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const models = new Map<string, monaco.editor.ITextModel>();
   const disposers = new Map<string, () => void>();
   const contentListeners = new Map<string, monaco.IDisposable>();
-  const historyBack: string[] = [];
-  const historyForward: string[] = [];
   const collapsedFolders = new Set<string>();
   let workspaceRevision = 0;
   let activeUri = pathToUri(normalizePath(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
+  const workbenchHistoryId = `vexa-workbench:${entriesStorageKey}`;
+  let browserHistorySnapshot = readWorkbenchBrowserHistorySnapshot(window.history.state, workbenchHistoryId)
+    ?? createWorkbenchBrowserHistorySnapshot(activeUri);
   let selectedPath = normalizePath(dirname(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
   let contextMenuEntry: WorkspaceEntry | null = null;
   const previewChannelId = `vexa-preview-${Math.random().toString(36).slice(2)}`;
@@ -2144,8 +2146,8 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
   };
 
   const refreshToolbarState = (): void => {
-    backButton.disabled = historyBack.length === 0;
-    forwardButton.disabled = historyForward.length === 0;
+    backButton.disabled = browserHistorySnapshot.back.length === 0;
+    forwardButton.disabled = browserHistorySnapshot.forward.length === 0;
     const activeEntry = entries.find((entry) => entry.uri === activeUri);
     fileNameLabel.textContent = activeEntry?.kind === "file" && isEntryDirty(activeEntry) ? `${activeEntry.label} *` : activeEntry?.label ?? "No file";
     formatButton.disabled = !allowWorkspaceWrites || activeEntry?.kind !== "file" || activeEntry.language !== "vexa" || !!activeEntry.readOnly;
@@ -2167,8 +2169,12 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       throw new Error(`VexaScript workbench file not found: ${path}`);
     }
     if (trackHistory && activeUri !== entry.uri) {
-      historyBack.push(activeUri);
-      historyForward.length = 0;
+      browserHistorySnapshot = pushWorkbenchBrowserHistorySnapshot(browserHistorySnapshot, entry.uri);
+      window.history.pushState(
+        writeWorkbenchBrowserHistorySnapshot(window.history.state, workbenchHistoryId, browserHistorySnapshot),
+        "",
+        window.location.href
+      );
     }
     activeUri = entry.uri;
     selectedPath = entry.path;
@@ -2319,26 +2325,16 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
   });
 
   backButton.addEventListener("click", () => {
-    const previous = historyBack.pop();
-    if (!previous) {
+    if (browserHistorySnapshot.back.length === 0) {
       return;
     }
-    historyForward.push(activeUri);
-    const previousEntry = entries.find((entry) => entry.uri === previous);
-    if (previousEntry?.kind === "file") {
-      openFile(previousEntry.path, undefined, false);
-    }
+    window.history.back();
   });
   forwardButton.addEventListener("click", () => {
-    const next = historyForward.pop();
-    if (!next) {
+    if (browserHistorySnapshot.forward.length === 0) {
       return;
     }
-    historyBack.push(activeUri);
-    const nextEntry = entries.find((entry) => entry.uri === next);
-    if (nextEntry?.kind === "file") {
-      openFile(nextEntry.path, undefined, false);
-    }
+    window.history.forward();
   });
   formatButton.addEventListener("click", () => {
     void editor.getAction("editor.action.formatDocument")?.run();
@@ -2449,6 +2445,21 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       hideTreeContextMenu();
     }
   });
+  const handleBrowserPopState = (event: PopStateEvent): void => {
+    const snapshot = readWorkbenchBrowserHistorySnapshot(event.state, workbenchHistoryId);
+    if (!snapshot || snapshot.current === activeUri) {
+      return;
+    }
+    const nextEntry = entries.find((entry): entry is WorkspaceFile =>
+      entry.kind === "file" && entry.uri === snapshot.current
+    );
+    if (!nextEntry) {
+      return;
+    }
+    browserHistorySnapshot = snapshot;
+    openFile(nextEntry.path, undefined, false);
+  };
+  window.addEventListener("popstate", handleBrowserPopState);
 
   syncExpandButton();
   applyInlayHintsPreference();
@@ -2458,6 +2469,12 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     stabilizeEditorLayout(editor);
   };
   window.addEventListener("resize", handleViewportToggle);
+  browserHistorySnapshot = createWorkbenchBrowserHistorySnapshot(activeUri);
+  window.history.replaceState(
+    writeWorkbenchBrowserHistorySnapshot(window.history.state, workbenchHistoryId, browserHistorySnapshot),
+    "",
+    window.location.href
+  );
   void ensureEmbeddedRuntimeReady()
     .then(async () => {
       await refreshBundledRuntimeEntries();
@@ -2499,6 +2516,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       }
       document.body.classList.remove("vexa-workbench-expanded");
       window.removeEventListener("message", handlePreviewMessage);
+      window.removeEventListener("popstate", handleBrowserPopState);
       window.removeEventListener("resize", handleViewportToggle);
       editorOpenerDisposable.dispose();
       editor.dispose();

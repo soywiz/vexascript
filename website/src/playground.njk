@@ -45,14 +45,14 @@ title: VexaScript Playground
         activePath: "/src/main.vx",
         height: "100vh",
         inlayHints: true,
-        storageKey: "vexa.playground.workbench.v4",
-        sessionStorageKey: "vexa.playground.workbench.session.v4",
+        storageKey: "vexa.playground.workbench.v5",
+        sessionStorageKey: "vexa.playground.workbench.session.v5",
         files: [
           {
             path: "/src/main.vx",
             content: dedent`
               import { increment } from "./counter.vx"
-              import { Point, operator+, operator-, operator* } from "./point.vx"
+              import { Point } from "./point.vx"
               import { TimeSpan, delay, seconds, milliseconds } from "./time.vx"
 
               val current = increment(41)

@@ -43,6 +43,7 @@ import {
 import type { SymbolExport } from "compiler/lsp/importFixes";
 import { extractShowReferencesPayload } from "./codeLensCommands";
 import { completionInsertText, markerToDiagnostic } from "./providerConversions";
+import { collectWorkspaceDiagnostics } from "./workspaceDiagnostics";
 
 const LANG_ID = LANGUAGE_ID;
 
@@ -435,14 +436,7 @@ export async function pullDiagnostics(
   workspaceContext?: ProviderWorkspaceContext
 ): Promise<void> {
   const session = await getSessionAsync(model, cache, workspaceContext);
-  const diagnostics = collectDiagnosticsFromSession(
-    session,
-    model.getValue(),
-    (offset) => {
-      const position = model.getPositionAt(offset);
-      return { line: position.lineNumber - 1, character: position.column - 1 };
-    }
-  );
+  const diagnostics = await collectWorkspaceDiagnostics(model, session, workspaceContext);
   setModelDiagnostics(model, diagnostics);
 }
 

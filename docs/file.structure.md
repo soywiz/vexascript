@@ -153,6 +153,7 @@ This section is the fast onboarding map for agents and contributors.
   - Website-only syntax highlighter sources used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.ts`, `website/src/syntaxHighlight.mjs`
   - Website content-loader tests: `website/src/siteContent.test.ts`
   - Esbuild-powered embeddable Monaco helper sources for single-file, tabbed, workspace, and full workbench tutorial editors: `website/scripts/buildEmbed.ts`, `website/src/assets/vexa-embed.ts`
+  - Browser History API snapshot helpers that keep the website playground workbench file navigation in sync with browser back/forward: `website/src/assets/workbenchBrowserHistory.ts`
   - Generated website build artifacts are created during `website/scripts/build.ts` and `website/scripts/buildEmbed.ts`; keep this map focused on checked-in source files so architecture consistency tests pass in a clean checkout.
   - Website package scripts and type-checking configuration: `website/package.json`, `website/tsconfig.json`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):
