@@ -17,6 +17,11 @@ This section is the fast onboarding map for agents and contributors.
 - Source locations:
   - Shared user-facing source coordinate formatting: `compiler/sourceLocations.ts`
   - Source location tests: `compiler/sourceLocations.test.ts`
+- Diagnostic codes:
+  - Shared editor-agnostic VexaScript diagnostic codes, message patterns, and message/issue-code classification used by both the runtime transpiler and the LSP layer: `compiler/diagnosticCodes.ts`
+  - Shared diagnostic-code tests: `compiler/diagnosticCodes.test.ts`
+  - LSP-facing diagnostic helpers (parsing `Diagnostic` payloads for quick fixes) that re-export the shared codes: `compiler/lsp/diagnosticCodes.ts`
+  - Layering guard test that keeps core compiler layers (parser/ast/analysis/runtime/pipeline) free of LSP-layer imports: `compiler/layering.test.ts`
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface used across compiler, LSP, runtime bundling, and browser adapters: `compiler/vfs.ts`
   - Node-only local disk implementation of that VFS contract for CLI/LSP/test flows: `compiler/localVfs.ts`
@@ -42,6 +47,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared ECMAScript runtime declaration parsing/cache logic plus the Node bootstrap wrapper used by compiler consumers: `compiler/runtime/ecmascriptDeclarations.shared.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
   - Shared DOM runtime declaration parsing/cache logic plus the Node bootstrap wrapper used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/domDeclarations.shared.ts`, `compiler/runtime/domDeclarations.ts`
   - Shared browser-safe cache for parsed runtime declaration programs, backed by `localStorage` when available and an in-memory fallback otherwise: `compiler/runtime/programCache.ts`
+  - Declaration-cache concurrency tests (single in-flight load shared across concurrent callers, retry after failed loads): `compiler/runtime/declarationsConcurrency.test.ts`
 - Emitter / transpilation:
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`

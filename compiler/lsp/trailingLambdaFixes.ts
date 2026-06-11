@@ -8,7 +8,7 @@ import type {
 import { type CodeAction, type TextEdit } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { findNodeAtPosition } from "./nodeSearch";
-import { offsetToPosition, type Position } from "./ranges";
+import { offsetToPosition, tokenEndPosition, tokenStartPosition, type Position } from "./ranges";
 
 interface RangedToken {
   value?: string;
@@ -22,14 +22,6 @@ type TrailingLambdaCall = (CallExpression | NewExpression) & {
   arguments: Node[];
   lastToken: RangedToken;
 };
-
-function tokenStartPosition(token: RangedToken): Position {
-  return { line: token.range.start.line, character: token.range.start.column };
-}
-
-function tokenEndPosition(token: RangedToken): Position {
-  return { line: token.range.end.line, character: token.range.end.column };
-}
 
 function isBraceLambda(node: Node | undefined): node is ArrowFunctionExpression {
   if (!node || node.kind !== "ArrowFunctionExpression") {

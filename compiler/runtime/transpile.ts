@@ -23,7 +23,7 @@ import {
   VEXA_DIAGNOSTIC_CODES,
   classifySemanticDiagnosticMessage,
   mapAnalysisIssueCodeToDiagnosticCode
-} from "compiler/lsp/diagnosticCodes";
+} from "compiler/diagnosticCodes";
 
 export interface TranspileDiagnostic {
   file: string;
