@@ -5,6 +5,7 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import * as monaco from "monaco-editor";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
+import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
 import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
 import {
   createCompletionItemsForPosition,
@@ -12,23 +13,32 @@ import {
 } from "compiler/lsp/completion";
 import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
+import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "compiler/lsp/importedDeclarations";
 import {
-  createDefinitionLocation,
   createPrepareRename,
-  createRenameWorkspaceEdit,
   createHover,
 } from "compiler/lsp/navigation";
+import {
+  resolveDefinitionAcrossFiles,
+  resolveMemberHoverAcrossFiles,
+  resolveRenameAcrossFiles,
+} from "compiler/lsp/crossFileNavigation";
 import {
   createPortableLanguageConfiguration,
   createPortableMonarchLanguage,
   type PortableLanguageConfiguration,
   type PortableMonarchLanguage,
 } from "compiler/syntax";
+import type { SymbolExport } from "compiler/lsp/importFixes";
 import { markerToDiagnostic } from "../../../plugins/monaco/src/providerConversions";
+import { WorkspaceVfs } from "../../../plugins/monaco/src/workspaceVfs";
 import {
+  createFileInWorkspace,
   createFileEntry,
+  createFolderInWorkspace,
   createFolderEntry,
   pathToUri,
+  updateFileContent,
   type WorkspaceEntry,
   type WorkspaceFile,
 } from "../../../plugins/monaco/src/workspace";
@@ -49,6 +59,15 @@ interface EditorHandle {
   setValue(content: string, path?: string): void;
 }
 
+interface TabbedEditorHandle extends EditorHandle {
+  openFile(path: string, selection?: monaco.IRange): void;
+}
+
+interface WorkbenchEditorHandle extends TabbedEditorHandle {
+  save(): void;
+  getEntries(): WorkspaceEntry[];
+}
+
 interface SimpleEditorOptions {
   content: string;
   path?: string;
@@ -64,9 +83,21 @@ interface WorkspaceEditorOptions {
   selection?: monaco.IRange;
 }
 
+interface WorkbenchEditorOptions extends WorkspaceEditorOptions {
+  storageKey?: string;
+  sessionStorageKey?: string;
+}
+
+interface EmbedWorkspaceContext {
+  vfs: WorkspaceVfs;
+  getSessionForFilePath(filePath: string): ReturnType<typeof createAnalysisSession> | null;
+  getExportedSymbols(): Promise<SymbolExport[]>;
+}
+
 let bootstrapped = false;
 let modelCounter = 0;
 let autoAwaitGlyphStyleInjected = false;
+const embedWorkspaceContextsByUri = new Map<string, EmbedWorkspaceContext>();
 
 const autoAwaitGlyphCollections = new WeakMap<
   monaco.editor.ICodeEditor,
@@ -96,7 +127,9 @@ declare global {
   interface Window {
     VexaScriptEmbeds?: {
       createSimpleEditor(container: HTMLElement | string, options: SimpleEditorOptions): EditorHandle;
+      createTabbedEditor(container: HTMLElement | string, options: WorkspaceEditorOptions): TabbedEditorHandle;
       createWorkspaceEditor(container: HTMLElement | string, options: WorkspaceEditorOptions): EditorHandle;
+      createWorkbenchEditor(container: HTMLElement | string, options: WorkbenchEditorOptions): WorkbenchEditorHandle;
       monaco: typeof monaco;
     };
   }
@@ -209,6 +242,29 @@ function registerVexaScript(): void {
   });
   monaco.languages.setMonarchTokensProvider("vexa", toMonacoMonarchLanguage(createPortableMonarchLanguage()) as monaco.languages.IMonarchLanguage);
   monaco.languages.setLanguageConfiguration("vexa", toMonacoLanguageConfiguration(createPortableLanguageConfiguration()));
+}
+
+async function getSessionForModel(model: monaco.editor.ITextModel): Promise<ReturnType<typeof createAnalysisSession>> {
+  const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+  const baseSession = createAnalysisSession(model.getValue());
+  if (!baseSession.ast || !workspaceContext) {
+    return baseSession;
+  }
+  const resolverContext = {
+    uri: model.uri.toString(),
+    sourceRoots: [],
+    vfs: workspaceContext.vfs,
+    getSessionForFilePath: workspaceContext.getSessionForFilePath,
+    getExportedSymbols: workspaceContext.getExportedSymbols,
+  };
+  const [externalDeclarations, importedSymbolTypes] = await Promise.all([
+    collectImportedTypeDeclarations(baseSession.ast, resolverContext),
+    collectImportedSymbolTypes(baseSession.ast, resolverContext),
+  ]);
+  if (externalDeclarations.length === 0 && importedSymbolTypes.size === 0) {
+    return baseSession;
+  }
+  return createAnalysisSession(model.getValue(), externalDeclarations, importedSymbolTypes);
 }
 
 function completionEditRange(
@@ -345,7 +401,7 @@ function registerCompletionProvider(): void {
         position.lineNumber,
         word.endColumn
       );
-      const session = createAnalysisSession(model.getValue());
+      const session = await getSessionForModel(model);
       if (!session.ast || !session.analysis) {
         return {
           suggestions: createKeywordOnlyCompletionItems().map((item) => ({
@@ -356,6 +412,7 @@ function registerCompletionProvider(): void {
           })),
         };
       }
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
       const items = await createCompletionItemsForPosition(
         session.ast,
         position.lineNumber - 1,
@@ -364,6 +421,13 @@ function registerCompletionProvider(): void {
         [],
         {
           text: model.getValue(),
+          uri: model.uri.toString(),
+          sourceRoots: [],
+          ...(workspaceContext ? {
+            vfs: workspaceContext.vfs,
+            getSessionForFilePath: workspaceContext.getSessionForFilePath,
+            getExportedSymbols: workspaceContext.getExportedSymbols,
+          } : {}),
           recoverAnalysisSession: (source) => createAnalysisSession(
             source,
             session.externalDeclarations,
@@ -400,7 +464,7 @@ function registerRenameProvider(): void {
         text: "",
         rejectReason: "Cannot rename this symbol",
       };
-      const session = createAnalysisSession(model.getValue());
+      const session = await getSessionForModel(model);
       if (!session.analysis) {
         return reject;
       }
@@ -412,17 +476,23 @@ function registerRenameProvider(): void {
       return normalizePrepareRenameResult(prepared) ?? reject;
     },
     async provideRenameEdits(model, position, newName) {
-      const session = createAnalysisSession(model.getValue());
-      if (!session.analysis) {
+      const session = await getSessionForModel(model);
+      if (!session.analysis || !session.ast) {
         return { edits: [] };
       }
-      const edit = createRenameWorkspaceEdit(
-        session.analysis,
-        model.uri.toString(),
-        position.lineNumber - 1,
-        position.column - 1,
-        newName
-      );
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+      const edit = await resolveRenameAcrossFiles({
+        line: position.lineNumber - 1,
+        character: position.column - 1,
+        session,
+        uri: model.uri.toString(),
+        sourceRoots: [],
+        ...(workspaceContext ? {
+          vfs: workspaceContext.vfs,
+          getSessionForFilePath: workspaceContext.getSessionForFilePath,
+          getExportedSymbols: workspaceContext.getExportedSymbols,
+        } : {}),
+      }, newName);
       if (!edit) {
         return { edits: [] };
       }
@@ -434,10 +504,11 @@ function registerRenameProvider(): void {
 function registerCodeActionProvider(): void {
   monaco.languages.registerCodeActionProvider("vexa", {
     async provideCodeActions(model, range, context) {
-      const session = createAnalysisSession(model.getValue());
+      const session = await getSessionForModel(model);
       if (!session.ast) {
         return { actions: [], dispose: () => {} };
       }
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
       const diagnostics = context.markers.map((marker) =>
         markerToDiagnostic(marker, monaco.MarkerSeverity)
       );
@@ -449,7 +520,11 @@ function registerCodeActionProvider(): void {
         range: toLspRange(range),
         diagnostics,
         sourceRoots: [],
-        getSessionForFilePath: () => null,
+        ...(workspaceContext ? {
+          vfs: workspaceContext.vfs,
+          getSessionForFilePath: workspaceContext.getSessionForFilePath,
+          getExportedSymbols: workspaceContext.getExportedSymbols,
+        } : {}),
       });
       return {
         actions: actions.map((action) => ({
@@ -505,15 +580,23 @@ function toMonacoRange(range: {
 function registerHoverProvider(): void {
   monaco.languages.registerHoverProvider("vexa", {
     async provideHover(model, position) {
-      const session = createAnalysisSession(model.getValue());
-      if (!session.analysis) {
+      const session = await getSessionForModel(model);
+      if (!session.analysis || !session.ast) {
         return null;
       }
-      const hover = createHover(
-        session.analysis,
-        position.lineNumber - 1,
-        position.column - 1
-      );
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+      const hover = workspaceContext
+        ? await resolveMemberHoverAcrossFiles({
+            line: position.lineNumber - 1,
+            character: position.column - 1,
+            session,
+            uri: model.uri.toString(),
+            sourceRoots: [],
+            vfs: workspaceContext.vfs,
+            getSessionForFilePath: workspaceContext.getSessionForFilePath,
+            getExportedSymbols: workspaceContext.getExportedSymbols,
+          }) ?? createHover(session.analysis, position.lineNumber - 1, position.column - 1)
+        : createHover(session.analysis, position.lineNumber - 1, position.column - 1);
       if (!hover) {
         return null;
       }
@@ -530,16 +613,23 @@ function registerDefinitionProvider(): void {
     model: monaco.editor.ITextModel,
     position: monaco.IPosition
   ): Promise<monaco.languages.Definition> => {
-    const session = createAnalysisSession(model.getValue());
-    if (!session.analysis) {
+    const session = await getSessionForModel(model);
+    if (!session.analysis || !session.ast) {
       return [];
     }
-    const location = createDefinitionLocation(
-      session.analysis,
-      model.uri.toString(),
-      position.lineNumber - 1,
-      position.column - 1
-    );
+    const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+    const location = workspaceContext
+      ? await resolveDefinitionAcrossFiles({
+          line: position.lineNumber - 1,
+          character: position.column - 1,
+          session,
+          uri: model.uri.toString(),
+          sourceRoots: [],
+          vfs: workspaceContext.vfs,
+          getSessionForFilePath: workspaceContext.getSessionForFilePath,
+          getExportedSymbols: workspaceContext.getExportedSymbols,
+        })
+      : null;
     return location
       ? [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }]
       : [];
@@ -607,6 +697,22 @@ function applySelection(
   editor.revealRangeInCenter(selection);
 }
 
+function applySelectionOrPosition(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  selectionOrPosition?: monaco.IRange | monaco.IPosition
+): void {
+  if (!selectionOrPosition) {
+    return;
+  }
+  if ("endLineNumber" in selectionOrPosition) {
+    editor.setSelection(selectionOrPosition);
+    editor.revealRangeInCenter(selectionOrPosition);
+    return;
+  }
+  editor.setPosition(selectionOrPosition);
+  editor.revealPositionInCenter(selectionOrPosition);
+}
+
 function createFoldersForFiles(files: VexaScriptEmbedFile[]): WorkspaceEntry[] {
   const folderPaths = new Set<string>(["/"]);
   for (const file of files) {
@@ -652,12 +758,12 @@ function mapSeverity(severity: number | undefined): monaco.MarkerSeverity {
   }
 }
 
-function updateDiagnostics(model: monaco.editor.ITextModel): void {
+async function updateDiagnostics(model: monaco.editor.ITextModel): Promise<void> {
   if (model.getLanguageId() !== "vexa") {
     monaco.editor.setModelMarkers(model, "vexa", []);
     return;
   }
-  const session = createAnalysisSession(model.getValue());
+  const session = await getSessionForModel(model);
   const diagnostics = collectDiagnosticsFromSession(
     session,
     model.getValue(),
@@ -682,10 +788,10 @@ function updateDiagnostics(model: monaco.editor.ITextModel): void {
   );
 }
 
-function updateAutoAwaitGlyphs(
+async function updateAutoAwaitGlyphs(
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel
-): void {
+): Promise<void> {
   let collection = autoAwaitGlyphCollections.get(editor);
   if (!collection) {
     collection = editor.createDecorationsCollection();
@@ -695,7 +801,7 @@ function updateAutoAwaitGlyphs(
     collection.clear();
     return;
   }
-  const session = createAnalysisSession(model.getValue());
+  const session = await getSessionForModel(model);
   if (!session.ast || !session.analysis) {
     collection.clear();
     return;
@@ -724,8 +830,8 @@ function wireDiagnostics(
       window.clearTimeout(timer);
     }
     timer = window.setTimeout(() => {
-      updateDiagnostics(model);
-      updateAutoAwaitGlyphs(editor, model);
+      void updateDiagnostics(model);
+      void updateAutoAwaitGlyphs(editor, model);
     }, 100);
   };
   const changeDisposable = model.onDidChangeContent(refresh);
@@ -809,7 +915,7 @@ function createTabButton(entry: WorkspaceFile, activeUri: string, onSelect: (ent
   return button;
 }
 
-function createWorkspaceEditor(container: HTMLElement | string, options: WorkspaceEditorOptions): EditorHandle {
+function createTabbedEditor(container: HTMLElement | string, options: WorkspaceEditorOptions): TabbedEditorHandle {
   bootstrapMonaco();
   const target = resolveContainer(container);
   target.classList.add("vexa-embed-workspace");
@@ -869,11 +975,24 @@ function createWorkspaceEditor(container: HTMLElement | string, options: Workspa
   };
 
   renderTabs();
-  updateDiagnostics(activeModel);
-  updateAutoAwaitGlyphs(editor, activeModel);
+  void updateDiagnostics(activeModel);
+  void updateAutoAwaitGlyphs(editor, activeModel);
 
   return {
     editor,
+    openFile(path: string, selection?: monaco.IRange) {
+      const nextEntry = editableFiles.find((entry) => entry.path === normalizePath(path));
+      if (!nextEntry) {
+        throw new Error(`VexaScript workspace file not found: ${path}`);
+      }
+      activeModel = ensureModel(nextEntry);
+      editor.setModel(activeModel);
+      applySelection(editor, selection);
+      stabilizeEditorLayout(editor);
+      renderTabs();
+        void updateDiagnostics(activeModel);
+        void updateAutoAwaitGlyphs(editor, activeModel);
+    },
     getValue(path?: string) {
       if (!path) {
         return activeModel.getValue();
@@ -897,8 +1016,386 @@ function createWorkspaceEditor(container: HTMLElement | string, options: Workspa
   };
 }
 
+function createWorkspaceEditor(container: HTMLElement | string, options: WorkspaceEditorOptions): EditorHandle {
+  return createTabbedEditor(container, options);
+}
+
+function createWorkbenchEditor(container: HTMLElement | string, options: WorkbenchEditorOptions): WorkbenchEditorHandle {
+  bootstrapMonaco();
+  const target = resolveContainer(container);
+  target.classList.add("vexa-embed-workbench");
+  target.textContent = "";
+  setContainerHeight(target, options.height ?? "720px");
+
+  const shell = document.createElement("div");
+  shell.className = "vexa-embed-workbench-shell";
+  shell.innerHTML = `
+    <div class="vexa-embed-workbench-header">
+      <div class="vexa-embed-workbench-title-group">
+        <div class="vexa-embed-workbench-title">VexaScript Editor</div>
+        <div class="vexa-embed-workbench-file-name">main.vx</div>
+      </div>
+      <div class="vexa-embed-workbench-toolbar">
+        <button type="button" class="vexa-embed-toolbar-button" data-action="back">Back</button>
+        <button type="button" class="vexa-embed-toolbar-button" data-action="forward">Forward</button>
+        <button type="button" class="vexa-embed-toolbar-button" data-action="format">Format</button>
+        <button type="button" class="vexa-embed-toolbar-button" data-action="save">Save</button>
+        <button type="button" class="vexa-embed-toolbar-button" data-action="expand">Expand</button>
+        <div class="vexa-embed-workbench-status">Compiler Ready</div>
+      </div>
+    </div>
+    <div class="vexa-embed-workbench-tabs"></div>
+    <div class="vexa-embed-workbench-body">
+      <aside class="vexa-embed-workbench-sidebar">
+        <div class="vexa-embed-workbench-sidebar-header">
+          <div class="vexa-embed-workbench-sidebar-title">Workspace</div>
+          <div class="vexa-embed-workbench-sidebar-actions">
+            <button type="button" class="vexa-embed-toolbar-icon" data-action="new-file">+</button>
+            <button type="button" class="vexa-embed-toolbar-icon" data-action="new-folder">#</button>
+          </div>
+        </div>
+        <div class="vexa-embed-workbench-tree"></div>
+      </aside>
+      <div class="vexa-embed-workbench-editor"></div>
+    </div>
+  `;
+  target.appendChild(shell);
+
+  const entriesStorageKey = options.storageKey;
+  const sessionStorageKey = options.sessionStorageKey;
+  const storage = (() => {
+    try {
+      return window.localStorage;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  let entries = createEntries(options.files);
+
+  const editableFiles = (): WorkspaceFile[] =>
+    entries.filter((entry): entry is WorkspaceFile => entry.kind === "file" && !entry.readOnly);
+  const sidebarTree = shell.querySelector<HTMLElement>(".vexa-embed-workbench-tree")!;
+  const tabBar = shell.querySelector<HTMLElement>(".vexa-embed-workbench-tabs")!;
+  const editorHost = shell.querySelector<HTMLElement>(".vexa-embed-workbench-editor")!;
+  const fileNameLabel = shell.querySelector<HTMLElement>(".vexa-embed-workbench-file-name")!;
+  const backButton = shell.querySelector<HTMLButtonElement>('[data-action="back"]')!;
+  const forwardButton = shell.querySelector<HTMLButtonElement>('[data-action="forward"]')!;
+  const formatButton = shell.querySelector<HTMLButtonElement>('[data-action="format"]')!;
+  const saveButton = shell.querySelector<HTMLButtonElement>('[data-action="save"]')!;
+  const expandButton = shell.querySelector<HTMLButtonElement>('[data-action="expand"]')!;
+
+  const models = new Map<string, monaco.editor.ITextModel>();
+  const disposers = new Map<string, () => void>();
+  const historyBack: string[] = [];
+  const historyForward: string[] = [];
+  let activeUri = pathToUri(normalizePath(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
+  const workspaceSessionCache = new Map<string, { content: string; session: ReturnType<typeof createAnalysisSession> }>();
+
+  const ensureModel = (entry: WorkspaceFile): monaco.editor.ITextModel => {
+    const existing = models.get(entry.uri);
+    if (existing) {
+      return existing;
+    }
+    const model = monaco.editor.createModel(entry.content, entry.language, monaco.Uri.parse(entry.uri));
+    models.set(entry.uri, model);
+    return model;
+  };
+
+  const getWorkspaceFileSource = (uri: string): string | null => {
+    const model = models.get(uri) ?? monaco.editor.getModel(monaco.Uri.parse(uri));
+    if (model) {
+      return model.getValue();
+    }
+    const entry = entries.find((candidate) => candidate.kind === "file" && candidate.uri === uri);
+    return entry?.kind === "file" ? entry.content : null;
+  };
+
+  const workspaceVfs = new WorkspaceVfs({
+    getEntries: () => entries,
+    readWorkspaceFile: (uri) => getWorkspaceFileSource(uri),
+  });
+
+  const getWorkspaceSessionForFilePath = (filePath: string): ReturnType<typeof createAnalysisSession> | null => {
+    const uri = pathToUri(filePath);
+    const source = getWorkspaceFileSource(uri);
+    if (source === null) {
+      return null;
+    }
+    const cached = workspaceSessionCache.get(uri);
+    if (cached && cached.content === source) {
+      return cached.session;
+    }
+    const session = createAnalysisSession(source);
+    workspaceSessionCache.set(uri, { content: source, session });
+    return session;
+  };
+
+  const getWorkspaceExportedSymbols = async (): Promise<SymbolExport[]> => {
+    const symbols: SymbolExport[] = [];
+    for (const entry of entries) {
+      if (entry.kind !== "file" || entry.language !== "vexa") {
+        continue;
+      }
+      const session = getWorkspaceSessionForFilePath(entry.path);
+      for (const declaration of collectTopLevelDeclarationsFromAst(session?.ast ?? null)) {
+        symbols.push({
+          name: declaration.name,
+          kind: declaration.kind,
+          filePath: entry.path,
+          ...(declaration.receiverType ? { receiverType: declaration.receiverType } : {}),
+          ...(declaration.memberKind ? { memberKind: declaration.memberKind } : {}),
+        });
+      }
+    }
+    return symbols;
+  };
+
+  const workspaceContext: EmbedWorkspaceContext = {
+    vfs: workspaceVfs,
+    getSessionForFilePath: getWorkspaceSessionForFilePath,
+    getExportedSymbols: getWorkspaceExportedSymbols,
+  };
+
+  const initialEntry = editableFiles().find((entry) => entry.uri === activeUri) ?? editableFiles()[0];
+  if (!initialEntry) {
+    throw new Error("VexaScript workbench editor needs at least one editable file.");
+  }
+  const editor = createEditor(editorHost, ensureModel(initialEntry), false);
+  for (const entry of editableFiles()) {
+    const model = ensureModel(entry);
+    embedWorkspaceContextsByUri.set(entry.uri, workspaceContext);
+    disposers.set(entry.uri, wireDiagnostics(editor, model));
+  }
+
+  const persist = (): void => {
+    if (!entriesStorageKey) {
+      return;
+    }
+    storage?.setItem(entriesStorageKey, JSON.stringify(entries.filter((entry) => !entry.readOnly)));
+    if (sessionStorageKey) {
+      const position = editor.getPosition();
+      if (position) {
+        storage?.setItem(sessionStorageKey, JSON.stringify({
+          activeUri,
+          lineNumber: position.lineNumber,
+          column: position.column,
+        }));
+      }
+    }
+  };
+
+  const isExpanded = (): boolean => target.classList.contains("is-expanded");
+
+  const syncExpandButton = (): void => {
+    expandButton.textContent = isExpanded() ? "Collapse" : "Expand";
+  };
+
+  const syncEntryContent = (uri: string, content: string): void => {
+    entries = updateFileContent(entries, uri, content);
+  };
+
+  const renderTree = (): void => {
+    sidebarTree.textContent = "";
+    const renderFolder = (folderPath: string, depth: number): void => {
+      for (const entry of entries.filter((candidate) => dirname(candidate.path) === folderPath && candidate.path !== folderPath)) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = `vexa-embed-tree-item${entry.uri === activeUri ? " is-active" : ""}`;
+        item.style.paddingLeft = `${12 + depth * 16}px`;
+        item.textContent = entry.kind === "folder" ? `▾ ${entry.label}` : entry.label;
+        item.addEventListener("click", () => {
+          if (entry.kind === "file") {
+            openFile(entry.path);
+          }
+        });
+        sidebarTree.appendChild(item);
+        if (entry.kind === "folder") {
+          renderFolder(entry.path, depth + 1);
+        }
+      }
+    };
+    renderFolder("/", 0);
+  };
+
+  const renderTabs = (): void => {
+    tabBar.textContent = "";
+    for (const entry of editableFiles()) {
+      tabBar.appendChild(createTabButton(entry, activeUri, (nextEntry) => {
+        openFile(nextEntry.path);
+      }));
+    }
+  };
+
+  const refreshToolbarState = (): void => {
+    backButton.disabled = historyBack.length === 0;
+    forwardButton.disabled = historyForward.length === 0;
+    const activeEntry = entries.find((entry) => entry.uri === activeUri);
+    fileNameLabel.textContent = activeEntry?.label ?? "No file";
+    formatButton.disabled = activeEntry?.kind !== "file" || activeEntry.language !== "vexa" || !!activeEntry.readOnly;
+    saveButton.disabled = false;
+  };
+
+  const openFile = (
+    path: string,
+    selectionOrPosition?: monaco.IRange | monaco.IPosition,
+    trackHistory = true
+  ): void => {
+    const entry = entries.find((candidate): candidate is WorkspaceFile => candidate.kind === "file" && candidate.path === normalizePath(path));
+    if (!entry) {
+      throw new Error(`VexaScript workbench file not found: ${path}`);
+    }
+    if (trackHistory && activeUri !== entry.uri) {
+      historyBack.push(activeUri);
+      historyForward.length = 0;
+    }
+    activeUri = entry.uri;
+    const model = ensureModel(entry);
+    editor.setModel(model);
+    editor.updateOptions({ readOnly: !!entry.readOnly });
+    applySelectionOrPosition(
+      editor,
+      selectionOrPosition ?? (entry.path === normalizePath(options.activePath ?? "") ? options.selection : undefined)
+    );
+    stabilizeEditorLayout(editor);
+    void updateDiagnostics(model);
+    void updateAutoAwaitGlyphs(editor, model);
+    renderTabs();
+    renderTree();
+    refreshToolbarState();
+  };
+
+  for (const entry of editableFiles()) {
+    const model = ensureModel(entry);
+    model.onDidChangeContent(() => {
+      syncEntryContent(entry.uri, model.getValue());
+      renderTree();
+    });
+  }
+
+  const editorOpenerDisposable = monaco.editor.registerEditorOpener({
+    openCodeEditor(_source, resource, selectionOrPosition) {
+      const uri = resource.toString();
+      const entry = entries.find((candidate): candidate is WorkspaceFile =>
+        candidate.kind === "file" && candidate.uri === uri
+      );
+      if (!entry) {
+        return false;
+      }
+      openFile(entry.path, selectionOrPosition);
+      return editor;
+    },
+  });
+
+  backButton.addEventListener("click", () => {
+    const previous = historyBack.pop();
+    if (!previous) {
+      return;
+    }
+    historyForward.push(activeUri);
+    const previousEntry = entries.find((entry) => entry.uri === previous);
+    if (previousEntry?.kind === "file") {
+      openFile(previousEntry.path, undefined, false);
+    }
+  });
+  forwardButton.addEventListener("click", () => {
+    const next = historyForward.pop();
+    if (!next) {
+      return;
+    }
+    historyBack.push(activeUri);
+    const nextEntry = entries.find((entry) => entry.uri === next);
+    if (nextEntry?.kind === "file") {
+      openFile(nextEntry.path, undefined, false);
+    }
+  });
+  formatButton.addEventListener("click", () => {
+    void editor.getAction("editor.action.formatDocument")?.run();
+  });
+  saveButton.addEventListener("click", () => persist());
+  expandButton.addEventListener("click", () => {
+    target.classList.toggle("is-expanded");
+    document.body.classList.toggle("vexa-workbench-expanded", isExpanded());
+    syncExpandButton();
+    stabilizeEditorLayout(editor);
+  });
+  shell.querySelector<HTMLButtonElement>('[data-action="new-file"]')?.addEventListener("click", () => {
+    const name = window.prompt("New file name", "newFile.vx");
+    if (!name) {
+      return;
+    }
+    entries = createFileInWorkspace(entries, "/", name);
+    const nextEntry = entries.find((entry) => entry.path === normalizePath(`/${name}`));
+    if (nextEntry?.kind === "file") {
+      const model = ensureModel(nextEntry);
+      embedWorkspaceContextsByUri.set(nextEntry.uri, workspaceContext);
+      disposers.set(nextEntry.uri, wireDiagnostics(editor, model));
+      renderTabs();
+      renderTree();
+      openFile(nextEntry.path);
+    }
+  });
+  shell.querySelector<HTMLButtonElement>('[data-action="new-folder"]')?.addEventListener("click", () => {
+    const name = window.prompt("New folder name", "newFolder");
+    if (!name) {
+      return;
+    }
+    entries = createFolderInWorkspace(entries, "/", name);
+    renderTree();
+  });
+
+  openFile(initialEntry.path, options.selection, false);
+  syncExpandButton();
+  const handleViewportToggle = (): void => {
+    syncExpandButton();
+    stabilizeEditorLayout(editor);
+  };
+  window.addEventListener("resize", handleViewportToggle);
+
+  return {
+    editor,
+    openFile,
+    save() {
+      persist();
+    },
+    getEntries() {
+      return [...entries];
+    },
+    getValue(path?: string) {
+      if (!path) {
+        return editor.getModel()?.getValue() ?? "";
+      }
+      return models.get(pathToUri(path))?.getValue() ?? "";
+    },
+    setValue(content: string, path?: string) {
+      const uri = path ? pathToUri(path) : activeUri;
+      const model = models.get(uri);
+      if (model) {
+        model.setValue(content);
+      }
+    },
+    dispose() {
+      for (const dispose of disposers.values()) {
+        dispose();
+      }
+      document.body.classList.remove("vexa-workbench-expanded");
+      window.removeEventListener("resize", handleViewportToggle);
+      editorOpenerDisposable.dispose();
+      editor.dispose();
+      for (const uri of models.keys()) {
+        embedWorkspaceContextsByUri.delete(uri);
+      }
+      for (const model of models.values()) {
+        model.dispose();
+      }
+    },
+  };
+}
+
 window.VexaScriptEmbeds = {
   createSimpleEditor,
+  createTabbedEditor,
   createWorkspaceEditor,
+  createWorkbenchEditor,
   monaco,
 };

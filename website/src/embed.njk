@@ -5,7 +5,7 @@ title: VexaScript Embed Guide
 <section class="page-hero">
   <p class="eyebrow">Embedding API</p>
   <h1>Embed VexaScript editors in your own pages</h1>
-  <p class="lead">Use the generated website bundle to drop a single-file lesson editor or a richer multi-file workspace into tutorials, docs, and demos.</p>
+  <p class="lead">Use the generated website bundle to embed a single-file editor, a multi-tab editor, or a full workbench with a workspace tree and toolbar directly into tutorials, docs, and demos.</p>
 </section>
 
 <section class="doc-shell">
@@ -33,6 +33,16 @@ title: VexaScript Embed Guide
   ]
 })</code></pre>
     </article>
+    <article class="card">
+      <h3>Full workbench</h3>
+<pre><code>VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
+  activePath: "/src/main.vx",
+  files: [
+    { path: "/src/main.vx", content: "import { greet } from './greeter.vx'\nconsole.log(greet('VexaScript'))" },
+    { path: "/src/greeter.vx", content: "export fun greet(name: string): string => $\"Hello {name}\"" }
+  ]
+})</code></pre>
+    </article>
   </div>
 </section>
 
@@ -40,7 +50,7 @@ title: VexaScript Embed Guide
   <div class="section-heading">
     <p class="eyebrow">Embedded Monaco</p>
     <h2>Use the compiler and editor directly in lessons.</h2>
-    <p class="lead">The website bundle exposes two helpers: a simple single-file editor for snippets and a multi-file workspace editor for richer tutorials.</p>
+    <p class="lead">The website bundle exposes three helpers: a simple single-file editor, a multi-tab editor, and a full workbench editor with a workspace tree, toolbar, formatting, and save controls.</p>
   </div>
 </section>
 
@@ -55,6 +65,13 @@ title: VexaScript Embed Guide
   <div class="editor-shell">
     <div class="panel-title">Multi-file workspace</div>
     <div id="workspace-editor" class="workspace-demo"></div>
+  </div>
+</section>
+
+<section class="section alt">
+  <div class="editor-shell">
+    <div class="panel-title">Full workbench</div>
+    <div id="workbench-editor" class="workbench-demo"></div>
   </div>
 </section>
 
@@ -96,7 +113,7 @@ title: VexaScript Embed Guide
       selection: counterSelection
     })
 
-    VexaScriptEmbeds.createWorkspaceEditor("#workspace-editor", {
+    VexaScriptEmbeds.createTabbedEditor("#workspace-editor", {
       activePath: "/main.vx",
       files: [
         {
@@ -111,6 +128,33 @@ title: VexaScript Embed Guide
         }
       ],
       selection: counterSelection
+    })
+
+    VexaScriptEmbeds.createWorkbenchEditor("#workbench-editor", {
+      activePath: "/src/main.vx",
+      files: [
+        {
+          path: "/src/main.vx",
+          content: dedent`
+            import { increment } from "./counter.vx"
+
+            val current = increment(41)
+            console.log(current.toString())
+          `
+        },
+        {
+          path: "/src/counter.vx",
+          content: dedent`
+            export fun increment(value: int): int {
+              return value + 1
+            }
+          `
+        },
+        {
+          path: "/README.vx",
+          content: "// Edit files, switch tabs, create new files, and format from the toolbar."
+        }
+      ]
     })
   })
 </script>

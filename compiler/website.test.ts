@@ -20,7 +20,9 @@ describe("website project", () => {
 
     expect(embedSource.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
     expect(embedSource.includes("createSimpleEditor")).toBe(true);
+    expect(embedSource.includes("createTabbedEditor")).toBe(true);
     expect(embedSource.includes("createWorkspaceEditor")).toBe(true);
+    expect(embedSource.includes("createWorkbenchEditor")).toBe(true);
     expect(embedSource.includes("createCompletionItemsForPosition")).toBe(true);
     expect(embedSource.includes("registerCompletionItemProvider")).toBe(true);
     expect(embedSource.includes("registerHoverProvider")).toBe(true);
@@ -59,15 +61,21 @@ describe("website project", () => {
     expect(landingPage.includes("return <section>Hello {name}</section>")).toBe(true);
     expect(landingPage.includes("++value")).toBe(true);
     expect(embedPage.includes("VexaScriptEmbeds.createSimpleEditor")).toBe(true);
+    expect(embedPage.includes("VexaScriptEmbeds.createTabbedEditor")).toBe(true);
     expect(embedPage.includes("VexaScriptEmbeds.createWorkspaceEditor")).toBe(true);
+    expect(embedPage.includes("VexaScriptEmbeds.createWorkbenchEditor")).toBe(true);
+    expect(embedSource.includes('data-action="expand"')).toBe(true);
     expect(embedPage.includes("function dedent(strings, ...values)")).toBe(true);
     expect(embedPage.includes("String.raw({ raw: strings }, ...values)")).toBe(true);
     expect(embedPage.includes('const counterSnippet = dedent`')).toBe(true);
     expect(embedPage.includes("startLineNumber: 4")).toBe(true);
     expect(embedPage.includes("increment(): int => ++value")).toBe(true);
-    expect(playgroundPage.includes('class="playground-frame"')).toBe(true);
-    expect(playgroundPage.includes('src="{{ generatedAssetHrefs.generatedPlaygroundHtml }}"')).toBe(true);
-    expect(playgroundPage.includes('title="VexaScript Monaco playground"')).toBe(true);
+    expect(embedPage.includes('<div id="workbench-editor" class="workbench-demo"></div>')).toBe(true);
+    expect(embedPage.includes("workspace tree, toolbar, formatting, and save controls")).toBe(true);
+    expect(embedSource.includes('Collapse')).toBe(true);
+    expect(playgroundPage.includes('id="playground-workbench"')).toBe(true);
+    expect(playgroundPage.includes("VexaScriptEmbeds.createWorkbenchEditor")).toBe(true);
+    expect(playgroundPage.includes('class="playground-frame"')).toBe(false);
     expect(landingPage.includes('.find(str1)')).toBe(false);
     expect(syntaxPage.includes("This page renders the canonical")).toBe(false);
     expect(syntaxPage.includes('class="doc-content"')).toBe(false);
@@ -136,6 +144,9 @@ describe("website project", () => {
     expect(siteCss.includes('.editor-shell { overflow: visible; }')).toBe(true);
     expect(siteCss.includes('.vexa-embed-workspace { display: grid; grid-template-rows: auto 1fr; border-radius: 1.5rem; overflow: visible; }')).toBe(true);
     expect(siteCss.includes('.playground-frame {')).toBe(true);
+    expect(siteCss.includes('.workbench-demo { height: 760px; }')).toBe(true);
+    expect(siteCss.includes('.vexa-embed-workbench-shell {')).toBe(true);
+    expect(siteCss.includes('.vexa-embed-workbench.is-expanded {')).toBe(true);
     expect(siteCss.includes('.token-keyword-declaration')).toBe(true);
     expect(siteCss.includes('.syntax-block')).toBe(true);
     expect(layoutSource.includes('rel="icon"')).toBe(true);

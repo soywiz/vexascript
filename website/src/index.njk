@@ -8,7 +8,7 @@ title: VexaScript — A modern TypeScript-derived language
     <h1>VexaScript</h1>
     <div class="lead">
       <p>
-        VexaScript keeps the familiar JavaScript and TypeScript syntax and libraries. Human and AI friendly: easier to read for humans; less tokens for AI.
+        VexaScript programming language is a non-strict TypeScript superset. Human and AI friendly: easier to read for humans; less tokens for AI.
       </p>
 
       <p>
@@ -91,15 +91,18 @@ sync fun loadBytes(): Uint8Array {
   <div class="grid">
     <article class="card">
       <h3>Operator overloading</h3>
+      <p>Operator and method overloading and new-less constructions, for concise writing.</p>
 {% highlightVexaScript %}
 class Vec2(val x: number, val y: number) {
   operator+(other: Vec2) => Vec2(x + other.x, y + other.y)
   operator-(other: Vec2) => Vec2(x - other.x, y - other.y)
 }
+Vec2(1, 2) + Vec2(3, 4)
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
       <h3>JSX with Preact</h3>
+      <p>Destructuring with types to avoid duplication while being concise.</p>
 {% highlightVexaScript %}
 import { h } from "preact"
 
@@ -110,9 +113,10 @@ fun Welcome({ name: string }) {
     </article>
     <article class="card">
       <h3>Implicit property access</h3>
+      <p>When no ambiguity happens, <code>this</code> is optional.</p>
 {% highlightVexaScript %}
 class Counter(var value: int) {
-  fun increment(): int =>  ++value
+  fun increment(): int => ++value
 }
 {% endhighlightVexaScript %}
     </article>

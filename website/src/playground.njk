@@ -5,11 +5,47 @@ title: VexaScript Playground
 <section class="page-hero">
   <p class="eyebrow">Playground</p>
   <h1>Try VexaScript now</h1>
-  <div class="playground-frame-shell">
-    <iframe
-      class="playground-frame"
-      src="{{ generatedAssetHrefs.generatedPlaygroundHtml }}"
-      title="VexaScript Monaco playground"
-      loading="lazy"></iframe>
-  </div>
+  <div id="playground-workbench" class="workbench-demo"></div>
 </section>
+
+<script>
+  window.addEventListener("DOMContentLoaded", () => {
+    function dedent(strings, ...values) {
+      const raw = String.raw({ raw: strings }, ...values).replace(/^\n+/, "")
+      const lines = raw.split("\n")
+      const indents = lines
+        .filter((line) => line.trim() !== "")
+        .map((line) => line.match(/^\s*/)?.[0].length ?? 0)
+      const margin = indents.length > 0 ? Math.min(...indents) : 0
+      return lines.map((line) => line.slice(margin)).join("\n").trim()
+    }
+
+    VexaScriptEmbeds.createWorkbenchEditor("#playground-workbench", {
+      activePath: "/src/main.vx",
+      height: "min(78vh, 980px)",
+      files: [
+        {
+          path: "/src/main.vx",
+          content: dedent`
+            import { increment } from "./counter.vx"
+
+            val current = increment(41)
+            console.log(current.toString())
+          `
+        },
+        {
+          path: "/src/counter.vx",
+          content: dedent`
+            export fun increment(value: int): int {
+              return value + 1
+            }
+          `
+        },
+        {
+          path: "/README.vx",
+          content: "// Full embeddable VexaScript workbench demo."
+        }
+      ]
+    })
+  })
+</script>
