@@ -34,9 +34,9 @@ Examples:
 
 ```vexa
 let name: UserName = currentUser
-let counter: Int
+let counter: int
 let enabled
-val a = 10 * 2, lol = true
+val a = 10 * 2, myboolean = true
 ```
 
 ### Delegated variables

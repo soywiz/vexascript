@@ -56,6 +56,22 @@ const BUILTIN_TYPE_NAMES = new Set([
   "undefined"
 ]);
 
+function boxedCallableTypeBaseName(typeName: string): string {
+  if (typeName === "int" || typeName === "number" || typeName === "numeric") {
+    return "Number";
+  }
+  if (typeName === "string") {
+    return "String";
+  }
+  if (typeName === "boolean") {
+    return "Boolean";
+  }
+  if (typeName === "bigint" || typeName === "long") {
+    return "BigInt";
+  }
+  return typeName;
+}
+
 export type ClassResolverSessionLike = ProjectSessionLike;
 
 export interface ClassResolverOptions extends ProjectContext {
@@ -1376,9 +1392,10 @@ export async function resolveCallableSignature(
 
   const objectTypeName = await resolveExpressionTypeName(member.object, analysis, ast, options);
   const parsedObjectType = objectTypeName ? parseTypeNameShape(objectTypeName) : null;
-  if (!parsedObjectType || BUILTIN_TYPE_NAMES.has(parsedObjectType.baseName)) {
+  if (!parsedObjectType) {
     return null;
   }
+  const resolvedBaseTypeName = boxedCallableTypeBaseName(parsedObjectType.baseName);
 
   const resolverCache = createClassResolverCache();
   const memberName = (member.property as Identifier).name;
@@ -1386,7 +1403,7 @@ export async function resolveCallableSignature(
 
   const classResolution = await resolveClassStatementAcrossFiles(
     ast,
-    parsedObjectType.baseName,
+    resolvedBaseTypeName,
     options,
     resolverCache
   );
@@ -1408,7 +1425,7 @@ export async function resolveCallableSignature(
   // live on the (constructor) interface.
   const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
     ast,
-    parsedObjectType.baseName,
+    resolvedBaseTypeName,
     options,
     resolverCache
   );
@@ -1429,7 +1446,7 @@ export async function resolveCallableSignature(
   if (importerFilePath) {
     const nodeModuleSig = await resolveNodeModuleNamespaceFunctionSignature(
       ast,
-      parsedObjectType.baseName,
+      resolvedBaseTypeName,
       memberName,
       importerFilePath,
       options

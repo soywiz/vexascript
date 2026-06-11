@@ -5912,6 +5912,22 @@ export class TypeChecker {
       }
       return arrayMembers.get(memberName) ?? null;
     }
+    if (resolvedObjectType.kind === "builtin") {
+      const boxedName = this.boxedInterfaceNameForBuiltin(resolvedObjectType.name);
+      if (!boxedName) {
+        return null;
+      }
+      const boxedMembers = this.resolveNamedTypeMembers(namedType(boxedName));
+      return boxedMembers?.get(memberName) ?? null;
+    }
+    if (resolvedObjectType.kind === "literal") {
+      const boxedName = this.boxedInterfaceNameForBuiltin(resolvedObjectType.base);
+      if (!boxedName) {
+        return null;
+      }
+      const boxedMembers = this.resolveNamedTypeMembers(namedType(boxedName));
+      return boxedMembers?.get(memberName) ?? null;
+    }
     if (resolvedObjectType.kind !== "named") {
       return null;
     }
@@ -5955,6 +5971,14 @@ export class TypeChecker {
     }
 
     if (resolvedObjectType.kind !== "named") {
+      if (resolvedObjectType.kind === "builtin") {
+        const boxedName = this.boxedInterfaceNameForBuiltin(resolvedObjectType.name);
+        return boxedName ? this.findNamedTypeMemberSymbol(boxedName, memberName) : null;
+      }
+      if (resolvedObjectType.kind === "literal") {
+        const boxedName = this.boxedInterfaceNameForBuiltin(resolvedObjectType.base);
+        return boxedName ? this.findNamedTypeMemberSymbol(boxedName, memberName) : null;
+      }
       return null;
     }
 

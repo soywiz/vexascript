@@ -365,6 +365,15 @@ function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
   return type;
 }
 
+function formatParameterLabel(parameter: {
+  name: string;
+  typeName: string;
+  optional?: boolean;
+  rest?: boolean;
+}): string {
+  return `${parameter.rest ? "..." : ""}${parameter.name}${parameter.optional === true && parameter.rest !== true ? "?" : ""}: ${parameter.typeName}`;
+}
+
 async function buildSignatureFromSymbol(
   context: InvocationContext,
   analysis: Analysis,
@@ -374,9 +383,9 @@ async function buildSignatureFromSymbol(
   const callable = await resolveCallableSignature(context.callee, analysis, program, options);
   if (callable) {
     const parameters = callable.parameters.map((parameter) => ({
-      label: `${parameter.name}: ${parameter.typeName}`
+      label: formatParameterLabel(parameter)
     }));
-    const label = `${callable.name}(${parameters.map((parameter) => parameter.label).join(", ")})`;
+    const label = `${callable.name}(${parameters.map((parameter) => parameter.label).join(", ")}): ${callable.returnTypeName}`;
     return {
       label,
       parameters,
@@ -392,9 +401,14 @@ async function buildSignatureFromSymbol(
   const functionType = toFunctionType(symbolMatch.symbol.type);
   if (functionType) {
     const parameters = functionType.parameters.map((parameter) => ({
-      label: `${parameter.name}: ${typeToString(parameter.type)}`
+      label: formatParameterLabel({
+        name: parameter.name,
+        typeName: typeToString(parameter.type),
+        optional: parameter.optional === true,
+        rest: parameter.rest === true
+      })
     }));
-    const label = `${symbolMatch.symbol.name}(${parameters.map((parameter) => parameter.label).join(", ")})`;
+    const label = `${symbolMatch.symbol.name}(${parameters.map((parameter) => parameter.label).join(", ")}): ${typeToString(functionType.returnType)}`;
     const documentation =
       symbolMatch.symbol.node.kind === "Identifier"
         ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
@@ -412,7 +426,7 @@ async function buildSignatureFromSymbol(
       return null;
     }
     const parameters = constructorSignature.parameters.map((parameter) => ({
-      label: `${parameter.name}: ${parameter.typeName}`
+      label: formatParameterLabel(parameter)
     }));
     const label = `new ${constructorSignature.className}(${parameters.map((parameter) => parameter.label).join(", ")})`;
     return {

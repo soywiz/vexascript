@@ -1730,6 +1730,22 @@ let after = bind`));
     expect(messages).toContain("Unexpected argument 4; function expects at most 3 argument(s)");
   });
 
+  it("reports boxed builtin member-call arity mismatches", () => {
+    const source = dedent`
+      fun demo() {
+        10.toFixed(1, 2, 3)
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Expected at most 1 argument(s), but got 3");
+    expect(messages).toContain("Unexpected argument 2; function expects at most 1 argument(s)");
+    expect(messages).toContain("Unexpected argument 3; function expects at most 1 argument(s)");
+  });
+
   it("reports calling non-callable values instead of silently resolving to unknown", () => {
     const source = dedent`
       fun demo(): bigint {

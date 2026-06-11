@@ -29,7 +29,7 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "sum(a: int, b: int)",
+          label: "sum(a: int, b: int): int",
           parameters: [{ label: "a: int" }, { label: "b: int" }]
         }
       ],
@@ -75,7 +75,7 @@ describe("signature help", () => {
     expect(session.analysis).toBeTruthy();
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 13);
-    expect(help?.signatures[0]?.label).toEqual("parse(s: string)");
+    expect(help?.signatures[0]?.label).toEqual("parse(s: string): number");
     expect(help?.signatures[0]?.parameters).toEqual([{ label: "s: string" }]);
     expect(help?.activeParameter).toEqual(0);
   });
@@ -92,7 +92,32 @@ describe("signature help", () => {
     expect(session.analysis).toBeTruthy();
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 11);
-    expect(help?.signatures[0]?.label).toEqual("max(values: number[])");
+    expect(help?.signatures[0]?.label).toEqual("max(...values: number[]): number");
+  });
+
+  it("provides boxed builtin member signature help with optional params and return type", async () => {
+    const source = dedent`
+      fun demo() {
+        10.toFixed()
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 13);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "toFixed(fractionDigits?: number): string",
+          parameters: [{ label: "fractionDigits?: number" }],
+          documentation: "Returns a string representing a number in fixed-point notation.\n@param fractionDigits Number of digits after the decimal point. Must be in the range 0 - 100, inclusive."
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
   });
 
   it("resolves the innermost call inside a tail/brace lambda argument", async () => {
@@ -117,7 +142,7 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "inner(a: int, b: int)",
+          label: "inner(a: int, b: int): int",
           parameters: [{ label: "a: int" }, { label: "b: int" }]
         }
       ],
@@ -177,7 +202,7 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "log(value: number)",
+          label: "log(value: number): int",
           parameters: [{ label: "value: number" }],
           documentation: "Writes a number in the output stream."
         }
@@ -206,7 +231,7 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "get(key: string)",
+          label: "get(key: string): int",
           parameters: [{ label: "key: string" }]
         }
       ],
@@ -236,7 +261,7 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "find(str: string, sub: string)",
+          label: "find(str: string, sub: string): int",
           parameters: [{ label: "str: string" }, { label: "sub: string" }],
           documentation: "searches [sub] in [str]\nand returns its index or -1"
         }
@@ -266,7 +291,7 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "demo(str: string, sub: string)",
+          label: "demo(str: string, sub: string): int",
           parameters: [{ label: "str: string" }, { label: "sub: string" }],
           documentation: "searches [sub] in [str]\nand returns its index or -1"
         }
@@ -297,7 +322,7 @@ describe("signature help", () => {
     expect(help).toEqual({
       signatures: [
         {
-          label: "get(key: string)",
+          label: "get(key: string): string",
           parameters: [{ label: "key: string" }]
         }
       ],
@@ -340,7 +365,7 @@ describe("signature help", () => {
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 16, ctx);
     expect(help).not.toBeNull();
-    expect(help!.signatures[0]!.label).toBe("helper(input: string, count: number)");
+    expect(help!.signatures[0]!.label).toBe("helper(input: string, count: number): Result");
     expect(help!.signatures[0]!.parameters).toEqual([
       { label: "input: string" },
       { label: "count: number" }
