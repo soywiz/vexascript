@@ -135,6 +135,100 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
   return null;
 }
 
+export interface CollectedImportedDeclarations {
+  externalDeclarations: Statement[];
+  importedSymbolTypes: Map<string, AnalysisType>;
+}
+
+/**
+ * Collects both imported type declarations and imported symbol types in a single
+ * pass over the document's import statements. Prefer this over calling
+ * `collectImportedTypeDeclarations` and `collectImportedSymbolTypes` separately
+ * to avoid resolving each import path twice.
+ */
+export async function collectAllImportedDeclarations(
+  ast: Program,
+  context: CollectImportedDeclarationsContext
+): Promise<CollectedImportedDeclarations> {
+  const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
+  if (!currentFilePath) {
+    return { externalDeclarations: [], importedSymbolTypes: new Map() };
+  }
+
+  const externalDeclarations: Statement[] = [];
+  const importedSymbolTypes = new Map<string, AnalysisType>();
+  const seen = new Set<ImportableDeclaration>();
+
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const targetFilePath = await resolveImportTargetInContext(currentFilePath, importStatement.from.value, context);
+
+    if (!targetFilePath) {
+      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
+      if (nodeModuleTypings) {
+        // For node_modules .d.ts files, include all top-level declarations so
+        // member resolution works for named types like `moment.parseZone`.
+        for (const targetStatement of nodeModuleTypings.declarations) {
+          if (!seen.has(targetStatement as ImportableDeclaration)) {
+            seen.add(targetStatement as ImportableDeclaration);
+            externalDeclarations.push(targetStatement);
+          }
+        }
+        if (nodeModuleTypings.defaultExportName) {
+          const exportType = namedType(nodeModuleTypings.defaultExportName);
+          const defaultImportType = callableTypeFromExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName) ?? exportType;
+          if (importStatement.defaultImport) {
+            importedSymbolTypes.set(importStatement.defaultImport.name, defaultImportType);
+          }
+          if (importStatement.namespaceImport) {
+            importedSymbolTypes.set(importStatement.namespaceImport.name, exportType);
+          }
+          for (const specifier of importStatement.specifiers) {
+            const localName = (specifier.local ?? specifier.imported).name;
+            importedSymbolTypes.set(localName, exportType);
+          }
+        }
+      }
+      continue;
+    }
+
+    const wantedNames = new Set(
+      importStatement.specifiers.map((specifier) => specifier.imported.name)
+    );
+
+    const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
+
+    if (targetSession?.ast && wantedNames.size > 0) {
+      for (const targetStatement of targetSession.ast.body) {
+        const declaration = unwrapDeclaration(targetStatement);
+        if (!declaration || seen.has(declaration)) {
+          continue;
+        }
+        if (!topLevelDeclarationNames(declaration).some((name) => wantedNames.has(name))) {
+          continue;
+        }
+        seen.add(declaration);
+        externalDeclarations.push(declaration);
+      }
+    }
+
+    if (targetSession?.analysis && wantedNames.size > 0) {
+      for (const specifier of importStatement.specifiers) {
+        const localName = (specifier.local ?? specifier.imported).name;
+        const importedType = targetSession.analysis.getTopLevelSymbolType(specifier.imported.name);
+        if (importedType) {
+          importedSymbolTypes.set(localName, importedType);
+        }
+      }
+    }
+  }
+
+  return { externalDeclarations, importedSymbolTypes };
+}
+
 /**
  * Collect the imported top-level type declarations referenced by a document's
  * `import { ... } from "..."` statements. The returned statements come from the

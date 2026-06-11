@@ -59,9 +59,25 @@ export type ExternalDeclarationsResolver = (
   session: AnalysisSession
 ) => ResolvedExternals | Promise<ResolvedExternals>;
 
+function buildSessionFromResolved(
+  docText: string,
+  baseSession: AnalysisSession,
+  resolved: ResolvedExternals
+): AnalysisSession {
+  const externalDeclarations = resolved.externalDeclarations ?? [];
+  const importedSymbolTypes = resolved.importedSymbolTypes ?? new Map();
+  const ambientDeclarations = resolved.ambientDeclarations ?? [];
+  if (externalDeclarations.length === 0 && importedSymbolTypes.size === 0 && ambientDeclarations.length === 0) {
+    return baseSession;
+  }
+  return createAnalysisSession(docText, externalDeclarations, importedSymbolTypes, ambientDeclarations);
+}
+
 export class AnalysisSessionCache {
   private readonly cache = new Map<string, { version: number; session: AnalysisSession }>();
-  private readonly pending = new Map<string, Promise<AnalysisSession>>();
+  // Pending stores version alongside the promise so getForDocumentAsync can
+  // safely reuse an in-flight resolution only when it is for the same version.
+  private readonly pending = new Map<string, { version: number; promise: Promise<AnalysisSession> }>();
 
   constructor(
     private readonly resolveExternalDeclarations?: ExternalDeclarationsResolver,
@@ -74,25 +90,20 @@ export class AnalysisSessionCache {
       return cached.session;
     }
 
-    const baseSession = createAnalysisSession(document.getText());
+    const docText = document.getText();
+    const docVersion = document.version;
+    const docUri = document.uri;
+    const baseSession = createAnalysisSession(docText);
+
     if (!this.resolveExternalDeclarations) {
-      this.cache.set(document.uri, { version: document.version, session: baseSession });
+      this.cache.set(docUri, { version: docVersion, session: baseSession });
       return baseSession;
     }
 
     // Kick off async resolution if not already in progress for this version
-    const existingPending = this.pending.get(document.uri);
-    if (!existingPending) {
-      const docVersion = document.version;
-      const docText = document.getText();
-      const docUri = document.uri;
-      const resolvePromise = Promise.resolve(this.resolveExternalDeclarations(document, baseSession)).then((resolved) => {
-        const externalDeclarations = resolved?.externalDeclarations ?? [];
-        const importedSymbolTypes = resolved?.importedSymbolTypes ?? new Map();
-        const ambientDeclarations = resolved?.ambientDeclarations ?? [];
-        const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0 || ambientDeclarations.length > 0
-          ? createAnalysisSession(docText, externalDeclarations, importedSymbolTypes, ambientDeclarations)
-          : baseSession;
+    if (!this.pending.has(docUri)) {
+      const promise = Promise.resolve(this.resolveExternalDeclarations(document, baseSession)).then((resolved) => {
+        const session = buildSessionFromResolved(docText, baseSession, resolved);
         // Only update if version still matches
         const still = this.cache.get(docUri);
         if (!still || still.version <= docVersion) {
@@ -105,7 +116,7 @@ export class AnalysisSessionCache {
         this.pending.delete(docUri);
         return baseSession;
       });
-      this.pending.set(docUri, resolvePromise);
+      this.pending.set(docUri, { version: docVersion, promise });
     }
 
     // Return stale or base session until async resolution completes
@@ -118,20 +129,28 @@ export class AnalysisSessionCache {
       return cached.session;
     }
 
-    const baseSession = createAnalysisSession(document.getText());
+    // Reuse an in-flight resolution only when it is for the same document version
+    const pending = this.pending.get(document.uri);
+    if (pending && pending.version === document.version) {
+      return pending.promise;
+    }
+
+    const docText = document.getText();
+    const docVersion = document.version;
+    const docUri = document.uri;
+    const baseSession = createAnalysisSession(docText);
+
     if (!this.resolveExternalDeclarations) {
-      this.cache.set(document.uri, { version: document.version, session: baseSession });
+      this.cache.set(docUri, { version: docVersion, session: baseSession });
       return baseSession;
     }
 
     const resolved = await this.resolveExternalDeclarations(document, baseSession);
-    const externalDeclarations = resolved?.externalDeclarations ?? [];
-    const importedSymbolTypes = resolved?.importedSymbolTypes ?? new Map();
-    const ambientDeclarations = resolved?.ambientDeclarations ?? [];
-    const session = externalDeclarations.length > 0 || importedSymbolTypes.size > 0 || ambientDeclarations.length > 0
-      ? createAnalysisSession(document.getText(), externalDeclarations, importedSymbolTypes, ambientDeclarations)
-      : baseSession;
-    this.cache.set(document.uri, { version: document.version, session });
+    const session = buildSessionFromResolved(docText, baseSession, resolved);
+    const still = this.cache.get(docUri);
+    if (!still || still.version <= docVersion) {
+      this.cache.set(docUri, { version: docVersion, session });
+    }
     return session;
   }
 
