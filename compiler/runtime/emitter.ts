@@ -390,6 +390,23 @@ function resolveOperatorMethod(binary: BinaryExpression): RuntimeOperatorInfo | 
     ?? null;
 }
 
+function resolveUnaryOperatorMethod(unary: UnaryExpression): RuntimeOperatorInfo | null {
+  if (unary.operator !== "+" && unary.operator !== "-") {
+    return null;
+  }
+  const argumentType = activeExpressionTypes?.get(unary.argument as unknown as Node);
+  if (argumentType?.kind !== "named") {
+    return null;
+  }
+  const operators = activeOperators.get(argumentType.name)?.filter((candidate) =>
+    candidate.operator === unary.operator && candidate.parameterTypes.length === 0
+  );
+  if (!operators || operators.length === 0) {
+    return null;
+  }
+  return operators.find((candidate) => candidate.hasBody) ?? null;
+}
+
 function extensionReceiverTypeName(type: AnalysisType | undefined): string | null {
   if (type?.kind === "named") {
     return type.name;
@@ -986,6 +1003,11 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           // `go expr` is a compile-time marker that opts out of sync auto-await; emit the inner
           // expression unchanged so the underlying Promise flows through untouched.
           return emitExpression(unary.argument, parentPrecedence, side);
+        }
+        const unaryOperatorMethod = resolveUnaryOperatorMethod(unary);
+        if (unaryOperatorMethod) {
+          const argumentText = emitExpression(unary.argument, PREC_MEMBER, "left");
+          return `${argumentText}.${unaryOperatorMethod.emittedName}()`;
         }
         const unaryOperator =
           unary.operator === "typeof" ||

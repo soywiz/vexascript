@@ -19,11 +19,13 @@ describe("website project", () => {
     ]);
 
     expect(embedSource.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
+    expect(embedSource.includes('import { COMPILER_VERSION } from "compiler/compilerVersion"')).toBe(true);
     expect(embedSource.includes('import "@fortawesome/fontawesome-free/css/all.min.css"')).toBe(true);
     expect(embedSource.includes("createSimpleEditor")).toBe(true);
     expect(embedSource.includes("createTabbedEditor")).toBe(true);
     expect(embedSource.includes("createWorkspaceEditor")).toBe(true);
     expect(embedSource.includes("createWorkbenchEditor")).toBe(true);
+    expect(embedSource.includes("VexaScript Editor ${COMPILER_VERSION}")).toBe(true);
     expect(embedSource.includes("bundleModuleGraph")).toBe(true);
     expect(embedSource.includes("createCompletionItemsForPosition")).toBe(true);
     expect(embedSource.includes("registerCompletionItemProvider")).toBe(true);

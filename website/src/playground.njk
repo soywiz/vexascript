@@ -28,9 +28,11 @@ title: VexaScript Playground
           path: "/src/main.vx",
           content: dedent`
             import { increment } from "./counter.vx"
+            import { Point, operator+, operator-, operator* } from "./point.vx"
 
             val current = increment(41)
             console.log(current.toString())
+            console.log(-Point(1, 2) + (Point(3, 4) * 2))
           `
         },
         {
@@ -42,8 +44,20 @@ title: VexaScript Playground
           `
         },
         {
+          path: "/src/point.vx",
+          content: dedent`
+            export class Point(val x: number, val y: number) {
+              operator+() => this
+              operator-() => Point(-x, -y)
+              operator+(other: Point) => Point(x + other.x, y + other.y)
+              operator-(other: Point) => Point(x - other.x, y - other.y)
+              operator*(scale: number) => Point(x * scale, y * scale)
+            }
+          `
+        },
+        {
           path: "/README.vx",
-          content: "// Full embeddable VexaScript workbench demo."
+          content: "// Full embeddable VexaScript workbench demo with cross-file operators."
         }
       ]
     })

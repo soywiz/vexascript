@@ -514,6 +514,25 @@ describe("transpile", () => {
     expect(result.code).toContain("let c = a.operator$plus$$Point(b);");
   });
 
+  it("lowers unary operator overloads before surrounding binary expressions", () => {
+    const source = [
+      "class Point(val x: number, val y: number) {",
+      "  operator+(): Point { return this }",
+      "  operator-(): Point { return new Point(-this.x, -this.y) }",
+      "  operator+(other: Point): Point { return new Point(this.x + other.x, this.y + other.y) }",
+      "  operator*(scale: number): Point { return new Point(this.x * scale, this.y * scale) }",
+      "}",
+      "console.log(-Point(1, 2) + (Point(3, 4) * 2))"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain(
+      "console.log(new Point(1, 2).operator$minus$$void().operator$plus$$Point(new Point(3, 4).operator$star$$number(2)));"
+    );
+  });
+
   it("emits extension operator methods and lowers matching binary expressions", () => {
     const source = [
       "class Point(val x: number, val y: number) {}",

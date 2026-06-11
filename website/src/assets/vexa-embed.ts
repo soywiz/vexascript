@@ -32,6 +32,7 @@ import {
 } from "compiler/syntax";
 import type { SymbolExport } from "compiler/lsp/importFixes";
 import { bundleModuleGraph } from "compiler/runtime/moduleGraph";
+import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { markerToDiagnostic } from "../../../plugins/monaco/src/providerConversions";
 import { WorkspaceVfs } from "../../../plugins/monaco/src/workspaceVfs";
 import {
@@ -99,10 +100,16 @@ interface EmbedWorkspaceContext {
   getExportedSymbols(): Promise<SymbolExport[]>;
 }
 
+interface StoredWorkbenchWorkspaceSnapshot {
+  entries: WorkspaceEntry[];
+}
+
 let bootstrapped = false;
 let modelCounter = 0;
 let autoAwaitGlyphStyleInjected = false;
 const embedWorkspaceContextsByUri = new Map<string, EmbedWorkspaceContext>();
+const DEFAULT_WORKBENCH_STORAGE_KEY = "vexa.embed.workbench.v1";
+const DEFAULT_WORKBENCH_SESSION_STORAGE_KEY = "vexa.embed.workbench.session.v1";
 
 const autoAwaitGlyphCollections = new WeakMap<
   monaco.editor.ICodeEditor,
@@ -750,6 +757,44 @@ function createEntries(files: VexaScriptEmbedFile[]): WorkspaceEntry[] {
   ];
 }
 
+function serializeEditableWorkbenchEntries(entries: WorkspaceEntry[]): StoredWorkbenchWorkspaceSnapshot {
+  return {
+    entries: entries.filter((entry) => !entry.readOnly),
+  };
+}
+
+function deserializeWorkbenchEntries(snapshotText: string | null): WorkspaceEntry[] | null {
+  if (!snapshotText) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(snapshotText) as Partial<StoredWorkbenchWorkspaceSnapshot>;
+    if (!Array.isArray(parsed.entries)) {
+      return null;
+    }
+    const entries: WorkspaceEntry[] = [];
+    for (const entry of parsed.entries) {
+      if (!entry || typeof entry !== "object" || typeof entry.path !== "string" || typeof entry.label !== "string") {
+        continue;
+      }
+      if (entry.kind === "folder") {
+        entries.push(createFolderEntry(entry.path, false));
+        continue;
+      }
+      if (
+        entry.kind === "file" &&
+        typeof entry.content === "string" &&
+        (entry.language === "vexa" || entry.language === "typescript")
+      ) {
+        entries.push(createFileEntry(entry.path, entry.content, { language: entry.language }));
+      }
+    }
+    return entries.length > 0 ? entries : null;
+  } catch {
+    return null;
+  }
+}
+
 function mapSeverity(severity: number | undefined): monaco.MarkerSeverity {
   switch (severity) {
     case 1:
@@ -911,11 +956,16 @@ function createSimpleEditor(container: HTMLElement | string, options: SimpleEdit
   };
 }
 
-function createTabButton(entry: WorkspaceFile, activeUri: string, onSelect: (entry: WorkspaceFile) => void): HTMLButtonElement {
+function createTabButton(
+  entry: WorkspaceFile,
+  activeUri: string,
+  onSelect: (entry: WorkspaceFile) => void,
+  options: { dirty?: boolean } = {}
+): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `vexa-embed-tab${entry.uri === activeUri ? " is-active" : ""}`;
-  button.textContent = basename(entry.path);
+  button.textContent = `${basename(entry.path)}${options.dirty ? " *" : ""}`;
   button.addEventListener("click", () => onSelect(entry));
   return button;
 }
@@ -1037,7 +1087,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   shell.innerHTML = `
     <div class="vexa-embed-workbench-header">
       <div class="vexa-embed-workbench-title-group">
-        <div class="vexa-embed-workbench-title">VexaScript Editor</div>
+        <div class="vexa-embed-workbench-title">VexaScript Editor ${COMPILER_VERSION}</div>
         <div class="vexa-embed-workbench-file-name">main.vx</div>
       </div>
       <div class="vexa-embed-workbench-toolbar">
@@ -1062,6 +1112,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         </div>
         <div class="vexa-embed-workbench-tree"></div>
         <div class="vexa-embed-tree-context-menu" hidden>
+          <button type="button" data-action="context-new-file">New file</button>
           <button type="button" data-action="context-new-folder">New folder</button>
           <button type="button" data-action="context-delete">Delete</button>
         </div>
@@ -1079,8 +1130,8 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   `;
   target.appendChild(shell);
 
-  const entriesStorageKey = options.storageKey;
-  const sessionStorageKey = options.sessionStorageKey;
+  const entriesStorageKey = options.storageKey ?? DEFAULT_WORKBENCH_STORAGE_KEY;
+  const sessionStorageKey = options.sessionStorageKey ?? DEFAULT_WORKBENCH_SESSION_STORAGE_KEY;
   const storage = (() => {
     try {
       return window.localStorage;
@@ -1089,7 +1140,16 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     }
   })();
 
-  let entries = createEntries(options.files);
+  let entries = [
+    ...(deserializeWorkbenchEntries(storage?.getItem(entriesStorageKey) ?? null) ?? createEntries(options.files))
+      .filter((entry) => entry.path !== "/runtime" && entry.path !== "/runtime/es2025.d.ts"),
+    createFolderEntry("/runtime", true),
+    createFileEntry("/runtime/es2025.d.ts", bundledRuntime, {
+      language: "typescript",
+      readOnly: true,
+      uri: "file:///es2025.d.ts",
+    }),
+  ];
 
   const editableFiles = (): WorkspaceFile[] =>
     entries.filter((entry): entry is WorkspaceFile => entry.kind === "file" && !entry.readOnly);
@@ -1105,6 +1165,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const runButton = shell.querySelector<HTMLButtonElement>('[data-action="run"]')!;
   const expandButton = shell.querySelector<HTMLButtonElement>('[data-action="expand"]')!;
   const clearOutputButton = shell.querySelector<HTMLButtonElement>('[data-action="clear-output"]')!;
+  const contextNewFileButton = shell.querySelector<HTMLButtonElement>('[data-action="context-new-file"]')!;
   const contextNewFolderButton = shell.querySelector<HTMLButtonElement>('[data-action="context-new-folder"]')!;
   const contextDeleteButton = shell.querySelector<HTMLButtonElement>('[data-action="context-delete"]')!;
   const previewFrame = shell.querySelector<HTMLIFrameElement>(".vexa-embed-workbench-preview")!;
@@ -1120,6 +1181,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   let contextMenuEntry: WorkspaceEntry | null = null;
   const workspaceSessionCache = new Map<string, { content: string; session: ReturnType<typeof createAnalysisSession> }>();
   const previewChannelId = `vexa-preview-${Math.random().toString(36).slice(2)}`;
+  let savedSnapshot = JSON.stringify(serializeEditableWorkbenchEntries(entries));
 
   const ensureModel = (entry: WorkspaceFile): monaco.editor.ITextModel => {
     const existing = models.get(entry.uri);
@@ -1191,6 +1253,18 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     throw new Error("VexaScript workbench editor needs at least one editable file.");
   }
   const editor = createEditor(editorHost, ensureModel(initialEntry), false);
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+    persist();
+    refreshToolbarState();
+  });
+  editor.onKeyDown((event) => {
+    if ((event.metaKey || event.ctrlKey) && event.keyCode === monaco.KeyCode.KeyS) {
+      event.preventDefault();
+      event.stopPropagation();
+      persist();
+      refreshToolbarState();
+    }
+  });
   for (const entry of editableFiles()) {
     const model = ensureModel(entry);
     embedWorkspaceContextsByUri.set(entry.uri, workspaceContext);
@@ -1198,20 +1272,29 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   }
 
   const persist = (): void => {
-    if (!entriesStorageKey) {
-      return;
+    storage?.setItem(entriesStorageKey, JSON.stringify(serializeEditableWorkbenchEntries(entries)));
+    savedSnapshot = JSON.stringify(serializeEditableWorkbenchEntries(entries));
+    const position = editor.getPosition();
+    if (position) {
+      storage?.setItem(sessionStorageKey, JSON.stringify({
+        activeUri,
+        lineNumber: position.lineNumber,
+        column: position.column,
+      }));
     }
-    storage?.setItem(entriesStorageKey, JSON.stringify(entries.filter((entry) => !entry.readOnly)));
-    if (sessionStorageKey) {
-      const position = editor.getPosition();
-      if (position) {
-        storage?.setItem(sessionStorageKey, JSON.stringify({
-          activeUri,
-          lineNumber: position.lineNumber,
-          column: position.column,
-        }));
-      }
+    renderTabs();
+  };
+
+  const isDirty = (): boolean => JSON.stringify(serializeEditableWorkbenchEntries(entries)) !== savedSnapshot;
+
+  const isEntryDirty = (entry: WorkspaceFile): boolean => {
+    const saved = deserializeWorkbenchEntries(savedSnapshot)?.find((savedEntry): savedEntry is WorkspaceFile =>
+      savedEntry.kind === "file" && savedEntry.uri === entry.uri
+    );
+    if (!saved) {
+      return true;
     }
+    return saved.content !== (models.get(entry.uri)?.getValue() ?? entry.content);
   };
 
   const isExpanded = (): boolean => target.classList.contains("is-expanded");
@@ -1242,6 +1325,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     contextMenuEntry = entry;
     selectedPath = entry.path;
     renderTree();
+    contextNewFileButton.hidden = entry.kind !== "folder" || !!entry.readOnly;
     contextNewFolderButton.hidden = entry.kind !== "folder" || !!entry.readOnly;
     contextDeleteButton.disabled = !!entry.readOnly || entry.path === "/";
     treeContextMenu.hidden = false;
@@ -1255,7 +1339,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     outputPanel.scrollTop = outputPanel.scrollHeight;
   };
 
-  const stringifyConsoleValue = (value: unknown, seen = new WeakSet<object>()): string => {
+  const stringifyConsoleValue = (value: unknown): string => {
     if (typeof value === "string") {
       return value;
     }
@@ -1269,11 +1353,8 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       return value.stack || value.message || String(value);
     }
     if (typeof value === "object") {
-      if (seen.has(value)) {
-        return "[Circular]";
-      }
-      seen.add(value);
       try {
+        const seen = new WeakSet<object>();
         return JSON.stringify(value, (_key, nestedValue) => {
           if (typeof nestedValue === "object" && nestedValue !== null) {
             if (seen.has(nestedValue)) {
@@ -1437,9 +1518,14 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
   const renderTabs = (): void => {
     tabBar.textContent = "";
     for (const entry of editableFiles()) {
-      tabBar.appendChild(createTabButton(entry, activeUri, (nextEntry) => {
-        openFile(nextEntry.path);
-      }));
+      tabBar.appendChild(createTabButton(
+        entry,
+        activeUri,
+        (nextEntry) => {
+          openFile(nextEntry.path);
+        },
+        { dirty: isEntryDirty(entry) }
+      ));
     }
   };
 
@@ -1447,9 +1533,9 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     backButton.disabled = historyBack.length === 0;
     forwardButton.disabled = historyForward.length === 0;
     const activeEntry = entries.find((entry) => entry.uri === activeUri);
-    fileNameLabel.textContent = activeEntry?.label ?? "No file";
+    fileNameLabel.textContent = activeEntry?.kind === "file" && isEntryDirty(activeEntry) ? `${activeEntry.label} *` : activeEntry?.label ?? "No file";
     formatButton.disabled = activeEntry?.kind !== "file" || activeEntry.language !== "vexa" || !!activeEntry.readOnly;
-    saveButton.disabled = false;
+    saveButton.disabled = !isDirty();
     runButton.disabled = activeEntry?.kind !== "file" || activeEntry.language !== "vexa";
   };
 
@@ -1488,6 +1574,8 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     const model = ensureModel(entry);
     model.onDidChangeContent(() => {
       syncEntryContent(entry.uri, model.getValue());
+      renderTabs();
+      refreshToolbarState();
       renderTree();
     });
   }
@@ -1502,6 +1590,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     collapsedFolders.delete(parentFolderPath);
     selectedPath = createdPath;
     renderTree();
+    refreshToolbarState();
   };
 
   const deleteEntry = (entry: WorkspaceEntry): void => {
@@ -1548,6 +1637,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       refreshToolbarState();
     }
     selectedPath = dirname(entry.path);
+    refreshToolbarState();
     hideTreeContextMenu();
   };
 
@@ -1590,7 +1680,10 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
   formatButton.addEventListener("click", () => {
     void editor.getAction("editor.action.formatDocument")?.run();
   });
-  saveButton.addEventListener("click", () => persist());
+  saveButton.addEventListener("click", () => {
+    persist();
+    refreshToolbarState();
+  });
   runButton.addEventListener("click", () => {
     void runCurrentWorkspace();
   });
@@ -1629,6 +1722,30 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     const selectedEntry = entries.find((entry) => entry.path === selectedPath);
     const parentFolderPath = selectedEntry?.kind === "folder" ? selectedEntry.path : dirname(selectedPath || "/");
     createFolderAtPath(parentFolderPath);
+  });
+  contextNewFileButton.addEventListener("click", () => {
+    if (contextMenuEntry?.kind === "folder" && !contextMenuEntry.readOnly) {
+      const name = window.prompt("New file name", "newFile.vx");
+      if (name) {
+        entries = createFileInWorkspace(entries, contextMenuEntry.path, name);
+        const createdPath = normalizePath(
+          contextMenuEntry.path === "/"
+            ? `/${name.trim()}`
+            : `${contextMenuEntry.path}/${name.trim()}`
+        );
+        collapsedFolders.delete(contextMenuEntry.path);
+        const nextEntry = entries.find((entry) => entry.path === createdPath);
+        if (nextEntry?.kind === "file") {
+          const model = ensureModel(nextEntry);
+          embedWorkspaceContextsByUri.set(nextEntry.uri, workspaceContext);
+          disposers.set(nextEntry.uri, wireDiagnostics(editor, model));
+          renderTabs();
+          renderTree();
+          openFile(nextEntry.path);
+        }
+      }
+    }
+    hideTreeContextMenu();
   });
   contextNewFolderButton.addEventListener("click", () => {
     if (contextMenuEntry?.kind === "folder" && !contextMenuEntry.readOnly) {
