@@ -96,6 +96,10 @@ describe("website project", () => {
     expect(buildEmbedScript.includes('entryNames: "vexa-embed"')).toBe(true);
     expect(buildEmbedScript.includes('compiler/runtime/domDeclarations')).toBe(true);
     expect(buildEmbedScript.includes('compiler/runtime/ecmascriptDeclarations')).toBe(true);
+    expect(buildEmbedScript.includes("writeGeneratedRuntimeBrowserModules")).toBe(true);
+    expect(buildEmbedScript.includes("ecmascriptDeclarations.browser.ts")).toBe(true);
+    expect(buildEmbedScript.includes("domDeclarations.browser.ts")).toBe(true);
+    expect(buildEmbedScript.includes("patchRuntimeDeclarationsHost")).toBe(true);
     expect(buildEmbedScript.includes('node:fs/promises')).toBe(true);
     expect(buildEmbedScript.includes("async function writeFileIfChanged")).toBe(true);
     expect(buildEmbedScript.includes("async function copyFileIfChanged")).toBe(true);

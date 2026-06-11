@@ -15,6 +15,8 @@ const embedEntryPoint = resolve(websiteRoot, "src/assets/vexa-embed.ts");
 const workerEntryPoint = resolve(websiteRoot, "node_modules/monaco-editor/esm/vs/editor/editor.worker.js");
 const browserStubsRoot = resolve(projectRoot, "plugins/monaco/src/browser-stubs");
 const generatedSourceRoot = resolve(websiteRoot, "src/generated");
+const generatedEcmaDeclarationsBrowserModulePath = resolve(generatedSourceRoot, "ecmascriptDeclarations.browser.ts");
+const generatedDomDeclarationsBrowserModulePath = resolve(generatedSourceRoot, "domDeclarations.browser.ts");
 
 const bundledRuntimeSourcePath = resolve(projectRoot, "compiler/runtime/es2025.d.ts");
 const bundledDomRuntimeSourcePath = resolve(projectRoot, "compiler/runtime/dom.d.ts");
@@ -29,6 +31,76 @@ function manifestSource(): string {
     'export const editorWorkerUrl = "/assets/generated/editor.worker.js";',
     'export const bundledRuntimeUrl = "/assets/generated/runtime/es2025.d.ts";',
     'export const bundledDomRuntimeUrl = "/assets/generated/runtime/dom.d.ts";',
+    "",
+  ].join("\n");
+}
+
+function ecmaDeclarationsBrowserModuleSource(): string {
+  return [
+    'import { patchRuntimeDeclarationsHost } from "compiler/runtime/declarationHost";',
+    "import {",
+    "  TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME,",
+    "  ensureEcmaScriptRuntimeProgram,",
+    "  getEcmaScriptRuntimeDeclarationFilePath,",
+    "  getEcmaScriptRuntimeProgram,",
+    "  isEcmaScriptRuntimeNode",
+    '} from "compiler/runtime/ecmascriptDeclarations.shared";',
+    'import { bundledRuntimeUrl } from "./embed-asset-manifest";',
+    "",
+    "patchRuntimeDeclarationsHost({",
+    "  async loadEcmaScriptDeclarations() {",
+    "    const response = await fetch(bundledRuntimeUrl);",
+    "    if (!response.ok) {",
+    '      throw new Error(`Failed to load bundled ECMAScript runtime declarations from ${bundledRuntimeUrl}`);',
+    "    }",
+    "    return {",
+    "      filePath: TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME,",
+    "      source: await response.text()",
+    "    };",
+    "  }",
+    "});",
+    "",
+    "export {",
+    "  TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME,",
+    "  ensureEcmaScriptRuntimeProgram,",
+    "  getEcmaScriptRuntimeDeclarationFilePath,",
+    "  getEcmaScriptRuntimeProgram,",
+    "  isEcmaScriptRuntimeNode",
+    "};",
+    "",
+  ].join("\n");
+}
+
+function domDeclarationsBrowserModuleSource(): string {
+  return [
+    'import { patchRuntimeDeclarationsHost } from "compiler/runtime/declarationHost";',
+    "import {",
+    "  TYPESCRIPT_DOM_DECLARATION_FILE_NAME,",
+    "  ensureDomProgram,",
+    "  getDomDeclarationFilePath,",
+    "  isDomRuntimeNode",
+    '} from "compiler/runtime/domDeclarations.shared";',
+    'import { bundledDomRuntimeUrl } from "./embed-asset-manifest";',
+    "",
+    "patchRuntimeDeclarationsHost({",
+    "  async loadDomDeclarations() {",
+    "    const response = await fetch(bundledDomRuntimeUrl);",
+    "    if (!response.ok) {",
+    '      throw new Error(`Failed to load bundled DOM declarations from ${bundledDomRuntimeUrl}`);',
+    "    }",
+    "    return {",
+    "      filePath: TYPESCRIPT_DOM_DECLARATION_FILE_NAME,",
+    "      source: await response.text()",
+    "    };",
+    "  }",
+    "});",
+    "",
+    "export {",
+    "  TYPESCRIPT_DOM_DECLARATION_FILE_NAME,",
+    "  ensureDomProgram,",
+    "  getDomDeclarationFilePath,",
+    "  isDomRuntimeNode",
+    "};",
     "",
   ].join("\n");
 }
@@ -75,6 +147,14 @@ function aliasPlugin(): Plugin {
 async function writeGeneratedManifest(): Promise<void> {
   await mkdir(dirname(generatedManifestPath), { recursive: true });
   await writeFileIfChanged(generatedManifestPath, manifestSource());
+}
+
+async function writeGeneratedRuntimeBrowserModules(): Promise<void> {
+  await mkdir(generatedSourceRoot, { recursive: true });
+  await Promise.all([
+    writeFileIfChanged(generatedEcmaDeclarationsBrowserModulePath, ecmaDeclarationsBrowserModuleSource()),
+    writeFileIfChanged(generatedDomDeclarationsBrowserModulePath, domDeclarationsBrowserModuleSource()),
+  ]);
 }
 
 async function writeFileIfChanged(filePath: string, nextContent: string): Promise<boolean> {
@@ -203,6 +283,7 @@ async function startRuntimeAssetWatchers(): Promise<void> {
 
 async function runBuild(): Promise<void> {
   await writeGeneratedManifest();
+  await writeGeneratedRuntimeBrowserModules();
   await removeLegacyPlaygroundArtifacts();
   await copyRuntimeAssets();
   if (isWatch) {
