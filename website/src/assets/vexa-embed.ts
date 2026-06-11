@@ -39,6 +39,8 @@ import {
   createFileEntry,
   createFolderInWorkspace,
   createFolderEntry,
+  deleteWorkspaceEntry,
+  listChildren,
   pathToUri,
   updateFileContent,
   type WorkspaceEntry,
@@ -1059,6 +1061,10 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
           </div>
         </div>
         <div class="vexa-embed-workbench-tree"></div>
+        <div class="vexa-embed-tree-context-menu" hidden>
+          <button type="button" data-action="context-new-folder">New folder</button>
+          <button type="button" data-action="context-delete">Delete</button>
+        </div>
       </aside>
       <div class="vexa-embed-workbench-editor"></div>
       <aside class="vexa-embed-workbench-runner">
@@ -1088,6 +1094,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const editableFiles = (): WorkspaceFile[] =>
     entries.filter((entry): entry is WorkspaceFile => entry.kind === "file" && !entry.readOnly);
   const sidebarTree = shell.querySelector<HTMLElement>(".vexa-embed-workbench-tree")!;
+  const treeContextMenu = shell.querySelector<HTMLElement>(".vexa-embed-tree-context-menu")!;
   const tabBar = shell.querySelector<HTMLElement>(".vexa-embed-workbench-tabs")!;
   const editorHost = shell.querySelector<HTMLElement>(".vexa-embed-workbench-editor")!;
   const fileNameLabel = shell.querySelector<HTMLElement>(".vexa-embed-workbench-file-name")!;
@@ -1098,6 +1105,8 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const runButton = shell.querySelector<HTMLButtonElement>('[data-action="run"]')!;
   const expandButton = shell.querySelector<HTMLButtonElement>('[data-action="expand"]')!;
   const clearOutputButton = shell.querySelector<HTMLButtonElement>('[data-action="clear-output"]')!;
+  const contextNewFolderButton = shell.querySelector<HTMLButtonElement>('[data-action="context-new-folder"]')!;
+  const contextDeleteButton = shell.querySelector<HTMLButtonElement>('[data-action="context-delete"]')!;
   const previewFrame = shell.querySelector<HTMLIFrameElement>(".vexa-embed-workbench-preview")!;
   const outputPanel = shell.querySelector<HTMLElement>(".vexa-embed-workbench-output")!;
 
@@ -1105,7 +1114,10 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const disposers = new Map<string, () => void>();
   const historyBack: string[] = [];
   const historyForward: string[] = [];
+  const collapsedFolders = new Set<string>();
   let activeUri = pathToUri(normalizePath(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
+  let selectedPath = normalizePath(dirname(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
+  let contextMenuEntry: WorkspaceEntry | null = null;
   const workspaceSessionCache = new Map<string, { content: string; session: ReturnType<typeof createAnalysisSession> }>();
   const previewChannelId = `vexa-preview-${Math.random().toString(36).slice(2)}`;
 
@@ -1219,6 +1231,22 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const clearOutput = (): void => {
     outputPanel.textContent = "";
+  };
+
+  const hideTreeContextMenu = (): void => {
+    treeContextMenu.hidden = true;
+    contextMenuEntry = null;
+  };
+
+  const showTreeContextMenu = (entry: WorkspaceEntry, event: MouseEvent): void => {
+    contextMenuEntry = entry;
+    selectedPath = entry.path;
+    renderTree();
+    contextNewFolderButton.hidden = entry.kind !== "folder" || !!entry.readOnly;
+    contextDeleteButton.disabled = !!entry.readOnly || entry.path === "/";
+    treeContextMenu.hidden = false;
+    treeContextMenu.style.left = `${event.clientX}px`;
+    treeContextMenu.style.top = `${event.clientY}px`;
   };
 
   const appendOutput = (level: string, message: string): void => {
@@ -1352,19 +1380,53 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
   const renderTree = (): void => {
     sidebarTree.textContent = "";
     const renderFolder = (folderPath: string, depth: number): void => {
-      for (const entry of entries.filter((candidate) => dirname(candidate.path) === folderPath && candidate.path !== folderPath)) {
+      for (const entry of listChildren(entries, folderPath)) {
+        const row = document.createElement("div");
+        row.className = `vexa-embed-tree-row${entry.path === selectedPath ? " is-selected" : ""}${entry.uri === activeUri ? " is-active" : ""}`;
+        row.style.paddingLeft = `${12 + depth * 16}px`;
+        row.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          showTreeContextMenu(entry, event);
+        });
+
+        if (entry.kind === "folder") {
+          const disclosure = document.createElement("button");
+          disclosure.type = "button";
+          disclosure.className = "vexa-embed-tree-disclosure";
+          disclosure.textContent = collapsedFolders.has(entry.path) ? "▸" : "▾";
+          disclosure.title = collapsedFolders.has(entry.path) ? "Expand folder" : "Collapse folder";
+          disclosure.addEventListener("click", (event) => {
+            event.stopPropagation();
+            if (collapsedFolders.has(entry.path)) {
+              collapsedFolders.delete(entry.path);
+            } else {
+              collapsedFolders.add(entry.path);
+            }
+            renderTree();
+          });
+          row.appendChild(disclosure);
+        } else {
+          const spacer = document.createElement("span");
+          spacer.className = "vexa-embed-tree-spacer";
+          row.appendChild(spacer);
+        }
+
         const item = document.createElement("button");
         item.type = "button";
-        item.className = `vexa-embed-tree-item${entry.uri === activeUri ? " is-active" : ""}`;
-        item.style.paddingLeft = `${12 + depth * 16}px`;
-        item.textContent = entry.kind === "folder" ? `▾ ${entry.label}` : entry.label;
+        item.className = "vexa-embed-tree-item";
+        item.textContent = entry.label;
         item.addEventListener("click", () => {
+          selectedPath = entry.path;
           if (entry.kind === "file") {
             openFile(entry.path);
+            return;
           }
+          renderTree();
         });
-        sidebarTree.appendChild(item);
-        if (entry.kind === "folder") {
+        row.appendChild(item);
+        sidebarTree.appendChild(row);
+
+        if (entry.kind === "folder" && !collapsedFolders.has(entry.path)) {
           renderFolder(entry.path, depth + 1);
         }
       }
@@ -1405,6 +1467,8 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       historyForward.length = 0;
     }
     activeUri = entry.uri;
+    selectedPath = entry.path;
+    hideTreeContextMenu();
     const model = ensureModel(entry);
     editor.setModel(model);
     editor.updateOptions({ readOnly: !!entry.readOnly });
@@ -1427,6 +1491,65 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       renderTree();
     });
   }
+
+  const createFolderAtPath = (parentFolderPath: string): void => {
+    const name = window.prompt("New folder name", "newFolder");
+    if (!name) {
+      return;
+    }
+    entries = createFolderInWorkspace(entries, parentFolderPath, name);
+    const createdPath = normalizePath(parentFolderPath === "/" ? `/${name.trim()}` : `${parentFolderPath}/${name.trim()}`);
+    collapsedFolders.delete(parentFolderPath);
+    selectedPath = createdPath;
+    renderTree();
+  };
+
+  const deleteEntry = (entry: WorkspaceEntry): void => {
+    const confirmed = window.confirm(
+      entry.kind === "folder"
+        ? `Delete folder "${entry.label}" and all its contents?`
+        : `Delete file "${entry.label}"?`
+    );
+    if (!confirmed) {
+      return;
+    }
+    const previousEntries = entries;
+    entries = deleteWorkspaceEntry(entries, entry.path);
+    if (entries.some((candidate) => candidate.path === entry.path)) {
+      return;
+    }
+    const deletedPrefix = `${entry.path}/`;
+    for (const [uri, model] of models.entries()) {
+      const candidate = previousEntries.find((workspaceEntry) => workspaceEntry.kind === "file" && workspaceEntry.uri === uri);
+      if (!candidate || (candidate.path !== entry.path && !candidate.path.startsWith(deletedPrefix))) {
+        continue;
+      }
+      embedWorkspaceContextsByUri.delete(uri);
+      workspaceSessionCache.delete(uri);
+      disposers.get(uri)?.();
+      disposers.delete(uri);
+      model.dispose();
+      models.delete(uri);
+    }
+    for (const collapsedPath of [...collapsedFolders]) {
+      if (collapsedPath === entry.path || collapsedPath.startsWith(deletedPrefix)) {
+        collapsedFolders.delete(collapsedPath);
+      }
+    }
+    const activeEntry = entries.find((candidate): candidate is WorkspaceFile => candidate.kind === "file" && candidate.uri === activeUri);
+    if (!activeEntry) {
+      const nextEntry = editableFiles()[0] ?? entries.find((candidate): candidate is WorkspaceFile => candidate.kind === "file");
+      if (nextEntry) {
+        openFile(nextEntry.path, undefined, false);
+      }
+    } else {
+      renderTabs();
+      renderTree();
+      refreshToolbarState();
+    }
+    selectedPath = dirname(entry.path);
+    hideTreeContextMenu();
+  };
 
   const editorOpenerDisposable = monaco.editor.registerEditorOpener({
     openCodeEditor(_source, resource, selectionOrPosition) {
@@ -1483,8 +1606,15 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     if (!name) {
       return;
     }
-    entries = createFileInWorkspace(entries, "/", name);
-    const nextEntry = entries.find((entry) => entry.path === normalizePath(`/${name}`));
+    const parentFolderPath = contextMenuEntry?.kind === "folder"
+      ? contextMenuEntry.path
+      : selectedPath && entries.find((entry) => entry.path === selectedPath)?.kind === "folder"
+        ? selectedPath
+        : "/";
+    entries = createFileInWorkspace(entries, parentFolderPath, name);
+    const createdPath = normalizePath(parentFolderPath === "/" ? `/${name.trim()}` : `${parentFolderPath}/${name.trim()}`);
+    collapsedFolders.delete(parentFolderPath);
+    const nextEntry = entries.find((entry) => entry.path === createdPath);
     if (nextEntry?.kind === "file") {
       const model = ensureModel(nextEntry);
       embedWorkspaceContextsByUri.set(nextEntry.uri, workspaceContext);
@@ -1493,14 +1623,35 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       renderTree();
       openFile(nextEntry.path);
     }
+    hideTreeContextMenu();
   });
   shell.querySelector<HTMLButtonElement>('[data-action="new-folder"]')?.addEventListener("click", () => {
-    const name = window.prompt("New folder name", "newFolder");
-    if (!name) {
+    const selectedEntry = entries.find((entry) => entry.path === selectedPath);
+    const parentFolderPath = selectedEntry?.kind === "folder" ? selectedEntry.path : dirname(selectedPath || "/");
+    createFolderAtPath(parentFolderPath);
+  });
+  contextNewFolderButton.addEventListener("click", () => {
+    if (contextMenuEntry?.kind === "folder" && !contextMenuEntry.readOnly) {
+      createFolderAtPath(contextMenuEntry.path);
+    }
+    hideTreeContextMenu();
+  });
+  contextDeleteButton.addEventListener("click", () => {
+    if (contextMenuEntry) {
+      deleteEntry(contextMenuEntry);
+    }
+  });
+  window.addEventListener("click", (event) => {
+    if (event.target instanceof Node && treeContextMenu.contains(event.target)) {
       return;
     }
-    entries = createFolderInWorkspace(entries, "/", name);
-    renderTree();
+    hideTreeContextMenu();
+  });
+  window.addEventListener("blur", () => hideTreeContextMenu());
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideTreeContextMenu();
+    }
   });
 
   openFile(initialEntry.path, options.selection, false);

@@ -195,6 +195,27 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("preserves entry exports while still stripping bundled dependency module syntax", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "dep.vx": "export fun double(value: number) => value * 2\n",
+        "main.vx":
+          'import { double } from "./dep"\n' +
+          "export const bundled = double(21)\n"
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).toContain("function double(value)");
+        expect(result.code).toContain("export const bundled = double(21);");
+        expect(result.code).not.toContain("export function double");
+        expect(result.code).not.toContain('from "./dep"');
+      }
+    );
+  });
+
   it("preserves semantic diagnostics emitted by transpile", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

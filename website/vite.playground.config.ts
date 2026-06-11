@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 
+const monacoEditorPackagePath = resolve(__dirname, "node_modules/monaco-editor");
+
 export default defineConfig({
   root: resolve(__dirname, "../plugins/monaco"),
   publicDir: false,
@@ -18,6 +20,10 @@ export default defineConfig({
   },
   resolve: {
     alias: [
+      {
+        find: "monaco-editor",
+        replacement: monacoEditorPackagePath,
+      },
       {
         find: "compiler/runtime/ecmascriptDeclarations",
         replacement: resolve(__dirname, "../plugins/monaco/src/browser-stubs/ecmascriptDeclarations.ts"),

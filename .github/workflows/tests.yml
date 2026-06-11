@@ -54,9 +54,9 @@ jobs:
           echo
           echo "== Core Counts =="
           echo "Logical cores: $(nproc)"
-          echo "Sockets: $(lscpu | awk -F: '/Socket\\(s\\)/ {gsub(/^[ \\t]+/, \"\", $2); print $2}')"
-          echo "Cores per socket: $(lscpu | awk -F: '/Core\\(s\\) per socket/ {gsub(/^[ \\t]+/, \"\", $2); print $2}')"
-          echo "Threads per core: $(lscpu | awk -F: '/Thread\\(s\\) per core/ {gsub(/^[ \\t]+/, \"\", $2); print $2}')"
+          echo "Sockets: $(lscpu | awk -F: '/Socket\(s\)/ {gsub(/^[ \t]+/, "", $2); print $2}')"
+          echo "Cores per socket: $(lscpu | awk -F: '/Core\(s\) per socket/ {gsub(/^[ \t]+/, "", $2); print $2}')"
+          echo "Threads per core: $(lscpu | awk -F: '/Thread\(s\) per core/ {gsub(/^[ \t]+/, "", $2); print $2}')"
           echo
           echo "== CPU Model and Frequency =="
           lscpu | awk -F: '

@@ -75,7 +75,7 @@ describe("MCP codebase navigation server", () => {
     })) as { signatures: Array<{ label: string }>; activeParameter: number };
 
     expect(symbols.some((symbol) => symbol.name === "add")).toBe(true);
-    expect(signature.signatures[0]?.label).toBe("add(left: int, right: int)");
+    expect(signature.signatures[0]?.label).toBe("add(left: int, right: int): int");
     expect(signature.activeParameter).toBe(1);
   });
 

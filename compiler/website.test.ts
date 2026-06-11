@@ -170,15 +170,18 @@ describe("website project", () => {
   });
 
   it("keeps Monaco browser entrypoints wired for browser-safe runtime support", async () => {
-    const [monacoMain, monacoViteConfig, browserFsStub, runtimeProgramCache] = await Promise.all([
+    const [monacoMain, monacoViteConfig, playgroundViteConfig, browserFsStub, runtimeProgramCache] = await Promise.all([
       readFile("plugins/monaco/src/main.ts", "utf8"),
       readFile("plugins/monaco/vite.config.ts", "utf8"),
+      readFile("website/vite.playground.config.ts", "utf8"),
       readFile("plugins/monaco/src/browser-stubs/node-fs-promises.ts", "utf8"),
       readFile("compiler/runtime/programCache.ts", "utf8"),
     ]);
 
     expect(monacoMain.includes('import "monaco-editor/min/vs/editor/editor.main.css"')).toBe(true);
     expect(monacoViteConfig.includes("programCacheStub")).toBe(false);
+    expect(playgroundViteConfig.includes('find: "monaco-editor"')).toBe(true);
+    expect(playgroundViteConfig.includes('resolve(__dirname, "node_modules/monaco-editor")')).toBe(true);
     expect(browserFsStub.includes("export async function mkdir")).toBe(true);
     expect(runtimeProgramCache.includes("cacheProgram")).toBe(true);
     expect(runtimeProgramCache.includes("_hash")).toBe(true);

@@ -403,17 +403,21 @@ function stripBundledImports(code: string, bundledSpecifiers: ReadonlySet<string
     .join("\n");
 }
 
-function stripBundledModuleSyntax(code: string, bundledSpecifiers: ReadonlySet<string>): string {
+function stripBundledModuleSyntax(
+  code: string,
+  bundledSpecifiers: ReadonlySet<string>,
+  options: { preserveExports?: boolean } = {}
+): string {
   return stripBundledImports(code, bundledSpecifiers)
     .split("\n")
     .map((line) => {
-      if (/^\s*export\s+\{.*\}\s*;?\s*$/.test(line)) {
+      if (!options.preserveExports && /^\s*export\s+\{.*\}\s*;?\s*$/.test(line)) {
         return "";
       }
-      if (/^\s*export\s*=\s*.+;?\s*$/.test(line)) {
+      if (!options.preserveExports && /^\s*export\s*=\s*.+;?\s*$/.test(line)) {
         return "";
       }
-      return line.replace(/^(\s*)export\s+(default\s+)?/, "$1");
+      return options.preserveExports ? line : line.replace(/^(\s*)export\s+(default\s+)?/, "$1");
     })
     .join("\n");
 }
@@ -572,7 +576,9 @@ export async function bundleModuleGraph(
       }
     }
 
-    const emittedCode = stripBundledModuleSyntax(result.code, bundledSpecifiers);
+    const emittedCode = stripBundledModuleSyntax(result.code, bundledSpecifiers, {
+      preserveExports: filePath === entryFilePath
+    });
     emittedByPath.set(
       filePath,
       [...assetBindingChunks, emittedCode].filter((chunk) => chunk.trim().length > 0).join("\n")

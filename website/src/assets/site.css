@@ -317,19 +317,76 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
 .vexa-embed-workbench-sidebar-title { color: #8f8f8f; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 .vexa-embed-workbench-sidebar-actions { display: flex; gap: 0.35rem; }
 .vexa-embed-workbench-tree { overflow: auto; padding: 0.5rem 0; }
+.vexa-embed-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.vexa-embed-tree-row:hover { background: #2f2f2f; }
+.vexa-embed-tree-row.is-selected,
+.vexa-embed-tree-row.is-active { background: #30353a; }
+.vexa-embed-tree-disclosure,
+.vexa-embed-tree-spacer {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+}
+.vexa-embed-tree-disclosure {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #bdbdbd;
+  cursor: pointer;
+}
+.vexa-embed-tree-spacer {
+  display: inline-block;
+}
 .vexa-embed-tree-item {
-  display: block;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   border: 0;
   background: transparent;
   color: #cccccc;
   text-align: left;
-  padding: 0.4rem 0.75rem;
+  padding: 0.4rem 0.75rem 0.4rem 0.2rem;
   font-size: 0.82rem;
   cursor: pointer;
 }
-.vexa-embed-tree-item:hover { background: #2f2f2f; }
-.vexa-embed-tree-item.is-active { background: #30353a; color: #ffffff; }
+.vexa-embed-tree-row.is-active .vexa-embed-tree-item { color: #ffffff; }
+.vexa-embed-tree-context-menu {
+  position: fixed;
+  display: grid;
+  gap: 0.2rem;
+  min-width: 10rem;
+  padding: 0.35rem;
+  border: 1px solid #3f3f46;
+  border-radius: 0.6rem;
+  background: #1f1f23;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  z-index: 1200;
+}
+.vexa-embed-tree-context-menu[hidden] {
+  display: none;
+}
+.vexa-embed-tree-context-menu button {
+  width: 100%;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: #d4d4d4;
+  text-align: left;
+  font-size: 0.78rem;
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+}
+.vexa-embed-tree-context-menu button:hover {
+  background: #094771;
+}
+.vexa-embed-tree-context-menu button:disabled,
+.vexa-embed-tree-context-menu button[hidden] {
+  display: none;
+}
 .vexa-embed-workbench-editor { min-width: 0; min-height: 0; overflow: visible; }
 .vexa-embed-workbench-runner {
   display: grid;
