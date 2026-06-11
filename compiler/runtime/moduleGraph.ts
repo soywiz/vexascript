@@ -4,8 +4,10 @@ import type {
   Identifier,
   ImportStatement,
   Program,
-  Statement
+  Statement,
+  VarStatement
 } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { compileParsedSource, compileSource } from "compiler/pipeline/compile";
@@ -88,9 +90,33 @@ async function resolveInlineAssetModulePath(importerFilePath: string, importPath
 }
 
 function declarationName(statement: Statement): string | null {
+  if (statement.kind === "VarStatement") {
+    const varStatement = statement as VarStatement;
+    if (varStatement.receiverType) {
+      return bindingIdentifiers(varStatement.name)[0]?.name ?? null;
+    }
+  }
+  if (statement.kind === "FunctionStatement") {
+    const functionStatement = statement as FunctionStatement;
+    if (functionStatement.receiverType && functionStatement.operator) {
+      return functionStatement.name.name;
+    }
+  }
   const candidate = unwrapExportedDeclaration(statement);
   if (!candidate) {
     return null;
+  }
+  if (candidate.kind === "VarStatement") {
+    const varStatement = candidate as VarStatement;
+    if (varStatement.receiverType) {
+      return bindingIdentifiers(varStatement.name)[0]?.name ?? null;
+    }
+  }
+  if (candidate.kind === "FunctionStatement") {
+    const functionStatement = candidate as FunctionStatement;
+    if (functionStatement.receiverType && functionStatement.operator) {
+      return functionStatement.name.name;
+    }
   }
   const named = candidate as { name?: { kind?: string; name?: string } };
   if (named.name && named.name.kind === "Identifier") {

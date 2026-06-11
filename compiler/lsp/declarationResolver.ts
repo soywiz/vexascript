@@ -53,6 +53,12 @@ export function isInterfaceStatement(statement: Statement): statement is Interfa
 }
 
 export function topLevelDeclarationNames(statement: Statement): string[] {
+  if (statement.kind === "FunctionStatement") {
+    const functionStatement = statement as FunctionStatement;
+    if (functionStatement.receiverType && functionStatement.operator) {
+      return [functionStatement.name.name];
+    }
+  }
   const declaration = unwrapExportedDeclaration(statement);
   if (!declaration) {
     return [];
@@ -83,11 +89,14 @@ export function findTopLevelDeclarationInProgram<T extends Statement>(
   predicate: TopLevelDeclarationPredicate<T>
 ): T | null {
   for (const statement of ast.body) {
-    const declaration = unwrapExportedDeclaration(statement);
-    if (!declaration || !predicate(declaration)) {
-      continue;
+    const directMatch = statement.kind === "FunctionStatement"
+      ? statement as FunctionStatement
+      : null;
+    if (directMatch?.receiverType && directMatch.operator && predicate(directMatch) && topLevelDeclarationNames(directMatch).includes(name)) {
+      return directMatch;
     }
-    if (topLevelDeclarationNames(declaration).includes(name)) {
+    const declaration = unwrapExportedDeclaration(statement);
+    if (declaration && predicate(declaration) && topLevelDeclarationNames(declaration).includes(name)) {
       return declaration;
     }
   }

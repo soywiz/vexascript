@@ -1309,6 +1309,72 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves imported extension operators in a virtual workspace without requiring export", async () => {
+    const mainPath = "/demo.vx";
+    const timePath = "/time.vx";
+    const timeSource = dedent`
+      class TimeSpan(val ms: number)
+      val number.seconds => TimeSpan(this * 1000.0)
+      val number.milliseconds => TimeSpan(this)
+      fun TimeSpan.operator+(other: TimeSpan): TimeSpan => TimeSpan(ms + other.ms)
+      `;
+    const mainSource = dedent`
+      import { TimeSpan, seconds, milliseconds, operator+ } from "./time"
+      val duration = 0.25.seconds + 10.milliseconds
+      `;
+    const timeSession = createAnalysisSession(timeSource);
+    const baseSession = createAnalysisSession(mainSource);
+    const context = {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [],
+      getSessionForFilePath: (filePath: string) => filePath === timePath ? timeSession : null
+    };
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, context);
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, context);
+    const mainSession = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+
+    expect(mainSession.semanticIssues.map((issue) => issue.message)).not.toContain(
+      "Operator '+' is not defined for types 'unknown' and 'unknown'"
+    );
+    expect(mainSession.semanticIssues.map((issue) => issue.message)).not.toContain(
+      "Operator '+' is not defined for types 'TimeSpan' and 'TimeSpan'"
+    );
+
+  });
+
+  it("resolves exported extension properties imported from another file in a virtual workspace", async () => {
+    const mainPath = "/demo.vx";
+    const timePath = "/time.vx";
+    const timeSource = dedent`
+      export class TimeSpan(val ms: number)
+      export val number.seconds => TimeSpan(this * 1000.0)
+      export val number.milliseconds => TimeSpan(this)
+      fun TimeSpan.operator+(other: TimeSpan): TimeSpan => TimeSpan(ms + other.ms)
+      `;
+    const mainSource = dedent`
+      import { TimeSpan, seconds, milliseconds, operator+ } from "./time"
+      val duration = 0.25.seconds + 10.milliseconds
+      `;
+    const timeSession = createAnalysisSession(timeSource);
+    const baseSession = createAnalysisSession(mainSource);
+    const context = {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [],
+      getSessionForFilePath: (filePath: string) => filePath === timePath ? timeSession : null
+    };
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, context);
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, context);
+    const mainSession = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+
+    expect(mainSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+    expect(mainSession.analysis!.getHoverAt(1, mainSource.split("\n")[1]!.indexOf("seconds") + 2)?.contents).toBe(
+      "expression: TimeSpan"
+    );
+    expect(mainSession.analysis!.getHoverAt(1, mainSource.split("\n")[1]!.indexOf("milliseconds") + 2)?.contents).toBe(
+      "expression: TimeSpan"
+    );
+  });
+
   it("resolves DOM member definitions to the virtual runtime model in a virtual workspace", async () => {
     const mainPath = "/src/main.vx";
     const virtualDomPath = "/runtime/dom.d.ts";

@@ -122,6 +122,7 @@ export class TypeChecker {
   private readonly extensionMethodsByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
   private readonly extensionPropertiesByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
   private readonly importedExtensionPropertyNames: Set<string> = new Set();
+  private readonly importedExtensionPropertyTypes: Map<string, AnalysisType> = new Map();
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
   private readonly namespaceStatementsByName: Map<string, NamespaceStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
@@ -187,6 +188,7 @@ export class TypeChecker {
     // registered so a cross-file operator like `a + b` resolves to the overload.
     this.collectExtensionOperators(ambientDeclarations);
     this.collectExtensionOperators(externalDeclarations);
+    this.collectExtensionProperties(externalDeclarations, bound.rootScope);
     this.collectFunctionStatements(program.body);
     this.collectClassStatements(program.body);
     this.collectExtensionOperators(program);
@@ -5679,9 +5681,41 @@ export class TypeChecker {
     for (const statement of program.body) {
       if (statement.kind !== "ImportStatement") continue;
       for (const specifier of (statement as ImportStatement).specifiers) {
-        this.importedExtensionPropertyNames.add((specifier.local ?? specifier.imported).name);
+        const localName = (specifier.local ?? specifier.imported).name;
+        this.importedExtensionPropertyNames.add(localName);
+        const importedType = this.bound.rootScope.symbols.get(localName)?.type;
+        if (importedType) {
+          this.importedExtensionPropertyTypes.set(localName, importedType);
+        }
       }
     }
+  }
+
+  private collectExtensionProperties(statements: readonly Statement[], fallbackScope: Scope): void {
+    for (const statement of declarationIndexForStatements(statements).vars) {
+      if (!statement.receiverType) continue;
+      const extensionScope = this.scopeFor(statement, fallbackScope);
+      const propertyType = this.resolveTypeAnnotation(statement.typeAnnotation, extensionScope)
+        ?? this.inferExternalExtensionPropertyType(statement.initializer);
+      const propertyName = bindingIdentifiers(statement.name)[0]?.name;
+      if (!propertyName) continue;
+      const properties = this.extensionPropertiesByReceiver.get(statement.receiverType.name) ?? new Map<string, AnalysisType>();
+      properties.set(propertyName, propertyType);
+      this.extensionPropertiesByReceiver.set(statement.receiverType.name, properties);
+    }
+  }
+
+  private inferExternalExtensionPropertyType(initializer: Expr | undefined): AnalysisType {
+    if (!initializer) {
+      return UNKNOWN_TYPE;
+    }
+    if (initializer.kind === "CallExpression") {
+      const call = initializer as CallExpression;
+      if (call.callee.kind === "Identifier") {
+        return this.typeFromTypeNameLoose((call.callee as Identifier).name);
+      }
+    }
+    return UNKNOWN_TYPE;
   }
 
   private extensionReceiverNames(objectType: AnalysisType): string[] {
@@ -6019,6 +6053,10 @@ export class TypeChecker {
     const extensionType = this.resolveExtensionMemberType(resolvedObjectType, memberName);
     if (extensionType) {
       return extensionType;
+    }
+    const importedExtensionPropertyType = this.importedExtensionPropertyTypes.get(memberName);
+    if (importedExtensionPropertyType) {
+      return importedExtensionPropertyType;
     }
     if (this.importedExtensionPropertyNames.has(memberName)) {
       return UNKNOWN_TYPE;

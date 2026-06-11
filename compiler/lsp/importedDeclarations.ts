@@ -6,7 +6,8 @@ import type {
   InterfaceStatement,
   Program,
   Statement,
-  TypeAliasStatement
+  TypeAliasStatement,
+  VarStatement
 } from "compiler/ast/ast";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
@@ -36,7 +37,7 @@ type NamedTypeDeclaration =
   | EnumStatement
   | TypeAliasStatement;
 
-type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement;
+type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement | VarStatement;
 
 function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
   if (!typeName) {
@@ -98,12 +99,30 @@ async function resolveImportTargetInContext(
 }
 
 function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
+  if (statement.kind === "VarStatement") {
+    const varStatement = statement as VarStatement;
+    if (varStatement.receiverType) {
+      return varStatement;
+    }
+  }
+  if (statement.kind === "FunctionStatement") {
+    const functionStatement = statement as FunctionStatement;
+    if (functionStatement.receiverType && functionStatement.operator) {
+      return functionStatement;
+    }
+  }
   const candidate = unwrapExportedDeclaration(statement);
   if (!candidate) {
     return null;
   }
   if (TYPE_DECLARATION_KINDS.has(candidate.kind)) {
     return candidate as NamedTypeDeclaration;
+  }
+  if (candidate.kind === "VarStatement") {
+    const varStatement = candidate as VarStatement;
+    if (varStatement.receiverType) {
+      return varStatement;
+    }
   }
   // Extension operator overloads (e.g. `fun Point.operator+`) can be imported by
   // their synthesized name (`operator+`) so the operator resolves cross-file.
