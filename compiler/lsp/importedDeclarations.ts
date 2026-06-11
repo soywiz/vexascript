@@ -14,7 +14,8 @@ import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { AnalysisType } from "compiler/analysis/types";
-import { functionType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
+import { BUILTIN_TYPE_NAMES, arrayType, builtinType, functionType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
+import { parseTypeNameShape } from "compiler/analysis/typeNames";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 
 /**
@@ -37,6 +38,21 @@ type NamedTypeDeclaration =
 
 type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement;
 
+function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
+  if (!typeName) {
+    return UNKNOWN_TYPE;
+  }
+  const parsed = parseTypeNameShape(typeName);
+  const resolvedTypeArguments = parsed.typeArguments.map((argument) => typeFromAnnotationText(argument));
+  let resolvedBase: AnalysisType = BUILTIN_TYPE_NAMES.has(parsed.baseName)
+    ? builtinType(parsed.baseName as Parameters<typeof builtinType>[0])
+    : namedType(parsed.baseName, resolvedTypeArguments);
+  for (let depth = 0; depth < parsed.arrayDepth; depth += 1) {
+    resolvedBase = arrayType(resolvedBase);
+  }
+  return resolvedBase;
+}
+
 function callableTypeFromExternalFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
   for (const statement of declarations) {
     if (statement.kind !== "ExportStatement" || (statement as { default?: boolean }).default !== true) {
@@ -53,11 +69,12 @@ function callableTypeFromExternalFunction(declarations: readonly Statement[], na
     return functionType(
       fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
         name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
-        type: UNKNOWN_TYPE,
+        type: typeFromAnnotationText(parameter.typeAnnotation?.name),
         optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
         rest: parameter.rest === true
       })),
-      UNKNOWN_TYPE
+      typeFromAnnotationText(fn.returnType?.name),
+      fn.typeParameters?.map((parameter) => parameter.name.name)
     );
   }
   return null;

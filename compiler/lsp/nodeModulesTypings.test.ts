@@ -7,7 +7,7 @@ import { getNodeModuleTypings, findNodeModuleMemberLocation } from "./nodeModule
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
-import { namedType } from "compiler/analysis/types";
+import { namedType, typeToString } from "compiler/analysis/types";
 
 const MINI_DTS = dedent`
   declare function pkg(x: string): pkg.Result;
@@ -144,7 +144,26 @@ describe("node_modules typings resolution", () => {
     const richSession = createAnalysisSession(source, declarations, symbolTypes);
 
     expect(symbolTypes.get("render")?.kind).toBe("function");
+    expect(typeToString(symbolTypes.get("render")!)).toBe("(value: unknown) => string");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain("Type 'renderer' is not callable");
+  });
+
+  it("preserves declared parameter and return types for generic default function node_modules typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "renderer", dedent`
+      import { VNode } from 'preact';
+      export default function renderToString<P = {}>(vnode: VNode<P>, context?: any): string;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const source = `import render from "renderer"\nrender()\n`;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
+
+    expect(typeToString(symbolTypes.get("render")!)).toBe("<P>(vnode: VNode<P>, context: any) => string");
   });
 
   it("findNodeModuleMemberLocation finds a member inside a namespace", async () => {
