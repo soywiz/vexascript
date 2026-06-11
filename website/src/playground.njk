@@ -23,16 +23,29 @@ title: VexaScript Playground
     VexaScriptEmbeds.createWorkbenchEditor("#playground-workbench", {
       activePath: "/src/main.vx",
       height: "min(78vh, 980px)",
+      storageKey: "vexa.playground.workbench.v4",
+      sessionStorageKey: "vexa.playground.workbench.session.v4",
       files: [
         {
           path: "/src/main.vx",
           content: dedent`
             import { increment } from "./counter.vx"
             import { Point, operator+, operator-, operator* } from "./point.vx"
+            import { TimeSpan, delay, seconds, milliseconds } from "./time.vx"
 
             val current = increment(41)
             console.log(current.toString())
             console.log(-Point(1, 2) + (Point(3, 4) * 2))
+
+            sync fun example() {
+              console.log(increment(41))
+              delay(1.seconds)
+              console.log(increment(42))
+              delay(250.milliseconds)
+              console.log(TimeSpan(500.0).ms)
+            }
+
+            example()
           `
         },
         {
@@ -56,8 +69,19 @@ title: VexaScript Playground
           `
         },
         {
-          path: "/README.vx",
-          content: "// Full embeddable VexaScript workbench demo with cross-file operators."
+          path: "/src/time.vx",
+          content: dedent`
+            export class TimeSpan(val ms: number)
+
+            export val number.seconds => TimeSpan(this * 1000.0)
+            export val number.milliseconds => TimeSpan(this)
+
+            export fun delay(time: TimeSpan) {
+              return new Promise { resolve, reject ->
+                setTimeout(resolve, time.ms)
+              }
+            }
+          `
         }
       ]
     })

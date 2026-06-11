@@ -37,6 +37,7 @@ title: VexaScript Embed Guide
       <h3>Full workbench</h3>
 <pre><code>VexaScriptEmbeds.createWorkbenchEditor("#workbench", {
   activePath: "/src/main.vx",
+  allowWorkspaceWrites: true,
   files: [
     { path: "/src/main.vx", content: "import { greet } from './greeter.vx'\nconsole.log(greet('VexaScript'))" },
     { path: "/src/greeter.vx", content: "export fun greet(name: string): string => $\"Hello {name}\"" }
@@ -51,6 +52,7 @@ title: VexaScript Embed Guide
     <p class="eyebrow">Embedded Monaco</p>
     <h2>Use the compiler and editor directly in lessons.</h2>
     <p class="lead">The website bundle exposes three helpers: a simple single-file editor, a multi-tab editor, and a full workbench editor with a workspace tree, toolbar, formatting, and save controls.</p>
+    <p class="lead">Workbench embeds also support <code>allowWorkspaceWrites</code> to enable or disable editing, saving, and workspace mutations, plus a reset button that restores the original embedded files.</p>
   </div>
 </section>
 
@@ -132,6 +134,7 @@ title: VexaScript Embed Guide
 
     VexaScriptEmbeds.createWorkbenchEditor("#workbench-editor", {
       activePath: "/src/main.vx",
+      allowWorkspaceWrites: true,
       files: [
         {
           path: "/src/main.vx",

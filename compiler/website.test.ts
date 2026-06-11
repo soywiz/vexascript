@@ -26,6 +26,8 @@ describe("website project", () => {
     expect(embedSource.includes("createWorkspaceEditor")).toBe(true);
     expect(embedSource.includes("createWorkbenchEditor")).toBe(true);
     expect(embedSource.includes("VexaScript Editor ${COMPILER_VERSION}")).toBe(true);
+    expect(embedSource.includes("allowWorkspaceWrites?: boolean")).toBe(true);
+    expect(embedSource.includes('data-action="reset-workspace"')).toBe(true);
     expect(embedSource.includes("bundleModuleGraph")).toBe(true);
     expect(embedSource.includes("createCompletionItemsForPosition")).toBe(true);
     expect(embedSource.includes("registerCompletionItemProvider")).toBe(true);
@@ -68,6 +70,8 @@ describe("website project", () => {
     expect(embedPage.includes("VexaScriptEmbeds.createTabbedEditor")).toBe(true);
     expect(embedPage.includes("VexaScriptEmbeds.createWorkspaceEditor")).toBe(true);
     expect(embedPage.includes("VexaScriptEmbeds.createWorkbenchEditor")).toBe(true);
+    expect(embedPage.includes("allowWorkspaceWrites: true")).toBe(true);
+    expect(embedPage.includes("reset button")).toBe(true);
     expect(embedSource.includes('data-action="expand"')).toBe(true);
     expect(embedSource.includes('fa-solid fa-arrow-left')).toBe(true);
     expect(embedSource.includes('fa-solid fa-arrow-right')).toBe(true);
