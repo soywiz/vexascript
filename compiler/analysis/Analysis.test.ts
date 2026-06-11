@@ -1706,6 +1706,20 @@ let after = bind`));
     expect(symbols.get("z")?.valueType).toBe("long");
   });
 
+  it("treats builtin string and array length properties as int", () => {
+    const source = dedent`
+      let textLength = "hello".length
+      let arrayLength = [1, 2, 3].length
+      let bytesLength = new Uint8Array(4).length
+
+`;
+    const symbols = symbolsOfVisibleSymbolsAt(source, 2, 5);
+
+    expect(symbols.get("textLength")?.valueType).toBe("int");
+    expect(symbols.get("arrayLength")?.valueType).toBe("int");
+    expect(symbols.get("bytesLength")?.valueType).toBe("int");
+  });
+
   it("infers dedicated primitive literal node types", () => {
     const source = dedent`
       let t = true

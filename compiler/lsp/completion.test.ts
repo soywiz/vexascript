@@ -627,6 +627,22 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(labels).toContain("push");
   });
+
+  it("surfaces builtin array length as an int property", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun demo() {
+        const items: int[] = []
+        items.^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("length")?.detail).toBe("Interface property: int");
+  });
+
   it("offers Array<T> members after chained trailing-lambda calls", async () => {
     const { source, line, character } = sourceWithCursor(
       'val res = [1, 2, 3, 4, 5, 6].map { it * 2 }.filter { it % 3 == 0 }.map { "value" }.ma^^^'

@@ -659,7 +659,7 @@ interface Function {
     toString(): string;
 
     prototype: any;
-    readonly length: number;
+    readonly length: int;
 
     // Non-standard extensions
     arguments: any;
@@ -874,7 +874,7 @@ interface String {
     trim(): string;
 
     /** Returns the length of a String object. */
-    readonly length: number;
+    readonly length: int;
 
     // IE extensions
     /**
@@ -1552,7 +1552,7 @@ interface ReadonlyArray<T> {
     /**
      * Gets the length of the array. This is a number one higher than the highest element defined in an array.
      */
-    readonly length: number;
+    readonly length: int;
     /**
      * Returns a string representation of an array.
      */
@@ -1676,7 +1676,7 @@ interface ReadonlyArray<T> {
 }
 
 interface ConcatArray<T> {
-    readonly length: number;
+    readonly length: int;
     readonly [n: number]: T;
     join(separator?: string): string;
     slice(start?: number, end?: number): T[];
@@ -1686,7 +1686,7 @@ interface Array<T> {
     /**
      * Gets or sets the length of the array. This is a number one higher than the highest index in the array.
      */
-    length: number;
+    length: int;
     /**
      * Returns a string representation of an array.
      */
@@ -1935,7 +1935,7 @@ type Awaited<T> = T extends null | undefined ? T : // special case for `null | u
     T; // non-object or non-thenable
 
 interface ArrayLike<T> {
-    readonly length: number;
+    readonly length: int;
     readonly [n: number]: T;
 }
 
@@ -2358,7 +2358,7 @@ interface Int8Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that
@@ -2640,7 +2640,7 @@ interface Uint8Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that
@@ -2922,7 +2922,7 @@ interface Uint8ClampedArray<TArrayBuffer extends ArrayBufferLike = ArrayBufferLi
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that
@@ -3203,7 +3203,7 @@ interface Int16Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that
@@ -3485,7 +3485,7 @@ interface Uint16Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that
@@ -3766,7 +3766,7 @@ interface Int32Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that
@@ -4047,7 +4047,7 @@ interface Uint32Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that
@@ -4329,7 +4329,7 @@ interface Float32Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that
@@ -4611,7 +4611,7 @@ interface Float64Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
     /**
      * The length of the array.
      */
-    readonly length: number;
+    readonly length: int;
 
     /**
      * Calls a defined callback function on each element of an array, and returns an array that

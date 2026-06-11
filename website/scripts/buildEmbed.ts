@@ -1,5 +1,5 @@
 import { build, context, type BuildOptions, type Plugin } from "esbuild";
-import { copyFile, mkdir, readFile, rm, watch, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, watch, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pathExists } from "./prepare.ts";
@@ -74,7 +74,16 @@ function aliasPlugin(): Plugin {
 
 async function writeGeneratedManifest(): Promise<void> {
   await mkdir(dirname(generatedManifestPath), { recursive: true });
-  await writeFile(generatedManifestPath, manifestSource(), "utf8");
+  await writeFileIfChanged(generatedManifestPath, manifestSource());
+}
+
+async function writeFileIfChanged(filePath: string, nextContent: string): Promise<boolean> {
+  const previousContent = await readFile(filePath, "utf8").catch(() => null);
+  if (previousContent === nextContent) {
+    return false;
+  }
+  await writeFile(filePath, nextContent, "utf8");
+  return true;
 }
 
 async function removeLegacyPlaygroundArtifacts(): Promise<void> {
@@ -84,17 +93,28 @@ async function removeLegacyPlaygroundArtifacts(): Promise<void> {
 async function copyRuntimeAssets(): Promise<void> {
   await mkdir(generatedRuntimeRoot, { recursive: true });
   await Promise.all([
-    copyFile(bundledRuntimeSourcePath, bundledRuntimeOutputPath),
-    copyFile(bundledDomRuntimeSourcePath, bundledDomRuntimeOutputPath),
+    copyFileIfChanged(bundledRuntimeSourcePath, bundledRuntimeOutputPath),
+    copyFileIfChanged(bundledDomRuntimeSourcePath, bundledDomRuntimeOutputPath),
   ]);
+}
+
+async function copyFileIfChanged(from: string, to: string): Promise<boolean> {
+  const [sourceContent, targetContent] = await Promise.all([
+    readFile(from, "utf8"),
+    readFile(to, "utf8").catch(() => null),
+  ]);
+  if (sourceContent === targetContent) {
+    return false;
+  }
+  await writeFile(to, sourceContent, "utf8");
+  return true;
 }
 
 async function copyIfPresent(from: string, to: string): Promise<void> {
   if (!await pathExists(from)) {
     return;
   }
-  await rm(to, { force: true });
-  await copyFile(from, to);
+  await copyFileIfChanged(from, to);
 }
 
 async function normalizeEmbedCssOutputs(): Promise<void> {

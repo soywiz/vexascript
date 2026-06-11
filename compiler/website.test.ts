@@ -95,6 +95,9 @@ describe("website project", () => {
     expect(buildEmbedScript.includes('compiler/runtime/domDeclarations')).toBe(true);
     expect(buildEmbedScript.includes('compiler/runtime/ecmascriptDeclarations')).toBe(true);
     expect(buildEmbedScript.includes('node:fs/promises')).toBe(true);
+    expect(buildEmbedScript.includes("async function writeFileIfChanged")).toBe(true);
+    expect(buildEmbedScript.includes("async function copyFileIfChanged")).toBe(true);
+    expect(buildEmbedScript.includes("if (sourceContent === targetContent)")).toBe(true);
     expect(eleventyConfig.includes('./src/siteContent.mjs')).toBe(true);
     expect(eleventyConfig.includes('./src/syntaxHighlight.mjs')).toBe(true);
     expect(eleventyConfig.includes('{ "src/assets/favicon.svg": "favicon.svg" }')).toBe(true);
