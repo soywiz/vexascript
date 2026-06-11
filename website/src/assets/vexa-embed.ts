@@ -145,6 +145,10 @@ const autoAwaitGlyphCollections = new WeakMap<
   monaco.editor.ICodeEditor,
   monaco.editor.IEditorDecorationsCollection
 >();
+const autoAwaitGlyphRefreshVersions = new WeakMap<
+  monaco.editor.ICodeEditor,
+  number
+>();
 const pendingRuntimeReadyRefreshes = new Map<string, Promise<void>>();
 
 const completionItemKind = monaco.languages.CompletionItemKind;
@@ -1283,6 +1287,8 @@ async function updateAutoAwaitGlyphs(
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel
 ): Promise<void> {
+  const refreshVersion = (autoAwaitGlyphRefreshVersions.get(editor) ?? 0) + 1;
+  autoAwaitGlyphRefreshVersions.set(editor, refreshVersion);
   let collection = autoAwaitGlyphCollections.get(editor);
   if (!collection) {
     collection = editor.createDecorationsCollection();
@@ -1293,6 +1299,12 @@ async function updateAutoAwaitGlyphs(
     return;
   }
   const session = await getSessionForModel(model);
+  if (autoAwaitGlyphRefreshVersions.get(editor) !== refreshVersion) {
+    return;
+  }
+  if (editor.getModel() !== model || model.isDisposed()) {
+    return;
+  }
   if (!session.ast || !session.analysis) {
     collection.clear();
     return;
@@ -1691,7 +1703,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   let activeUri = pathToUri(normalizePath(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
   let selectedPath = normalizePath(dirname(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
   let contextMenuEntry: WorkspaceEntry | null = null;
-  const workspaceSessionCache = new Map<string, { content: string; session: ReturnType<typeof createAnalysisSession> }>();
   const previewChannelId = `vexa-preview-${Math.random().toString(36).slice(2)}`;
   let savedSnapshot = JSON.stringify(serializeEditableWorkbenchEntries(entries));
   const initialInlayHintsEnabled = (() => {
@@ -1736,15 +1747,9 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     if (source === null) {
       return null;
     }
-    const cached = workspaceSessionCache.get(uri);
-    if (cached && cached.content === source) {
-      return cached.session;
-    }
-    const session = isRuntimeDeclarationPath(filePath)
+    return isRuntimeDeclarationPath(filePath)
       ? createAnalysisSession(source)
       : createAnalysisSession(source, [], new Map(), await getDomAmbientDeclarations());
-    workspaceSessionCache.set(uri, { content: source, session });
-    return session;
   };
 
   const getWorkspaceExportedSymbols = async (): Promise<SymbolExport[]> => {
@@ -1876,7 +1881,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const syncEntryContent = (uri: string, content: string): void => {
     entries = updateFileContent(entries, uri, content);
-    workspaceSessionCache.delete(uri);
     modelSessionCache.delete(uri);
     workspaceRevision += 1;
   };
@@ -1893,7 +1897,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
         continue;
       }
       entries = updateFileContent(entries, uri, content);
-      workspaceSessionCache.delete(uri);
       modelSessionCache.delete(uri);
       workspaceRevision += 1;
       const model = models.get(uri);
@@ -2226,7 +2229,6 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
         continue;
       }
       embedWorkspaceContextsByUri.delete(uri);
-      workspaceSessionCache.delete(uri);
       modelSessionCache.delete(uri);
       disposers.get(uri)?.();
       disposers.delete(uri);
@@ -2272,7 +2274,6 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       const nextEntry = entries.find((entry): entry is WorkspaceFile => entry.kind === "file" && entry.uri === uri);
       if (!nextEntry) {
         embedWorkspaceContextsByUri.delete(uri);
-        workspaceSessionCache.delete(uri);
         modelSessionCache.delete(uri);
         disposers.get(uri)?.();
         disposers.delete(uri);
