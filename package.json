@@ -8,6 +8,9 @@
   "bin": {
     "vexa": "dist/vexa.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "clean": "rm -rf dist dist plugins/monaco/dist plugins/vscode/dist website/_site website/src/generated website/src/assets/generated",
     "cli": "pnpm --silent build && node dist/vexa.js",
