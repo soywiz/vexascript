@@ -5,8 +5,16 @@ title: VexaScript — A modern TypeScript-derived language
 <section class="hero">
   <div>
     <p class="eyebrow">TypeScript roots, modern language ergonomics</p>
-    <h1>Learn VexaScript interactively.</h1>
-    <p class="lead">VexaScript keeps the familiar JavaScript and TypeScript ecosystem while adding concise declarations, value classes, function and operator overloading, delegated variables and classes, null-aware access, string templates, trailing lambdas, and await-less asynchronous code.</p>
+    <h1>VexaScript</h1>
+    <div class="lead">
+      <p>
+        VexaScript keeps the familiar JavaScript and TypeScript syntax and libraries. Human and AI friendly: easier to read for humans; less tokens for AI.
+      </p>
+
+      <p>
+        Consume javascript and typescript libraries directly, adds concise declarations, function and operator overloading, delegated variables and classes, trailing lambdas, await-less asynchronous code, new-less instantiation, optional this, int and long types and plenty of quick fixes among other features.
+      </p>
+    </div>
     <div class="actions">
       <a class="button" href="#playground">Try the editor</a>
       <a class="button secondary" href="/syntax/">Open syntax reference</a>
@@ -29,7 +37,9 @@ sync fun loadMessage(user: User): string {
   <div class="section-heading">
     <p class="eyebrow">Syntax tour</p>
     <h2>Readable syntax for application code.</h2>
-    <p class="lead">The full supported syntax reference now lives on its own page and is rendered directly from the canonical documentation file.</p>
+    <p class="lead">
+      The full supported syntax reference lives on its own page and is rendered directly from the canonical documentation file of the language.
+    </p>
     <div class="actions">
       <a class="button secondary" href="/syntax/">Read the full syntax guide</a>
     </div>
@@ -40,13 +50,14 @@ sync fun loadMessage(user: User): string {
       <p>Use <code>fun</code> or <code>function</code>, <code>val</code> for read-only values, and primary-constructor class members. Operator overloading and shorthand functions and properties.</p>
 {% highlightVexaScript %}
 class Point(val x: number, val y: number) {
-  operator+() => this
+  operator+() { return this }
   operator-() => Point(-x, -y)
   operator+(other: Point) => Point(x + other.x, y + other.y)
   operator-(other: Point) => Point(x - other.x, y - other.y)
   operator*(scale: number) => Point(x * scale, y * scale)
   length => Math.hypot(x, y)
 }
+val point = -Point(1, 2) + Point(3, 4) * 2
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -92,8 +103,8 @@ class Vec2(val x: number, val y: number) {
 {% highlightVexaScript %}
 import { h } from "preact"
 
-fun Welcome(props: { name: string }) {
-  return <section>Hello {props.name}</section>
+fun Welcome({ name: string }) {
+  return <section>Hello {name}</section>
 }
 {% endhighlightVexaScript %}
     </article>
@@ -101,10 +112,7 @@ fun Welcome(props: { name: string }) {
       <h3>Implicit property access</h3>
 {% highlightVexaScript %}
 class Counter(var value: int) {
-  fun increment(): int {
-    value++
-    return value
-  }
+  fun increment(): int =>  ++value
 }
 {% endhighlightVexaScript %}
     </article>

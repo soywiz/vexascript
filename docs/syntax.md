@@ -18,8 +18,8 @@ Examples:
 ```vexa
 let a = 1
 var b = 2
-val c: Num
-const d: Num = 4
+val c: number
+const d: int = 4
 ```
 
 ### Optional type annotation and initializer

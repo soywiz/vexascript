@@ -806,7 +806,8 @@ async function buildExtensionMemberCompletionItems(
     pushItem({
       label: candidate.name,
       kind: candidate.kind === "method" ? CompletionItemKind.Method : CompletionItemKind.Property,
-      detail: `Extension ${candidate.kind}: ${candidate.receiverType}`
+      detail: `Extension ${candidate.kind}: ${candidate.receiverType}`,
+      sortText: `3-${candidate.name}`
     });
   }
 
@@ -825,6 +826,7 @@ async function buildExtensionMemberCompletionItems(
         label: suggestion.symbol.name,
         kind: suggestion.symbol.memberKind === "method" ? CompletionItemKind.Method : CompletionItemKind.Property,
         detail: `Auto import extension from ${suggestion.importPath}`,
+        sortText: `4-${suggestion.symbol.name}`,
         additionalTextEdits: [
           {
             range: suggestion.range,
@@ -842,6 +844,7 @@ async function buildClassMemberCompletionItems(
   classStatement: ClassStatement,
   objectTypeName: string | undefined,
   prefix: string,
+  analysis: Analysis,
   memberAccessEdit:
     | {
         line: number;
@@ -880,6 +883,7 @@ async function buildClassMemberCompletionItems(
     const resolved = await resolveClassMember(classStatement, memberName, objectTypeName, {
       ast: resolverContext.ast,
       options: resolverContext.options,
+      analysis,
       cache: resolverContext.cache
     });
     if (!resolved) {
@@ -948,7 +952,8 @@ function buildInterfaceMemberCompletionItems(
     items.push({
       label: member.name,
       kind: member.kind,
-      detail: member.detail
+      detail: member.detail,
+      sortText: `2-${member.name}`
     });
   }
   return items;
@@ -1868,6 +1873,7 @@ async function resolveTypeNameFromPath(
     const member = await resolveClassMember(classResolution.classStatement, memberName, currentTypeName, {
       ast,
       options: resolverOptions,
+      analysis,
       cache: resolverCache
     });
     if (!member) {
@@ -2046,12 +2052,13 @@ async function buildMemberCompletionItemsForType(
     ...await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis),
     ...(classStatement
       ? await buildClassMemberCompletionItems(
-          classStatement,
-          resolvedClassName,
-          prefix,
-          {
-            line,
-            dotCharacter,
+        classStatement,
+        resolvedClassName,
+        prefix,
+        analysis,
+        {
+          line,
+          dotCharacter,
             prefixEndCharacter
           },
           {

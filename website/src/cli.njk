@@ -5,8 +5,8 @@ title: VexaScript CLI Guide
 <section class="section">
   <div class="section-heading">
     <p class="eyebrow">VexaScript CLI</p>
-    <h1>Compile, bundle, run, inspect, and format from the terminal.</h1>
-    <p class="lead">The <code>vexa</code> CLI covers build pipelines, syntax exports, language-server entrypoints, testing, and inspection tools for day-to-day compiler work.</p>
+    <h1>Compile, bundle, run, inspect, and format from the terminal</h1>
+    <p class="lead">The <code>vexa</code> CLI covers building, running, providing syntax definitions in different formats, formatting, testing, exploring the AST, LSP and MCP.</p>
   </div>
   <div class="cli-layout">
     <article class="card cli-overview">
@@ -33,12 +33,24 @@ title: VexaScript CLI Guide
           <p>Format a file in place, optionally writing a copy to a separate output path.</p>
         </div>
         <div>
-          <code>tokens &lt;input&gt;</code> / <code>ast &lt;input&gt;</code>
+          <div><code>tokens &lt;input&gt;</code></div>
+          <div><code>ast &lt;input&gt;</code></div>
           <p>Inspect the tokenizer output or print a simplified AST for debugging parser behavior.</p>
         </div>
         <div>
-          <code>syntax</code>, <code>lsp</code>, <code>mcp</code>
-          <p>Export editor grammars, start the language server, or run the MCP navigation server.</p>
+          <code>syntax</code>
+          <span style="color:grey;"><code>--monaco</code>, <code>--vscode</code>, <code>--textmate</code>, <code>--codemirror</code></span>
+          <p>Export editor grammars</p>
+          
+          <p>Select editor syntax export targets from the <code>syntax</code> command, or use <code>--target &lt;name&gt;</code> for the explicit target id.</p>
+        </div>
+        <div>
+          <code>lsp</code>
+          <p>Start the language server. By default using <code>--stdio</code>. This allows editors to get autocompletion and error detection.</p>
+        </div>
+        <div>
+          <code>mcp</code>
+          <p>Run the MCP navigation server. This enables agents to do accurate operations on VexaScript codebases.</p>
         </div>
       </div>
     </article>
@@ -54,20 +66,13 @@ title: VexaScript CLI Guide
           <p>Use <code>conservative</code> or <code>optimized</code> transpilation modes on build-oriented commands.</p>
         </div>
         <div>
-          <code>--bundle</code>
-          <p>Tell <code>build</code> to emit bundled ESM instead of a single-file JavaScript output.</p>
-        </div>
-        <div>
           <code>--jsx-factory</code> / <code>--jsx-fragment-factory</code>
           <p>Override JSX emit targets for projects that do not use the default React-style factories.</p>
+          <p>It is possible to define those also in the <code>tsconfig.json</code> file.</p>
         </div>
         <div>
           <code>--root &lt;dir&gt;</code>
           <p>Set the workspace root for the <code>mcp</code> server when resolving files and symbols.</p>
-        </div>
-        <div>
-          <code>--monaco</code>, <code>--vscode</code>, <code>--textmate</code>, <code>--codemirror</code>
-          <p>Select editor syntax export targets from the <code>syntax</code> command, or use <code>--target &lt;name&gt;</code> for the explicit target id.</p>
         </div>
       </div>
     </article>

@@ -124,12 +124,14 @@ export interface ClassResolverCache {
 export interface ResolveClassMemberContext {
   ast: Program;
   options: ClassResolverOptions;
+  analysis?: Analysis;
   cache?: ClassResolverCache;
 }
 
 interface ResolutionContext {
   ast: Program;
   options: ClassResolverOptions;
+  analysis?: Analysis;
   cache: ClassResolverCache;
 }
 
@@ -388,7 +390,8 @@ export function classPropertyParameters(classStatement: ClassStatement) {
 function resolveClassOwnMember(
   classStatement: ClassStatement,
   memberName: string,
-  substitutions: Map<string, string>
+  substitutions: Map<string, string>,
+  context?: ResolveClassMemberContext
 ): ResolvedClassMember | null {
   for (const parameter of classPropertyParameters(classStatement)) {
     if (bindingNameText(parameter.name) !== memberName) {
@@ -427,12 +430,19 @@ function resolveClassOwnMember(
     }
 
     if (member.accessorKind === "get") {
+      const getterStatement = member.body.body[0];
+      const getterExpression = getterStatement?.kind === "ReturnStatement"
+        ? (getterStatement as ReturnStatement).expression
+        : null;
+      const inferredTypeName = !member.returnType && getterExpression && context?.analysis
+        ? typeNameFromAnalysisType(context.analysis.getExpressionTypes().get(getterExpression))
+        : null;
       const documentation = readDocumentationFromIdentifier(member.name);
       const result: ResolvedClassMember = {
         className: classStatement.name.name,
         memberName,
         kind: "field",
-        typeName: substituteTypeNameText(member.returnType?.name ?? "unknown", substitutions)
+        typeName: substituteTypeNameText(member.returnType?.name ?? inferredTypeName ?? "unknown", substitutions)
       };
       if (documentation) {
         result.documentation = documentation;
@@ -631,7 +641,12 @@ async function resolveClassMemberRecursive(
   visitedClasses.add(visitKey);
 
   const substitutions = typeParameterSubstitutions(classStatement.typeParameters ?? [], objectTypeName);
-  const local = resolveClassOwnMember(classStatement, memberName, substitutions);
+  const local = resolveClassOwnMember(classStatement, memberName, substitutions, {
+    ast: context.ast,
+    options: context.options,
+    analysis: context.analysis,
+    cache: context.cache
+  });
   if (local) {
     context.cache.classMemberByRequest.set(cacheKey, local);
     return local;
@@ -710,6 +725,7 @@ export async function resolveClassMember(
     {
       ast: context.ast,
       options: context.options,
+      analysis: context.analysis,
       cache: context.cache ?? createClassResolverCache()
     },
     new Set<string>(),
@@ -738,6 +754,7 @@ export async function resolveInterfaceMember(
     {
       ast: context.ast,
       options: context.options,
+      analysis: context.analysis,
       cache: context.cache ?? createClassResolverCache()
     },
     new Set<string>()
@@ -805,6 +822,7 @@ export async function resolveClassMemberDeclaration(
     {
       ast: context.ast,
       options: context.options,
+      analysis: context.analysis,
       cache: context.cache ?? createClassResolverCache()
     },
     new Set<string>()
@@ -954,6 +972,7 @@ export async function resolveClassMemberNames(
     {
       ast: context.ast,
       options: context.options,
+      analysis: context.analysis,
       cache: context.cache ?? createClassResolverCache()
     },
     new Set<string>(),

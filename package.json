@@ -14,11 +14,9 @@
     "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/vexa.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --external:esbuild --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/vexa.js",
     "test": "tsc --noEmit && node --import tsx --test --test-reporter spec",
     "coverage": "tsx --test --experimental-test-coverage",
-    "vscodeext:install": "pnpm --dir plugins/vscode install",
-    "vscodeext:bundle": "pnpm --dir plugins/vscode run bundle-extension",
-    "vscodeext:package": "pnpm --dir plugins/vscode run package",
-    "vscodeext:launch": "pnpm --dir plugins/vscode run launch",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
+    "code:install": "pnpm --dir plugins/vscode install",
+    "code:package": "pnpm --dir plugins/vscode package",
     "monaco": "pnpm --dir plugins/monaco monaco",
     "website:build": "pnpm --dir website build",
     "website": "pnpm --dir website dev"

@@ -79,6 +79,22 @@ import {
 } from "./projectAnalysis";
 import { findNodeModuleMemberLocation } from "./nodeModulesTypings";
 
+function boxedNavigationTypeName(typeName: string): string {
+  if (typeName === "int" || typeName === "number" || typeName === "numeric") {
+    return "Number";
+  }
+  if (typeName === "string") {
+    return "String";
+  }
+  if (typeName === "boolean") {
+    return "Boolean";
+  }
+  if (typeName === "bigint" || typeName === "long") {
+    return "BigInt";
+  }
+  return typeName;
+}
+
 interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
@@ -1168,8 +1184,11 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
 
   // A member access on a concrete class/interface may resolve to one of its own
   // members first.
-  if (objectType.kind === "named" || objectType.kind === "array") {
-    const classResolution = await resolveTypeDefinitionAcrossFiles(context, receiverTypeNames[0]!);
+  if (objectType.kind === "named" || objectType.kind === "array" || objectType.kind === "builtin") {
+    const resolvedReceiverTypeName = objectType.kind === "array"
+      ? receiverTypeNames[0]!
+      : boxedNavigationTypeName(receiverTypeNames[0]!);
+    const classResolution = await resolveTypeDefinitionAcrossFiles(context, resolvedReceiverTypeName);
     if (classResolution) {
       const resolverContext = {
         ast: context.session.ast,
@@ -1180,6 +1199,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
             ? { getSessionForFilePath: context.getSessionForFilePath }
             : {})
         },
+        analysis: context.session.analysis,
         cache: createClassResolverCache()
       };
       const interfaceMemberDeclaration = classResolution.declaration.kind === "InterfaceStatement"
@@ -1903,7 +1923,11 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
   const memberName = (memberExpression.property as Identifier).name;
   const objectTypeLabel = typeToString(objectType);
   const structuralMember = parseObjectTypeMemberInfo(objectTypeLabel, memberName);
-  const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.kind === "named" ? objectType.name : null;
+  const resolvedClassName = objectType.kind === "array"
+    ? "Array"
+    : objectType.kind === "named" || objectType.kind === "builtin"
+      ? boxedNavigationTypeName(objectType.name)
+      : null;
   const classResolution = resolvedClassName
     ? await resolveTypeDefinitionAcrossFiles(context, resolvedClassName)
     : null;
@@ -1934,6 +1958,7 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
             ? { getSessionForFilePath: context.getSessionForFilePath }
             : {})
         },
+        analysis: context.session.analysis,
         cache: createClassResolverCache()
       }
     )
@@ -1950,6 +1975,7 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
             ? { getSessionForFilePath: context.getSessionForFilePath }
             : {})
         },
+        analysis: context.session.analysis,
         cache: createClassResolverCache()
       }
     );

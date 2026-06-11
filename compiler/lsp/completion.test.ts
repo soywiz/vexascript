@@ -324,6 +324,46 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toEqual(expect.arrayContaining(["milliseconds", "seconds"]));
   });
 
+  it("merges boxed Number members with extension members for class numeric properties", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class TimeSpan(val ms: number)
+      class Adler32 {
+        value: int => checksum
+        private checksum = 1
+      }
+      val number.milliseconds => TimeSpan(this)
+      val number.seconds => TimeSpan(this * 1000)
+      const adler = Adler32()
+      adler.value.^^^
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(labels).toEqual(expect.arrayContaining(["milliseconds", "seconds", "toLocaleString", "valueOf"]));
+    expect(byLabel.get("toLocaleString")?.sortText).toBe("2-toLocaleString");
+    expect(byLabel.get("milliseconds")?.sortText).toBe("3-milliseconds");
+  });
+
+  it("infers getter shorthand property types in class member completions", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Adler32 {
+        private checksum = 1
+        value => checksum
+      }
+      val adler = Adler32()
+      adler.v^^^
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("value")?.detail).toBe("Class property: int");
+  });
+
   it("offers generic Array extension members for array member access", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun <T> Array<T>.second(): T { return this[1] }

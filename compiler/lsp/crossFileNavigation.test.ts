@@ -328,6 +328,72 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("infers hover info for getter shorthand class properties", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "main.vx");
+    const source = dedent`
+      class Adler32 {
+        private checksum = 1
+        value => checksum
+      }
+      val adler = Adler32()
+      adler.value
+      `;
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const hover = await resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 5,
+      character: 8,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "value: int"
+    });
+  });
+
+  it("resolves hover and definition for boxed Number members on int receivers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "main.vx");
+    const source = dedent`
+      class Adler32 {
+        private checksum = 1
+        value => checksum
+      }
+      val adler = Adler32()
+      adler.value.valueOf()
+      `;
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const definition = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 5,
+      character: source.split("\n")[5]!.indexOf("valueOf") + 1,
+      session,
+      sourceRoots: [root]
+    });
+    const hover = await resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 5,
+      character: source.split("\n")[5]!.indexOf("valueOf") + 1,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(definition?.uri).toBe(pathToFileURL(await getEcmaScriptRuntimeDeclarationFilePath()).toString());
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "valueOf: () => number"
+    });
+  });
+
   it("resolves definition and hover for imported object type alias members", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
     const scenariosPath = join(root, "scenarios.vx");
