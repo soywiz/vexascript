@@ -25,7 +25,8 @@ import type {
   VarStatement,
   UnaryExpression,
   UpdateExpression,
-  Program
+  Program,
+  ReturnStatement
 } from "compiler/ast/ast";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { uriToFilePath } from "./importFixes";
@@ -149,6 +150,15 @@ interface ResolutionContext {
   options: ClassResolverOptions;
   analysis?: Analysis;
   cache: ClassResolverCache;
+}
+
+function createResolutionContext(context: ResolveClassMemberContext): ResolutionContext {
+  return {
+    ast: context.ast,
+    options: context.options,
+    cache: context.cache ?? createClassResolverCache(),
+    ...(context.analysis ? { analysis: context.analysis } : {})
+  };
 }
 
 export function createClassResolverCache(): ClassResolverCache {
@@ -660,8 +670,8 @@ async function resolveClassMemberRecursive(
   const local = resolveClassOwnMember(classStatement, memberName, substitutions, {
     ast: context.ast,
     options: context.options,
-    analysis: context.analysis,
-    cache: context.cache
+    cache: context.cache,
+    ...(context.analysis ? { analysis: context.analysis } : {})
   });
   if (local) {
     context.cache.classMemberByRequest.set(cacheKey, local);
@@ -738,12 +748,7 @@ export async function resolveClassMember(
     classStatement,
     memberName,
     objectTypeName,
-    {
-      ast: context.ast,
-      options: context.options,
-      analysis: context.analysis,
-      cache: context.cache ?? createClassResolverCache()
-    },
+    createResolutionContext(context),
     new Set<string>(),
     new Set<string>()
   );
@@ -767,12 +772,7 @@ export async function resolveInterfaceMember(
     interfaceStatement,
     memberName,
     objectTypeName,
-    {
-      ast: context.ast,
-      options: context.options,
-      analysis: context.analysis,
-      cache: context.cache ?? createClassResolverCache()
-    },
+    createResolutionContext(context),
     new Set<string>()
   );
 }
@@ -835,12 +835,7 @@ export async function resolveClassMemberDeclaration(
     classResolution,
     memberName,
     objectTypeName,
-    {
-      ast: context.ast,
-      options: context.options,
-      analysis: context.analysis,
-      cache: context.cache ?? createClassResolverCache()
-    },
+    createResolutionContext(context),
     new Set<string>()
   );
 }
@@ -985,12 +980,7 @@ export async function resolveClassMemberNames(
   await collectClassMemberNamesRecursive(
     classStatement,
     objectTypeName,
-    {
-      ast: context.ast,
-      options: context.options,
-      analysis: context.analysis,
-      cache: context.cache ?? createClassResolverCache()
-    },
+    createResolutionContext(context),
     new Set<string>(),
     new Set<string>(),
     names,
@@ -1009,11 +999,7 @@ export async function resolveInterfaceMemberNames(
   await collectInterfaceMemberNamesRecursive(
     interfaceStatement,
     objectTypeName,
-    {
-      ast: context.ast,
-      options: context.options,
-      cache: context.cache ?? createClassResolverCache()
-    },
+    createResolutionContext(context),
     new Set<string>(),
     names,
     seenNames

@@ -33,6 +33,7 @@ export default function eleventyConfig(config) {
       siteCss: await versionedAssetHref("src/assets/site.css", "/assets/site.css"),
       generatedStyleCss: await versionedAssetHref("src/assets/generated/style.css", "/assets/generated/style.css"),
       generatedEmbedJs: await versionedAssetHref("src/assets/generated/vexa-embed.js", "/assets/generated/vexa-embed.js"),
+      generatedPlaygroundHtml: await versionedAssetHref("src/assets/generated/playground/index.html", "/assets/generated/playground/index.html"),
     };
   });
 

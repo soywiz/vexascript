@@ -130,22 +130,14 @@ class Counter(var value: int) {
   </div>
 </section>
 
-<section id="playground" class="section alt">
-  <div class="section-heading">
-    <p class="eyebrow">Embedded Monaco</p>
-    <h2>Use the compiler and editor directly in lessons.</h2>
-    <p class="lead">The website bundle exposes two helpers: a simple single-file editor for snippets and a multi-file workspace editor for richer tutorials.</p>
-  </div>
-  <div class="editor-shell">
-    <div class="panel-title">Single-file snippet</div>
-    <div id="simple-editor" class="editor-demo"></div>
-  </div>
-</section>
-
 <section class="section">
-  <div class="editor-shell">
-    <div class="panel-title">Multi-file workspace</div>
-    <div id="workspace-editor" class="workspace-demo"></div>
+  <div class="section-heading">
+    <p class="eyebrow">Blog</p>
+    <h2>Follow release news and project updates.</h2>
+    <p class="lead">Read launch announcements, milestone notes, and ecosystem updates from the VexaScript team.</p>
+    <div class="actions">
+      <a class="button secondary" href="/blog/">Open the blog</a>
+    </div>
   </div>
 </section>
 
@@ -159,60 +151,3 @@ class Counter(var value: int) {
     </div>
   </div>
 </section>
-
-<script>
-  window.addEventListener("DOMContentLoaded", () => {
-    function dedent(strings, ...values) {
-      const raw = String.raw({ raw: strings }, ...values).replace(/^\n+/, "")
-      const lines = raw.split("\n")
-      const indents = lines
-        .filter((line) => line.trim() !== "")
-        .map((line) => line.match(/^\s*/)?.[0].length ?? 0)
-      const margin = indents.length > 0 ? Math.min(...indents) : 0
-      return lines.map((line) => line.slice(margin)).join("\n").trim()
-    }
-    const counterSnippet = dedent`
-      class Counter(var value: int) {
-        increment(): int => ++value
-      }
-
-      val counter = Counter(41)
-      counter.increment()
-
-      declare class Fetch { arrayBuffer(): Promise<ArrayBuffer> }
-      declare fun fetch(str: string): Promise<Fetch>
-
-      sync fun loadBytes(): Uint8Array {
-        return Uint8Array(fetch('file.bin').arrayBuffer())
-      }
-    `
-    const counterSelection = {
-      startLineNumber: 4,
-      startColumn: 5,
-      endLineNumber: 4,
-      endColumn: 22
-    }
-
-    VexaScriptEmbeds.createSimpleEditor("#simple-editor", {
-      content: counterSnippet,
-      selection: counterSelection
-    })
-
-    VexaScriptEmbeds.createWorkspaceEditor("#workspace-editor", {
-      activePath: "/main.vx",
-      files: [
-        {
-          path: "/main.vx",
-          content: counterSnippet
-        },
-        {
-          path: "/notes.vx",
-          content: `// Same snippet, same initial selection, different host shell.
-// This workspace embed exists to compare the website integration against
-// the standalone Monaco app using the exact same code sample.`
-        }
-      ],
-      selection: counterSelection
-    })
-  })
-</script>

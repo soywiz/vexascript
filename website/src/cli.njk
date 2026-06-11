@@ -13,40 +13,40 @@ title: VexaScript CLI Guide
       <h3>Core commands</h3>
       <div class="cli-command-list">
         <div>
-          <code>build &lt;input&gt;</code>
+          <code>build</code> <code class="command_switch">&lt;input&gt;</code>
           <p>Compile a VexaScript file to JavaScript, with optional bundling and JSX factory overrides.</p>
         </div>
         <div>
-          <code>bundle &lt;input&gt;</code>
+          <code>bundle</code> <code class="command_switch">&lt;input&gt;</code>
           <p>Bundle a VexaScript entry file and all referenced modules as ESM output.</p>
         </div>
         <div>
-          <code>run &lt;input&gt;</code>
+          <code>run</code> <code class="command_switch">&lt;input&gt;</code>
           <p>Transpile and execute a VexaScript file with Node.js.</p>
         </div>
         <div>
-          <code>test [paths...]</code>
+          <code>test</code> <code class="command_switch">[paths...]</code>
           <p>Discover and run <code>.test.vx</code> files with the built-in inline helpers.</p>
         </div>
         <div>
-          <code>format &lt;input&gt;</code>
+          <code>format</code> <code class="command_switch">&lt;input&gt;</code>
           <p>Format a file in place, optionally writing a copy to a separate output path.</p>
         </div>
         <div>
-          <div><code>tokens &lt;input&gt;</code></div>
-          <div><code>ast &lt;input&gt;</code></div>
+          <div><code>tokens</code> <code class="command_switch">&lt;input&gt;</code></div>
+          <div><code>ast</code> <code class="command_switch">&lt;input&gt;</code></div>
           <p>Inspect the tokenizer output or print a simplified AST for debugging parser behavior.</p>
         </div>
         <div>
           <code>syntax</code>
-          <span style="color:grey;"><code>--monaco</code>, <code>--vscode</code>, <code>--textmate</code>, <code>--codemirror</code></span>
+          <span class="command_switch"><code>--monaco</code>, <code>--vscode</code>, <code>--textmate</code>, <code>--codemirror</code></span>
           <p>Export editor grammars</p>
           
           <p>Select editor syntax export targets from the <code>syntax</code> command, or use <code>--target &lt;name&gt;</code> for the explicit target id.</p>
         </div>
         <div>
           <code>lsp</code>
-          <p>Start the language server. By default using <code>--stdio</code>. This allows editors to get autocompletion and error detection.</p>
+          <p>Start the language server. By default using <code class="command_switch">--stdio</code>. This allows editors to get autocompletion and error detection.</p>
         </div>
         <div>
           <code>mcp</code>

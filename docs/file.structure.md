@@ -144,7 +144,7 @@ This section is the fast onboarding map for agents and contributors.
   - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`): `compiler/lsp/importedDeclarations.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
 - Website and embeddable learning playground (project root: `website/`):
-  - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/syntax.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/404.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
+  - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/syntax.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/playground.njk`, `website/src/blog/index.njk`, `website/src/blog/article1.njk`, `website/src/404.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
   - Website build orchestrator, which ensures the compiler CLI bundle exists, regenerates the website-safe JS syntax module from the compiler's canonical syntax source, then runs Vite and 11ty: `website/scripts/build.ts`
   - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
   - Website-only JS syntax highlighter and generated syntax artifact used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.mjs`, `website/src/generated/vexa-monarch-language.mjs`

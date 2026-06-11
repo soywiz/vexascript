@@ -26,5 +26,6 @@ async function cleanBuiltSite(): Promise<void> {
 await ensureCompilerBundle();
 await ensureGeneratedSyntaxModule();
 await run("pnpm", ["exec", "vite", "build", "--config", "vite.config.ts"], websiteRoot);
+await run("pnpm", ["exec", "vite", "build", "--config", "vite.playground.config.ts"], websiteRoot);
 await cleanBuiltSite();
 await run("pnpm", ["exec", "eleventy", "--config", "eleventy.config.mjs"], websiteRoot);

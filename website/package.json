@@ -7,6 +7,7 @@
     "build": "tsx scripts/build.ts",
     "build:site": "eleventy --config eleventy.config.mjs",
     "build:embeds": "vite build --config vite.config.ts",
+    "build:playground": "vite build --config vite.playground.config.ts",
     "dev": "tsx scripts/dev.ts",
     "typecheck": "tsc --noEmit"
   },

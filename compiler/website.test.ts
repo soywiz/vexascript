@@ -7,12 +7,14 @@ import { fileExists } from "./utils/fs";
 
 describe("website project", () => {
   it("documents and exposes both VexaScript Monaco embedding modes", async () => {
-    const [embedSource, landingPage, layoutSource, syntaxPage, cliPage, notFoundPage] = await Promise.all([
+    const [embedSource, landingPage, layoutSource, syntaxPage, cliPage, embedPage, playgroundPage, notFoundPage] = await Promise.all([
       readFile("website/src/assets/vexa-embed.ts", "utf8"),
       readFile("website/src/index.njk", "utf8"),
       readFile("website/src/_includes/layout.njk", "utf8"),
       readFile("website/src/syntax.njk", "utf8"),
       readFile("website/src/cli.njk", "utf8"),
+      readFile("website/src/embed.njk", "utf8"),
+      readFile("website/src/playground.njk", "utf8"),
       readFile("website/src/404.njk", "utf8"),
     ]);
 
@@ -36,12 +38,14 @@ describe("website project", () => {
     expect(embedSource.includes("function updateAutoAwaitGlyphs(")).toBe(true);
     expect(layoutSource.includes('generatedAssetHrefs.generatedStyleCss')).toBe(true);
     expect(layoutSource.includes('generatedAssetHrefs.generatedEmbedJs')).toBe(true);
+    expect(layoutSource.includes('generatedAssetHrefs.generatedPlaygroundHtml')).toBe(false);
     expect(layoutSource.includes('href="/cli/"')).toBe(true);
+    expect(layoutSource.includes('href="/playground/"')).toBe(true);
     expect(layoutSource.includes('class="brand-icon"')).toBe(true);
     expect(layoutSource.includes('src="/favicon.svg"')).toBe(true);
     expect(landingPage.includes("{% highlightVexaScript %}")).toBe(true);
-    expect(landingPage.includes("VexaScriptEmbeds.createSimpleEditor")).toBe(true);
-    expect(landingPage.includes("VexaScriptEmbeds.createWorkspaceEditor")).toBe(true);
+    expect(landingPage.includes("VexaScriptEmbeds.createSimpleEditor")).toBe(false);
+    expect(landingPage.includes("VexaScriptEmbeds.createWorkspaceEditor")).toBe(false);
     expect(landingPage.includes('<section id="cli" class="section alt">')).toBe(true);
     expect(landingPage.includes("Compile, bundle, run, inspect, and format from the terminal.")).toBe(true);
     expect(landingPage.includes('href="/cli/"')).toBe(true);
@@ -52,19 +56,24 @@ describe("website project", () => {
     expect(landingPage.includes("Implicit property access")).toBe(true);
     expect(landingPage.includes("operator+(other: Vec2) => Vec2(x + other.x, y + other.y)")).toBe(true);
     expect(landingPage.includes('import { h } from "preact"')).toBe(true);
-    expect(landingPage.includes("return <section>Hello {props.name}</section>")).toBe(true);
-    expect(landingPage.includes("value++")).toBe(true);
-    expect(landingPage.includes("function dedent(strings, ...values)")).toBe(true);
-    expect(landingPage.includes("String.raw({ raw: strings }, ...values)")).toBe(true);
-    expect(landingPage.includes('const counterSnippet = dedent`')).toBe(true);
-    expect(landingPage.includes("startLineNumber: 4")).toBe(true);
-    expect(landingPage.includes("fun increment(): int")).toBe(true);
+    expect(landingPage.includes("return <section>Hello {name}</section>")).toBe(true);
+    expect(landingPage.includes("++value")).toBe(true);
+    expect(embedPage.includes("VexaScriptEmbeds.createSimpleEditor")).toBe(true);
+    expect(embedPage.includes("VexaScriptEmbeds.createWorkspaceEditor")).toBe(true);
+    expect(embedPage.includes("function dedent(strings, ...values)")).toBe(true);
+    expect(embedPage.includes("String.raw({ raw: strings }, ...values)")).toBe(true);
+    expect(embedPage.includes('const counterSnippet = dedent`')).toBe(true);
+    expect(embedPage.includes("startLineNumber: 4")).toBe(true);
+    expect(embedPage.includes("increment(): int => ++value")).toBe(true);
+    expect(playgroundPage.includes('class="playground-frame"')).toBe(true);
+    expect(playgroundPage.includes('src="{{ generatedAssetHrefs.generatedPlaygroundHtml }}"')).toBe(true);
+    expect(playgroundPage.includes('title="VexaScript Monaco playground"')).toBe(true);
     expect(landingPage.includes('.find(str1)')).toBe(false);
     expect(syntaxPage.includes("This page renders the canonical")).toBe(false);
     expect(syntaxPage.includes('class="doc-content"')).toBe(false);
     expect(syntaxPage.includes('class="section"')).toBe(true);
     expect(cliPage.includes("pnpm tsx compiler/cli.ts build src/main.vx --out dist/main.js --target optimized")).toBe(true);
-    expect(cliPage.includes("<code>--bundle</code>")).toBe(true);
+    expect(cliPage.includes("<code>bundle</code>")).toBe(true);
     expect(cliPage.includes("<code>--root &lt;dir&gt;</code>")).toBe(true);
     expect(notFoundPage.includes("permalink: 404.html")).toBe(true);
     expect(notFoundPage.includes("<h1>Page not found.</h1>")).toBe(true);
@@ -85,9 +94,12 @@ describe("website project", () => {
 
     expect(packageJson.scripts?.["build"]).toBe("tsx scripts/build.ts");
     expect(packageJson.scripts?.["dev"]).toBe("tsx scripts/dev.ts");
+    expect(packageJson.scripts?.["build:playground"]).toBe("vite build --config vite.playground.config.ts");
     expect(buildScript.includes("ensureCompilerBundle")).toBe(true);
     expect(buildScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
+    expect(buildScript.includes('vite.playground.config.ts')).toBe(true);
     expect(devScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
+    expect(devScript.includes('vite.playground.config.ts')).toBe(true);
     expect(devScript.includes("websiteRoot")).toBe(true);
     expect(devScript.includes('eleventy')).toBe(true);
     expect(buildScript.includes("eleventy")).toBe(true);
@@ -97,6 +109,7 @@ describe("website project", () => {
     expect(eleventyConfig.includes('{ "src/assets/favicon.svg": "favicon.svg" }')).toBe(true);
     expect(eleventyConfig.includes('config.addGlobalData("generatedAssetHrefs"')).toBe(true);
     expect(eleventyConfig.includes('src/assets/generated/vexa-embed.js')).toBe(true);
+    expect(eleventyConfig.includes('src/assets/generated/playground/index.html')).toBe(true);
     expect(eleventyConfig.includes('src/assets/generated/style.css')).toBe(true);
     expect(eleventyConfig.includes('config.addShortcode("year", function()')).toBe(true);
     expect(eleventyConfig.includes('config.addPairedShortcode("highlightVexaScript", function(content)')).toBe(true);
@@ -122,6 +135,7 @@ describe("website project", () => {
     expect(siteCss.includes('.cli-command-list')).toBe(true);
     expect(siteCss.includes('.editor-shell { overflow: visible; }')).toBe(true);
     expect(siteCss.includes('.vexa-embed-workspace { display: grid; grid-template-rows: auto 1fr; border-radius: 1.5rem; overflow: visible; }')).toBe(true);
+    expect(siteCss.includes('.playground-frame {')).toBe(true);
     expect(siteCss.includes('.token-keyword-declaration')).toBe(true);
     expect(siteCss.includes('.syntax-block')).toBe(true);
     expect(layoutSource.includes('rel="icon"')).toBe(true);
