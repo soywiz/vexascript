@@ -18,7 +18,7 @@ import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import { baseTypeName, boxedPrimitiveTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type { AnalysisType } from "compiler/analysis/types";
-import type { BlockStatement, CallExpression, ClassMember, ClassStatement, DoWhileStatement, EnumStatement, ExportStatement, Expr, ForStatement, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceStatement, LabeledStatement, MemberExpression, NamespaceStatement, NewExpression, Program, Statement, SwitchStatement, TryStatement, TypeAliasStatement, TypeAnnotation, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
+import type { CallExpression, ClassMember, ClassStatement, EnumStatement, ExportStatement, Expr, FunctionParameter, FunctionStatement, Identifier, ImportStatement, InterfaceStatement, MemberExpression, NamespaceStatement, NewExpression, Program, Statement, TypeAliasStatement, TypeAnnotation, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
@@ -846,72 +846,26 @@ export function inferClassNameFromAstVariableInitializer(
     }
   };
 
-  const visitStatements = (statements: Statement[]): void => {
-    for (const statement of statements) {
-      if (statement.kind === "VarStatement") {
-        const varStatement = statement as VarStatement;
-        if (varStatement.declarations && varStatement.declarations.length > 0) {
-          for (const declaration of varStatement.declarations) {
-            for (const identifier of bindingIdentifiers(declaration.name)) {
-              const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-              considerDeclaration(identifier.name, declaration.initializer, declarationLine);
-            }
-          }
-        } else {
-          for (const identifier of bindingIdentifiers(varStatement.name)) {
-            const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-            considerDeclaration(identifier.name, varStatement.initializer, declarationLine);
-          }
+  walkAst(ast, (node) => {
+    if (node.kind !== "VarStatement") {
+      return;
+    }
+    const varStatement = node as VarStatement;
+    if (varStatement.declarations && varStatement.declarations.length > 0) {
+      for (const declaration of varStatement.declarations) {
+        for (const identifier of bindingIdentifiers(declaration.name)) {
+          const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+          considerDeclaration(identifier.name, declaration.initializer, declarationLine);
         }
       }
-
-      if (statement.kind === "FunctionStatement") {
-        visitStatements((statement as FunctionStatement).body.body);
-      } else if (statement.kind === "BlockStatement") {
-        visitStatements((statement as BlockStatement).body);
-      } else if (statement.kind === "IfStatement") {
-        const ifStatement = statement as IfStatement;
-        visitStatements([ifStatement.thenBranch]);
-        if (ifStatement.elseBranch) {
-          visitStatements([ifStatement.elseBranch]);
-        }
-      } else if (statement.kind === "WhileStatement" || statement.kind === "DoWhileStatement") {
-        const loopStatement = statement as WhileStatement | DoWhileStatement;
-        visitStatements([loopStatement.body]);
-      } else if (statement.kind === "WithStatement") {
-        visitStatements([(statement as WithStatement).body]);
-      } else if (statement.kind === "LabeledStatement") {
-        visitStatements([(statement as LabeledStatement).body]);
-      } else if (statement.kind === "ForStatement") {
-        const forStatement = statement as ForStatement;
-        if (forStatement.initializer && forStatement.initializer.kind === "VarStatement") {
-          visitStatements([forStatement.initializer]);
-        }
-        visitStatements([forStatement.body]);
-      } else if (statement.kind === "SwitchStatement") {
-        for (const switchCase of (statement as SwitchStatement).cases) {
-          visitStatements(switchCase.consequent);
-        }
-      } else if (statement.kind === "TryStatement") {
-        const tryStatement = statement as TryStatement;
-        visitStatements(tryStatement.tryBlock.body);
-        if (tryStatement.catchClause) {
-          visitStatements(tryStatement.catchClause.body.body);
-        }
-        if (tryStatement.finallyBlock) {
-          visitStatements(tryStatement.finallyBlock.body);
-        }
-      } else if (statement.kind === "ClassStatement") {
-        for (const member of (statement as ClassStatement).members) {
-          if (member.kind === "ClassMethodMember") {
-            visitStatements(member.body.body);
-          }
-        }
+    } else {
+      for (const identifier of bindingIdentifiers(varStatement.name)) {
+        const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+        considerDeclaration(identifier.name, varStatement.initializer, declarationLine);
       }
     }
-  };
+  });
 
-  visitStatements(ast.body);
   return bestClassName;
 }
 
@@ -954,95 +908,34 @@ export function inferTypeNameFromAstBindingAnnotation(
     }
   };
 
-  const visitStatements = (statements: Statement[]): void => {
-    for (const statement of statements) {
-      if (statement.kind === "FunctionStatement") {
-        const fn = statement as FunctionStatement;
-        for (const parameter of fn.parameters) {
-          for (const identifier of bindingIdentifiers(parameter.name)) {
-            const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-            considerDeclaration(identifier.name, parameter.typeAnnotation, declarationLine);
-          }
+  walkAst(ast, (node) => {
+    if (node.kind === "FunctionParameter") {
+      const parameter = node as FunctionParameter;
+      for (const identifier of bindingIdentifiers(parameter.name)) {
+        const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+        considerDeclaration(identifier.name, parameter.typeAnnotation, declarationLine);
+      }
+      return;
+    }
+    if (node.kind !== "VarStatement") {
+      return;
+    }
+    const varStatement = node as VarStatement;
+    if (varStatement.declarations && varStatement.declarations.length > 0) {
+      for (const declaration of varStatement.declarations) {
+        for (const identifier of bindingIdentifiers(declaration.name)) {
+          const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+          considerDeclaration(identifier.name, declaration.typeAnnotation, declarationLine);
         }
       }
-
-      if (statement.kind === "VarStatement") {
-        const varStatement = statement as VarStatement;
-        if (varStatement.declarations && varStatement.declarations.length > 0) {
-          for (const declaration of varStatement.declarations) {
-            for (const identifier of bindingIdentifiers(declaration.name)) {
-              const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-              considerDeclaration(identifier.name, declaration.typeAnnotation, declarationLine);
-            }
-          }
-        } else {
-          for (const identifier of bindingIdentifiers(varStatement.name)) {
-            const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-            considerDeclaration(identifier.name, varStatement.typeAnnotation, declarationLine);
-          }
-        }
-      }
-
-      if (statement.kind === "FunctionStatement") {
-        visitStatements((statement as FunctionStatement).body.body);
-      } else if (statement.kind === "BlockStatement") {
-        visitStatements((statement as BlockStatement).body);
-      } else if (statement.kind === "IfStatement") {
-        const ifStatement = statement as IfStatement;
-        visitStatements([ifStatement.thenBranch]);
-        if (ifStatement.elseBranch) {
-          visitStatements([ifStatement.elseBranch]);
-        }
-      } else if (statement.kind === "WhileStatement" || statement.kind === "DoWhileStatement") {
-        const loopStatement = statement as WhileStatement | DoWhileStatement;
-        visitStatements([loopStatement.body]);
-      } else if (statement.kind === "WithStatement") {
-        visitStatements([(statement as WithStatement).body]);
-      } else if (statement.kind === "LabeledStatement") {
-        visitStatements([(statement as LabeledStatement).body]);
-      } else if (statement.kind === "ForStatement") {
-        const forStatement = statement as ForStatement;
-        if (forStatement.initializer && forStatement.initializer.kind === "VarStatement") {
-          visitStatements([forStatement.initializer]);
-        }
-        visitStatements([forStatement.body]);
-      } else if (statement.kind === "SwitchStatement") {
-        for (const switchCase of (statement as SwitchStatement).cases) {
-          visitStatements(switchCase.consequent);
-        }
-      } else if (statement.kind === "TryStatement") {
-        const tryStatement = statement as TryStatement;
-        visitStatements(tryStatement.tryBlock.body);
-        if (tryStatement.catchClause) {
-          visitStatements(tryStatement.catchClause.body.body);
-        }
-        if (tryStatement.finallyBlock) {
-          visitStatements(tryStatement.finallyBlock.body);
-        }
-      } else if (statement.kind === "ClassStatement") {
-        const classStatement = statement as ClassStatement;
-        for (const parameter of classStatement.primaryConstructorParameters ?? []) {
-          for (const identifier of bindingIdentifiers(parameter.name)) {
-            const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-            considerDeclaration(identifier.name, parameter.typeAnnotation, declarationLine);
-          }
-        }
-        for (const member of classStatement.members) {
-          if (member.kind === "ClassMethodMember") {
-            for (const parameter of member.parameters) {
-              for (const identifier of bindingIdentifiers(parameter.name)) {
-                const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-                considerDeclaration(identifier.name, parameter.typeAnnotation, declarationLine);
-              }
-            }
-            visitStatements(member.body.body);
-          }
-        }
+    } else {
+      for (const identifier of bindingIdentifiers(varStatement.name)) {
+        const declarationLine = identifier.firstToken?.range.start.line ?? -1;
+        considerDeclaration(identifier.name, varStatement.typeAnnotation, declarationLine);
       }
     }
-  };
+  });
 
-  visitStatements(ast.body);
   return bestTypeName;
 }
 
