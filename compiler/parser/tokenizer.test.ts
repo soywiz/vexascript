@@ -206,6 +206,16 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes annotation syntax with '@'", () => {
+        expect(simplifyTokens('@JsName("rgba")')).toStrictEqual([
+            { type: "symbol", value: "@" },
+            { type: "identifier", value: "JsName" },
+            { type: "symbol", value: "(" },
+            { type: "string", value: "rgba" },
+            { type: "symbol", value: ")" }
+        ])
+    })
+
     it("tokenizes string literals with escapes", () => {
         expect(simplifyTokens("\"hello\\n\\r\\t...world\" \"hi\\u0020there\"")).toStrictEqual([
             { type: "string", value: "hello\n\r\t...world" },

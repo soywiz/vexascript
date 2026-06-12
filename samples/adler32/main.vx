@@ -1,13 +1,13 @@
 class Adler32 {
-  static BASE = 65521
-  private checksum = 1
-  value => checksum
+  static val BASE = 65521
+  private var checksum = 1
+  var value => checksum
 
-  /// [data]
-  update(data: Uint8Array) {
-    let s1 = checksum & 0xffff;
-    let s2 = checksum >>> 16;
-    let len = data.length as int
+  /// Updates checksum with the [data] input.
+  fun update(data: Uint8Array) {
+    var s1 = checksum & 0xffff;
+    var s2 = checksum >>> 16;
+    var len = data.length
     let off = 0
     while (len > 0) {
       let n = 3800;

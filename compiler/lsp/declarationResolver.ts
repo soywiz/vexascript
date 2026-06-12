@@ -1,4 +1,5 @@
 import type {
+  AnnotationStatement,
   ClassStatement,
   EnumStatement,
   FunctionStatement,
@@ -12,7 +13,11 @@ import type {
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
-import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import {
+  getEcmaScriptRuntimeProgram,
+  getVexaScriptRuntimeDeclarationFilePath,
+  getVexaScriptRuntimeProgram
+} from "compiler/runtime/ecmascriptDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { loadProject } from "compiler/project";
 import {
@@ -22,6 +27,7 @@ import {
 } from "./projectAnalysis";
 
 export type NamedTopLevelDeclaration =
+  | AnnotationStatement
   | ClassStatement
   | InterfaceStatement
   | EnumStatement
@@ -66,6 +72,7 @@ export function topLevelDeclarationNames(statement: Statement): string[] {
 
   switch (declaration.kind) {
     case "ClassStatement":
+    case "AnnotationStatement":
     case "InterfaceStatement":
     case "EnumStatement":
     case "TypeAliasStatement":
@@ -108,6 +115,9 @@ async function runtimeDeclarationsForCurrentFile(currentFilePath: string | null)
   filePath: string;
 }>> {
   const runtimeDeclarations = [{
+    ast: getVexaScriptRuntimeProgram(),
+    filePath: getVexaScriptRuntimeDeclarationFilePath()
+  }, {
     ast: getEcmaScriptRuntimeProgram(),
     filePath: ""
   }];

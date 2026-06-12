@@ -57,7 +57,7 @@ describe("semantic tokens", () => {
     });
 
     const decoded = decodeTokens(source, semantic.data);
-    expect(decoded.some((token) => token.lexeme === "debugger" && token.tokenType === "keyword")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "debugger" && token.tokenType === "keywordControl")).toBe(true);
   });
 
   it("highlights constructor parameter properties as properties", () => {
@@ -87,7 +87,7 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "Point" && token.tokenType === "type")).toBe(true);
   });
 
-  it("highlights keywords like switch/case/default/new/declare", () => {
+  it("splits semantic keyword families for declarations, callables, types, and control flow", () => {
     const source = dedent`
       declare class Console {
         log(a: number)
@@ -114,16 +114,37 @@ describe("semantic tokens", () => {
       decoded.map((token) => [`${token.line}:${token.character}`, token.tokenType])
     );
 
-    expect(byPosition.get("0:0")).toBe("keyword");
-    expect(byPosition.get("0:8")).toBe("keyword");
-    expect(byPosition.get("3:0")).toBe("keyword");
-    expect(byPosition.get("3:8")).toBe("keyword");
-    expect(decoded.some((token) => token.lexeme === "infer" && token.tokenType === "keyword")).toBe(true);
-    expect(decoded.some((token) => token.lexeme === "keyof" && token.tokenType === "keyword")).toBe(true);
-    expect(byPosition.get("5:0")).toBe("keyword");
-    expect(byPosition.get("5:8")).toBe("keyword");
-    expect(byPosition.get("6:2")).toBe("keyword");
-    expect(byPosition.get("8:2")).toBe("keyword");
+    expect(byPosition.get("0:0")).toBe("keywordType");
+    expect(byPosition.get("0:8")).toBe("keywordType");
+    expect(byPosition.get("3:0")).toBe("keywordType");
+    expect(byPosition.get("3:8")).toBe("keywordModifier");
+    expect(decoded.some((token) => token.lexeme === "infer" && token.tokenType === "keywordType")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "keyof" && token.tokenType === "keywordType")).toBe(true);
+    expect(byPosition.get("5:0")).toBe("keywordControl");
+    expect(byPosition.get("5:8")).toBe("keywordControl");
+    expect(byPosition.get("6:2")).toBe("keywordControl");
+    expect(byPosition.get("8:2")).toBe("keywordControl");
+  });
+
+  it("highlights class modifiers as keywords so semantic tokens do not gray them out", () => {
+    const source = dedent`
+      class Demo {
+        static var answer = 42
+        private val id: string
+      }
+      `;
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "static" && token.tokenType === "keywordModifier")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "private" && token.tokenType === "keywordModifier")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "val" && token.tokenType === "keywordModifier")).toBe(true);
   });
 
   it("highlights operators and primitive literals", () => {
@@ -261,13 +282,13 @@ describe("semantic tokens", () => {
     });
     const decoded = decodeTokens(source, semantic.data);
 
-    expect(decoded.some((token) => token.lexeme === "declare" && token.tokenType === "keyword")).toBe(
+    expect(decoded.some((token) => token.lexeme === "declare" && token.tokenType === "keywordType")).toBe(
       true
     );
-    expect(decoded.some((token) => token.lexeme === "class" && token.tokenType === "keyword")).toBe(
+    expect(decoded.some((token) => token.lexeme === "class" && token.tokenType === "keywordType")).toBe(
       true
     );
-    expect(decoded.some((token) => token.lexeme === "switch" && token.tokenType === "keyword")).toBe(
+    expect(decoded.some((token) => token.lexeme === "switch" && token.tokenType === "keywordControl")).toBe(
       true
     );
   });
@@ -287,14 +308,14 @@ describe("semantic tokens", () => {
     });
     const decoded = decodeTokens(source, semantic.data);
 
-    expect(decoded.some((token) => token.lexeme === "extends" && token.tokenType === "keyword")).toBe(
+    expect(decoded.some((token) => token.lexeme === "extends" && token.tokenType === "keywordType")).toBe(
       true
     );
     expect(
-      decoded.some((token) => token.lexeme === "implements" && token.tokenType === "keyword")
+      decoded.some((token) => token.lexeme === "implements" && token.tokenType === "keywordType")
     ).toBe(true);
     expect(
-      decoded.some((token) => token.lexeme === "override" && token.tokenType === "keyword")
+      decoded.some((token) => token.lexeme === "override" && token.tokenType === "keywordType")
     ).toBe(true);
   });
 
@@ -313,8 +334,27 @@ describe("semantic tokens", () => {
     const decoded = decodeTokens(source, semantic.data);
 
     expect(
-      decoded.some((token) => token.lexeme === "interface" && token.tokenType === "keyword")
+      decoded.some((token) => token.lexeme === "interface" && token.tokenType === "keywordType")
     ).toBe(true);
+  });
+
+  it("highlights fun/function separately from class/interface keywords", () => {
+    const source = dedent`
+      class Demo {
+        fun update(): void {
+        }
+      }
+      `;
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "class" && token.tokenType === "keywordType")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "fun" && token.tokenType === "keywordFunction")).toBe(true);
   });
   it("highlights identifiers introduced by destructuring as variables", () => {
     const source = "let { source :: target, nested :: { value }, ...rest } = input\nconst [first, , ...tail] = values";

@@ -1,6 +1,8 @@
 import { ListReader } from "compiler/utils/ListReader";
 import { Token } from "./tokenizer";
 import {
+    AnnotationApplication,
+    AnnotationStatement,
     ArrowFunctionExpression,
     ArrayLiteral,
     AsExpression,
@@ -307,6 +309,9 @@ export class Parser {
         if (token?.type === "identifier" && (token.value === "enum" || this.isConstEnumStart())) {
             return this.parseEnumStatement();
         }
+        if (token?.type === "identifier" && token.value === "annotation") {
+            return this.parseAnnotationStatement();
+        }
         if (token?.type === "identifier" && this.isVariableDeclarationKeyword(token.value)) {
             return this.parseVarStatement();
         }
@@ -411,37 +416,130 @@ export class Parser {
     }
 
     private parseAnnotatedStatement(): Statement {
+        const annotations: AnnotationApplication[] = [];
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "@") {
+            annotations.push(this.parseAnnotationApplication());
+        }
+        const statement = this.parseStatementOrThrow();
+        statement.annotations = [...(statement.annotations ?? []), ...annotations];
+        for (const annotation of annotations) {
+            this.applyBuiltinAnnotation(statement, annotation);
+        }
+        return this.attachNodeBounds(statement, annotations[0]?.firstToken, statement.lastToken);
+    }
+
+    private parseAnnotationApplication(): AnnotationApplication {
         const atToken = this.tokens.read();
         const annotationName = this.tokens.read();
-        if (annotationName?.type !== "identifier" || (annotationName.value !== "JsInline" && annotationName.value !== "JsName")) {
-            this.fail("Expected 'JsInline' or 'JsName' annotation", this.tokenAt(annotationName));
+        if (atToken?.type !== "symbol" || atToken.value !== "@") {
+            this.fail("Expected '@'", this.tokenAt(atToken));
         }
-        const name = annotationName.value;
-        const openParen = this.tokens.read();
+        if (annotationName?.type !== "identifier") {
+            this.fail("Expected annotation name after '@'", this.tokenAt(annotationName));
+        }
+        const openParen = this.tokens.peek();
         if (openParen?.type !== "symbol" || openParen.value !== "(") {
-            this.fail(`Expected '(' after '@${name}'`, this.tokenAt(openParen));
+            return this.attachNodeBounds(
+                {
+                    kind: "AnnotationApplication",
+                    name: this.buildIdentifierFromToken(annotationName),
+                    arguments: []
+                } as AnnotationApplication,
+                atToken,
+                annotationName
+            );
         }
-        const argument = this.tokens.read();
-        if (argument?.type !== "string") {
-            this.fail(`Expected a string in '@${name}'`, this.tokenAt(argument));
-        }
+        this.tokens.read();
+        const args = this.parseDelimitedList(")", () => this.parseAssignment(), "annotation argument list");
         const closeParen = this.tokens.read();
         if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-            this.fail(`Expected ')' after '@${name}' argument`, this.tokenAt(closeParen));
+            this.fail(`Expected ')' after '@${annotationName.value}' arguments`, this.tokenAt(closeParen));
         }
+        return this.attachNodeBounds(
+            {
+                kind: "AnnotationApplication",
+                name: this.buildIdentifierFromToken(annotationName),
+                arguments: args
+            } as AnnotationApplication,
+            atToken,
+            closeParen
+        );
+    }
 
-        // Annotations stack: the inner statement may itself be annotated, so we
-        // recurse through `parseStatementOrThrow` and attach onto the result.
-        const statement = this.parseStatementOrThrow();
+    private applyBuiltinAnnotation(statement: Statement, annotation: AnnotationApplication): void {
+        const name = annotation.name.name;
+        if (name !== "JsName" && name !== "JsInline") {
+            return;
+        }
+        const argument = annotation.arguments[0];
+        if (annotation.arguments.length !== 1 || argument?.kind !== "StringLiteral") {
+            this.fail(`Expected a single string argument in '@${name}'`, this.tokenAt(argument?.firstToken));
+        }
         if (name === "JsInline") {
             if (statement.kind !== "FunctionStatement") {
-                this.fail("'@JsInline' can only be applied to a function declaration", this.tokenAt(annotationName));
+                this.fail("'@JsInline' can only be applied to a function declaration", this.tokenAt(annotation.name.firstToken));
             }
-            (statement as FunctionStatement).jsInline = argument.value;
-        } else {
-            statement.jsName = argument.value;
+            (statement as FunctionStatement).jsInline = (argument as StringLiteral).value;
+            return;
         }
-        return this.attachNodeBounds(statement, atToken, statement.lastToken ?? closeParen);
+        statement.jsName = (argument as StringLiteral).value;
+    }
+
+    private parseAnnotationStatement(): AnnotationStatement {
+        const annotationKeyword = this.tokens.read();
+        if (annotationKeyword?.type !== "identifier" || annotationKeyword.value !== "annotation") {
+            this.fail("Expected annotation declaration statement", this.tokenAt(annotationKeyword));
+        }
+        const nameToken = this.tokens.read();
+        if (nameToken?.type !== "identifier") {
+            this.fail("Expected annotation name after 'annotation'", this.tokenAt(nameToken));
+        }
+        const openParen = this.tokens.peek();
+        if (openParen?.type !== "symbol" || openParen.value !== "(") {
+            const statement: AnnotationStatement = {
+                kind: "AnnotationStatement",
+                name: this.buildIdentifierFromToken(nameToken),
+                parameters: []
+            };
+            return this.attachNodeBounds(statement, annotationKeyword, nameToken);
+        }
+        this.tokens.read();
+        const parameters = this.parseAnnotationParameters();
+        const closeParen = this.tokens.read();
+        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+            this.fail("Expected ')' after annotation parameters", this.tokenAt(closeParen));
+        }
+        const statement: AnnotationStatement = {
+            kind: "AnnotationStatement",
+            name: this.buildIdentifierFromToken(nameToken),
+            parameters
+        };
+        this.attachNonEnumerableToken(statement, "parametersCloseParen", closeParen);
+        return this.attachNodeBounds(statement, annotationKeyword, closeParen);
+    }
+
+    private parseDelimitedList<T extends Node>(
+        closingSymbol: string,
+        parseItem: () => T,
+        contextName: string
+    ): T[] {
+        const items: T[] = [];
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === closingSymbol) {
+            return items;
+        }
+        while (this.tokens.hasMore) {
+            items.push(parseItem());
+            const separator = this.tokens.peek();
+            if (separator?.type === "symbol" && separator.value === ",") {
+                this.tokens.skip();
+                continue;
+            }
+            if (separator?.type === "symbol" && separator.value === closingSymbol) {
+                break;
+            }
+            this.fail(`Expected ',' or '${closingSymbol}' in ${contextName}`, this.tokenAt(separator));
+        }
+        return items;
     }
 
     parseFileOrThrow(): Program {
@@ -4563,10 +4661,34 @@ export class Parser {
             if (declaration.kind === "VarStatement" || declaration.kind === "FunctionStatement" ||
                 declaration.kind === "ClassStatement" || declaration.kind === "InterfaceStatement" ||
                 declaration.kind === "TypeAliasStatement" || declaration.kind === "EnumStatement" ||
+                declaration.kind === "AnnotationStatement" ||
                 declaration.kind === "NamespaceStatement") {
                 (declaration as { declared?: boolean }).declared = true;
             }
         }
+    }
+
+    private parseAnnotationParameters(): FunctionParameter[] {
+        const parameters = this.parseClassPrimaryConstructorParameters();
+        return parameters.map((parameter) => {
+            const functionParameter: FunctionParameter = {
+                kind: "FunctionParameter",
+                name: parameter.name
+            };
+            if (parameter.declarationKind === "val" || parameter.declarationKind === "const") {
+                functionParameter.accessModifier = "public";
+                functionParameter.readonly = true;
+            } else if (parameter.declarationKind === "var" || parameter.declarationKind === "let") {
+                functionParameter.accessModifier = "public";
+            }
+            if (parameter.typeAnnotation) {
+                functionParameter.typeAnnotation = parameter.typeAnnotation;
+            }
+            if (parameter.defaultValue) {
+                functionParameter.defaultValue = parameter.defaultValue;
+            }
+            return this.attachNodeBounds(functionParameter, parameter.firstToken, parameter.lastToken);
+        });
     }
 
     private parseTypeScriptExportAssignmentStatement(): ExprStatement {
@@ -4725,6 +4847,7 @@ export class Parser {
         let isOverrideMember = false;
         let accessModifier: ClassMember["accessModifier"] | undefined;
         let isReadonlyMember = false;
+        let readonlyToken: Token | undefined;
         let isStaticMember = false;
         let isAbstractMember = false;
         let isAsyncMember = false;
@@ -4739,6 +4862,7 @@ export class Parser {
                 accessModifier = modifierToken.value;
             } else if (modifierToken.value === "readonly") {
                 isReadonlyMember = true;
+                readonlyToken = modifierToken;
             } else if (modifierToken.value === "static") {
                 isStaticMember = true;
             } else if (modifierToken.value === "abstract") {
@@ -4747,6 +4871,24 @@ export class Parser {
                 isAsyncMember = true;
             } else if (modifierToken.value === "sync") {
                 isSyncMember = true;
+            }
+        }
+
+        let fieldDeclarationKind: VariableDeclarationKind | undefined;
+        let functionDeclarationKeyword: Token | undefined;
+        if (this.language === "vexa" && this.tokens.peek()?.type === "identifier") {
+            const keywordValue = this.tokens.peek()!.value;
+            if (this.isVariableDeclarationKeyword(keywordValue)) {
+                const declarationKeyword = this.tokens.read()!;
+                memberStartToken ??= declarationKeyword;
+                fieldDeclarationKind = declarationKeyword.value as VariableDeclarationKind;
+                if (fieldDeclarationKind === "val" || fieldDeclarationKind === "const") {
+                    isReadonlyMember = true;
+                    readonlyToken = declarationKeyword;
+                }
+            } else if (this.isFunctionDeclarationKeyword(keywordValue)) {
+                functionDeclarationKeyword = this.tokens.read()!;
+                memberStartToken ??= functionDeclarationKeyword;
             }
         }
 
@@ -4843,10 +4985,14 @@ export class Parser {
                 if (overloadedOperator) {
                     signatureOnlyMethod.operator = overloadedOperator;
                 }
-            if (accessorKind) {
-                this.attachNonEnumerableToken(signatureOnlyMethod, "accessorToken", accessorKeywordToken!);
-                signatureOnlyMethod.accessorKind = accessorKind;
-            }
+                if (functionDeclarationKeyword) {
+                    signatureOnlyMethod.declarationKind = functionDeclarationKeyword.value as FunctionDeclarationKind;
+                    this.attachNonEnumerableToken(signatureOnlyMethod, "declarationKeywordToken", functionDeclarationKeyword);
+                }
+                if (accessorKind) {
+                    this.attachNonEnumerableToken(signatureOnlyMethod, "accessorToken", accessorKeywordToken!);
+                    signatureOnlyMethod.accessorKind = accessorKind;
+                }
                 if (isAsyncMember) {
                     signatureOnlyMethod.async = true;
                 }
@@ -4863,6 +5009,9 @@ export class Parser {
                     static: isStaticMember,
                     abstract: isAbstractMember
                 });
+                if (readonlyToken) {
+                    this.attachNonEnumerableToken(signatureOnlyMethod, "readonlyToken", readonlyToken);
+                }
                 if (!allowSignatureOnly && !isAbstractMember) {
                     signatureOnlyMethod.missingBody = true;
                 }
@@ -4888,6 +5037,10 @@ export class Parser {
             if (overloadedOperator) {
                 methodMember.operator = overloadedOperator;
             }
+            if (functionDeclarationKeyword) {
+                methodMember.declarationKind = functionDeclarationKeyword.value as FunctionDeclarationKind;
+                this.attachNonEnumerableToken(methodMember, "declarationKeywordToken", functionDeclarationKeyword);
+            }
             if (accessorKind) {
                 this.attachNonEnumerableToken(methodMember, "accessorToken", accessorKeywordToken!);
                 methodMember.accessorKind = accessorKind;
@@ -4908,6 +5061,9 @@ export class Parser {
                 static: isStaticMember,
                 abstract: isAbstractMember
             });
+            if (readonlyToken) {
+                this.attachNonEnumerableToken(methodMember, "readonlyToken", readonlyToken);
+            }
             if (methodTypeParameters.length > 0) {
                 methodMember.typeParameters = methodTypeParameters;
             }
@@ -4984,11 +5140,17 @@ export class Parser {
             static: isStaticMember,
             abstract: isAbstractMember
         });
+        if (readonlyToken) {
+            this.attachNonEnumerableToken(fieldMember, "readonlyToken", readonlyToken);
+        }
         if (optional) {
             fieldMember.optional = true;
         }
         if (definiteAssignment) {
             fieldMember.definiteAssignment = true;
+        }
+        if (fieldDeclarationKind) {
+            fieldMember.declarationKind = fieldDeclarationKind;
         }
         if (typeAnnotation) {
             fieldMember.typeAnnotation = typeAnnotation;
@@ -5397,6 +5559,17 @@ export class Parser {
                 this.tokens.skip();
             }
 
+            let propertyDeclarationKind: VariableDeclarationKind | undefined;
+            let functionDeclarationKeyword: Token | undefined;
+            if (this.language === "vexa" && this.tokens.peek()?.type === "identifier") {
+                const keywordValue = this.tokens.peek()!.value;
+                if (this.isVariableDeclarationKeyword(keywordValue)) {
+                    propertyDeclarationKind = this.tokens.read()!.value as VariableDeclarationKind;
+                } else if (this.isFunctionDeclarationKeyword(keywordValue)) {
+                    functionDeclarationKeyword = this.tokens.read()!;
+                }
+            }
+
             let accessorKind: "get" | "set" | undefined;
             let memberNameToken = this.tokens.read();
             if (
@@ -5449,6 +5622,10 @@ export class Parser {
                     name: this.attachNodeBounds({ kind: "Identifier", name: memberName } as Identifier, memberNameToken, memberNameToken),
                     parameters
                 };
+                if (functionDeclarationKeyword) {
+                    member.declarationKind = functionDeclarationKeyword.value as FunctionDeclarationKind;
+                    this.attachNonEnumerableToken(member, "declarationKeywordToken", functionDeclarationKeyword);
+                }
                 if (accessorKind) {
                     member.accessorKind = accessorKind;
                 }
@@ -5477,6 +5654,9 @@ export class Parser {
                 name: this.attachNodeBounds({ kind: "Identifier", name: memberName } as Identifier, memberNameToken, memberNameToken),
                 typeAnnotation: propertyType
             };
+            if (propertyDeclarationKind) {
+                propertyMember.declarationKind = propertyDeclarationKind;
+            }
             if (optionalMember) {
                 propertyMember.optional = true;
             }

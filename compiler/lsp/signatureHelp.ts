@@ -1,6 +1,8 @@
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, type FunctionType, typeToString } from "compiler/analysis/types";
 import type {
+  AnnotationApplication,
+  AnnotationStatement,
   ArrayLiteral,
   ArrowFunctionExpression,
   AsExpression,
@@ -37,7 +39,13 @@ import type {
   Program,
   Statement
 } from "compiler/ast/ast";
+import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
+import { bindingNameText } from "compiler/ast/bindingPatterns";
 import type { SignatureHelp, SignatureInformation } from "vscode-languageserver/node.js";
+import {
+  getEcmaScriptRuntimeProgram,
+  getVexaScriptRuntimeProgram
+} from "compiler/runtime/ecmascriptDeclarations";
 import {
   resolveCallableSignature,
   resolveConstructorSignature,
@@ -52,6 +60,12 @@ interface InvocationContext {
   range: NodeRange;
   activeParameter: number;
   isNewExpression: boolean;
+}
+
+interface AnnotationInvocationContext {
+  annotation: AnnotationApplication;
+  range: NodeRange;
+  activeParameter: number;
 }
 
 function argumentIndexAtPosition(argumentsList: Expr[], position: Position): number {
@@ -351,6 +365,28 @@ function findInvocationContext(program: Program, line: number, character: number
   return best;
 }
 
+function findAnnotationInvocationContext(program: Program, line: number, character: number): AnnotationInvocationContext | null {
+  const position: Position = { line, character };
+  let best: AnnotationInvocationContext | null = null;
+  for (const statement of program.body) {
+    for (const annotation of statement.annotations ?? []) {
+      const range = nodeRange(annotation);
+      if (!range || !containsPosition(range, position)) {
+        continue;
+      }
+      const candidate: AnnotationInvocationContext = {
+        annotation,
+        range,
+        activeParameter: argumentIndexAtPosition(annotation.arguments, position)
+      };
+      if (!best || rangeSize(candidate.range) <= rangeSize(best.range)) {
+        best = candidate;
+      }
+    }
+  }
+  return best;
+}
+
 function symbolAtNode(analysis: Analysis, node: Node) {
   if (!node.firstToken) {
     return null;
@@ -438,6 +474,52 @@ async function buildSignatureFromSymbol(
   return null;
 }
 
+function findAnnotationDeclaration(program: Program, name: string): AnnotationStatement | null {
+  for (const statement of declarationIndexForStatements(program.body).annotations) {
+    if (statement.name.name === name) {
+      return statement;
+    }
+  }
+  for (const statement of declarationIndexForStatements(getVexaScriptRuntimeProgram().body).annotations) {
+    if (statement.name.name === name) {
+      return statement;
+    }
+  }
+  for (const statement of declarationIndexForStatements(getEcmaScriptRuntimeProgram().body).annotations) {
+    if (statement.name.name === name) {
+      return statement;
+    }
+  }
+  return null;
+}
+
+function annotationParameterLabel(parameter: AnnotationStatement["parameters"][number]): string {
+  const name = bindingNameText(parameter.name);
+  const prefix = parameter.accessModifier === "public" && parameter.readonly === true
+    ? "val "
+    : parameter.accessModifier === "public"
+      ? "var "
+      : "";
+  return `${prefix}${name}: ${parameter.typeAnnotation?.name ?? "unknown"}`;
+}
+
+function buildAnnotationSignature(
+  program: Program,
+  context: AnnotationInvocationContext
+): SignatureInformation | null {
+  const declaration = findAnnotationDeclaration(program, context.annotation.name.name);
+  if (!declaration) {
+    return null;
+  }
+  const parameters = declaration.parameters.map((parameter) => ({
+    label: annotationParameterLabel(parameter)
+  }));
+  return {
+    label: `${declaration.name.name}(${parameters.map((parameter) => parameter.label).join(", ")})`,
+    parameters
+  };
+}
+
 export async function createSignatureHelp(
   program: Program,
   analysis: Analysis,
@@ -445,6 +527,18 @@ export async function createSignatureHelp(
   character: number,
   options: ClassResolverOptions = {}
 ): Promise<SignatureHelp | null> {
+  const annotationContext = findAnnotationInvocationContext(program, line, character);
+  if (annotationContext) {
+    const signature = buildAnnotationSignature(program, annotationContext);
+    if (!signature) {
+      return null;
+    }
+    return {
+      signatures: [signature],
+      activeSignature: 0,
+      activeParameter: annotationContext.activeParameter
+    };
+  }
   const context = findInvocationContext(program, line, character);
   if (!context) {
     return null;

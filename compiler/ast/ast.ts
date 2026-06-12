@@ -11,6 +11,7 @@ export interface Expr extends Node {
 }
 
 export interface Statement extends Node {
+    annotations?: AnnotationApplication[]
     // Final JavaScript name supplied via the `@JsName("...")` annotation. When
     // present, JavaScript emission uses this name for the declaration and every
     // reference to it instead of the source name.
@@ -363,6 +364,20 @@ export interface FunctionStatement extends Statement {
     body: BlockStatement
 }
 
+export interface AnnotationStatement extends Statement {
+    kind: "AnnotationStatement"
+    declared?: boolean
+    name: Identifier
+    parameters: FunctionParameter[]
+    parametersCloseParen?: Token
+}
+
+export interface AnnotationApplication extends Node {
+    kind: "AnnotationApplication"
+    name: Identifier
+    arguments: Expr[]
+}
+
 export type ClassMemberAccessModifier = "public" | "private" | "protected";
 
 export interface ClassMemberModifiers {
@@ -374,6 +389,8 @@ export interface ClassMemberModifiers {
 
 export interface ClassFieldMember extends Node, ClassMemberModifiers {
     kind: "ClassFieldMember"
+    declarationKind?: VariableDeclarationKind
+    readonlyToken?: Token
     name: Identifier
     override?: boolean
     optional?: boolean
@@ -384,8 +401,11 @@ export interface ClassFieldMember extends Node, ClassMemberModifiers {
 
 export interface ClassMethodMember extends Node, ClassMemberModifiers {
     kind: "ClassMethodMember"
+    declarationKind?: FunctionDeclarationKind
     accessorKind?: "get" | "set"
     accessorToken?: Token
+    declarationKeywordToken?: Token
+    readonlyToken?: Token
     async?: boolean
     sync?: boolean
     generator?: boolean
@@ -432,6 +452,7 @@ export interface ClassStatement extends Statement {
 
 export interface InterfacePropertyMember extends Node {
     kind: "InterfacePropertyMember"
+    declarationKind?: VariableDeclarationKind
     name: Identifier
     typeAnnotation: Identifier
     optional?: boolean
@@ -439,8 +460,10 @@ export interface InterfacePropertyMember extends Node {
 
 export interface InterfaceMethodMember extends Node {
     kind: "InterfaceMethodMember"
+    declarationKind?: FunctionDeclarationKind
     name: Identifier
     accessorKind?: "get" | "set"
+    declarationKeywordToken?: Token
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     returnType?: Identifier

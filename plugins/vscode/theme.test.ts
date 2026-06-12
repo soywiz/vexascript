@@ -4,11 +4,17 @@ import { describe, it } from "node:test";
 import { expect } from "compiler/test/expect";
 
 describe("VS Code color theme", () => {
-  it("defines explicit JSX colors for the VexaScript theme", async () => {
+  async function readTheme() {
     const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "vexa-dark-color-theme.json");
-    const theme = JSON.parse(await readFile(themePath, "utf8")) as {
+    return JSON.parse(await readFile(themePath, "utf8")) as {
+      semanticHighlighting?: boolean;
+      semanticTokenColors?: Record<string, string>;
       tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
     };
+  }
+
+  it("defines explicit JSX colors for the VexaScript theme", async () => {
+    const theme = await readTheme();
 
     const jsxTagRule = theme.tokenColors.find((rule) => Array.isArray(rule.scope) && rule.scope.includes("entity.name.tag.vexa"));
     const jsxAttributeRule = theme.tokenColors.find((rule) => rule.scope === "entity.other.attribute-name.vexa");
@@ -18,10 +24,7 @@ describe("VS Code color theme", () => {
   });
 
   it("defines richer colors for functions, types, properties, strings, numbers, and comments", async () => {
-    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "vexa-dark-color-theme.json");
-    const theme = JSON.parse(await readFile(themePath, "utf8")) as {
-      tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
-    };
+    const theme = await readTheme();
 
     const findRule = (scope: string) => theme.tokenColors.find((rule) =>
       Array.isArray(rule.scope) ? rule.scope.includes(scope) : rule.scope === scope
@@ -36,11 +39,28 @@ describe("VS Code color theme", () => {
     expect(findRule("comment.line.double-slash.vexa")?.settings.foreground).toBe("#6A9955");
   });
 
+  it("colors declaration modifiers with the declaration keyword scope", async () => {
+    const theme = await readTheme();
+
+    const findRule = (scope: string) => theme.tokenColors.find((rule) =>
+      Array.isArray(rule.scope) ? rule.scope.includes(scope) : rule.scope === scope
+    );
+
+    expect(findRule("keyword.declaration.vexa")?.settings.foreground).toBe("#569CD6");
+  });
+
+  it("defines separate semantic colors for modifier, function, type, and control keywords", async () => {
+    const theme = await readTheme();
+
+    expect(theme.semanticHighlighting).toBe(true);
+    expect(theme.semanticTokenColors?.["keywordModifier"]).toBe("#569CD6");
+    expect(theme.semanticTokenColors?.["keywordFunction"]).toBe("#DCDCAA");
+    expect(theme.semanticTokenColors?.["keywordType"]).toBe("#4EC9B0");
+    expect(theme.semanticTokenColors?.["keywordControl"]).toBe("#C586C0");
+  });
+
   it("recolors template interpolations like regular expressions instead of plain strings", async () => {
-    const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "vexa-dark-color-theme.json");
-    const theme = JSON.parse(await readFile(themePath, "utf8")) as {
-      tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
-    };
+    const theme = await readTheme();
 
     const findRule = (scope: string) => theme.tokenColors.find((rule) =>
       Array.isArray(rule.scope) ? rule.scope.includes(scope) : rule.scope === scope

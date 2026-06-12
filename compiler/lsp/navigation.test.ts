@@ -133,6 +133,105 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("provides hover and definition for annotation applications", () => {
+    const marked = sourceWithCursor(dedent`
+      annotation JsName(val name: string)
+
+      @^^^JsName("renamed")
+      fun demo() {}
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    const hover = createHover(analysis, marked.line, marked.character, ast);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "annotation JsName(val name: string)"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 2, character: 1 },
+      end: { line: 2, character: 7 }
+    });
+
+    const definition = createDefinitionLocation(analysis, URI, marked.line, marked.character, ast);
+    expect(definition).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 0, character: 11 },
+        end: { line: 0, character: 17 }
+      }
+    });
+  });
+
+  it("supports references and rename for annotation declarations and uses", () => {
+    const marked = sourceWithCursor(dedent`
+      annotation ^^^DemoTag(val label: string)
+      @DemoTag("hello")
+      @DemoTag("bye")
+      fun demo() {}
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    expect(createPrepareRename(analysis, marked.line, marked.character, ast)).toEqual({
+      range: {
+        start: { line: 0, character: 11 },
+        end: { line: 0, character: 18 }
+      },
+      placeholder: "DemoTag"
+    });
+    expect(createReferences(analysis, URI, marked.line, marked.character, true, ast)).toEqual([
+      {
+        uri: URI,
+        range: {
+          start: { line: 0, character: 11 },
+          end: { line: 0, character: 18 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 1, character: 1 },
+          end: { line: 1, character: 8 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 2, character: 1 },
+          end: { line: 2, character: 8 }
+        }
+      }
+    ]);
+    expect(createRenameWorkspaceEdit(analysis, URI, marked.line, marked.character, "DemoLabel", ast)).toEqual({
+      changes: {
+        [URI]: [
+          {
+            range: {
+              start: { line: 0, character: 11 },
+              end: { line: 0, character: 18 }
+            },
+            newText: "DemoLabel"
+          },
+          {
+            range: {
+              start: { line: 1, character: 1 },
+              end: { line: 1, character: 8 }
+            },
+            newText: "DemoLabel"
+          },
+          {
+            range: {
+              start: { line: 2, character: 1 },
+              end: { line: 2, character: 8 }
+            },
+            newText: "DemoLabel"
+          }
+        ]
+      }
+    });
+  });
+
   it("provides class type hover for new expressions", () => {
     const source = "class Point\nlet p = new Point()\n";
     const analysis = analysisOf(source);
@@ -427,6 +526,67 @@ describe("lsp navigation", () => {
               end: { line: 5, character: 17 }
             },
             newText: "next"
+          }
+        ]
+      }
+    });
+  });
+
+  it("supports references and rename for enum members at call sites", () => {
+    const source = dedent`
+      enum Direction { Up, Down }
+      let direction = Direction.Up
+      let again = Direction.Up
+    `;
+    const analysis = analysisOf(source);
+
+    expect(createReferences(analysis, URI, 1, 26, true)).toEqual([
+      {
+        uri: URI,
+        range: {
+          start: { line: 0, character: 17 },
+          end: { line: 0, character: 19 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 1, character: 26 },
+          end: { line: 1, character: 28 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 2, character: 22 },
+          end: { line: 2, character: 24 }
+        }
+      }
+    ]);
+
+    expect(createRenameWorkspaceEdit(analysis, URI, 1, 26, "North")).toEqual({
+      changes: {
+        [URI]: [
+          {
+            range: {
+              start: { line: 0, character: 17 },
+              end: { line: 0, character: 19 }
+            },
+            newText: "North"
+          },
+          {
+            range: {
+              start: { line: 1, character: 26 },
+              end: { line: 1, character: 28 }
+            },
+            newText: "North"
+          },
+          {
+            range: {
+              start: { line: 2, character: 22 },
+              end: { line: 2, character: 24 }
+            },
+            newText: "North"
           }
         ]
       }

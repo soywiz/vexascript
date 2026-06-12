@@ -73,6 +73,13 @@ describe("VS Code extension syntax highlighting", () => {
     expect(keywordPatterns.join(" ")).toContain("infer");
     expect(keywordPatterns.join(" ")).toContain("implements");
     expect(keywordPatterns.join(" ")).toContain("override");
+    expect(keywordPatterns.join(" ")).toContain("public");
+    expect(keywordPatterns.join(" ")).toContain("private");
+    expect(keywordPatterns.join(" ")).toContain("protected");
+    expect(keywordPatterns.join(" ")).toContain("static");
+    expect(keywordPatterns.join(" ")).toContain("abstract");
+    expect(keywordPatterns.join(" ")).toContain("get");
+    expect(keywordPatterns.join(" ")).toContain("set");
     expect(keywordPatterns.join(" ")).toContain("do");
     expect(keywordPatterns.join(" ")).toContain("switch");
     expect(keywordPatterns.join(" ")).toContain("case");
@@ -154,7 +161,7 @@ describe("VS Code extension syntax highlighting", () => {
 
     const repository = grammar.repository ?? {};
     expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(function|fun)"))).toBe(true);
-    expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(class|interface|enum|type)"))).toBe(true);
+    expect(repository["declarations"]?.patterns?.some((pattern) => pattern.match?.includes("(class|interface|annotation|enum|type)"))).toBe(true);
     expect(repository["types"]?.patterns?.some((pattern) => pattern.name === "entity.name.type.vexa")).toBe(true);
     expect(repository["members"]?.patterns?.some((pattern) => pattern.name === "variable.other.property.vexa")).toBe(true);
     expect(repository["calls"]?.patterns?.some((pattern) => pattern.name === "entity.name.function.call.vexa")).toBe(true);

@@ -1,0 +1,2 @@
+annotation JsName(val name: string)
+annotation JsInline(val replacement: string)

@@ -160,6 +160,30 @@ describe("signature help", () => {
     expect(await createSignatureHelp(session.ast!, session.analysis!, 1, 6)).toBeNull();
   });
 
+  it("provides signature help for annotations", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      annotation JsName(val name: string)
+
+      @JsName(^^^"rgba")
+      fun color() {}
+    `);
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "JsName(val name: string)",
+          parameters: [{ label: "val name: string" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
   it("provides signature help and docs for imported class methods", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-signature-help-"));
     const worldFile = join(root, "world.vx");

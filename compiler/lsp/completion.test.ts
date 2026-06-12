@@ -201,6 +201,7 @@ describe("createCompletionItemsForPosition", () => {
     const labels = createKeywordOnlyCompletionItems().map((item) => item.label);
     expect(labels).toContain("fn");
     expect(labels).toContain("type");
+    expect(labels).toContain("annotation");
     expect(labels).toContain("interface");
     expect(labels).toContain("namespace");
     expect(labels).toContain("module");
@@ -239,6 +240,51 @@ describe("createCompletionItemsForPosition", () => {
     expect(point?.additionalTextEdits?.[0]?.newText).toBe(
       "import { Point } from \"./a.vx\"\n"
     );
+  });
+
+  it("suggests annotations after '@'", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      annotation LocalTag(val value: string)
+
+      @^^^
+      fun demo() {}
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("LocalTag")?.detail).toBe("Annotation");
+    expect(byLabel.get("LocalTag")?.insertText).toBe("LocalTag($1)");
+    expect(byLabel.has("JsName")).toBe(true);
+    expect(byLabel.has("JsInline")).toBe(true);
+  });
+
+  it("inserts zero-argument annotations without parentheses", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      annotation DemoAnnotation
+
+      @^^^
+      fun demo() {}
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("DemoAnnotation")?.insertText).toBe("DemoAnnotation");
   });
 
   it("computes auto-import completion items from exported-symbol callbacks", async () => {
@@ -508,6 +554,44 @@ describe("createCompletionItemsForPosition", () => {
 
     expect(labels).toEqual(expect.arrayContaining(["x", "y"]));
     expect(labels).not.toEqual(expect.arrayContaining(["result", "value", "true"]));
+  });
+
+  it("offers enum members for enum member access", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      enum Demo {
+        HELLO,
+        WORLD
+      }
+
+      Demo.HE^^^
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("HELLO");
+    expect(labels).not.toContain("WORLD");
+    expect(byLabel.get("HELLO")?.detail).toBe("Enum member: Demo");
+  });
+
+  it("does not offer enum members on enum values", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      enum StrEnum {
+        ADA = "ADA",
+        CPP = "CPP"
+      }
+
+      StrEnum.CPP.AD^^^
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).not.toContain("ADA");
+    expect(labels).not.toContain("CPP");
   });
 
   it("offers String members for variables annotated as string", async () => {

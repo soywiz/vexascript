@@ -46,6 +46,23 @@ describe("collectCodeActions aggregator", () => {
     expect(titles).toContain("Replace 'let' with 'const'");
   });
 
+  it("offers class-member keyword quick fixes for the preferred member style", async () => {
+    const source = "class Demo {\n  save(): void {\n  }\n}\n";
+    const session = createAnalysisSession(source);
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(1, 3),
+      diagnostics: [],
+      sourceRoots: []
+    });
+    const titles = actions.map((action) => action.title);
+
+    expect(titles).toContain("Add 'fun' keyword");
+  });
+
   it("offers an explicit return type quick fix", async () => {
     const source = "function add(a: number, b: number) {\n  return a + b\n}\n";
     const session = createAnalysisSession(source);

@@ -4,7 +4,7 @@ import type { AnalysisRange } from "./Analysis";
 import type { AnalysisType } from "./types";
 import type { AnalysisIssueCode, AnalysisIssueData } from "./issueCodes";
 
-export type AnalysisSymbolKind = "variable" | "parameter" | "function" | "class" | "method";
+export type AnalysisSymbolKind = "variable" | "parameter" | "function" | "class" | "method" | "annotation";
 export type AnalysisValueType = string;
 
 export interface AnalysisSymbol {
@@ -46,6 +46,7 @@ export interface FlowContext {
 export interface BoundAnalysis {
   rootScope: Scope;
   scopeByNode: WeakMap<Node, Scope>;
+  issues: AnalysisIssue[];
 }
 
 export interface IdentifierResolution {

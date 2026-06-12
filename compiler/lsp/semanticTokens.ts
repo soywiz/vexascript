@@ -83,6 +83,10 @@ class SimpleSemanticTokensBuilder {
 
 const TOKEN_TYPES = [
   "keyword",
+  "keywordControl",
+  "keywordModifier",
+  "keywordFunction",
+  "keywordType",
   "variable",
   "parameter",
   "function",
@@ -112,30 +116,7 @@ export const VEXA_SEMANTIC_TOKENS_LEGEND: SemanticTokensLegend = {
   tokenModifiers: []
 };
 
-const KEYWORDS = new Set([
-  "declare",
-  "namespace",
-  "enum",
-  "import",
-  "from",
-  "as",
-  "export",
-  "class",
-  "interface",
-  "infer",
-  "extends",
-  "implements",
-  "override",
-  "async",
-  "sync",
-  "yield",
-  "fun",
-  "function",
-  "keyof",
-  "let",
-  "var",
-  "val",
-  "const",
+const CONTROL_KEYWORDS = new Set([
   "return",
   "throw",
   "if",
@@ -160,7 +141,47 @@ const KEYWORDS = new Set([
   "void",
   "delete",
   "await",
-  "instanceof",
+  "instanceof"
+]);
+
+const MODIFIER_KEYWORDS = new Set([
+  "readonly",
+  "public",
+  "private",
+  "protected",
+  "static",
+  "abstract",
+  "get",
+  "set",
+  "async",
+  "sync",
+  "let",
+  "var",
+  "val",
+  "const"
+]);
+
+const FUNCTION_KEYWORDS = new Set([
+  "fun",
+  "function"
+]);
+
+const TYPE_KEYWORDS = new Set([
+  "declare",
+  "namespace",
+  "enum",
+  "import",
+  "from",
+  "as",
+  "export",
+  "class",
+  "interface",
+  "infer",
+  "extends",
+  "implements",
+  "override",
+  "yield",
+  "keyof",
   "int",
   "number",
   "numeric",
@@ -781,7 +802,19 @@ function classifyToken(
   if (token.type !== "identifier") {
     return null;
   }
-  if (KEYWORDS.has(token.value)) {
+  if (CONTROL_KEYWORDS.has(token.value)) {
+    return "keywordControl";
+  }
+  if (MODIFIER_KEYWORDS.has(token.value)) {
+    return "keywordModifier";
+  }
+  if (FUNCTION_KEYWORDS.has(token.value)) {
+    return "keywordFunction";
+  }
+  if (TYPE_KEYWORDS.has(token.value)) {
+    return "keywordType";
+  }
+  if (token.value === "is") {
     return "keyword";
   }
 

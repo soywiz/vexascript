@@ -11,12 +11,17 @@ import { getProjectIndex, getProjectSessionForFilePath } from "./projectAnalysis
 import { containsPosition, nodeRange } from "./ranges";
 import { createReferences, createRenameWorkspaceEdit } from "./navigation";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { ClassStatement, FunctionStatement, ImportStatement, InterfaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
+import type { AnnotationStatement, ClassStatement, FunctionStatement, ImportStatement, InterfaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { candidateImportTargetFilePaths, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { getDomDeclarationFilePath, isDomRuntimeNode } from "compiler/runtime/domDeclarations";
-import { getEcmaScriptRuntimeDeclarationFilePath, isEcmaScriptRuntimeNode } from "compiler/runtime/ecmascriptDeclarations";
+import {
+  getEcmaScriptRuntimeDeclarationFilePath,
+  getVexaScriptRuntimeDeclarationFilePath,
+  isEcmaScriptRuntimeNode,
+  isVexaScriptRuntimeNode
+} from "compiler/runtime/ecmascriptDeclarations";
 import { dirname, resolve } from "compiler/utils/path";
 import { vfs } from "compiler/vfs";
 
@@ -52,6 +57,7 @@ export function effectiveSourceRoots(
 
 export const VIRTUAL_DOM_DECLARATION_FILE_PATH = "/runtime/dom.d.ts";
 export const VIRTUAL_ECMA_DECLARATION_FILE_PATH = "/runtime/es2025.d.ts";
+export const VIRTUAL_VEXA_DECLARATION_FILE_PATH = "/runtime/vexascript.d.vx";
 
 export interface CanonicalSymbol {
   name: string;
@@ -130,6 +136,9 @@ export function declarationRangeForName(statement: Statement, name: string) {
   if (statement.kind === "ClassStatement") {
     return nodeRange((statement as ClassStatement).name);
   }
+  if (statement.kind === "AnnotationStatement") {
+    return nodeRange((statement as AnnotationStatement).name);
+  }
   if (statement.kind === "InterfaceStatement") {
     return nodeRange((statement as InterfaceStatement).name);
   }
@@ -156,6 +165,8 @@ export async function preferVirtualRuntimeDeclarationFilePath(
     ? VIRTUAL_DOM_DECLARATION_FILE_PATH
     : filePath === await getEcmaScriptRuntimeDeclarationFilePath() || filePath.endsWith("/es2025.d.ts")
       ? VIRTUAL_ECMA_DECLARATION_FILE_PATH
+      : filePath === await getVexaScriptRuntimeDeclarationFilePath() || filePath.endsWith("/vexascript.d.vx")
+        ? VIRTUAL_VEXA_DECLARATION_FILE_PATH
       : null;
   if (!virtualCandidate) {
     return filePath;
@@ -285,6 +296,13 @@ export async function resolveCanonicalSymbol(context: ResolveContext): Promise<C
       return {
         name: symbolAt.symbol.name,
         filePath: await getEcmaScriptRuntimeDeclarationFilePath(),
+        range: definition.range
+      };
+    }
+    if (isVexaScriptRuntimeNode(symbolAt.symbol.node)) {
+      return {
+        name: symbolAt.symbol.name,
+        filePath: await getVexaScriptRuntimeDeclarationFilePath(),
         range: definition.range
       };
     }

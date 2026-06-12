@@ -5,7 +5,10 @@ import { join } from "node:path";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
   getEcmaScriptRuntimeProgram,
+  getVexaScriptRuntimeDeclarationFilePath,
+  getVexaScriptRuntimeProgram,
   isEcmaScriptRuntimeNode,
+  isVexaScriptRuntimeNode,
   TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME
 } from "./ecmascriptDeclarations";
 
@@ -30,6 +33,14 @@ describe("TypeScript runtime declarations", () => {
 
     expect(first).toBe(second);
     expect(isEcmaScriptRuntimeNode(first.body[0]!)).toBe(true);
+  });
+
+  it("loads VexaScript-specific runtime annotations from a dedicated .d.vx file", async () => {
+    const program = getVexaScriptRuntimeProgram();
+
+    expect(getVexaScriptRuntimeDeclarationFilePath().endsWith("vexascript.d.vx")).toBe(true);
+    expect(program.body.some((statement) => statement.kind === "AnnotationStatement")).toBe(true);
+    expect(isVexaScriptRuntimeNode(program.body[0]!)).toBe(true);
   });
 
   it("boots the Node VFS from the Node declaration host", async () => {

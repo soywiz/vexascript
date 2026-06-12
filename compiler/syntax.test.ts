@@ -72,6 +72,23 @@ describe("shared syntax generators", () => {
     });
   });
 
+  it("treats class modifiers as declaration keywords in shared syntax definitions", () => {
+    const monacoLanguage = createPortableMonarchLanguage();
+    const vscodeGrammar = createVscodeTmLanguageGrammar();
+    const repository = vscodeGrammar["repository"] as Record<string, unknown>;
+    const keywords = repository["keywords"] as { patterns: Array<Record<string, unknown>> };
+    const declarationRule = keywords.patterns.find((rule) => rule["name"] === "keyword.declaration.vexa");
+
+    expect(monacoLanguage.declarationKeywords).toContain("static");
+    expect(monacoLanguage.declarationKeywords).toContain("private");
+    expect(monacoLanguage.declarationKeywords).toContain("public");
+    expect(monacoLanguage.declarationKeywords).toContain("protected");
+    expect(declarationRule?.["match"]).toContain("static");
+    expect(declarationRule?.["match"]).toContain("private");
+    expect(declarationRule?.["match"]).toContain("public");
+    expect(declarationRule?.["match"]).toContain("protected");
+  });
+
   it("does not treat generic type arguments as JSX in Monaco syntax", () => {
     const monacoLanguage = createPortableMonarchLanguage();
     const rootRules = monacoLanguage.tokenizer["root"] ?? [];

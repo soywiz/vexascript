@@ -1,4 +1,5 @@
 import type {
+  AnnotationStatement,
   ClassStatement,
   EnumStatement,
   ExportStatement,
@@ -11,6 +12,7 @@ import type {
 } from "compiler/ast/ast";
 
 export interface DeclarationIndex {
+  annotations: AnnotationStatement[];
   classes: ClassStatement[];
   enums: EnumStatement[];
   functions: FunctionStatement[];
@@ -37,6 +39,7 @@ export function declarationIndexForStatements(statements: readonly Statement[]):
   }
 
   const index: DeclarationIndex = {
+    annotations: [],
     classes: [],
     enums: [],
     functions: [],
@@ -68,6 +71,10 @@ export function declarationIndexForStatements(statements: readonly Statement[]):
       }
 
       switch (candidate.kind) {
+        case "AnnotationStatement":
+          index.annotations.push(candidate as AnnotationStatement);
+          index.globalDeclarations.push(candidate);
+          break;
         case "ClassStatement":
           index.classes.push(candidate as ClassStatement);
           index.globalDeclarations.push(candidate);

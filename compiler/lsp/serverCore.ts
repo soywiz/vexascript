@@ -174,7 +174,7 @@ export function startLspServer(options: LspServerOptions): void {
         textDocumentSync: TextDocumentSyncKind.Incremental,
         completionProvider: {
           resolveProvider: false,
-          triggerCharacters: ["."]
+          triggerCharacters: [".", "@"]
         },
         codeActionProvider: {
           resolveProvider: true

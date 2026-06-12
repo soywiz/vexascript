@@ -2,8 +2,8 @@ import { LANGUAGE_NAME, LANGUAGE_SCOPE } from "./language";
 
 export const VEXA_KEYWORD_DECLARATIONS = [
   "import", "export", "from", "let", "var", "val", "const", "by", "function", "fun",
-  "declare", "class", "interface", "enum", "extends", "implements",
-  "override", "readonly", "keyof", "infer", "async", "sync"
+  "declare", "class", "interface", "annotation", "enum", "extends", "implements",
+  "override", "readonly", "public", "private", "protected", "static", "abstract", "get", "set", "keyof", "infer", "async", "sync"
 ] as const;
 
 export const VEXA_KEYWORD_CONTROLS = [
@@ -292,7 +292,7 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
             }
           },
           {
-            match: "\\b(class|interface|enum|type)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
+            match: "\\b(class|interface|annotation|enum|type)\\s+([_$A-Za-z][_$A-Za-z0-9]*)",
             captures: {
               "1": { name: "storage.type.vexa" },
               "2": { name: "entity.name.type.vexa" }

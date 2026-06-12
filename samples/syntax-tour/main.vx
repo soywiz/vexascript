@@ -16,12 +16,34 @@ declare abstract class AbstractShape {
   abstract area(): number
 }
 
+enum Demo {
+  HELLO = 0, WORLD = 1
+}
+
+enum StrEnum {
+  ADA = "ada", CPP = "c++"
+}
+
+const value = Demo.WORLD
+const val1 = Demo[Demo.HELLO]
+const val2 = Demo[0]
+const val3 = StrEnum["b"]
+const val4 = StrEnum[StrEnum.CPP]
+
+annotation DemoAnnotation
+annotation DemoTag(val label: string)
+annotation DemoFlag(val enabled: boolean)
+
 @JsName("renamedValueRuntime")
 val renamedValue = "renamed"
 
+@DemoTag("lowered to JavaScript")
 @JsInline("String(value).toLowerCase()")
 fun lower(value: string): string
 
+@DemoAnnotation
+@DemoFlag(true)
+@DemoTag("custom annotation sample")
 type LocalName = NameValue
 type LocalKey = NameKey
 type LocalItem = MaybeArray<string[]>

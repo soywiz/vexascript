@@ -1,6 +1,14 @@
 {
   "name": "VexaScript Dark",
   "type": "dark",
+  "semanticHighlighting": true,
+  "semanticTokenColors": {
+    "keywordModifier": "#569CD6",
+    "keywordFunction": "#DCDCAA",
+    "keywordType": "#4EC9B0",
+    "keywordControl": "#C586C0",
+    "keyword": "#569CD6"
+  },
   "tokenColors": [
     {
       "scope": [

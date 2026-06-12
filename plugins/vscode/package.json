@@ -84,7 +84,8 @@
     "bundle-extension": "pnpm run bundle-server && pnpm run stage-server-deps && pnpm run bundle-client",
     "package": "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexa-vscodeext.vsix",
     "launch": "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)",
-    "install": "pnpm package && code --install-extension vexa-vscodeext.vsix"
+    "install": "pnpm package && (code --uninstall-extension vexa.vexascript-vscodeext || true) && code --install-extension vexa-vscodeext.vsix",
+    "uninstall": "code --uninstall-extension vexa.vexascript-vscodeext"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

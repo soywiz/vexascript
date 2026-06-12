@@ -195,6 +195,69 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses annotation declarations with parameter properties", () => {
+        const program = parseFile(tokenizeReader("annotation JsName(val name: string)"));
+
+        expect(program.body[0]).toMatchObject({
+            kind: "AnnotationStatement",
+            name: { kind: "Identifier", name: "JsName" },
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    accessModifier: "public",
+                    readonly: true,
+                    name: { kind: "Identifier", name: "name" },
+                    typeAnnotation: { kind: "Identifier", name: "string" }
+                }
+            ]
+        });
+    });
+
+    it("parses zero-argument annotations without parentheses in declarations and uses", () => {
+        const program = parseFile(tokenizeReader(dedent`
+            annotation DemoAnnotation
+            @DemoAnnotation
+            fun demo() {}
+        `));
+
+        expect(program.body[0]).toMatchObject({
+            kind: "AnnotationStatement",
+            name: { kind: "Identifier", name: "DemoAnnotation" },
+            parameters: []
+        });
+        expect(program.body[1]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "demo" },
+            annotations: [
+                {
+                    kind: "AnnotationApplication",
+                    name: { kind: "Identifier", name: "DemoAnnotation" },
+                    arguments: []
+                }
+            ]
+        });
+    });
+
+    it("parses '@' annotations and attaches them to declarations", () => {
+        const program = parseFile(tokenizeReader(dedent`
+            @JsName("rgba")
+            fun color() {}
+        `));
+
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "color" },
+            jsName: "rgba",
+            annotations: [
+                {
+                    kind: "AnnotationApplication",
+                    name: { kind: "Identifier", name: "JsName" },
+                    arguments: [{ kind: "StringLiteral", value: "rgba" }]
+                }
+            ]
+        });
+    });
+
     it("parses a mix of positional and named call arguments", () => {
         expect(parseExpression(tokenizeReader("connect(host, port: 8080)"))).toEqual({
             kind: "CallExpression",
@@ -2212,6 +2275,56 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses class members with explicit property and function declaration keywords", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Demo {\nval id: string\nvar count = 0\nasync fun save(): void { }\nfun operator+(other: Demo): Demo { }\n}")
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Demo" },
+            members: [
+                {
+                    kind: "ClassFieldMember",
+                    declarationKind: "val",
+                    readonly: true,
+                    name: { kind: "Identifier", name: "id" },
+                    typeAnnotation: { kind: "Identifier", name: "string" }
+                },
+                {
+                    kind: "ClassFieldMember",
+                    declarationKind: "var",
+                    name: { kind: "Identifier", name: "count" },
+                    initializer: { kind: "IntLiteral", value: 0 }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    declarationKind: "fun",
+                    async: true,
+                    name: { kind: "Identifier", name: "save" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "void" },
+                    body: { kind: "BlockStatement", body: [] }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    declarationKind: "fun",
+                    name: { kind: "Identifier", name: "operator+" },
+                    operator: "+",
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "other" },
+                            typeAnnotation: { kind: "Identifier", name: "Demo" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "Demo" },
+                    body: { kind: "BlockStatement", body: [] }
+                }
+            ]
+        });
+    });
+
     it("parses class method shorthand bodies with =>", () => {
         expect(
             parseStatement(
@@ -3347,6 +3460,38 @@ describe("parseStatement", () => {
                     kind: "InterfacePropertyMember",
                     name: { kind: "Identifier", name: "items" },
                     typeAnnotation: { kind: "Identifier", name: "T[]" }
+                }
+            ]
+        });
+    });
+
+    it("parses interface members with explicit property and function declaration keywords", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("interface Repo {\nval size: int\nfun get(id: string): string\n}")
+            )
+        ).toEqual({
+            kind: "InterfaceStatement",
+            name: { kind: "Identifier", name: "Repo" },
+            members: [
+                {
+                    kind: "InterfacePropertyMember",
+                    declarationKind: "val",
+                    name: { kind: "Identifier", name: "size" },
+                    typeAnnotation: { kind: "Identifier", name: "int" }
+                },
+                {
+                    kind: "InterfaceMethodMember",
+                    declarationKind: "fun",
+                    name: { kind: "Identifier", name: "get" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "id" },
+                            typeAnnotation: { kind: "Identifier", name: "string" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "string" }
                 }
             ]
         });

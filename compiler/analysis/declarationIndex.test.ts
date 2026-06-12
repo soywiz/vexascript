@@ -8,6 +8,7 @@ import { declarationIndexForStatements } from "./declarationIndex";
 describe("declarationIndex", () => {
   it("indexes top-level declarations in one pass and caches by statement array", () => {
     const source = dedent`
+      annotation JsName(val name: string)
       export interface TopLevel { value: string }
       export class Box {}
       export type Alias = string
@@ -23,6 +24,7 @@ describe("declarationIndex", () => {
     const second = declarationIndexForStatements(ast.body);
 
     expect(second).toBe(first);
+    expect(first.annotations.map((statement) => statement.name.name)).toEqual(["JsName"]);
     expect(first.interfaces.map((statement) => statement.name.name)).toEqual(["TopLevel"]);
     expect(first.namespaces).toHaveLength(0);
     expect(first.functions).toHaveLength(0);

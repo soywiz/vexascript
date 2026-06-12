@@ -20,6 +20,7 @@ import { createTypeFixCodeActions } from "./typeFixes";
 import { createInterfaceImplementationCodeActions } from "./interfaceImplementationFixes";
 import { createThisCodeActions } from "./thisFixes";
 import { createNullableAccessCodeActions } from "./nullableAccessFixes";
+import { createMemberKeywordCodeActions } from "./memberKeywordFixes";
 import type { SymbolExportProvider } from "./importFixes";
 
 /**
@@ -121,6 +122,14 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
       uri,
       ast,
       text,
+      position: range.start
+    })
+  );
+
+  actions.push(
+    ...createMemberKeywordCodeActions({
+      uri,
+      ast,
       position: range.start
     })
   );

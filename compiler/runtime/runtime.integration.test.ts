@@ -167,6 +167,20 @@ console.log(tail.length)
     expect(executeTranspiled(source)).toEqual([[1], ["Ada"], [4], [7], [10], [3], [0]]);
   });
 
+  it("supports VexaScript enum indexing by name, raw value, and enum value", () => {
+    const source = `enum Direction { Up, Down }
+enum Label { Start = "start", End = "end" }
+console.log(Direction["Up"])
+console.log(Direction[0])
+console.log(Direction[Direction.Up])
+console.log(Label["Start"])
+console.log(Label["start"])
+console.log(Label[Label.Start])
+`;
+
+    expect(executeTranspiled(source)).toEqual([[0], [0], [0], ["start"], ["start"], ["start"]]);
+  });
+
 });
 
 describe("destructured parameter runtime integration", () => {

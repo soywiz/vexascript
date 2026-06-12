@@ -38,4 +38,29 @@ describe("monaco theme", () => {
       foreground: "9CDCFE",
     });
   });
+
+  it("styles semantic keyword families independently", () => {
+    const theme = createVexaScriptMonacoTheme();
+    const modifierKeyword = theme.rules.find((rule) => rule.token === "keywordModifier");
+    const functionKeyword = theme.rules.find((rule) => rule.token === "keywordFunction");
+    const typeKeyword = theme.rules.find((rule) => rule.token === "keywordType");
+    const controlKeyword = theme.rules.find((rule) => rule.token === "keywordControl");
+
+    expect(modifierKeyword).toEqual({
+      token: "keywordModifier",
+      foreground: "569CD6",
+    });
+    expect(functionKeyword).toEqual({
+      token: "keywordFunction",
+      foreground: "DCDCAA",
+    });
+    expect(typeKeyword).toEqual({
+      token: "keywordType",
+      foreground: "4EC9B0",
+    });
+    expect(controlKeyword).toEqual({
+      token: "keywordControl",
+      foreground: "C586C0",
+    });
+  });
 });

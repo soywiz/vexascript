@@ -125,9 +125,26 @@ fun assert(cond: boolean, message: string = "assert failed")
 assert(value > 0)
 ```
 
-### `@JsName` annotation
+### `annotation` declarations and `@JsName`
 
-Overrides the emitted JavaScript name while keeping the source name for VexaScript analysis.
+Annotations are declared explicitly and then applied with `@`:
+
+```vexa
+annotation Benchmark
+annotation JsName(val name: string)
+annotation JsInline(val replacement: string)
+```
+
+Zero-argument annotations may omit parentheses in both declarations and use sites:
+
+```vexa
+annotation Benchmark
+
+@Benchmark
+fun measure() {}
+```
+
+`@JsName` overrides the emitted JavaScript name while keeping the source name for VexaScript analysis.
 
 ```vexa
 @JsName("rgba")
@@ -180,9 +197,27 @@ Inside class methods and field initializers, class members can be referenced wit
 
 ```vexa
 class Counter(val value: int) {
-  increment(amount: int): int {
+  fun increment(amount: int): int {
     return value + amount  // emits: return this.value + amount
   }
+}
+```
+
+### Explicit member kinds in classes and interfaces
+
+Inside class and interface bodies, VexaScript also supports Kotlin/Swift-style member keywords so the declaration kind is visible at a glance. The older TypeScript-style member syntax still works, but `fun` and `val`/`var`/`let`/`const` are the preferred spellings.
+
+```vexa
+interface Shape {
+  val area: number
+  fun draw(ctx: CanvasCtx): void
+}
+
+class Rect {
+  val width: number
+  var height: number
+
+  fun area(): number => width * height
 }
 ```
 

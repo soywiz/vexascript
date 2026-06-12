@@ -1,6 +1,7 @@
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import type { Vfs } from "compiler/vfs";
 import type {
+  AnnotationStatement,
   ArrayLiteral,
   AsExpression,
   AssignmentExpression,
@@ -13,6 +14,7 @@ import type {
   ConditionalExpression,
   CommaExpression,
   DoWhileStatement,
+  EnumStatement,
   Expr,
   ExportStatement,
   ForStatement,
@@ -43,6 +45,7 @@ import type {
   WhileStatement,
   WithStatement
 } from "compiler/ast/ast";
+import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { Analysis } from "compiler/analysis/Analysis";
@@ -85,6 +88,10 @@ import {
 import { comparePosition, containsPosition, nodeRange, rangeSize } from "./ranges";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { fileURLToPath } from "compiler/utils/path";
+import {
+  getEcmaScriptRuntimeProgram,
+  getVexaScriptRuntimeProgram
+} from "compiler/runtime/ecmascriptDeclarations";
 
 const CompletionItemKind = {
   Text: 1,
@@ -130,6 +137,7 @@ type TypeAliasCompletionMember = {
 const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "type", kind: CompletionItemKind.Keyword, detail: "Keyword" },
+  { label: "annotation", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "interface", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "enum", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "namespace", kind: CompletionItemKind.Keyword, detail: "Keyword" },
@@ -282,6 +290,64 @@ function parseMemberAccessTarget(
     memberAccessStartCharacter,
     prefix: typedPrefix
   };
+}
+
+function annotationPrefixAtPosition(
+  text: string | undefined,
+  line: number,
+  character: number
+): string | null {
+  if (!text) {
+    return null;
+  }
+  const lineText = text.split("\n")[line] ?? "";
+  const uptoCursor = lineText.slice(0, Math.max(0, Math.min(character, lineText.length)));
+  const match = /@([A-Za-z_][A-Za-z0-9_]*)?$/u.exec(uptoCursor);
+  return match ? match[1] ?? "" : null;
+}
+
+function collectAvailableAnnotations(program: Program): AnnotationStatement[] {
+  const byName = new Map<string, AnnotationStatement>();
+  for (const statement of declarationIndexForStatements(getVexaScriptRuntimeProgram().body).annotations) {
+    byName.set(statement.name.name, statement);
+  }
+  for (const statement of declarationIndexForStatements(getEcmaScriptRuntimeProgram().body).annotations) {
+    byName.set(statement.name.name, statement);
+  }
+  for (const statement of declarationIndexForStatements(program.body).annotations) {
+    byName.set(statement.name.name, statement);
+  }
+  return [...byName.values()].sort((left, right) => left.name.name.localeCompare(right.name.name));
+}
+
+function annotationCompletionItems(program: Program, prefix: string): CompletionItem[] {
+  const normalizedPrefix = prefix.trim();
+  const items: CompletionItem[] = [];
+  for (const annotation of collectAvailableAnnotations(program)) {
+    const label = annotation.name.name;
+    if (normalizedPrefix.length > 0 && !label.startsWith(normalizedPrefix)) {
+      continue;
+    }
+    items.push({
+      label,
+      kind: CompletionItemKind.Function,
+      detail: "Annotation",
+      ...(annotation.parameters.length > 0
+        ? {
+            insertText: `${label}($1)`,
+            insertTextFormat: CompletionItemInsertTextFormat.Snippet,
+            command: {
+              title: "Trigger parameter hints",
+              command: CompletionCommand.TriggerParameterHints,
+            }
+          }
+        : {
+            insertText: label
+          }),
+      sortText: `0-${label}`
+    });
+  }
+  return items;
 }
 
 /**
@@ -987,6 +1053,27 @@ function buildInterfaceMemberCompletionItems(
       kind: member.kind,
       detail: member.detail,
       sortText: `2-${member.name}`
+    });
+  }
+  return items;
+}
+
+function buildEnumMemberCompletionItems(
+  enumStatement: EnumStatement,
+  prefix: string
+): CompletionItem[] {
+  const items: CompletionItem[] = [];
+  const normalizedPrefix = prefix.trim();
+  for (const member of enumStatement.members) {
+    const label = member.name.name;
+    if (normalizedPrefix.length > 0 && !label.startsWith(normalizedPrefix)) {
+      continue;
+    }
+    items.push({
+      label,
+      kind: CompletionItemKind.EnumMember,
+      detail: `Enum member: ${enumStatement.name.name}`,
+      sortText: `2-${label}`
     });
   }
   return items;
@@ -2030,6 +2117,18 @@ async function buildMemberCompletionItemsForType(
     resolverOptions,
     resolverCache
   ))?.classStatement;
+  const enumStatement = (await resolveTopLevelDeclarationAcrossFiles({
+    ast,
+    name: baseTypeName(resolvedClassName),
+    currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
+    predicate: (statement): statement is EnumStatement => statement.kind === "EnumStatement",
+    includeRuntime: true,
+    sourceRoots: resolverOptions.sourceRoots ?? [],
+    ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),
+    ...(resolverOptions.getSessionForFilePath
+      ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
+      : {})
+  }))?.declaration;
   const interfaceStatement = (await resolveInterfaceStatementAcrossFiles(
     ast,
     baseTypeName(resolvedClassName),
@@ -2087,7 +2186,7 @@ async function buildMemberCompletionItemsForType(
   return [
     ...await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis),
     ...(classStatement
-      ? await buildClassMemberCompletionItems(
+        ? await buildClassMemberCompletionItems(
         classStatement,
         resolvedClassName,
         prefix,
@@ -2103,6 +2202,8 @@ async function buildMemberCompletionItemsForType(
             cache: resolverCache
           }
         )
+      : enumStatement
+        ? buildEnumMemberCompletionItems(enumStatement, prefix)
       : interfaceStatement
         ? buildInterfaceMemberCompletionItems(prefix, interfaceMembers)
         : ambientInterfaceMembers.length > 0
@@ -2129,6 +2230,23 @@ async function buildMemberAccessCompletions(
   const target = parseMemberAccessTarget(options.text, line, character);
   if (target) {
     const pathSegments = target.objectPath.split(".");
+    if (pathSegments.length > 1 && pathSegments[0]) {
+      const firstSegmentEnum = (await resolveTopLevelDeclarationAcrossFiles({
+        ast,
+        name: pathSegments[0],
+        currentFilePath: options.uri ? fileURLToPath(options.uri) : null,
+        predicate: (statement): statement is EnumStatement => statement.kind === "EnumStatement",
+        includeRuntime: true,
+        sourceRoots: resolverOptions.sourceRoots ?? [],
+        ...(resolverOptions.vfs ? { vfs: resolverOptions.vfs } : {}),
+        ...(resolverOptions.getSessionForFilePath
+          ? { getSessionForFilePath: resolverOptions.getSessionForFilePath }
+          : {})
+      }))?.declaration;
+      if (firstSegmentEnum) {
+        return [];
+      }
+    }
     const importerFilePath = options.uri ? fileURLToPath(options.uri) : null;
     const namespaceStatement =
       findNamespaceByPath(ast, pathSegments) ??
@@ -2324,6 +2442,10 @@ export async function createCompletionItemsForPosition(
   options: CompletionRequestOptions = {}
 ): Promise<CompletionItem[]> {
   const resolvedAnalysis = analysis ?? new Analysis(ast);
+  const annotationPrefix = annotationPrefixAtPosition(options.text, line, character);
+  if (annotationPrefix !== null) {
+    return annotationCompletionItems(ast, annotationPrefix);
+  }
   const resolvedAutoImportSuggestions =
     autoImportSuggestions.length > 0
       ? autoImportSuggestions

@@ -9,6 +9,7 @@ import {
   TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME,
   type CachedRuntimeSourceMetadata
 } from "./ecmascriptDeclarations.shared";
+import { VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME } from "./vexascriptDeclarations.shared";
 import type { RuntimeDeclarationsHost, RuntimeDeclarationSource } from "./declarationHost";
 import { vfs } from "compiler/vfs";
 
@@ -37,6 +38,9 @@ export const nodeRuntimeDeclarationsHost: RuntimeDeclarationsHost = {
     const declaration = await readBundledDeclarationSource(TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME);
     const { mtimeMs } = await vfs().stat(declaration.filePath);
     return { ...declaration, mtimeMs };
+  },
+  async loadVexaScriptDeclarations(): Promise<RuntimeDeclarationSource> {
+    return readBundledDeclarationSource(VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME);
   },
   async loadDomDeclarations(): Promise<RuntimeDeclarationSource & CachedDomSourceMetadata> {
     return readBundledDeclarationSource(TYPESCRIPT_DOM_DECLARATION_FILE_NAME);

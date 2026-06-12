@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import { ensureVexaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 
 function readBundledRuntime(): Promise<string> {
   return readFile(join(process.cwd(), "compiler", "runtime", "es2025.d.ts"), "utf8");
@@ -24,5 +25,15 @@ describe("bundled es2025 runtime declarations", () => {
     expect(source).not.toContain("interface Document");
     expect(source).not.toContain("interface DedicatedWorkerGlobalScope");
     expect(source).not.toContain("declare var ActiveXObject");
+  });
+
+  it("keeps VexaScript-specific annotation declarations in the dedicated runtime file", async () => {
+    const program = await ensureVexaScriptRuntimeProgram();
+    const names = program.body
+      .filter((statement) => statement.kind === "AnnotationStatement")
+      .map((statement) => (statement as unknown as { name: { name: string } }).name.name);
+
+    expect(names).toContain("JsName");
+    expect(names).toContain("JsInline");
   });
 });

@@ -1,5 +1,7 @@
 import type {
   ArrowFunctionExpression,
+  AnnotationApplication,
+  AnnotationStatement,
   ArrayBindingPattern,
   ArrayLiteral,
   AsExpression,
@@ -14,6 +16,7 @@ import type {
   ConditionalExpression,
   CommaExpression,
   DoWhileStatement,
+  EnumMember,
   EnumStatement,
   Expr,
   ExprStatement,
@@ -106,6 +109,7 @@ import {
 } from "./typeNames";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations";
 import { declarationIndexForStatements } from "./declarationIndex";
 import { walkAst } from "compiler/ast/traversal";
 
@@ -127,6 +131,7 @@ export class TypeChecker {
   private readonly namespaceStatementsByName: Map<string, NamespaceStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
   private readonly typeAliasStatementsByName: Map<string, TypeAliasStatement> = new Map();
+  private readonly annotationStatementsByName: Map<string, AnnotationStatement> = new Map();
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
   private readonly activeTypeAliasNames: Set<string> = new Set();
@@ -148,11 +153,13 @@ export class TypeChecker {
     ambientDeclarations: readonly Statement[] = []
   ) {
     const runtimeProgram = getEcmaScriptRuntimeProgram();
+    const vexaRuntimeProgram = getVexaScriptRuntimeProgram();
     this.collectFunctionStatements(runtimeProgram.body);
     this.collectClassStatements(runtimeProgram.body);
     this.collectEnumStatements(runtimeProgram.body);
     this.collectInterfaceStatements(runtimeProgram.body);
     this.collectTypeAliasStatements(runtimeProgram.body);
+    this.collectAnnotationStatements(vexaRuntimeProgram.body);
     // An explicit import shadows the ambient runtime declaration of the same
     // name. Drop the runtime declarations first so the imported (external)
     // declarations registered below win, instead of being deleted by this pass.
@@ -167,12 +174,14 @@ export class TypeChecker {
     this.collectInterfaceStatements(ambientDeclarations);
     this.collectTypeAliasStatements(ambientDeclarations);
     this.collectNamespaceStatements(ambientDeclarations);
+    this.collectAnnotationStatements(ambientDeclarations);
     this.collectFunctionStatements(externalDeclarations);
     this.collectClassStatements(externalDeclarations);
     this.collectEnumStatements(externalDeclarations);
     this.collectInterfaceStatements(externalDeclarations);
     this.collectTypeAliasStatements(externalDeclarations);
     this.collectNamespaceStatements(externalDeclarations);
+    this.collectAnnotationStatements(externalDeclarations);
     // Also collect declarations nested inside namespace bodies so types like
     // `moment.Moment` (declared as `namespace moment { interface Moment }`) are
     // available for member resolution when referenced as namedType("Moment").
@@ -198,6 +207,7 @@ export class TypeChecker {
     this.collectNamespaceStatements(program.body);
     this.collectInterfaceStatements(program.body);
     this.collectTypeAliasStatements(program.body);
+    this.collectAnnotationStatements(program.body);
     this.collectExplicitlyUnknownIdentifiers(program);
   }
 
@@ -212,6 +222,12 @@ export class TypeChecker {
         this.explicitlyUnknownIdentifiers.add(identifier);
       }
     });
+  }
+
+  private collectAnnotationStatements(statements: readonly Statement[]): void {
+    for (const statement of declarationIndexForStatements([...statements]).annotations) {
+      this.annotationStatementsByName.set(statement.name.name, statement);
+    }
   }
 
   check(): CheckedAnalysis {
@@ -323,6 +339,7 @@ export class TypeChecker {
   }
 
   private visitStatement(statement: Statement, scope: Scope, flow: FlowContext): void {
+    this.visitStatementAnnotations(statement, scope);
     switch (statement.kind) {
       case "ExportStatement": {
         const exportStatement = statement as ExportStatement;
@@ -364,6 +381,7 @@ export class TypeChecker {
       }
       case "InterfaceStatement":
       case "TypeAliasStatement":
+      case "AnnotationStatement":
         return;
       case "ExprStatement":
         this.visitExpression((statement as ExprStatement).expression, scope);
@@ -523,6 +541,86 @@ export class TypeChecker {
       default:
         return;
     }
+  }
+
+  private visitStatementAnnotations(statement: Statement, scope: Scope): void {
+    for (const annotation of statement.annotations ?? []) {
+      this.visitAnnotationApplication(annotation, scope);
+    }
+  }
+
+  private visitAnnotationApplication(annotation: AnnotationApplication, scope: Scope): void {
+    const usageOffset = annotation.name.firstToken?.range.start.offset;
+    const symbol = this.resolve(annotation.name.name, scope, usageOffset);
+    if (symbol?.kind === "annotation") {
+      this.identifierResolutions.push({ identifier: annotation.name, symbol });
+    }
+    const declaration = this.resolveAnnotationStatement(annotation.name.name);
+    if (!declaration) {
+      this.issues.push({
+        message: `Unknown annotation '${annotation.name.name}'`,
+        node: annotation.name
+      });
+      for (const argument of annotation.arguments) {
+        this.visitExpression(argument, scope);
+      }
+      return;
+    }
+    const parameterTypes = declaration.parameters.map((parameter) =>
+      this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
+    );
+    const argumentTypes = annotation.arguments.map((argument) => this.visitExpression(argument, scope));
+    this.validateAnnotationArguments(annotation, declaration, parameterTypes, argumentTypes);
+  }
+
+  private validateAnnotationArguments(
+    annotation: AnnotationApplication,
+    declaration: AnnotationStatement,
+    parameterTypes: AnalysisType[],
+    argumentTypes: AnalysisType[]
+  ): void {
+    const requiredCount = declaration.parameters.filter((parameter) => parameter.defaultValue === undefined).length;
+    const providedCount = annotation.arguments.length;
+    const totalCount = declaration.parameters.length;
+
+    if (providedCount < requiredCount) {
+      this.issues.push({
+        message: `Expected at least ${requiredCount} argument(s), but got ${providedCount}`,
+        node: annotation.name
+      });
+    } else if (providedCount > totalCount) {
+      this.issues.push({
+        message: `Expected at most ${totalCount} argument(s), but got ${providedCount}`,
+        node: annotation.name
+      });
+      for (let index = totalCount; index < providedCount; index += 1) {
+        this.issues.push({
+          message: `Unexpected argument ${index + 1}; annotation expects at most ${totalCount} argument(s)`,
+          node: annotation.arguments[index] ?? annotation.name
+        });
+      }
+    }
+
+    const comparableCount = Math.min(argumentTypes.length, parameterTypes.length);
+    for (let index = 0; index < comparableCount; index += 1) {
+      const expectedType = parameterTypes[index] ?? UNKNOWN_TYPE;
+      const argumentType = argumentTypes[index] ?? UNKNOWN_TYPE;
+      const argumentNode = annotation.arguments[index] ?? annotation.name;
+      const parameter = declaration.parameters[index];
+      const parameterName = parameter ? bindingNameText(parameter.name) : `arg${index + 1}`;
+      if (isUnknownType(expectedType) || isUnknownType(argumentType) || this.isCallArgumentAssignable(argumentType, expectedType)) {
+        continue;
+      }
+      this.issues.push({
+        message: `Argument ${index + 1} of type '${typeToString(argumentType)}' is not assignable to parameter '${parameterName}' of type '${typeToString(expectedType)}'`,
+        node: argumentNode
+      });
+      this.reportNestedMismatchContext(argumentType, expectedType, argumentNode);
+    }
+  }
+
+  private resolveAnnotationStatement(name: string): AnnotationStatement | null {
+    return this.annotationStatementsByName.get(name) ?? null;
   }
 
   private statementAllowsLabeledContinue(statement: Statement): boolean {
@@ -1504,7 +1602,27 @@ export class TypeChecker {
         this.validateNullableMemberAccess(member, rawObjectType);
         const objectType = member.nonNullAsserted === true ? this.removeNullishFromType(rawObjectType) : rawObjectType;
         if (member.computed) {
+          if (
+            objectType.kind === "named" &&
+            member.property.kind === "StringLiteral" &&
+            this.enumStatementsByName.get(objectType.name)?.members.some(
+              (enumMember) => enumMember.name.name === (member.property as StringLiteral).value
+            )
+          ) {
+            result = namedType(objectType.name);
+            break;
+          }
           const propertyType = this.visitExpression(member.property, scope);
+          if (objectType.kind === "named") {
+            const enumStatement = this.enumStatementsByName.get(objectType.name);
+            if (enumStatement) {
+              result = this.resolveOptionalAccessType(
+                this.resolveEnumComputedAccessType(enumStatement, member.property, propertyType),
+                member.optional === true
+              );
+              break;
+            }
+          }
           result = this.resolveOptionalAccessType(this.resolveComputedMemberType(objectType, propertyType), member.optional === true);
           break;
         }
@@ -5916,6 +6034,14 @@ export class TypeChecker {
       return;
     }
 
+    if (this.enumValueMemberAccessType(member, resolvedObjectType) !== null) {
+      this.issues.push({
+        message: `Property '${propertyName}' does not exist on type '${resolvedObjectType.kind === "named" ? resolvedObjectType.name : typeToString(resolvedObjectType)}'`,
+        node: member.property
+      });
+      return;
+    }
+
     const knownMembers = this.membersForType(resolvedObjectType);
     if (!knownMembers) {
       return;
@@ -6061,6 +6187,9 @@ export class TypeChecker {
     if (this.importedExtensionPropertyNames.has(memberName)) {
       return UNKNOWN_TYPE;
     }
+    if (this.enumValueMemberAccessType(member, resolvedObjectType) !== null) {
+      return null;
+    }
     if (resolvedObjectType.kind === "union") {
       const memberTypes = resolvedObjectType.types
         .filter((type) => !this.isNullishType(type))
@@ -6117,6 +6246,24 @@ export class TypeChecker {
     return classMembers.get(memberName) ?? null;
   }
 
+  private enumValueMemberAccessType(member: MemberExpression, objectType: AnalysisType): AnalysisType | null {
+    if (objectType.kind !== "named" || member.computed || member.property.kind !== "Identifier") {
+      return null;
+    }
+    if (!this.enumStatementsByName.has(objectType.name)) {
+      return null;
+    }
+    if (member.object.kind !== "Identifier") {
+      return objectType;
+    }
+    const symbol = this.resolve(
+      (member.object as Identifier).name,
+      this.bound.rootScope,
+      (member.object as Identifier).firstToken?.range.start.offset
+    );
+    return symbol?.kind === "class" ? null : objectType;
+  }
+
   private resolveKnownMemberSymbol(member: MemberExpression, objectType: AnalysisType): AnalysisSymbol | null {
     if (member.computed || member.property.kind !== "Identifier") {
       return null;
@@ -6164,6 +6311,15 @@ export class TypeChecker {
   }
 
   private findNamedTypeMemberSymbol(typeName: string, memberName: string): AnalysisSymbol | null {
+    const enumStatement = this.enumStatementsByName.get(typeName);
+    if (enumStatement) {
+      const enumScope = this.bound.scopeByNode.get(enumStatement);
+      const enumSymbol = enumScope?.symbols.get(memberName);
+      if (enumSymbol) {
+        return enumSymbol;
+      }
+    }
+
     const classStatement = this.classStatementsByName.get(typeName);
     if (!classStatement) {
       return null;
@@ -6204,7 +6360,90 @@ export class TypeChecker {
     if (objectType.kind === "range" && this.isIntType(propertyType)) {
       return objectType.elementType;
     }
+    if (objectType.kind === "named") {
+      const enumStatement = this.enumStatementsByName.get(objectType.name);
+      if (!enumStatement) {
+        return UNKNOWN_TYPE;
+      }
+      return this.resolveEnumComputedAccessType(enumStatement, undefined, propertyType);
+    }
     return UNKNOWN_TYPE;
+  }
+
+  private resolveEnumComputedAccessType(
+    enumStatement: EnumStatement,
+    propertyExpression: Expr | undefined,
+    propertyType: AnalysisType
+  ): AnalysisType {
+    if (propertyExpression?.kind === "IntLiteral") {
+      return unionType([namedType(enumStatement.name.name), builtinType("undefined")]);
+    }
+    if (propertyExpression?.kind === "StringLiteral") {
+      const value = (propertyExpression as StringLiteral).value;
+      if (enumStatement.members.some((member) => member.name.name === value)) {
+        return namedType(enumStatement.name.name);
+      }
+      if (enumStatement.members.some((member) => this.enumMemberStringValue(member) === value)) {
+        return namedType(enumStatement.name.name);
+      }
+    }
+    if (propertyType.kind === "named" && propertyType.name === enumStatement.name.name) {
+      return this.enumUnderlyingValueType(enumStatement);
+    }
+    if (this.isIntType(propertyType)) {
+      return unionType([namedType(enumStatement.name.name), builtinType("undefined")]);
+    }
+    if (this.isStringLikeType(propertyType)) {
+      return enumStatement.members.some((member) => this.enumMemberStringValue(member) !== null)
+        ? namedType(enumStatement.name.name)
+        : builtinType("undefined");
+    }
+    return UNKNOWN_TYPE;
+  }
+
+  private enumUnderlyingValueType(enumStatement: EnumStatement): AnalysisType {
+    const uniqueTypes: AnalysisType[] = [];
+    for (const member of enumStatement.members) {
+      const memberType = this.enumMemberValueType(member);
+      if (!memberType) {
+        continue;
+      }
+      if (!uniqueTypes.some((existing) => isSameType(existing, memberType))) {
+        uniqueTypes.push(memberType);
+      }
+    }
+    if (uniqueTypes.length === 0) {
+      return UNKNOWN_TYPE;
+    }
+    return uniqueTypes.length === 1 ? uniqueTypes[0]! : unionType(uniqueTypes);
+  }
+
+  private enumMemberValueType(member: EnumMember): AnalysisType | null {
+    if (!member.initializer) {
+      return builtinType("int");
+    }
+    if (member.initializer.kind === "IntLiteral") {
+      return builtinType("int");
+    }
+    if (member.initializer.kind === "StringLiteral") {
+      return builtinType("string");
+    }
+
+    const initializerType = this.expressionTypes.get(member.initializer) ?? UNKNOWN_TYPE;
+    if (this.isIntType(initializerType)) {
+      return builtinType("int");
+    }
+    if (this.isStringLikeType(initializerType)) {
+      return builtinType("string");
+    }
+    return null;
+  }
+
+  private enumMemberStringValue(member: EnumMember): string | null {
+    if (member.initializer?.kind === "StringLiteral") {
+      return (member.initializer as StringLiteral).value;
+    }
+    return null;
   }
 
   private isNullishType(type: AnalysisType): boolean {

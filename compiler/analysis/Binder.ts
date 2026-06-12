@@ -38,7 +38,9 @@ import {
 import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText } from "./typeNames";
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
+import type { AnalysisIssue } from "./model";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations";
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import { declarationIndexForStatements } from "./declarationIndex";
 
@@ -76,6 +78,7 @@ export class Binder {
   private readonly rootScope: Scope;
   private readonly classStatementsByName = new Map<string, ClassStatement>();
   private readonly interfaceStatementsByName = new Map<string, InterfaceStatement[]>();
+  private readonly issues: AnalysisIssue[] = [];
 
   constructor(
     private readonly program: Program,
@@ -100,13 +103,15 @@ export class Binder {
     this.collectInterfaceStatements(this.ambientDeclarations);
     this.collectInterfaceStatements(this.program.body);
     this.bindBuiltins();
+    this.bindGlobalDeclarations(getVexaScriptRuntimeProgram().body, this.rootScope, -1);
     this.bindGlobalDeclarations(getEcmaScriptRuntimeProgram().body, this.rootScope, -1);
     this.bindGlobalDeclarations(this.ambientDeclarations, this.rootScope, -1);
     this.bindGlobalDeclarations(this.program.body, this.rootScope);
     this.bindStatements(this.program.body, this.rootScope);
     return {
       rootScope: this.rootScope,
-      scopeByNode: this.scopeByNode
+      scopeByNode: this.scopeByNode,
+      issues: [...this.issues]
     };
   }
 
@@ -133,6 +138,20 @@ export class Binder {
     if (existing?.node === symbol.node) {
       return;
     }
+    const declaredOffset = declaredOffsetOverride ?? symbolOffset(symbol.node);
+    if (
+      existing &&
+      (existing.kind === "variable" || existing.kind === "parameter") &&
+      (symbol.kind === "variable" || symbol.kind === "parameter") &&
+      existing.declaredOffset >= 0 &&
+      declaredOffset >= 0
+    ) {
+      this.issues.push({
+        message: `Duplicate declaration of '${symbol.name}'`,
+        node: symbol.node
+      });
+      return;
+    }
     if (existing?.kind === "function" && symbol.kind === "function" && existing.type && symbol.type) {
       const existingTypes = existing.type.kind === "union" ? existing.type.types : [existing.type];
       const mergedType = unionType([...existingTypes, symbol.type]);
@@ -142,7 +161,7 @@ export class Binder {
     }
     scope.symbols.set(symbol.name, {
       ...symbol,
-      declaredOffset: declaredOffsetOverride ?? symbolOffset(symbol.node)
+      declaredOffset
     });
   }
 
@@ -327,6 +346,18 @@ export class Binder {
           type: symbolType,
           valueType: typeToString(symbolType)
         }, declaredOffsetOverride);
+        continue;
+      }
+
+      if (statement.kind === "AnnotationStatement") {
+        const annotationStatement = statement as import("compiler/ast/ast").AnnotationStatement;
+        this.declare(scope, {
+          name: annotationStatement.name.name,
+          kind: "annotation",
+          node: annotationStatement.name,
+          type: namedType(annotationStatement.name.name),
+          valueType: `annotation ${annotationStatement.name.name}`
+        }, declaredOffsetOverride);
       }
     }
   }
@@ -374,6 +405,7 @@ export class Binder {
       }
       case "InterfaceStatement":
       case "TypeAliasStatement":
+      case "AnnotationStatement":
         return;
       case "BlockStatement": {
         const blockScope = this.createScope(scope, statement);

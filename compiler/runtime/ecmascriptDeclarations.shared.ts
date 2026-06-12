@@ -8,7 +8,9 @@ import {
 import { getRuntimeDeclarationsHost } from "./declarationHost";
 
 export const TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME = "es2025.d.ts";
-const EXTRA_RUNTIME_DECLARATIONS = "declare var globalThis: typeof globalThis;\n";
+const EXTRA_RUNTIME_DECLARATIONS = [
+  "declare var globalThis: typeof globalThis;"
+].join("\n");
 
 export interface CachedRuntimeSourceMetadata {
   mtimeMs?: number;

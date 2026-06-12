@@ -117,6 +117,11 @@ interface RuntimeExtensionMethodInfo extends RuntimeOverloadInfo {
   name: string;
 }
 
+interface RuntimeEnumInfo {
+  memberNames: Set<string>;
+  rawValues: Array<string | number>;
+}
+
 interface JavaScriptImplementationInfo {
   template: string;
   parameters: FunctionParameter[];
@@ -162,6 +167,7 @@ interface ActiveEmitState {
   /** Source-name to final JavaScript-name overrides declared via `@JsName("...")`. */
   jsNames: Map<string, string>;
   variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
+  enumInfos: Map<string, RuntimeEnumInfo>;
   importedExtensionRuntimeNames: Map<string, string[]>;
   implicitReceiverIdentifiers: ReadonlySet<Node>;
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string>;
@@ -192,6 +198,7 @@ function createEmptyEmitState(): ActiveEmitState {
     javaScriptImplementations: new Map(),
     jsNames: new Map(),
     variableDelegates: new Map(),
+    enumInfos: new Map(),
     importedExtensionRuntimeNames: new Map(),
     implicitReceiverIdentifiers: new Set(),
     staticImplicitReceiverIdentifiers: new Map(),
@@ -999,6 +1006,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           return `${objectText}${access}${propertyName}`;
         }
         if (member.computed) {
+          const enumComputed = emitEnumComputedMemberExpression(member, objectText);
+          if (enumComputed) {
+            return enumComputed;
+          }
           return member.optional
             ? `${objectText}?.[${emitExpression(member.property)}]`
             : `${objectText}[${emitExpression(member.property)}]`;
@@ -1159,6 +1170,33 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
   }
 
   return self;
+}
+
+function emitEnumComputedMemberExpression(member: MemberExpression, objectText: string): string | null {
+  const directEnumName =
+    member.object.kind === "Identifier"
+      ? (member.object as Identifier).name
+      : null;
+  const objectType = activeState.expressionTypes?.get(member.object as unknown as Node);
+  const enumName =
+    directEnumName && activeState.enumInfos.has(directEnumName)
+      ? directEnumName
+      : objectType?.kind === "named" && activeState.enumInfos.has(objectType.name)
+        ? objectType.name
+        : null;
+  if (!enumName) {
+    return null;
+  }
+  const enumInfo = activeState.enumInfos.get(enumName);
+  if (!enumInfo) {
+    return null;
+  }
+
+  const keyText = emitExpression(member.property);
+  const memberNames = JSON.stringify(Array.from(enumInfo.memberNames));
+  const rawValues = JSON.stringify(enumInfo.rawValues);
+  const body = `(function ($enum, $key) { return ${memberNames}.includes($key) ? $enum[$key] : ${rawValues}.includes($key) ? $key : undefined; })(${objectText}, ${keyText})`;
+  return member.optional ? `(${objectText} == null ? undefined : ${body})` : body;
 }
 
 function emitFunctionParameters(parameters: FunctionParameter[]): string {
@@ -1773,6 +1811,7 @@ interface EmitProgramRuntimeContext {
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
   variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
+  enumInfos: Map<string, RuntimeEnumInfo>;
   jsxFactory: string;
   jsxFragmentFactory: string;
 }
@@ -1791,6 +1830,7 @@ interface EmitProgramRuntimeSeed {
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
+  enumInfos: Map<string, RuntimeEnumInfo>;
 }
 
 function appendMapArrayValue<T>(map: Map<string, T[]>, key: string, value: T): void {
@@ -1835,7 +1875,8 @@ function cloneRuntimeSeed(seed: EmitProgramRuntimeSeed): EmitProgramRuntimeSeed 
     constructableCandidates: [...seed.constructableCandidates],
     parameterNames: cloneMapArrayValues(seed.parameterNames),
     javaScriptImplementations: new Map(seed.javaScriptImplementations),
-    jsNames: new Map(seed.jsNames)
+    jsNames: new Map(seed.jsNames),
+    enumInfos: new Map(seed.enumInfos)
   };
 }
 
@@ -1853,6 +1894,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
   const parameterNames = new Map<string, string[]>();
   const javaScriptImplementations = new Map<string, JavaScriptImplementationInfo>();
   const jsNames = new Map<string, string>();
+  const enumInfos = new Map<string, RuntimeEnumInfo>();
 
   for (const statement of contextProgram.body) {
     const candidate = unwrapExportedDeclaration(statement);
@@ -1965,6 +2007,32 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
       continue;
     }
 
+    if (candidate.kind === "EnumStatement") {
+      const enumStatement = candidate as EnumStatement;
+      const rawValues: Array<string | number> = [];
+      let nextNumericValue = 0;
+      for (const member of enumStatement.members) {
+        if (!member.initializer) {
+          rawValues.push(nextNumericValue);
+          nextNumericValue += 1;
+          continue;
+        }
+        if (member.initializer.kind === "IntLiteral") {
+          rawValues.push((member.initializer as IntLiteral).value);
+          nextNumericValue = (member.initializer as IntLiteral).value + 1;
+          continue;
+        }
+        if (member.initializer.kind === "StringLiteral") {
+          rawValues.push((member.initializer as StringLiteral).value);
+        }
+      }
+      enumInfos.set(enumStatement.name.name, {
+        memberNames: new Set(enumStatement.members.map((member) => member.name.name)),
+        rawValues
+      });
+      continue;
+    }
+
     if (candidate.kind === "VarStatement") {
       const variable = candidate as VarStatement;
       if (variable.receiverType && variable.name.kind === "Identifier") {
@@ -1992,7 +2060,8 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
     constructableCandidates,
     parameterNames,
     javaScriptImplementations,
-    jsNames
+    jsNames,
+    enumInfos
   };
 }
 
@@ -2012,6 +2081,7 @@ function collectEmitProgramRuntimeContext(
   const interfaceNames = seed.interfaceNames;
   const interfaceMembers = seed.interfaceMembers;
   const interfaceMethodNames = seed.interfaceMethodNames;
+  const enumInfos = seed.enumInfos;
   const constructableOnlyNames = new Set<string>();
   const constructableCandidates = seed.constructableCandidates;
   const parameterNames = seed.parameterNames;
@@ -2081,6 +2151,9 @@ function collectEmitProgramRuntimeContext(
     for (const [key, value] of statementSeed.jsNames) {
       jsNames.set(key, value);
     }
+    for (const [key, value] of statementSeed.enumInfos) {
+      enumInfos.set(key, value);
+    }
   }
 
   for (const candidate of constructableCandidates) {
@@ -2139,6 +2212,7 @@ function collectEmitProgramRuntimeContext(
     javaScriptImplementations,
     jsNames,
     variableDelegates,
+    enumInfos,
     jsxFactory: options.jsxFactory ?? DEFAULT_JSX_FACTORY,
     jsxFragmentFactory: options.jsxFragmentFactory ?? DEFAULT_JSX_FRAGMENT_FACTORY
   };
@@ -2203,6 +2277,7 @@ export function emitProgramStatementPairs(
     javaScriptImplementations: runtimeContext.javaScriptImplementations,
     jsNames: runtimeContext.jsNames,
     variableDelegates: runtimeContext.variableDelegates,
+    enumInfos: runtimeContext.enumInfos,
     importedExtensionRuntimeNames: runtimeContext.importedExtensionRuntimeNames,
     implicitReceiverIdentifiers,
     staticImplicitReceiverIdentifiers,

@@ -307,6 +307,23 @@ The annotated declaration itself is omitted from JavaScript output. Templates ar
 
 ### Custom JavaScript names
 
+Annotations are declared explicitly and then applied with `@`:
+
+```my
+annotation Benchmark
+annotation JsName(val name: string)
+annotation JsInline(val replacement: string)
+```
+
+Zero-argument annotations may omit parentheses in both the declaration and each use site:
+
+```my
+annotation Benchmark
+
+@Benchmark
+fun measure() {}
+```
+
 The `@JsName("...")` annotation overrides the final JavaScript name of a declaration. It can be applied to functions, classes, enums, interfaces and variables. The source name is still used inside VexaScript, but JavaScript emission uses the supplied name for both the declaration and every reference to it:
 
 ```my
@@ -694,38 +711,39 @@ class Point(val x: number, val y: number)
 
 Class fields support:
 
+- optional declaration kind keywords (`var`, `let`, `val`, `const`) before the member name; the legacy keyword-less form still works
 - field name
 - optional marker (`field?: TypeName`)
 - definite assignment assertion marker (`field!: TypeName`)
 - optional type annotation (`: TypeName`)
 - optional initializer (`= expression`)
 - access modifiers (`public`, `private`, `protected`)
-- `readonly` fields (assignable from constructors, diagnosed on later writes)
+- `readonly` fields (assignable from constructors, diagnosed on later writes); `val` and `const` are the preferred immutable spellings inside class bodies
 - `static` fields
 
 Examples:
 
 ```vexa
 class Demo {
-  a = 10
-  b: Int = 20
+  var a = 10
+  let b: Int = 20
   c: Int
-  public readonly id?: string
-  private static count: Int = 0
+  public val id?: string
+  private static var count: Int = 0
   service!: Service
 }
 ```
 
 ### Class methods and constructor
 
-Class members can be methods, including `constructor`. Methods support access modifiers (`public`, `private`, `protected`), `static`, and `abstract` signatures inside abstract classes. Derived class methods can use `super` calls and `super.member` access to reference inherited base-class behavior:
+Class members can be methods, including `constructor`. Methods support the explicit `fun` keyword as the preferred spelling inside class bodies, while the older keyword-less form remains valid. Methods also support access modifiers (`public`, `private`, `protected`), `static`, and `abstract` signatures inside abstract classes. Derived class methods can use `super` calls and `super.member` access to reference inherited base-class behavior:
 
 ```vexa
 class Demo {
   constructor() {
   }
 
-  demo() {
+  fun demo() {
   }
 }
 ```
@@ -746,13 +764,13 @@ class Child extends Base {
 
 ### Interfaces
 
-VexaScript supports interface declarations, including generic parameters and `extends`:
+VexaScript supports interface declarations, including generic parameters and `extends`. Interface members can also use the preferred explicit member keywords (`val` / `var` / `let` / `const` for properties and `fun` for methods), while the older TypeScript-style member form still works:
 
 ```vexa
 interface PairStore<K, V> extends Iterable<K> {
-  keys: K[]
-  values: V[]
-  get(key: K): V
+  val keys: K[]
+  val values: V[]
+  fun get(key: K): V
 }
 ```
 

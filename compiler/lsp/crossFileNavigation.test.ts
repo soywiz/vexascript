@@ -16,6 +16,7 @@ import {
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
+import { getVexaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
 import { Vfs } from "compiler/vfs";
 
 class MyVfs extends Vfs {
@@ -61,6 +62,25 @@ describe("cross-file navigation", () => {
         end: { line: 0, character: 11 }
       }
     });
+  });
+
+  it("navigates builtin annotations to the dedicated VexaScript runtime declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "main.vx");
+    const source = '@JsName("renamed")\nfun demo() {}\n';
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(file).toString(),
+      line: 0,
+      character: 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location?.uri).toBe(pathToFileURL(getVexaScriptRuntimeDeclarationFilePath()).toString());
   });
 
   it("resolves go-to-definition for member access inside a trailing-lambda body", async () => {
@@ -743,6 +763,55 @@ describe("cross-file navigation", () => {
         }
       ])
     );
+  });
+
+  it("finds annotation references from the declaration position in the same file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const file = join(root, "main.vx");
+    const source = dedent`
+      annotation DemoTag(val label: string)
+      @DemoTag("hello")
+      @DemoTag("bye")
+      fun demo() {}
+      `;
+
+    await writeFile(file, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const locations = await resolveReferencesAcrossFiles(
+      {
+        uri: pathToFileURL(file).toString(),
+        line: 0,
+        character: 13,
+        session,
+        sourceRoots: [root]
+      },
+      true
+    );
+
+    expect(locations).toEqual([
+      {
+        uri: pathToFileURL(file).toString(),
+        range: {
+          start: { line: 0, character: 11 },
+          end: { line: 0, character: 18 }
+        }
+      },
+      {
+        uri: pathToFileURL(file).toString(),
+        range: {
+          start: { line: 1, character: 1 },
+          end: { line: 1, character: 8 }
+        }
+      },
+      {
+        uri: pathToFileURL(file).toString(),
+        range: {
+          start: { line: 2, character: 1 },
+          end: { line: 2, character: 8 }
+        }
+      }
+    ]);
   });
 
   it("finds member references across files from usage", async () => {

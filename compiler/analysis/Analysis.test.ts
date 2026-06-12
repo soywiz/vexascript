@@ -52,6 +52,72 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toContain("Argument 1 of type 'int' is not assignable to parameter 'id' of type 'string'");
   });
 
+  it("tracks annotation references and validates annotation arguments", () => {
+    const source = dedent`
+      annotation DemoTag(val label: string)
+      @DemoTag("ok")
+      @DemoTag(1)
+      @DemoTag()
+      @DemoTag("a", "b")
+      fun demo() {}
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const declaration = analysis.getSymbolAt(0, 12);
+    const callSite = analysis.getSymbolAt(1, 5);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(declaration?.symbol.kind).toBe("annotation");
+    expect(callSite?.symbol).toBe(declaration?.symbol);
+    expect(analysis.getReferenceRangesAt(0, 12, true)).toEqual([
+      {
+        start: { line: 0, character: 11 },
+        end: { line: 0, character: 18 }
+      },
+      {
+        start: { line: 1, character: 1 },
+        end: { line: 1, character: 8 }
+      },
+      {
+        start: { line: 2, character: 1 },
+        end: { line: 2, character: 8 }
+      },
+      {
+        start: { line: 3, character: 1 },
+        end: { line: 3, character: 8 }
+      },
+      {
+        start: { line: 4, character: 1 },
+        end: { line: 4, character: 8 }
+      }
+    ]);
+    expect(messages).toContain("Argument 1 of type 'int' is not assignable to parameter 'label' of type 'string'");
+    expect(messages).toContain("Expected at least 1 argument(s), but got 0");
+    expect(messages).toContain("Expected at most 1 argument(s), but got 2");
+  });
+
+  it("accepts zero-argument annotations without parentheses", () => {
+    const source = dedent`
+      annotation DemoAnnotation
+      @DemoAnnotation
+      fun demo() {}
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues()).toEqual([]);
+    expect(analysis.getReferenceRangesAt(0, 13, true)).toEqual([
+      {
+        start: { line: 0, character: 11 },
+        end: { line: 0, character: 25 }
+      },
+      {
+        start: { line: 1, character: 1 },
+        end: { line: 1, character: 15 }
+      }
+    ]);
+  });
+
   it("treats function values as assignable to the ambient Function type", () => {
     const source = dedent`
       declare function setTimeout(handler: TimerHandler, timeout?: number): number
@@ -3211,6 +3277,50 @@ describe("enum semantic analysis", () => {
 
     expect(messages).toContain("Enum member 'Up' initializer must be assignable to int or string");
     expect(messages).toContain("Property 'Missing' does not exist on type 'Direction'");
+  });
+
+  it("distinguishes enum name lookups, literal-value lookups, and enum-value lookups", () => {
+    const source = dedent`
+      enum Direction { Up, Down }
+      enum Label { Start = "start", End = "end" }
+      let byName = Direction["Up"]
+      let byNumericLiteral = Direction[0]
+      let byEnumValue = Direction[Direction.Up]
+      let stringByName = Label["Start"]
+      let stringByValue = Label["start"]
+      let stringByEnumValue = Label[Label.Start]
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const visible = symbolsOfVisibleSymbolsAt(source, 6, 4);
+
+    expect(analysis.getIssues()).toEqual([]);
+    expect(visible.get("byName")?.valueType).toBe("Direction");
+    expect(visible.get("byNumericLiteral")?.valueType).toBe("Direction | undefined");
+    expect(visible.get("byEnumValue")?.valueType).toBe("int");
+    expect(visible.get("stringByName")?.valueType).toBe("Label");
+    expect(visible.get("stringByValue")?.valueType).toBe("Label");
+    expect(visible.get("stringByEnumValue")?.valueType).toBe("string");
+  });
+
+  it("reports duplicate variable declarations in the same scope", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      let value = 1
+      let value = 2
+    `)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Duplicate declaration of 'value'");
+  });
+
+  it("does not allow enum-member chaining on enum values", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      enum StrEnum { ADA = "ADA", CPP = "CPP" }
+      let value = StrEnum.CPP
+      let invalid = value.ADA
+    `)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Property 'ADA' does not exist on type 'StrEnum'"
+    );
   });
   it("resolves unqualified members inside classes and extension members", () => {
     const source = dedent`

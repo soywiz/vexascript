@@ -5,13 +5,18 @@ import type {
   PrepareRenameResult,
   WorkspaceEdit
 } from "vscode-languageserver/node.js";
-import type { FunctionParameter, Identifier, Program } from "compiler/ast/ast";
+import type { AnnotationStatement, FunctionParameter, Identifier, Program } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { Analysis, AnalysisRange } from "compiler/analysis/Analysis";
+import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
 import {
   findDocumentationParameterReference,
   findDocumentationReferenceRangesForIdentifier
 } from "./documentation";
+import {
+  getEcmaScriptRuntimeProgram,
+  getVexaScriptRuntimeProgram
+} from "compiler/runtime/ecmascriptDeclarations";
 
 function parameterHoverValue(parameter: FunctionParameter, referenceName: string): string {
   const typeLabel = parameter.typeAnnotation?.name ?? "unknown";
@@ -77,6 +82,98 @@ function hoverFromDocumentationReference(
       }
     }
   };
+}
+
+function annotationStatementByName(program: Program | undefined, name: string): AnnotationStatement | null {
+  if (program) {
+    for (const statement of declarationIndexForStatements(program.body).annotations) {
+      if (statement.name.name === name) {
+        return statement;
+      }
+    }
+  }
+  for (const statement of declarationIndexForStatements(getVexaScriptRuntimeProgram().body).annotations) {
+    if (statement.name.name === name) {
+      return statement;
+    }
+  }
+  for (const statement of declarationIndexForStatements(getEcmaScriptRuntimeProgram().body).annotations) {
+    if (statement.name.name === name) {
+      return statement;
+    }
+  }
+  return null;
+}
+
+function annotationReferenceAt(
+  program: Program | undefined,
+  line: number,
+  character: number
+): {
+  declaration: AnnotationStatement;
+  referenceRange: NonNullable<Hover["range"]>;
+  declarationRange: NonNullable<Location["range"]>;
+} | null {
+  if (!program) {
+    return null;
+  }
+  for (const statement of program.body) {
+    for (const annotation of statement.annotations ?? []) {
+      const first = annotation.name.firstToken;
+      const last = annotation.name.lastToken;
+      if (!first || !last) {
+        continue;
+      }
+      const contains =
+        (line > first.range.start.line || (line === first.range.start.line && character >= first.range.start.column)) &&
+        (line < last.range.end.line || (line === last.range.end.line && character <= last.range.end.column));
+      if (!contains) {
+        continue;
+      }
+      const declaration = annotationStatementByName(program, annotation.name.name);
+      if (!declaration?.name.firstToken || !declaration.name.lastToken) {
+        return null;
+      }
+      return {
+        declaration,
+        referenceRange: {
+          start: {
+            line: first.range.start.line,
+            character: first.range.start.column
+          },
+          end: {
+            line: last.range.end.line,
+            character: last.range.end.column
+          }
+        },
+        declarationRange: {
+          start: {
+            line: declaration.name.firstToken.range.start.line,
+            character: declaration.name.firstToken.range.start.column
+          },
+          end: {
+            line: declaration.name.lastToken.range.end.line,
+            character: declaration.name.lastToken.range.end.column
+          }
+        }
+      };
+    }
+  }
+  return null;
+}
+
+function annotationHoverValue(annotation: AnnotationStatement): string {
+  const parameters = annotation.parameters.map((parameter) => {
+    const prefix =
+      parameter.accessModifier === "public" && parameter.readonly === true
+        ? "val "
+        : parameter.accessModifier === "public"
+          ? "var "
+          : "";
+    const binding = bindingIdentifiers(parameter.name)[0]?.name ?? "unknown";
+    return `${prefix}${binding}: ${parameter.typeAnnotation?.name ?? "unknown"}`;
+  });
+  return `annotation ${annotation.name.name}(${parameters.join(", ")})`;
 }
 
 function toAnalysisRange(range: {
@@ -165,6 +262,13 @@ export function createDefinitionLocation(
   if (documentationReference) {
     return documentationReference;
   }
+  const annotationReference = annotationReferenceAt(program, line, character);
+  if (annotationReference) {
+    return {
+      uri,
+      range: annotationReference.declarationRange
+    };
+  }
   const definition = analysis.getDefinitionAt(line, character);
   if (!definition) {
     return null;
@@ -185,6 +289,16 @@ export function createHover(
   const documentationReference = hoverFromDocumentationReference(program, line, character);
   if (documentationReference) {
     return documentationReference;
+  }
+  const annotationReference = annotationReferenceAt(program, line, character);
+  if (annotationReference) {
+    return {
+      contents: {
+        kind: "plaintext",
+        value: annotationHoverValue(annotationReference.declaration)
+      },
+      range: annotationReference.referenceRange
+    };
   }
   const hover = analysis.getHoverAt(line, character);
   if (!hover) {

@@ -76,7 +76,7 @@ export class Analysis {
     this.rootScope = bound.rootScope;
 
     const checked = new TypeChecker(program, bound, externalDeclarations, ambientDeclarations).check();
-    this.issues = checked.issues;
+    this.issues = [...bound.issues, ...checked.issues];
     this.identifierResolutions = checked.identifierResolutions;
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;
     this.operatorResolutions = checked.operatorResolutions;
@@ -161,6 +161,9 @@ export class Analysis {
     const visible = this.getVisibleSymbolsAt(line, character);
     let best: AnalysisSymbolMatch | null = null;
     for (const symbol of visible) {
+      if (symbol.declaredOffset < 0) {
+        continue;
+      }
       if (symbol.node.kind !== "Identifier") {
         continue;
       }
