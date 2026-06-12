@@ -1680,6 +1680,7 @@ export class TypeChecker {
         for (const argument of call.arguments) {
           argumentTypes.push(this.visitExpression(argument, scope));
         }
+        const overloadArgumentTypes = this.preserveCallLiteralArgumentTypes(call.arguments, argumentTypes);
         const calledClass =
           call.optional !== true && call.callee.kind === "Identifier"
             ? this.classStatementsByName.get((call.callee as Identifier).name)
@@ -1699,7 +1700,19 @@ export class TypeChecker {
           break;
         }
         const callableType = this.callableTypeFrom(calleeType, argumentTypes);
-        if (callableType) {
+        const literalCallableType = overloadArgumentTypes === argumentTypes
+          ? callableType
+          : this.callableTypeFrom(calleeType, overloadArgumentTypes);
+        const callableTypeMatched = callableType ? this.isCallableOverloadMatch(callableType, argumentTypes) : false;
+        const literalCallableTypeMatched = literalCallableType
+          ? this.isCallableOverloadMatch(literalCallableType, overloadArgumentTypes)
+          : false;
+        const selectedCallableType = literalCallableTypeMatched && literalCallableType && literalCallableType !== callableType
+          ? literalCallableType
+          : (!callableTypeMatched && literalCallableTypeMatched
+          ? literalCallableType
+          : (callableType ?? literalCallableType));
+        if (selectedCallableType) {
           const explicitTypeArguments = (call.typeArguments ?? []).map((typeArgument) =>
             this.resolveTypeAnnotation(typeArgument, scope) ?? UNKNOWN_TYPE
           );
@@ -1707,11 +1720,31 @@ export class TypeChecker {
           // Named arguments are written in any order; reorder their types into
           // the callee's positional parameter order so generic inference and
           // argument validation operate as if the call were positional.
+          const preferredInferenceArguments =
+            literalCallableTypeMatched && literalCallableType && literalCallableType !== callableType
+              ? overloadArgumentTypes
+              : (!callableTypeMatched && literalCallableTypeMatched
+              ? overloadArgumentTypes
+              : argumentTypes);
+          const callableCandidates = this.callableCandidatesFrom(calleeType);
+          const bestCallableType = this.selectBestCallableCandidate(
+            callableCandidates.length > 0 ? callableCandidates : [selectedCallableType],
+            call,
+            scope,
+            explicitTypeArguments,
+            argumentTypes,
+            preferredInferenceArguments,
+            expectedType
+          ) ?? selectedCallableType;
           const inferenceArgumentTypes = hasNamedArguments
-            ? this.reorderNamedArgumentTypes(call.arguments, argumentTypes, callableType)
-            : argumentTypes;
+            ? this.reorderNamedArgumentTypes(call.arguments, preferredInferenceArguments, bestCallableType)
+            : this.literalSensitiveInferenceArgumentTypes(
+                bestCallableType,
+                call.arguments,
+                preferredInferenceArguments
+              );
           const firstPassCalleeType = this.instantiateFunctionType(
-            callableType,
+            bestCallableType,
             explicitTypeArguments,
             inferenceArgumentTypes,
             expectedType
@@ -1726,8 +1759,11 @@ export class TypeChecker {
               );
           const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
             ? firstPassCalleeType
-            : this.instantiateFunctionType(callableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
-          this.validateFunctionTypeArgumentConstraints(callableType, instantiatedCalleeType, call);
+            : this.instantiateFunctionType(bestCallableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
+          const constraintDiagnosticNode = call.callee.kind === "MemberExpression"
+            ? (call.callee as MemberExpression).property
+            : call.callee;
+          this.validateFunctionTypeArgumentConstraints(bestCallableType, instantiatedCalleeType, constraintDiagnosticNode);
           if (hasNamedArguments) {
             this.validateNamedCallArguments(call, instantiatedCalleeType, argumentTypes);
           } else {
@@ -2646,6 +2682,9 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "literal") {
+      if (targetType.kind === "literal") {
+        return sourceType.base === targetType.base && sourceType.value === targetType.value;
+      }
       if (targetType.kind === "builtin" && targetType.name === sourceType.base) {
         return true;
       }
@@ -3100,11 +3139,33 @@ export class TypeChecker {
     if (objectType) {
       return objectType;
     }
+    const normalizedTypeName = typeName.trim();
+    if (normalizedTypeName.startsWith("keyof ")) {
+      const targetType = this.typeFromTypeNameLooseWithTypeParameters(
+        normalizedTypeName.slice("keyof ".length).trim(),
+        localTypeParameterNames
+      ) ?? UNKNOWN_TYPE;
+      return this.keyofType(targetType);
+    }
+    const indexedAccess = this.splitIndexedAccessTypeName(normalizedTypeName);
+    if (indexedAccess) {
+      if (localTypeParameterNames.has(indexedAccess.indexTypeName.trim())) {
+        return namedType(normalizedTypeName);
+      }
+      const objectType = this.typeFromTypeNameLooseWithTypeParameters(
+        indexedAccess.objectTypeName,
+        localTypeParameterNames
+      ) ?? UNKNOWN_TYPE;
+      const indexType = this.typeFromTypeNameLooseWithTypeParameters(
+        indexedAccess.indexTypeName,
+        localTypeParameterNames
+      ) ?? UNKNOWN_TYPE;
+      return this.indexedAccessType(objectType, indexType);
+    }
     const computedType = this.typeFromComputedTypeNameLoose(typeName);
     if (computedType) {
       return computedType;
     }
-    const normalizedTypeName = typeName.trim();
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
     if (unionParts.length > 1) {
       return unionType(unionParts.map((part) => this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames) ?? UNKNOWN_TYPE));
@@ -3215,14 +3276,71 @@ export class TypeChecker {
     return contextualArgumentTypes ?? argumentTypes;
   }
 
+  private preserveCallLiteralArgumentTypes(args: readonly Expr[], argumentTypes: AnalysisType[]): AnalysisType[] {
+    let preserved: AnalysisType[] | null = null;
+    for (let index = 0; index < args.length; index += 1) {
+      const narrowed = this.literalArgumentType(args[index]!, argumentTypes[index] ?? UNKNOWN_TYPE);
+      if (narrowed === argumentTypes[index]) {
+        continue;
+      }
+      if (!preserved) {
+        preserved = [...argumentTypes];
+      }
+      preserved[index] = narrowed;
+    }
+    return preserved ?? argumentTypes;
+  }
+
+  private literalSensitiveInferenceArgumentTypes(
+    calleeType: AnalysisType & { kind: "function" },
+    args: readonly Expr[],
+    argumentTypes: AnalysisType[]
+  ): AnalysisType[] {
+    const constraints = calleeType.typeParameterConstraints;
+    if (!constraints || args.length === 0) {
+      return argumentTypes;
+    }
+    let preserved: AnalysisType[] | null = null;
+    for (let index = 0; index < args.length && index < calleeType.parameters.length; index += 1) {
+      const parameterType = calleeType.parameters[index]?.type;
+      if (parameterType?.kind !== "named") {
+        continue;
+      }
+      const constraint = constraints[parameterType.name];
+      if (!constraint || !this.expectedTypeDependsOnLiteral(constraint)) {
+        continue;
+      }
+      const narrowed = this.literalArgumentType(args[index]!, argumentTypes[index] ?? UNKNOWN_TYPE);
+      if (narrowed === argumentTypes[index]) {
+        continue;
+      }
+      if (!preserved) {
+        preserved = [...argumentTypes];
+      }
+      preserved[index] = narrowed;
+    }
+    return preserved ?? argumentTypes;
+  }
+
+  private literalArgumentType(argument: Expr, fallback: AnalysisType): AnalysisType {
+    if (argument.kind === "NamedArgument") {
+      return this.literalArgumentType((argument as NamedArgument).value, fallback);
+    }
+    switch (argument.kind) {
+      case "StringLiteral":
+        return literalType("string", (argument as StringLiteral).value);
+      default:
+        return fallback;
+    }
+  }
+
   private contextualTypeWithoutUnresolvedReturnType(
     expectedType: AnalysisType,
     typeParameters: string[]
   ): AnalysisType {
     if (
       expectedType.kind !== "function" ||
-      expectedType.returnType.kind !== "named" ||
-      !typeParameters.includes(expectedType.returnType.name)
+      !this.shouldEraseContextualFunctionReturnType(expectedType.returnType, typeParameters)
     ) {
       return expectedType;
     }
@@ -3231,6 +3349,23 @@ export class TypeChecker {
       ...expectedType,
       returnType: UNKNOWN_TYPE
     };
+  }
+
+  private shouldEraseContextualFunctionReturnType(
+    returnType: AnalysisType,
+    typeParameters: string[]
+  ): boolean {
+    if (returnType.kind !== "named") {
+      return false;
+    }
+    if (typeParameters.includes(returnType.name)) {
+      return true;
+    }
+    return this.isTypePredicateType(returnType);
+  }
+
+  private isTypePredicateType(type: AnalysisType): boolean {
+    return type.kind === "named" && /\bis\b/.test(type.name);
   }
 
   private isFunctionLikeExpression(expression: Expr): boolean {
@@ -3304,7 +3439,18 @@ export class TypeChecker {
       }
     }
 
-    return this.substituteTypeParameters(calleeType, substitutions) as AnalysisType & { kind: "function" };
+    const substituted = this.substituteTypeParameters(calleeType, substitutions) as AnalysisType & { kind: "function" };
+    return functionType(
+      substituted.parameters.map((parameter) => ({
+        name: parameter.name,
+        type: parameter.type,
+        ...(parameter.optional !== undefined ? { optional: parameter.optional } : {}),
+        ...(parameter.rest ? { rest: true } : {})
+      })),
+      substituted.returnType,
+      substituted.typeParameters,
+      substituted.typeParameterConstraints
+    );
   }
 
   private inferTypeParameterSubstitutions(
@@ -3451,6 +3597,33 @@ export class TypeChecker {
     if (!constraints || typeParameters.length === 0) {
       return;
     }
+    const substitutions = this.inferredFunctionTypeConstraintSubstitutions(genericType, instantiatedType);
+    if (!substitutions) {
+      return;
+    }
+    for (const typeParameter of typeParameters) {
+      const constraint = constraints[typeParameter];
+      const typeArgument = substitutions.get(typeParameter);
+      if (!constraint || !typeArgument) {
+        continue;
+      }
+      this.validateTypeArgumentConstraint(
+        typeParameter,
+        typeArgument,
+        this.substituteTypeParameters(constraint, substitutions),
+        node
+      );
+    }
+  }
+
+  private inferredFunctionTypeConstraintSubstitutions(
+    genericType: AnalysisType & { kind: "function" },
+    instantiatedType: AnalysisType & { kind: "function" }
+  ): Map<string, AnalysisType> | null {
+    const typeParameters = genericType.typeParameters ?? [];
+    if (typeParameters.length === 0) {
+      return null;
+    }
     const substitutions = new Map<string, AnalysisType>();
     for (const typeParameter of typeParameters) {
       substitutions.set(typeParameter, namedType(typeParameter));
@@ -3462,6 +3635,22 @@ export class TypeChecker {
       new Set(),
       substitutions
     );
+    return substitutions;
+  }
+
+  private satisfiesFunctionTypeArgumentConstraints(
+    genericType: AnalysisType & { kind: "function" },
+    instantiatedType: AnalysisType & { kind: "function" }
+  ): boolean {
+    const typeParameters = genericType.typeParameters ?? [];
+    const constraints = genericType.typeParameterConstraints;
+    if (!constraints || typeParameters.length === 0) {
+      return true;
+    }
+    const substitutions = this.inferredFunctionTypeConstraintSubstitutions(genericType, instantiatedType);
+    if (!substitutions) {
+      return true;
+    }
     for (const typeParameter of typeParameters) {
       const constraint = constraints[typeParameter];
       const typeArgument = substitutions.get(typeParameter);
@@ -3471,13 +3660,11 @@ export class TypeChecker {
       if (typeArgument.kind === "named" && typeParameters.includes(typeArgument.name)) {
         continue;
       }
-      this.validateTypeArgumentConstraint(
-        typeParameter,
-        typeArgument,
-        this.substituteTypeParameters(constraint, substitutions),
-        node
-      );
+      if (!this.isTypeAssignable(typeArgument, this.substituteTypeParameters(constraint, substitutions))) {
+        return false;
+      }
     }
+    return true;
   }
 
 
@@ -3504,7 +3691,23 @@ export class TypeChecker {
       return null;
     }
     const callableMembers = type.types.filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function");
-    return callableMembers.find((member) => this.isCallableMatch(member, argumentTypes)) ?? callableMembers[0] ?? null;
+    return callableMembers.find((member) => this.isCallableOverloadMatch(member, argumentTypes)) ?? callableMembers[0] ?? null;
+  }
+
+  private callableCandidatesFrom(type: AnalysisType): Array<AnalysisType & { kind: "function" }> {
+    if (type.kind === "function") {
+      return [type];
+    }
+    if (type.kind === "intersection") {
+      return type.types.flatMap((member) => this.callableCandidatesFrom(member));
+    }
+    if (type.kind === "named") {
+      return this.collectInterfaceCallableOverloads(type);
+    }
+    if (type.kind === "union") {
+      return type.types.filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function");
+    }
+    return [];
   }
 
   private interfaceCallableTypeForNamedType(
@@ -3515,7 +3718,89 @@ export class TypeChecker {
     if (overloads.length === 0) {
       return null;
     }
-    return overloads.find((member) => this.isCallableMatch(member, argumentTypes)) ?? overloads[0] ?? null;
+    return overloads.find((member) => this.isCallableOverloadMatch(member, argumentTypes)) ?? overloads[0] ?? null;
+  }
+
+  private isCallableOverloadMatch(
+    calleeType: AnalysisType & { kind: "function" },
+    argumentTypes: AnalysisType[]
+  ): boolean {
+    if (this.isCallableMatch(calleeType, argumentTypes)) {
+      return true;
+    }
+    if ((calleeType.typeParameters?.length ?? 0) === 0) {
+      return false;
+    }
+    const instantiated = this.instantiateFunctionType(calleeType, [], argumentTypes);
+    return this.isCallableMatch(instantiated, argumentTypes)
+      && this.satisfiesFunctionTypeArgumentConstraints(calleeType, instantiated);
+  }
+
+  private selectBestCallableCandidate(
+    candidates: Array<AnalysisType & { kind: "function" }>,
+    call: CallExpression,
+    scope: Scope,
+    explicitTypeArguments: AnalysisType[],
+    argumentTypes: AnalysisType[],
+    preferredArgumentTypes: AnalysisType[],
+    expectedType?: AnalysisType
+  ): (AnalysisType & { kind: "function" }) | null {
+    if (candidates.length <= 1) {
+      return candidates[0] ?? null;
+    }
+
+    let best: { candidate: AnalysisType & { kind: "function" }; score: number } | null = null;
+    for (const candidate of candidates) {
+      const baseline = this.issues.length;
+      const hasNamedArguments = call.arguments.some((argument) => argument.kind === "NamedArgument");
+      const inferenceArgumentTypes = hasNamedArguments
+        ? this.reorderNamedArgumentTypes(call.arguments, preferredArgumentTypes, candidate)
+        : preferredArgumentTypes;
+      const firstPass = this.instantiateFunctionType(candidate, explicitTypeArguments, inferenceArgumentTypes, expectedType);
+      const contextualArgumentTypes = hasNamedArguments
+        ? inferenceArgumentTypes
+        : this.applyCallArgumentContext(call, scope, firstPass, argumentTypes);
+      const contextualIssueCount = this.issues.length - baseline;
+      this.issues.length = baseline;
+      const instantiated = contextualArgumentTypes === argumentTypes
+        ? firstPass
+        : this.instantiateFunctionType(candidate, explicitTypeArguments, contextualArgumentTypes, expectedType);
+      const score =
+        contextualIssueCount +
+        this.callArgumentMismatchCount(
+          call,
+          candidate,
+          instantiated,
+          hasNamedArguments ? argumentTypes : contextualArgumentTypes
+        );
+      if (!best || score < best.score) {
+        best = { candidate, score };
+        if (score === 0) {
+          break;
+        }
+      }
+    }
+    return best?.candidate ?? candidates[0] ?? null;
+  }
+
+  private callArgumentMismatchCount(
+    call: CallExpression,
+    genericType: AnalysisType & { kind: "function" },
+    calleeType: AnalysisType & { kind: "function" },
+    argumentTypes: AnalysisType[]
+  ): number {
+    const baseline = this.issues.length;
+    if (call.arguments.some((argument) => argument.kind === "NamedArgument")) {
+      this.validateNamedCallArguments(call, calleeType, argumentTypes);
+    } else {
+      this.validateCallArguments(call, calleeType, argumentTypes);
+    }
+    let count = this.issues.length - baseline;
+    this.issues.length = baseline;
+    if (!this.satisfiesFunctionTypeArgumentConstraints(genericType, calleeType)) {
+      count += 1000;
+    }
+    return count;
   }
 
   private collectInterfaceCallableOverloads(
@@ -3626,6 +3911,30 @@ export class TypeChecker {
     }
 
     return this.isTypeAssignable(argumentType.returnType, expectedType.returnType);
+  }
+
+  private effectiveArgumentTypeForValidation(
+    argumentExpression: Expr | undefined,
+    argumentType: AnalysisType,
+    expectedType: AnalysisType
+  ): AnalysisType {
+    if (!argumentExpression) {
+      return argumentType;
+    }
+    if (!this.expectedTypeDependsOnLiteral(expectedType)) {
+      return argumentType;
+    }
+    return this.literalArgumentType(argumentExpression, argumentType);
+  }
+
+  private expectedTypeDependsOnLiteral(type: AnalysisType): boolean {
+    if (type.kind === "literal") {
+      return true;
+    }
+    if (type.kind === "union") {
+      return type.types.some((member) => this.expectedTypeDependsOnLiteral(member));
+    }
+    return false;
   }
 
   private hasNullishUnionMember(type: AnalysisType): boolean {
@@ -3873,9 +4182,14 @@ export class TypeChecker {
       const expectedType = restParameter && index >= fixedParameters.length
         ? this.restParameterElementType(restParameter.type)
         : parameter.type;
-      const comparableArgumentType = argumentExpression?.kind === "SpreadExpression"
+      const rawComparableArgumentType = argumentExpression?.kind === "SpreadExpression"
         ? this.spreadArgumentElementType(argumentType)
         : argumentType;
+      const comparableArgumentType = this.effectiveArgumentTypeForValidation(
+        argumentExpression,
+        rawComparableArgumentType,
+        expectedType
+      );
       if (isUnknownType(expectedType) || isUnknownType(comparableArgumentType)) {
         continue;
       }
@@ -3987,17 +4301,22 @@ export class TypeChecker {
         ? this.spreadArgumentElementType(argumentType)
         : argumentType;
       const expectedType = parameter.type;
-      if (isUnknownType(expectedType) || isUnknownType(comparableArgumentType)) {
+      const effectiveArgumentType = this.effectiveArgumentTypeForValidation(
+        valueNode,
+        comparableArgumentType,
+        expectedType
+      );
+      if (isUnknownType(expectedType) || isUnknownType(effectiveArgumentType)) {
         continue;
       }
-      if (this.isCallArgumentAssignable(comparableArgumentType, expectedType)) {
+      if (this.isCallArgumentAssignable(effectiveArgumentType, expectedType)) {
         continue;
       }
       this.issues.push({
-        message: `Argument of type '${typeToString(comparableArgumentType)}' is not assignable to parameter '${parameter.name}' of type '${typeToString(expectedType)}'`,
+        message: `Argument of type '${typeToString(effectiveArgumentType)}' is not assignable to parameter '${parameter.name}' of type '${typeToString(expectedType)}'`,
         node: valueNode
       });
-      this.reportNestedMismatchContext(comparableArgumentType, expectedType, valueNode);
+      this.reportNestedMismatchContext(effectiveArgumentType, expectedType, valueNode);
     }
 
     const diagnosticNode = call.callee.kind === "MemberExpression"
@@ -5144,10 +5463,10 @@ export class TypeChecker {
 
   private propertyNamesForType(type: AnalysisType): string[] {
     if (type.kind === "object") {
-      return Object.keys(type.properties).sort();
+      return Object.keys(type.properties).map((key) => this.normalizePropertyName(key)).sort();
     }
     if (type.kind === "named") {
-      return Array.from(this.resolveNamedTypeMembers(type)?.keys() ?? []).sort();
+      return Array.from(this.resolveNamedTypeMembers(type)?.keys() ?? []).map((key) => this.normalizePropertyName(key)).sort();
     }
     if (type.kind === "tuple") {
       return type.elements.map((_, index) => String(index));
@@ -5156,6 +5475,7 @@ export class TypeChecker {
   }
 
   private memberTypeFromObjectType(type: AnalysisType, propertyName: string): AnalysisType | null {
+    propertyName = this.normalizePropertyName(propertyName);
     if (type.kind === "object") {
       return type.properties[propertyName] ?? null;
     }
@@ -5268,6 +5588,9 @@ export class TypeChecker {
     node: Node
   ): void {
     if (isUnknownType(typeArgument) || isUnknownType(constraint)) {
+      return;
+    }
+    if (typeArgument.kind === "named" && (typeArgument.name === typeParameterName || this.isActiveTypeParameter(typeArgument.name))) {
       return;
     }
     if (this.isTypeAssignable(typeArgument, constraint)) {
@@ -6192,14 +6515,50 @@ export class TypeChecker {
     if (this.membersForType(type)) {
       return null;
     }
-    if (expression.kind !== "CallExpression") {
+    const constrainedCall = this.constraintSourceCallExpression(expression);
+    if (!constrainedCall) {
       return null;
     }
-    const calleeType = this.expressionTypes.get((expression as CallExpression).callee);
-    const constrained = calleeType?.kind === "function"
-      ? calleeType.typeParameterConstraints?.[type.name]
-      : null;
+    const calleeType = this.expressionTypes.get(constrainedCall.callee);
+    const constrained = this.constraintForNamedTypeParameter(calleeType, type.name);
     return constrained ?? null;
+  }
+
+  private constraintSourceCallExpression(expression: Expr): CallExpression | null {
+    switch (expression.kind) {
+      case "CallExpression":
+        return expression as CallExpression;
+      case "NonNullExpression":
+        return this.constraintSourceCallExpression((expression as NonNullExpression).expression);
+      case "AsExpression":
+        return this.constraintSourceCallExpression((expression as AsExpression).expression);
+      default:
+        return null;
+    }
+  }
+
+  private constraintForNamedTypeParameter(
+    calleeType: AnalysisType | undefined,
+    typeParameterName: string
+  ): AnalysisType | null {
+    if (!calleeType) {
+      return null;
+    }
+    if (calleeType.kind === "function") {
+      return calleeType.typeParameterConstraints?.[typeParameterName] ?? null;
+    }
+    if (calleeType.kind === "union") {
+      for (const member of calleeType.types) {
+        if (member.kind !== "function") {
+          continue;
+        }
+        const constraint = member.typeParameterConstraints?.[typeParameterName];
+        if (constraint) {
+          return constraint;
+        }
+      }
+    }
+    return null;
   }
 
   private validateMemberVisibility(member: MemberExpression, objectType: AnalysisType, propertyName: string, scope: Scope): void {
@@ -6908,6 +7267,47 @@ export class TypeChecker {
     return resolved;
   }
 
+  private addResolvedMemberType(
+    members: Map<string, AnalysisType>,
+    memberName: string,
+    memberType: AnalysisType
+  ): void {
+    memberName = this.normalizePropertyName(memberName);
+    const existing = members.get(memberName);
+    if (!existing) {
+      members.set(memberName, memberType);
+      return;
+    }
+    if ((existing.kind === "function" || existing.kind === "union") && memberType.kind === "function") {
+      const existingMembers = existing.kind === "union" ? existing.types : [existing];
+      const callableMembers = existingMembers.filter((type): type is AnalysisType & { kind: "function" } => type.kind === "function");
+      if (callableMembers.length === existingMembers.length) {
+        members.set(memberName, unionType([...callableMembers, memberType]));
+        return;
+      }
+    }
+    if (existing.kind === "function" && memberType.kind === "function") {
+      members.set(memberName, unionType([existing, memberType]));
+      return;
+    }
+    members.set(memberName, memberType);
+  }
+
+  private normalizePropertyName(name: string): string {
+    const trimmed = name.trim();
+    if (
+      (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return trimmed.slice(1, -1);
+      }
+    }
+    return trimmed;
+  }
+
   private resolveNamedTypeMembersInternal(
     type: AnalysisType & { kind: "named" },
     visited: Set<string>
@@ -7025,7 +7425,8 @@ export class TypeChecker {
           members.set(classMember.name.name, this.substituteTypeParameters(parameterType, substitutions));
           continue;
         }
-        members.set(
+        this.addResolvedMemberType(
+          members,
           classMember.name.name,
           this.substituteTypeParameters(functionType(
             classMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
@@ -7091,7 +7492,8 @@ export class TypeChecker {
         const memberType = interfaceMember.optional === true
           ? unionType([rawMemberType, builtinType("undefined")])
           : rawMemberType;
-        members.set(
+        this.addResolvedMemberType(
+          members,
           interfaceMember.name.name,
           this.substituteTypeParameters(memberType, substitutions)
         );
@@ -7099,7 +7501,8 @@ export class TypeChecker {
       }
       if (interfaceMember.accessorKind === "get") {
         const memberType = this.typeFromAnnotationLoose(interfaceMember.returnType) ?? UNKNOWN_TYPE;
-        members.set(
+        this.addResolvedMemberType(
+          members,
           interfaceMember.name.name,
           this.substituteTypeParameters(memberType, substitutions)
         );
@@ -7107,7 +7510,8 @@ export class TypeChecker {
       }
       if (interfaceMember.accessorKind === "set") {
         const memberType = this.typeFromAnnotationLoose(interfaceMember.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
-        members.set(
+        this.addResolvedMemberType(
+          members,
           interfaceMember.name.name,
           this.substituteTypeParameters(memberType, substitutions)
         );
@@ -7130,7 +7534,8 @@ export class TypeChecker {
           this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
         );
       });
-      members.set(
+      this.addResolvedMemberType(
+        members,
         interfaceMember.name.name,
         this.substituteTypeParameters(methodType, substitutions)
       );
@@ -7561,7 +7966,15 @@ export class TypeChecker {
   ): AnalysisType {
     if (sourceType.kind === "named") {
       if (!sourceType.typeArguments || sourceType.typeArguments.length === 0) {
-        return substitutions.get(sourceType.name) ?? sourceType;
+        const directSubstitution = substitutions.get(sourceType.name);
+        if (directSubstitution) {
+          return directSubstitution;
+        }
+        const substitutedComputedName = this.substituteTypeParametersInComputedName(sourceType.name, substitutions);
+        if (substitutedComputedName !== sourceType.name) {
+          return this.typeFromTypeNameLoose(substitutedComputedName);
+        }
+        return sourceType;
       }
       return namedType(
         sourceType.name,
@@ -7622,6 +8035,18 @@ export class TypeChecker {
     }
 
     return sourceType;
+  }
+
+  private substituteTypeParametersInComputedName(
+    typeName: string,
+    substitutions: Map<string, AnalysisType>
+  ): string {
+    let result = typeName;
+    for (const [name, substitution] of substitutions.entries()) {
+      const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      result = result.replace(new RegExp(`\\b${escapedName}\\b`, "g"), typeToString(substitution));
+    }
+    return result;
   }
 
   private resolveFunctionTypeAnnotation(typeName: string, node: Node, scope: Scope): AnalysisType | null {

@@ -51,6 +51,8 @@ describe("website project", () => {
     expect(layoutSource.includes('href="/playground"')).toBe(true);
     expect(layoutSource.includes('src="/favicon.svg"')).toBe(true);
     expect(landingPage.includes("{% highlightVexaScript %}")).toBe(true);
+    expect(landingPage.includes('<a class="button" href="/playground">Try the editor</a>')).toBe(true);
+    expect(landingPage.includes('<a class="button secondary" href="/quickstart">Open the quickstart</a>')).toBe(true);
     expect(landingPage.includes('<section id="cli" class="section alt">')).toBe(true);
     expect(embedPage.includes("VexaScriptEmbeds.createSimpleEditor")).toBe(true);
     expect(embedPage.includes("VexaScriptEmbeds.createWorkbenchEditor")).toBe(true);
@@ -58,6 +60,9 @@ describe("website project", () => {
     expect(playgroundPage.includes('id="playground-workbench"')).toBe(true);
     expect(playgroundPage.includes("embeds.createWorkbenchEditor")).toBe(true);
     expect(playgroundPage.includes('window.addEventListener("vexa-embeds-ready"')).toBe(true);
+    expect(playgroundPage.includes('drawCard(c2d, cardOrigin, cardSize, "#8cb3d9", "VexaScript")')).toBe(true);
+    expect(playgroundPage.includes('return "(\\${point.x}, \\${point.y})"')).toBe(true);
+    expect(playgroundPage.includes("delay(pulseDelay)")).toBe(true);
     expect(playgroundPage.includes("requestAnimationFrame")).toBe(false);
     expect(syntaxPage.includes('class="doc-shell"')).toBe(true);
     expect(cliPage.includes("<code>bundle</code>")).toBe(true);

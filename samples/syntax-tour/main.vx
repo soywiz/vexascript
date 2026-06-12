@@ -232,3 +232,12 @@ console.log(`control:${rangeTotal}:${forTotal}:${keys}:${objectForIn}:${itemsJoi
 console.log(`jsx:${view.type}:${view.props.class}:${view.children[0].type}:${fragment.type}`)
 console.log(await asyncSection())
 ;
+
+fun useState2(value: number) {
+  return [() => value, (v: number) => { console.log('update value to', value, '->', v); value = v }]
+}
+
+var count by useState2(0)
+count++      // routes through the delegate setter
+count += 5
+console.log("count", count)

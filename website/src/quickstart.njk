@@ -1,0 +1,58 @@
+---
+layout: layout.njk
+title: VexaScript Quickstart
+permalink: /quickstart.html
+---
+<section class="section getting-started-section">
+  <div class="section-heading">
+    <p class="eyebrow">Quickstart</p>
+    <h1>Start coding with VexaScript in a few minutes.</h1>
+    <p class="lead">Install the published <code>vexascript</code> npm package, use the <code>vexa</code> CLI, add the VS Code extension, and embed Monaco-powered editors when you want interactive docs or demos.</p>
+  </div>
+  <div class="grid getting-started-grid">
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">1</span>
+        <h3>Install the CLI</h3>
+      </div>
+      <p>Use the published npm package and call the binary as <code>vexa</code>.</p>
+{% highlightVexaScript %}
+npm install -g vexascript
+vexa --help
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">2</span>
+        <h3>Compile or run a file</h3>
+      </div>
+      <p>Create a <code>main.vx</code> file and use the CLI to execute or build it.</p>
+{% highlightVexaScript %}
+vexa run main.vx
+vexa build main.vx -o dist/main.js
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">3</span>
+        <h3>Use the VS Code extension</h3>
+      </div>
+      <p>Install the published VS Code extension to get diagnostics, quick fixes, navigation, and language-aware editing while you work.</p>
+      <div class="actions">
+        <a class="button secondary" href="/syntax">Open syntax reference</a>
+        <a class="button secondary" href="/cli">Open CLI guide</a>
+      </div>
+    </article>
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">4</span>
+        <h3>Embed Monaco in docs or apps</h3>
+      </div>
+      <p>The website bundle includes embeddable Monaco editors and a full workbench, so tutorials and product pages can run VexaScript directly in the browser.</p>
+      <div class="actions">
+        <a class="button secondary" href="/embed">Open embed guide</a>
+        <a class="button secondary" href="/playground">Try the playground</a>
+      </div>
+    </article>
+  </div>
+</section>

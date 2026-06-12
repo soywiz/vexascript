@@ -420,15 +420,47 @@ function normalizeRecoveredReceiverType(
   expressionTypes: ReadonlyMap<import("compiler/ast/ast").Node, AnalysisType>
 ): string {
   if (type.kind === "union") {
-    return type.types.map((member) => normalizeRecoveredReceiverType(member, node, expressionTypes)).join(" | ");
+    const nonNullish = type.types.filter((member) =>
+      !(member.kind === "builtin" && (member.name === "null" || member.name === "undefined"))
+    );
+    const narrowed = nonNullish.length > 0 ? nonNullish : type.types;
+    if (narrowed.length === 1) {
+      return normalizeRecoveredReceiverType(narrowed[0]!, node, expressionTypes);
+    }
+    return narrowed.map((member) => normalizeRecoveredReceiverType(member, node, expressionTypes)).join(" | ");
   }
   if (type.kind === "named" && node.kind === "CallExpression") {
     const calleeType = expressionTypes.get((node as CallExpression).callee);
-    if (calleeType?.kind === "function" && calleeType.typeParameterConstraints?.[type.name]) {
-      return typeToString(calleeType.typeParameterConstraints[type.name]!);
+    const constraint = constraintForRecoveredTypeParameter(calleeType, type.name);
+    if (constraint) {
+      return typeToString(constraint);
     }
   }
   return typeToString(type);
+}
+
+function constraintForRecoveredTypeParameter(
+  calleeType: AnalysisType | undefined,
+  typeParameterName: string
+): AnalysisType | null {
+  if (!calleeType) {
+    return null;
+  }
+  if (calleeType.kind === "function") {
+    return calleeType.typeParameterConstraints?.[typeParameterName] ?? null;
+  }
+  if (calleeType.kind === "union") {
+    for (const member of calleeType.types) {
+      if (member.kind !== "function") {
+        continue;
+      }
+      const constraint = member.typeParameterConstraints?.[typeParameterName];
+      if (constraint) {
+        return constraint;
+      }
+    }
+  }
+  return null;
 }
 
 function receiverTypeNameEndingAt(

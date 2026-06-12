@@ -28,6 +28,7 @@ import type { Node } from "compiler/ast/ast";
 import {
   builtinType,
   functionType,
+  isSameType,
   namedType,
   objectTypeWithProperties,
   typeToString,
@@ -71,6 +72,10 @@ function symbolOffset(node: Node): number {
 
 function isReadonlyVariable(kind: VariableDeclarationKind): boolean {
   return kind === "const" || kind === "val";
+}
+
+function scopeHasGlobalPredeclaration(scope: Scope): boolean {
+  return scope.node.kind === "Program" || scope.node.kind === "NamespaceStatement";
 }
 
 export class Binder {
@@ -154,6 +159,13 @@ export class Binder {
     }
     if (existing?.kind === "function" && symbol.kind === "function" && existing.type && symbol.type) {
       const existingTypes = existing.type.kind === "union" ? existing.type.types : [existing.type];
+      if (existingTypes.some((existingType) => existingType.kind === "function" && isSameType(existingType, symbol.type!))) {
+        this.issues.push({
+          message: `Duplicate function signature for '${symbol.name}'`,
+          node: symbol.node
+        });
+        return;
+      }
       const mergedType = unionType([...existingTypes, symbol.type]);
       existing.type = mergedType;
       existing.valueType = typeToString(mergedType);
@@ -501,7 +513,7 @@ export class Binder {
   }
 
   private bindFunctionStatement(statement: FunctionStatement, scope: Scope, declareInParent: boolean): void {
-    if (declareInParent && !statement.receiverType) {
+    if (declareInParent && !statement.receiverType && !(scopeHasGlobalPredeclaration(scope) && scope.symbols.has(statement.name.name))) {
       const symbolType = functionType(
         statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: bindingNameText(parameter.name),

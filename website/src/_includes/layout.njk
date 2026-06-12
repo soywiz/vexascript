@@ -11,18 +11,20 @@
     <link rel="stylesheet" href="{{ generatedAssetHrefs.generatedStyleCss }}">
   </head>
   <body>
+    {% set currentUrl = page.url or "/" %}
     <header class="site-header">
       <a class="brand" href="/">
         <img class="brand-icon" src="/favicon.svg" alt="" aria-hidden="true">
         <span>VexaScript</span>
       </a>
       <nav class="nav" aria-label="Primary navigation">
-        <a href="/blog">Blog</a>
-        <a href="/syntax">Syntax</a>
-        <a href="/cli">CLI</a>
-        <a href="/#examples">Examples</a>
-        <a href="/playground">Playground</a>
-        <a href="/embed">Embed</a>
+        <a href="/blog"{% if currentUrl.startsWith("/blog") %} aria-current="page"{% endif %}>Blog</a>
+        <a href="/quickstart"{% if currentUrl.startsWith("/quickstart") %} aria-current="page"{% endif %}>Quickstart</a>
+        <a href="/syntax"{% if currentUrl.startsWith("/syntax") %} aria-current="page"{% endif %}>Syntax</a>
+        <a href="/cli"{% if currentUrl.startsWith("/cli") %} aria-current="page"{% endif %}>CLI</a>
+        <a href="/samples"{% if currentUrl.startsWith("/samples") %} aria-current="page"{% endif %}>Samples</a>
+        <a href="/playground"{% if currentUrl.startsWith("/playground") %} aria-current="page"{% endif %}>Playground</a>
+        <a href="/embed"{% if currentUrl.startsWith("/embed") %} aria-current="page"{% endif %}>Embed</a>
       </nav>
     </header>
     <main>{{ content | safe }}</main>

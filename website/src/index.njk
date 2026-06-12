@@ -16,7 +16,8 @@ title: VexaScript — A modern TypeScript-derived language
       </p>
     </div>
     <div class="actions">
-      <a class="button" href="#playground">Try the editor</a>
+      <a class="button" href="/playground">Try the editor</a>
+      <a class="button secondary" href="/quickstart">Open the quickstart</a>
       <a class="button secondary" href="/syntax">Open syntax reference</a>
     </div>
   </div>
@@ -30,6 +31,17 @@ sync fun loadMessage(user: User): string {
   return `Hello ${user.name}, score: ${user.score + bonus}`
 }
 {% endhighlightVexaScript %}
+  </div>
+</section>
+
+<section id="getting-started" class="section getting-started-section">
+  <div class="section-heading">
+    <p class="eyebrow">Getting Started</p>
+    <h2>Start coding with VexaScript in a few minutes.</h2>
+    <p class="lead">Install the published <code>vexascript</code> npm package, use the <code>vexa</code> CLI, add the VS Code extension, and embed Monaco-powered editors when you want interactive docs or demos.</p>
+    <div class="actions">
+      <a class="button secondary" href="/quickstart">Open the quickstart</a>
+    </div>
   </div>
 </section>
 
@@ -83,43 +95,14 @@ sync fun loadBytes(): Uint8Array {
   </div>
 </section>
 
-<section id="examples" class="section">
+<section id="samples" class="section">
   <div class="section-heading">
-    <p class="eyebrow">Examples</p>
+    <p class="eyebrow">Samples</p>
     <h2>Patterns that teach the language.</h2>
-  </div>
-  <div class="grid">
-    <article class="card">
-      <h3>Operator overloading</h3>
-      <p>Operator and method overloading and new-less constructions, for concise writing.</p>
-{% highlightVexaScript %}
-class Vec2(val x: number, val y: number) {
-  operator+(other: Vec2) => Vec2(x + other.x, y + other.y)
-  operator-(other: Vec2) => Vec2(x - other.x, y - other.y)
-}
-Vec2(1, 2) + Vec2(3, 4)
-{% endhighlightVexaScript %}
-    </article>
-    <article class="card">
-      <h3>JSX with Preact</h3>
-      <p>Destructuring with types to avoid duplication while being concise.</p>
-{% highlightVexaScript %}
-import { h } from "preact"
-
-fun Welcome({ name: string }) {
-  return <section>Hello {name}</section>
-}
-{% endhighlightVexaScript %}
-    </article>
-    <article class="card">
-      <h3>Implicit property access</h3>
-      <p>When no ambiguity happens, <code>this</code> is optional.</p>
-{% highlightVexaScript %}
-class Counter(var value: int) {
-  fun increment(): int => ++value
-}
-{% endhighlightVexaScript %}
-    </article>
+    <p class="lead">Browse focused language samples on their own page, with operator overloads, JSX, and concise class patterns collected in one place.</p>
+    <div class="actions">
+      <a class="button secondary" href="/samples">Open the samples page</a>
+    </div>
   </div>
 </section>
 

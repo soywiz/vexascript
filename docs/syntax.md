@@ -280,7 +280,7 @@ class Point(val x: number, val y: number) {
 
 ### Function overloads
 
-Multiple top-level functions may share the same source name when their parameter type signatures differ. During JavaScript emission, overloaded implementations are currently name-mangled with their parameter types, and typed calls are rewritten to the matching emitted name:
+Multiple top-level functions may share the same source name when their parameter type signatures differ. Re-declaring the exact same signature in the same file is a semantic error. During JavaScript emission, overloaded implementations are currently name-mangled with their parameter types, and typed calls are rewritten to the matching emitted name:
 
 ```my
 function describe(value: int): string { return "int" }

@@ -208,6 +208,45 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("infers literal DOM overloads for createElement and getContext", async () => {
+    const source = dedent`
+      val canvas = document.createElement("canvas")
+      val ctx = canvas.getContext("2d")
+      ctx?.fillRect(0, 0, 10, 10)
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves constrained DOM members after non-null assertions on generic calls", async () => {
+    const source = dedent`
+      const root: HTMLElement = document.createElement("main")
+      const first = root.querySelector(".demo")!.firstChild
+      first?.nodeType
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("prefers non-type-predicate array overloads for boolean callbacks", () => {
+    const source = dedent`
+      const xs = [1, 2, 3, 4]
+      xs.filter(it => it % 2 == 0)
+      xs.find(it => it % 2 == 0)
+      xs.every(it => it < 10)
+      xs.reduce((acc: number, value: number) => acc + value, 0)
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+
   it("accepts constructing DOM URL objects from ambient declarations", async () => {
     const source = 'fetch(new URL("http://localhost"))\n';
     const ast = parseFile(tokenizeReader(source));
@@ -3317,6 +3356,26 @@ describe("enum semantic analysis", () => {
     `)));
 
     expect(analysis.getIssues().map((issue) => issue.message)).toContain("Duplicate declaration of 'value'");
+  });
+
+  it("reports duplicate top-level function signatures in the same file", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      fun example(value: int): string { return "a" }
+      fun example(value: int): string { return "b" }
+    `)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Duplicate function signature for 'example'");
+  });
+
+  it("still allows overloaded top-level functions with different parameter signatures", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      fun describe(value: int): string { return "int" }
+      fun describe(value: string): string { return value }
+      let a = describe(1)
+      let b = describe("ok")
+    `)));
+
+    expect(analysis.getIssues()).toEqual([]);
   });
 
   it("does not allow enum-member chaining on enum values", () => {

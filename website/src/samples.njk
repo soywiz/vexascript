@@ -1,0 +1,45 @@
+---
+layout: layout.njk
+title: VexaScript Samples
+permalink: /samples.html
+---
+<section class="section">
+  <div class="section-heading">
+    <p class="eyebrow">Samples</p>
+    <h1>Patterns that teach the language.</h1>
+    <p class="lead">Explore focused VexaScript snippets that highlight operator overloads, JSX interop, and concise member access.</p>
+  </div>
+  <div class="grid">
+    <article class="card">
+      <h3>Operator overloading</h3>
+      <p>Operator and method overloading and new-less constructions, for concise writing.</p>
+{% highlightVexaScript %}
+class Vec2(val x: number, val y: number) {
+  operator+(other: Vec2) => Vec2(x + other.x, y + other.y)
+  operator-(other: Vec2) => Vec2(x - other.x, y - other.y)
+}
+Vec2(1, 2) + Vec2(3, 4)
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>JSX with Preact</h3>
+      <p>Destructuring with types to avoid duplication while being concise.</p>
+{% highlightVexaScript %}
+import { h } from "preact"
+
+fun Welcome({ name: string }) {
+  return <section>Hello {name}</section>
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Implicit property access</h3>
+      <p>When no ambiguity happens, <code>this</code> is optional.</p>
+{% highlightVexaScript %}
+class Counter(var value: int) {
+  fun increment(): int => ++value
+}
+{% endhighlightVexaScript %}
+    </article>
+  </div>
+</section>

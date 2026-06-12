@@ -57,22 +57,54 @@ permalink: /playground.html
               import { Point } from "./point.vx"
               import { TimeSpan, delay, seconds, milliseconds, operator+ } from "./time.vx"
 
-              val current = increment(41)
-              console.log(current.toString())
-              console.log(-Point(1, 2) + (Point(3, 4) * 2))
-
-              sync fun example() {
-                console.log(increment(41))
-                delay(1.seconds)
-                console.log(increment(42))
-                delay(250.milliseconds)
-                console.log(TimeSpan(500.0).ms)
+              fun describe(point: Point): string {
+                return "(\${point.x}, \${point.y})"
               }
 
-              val app = document.querySelector("#app")
-              val summary = document.createElement("pre")
-              summary.textContent = "Preview width: ${window.innerWidth}px"
-              app?.append(summary)
+              fun drawCard(c2d, origin: Point, size: Point, fill: string, label: string) {
+                c2d.fillStyle = fill
+                c2d.fillRect(origin.x, origin.y, size.x, size.y)
+                c2d.fillStyle = "#17324d"
+                c2d.font = "bold 18px sans-serif"
+                c2d.fillText(label, origin.x + 16, origin.y + 32)
+              }
+
+              fun drawDot(c2d, center: Point, radius: number, fill: string) {
+                c2d.fillStyle = fill
+                c2d.beginPath()
+                c2d.arc(center.x, center.y, radius, 0, Math.PI * 2)
+                c2d.fill()
+              }
+
+              val cardOrigin = Point(36, 28)
+              val cardSize = Point(248, 116)
+              val pulseCenter = cardOrigin + Point(190, 58)
+              val pulseDelay = 1.seconds + 250.milliseconds
+
+              sync fun example() {
+                val current = increment(41)
+                console.log(current.toString())
+                console.log(describe(pulseCenter))
+
+                val app = document.querySelector("#app")
+                val canvas = document.createElement("canvas") // as HTMLCanvasElement
+                canvas.width = 320
+                canvas.height = 180
+                app?.append(canvas)
+
+                const c2d = canvas.getContext("2d")! // as CanvasRenderingContext2D
+                c2d.fillStyle = "#f4f8fc"
+                c2d.fillRect(0, 0, canvas.width, canvas.height)
+                drawCard(c2d, cardOrigin, cardSize, "#8cb3d9", "VexaScript")
+                drawDot(c2d, pulseCenter, 12, "#17324d")
+
+                delay(pulseDelay)
+                drawDot(c2d, pulseCenter, 28, "#4d7ea8")
+                drawDot(c2d, pulseCenter, 12, "#17324d")
+
+                console.log(TimeSpan(500.0).ms)
+                console.log((pulseDelay + 500.milliseconds).ms)
+              }
 
               example()
             `

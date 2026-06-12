@@ -14,3 +14,6 @@ tail:2|4|6:2,3,4
 control:7:6:ab:xy:xy:1:one:label:boom:finally
 jsx:section:card:span:fragment
 async:15:50
+update value to 0 -> 1
+update value to 1 -> 6
+count 6
