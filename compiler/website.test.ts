@@ -61,8 +61,8 @@ describe("website project", () => {
     expect(playgroundPage.includes("embeds.createWorkbenchEditor")).toBe(true);
     expect(playgroundPage.includes('window.addEventListener("vexa-embeds-ready"')).toBe(true);
     expect(playgroundPage.includes('drawCard(c2d, cardOrigin, cardSize, "#8cb3d9", "VexaScript")')).toBe(true);
-    expect(playgroundPage.includes('return "(\\${point.x}, \\${point.y})"')).toBe(true);
-    expect(playgroundPage.includes("delay(pulseDelay)")).toBe(true);
+    expect(playgroundPage.includes('return ${BACKTICK}(\\${point.x}, \\${point.y})${BACKTICK}')).toBe(true);
+    expect(playgroundPage.includes("delay(pulseDelay / 100)")).toBe(true);
     expect(playgroundPage.includes("requestAnimationFrame")).toBe(false);
     expect(syntaxPage.includes('class="doc-shell"')).toBe(true);
     expect(cliPage.includes("<code>bundle</code>")).toBe(true);
