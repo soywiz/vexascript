@@ -19,8 +19,10 @@ const generatedEcmaDeclarationsBrowserModulePath = resolve(generatedSourceRoot, 
 const generatedDomDeclarationsBrowserModulePath = resolve(generatedSourceRoot, "domDeclarations.browser.ts");
 
 const bundledRuntimeSourcePath = resolve(projectRoot, "compiler/runtime/es2025.d.ts");
+const bundledVexaRuntimeSourcePath = resolve(projectRoot, "compiler/runtime/vexascript.d.vx");
 const bundledDomRuntimeSourcePath = resolve(projectRoot, "compiler/runtime/dom.d.ts");
 const bundledRuntimeOutputPath = resolve(generatedRuntimeRoot, "es2025.d.ts");
+const bundledVexaRuntimeOutputPath = resolve(generatedRuntimeRoot, "vexascript.d.vx");
 const bundledDomRuntimeOutputPath = resolve(generatedRuntimeRoot, "dom.d.ts");
 
 const isWatch = process.argv.includes("--watch");
@@ -30,6 +32,7 @@ function manifestSource(): string {
   return [
     'export const editorWorkerUrl = "/assets/generated/editor.worker.js";',
     'export const bundledRuntimeUrl = "/assets/generated/runtime/es2025.d.ts";',
+    'export const bundledVexaRuntimeUrl = "/assets/generated/runtime/vexascript.d.vx";',
     'export const bundledDomRuntimeUrl = "/assets/generated/runtime/dom.d.ts";',
     "",
   ].join("\n");
@@ -45,7 +48,14 @@ function ecmaDeclarationsBrowserModuleSource(): string {
     "  getEcmaScriptRuntimeProgram,",
     "  isEcmaScriptRuntimeNode",
     '} from "compiler/runtime/ecmascriptDeclarations.shared";',
-    'import { bundledRuntimeUrl } from "./embed-asset-manifest";',
+    "import {",
+    "  VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME,",
+    "  ensureVexaScriptRuntimeProgram,",
+    "  getVexaScriptRuntimeDeclarationFilePath,",
+    "  getVexaScriptRuntimeProgram,",
+    "  isVexaScriptRuntimeNode",
+    '} from "compiler/runtime/vexascriptDeclarations.shared";',
+    'import { bundledRuntimeUrl, bundledVexaRuntimeUrl } from "./embed-asset-manifest";',
     "",
     "patchRuntimeDeclarationsHost({",
     "  async loadEcmaScriptDeclarations() {",
@@ -57,15 +67,29 @@ function ecmaDeclarationsBrowserModuleSource(): string {
     "      filePath: TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME,",
     "      source: await response.text()",
     "    };",
+    "  },",
+    "  async loadVexaScriptDeclarations() {",
+    "    const response = await fetch(bundledVexaRuntimeUrl);",
+    "    if (!response.ok) {",
+    '      throw new Error(`Failed to load bundled VexaScript runtime declarations from ${bundledVexaRuntimeUrl}`);',
+    "    }",
+    "    return {",
+    "      filePath: VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME,",
+    "      source: await response.text()",
+    "    };",
     "  }",
     "});",
     "",
     "export {",
     "  TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME,",
     "  ensureEcmaScriptRuntimeProgram,",
+    "  ensureVexaScriptRuntimeProgram,",
     "  getEcmaScriptRuntimeDeclarationFilePath,",
     "  getEcmaScriptRuntimeProgram,",
-    "  isEcmaScriptRuntimeNode",
+    "  getVexaScriptRuntimeDeclarationFilePath,",
+    "  getVexaScriptRuntimeProgram,",
+    "  isEcmaScriptRuntimeNode,",
+    "  isVexaScriptRuntimeNode",
     "};",
     "",
   ].join("\n");
@@ -174,6 +198,7 @@ async function copyRuntimeAssets(): Promise<void> {
   await mkdir(generatedRuntimeRoot, { recursive: true });
   await Promise.all([
     copyFileIfChanged(bundledRuntimeSourcePath, bundledRuntimeOutputPath),
+    copyFileIfChanged(bundledVexaRuntimeSourcePath, bundledVexaRuntimeOutputPath),
     copyFileIfChanged(bundledDomRuntimeSourcePath, bundledDomRuntimeOutputPath),
   ]);
 }
