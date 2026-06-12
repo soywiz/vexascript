@@ -1,19 +1,7 @@
 import { Vfs, VfsDirEntry, VfsStat } from "compiler/vfs";
 import type { WorkspaceEntry } from "./workspace";
 import { pathToUri } from "./workspace";
-
-function normalizePath(path: string): string {
-  const trimmed = path.trim().replace(/\\/g, "/");
-  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withLeadingSlash.replace(/\/+/g, "/");
-}
-
-function dirname(path: string): string {
-  const normalized = normalizePath(path);
-  const lastSlash = normalized.lastIndexOf("/");
-  if (lastSlash <= 0) return "/";
-  return normalized.slice(0, lastSlash);
-}
+import { normalizeWorkspacePath as normalizePath, workspacePathDirname as dirname } from "compiler/utils/workspacePaths";
 
 function contentVersion(content: string): number {
   let hash = 0;

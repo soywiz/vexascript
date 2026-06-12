@@ -13,6 +13,7 @@ import {
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { Node, Program } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
+import { containsPosition, nodeRange, rangeSize } from "./ranges";
 import type { TokenComment } from "compiler/parser/tokenizer";
 
 const SymbolKind = {
@@ -46,27 +47,6 @@ const FoldingRangeKind = {
 
 function position(line: number, character: number): Position {
   return { line, character };
-}
-
-export function nodeRange(node: Node): Range | null {
-  if (!node.firstToken || !node.lastToken) {
-    return null;
-  }
-  return {
-    start: position(node.firstToken.range.start.line, node.firstToken.range.start.column),
-    end: position(node.lastToken.range.end.line, node.lastToken.range.end.column)
-  };
-}
-
-function contains(range: Range, point: Position): boolean {
-  return (point.line > range.start.line ||
-    (point.line === range.start.line && point.character >= range.start.character)) &&
-    (point.line < range.end.line ||
-      (point.line === range.end.line && point.character <= range.end.character));
-}
-
-function rangeSize(range: Range): number {
-  return (range.end.line - range.start.line) * 1_000_000 + range.end.character - range.start.character;
 }
 
 export function createDocumentHighlights(
@@ -123,7 +103,7 @@ export function createSelectionRanges(ast: Program, positions: Position[]): Sele
     const containing: Range[] = [];
     walkAst(ast, (node) => {
       const range = nodeRange(node);
-      if (range && contains(range, point)) containing.push(range);
+      if (range && containsPosition(range, point)) containing.push(range);
     });
     containing.sort((left, right) => rangeSize(left) - rangeSize(right));
     const unique = containing.filter((range, index) => index === 0 || JSON.stringify(range) !== JSON.stringify(containing[index - 1]));
@@ -190,7 +170,7 @@ function hierarchyDeclarations(ast: Program, uri: string): CallHierarchyItem[] {
 }
 
 export function prepareCallHierarchy(ast: Program, uri: string, point: Position): CallHierarchyItem[] | null {
-  const item = hierarchyDeclarations(ast, uri).find(({ range }) => contains(range, point));
+  const item = hierarchyDeclarations(ast, uri).find(({ range }) => containsPosition(range, point));
   return item ? [item] : null;
 }
 

@@ -2,6 +2,7 @@ import "monaco-editor/min/vs/editor/editor.main.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import * as monaco from "monaco-editor";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
+import { normalizeWorkspacePath as normalizePath, workspacePathBasename as basename, workspacePathDirname as dirname } from "compiler/utils/workspacePaths";
 import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
 import {
   ensureEcmaScriptRuntimeProgram,
@@ -225,24 +226,6 @@ self.MonacoEnvironment = {
     return new Worker(editorWorkerUrl, { type: "module" });
   },
 };
-
-function normalizePath(path: string): string {
-  const trimmed = path.trim().replace(/\\/g, "/");
-  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withLeadingSlash.replace(/\/+/g, "/");
-}
-
-function dirname(path: string): string {
-  const normalized = normalizePath(path);
-  const lastSlash = normalized.lastIndexOf("/");
-  return lastSlash <= 0 ? "/" : normalized.slice(0, lastSlash);
-}
-
-function basename(path: string): string {
-  const normalized = normalizePath(path);
-  const lastSlash = normalized.lastIndexOf("/");
-  return normalized.slice(lastSlash + 1);
-}
 
 function isRuntimeDeclarationPath(path: string): boolean {
   const normalized = normalizePath(path);

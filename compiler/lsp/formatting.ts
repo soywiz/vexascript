@@ -1,4 +1,5 @@
 import { format as formatSource } from "compiler/runtime/tooling";
+import { comparePosition } from "./ranges";
 
 export interface LspPosition {
   line: number;
@@ -49,15 +50,8 @@ function positionToOffset(text: string, position: LspPosition): number {
   return Math.max(lineStart, Math.min(lineStart + position.character, lineEnd));
 }
 
-function comparePositions(a: LspPosition, b: LspPosition): number {
-  if (a.line !== b.line) {
-    return a.line - b.line;
-  }
-  return a.character - b.character;
-}
-
 function normalizeRange(range: LspRange): LspRange {
-  if (comparePositions(range.start, range.end) <= 0) {
+  if (comparePosition(range.start, range.end) <= 0) {
     return range;
   }
   return {
