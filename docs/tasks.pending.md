@@ -27,7 +27,10 @@ quick-fix target lookup shares the size-ranked best-match searches in
 `compiler/lsp/nodeSearch.ts` and `findNode` in `compiler/ast/traversal.ts`
 instead of bespoke statement visitors, and the ECMAScript/DOM declaration
 modules share the load/cache/retry plumbing in
-`compiler/runtime/declarationProgramCache.ts`).
+`compiler/runtime/declarationProgramCache.ts`, and the emitter's per-emission
+globals are consolidated into the single `ActiveEmitState` object in
+`compiler/runtime/emitter.ts`, where save/restore is one assignment and new
+fields are enforced by object-literal completeness).
 Future quick fixes should use
 `nodeSearch.ts`/`walkAst` instead of adding bespoke recursive visitors, and LSP
 features that need top-level declarations across imports/runtime/project files
