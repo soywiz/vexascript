@@ -3326,6 +3326,19 @@ describe("enum semantic analysis", () => {
     expect(messages).toContain("Property 'Missing' does not exist on type 'Direction'");
   });
 
+  it("treats imported enum names as enum objects for member access", () => {
+    const externalDeclarations = parseFile(tokenizeReader("export enum Color { Red, Green, Blue }")).body;
+    const source = 'import { Color } from "./colors"\nlet chosen = Color.Red\nlet missing = Color.Nope\n';
+    const analysis = new Analysis(parseFile(tokenizeReader(source)), {
+      externalDeclarations,
+      importedSymbolTypes: new Map([["Color", namedType("Color")]])
+    });
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Property 'Nope' does not exist on type 'Color'");
+    expect(messages.filter((message) => message.includes("'Red'"))).toEqual([]);
+  });
+
   it("distinguishes enum name lookups, literal-value lookups, and enum-value lookups", () => {
     const source = dedent`
       enum Direction { Up, Down }
