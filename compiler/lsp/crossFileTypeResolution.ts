@@ -18,21 +18,6 @@ import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
 
-export function boxedNavigationTypeName(typeName: string): string {
-  if (typeName === "int" || typeName === "number" || typeName === "numeric") {
-    return "Number";
-  }
-  if (typeName === "string") {
-    return "String";
-  }
-  if (typeName === "boolean") {
-    return "Boolean";
-  }
-  if (typeName === "bigint" || typeName === "long") {
-    return "BigInt";
-  }
-  return typeName;
-}
 
 export interface CanonicalMemberSymbol {
   className: string;

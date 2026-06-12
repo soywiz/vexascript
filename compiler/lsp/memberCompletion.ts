@@ -15,7 +15,7 @@ import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { containsPosition, nodeRange, rangeSize } from "./ranges";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
-import { baseTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
+import { baseTypeName, boxedPrimitiveTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type { AnalysisType } from "compiler/analysis/types";
 import type { BlockStatement, CallExpression, ClassMember, ClassStatement, DoWhileStatement, EnumStatement, ExportStatement, Expr, ForStatement, FunctionStatement, Identifier, IfStatement, ImportStatement, InterfaceStatement, LabeledStatement, MemberExpression, NamespaceStatement, NewExpression, Program, Statement, SwitchStatement, TryStatement, TypeAliasStatement, TypeAnnotation, VarStatement, WhileStatement, WithStatement } from "compiler/ast/ast";
@@ -292,20 +292,7 @@ export function arrayTypeNameToArrayAlias(typeName: string): string | null {
 }
 
 export function boxedCompletionTypeName(typeName: string): string {
-  const normalizedTypeName = nonNullishTypeName(typeName) ?? typeName;
-  if (normalizedTypeName === "int" || normalizedTypeName === "number" || normalizedTypeName === "numeric") {
-    return "Number";
-  }
-  if (normalizedTypeName === "string") {
-    return "String";
-  }
-  if (normalizedTypeName === "boolean") {
-    return "Boolean";
-  }
-  if (normalizedTypeName === "bigint" || normalizedTypeName === "long") {
-    return "BigInt";
-  }
-  return normalizedTypeName;
+  return boxedPrimitiveTypeName(nonNullishTypeName(typeName) ?? typeName);
 }
 
 export function extensionReceiverMatches(receiverType: string, objectTypeName: string): boolean {
@@ -1330,7 +1317,7 @@ export async function buildMemberCompletionItemsForType(
     resolverCache
   ))?.interfaceStatement;
   const interfaceMembers: InterfaceCompletionMember[] = interfaceStatement
-    ? await Promise.all(
+    ? (await Promise.all(
       (await resolveInterfaceMemberNames(
         interfaceStatement,
         resolvedClassName,
@@ -1356,7 +1343,7 @@ export async function buildMemberCompletionItemsForType(
             : `Interface method: ${member.typeName}`
         };
       })
-    ).then((members) => members.filter((member): member is InterfaceCompletionMember => member !== null))
+    )).filter((member): member is InterfaceCompletionMember => member !== null)
     : [];
   const ambientInterfaceMembers = !interfaceStatement && options.ambientDeclarations
     ? collectAmbientInterfaceCompletionMembers(options.ambientDeclarations, baseTypeName(resolvedClassName))

@@ -1,6 +1,6 @@
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Analysis } from "compiler/analysis/Analysis";
-import { baseTypeName, parseTypeNameShape, substituteTypeNameText } from "compiler/analysis/typeNames";
+import { baseTypeName, boxedPrimitiveTypeName, parseTypeNameShape, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type {
   AsExpression,
@@ -57,21 +57,6 @@ const BUILTIN_TYPE_NAMES = new Set([
   "undefined"
 ]);
 
-function boxedCallableTypeBaseName(typeName: string): string {
-  if (typeName === "int" || typeName === "number" || typeName === "numeric") {
-    return "Number";
-  }
-  if (typeName === "string") {
-    return "String";
-  }
-  if (typeName === "boolean") {
-    return "Boolean";
-  }
-  if (typeName === "bigint" || typeName === "long") {
-    return "BigInt";
-  }
-  return typeName;
-}
 
 export type ClassResolverSessionLike = ProjectSessionLike;
 
@@ -1401,7 +1386,7 @@ export async function resolveCallableSignature(
   if (!parsedObjectType) {
     return null;
   }
-  const resolvedBaseTypeName = boxedCallableTypeBaseName(parsedObjectType.baseName);
+  const resolvedBaseTypeName = boxedPrimitiveTypeName(parsedObjectType.baseName);
 
   const resolverCache = createClassResolverCache();
   const memberName = (member.property as Identifier).name;
