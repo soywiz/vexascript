@@ -1,30 +1,20 @@
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
-import { walkAst } from "compiler/ast/traversal";
+import { findNode } from "compiler/ast/traversal";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType } from "compiler/analysis/types";
 import type {
-  BlockStatement,
   CallExpression,
-  ClassStatement,
-  DoWhileStatement,
-  ForStatement,
   FunctionParameter,
   FunctionStatement,
   Identifier,
-  IfStatement,
-  LabeledStatement,
-  Program,
-  Statement,
-  SwitchStatement,
-  TryStatement,
-  WhileStatement,
-  WithStatement
+  Program
 } from "compiler/ast/ast";
 import { tokenize } from "compiler/parser/tokenizer";
 import { type CodeAction, type Diagnostic, type Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { getCallDiagnosticKind } from "./diagnosticCodes";
-import { containsPosition, nodeRange, offsetToPosition, rangeSize, type Position } from "./ranges";
+import { findBestMatchAtPosition, type PositionMatchCandidate } from "./nodeSearch";
+import { nodeRange, offsetToPosition, type Position } from "./ranges";
 
 interface CallArgumentMatch {
   call: CallExpression;
@@ -38,156 +28,33 @@ interface CallFixContext {
 }
 
 function findCallArgumentAtPosition(program: Program, position: Position): CallArgumentMatch | null {
-  let best: { match: CallArgumentMatch; size: number } | undefined;
-
-  walkAst(program, (node) => {
+  return findBestMatchAtPosition(program, position, (node) => {
     if (node.kind !== "CallExpression") {
-      return;
+      return null;
     }
 
     const call = node as CallExpression;
+    const candidates: Array<PositionMatchCandidate<CallArgumentMatch>> = [];
     for (let index = 0; index < call.arguments.length; index += 1) {
-      const argument = call.arguments[index]!;
-      const range = nodeRange(argument);
-      if (!range || !containsPosition(range, position)) {
-        continue;
-      }
-      const size = rangeSize(range);
-      if (!best || size <= best.size) {
-        best = { match: { call, argumentIndex: index }, size };
+      const range = nodeRange(call.arguments[index]!);
+      if (range) {
+        const argumentIndex = index;
+        candidates.push({ range, build: () => ({ call, argumentIndex }) });
       }
     }
+    return candidates;
   });
-
-  const selected = best as { match: CallArgumentMatch; size: number } | undefined;
-  return selected?.match ?? null;
 }
 
 function findFunctionDeclarationByNameNode(
   program: Program,
   nameNode: Identifier
 ): FunctionStatement | null {
-  const visitStatement = (statement: Statement): FunctionStatement | null => {
-    if (statement.kind === "FunctionStatement") {
-      const fn = statement as FunctionStatement;
-      if (fn.name === nameNode) {
-        return fn;
-      }
-      for (const child of fn.body.body) {
-        const nested = visitStatement(child);
-        if (nested) {
-          return nested;
-        }
-      }
-      return null;
-    }
-
-    if (statement.kind === "BlockStatement") {
-      for (const child of (statement as BlockStatement).body) {
-        const nested = visitStatement(child);
-        if (nested) {
-          return nested;
-        }
-      }
-      return null;
-    }
-
-    if (statement.kind === "IfStatement") {
-      const ifStatement = statement as IfStatement;
-      const thenMatch = visitStatement(ifStatement.thenBranch);
-      if (thenMatch) {
-        return thenMatch;
-      }
-      if (ifStatement.elseBranch) {
-        return visitStatement(ifStatement.elseBranch);
-      }
-      return null;
-    }
-
-    if (statement.kind === "WhileStatement") {
-      return visitStatement((statement as WhileStatement).body);
-    }
-
-    if (statement.kind === "WithStatement") {
-      return visitStatement((statement as WithStatement).body);
-    }
-
-    if (statement.kind === "LabeledStatement") {
-      return visitStatement((statement as LabeledStatement).body);
-    }
-
-    if (statement.kind === "DoWhileStatement") {
-      return visitStatement((statement as DoWhileStatement).body);
-    }
-
-    if (statement.kind === "ForStatement") {
-      return visitStatement((statement as ForStatement).body);
-    }
-
-    if (statement.kind === "SwitchStatement") {
-      for (const switchCase of (statement as SwitchStatement).cases) {
-        for (const child of switchCase.consequent) {
-          const nested = visitStatement(child);
-          if (nested) {
-            return nested;
-          }
-        }
-      }
-      return null;
-    }
-
-    if (statement.kind === "TryStatement") {
-      const tryStatement = statement as TryStatement;
-      for (const child of tryStatement.tryBlock.body) {
-        const nested = visitStatement(child);
-        if (nested) {
-          return nested;
-        }
-      }
-      if (tryStatement.catchClause) {
-        for (const child of tryStatement.catchClause.body.body) {
-          const nested = visitStatement(child);
-          if (nested) {
-            return nested;
-          }
-        }
-      }
-      if (tryStatement.finallyBlock) {
-        for (const child of tryStatement.finallyBlock.body) {
-          const nested = visitStatement(child);
-          if (nested) {
-            return nested;
-          }
-        }
-      }
-      return null;
-    }
-
-    if (statement.kind === "ClassStatement") {
-      for (const member of (statement as ClassStatement).members) {
-        if (member.kind !== "ClassMethodMember") {
-          continue;
-        }
-        for (const child of member.body.body) {
-          const nested = visitStatement(child);
-          if (nested) {
-            return nested;
-          }
-        }
-      }
-      return null;
-    }
-
-    return null;
-  };
-
-  for (const statement of program.body) {
-    const match = visitStatement(statement);
-    if (match) {
-      return match;
-    }
-  }
-  return null;
+  return findNode(
+    program,
+    (node): node is FunctionStatement =>
+      node.kind === "FunctionStatement" && (node as FunctionStatement).name === nameNode
+  );
 }
 
 function isFunctionCallDiagnostic(diagnostic: Diagnostic): boolean {

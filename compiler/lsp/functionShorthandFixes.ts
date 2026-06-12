@@ -6,10 +6,10 @@ import type {
   Program,
   ReturnStatement
 } from "compiler/ast/ast";
-import { walkAst } from "compiler/ast/traversal";
 import { type CodeAction, type Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
-import { containsPosition, nodeRange, rangeSize, tokenEndPosition, tokenRange, tokenStartPosition, type Position } from "./ranges";
+import { findBestMatchAtPosition } from "./nodeSearch";
+import { nodeRange, rangeSize, tokenEndPosition, tokenRange, tokenStartPosition, type Position } from "./ranges";
 
 interface FunctionLikeTarget {
   node: FunctionStatement | ClassMethodMember;
@@ -29,64 +29,40 @@ function isRegularGetterAccessor(node: FunctionStatement | ClassMethodMember): n
 }
 
 function findFunctionLikeAtPosition(ast: Program, position: Position): FunctionLikeTarget | null {
-  const state: {
-    best: { target: FunctionLikeTarget; size: number } | null;
-  } = {
-    best: null
-  };
-
-  const consider = (
-    node: FunctionStatement | ClassMethodMember,
-    body: BlockStatement
-  ): void => {
+  return findBestMatchAtPosition(ast, position, (candidate) => {
+    if (candidate.kind !== "FunctionStatement" && candidate.kind !== "ClassMethodMember") {
+      return null;
+    }
+    const node = candidate as FunctionStatement | ClassMethodMember;
+    const body: BlockStatement = node.body;
     if (body.body.length !== 1) {
-      return;
+      return null;
     }
 
     const onlyStatement = body.body[0];
     if (!onlyStatement || onlyStatement.kind !== "ReturnStatement") {
-      return;
+      return null;
     }
 
     const returnStatement = onlyStatement as ReturnStatement;
     if (!returnStatement.expression) {
-      return;
+      return null;
     }
 
     const statementRange = nodeRange(returnStatement);
     const functionRange = nodeRange(node);
     const shorthand = body.firstToken?.type === "symbol" && body.firstToken.value === "=>";
     const triggerRange = shorthand ? tokenRange(body.firstToken) : statementRange;
-    if (!triggerRange || !functionRange || !containsPosition(triggerRange, position)) {
-      return;
+    if (!triggerRange || !functionRange) {
+      return null;
     }
 
-    const size = rangeSize(functionRange);
-    if (!state.best || size <= state.best.size) {
-      state.best = {
-        target: {
-          node,
-          returnStatement,
-          shorthand
-        },
-        size
-      };
-    }
-  };
-
-  walkAst(ast, (node) => {
-    if (node.kind === "FunctionStatement") {
-      const fn = node as FunctionStatement;
-      consider(fn, fn.body);
-      return;
-    }
-    if (node.kind === "ClassMethodMember") {
-      const method = node as ClassMethodMember;
-      consider(method, method.body);
-    }
+    return {
+      range: triggerRange,
+      size: rangeSize(functionRange),
+      build: () => ({ node, returnStatement, shorthand })
+    };
   });
-
-  return state.best ? state.best.target : null;
 }
 
 function shorthandRange(node: FunctionStatement | ClassMethodMember): Range | null {

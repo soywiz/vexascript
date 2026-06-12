@@ -1,10 +1,10 @@
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/model";
 import type { Identifier, MemberExpression, Program } from "compiler/ast/ast";
-import { walkAst } from "compiler/ast/traversal";
 import type { CodeAction } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
-import { containsPosition, nodeRange, rangeSize, type Position } from "./ranges";
+import { findBestMatchAtPosition } from "./nodeSearch";
+import { nodeRange, rangeSize, type Position } from "./ranges";
 
 interface ImplicitReceiverTarget {
   identifier: Identifier;
@@ -29,45 +29,36 @@ function findImplicitReceiverIdentifierAtPosition(
   analysis: Analysis,
   position: Position
 ): ImplicitReceiverTarget | null {
-  let bestTarget: ImplicitReceiverTarget | null = null;
-  let bestSize = Number.POSITIVE_INFINITY;
-
-  walkAst(ast, (node) => {
+  return findBestMatchAtPosition(ast, position, (node) => {
     if (node.kind !== "Identifier") {
-      return;
+      return null;
     }
 
     const identifier = node as Identifier;
     const range = nodeRange(identifier);
-    if (!range || !containsPosition(range, position)) {
-      return;
+    if (!range) {
+      return null;
     }
-
-    const symbol = symbolAtIdentifier(analysis, identifier);
-    if (!symbol || symbol.implicitReceiver !== true || symbol.implicitReceiverClassName) {
-      return;
-    }
-
-    const size = rangeSize(range);
-    if (size <= bestSize) {
-      bestTarget = { identifier, symbol };
-      bestSize = size;
-    }
+    return {
+      range,
+      build: () => {
+        const symbol = symbolAtIdentifier(analysis, identifier);
+        if (!symbol || symbol.implicitReceiver !== true || symbol.implicitReceiverClassName) {
+          return null;
+        }
+        return { identifier, symbol };
+      }
+    };
   });
-
-  return bestTarget;
 }
 
 function findThisMemberAtPosition(
   ast: Program,
   position: Position
 ): ThisMemberTarget | null {
-  let bestTarget: ThisMemberTarget | null = null;
-  let bestSize = Number.POSITIVE_INFINITY;
-
-  walkAst(ast, (node) => {
+  return findBestMatchAtPosition(ast, position, (node) => {
     if (node.kind !== "MemberExpression") {
-      return;
+      return null;
     }
 
     const member = node as MemberExpression;
@@ -77,28 +68,22 @@ function findThisMemberAtPosition(
       (member.object as Identifier).name !== "this" ||
       member.property.kind !== "Identifier"
     ) {
-      return;
+      return null;
     }
 
     const property = member.property as Identifier;
     const propertyRange = nodeRange(property);
-    if (!propertyRange || !containsPosition(propertyRange, position)) {
-      return;
-    }
-
     const memberRange = nodeRange(member);
-    if (!memberRange) {
-      return;
+    if (!propertyRange || !memberRange) {
+      return null;
     }
 
-    const size = rangeSize(memberRange);
-    if (size <= bestSize) {
-      bestTarget = { member, property };
-      bestSize = size;
-    }
+    return {
+      range: propertyRange,
+      size: rangeSize(memberRange),
+      build: () => ({ member, property })
+    };
   });
-
-  return bestTarget;
 }
 
 function canRemoveThisQualifier(analysis: Analysis, property: Identifier): boolean {

@@ -3,7 +3,7 @@ import type { BinaryExpression, Identifier } from "compiler/ast/ast";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { expect } from "compiler/test/expect";
-import { findNodeAtPosition, findNodeContainingRange } from "./nodeSearch";
+import { findBestMatch, findBestMatchAtPosition, findNodeAtPosition, findNodeContainingRange } from "./nodeSearch";
 import { nodeRange, type Position } from "./ranges";
 
 function parse(source: string) {
@@ -63,5 +63,68 @@ describe("nodeSearch", () => {
     expect(match?.kind).toBe("BinaryExpression");
     expect(match ? source.slice(match.firstToken!.range.start.offset, match.lastToken!.range.end.offset) : null)
       .toBe("prefix + name");
+  });
+
+  it("ranks matcher-provided candidates by size with ties favoring later matches", () => {
+    const source = "let value = prefix + name + suffix";
+    const ast = parse(source);
+
+    const match = findBestMatch(ast, (node) => {
+      if (!isIdentifier(node)) {
+        return null;
+      }
+      return { size: 1, value: node.name };
+    });
+
+    expect(match).toBe("suffix");
+  });
+
+  it("only builds results for candidates containing the position and keeps prior matches when a build is discarded", () => {
+    const source = "let value = combine(alpha, beta)";
+    const ast = parse(source);
+    const built: string[] = [];
+
+    const match = findBestMatchAtPosition(ast, positionOf(source, "alpha"), (node) => {
+      if (node.kind === "CallExpression") {
+        const range = nodeRange(node);
+        return range ? { range, build: () => "call" } : null;
+      }
+      if (!isIdentifier(node)) {
+        return null;
+      }
+      const range = nodeRange(node);
+      if (!range) {
+        return null;
+      }
+      return {
+        range,
+        build: () => {
+          built.push(node.name);
+          // Discarding the smaller identifier candidate keeps the call match.
+          return null;
+        }
+      };
+    });
+
+    expect(match).toBe("call");
+    expect(built).toEqual(["alpha"]);
+  });
+
+  it("supports several position candidates per node with custom ranking sizes", () => {
+    const source = "let value = combine(alpha, beta)";
+    const ast = parse(source);
+
+    const match = findBestMatchAtPosition(ast, positionOf(source, "alpha"), (node) => {
+      if (node.kind !== "CallExpression") {
+        return null;
+      }
+      const call = node as import("compiler/ast/ast").CallExpression;
+      return call.arguments.flatMap((argument, index) => {
+        const range = nodeRange(argument);
+        return range ? [{ range, size: index, build: () => index }] : [];
+      });
+    });
+
+    expect(match).toBe(0);
   });
 });

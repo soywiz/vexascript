@@ -48,16 +48,24 @@ export function childNodes(node: Node): Node[] {
   return children;
 }
 
-/** Walks an AST in pre-order. Shared or cyclic nodes are visited only once. */
-export function walkAst(root: Node, visit: (node: Node) => void): void {
+/**
+ * Walks an AST in pre-order. Shared or cyclic nodes are visited only once.
+ * The visitor may return `false` to stop the whole traversal early; any other
+ * return value continues the walk.
+ */
+export function walkAst(root: Node, visit: (node: Node) => unknown): void {
   const visited = new WeakSet<object>();
+  let stopped = false;
 
   const walk = (node: Node): void => {
-    if (visited.has(node)) {
+    if (stopped || visited.has(node)) {
       return;
     }
     visited.add(node);
-    visit(node);
+    if (visit(node) === false) {
+      stopped = true;
+      return;
+    }
 
     for (const key in node) {
       if (isMetadataKey(key)) {
@@ -66,6 +74,9 @@ export function walkAst(root: Node, visit: (node: Node) => void): void {
       const value = node[key as keyof Node];
       if (Array.isArray(value)) {
         for (const entry of value) {
+          if (stopped) {
+            return;
+          }
           if (isNode(entry)) {
             walk(entry);
           }
@@ -77,4 +88,20 @@ export function walkAst(root: Node, visit: (node: Node) => void): void {
   };
 
   walk(root);
+}
+
+/** Returns the first node (in pre-order) accepted by the predicate, or null. */
+export function findNode<T extends Node>(
+  root: Node,
+  predicate: (node: Node) => node is T
+): T | null {
+  let found: T | null = null;
+  walkAst(root, (node) => {
+    if (predicate(node)) {
+      found = node;
+      return false;
+    }
+    return true;
+  });
+  return found;
 }
