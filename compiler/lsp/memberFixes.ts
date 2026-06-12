@@ -10,7 +10,7 @@ import type {
 } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
-import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
+import type { CodeAction, Diagnostic } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import { pathToUri } from "./importFixes";
 import {
@@ -21,7 +21,7 @@ import {
   type ClassResolverSessionLike
 } from "./classResolver";
 import { parseMissingMemberDiagnostic as parseDiagnosticMissingMember } from "./diagnosticCodes";
-import { nodeRange, rangeContains } from "./ranges";
+import { bodyEndInsertRange, nodeRange, rangeContains } from "./ranges";
 
 interface ClassResolution {
   classStatement: ClassStatement;
@@ -78,37 +78,6 @@ async function resolveClassTarget(params: {
     objectTypeName: params.typeName,
     cache,
     options
-  };
-}
-
-function insertRangeAtClassEnd(classStatement: ClassStatement): Range | null {
-  const last = classStatement.lastToken;
-  if (!last) {
-    return null;
-  }
-
-  if (last.type === "symbol" && last.value === "}") {
-    return {
-      start: {
-        line: last.range.start.line,
-        character: last.range.start.column
-      },
-      end: {
-        line: last.range.start.line,
-        character: last.range.start.column
-      }
-    };
-  }
-
-  return {
-    start: {
-      line: last.range.end.line,
-      character: last.range.end.column
-    },
-    end: {
-      line: last.range.end.line,
-      character: last.range.end.column
-    }
   };
 }
 
@@ -247,7 +216,7 @@ export async function createCreateMemberCodeActions(params: {
       continue;
     }
 
-    const range = insertRangeAtClassEnd(classTarget.classStatement);
+    const range = bodyEndInsertRange(classTarget.classStatement);
     if (!range) {
       continue;
     }

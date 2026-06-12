@@ -87,6 +87,28 @@ export function rangeSize(range: NodeRange): number {
   return range.end.character - range.start.character;
 }
 
+export interface TypedRangedToken extends RangedToken {
+  type: string;
+  value: string;
+}
+
+/**
+ * Insertion point for appending members to a braced declaration body: just
+ * before a trailing `}` token, or right after the last token when the
+ * declaration has no braced body.
+ */
+export function bodyEndInsertRange(node: { lastToken?: TypedRangedToken }): Range | null {
+  const last = node.lastToken;
+  if (!last) {
+    return null;
+  }
+  const position =
+    last.type === "symbol" && last.value === "}"
+      ? tokenStartPosition(last)
+      : tokenEndPosition(last);
+  return { start: position, end: { ...position } };
+}
+
 export function offsetToPosition(text: string, offset: number): Position {
   let line = 0;
   let lineStart = 0;

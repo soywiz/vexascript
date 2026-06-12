@@ -124,12 +124,18 @@ describe("collectCodeActions aggregator", () => {
     expect(titles).toContain("Use non-null assertion '!.'");
   });
 
-  it("keeps the browser LSP worker on the shared code-action aggregator", async () => {
+  it("keeps both LSP transports on the shared code-action aggregator", async () => {
+    const serverCore = await readFile("compiler/lsp/serverCore.ts", "utf8");
     const browserServer = await readFile("compiler/lsp/server-browser.ts", "utf8");
+    const nodeServer = await readFile("compiler/lsp/server.ts", "utf8");
 
-    expect(browserServer).toContain('import { collectCodeActions } from "./codeActionsAggregate";');
-    expect(browserServer).not.toContain("createStringTemplateCodeActions");
-    expect(browserServer).not.toContain("createTypeFixCodeActions");
-    expect(browserServer).not.toContain("findDeclarationKeywordReplacementAtPosition");
+    expect(serverCore).toContain('import { collectCodeActions } from "./codeActionsAggregate";');
+    for (const transport of [browserServer, nodeServer]) {
+      expect(transport).toContain('import { startLspServer } from "./serverCore";');
+      expect(transport).not.toContain("collectCodeActions");
+      expect(transport).not.toContain("createStringTemplateCodeActions");
+      expect(transport).not.toContain("createTypeFixCodeActions");
+      expect(transport).not.toContain("findDeclarationKeywordReplacementAtPosition");
+    }
   });
 });

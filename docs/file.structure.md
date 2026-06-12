@@ -122,7 +122,9 @@ This section is the fast onboarding map for agents and contributors.
   - Shared Monaco theme definitions for the sample UI, including distinct styling for regular and documentation comments: `plugins/monaco/src/theme.ts`
   - Monaco package manifest and Vite config: `plugins/monaco/package.json`, `plugins/monaco/vite.config.ts`
 - LSP server and features:
-  - Server entrypoint: `compiler/lsp/server.ts`
+  - Shared LSP request-handler core registering all document-lifecycle and request handlers for both transports, parameterized by an environment (source roots, project-session lookup, optional workspace features): `compiler/lsp/serverCore.ts`
+  - Server-core tests (handler parity across environments, capability gating, hover/completion/diagnostics handler behavior): `compiler/lsp/serverCore.test.ts`
+  - Node stdio server entrypoint (thin adapter wiring the stdio transport, workspace source roots, project index, and DOM ambient declarations into the shared core): `compiler/lsp/server.ts`
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`
