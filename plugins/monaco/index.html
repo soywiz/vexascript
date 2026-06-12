@@ -202,6 +202,31 @@
         flex: 1;
         min-width: 0;
         min-height: 0;
+        position: relative;
+      }
+      .workspace-toggle {
+        display: none;
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 30;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: rgba(37, 37, 38, 0.96);
+        border-color: #4b4b4b;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+      }
+      .workspace-toggle[aria-expanded="true"] {
+        background: rgba(52, 52, 54, 0.98);
+      }
+      .workspace-backdrop {
+        display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        background: rgba(0, 0, 0, 0.22);
       }
       #editor-container {
         height: 100%;
@@ -267,6 +292,30 @@
         cursor: default;
         background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="%23c586c0" stroke-width="1.2"/><path d="M8 4.2v5.1" fill="none" stroke="%23c586c0" stroke-width="1.4" stroke-linecap="round"/><path d="M5.6 7.1 8 9.6l2.4-2.5" fill="none" stroke="%23c586c0" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>');
       }
+      @media (max-width: 900px) {
+        body.workspace-compact aside {
+          position: absolute;
+          top: 48px;
+          left: 8px;
+          bottom: 8px;
+          width: min(320px, calc(100% - 16px));
+          min-width: 0;
+          border: 1px solid #3b3b3b;
+          border-radius: 8px;
+          box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38);
+          z-index: 40;
+          display: none;
+        }
+        body.workspace-compact.workspace-open aside {
+          display: flex;
+        }
+        body.workspace-compact .workspace-toggle {
+          display: inline-flex;
+        }
+        body.workspace-compact.workspace-open .workspace-backdrop {
+          display: block;
+        }
+      }
     </style>
   </head>
   <body>
@@ -285,7 +334,7 @@
       </div>
     </header>
     <main>
-      <aside>
+      <aside id="workspace-sidebar">
         <div class="sidebar-header">
           <span class="sidebar-title">Workspace</span>
           <div class="sidebar-actions">
@@ -296,6 +345,8 @@
         <div id="file-tree"></div>
       </aside>
       <div class="editor-shell">
+        <button id="btn-workspace-toggle" class="btn workspace-toggle" type="button" aria-expanded="false" aria-controls="workspace-sidebar">Show workspace</button>
+        <div id="workspace-backdrop" class="workspace-backdrop"></div>
         <div id="editor-container"></div>
       </div>
     </main>

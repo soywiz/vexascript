@@ -75,6 +75,12 @@ import {
   writeWorkbenchBrowserHistorySnapshot,
   type WorkbenchBrowserHistorySnapshot,
 } from "./workbenchBrowserHistory";
+import {
+  COMPACT_WORKBENCH_MEDIA_QUERY,
+  deriveWorkbenchSidebarState,
+  workbenchSidebarToggleLabel,
+  type WorkbenchSidebarState,
+} from "./workbenchSidebar";
 
 interface VexaScriptEmbedFile {
   path: string;
@@ -307,6 +313,9 @@ function ensureEmbeddedRuntimeReady(): Promise<void> {
       ensureVexaScriptRuntimeProgram(),
       getDomAmbientDeclarations(),
     ]).then(() => {
+      // Monaco providers can ask for sessions before the bundled runtimes finish
+      // loading; drop those stale pre-runtime sessions once initialization completes.
+      modelSessionCache.clear();
       embeddedRuntimeReady = true;
     });
   }
@@ -1623,19 +1632,21 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   shell.innerHTML = `
     <div class="vexa-embed-workbench-header">
       <div class="vexa-embed-workbench-title-group">
-        <div class="vexa-embed-workbench-title">VexaScript Editor ${COMPILER_VERSION}</div>
+        <div class="vexa-embed-workbench-title">VexaScript ${COMPILER_VERSION}</div>
         <div class="vexa-embed-workbench-file-name">main.vx</div>
       </div>
       <div class="vexa-embed-workbench-toolbar">
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="back" title="Back" aria-label="Back"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="forward" title="Forward" aria-label="Forward"><i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
-        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="format" title="Format" aria-label="Format"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></button>
-        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="toggle-inlay-hints" title="Disable inlay hints" aria-label="Disable inlay hints"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="save" title="Save" aria-label="Save"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i></button>
-        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="reset-workspace" title="Reset workspace" aria-label="Reset workspace"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="run" title="Run" aria-label="Run"><i class="fa-solid fa-play" aria-hidden="true"></i></button>
         <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="expand" title="Expand" aria-label="Expand"><i class="fa-solid fa-up-right-and-down-left-from-center" aria-hidden="true"></i></button>
-        <div class="vexa-embed-workbench-status">Compiler Ready</div>
+        <button type="button" class="vexa-embed-toolbar-button vexa-embed-toolbar-button-icon-only" data-action="more" title="More actions" aria-label="More actions"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+        <div class="vexa-embed-workbench-toolbar-menu" hidden>
+          <button type="button" data-action="menu-format">Format document</button>
+          <button type="button" data-action="menu-toggle-inlay-hints">Disable inlay hints</button>
+          <button type="button" data-action="menu-reset-workspace">Reset workspace</button>
+        </div>
       </div>
     </div>
     <div class="vexa-embed-workbench-tabs"></div>
@@ -1655,14 +1666,23 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
           <button type="button" data-action="context-delete">Delete</button>
         </div>
       </aside>
-      <div class="vexa-embed-workbench-editor"></div>
+      <div class="vexa-embed-workbench-editor-pane">
+        <button
+          type="button"
+          class="vexa-embed-toolbar-button vexa-embed-workbench-sidebar-toggle"
+          data-action="toggle-sidebar"
+          aria-expanded="false"
+          aria-label="Show workspace"
+        >Show workspace</button>
+        <div class="vexa-embed-workbench-sidebar-backdrop" data-action="sidebar-backdrop" hidden></div>
+        <div class="vexa-embed-workbench-editor"></div>
+      </div>
       <aside class="vexa-embed-workbench-runner">
         <div class="vexa-embed-workbench-runner-header">
           <div class="vexa-embed-workbench-runner-title">Preview</div>
           <button type="button" class="vexa-embed-toolbar-button" data-action="clear-output">Clear</button>
         </div>
         <iframe class="vexa-embed-workbench-preview" title="VexaScript preview" sandbox="allow-scripts allow-modals"></iframe>
-        <pre class="vexa-embed-workbench-output" aria-live="polite"></pre>
       </aside>
     </div>
   `;
@@ -1702,24 +1722,29 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const sidebarTree = shell.querySelector<HTMLElement>(".vexa-embed-workbench-tree")!;
   const treeContextMenu = shell.querySelector<HTMLElement>(".vexa-embed-tree-context-menu")!;
   const tabBar = shell.querySelector<HTMLElement>(".vexa-embed-workbench-tabs")!;
+  const body = shell.querySelector<HTMLElement>(".vexa-embed-workbench-body")!;
+  const sidebar = shell.querySelector<HTMLElement>(".vexa-embed-workbench-sidebar")!;
   const editorHost = shell.querySelector<HTMLElement>(".vexa-embed-workbench-editor")!;
+  const sidebarToggleButton = shell.querySelector<HTMLButtonElement>('[data-action="toggle-sidebar"]')!;
+  const sidebarBackdrop = shell.querySelector<HTMLElement>('[data-action="sidebar-backdrop"]')!;
   const fileNameLabel = shell.querySelector<HTMLElement>(".vexa-embed-workbench-file-name")!;
   const newFileToolbarButton = shell.querySelector<HTMLButtonElement>('[data-action="new-file"]')!;
   const newFolderToolbarButton = shell.querySelector<HTMLButtonElement>('[data-action="new-folder"]')!;
   const backButton = shell.querySelector<HTMLButtonElement>('[data-action="back"]')!;
   const forwardButton = shell.querySelector<HTMLButtonElement>('[data-action="forward"]')!;
-  const formatButton = shell.querySelector<HTMLButtonElement>('[data-action="format"]')!;
-  const toggleInlayHintsButton = shell.querySelector<HTMLButtonElement>('[data-action="toggle-inlay-hints"]')!;
   const saveButton = shell.querySelector<HTMLButtonElement>('[data-action="save"]')!;
-  const resetWorkspaceButton = shell.querySelector<HTMLButtonElement>('[data-action="reset-workspace"]')!;
   const runButton = shell.querySelector<HTMLButtonElement>('[data-action="run"]')!;
   const expandButton = shell.querySelector<HTMLButtonElement>('[data-action="expand"]')!;
+  const moreActionsButton = shell.querySelector<HTMLButtonElement>('[data-action="more"]')!;
+  const toolbarMenu = shell.querySelector<HTMLElement>(".vexa-embed-workbench-toolbar-menu")!;
+  const menuFormatButton = shell.querySelector<HTMLButtonElement>('[data-action="menu-format"]')!;
+  const menuToggleInlayHintsButton = shell.querySelector<HTMLButtonElement>('[data-action="menu-toggle-inlay-hints"]')!;
+  const menuResetWorkspaceButton = shell.querySelector<HTMLButtonElement>('[data-action="menu-reset-workspace"]')!;
   const clearOutputButton = shell.querySelector<HTMLButtonElement>('[data-action="clear-output"]')!;
   const contextNewFileButton = shell.querySelector<HTMLButtonElement>('[data-action="context-new-file"]')!;
   const contextNewFolderButton = shell.querySelector<HTMLButtonElement>('[data-action="context-new-folder"]')!;
   const contextDeleteButton = shell.querySelector<HTMLButtonElement>('[data-action="context-delete"]')!;
   const previewFrame = shell.querySelector<HTMLIFrameElement>(".vexa-embed-workbench-preview")!;
-  const outputPanel = shell.querySelector<HTMLElement>(".vexa-embed-workbench-output")!;
 
   const models = new Map<string, monaco.editor.ITextModel>();
   const disposers = new Map<string, () => void>();
@@ -1745,6 +1770,8 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     return options.inlayHints ?? false;
   })();
   let inlayHintsEnabled = initialInlayHintsEnabled;
+  let sidebarState: WorkbenchSidebarState = { compact: false, open: true };
+  let toolbarMenuOpen = false;
 
   const ensureModel = (entry: WorkspaceFile): monaco.editor.ITextModel => {
     const existing = models.get(entry.uri);
@@ -1881,6 +1908,17 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const isExpanded = (): boolean => target.classList.contains("is-expanded");
 
+  const applySidebarState = (): void => {
+    body.classList.toggle("is-compact", sidebarState.compact);
+    body.classList.toggle("is-sidebar-open", sidebarState.open);
+    sidebarToggleButton.hidden = !sidebarState.compact;
+    sidebarToggleButton.textContent = workbenchSidebarToggleLabel(sidebarState);
+    sidebarToggleButton.setAttribute("aria-label", workbenchSidebarToggleLabel(sidebarState));
+    sidebarToggleButton.setAttribute("aria-expanded", String(sidebarState.open));
+    sidebarBackdrop.hidden = !(sidebarState.compact && sidebarState.open);
+    sidebar.setAttribute("aria-hidden", String(sidebarState.compact && !sidebarState.open));
+  };
+
   const syncExpandButton = (): void => {
     expandButton.title = isExpanded() ? "Collapse" : "Expand";
     expandButton.setAttribute("aria-label", isExpanded() ? "Collapse" : "Expand");
@@ -1890,12 +1928,19 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   };
 
   const syncInlayHintsButton = (): void => {
-    toggleInlayHintsButton.title = inlayHintsEnabled ? "Disable inlay hints" : "Enable inlay hints";
-    toggleInlayHintsButton.setAttribute("aria-label", inlayHintsEnabled ? "Disable inlay hints" : "Enable inlay hints");
-    toggleInlayHintsButton.classList.toggle("is-active", inlayHintsEnabled);
-    toggleInlayHintsButton.innerHTML = inlayHintsEnabled
-      ? '<i class="fa-solid fa-comment-dots" aria-hidden="true"></i>'
-      : '<i class="fa-regular fa-comment-dots" aria-hidden="true"></i>';
+    menuToggleInlayHintsButton.textContent = inlayHintsEnabled ? "Disable inlay hints" : "Enable inlay hints";
+  };
+
+  const hideToolbarMenu = (): void => {
+    toolbarMenu.hidden = true;
+    toolbarMenuOpen = false;
+    moreActionsButton.setAttribute("aria-expanded", "false");
+  };
+
+  const showToolbarMenu = (): void => {
+    toolbarMenu.hidden = false;
+    toolbarMenuOpen = true;
+    moreActionsButton.setAttribute("aria-expanded", "true");
   };
 
   const applyInlayHintsPreference = (): void => {
@@ -1937,8 +1982,16 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     renderTree();
   };
 
+  const postPreviewConsoleCommand = (command: "clear"): void => {
+    previewFrame.contentWindow?.postMessage({
+      type: "vexa-preview-console-command",
+      channelId: previewChannelId,
+      command,
+    }, "*");
+  };
+
   const clearOutput = (): void => {
-    outputPanel.textContent = "";
+    postPreviewConsoleCommand("clear");
   };
 
   const hideTreeContextMenu = (): void => {
@@ -1958,47 +2011,6 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     treeContextMenu.style.top = `${event.clientY}px`;
   };
 
-  const appendOutput = (level: string, message: string): void => {
-    const prefix = level === "log" ? "" : `[${level}] `;
-    outputPanel.textContent = `${outputPanel.textContent}${prefix}${message}\n`;
-    outputPanel.scrollTop = outputPanel.scrollHeight;
-  };
-
-  const stringifyConsoleValue = (value: unknown): string => {
-    if (typeof value === "string") {
-      return value;
-    }
-    if (typeof value === "number" || typeof value === "boolean" || value === null || value === undefined) {
-      return String(value);
-    }
-    if (typeof value === "function") {
-      return `[Function ${value.name || "anonymous"}]`;
-    }
-    if (value instanceof Error) {
-      return value.stack || value.message || String(value);
-    }
-    if (typeof value === "object") {
-      try {
-        const seen = new WeakSet<object>();
-        return JSON.stringify(value, (_key, nestedValue) => {
-          if (typeof nestedValue === "object" && nestedValue !== null) {
-            if (seen.has(nestedValue)) {
-              return "[Circular]";
-            }
-            seen.add(nestedValue);
-          }
-          if (typeof nestedValue === "bigint") {
-            return nestedValue.toString();
-          }
-          return nestedValue;
-        }, 2);
-      } catch {
-        return Object.prototype.toString.call(value);
-      }
-    }
-    return String(value);
-  };
-
   const buildPreviewDocument = (code: string): string => `<!doctype html>
 <html lang="en">
   <head>
@@ -2008,55 +2020,124 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       :root { color-scheme: dark; }
       html, body { margin: 0; min-height: 100%; background: #101113; color: #f3f4f6; font-family: ui-sans-serif, system-ui, sans-serif; }
       body { padding: 16px; }
+      #vexa-console {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        width: min(360px, calc(100vw - 24px));
+        max-height: min(42vh, 260px);
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        overflow: hidden;
+        background: rgba(10, 12, 16, 0.72);
+        backdrop-filter: blur(14px);
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+      }
+      #vexa-console.is-collapsed {
+        grid-template-rows: auto 0fr;
+      }
+      #vexa-console-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.06);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      #vexa-console-toggle {
+        border: 0;
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #f3f4f6;
+        font: inherit;
+        cursor: pointer;
+      }
+      #vexa-console-output {
+        overflow: auto;
+        margin: 0;
+        padding: 12px;
+        color: #e5e7eb;
+        font: 12px/1.5 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
+    <section id="vexa-console" aria-live="polite">
+      <div id="vexa-console-header">
+        <span>Console</span>
+        <button id="vexa-console-toggle" type="button" aria-expanded="true">Hide</button>
+      </div>
+      <pre id="vexa-console-output"></pre>
+    </section>
     <script type="module">
       const channelId = ${JSON.stringify(previewChannelId)};
-      const send = (level, args) => {
-        parent.postMessage({ type: "vexa-workbench-console", channelId, level, args }, "*");
+      const consoleRoot = document.getElementById("vexa-console");
+      const consoleOutput = document.getElementById("vexa-console-output");
+      const consoleToggle = document.getElementById("vexa-console-toggle");
+      const appendOutput = (level, args) => {
+        const prefix = level === "log" ? "" : "[" + level + "] ";
+        const message = args.map((arg) => {
+          if (typeof arg === "string") return arg;
+          if (typeof arg === "number" || typeof arg === "boolean" || arg == null) return String(arg);
+          if (typeof arg === "object") {
+            try { return JSON.stringify(arg, null, 2); } catch { return Object.prototype.toString.call(arg); }
+          }
+          return String(arg);
+        }).join(" ");
+        consoleOutput.textContent += prefix + message + "\\n";
+        consoleOutput.scrollTop = consoleOutput.scrollHeight;
       };
-      const forward = (level) => (...args) => send(level, args);
+      consoleToggle.addEventListener("click", () => {
+        const collapsed = consoleRoot.classList.toggle("is-collapsed");
+        consoleToggle.textContent = collapsed ? "Show" : "Hide";
+        consoleToggle.setAttribute("aria-expanded", String(!collapsed));
+      });
+      window.addEventListener("message", (event) => {
+        const payload = event.data;
+        if (!payload || typeof payload !== "object" || payload.type !== "vexa-preview-console-command" || payload.channelId !== channelId) {
+          return;
+        }
+        if (payload.command === "clear") {
+          consoleOutput.textContent = "";
+        }
+      });
+      const forward = (level) => (...args) => appendOutput(level, args);
       console.log = forward("log");
       console.info = forward("info");
       console.warn = forward("warn");
       console.error = forward("error");
       window.onerror = (message, _source, _line, _column, error) => {
-        send("error", [error?.stack || error?.message || String(message)]);
+        appendOutput("error", [error?.stack || error?.message || String(message)]);
       };
       window.onunhandledrejection = (event) => {
         const reason = event.reason;
-        send("error", [reason?.stack || reason?.message || String(reason)]);
+        appendOutput("error", [reason?.stack || reason?.message || String(reason)]);
       };
       try {
 ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       } catch (error) {
-        send("error", [error?.stack || error?.message || String(error)]);
+        appendOutput("error", [error?.stack || error?.message || String(error)]);
       }
     </script>
   </body>
 </html>`;
 
-  const handlePreviewMessage = (event: MessageEvent): void => {
-    const payload = event.data;
-    if (
-      !payload ||
-      typeof payload !== "object" ||
-      payload.type !== "vexa-workbench-console" ||
-      payload.channelId !== previewChannelId
-    ) {
-      return;
-    }
-    const args = Array.isArray(payload.args) ? payload.args : [];
-    appendOutput(payload.level ?? "log", args.map((arg) => stringifyConsoleValue(arg)).join(" "));
-  };
-
   const runCurrentWorkspace = async (): Promise<void> => {
     clearOutput();
     const activeEntry = entries.find((entry): entry is WorkspaceFile => entry.kind === "file" && entry.uri === activeUri);
     if (!activeEntry) {
-      appendOutput("error", "No active file to run.");
+      previewFrame.srcdoc = buildPreviewDocument("");
+      postPreviewConsoleCommand("clear");
       return;
     }
     runButton.disabled = true;
@@ -2074,7 +2155,6 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
             continue;
           }
           seenMessages.add(message);
-          appendOutput("error", message);
         }
         if (seenMessages.size === 0) {
           for (const error of result.errors) {
@@ -2082,21 +2162,21 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
               continue;
             }
             seenMessages.add(error);
-            appendOutput("error", error);
           }
         }
-        previewFrame.srcdoc = buildPreviewDocument("");
+        previewFrame.srcdoc = buildPreviewDocument(`console.error(${JSON.stringify([...seenMessages].join("\\n"))});`);
         return;
       }
       if (result.diagnostics.length > 0) {
-        for (const diagnostic of result.diagnostics) {
-          appendOutput("warn", `${diagnostic.file}:${diagnostic.line}:${diagnostic.column} ${diagnostic.message}`);
-        }
+        const diagnosticsScript = result.diagnostics
+          .map((diagnostic) => `console.warn(${JSON.stringify(`${diagnostic.file}:${diagnostic.line}:${diagnostic.column} ${diagnostic.message}`)});`)
+          .join("\n");
+        previewFrame.srcdoc = buildPreviewDocument(`${diagnosticsScript}\n${result.code}`);
+        return;
       }
       previewFrame.srcdoc = buildPreviewDocument(result.code);
     } catch (error) {
-      appendOutput("error", error instanceof Error ? error.stack || error.message : String(error));
-      previewFrame.srcdoc = buildPreviewDocument("");
+      previewFrame.srcdoc = buildPreviewDocument(`console.error(${JSON.stringify(error instanceof Error ? error.stack || error.message : String(error))});`);
     } finally {
       runButton.disabled = false;
     }
@@ -2178,12 +2258,13 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     forwardButton.disabled = browserHistorySnapshot.forward.length === 0;
     const activeEntry = entries.find((entry) => entry.uri === activeUri);
     fileNameLabel.textContent = activeEntry?.kind === "file" && isEntryDirty(activeEntry) ? `${activeEntry.label} *` : activeEntry?.label ?? "No file";
-    formatButton.disabled = !allowWorkspaceWrites || activeEntry?.kind !== "file" || activeEntry.language !== "vexa" || !!activeEntry.readOnly;
+    const canFormat = !!allowWorkspaceWrites && activeEntry?.kind === "file" && activeEntry.language === "vexa" && !activeEntry.readOnly;
     saveButton.disabled = !allowWorkspaceWrites || !isDirty();
-    resetWorkspaceButton.disabled = !allowWorkspaceWrites;
     newFileToolbarButton.disabled = !allowWorkspaceWrites;
     newFolderToolbarButton.disabled = !allowWorkspaceWrites;
     runButton.disabled = activeEntry?.kind !== "file" || activeEntry.language !== "vexa";
+    menuFormatButton.disabled = !canFormat;
+    menuResetWorkspaceButton.disabled = !allowWorkspaceWrites;
     syncInlayHintsButton();
   };
 
@@ -2207,6 +2288,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     activeUri = entry.uri;
     selectedPath = entry.path;
     hideTreeContextMenu();
+    hideToolbarMenu();
     const model = entry.readOnly ? ensureModel(entry) : bindEditableModel(entry);
     editor.setModel(model);
     editor.updateOptions({ readOnly: !allowWorkspaceWrites || !!entry.readOnly });
@@ -2220,6 +2302,11 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     renderTabs();
     renderTree();
     refreshToolbarState();
+    if (sidebarState.compact && sidebarState.open) {
+      sidebarState = { ...sidebarState, open: false };
+      applySidebarState();
+      stabilizeEditorLayout(editor);
+    }
   };
 
   const createFolderAtPath = (parentFolderPath: string): void => {
@@ -2364,18 +2451,11 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     }
     window.history.forward();
   });
-  formatButton.addEventListener("click", () => {
-    void editor.getAction("editor.action.formatDocument")?.run();
-  });
-  toggleInlayHintsButton.addEventListener("click", () => {
-    inlayHintsEnabled = !inlayHintsEnabled;
-    applyInlayHintsPreference();
-  });
   saveButton.addEventListener("click", () => {
     persist();
     refreshToolbarState();
   });
-  resetWorkspaceButton.addEventListener("click", () => {
+  const handleResetWorkspace = (): void => {
     if (!allowWorkspaceWrites) {
       return;
     }
@@ -2384,7 +2464,7 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
       return;
     }
     resetWorkspace();
-  });
+  };
   runButton.addEventListener("click", () => {
     void runCurrentWorkspace();
   });
@@ -2395,6 +2475,37 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     stabilizeEditorLayout(editor);
   });
   clearOutputButton.addEventListener("click", () => clearOutput());
+  moreActionsButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (toolbarMenuOpen) {
+      hideToolbarMenu();
+      return;
+    }
+    showToolbarMenu();
+  });
+  menuFormatButton.addEventListener("click", () => {
+    hideToolbarMenu();
+    void editor.getAction("editor.action.formatDocument")?.run();
+  });
+  menuToggleInlayHintsButton.addEventListener("click", () => {
+    hideToolbarMenu();
+    inlayHintsEnabled = !inlayHintsEnabled;
+    applyInlayHintsPreference();
+  });
+  menuResetWorkspaceButton.addEventListener("click", () => {
+    hideToolbarMenu();
+    handleResetWorkspace();
+  });
+  sidebarToggleButton.addEventListener("click", () => {
+    sidebarState = { ...sidebarState, open: !sidebarState.open };
+    applySidebarState();
+    stabilizeEditorLayout(editor);
+  });
+  sidebarBackdrop.addEventListener("click", () => {
+    sidebarState = { ...sidebarState, open: false };
+    applySidebarState();
+    stabilizeEditorLayout(editor);
+  });
   shell.querySelector<HTMLButtonElement>('[data-action="new-file"]')?.addEventListener("click", () => {
     if (!allowWorkspaceWrites) {
       return;
@@ -2462,15 +2573,29 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
     }
   });
   window.addEventListener("click", (event) => {
+    if (event.target instanceof Node && toolbarMenu.contains(event.target)) {
+      return;
+    }
+    if (event.target instanceof Node && moreActionsButton.contains(event.target)) {
+      return;
+    }
+    hideToolbarMenu();
     if (event.target instanceof Node && treeContextMenu.contains(event.target)) {
       return;
     }
     hideTreeContextMenu();
   });
   window.addEventListener("blur", () => hideTreeContextMenu());
+  window.addEventListener("blur", () => hideToolbarMenu());
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideTreeContextMenu();
+      hideToolbarMenu();
+      if (sidebarState.compact && sidebarState.open) {
+        sidebarState = { ...sidebarState, open: false };
+        applySidebarState();
+        stabilizeEditorLayout(editor);
+      }
     }
   });
   const handleBrowserPopState = (event: PopStateEvent): void => {
@@ -2491,12 +2616,16 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
 
   syncExpandButton();
   applyInlayHintsPreference();
-  window.addEventListener("message", handlePreviewMessage);
+  const compactSidebarMedia = window.matchMedia(COMPACT_WORKBENCH_MEDIA_QUERY);
   const handleViewportToggle = (): void => {
+    sidebarState = deriveWorkbenchSidebarState(sidebarState, compactSidebarMedia.matches);
+    applySidebarState();
     syncExpandButton();
     stabilizeEditorLayout(editor);
   };
   window.addEventListener("resize", handleViewportToggle);
+  compactSidebarMedia.addEventListener("change", handleViewportToggle);
+  handleViewportToggle();
   browserHistorySnapshot = createWorkbenchBrowserHistorySnapshot(activeUri);
   window.history.replaceState(
     writeWorkbenchBrowserHistorySnapshot(window.history.state, workbenchHistoryId, browserHistorySnapshot),
@@ -2543,9 +2672,9 @@ ${code.split("\n").map((line) => `        ${line}`).join("\n")}
         dispose();
       }
       document.body.classList.remove("vexa-workbench-expanded");
-      window.removeEventListener("message", handlePreviewMessage);
       window.removeEventListener("popstate", handleBrowserPopState);
       window.removeEventListener("resize", handleViewportToggle);
+      compactSidebarMedia.removeEventListener("change", handleViewportToggle);
       editorOpenerDisposable.dispose();
       editor.dispose();
       for (const uri of models.keys()) {

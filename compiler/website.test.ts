@@ -35,6 +35,7 @@ describe("website project", () => {
     expect(embedSource.includes("ensureVexaScriptRuntimeProgram")).toBe(true);
     expect(embedSource.includes("bundledVexaRuntimeUrl")).toBe(true);
     expect(embedSource.includes('"/runtime/vexascript.d.vx"')).toBe(true);
+    expect(embedSource.includes("modelSessionCache.clear();")).toBe(true);
     expect(embedSource.includes("refreshDiagnosticsAndGlyphs(editor, model, `${reason}-runtime-ready`)")).toBe(true);
     expect(embedSource.includes("autoAwaitGlyphRefreshVersions")).toBe(true);
     expect(embedSource.includes("const workspaceSessionCache")).toBe(false);
@@ -46,8 +47,8 @@ describe("website project", () => {
     expect(layoutSource.includes('generatedAssetHrefs.generatedStyleCss')).toBe(true);
     expect(layoutSource.includes('generatedAssetHrefs.generatedEmbedJs')).toBe(true);
     expect(layoutSource.includes("vexa-embeds-ready")).toBe(true);
-    expect(layoutSource.includes('href="/cli/"')).toBe(true);
-    expect(layoutSource.includes('href="/playground/"')).toBe(true);
+    expect(layoutSource.includes('href="/cli"')).toBe(true);
+    expect(layoutSource.includes('href="/playground"')).toBe(true);
     expect(layoutSource.includes('src="/favicon.svg"')).toBe(true);
     expect(landingPage.includes("{% highlightVexaScript %}")).toBe(true);
     expect(landingPage.includes('<section id="cli" class="section alt">')).toBe(true);

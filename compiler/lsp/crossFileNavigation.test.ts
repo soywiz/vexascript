@@ -1540,6 +1540,73 @@ describe("cross-file navigation", () => {
     expect(location?.range).toBeTruthy();
   });
 
+  it("resolves top-level DOM function definitions to the virtual runtime model in a virtual workspace", async () => {
+    const mainPath = "/src/main.vx";
+    const virtualDomPath = "/runtime/dom.d.ts";
+    const mainSource = 'fetch("https://example.com/data.json")\n';
+    const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const domSession = createAnalysisSession(domSource);
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: mainSource.indexOf("fetch") + 2,
+      session: mainSession,
+      sourceRoots: [],
+      vfs: new MyVfs(virtualDomPath, domSource),
+      getSessionForFilePath: (filePath) => {
+        if (filePath === mainPath) {
+          return mainSession;
+        }
+        if (filePath === virtualDomPath) {
+          return domSession;
+        }
+        return null;
+      }
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(virtualDomPath).toString());
+    expect(location?.range).toBeTruthy();
+    const fetchLine = domSource.split("\n").findIndex((line) => line.includes("declare function fetch("));
+    expect(location?.range.start.line).toBe(fetchLine);
+  });
+
+  it("resolves top-level DOM constructor-like globals to the exact virtual runtime lines", async () => {
+    const mainPath = "/src/main.vx";
+    const virtualDomPath = "/runtime/dom.d.ts";
+    const mainSource = "fetch(URL('hello'))\n";
+    const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const domSession = createAnalysisSession(domSource);
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: mainSource.indexOf("URL") + 2,
+      session: mainSession,
+      sourceRoots: [],
+      vfs: new MyVfs(virtualDomPath, domSource),
+      getSessionForFilePath: (filePath) => {
+        if (filePath === mainPath) {
+          return mainSession;
+        }
+        if (filePath === virtualDomPath) {
+          return domSession;
+        }
+        return null;
+      }
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(virtualDomPath).toString());
+    const urlLine = domSource.split("\n").findIndex((line) => line.includes("interface URL {"));
+    expect(location?.range.start.line).toBe(urlLine);
+  });
+
   it("keeps the cross-file module layering acyclic", async () => {
     // crossFileNavigation.ts orchestrates the operations on top of the shared
     // helper modules; the helpers must never import back from it (or from each

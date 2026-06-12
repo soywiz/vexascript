@@ -119,6 +119,7 @@ This section is the fast onboarding map for agents and contributors.
   - Client-side virtual-workspace and persistence helpers (bundled sample + runtime declarations + `localStorage`): `plugins/monaco/src/workspace.ts`
   - Monaco virtual file-system adapter that exposes open/editor workspace files through the compiler's async VFS interface: `plugins/monaco/src/workspaceVfs.ts`
   - Monaco sample navigation-history state helpers used by toolbar/shortcut back-forward navigation: `plugins/monaco/src/navigationHistory.ts`
+  - Responsive Monaco workspace-sidebar state helpers controlling the compact drawer/toggle behavior on narrow viewports: `plugins/monaco/src/workspaceSidebar.ts`
   - Code-lens command bridge translating LSP-style commands to native Monaco commands: `plugins/monaco/src/codeLensCommands.ts`
   - Shared Monaco theme definitions for the sample UI, including distinct styling for regular and documentation comments: `plugins/monaco/src/theme.ts`
   - Monaco package manifest and Vite config: `plugins/monaco/package.json`, `plugins/monaco/vite.config.ts`
@@ -163,6 +164,7 @@ This section is the fast onboarding map for agents and contributors.
   - Website content-loader tests: `website/src/siteContent.test.ts`
   - Esbuild-powered embeddable Monaco helper sources for single-file, tabbed, workspace, and full workbench tutorial editors: `website/scripts/buildEmbed.ts`, `website/src/assets/vexa-embed.ts`
   - Browser History API snapshot helpers that keep the website playground workbench file navigation in sync with browser back/forward: `website/src/assets/workbenchBrowserHistory.ts`
+  - Responsive workbench-sidebar state helpers used by the website embed/playground when the editor viewport becomes narrow: `website/src/assets/workbenchSidebar.ts`
   - Generated website build artifacts are created during `website/scripts/build.ts` and `website/scripts/buildEmbed.ts`; keep this map focused on checked-in source files so architecture consistency tests pass in a clean checkout.
   - Website package scripts and type-checking configuration: `website/package.json`, `website/tsconfig.json`
 - VS Code extension and syntax highlighting (project root: `plugins/vscode/`):

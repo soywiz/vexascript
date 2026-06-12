@@ -1,9 +1,10 @@
 ---
 layout: layout.njk
 title: VexaScript Playground
+permalink: /playground.html
 ---
 <section class="page-hero">
-  <p class="eyebrow">Playground</p>
+  <p class="eyebrow" style="margin-top:-70px;">Playground</p>
   <h1>Try VexaScript now</h1>
   <div id="playground-workbench" class="workbench-demo"></div>
 </section>
@@ -11,7 +12,7 @@ title: VexaScript Playground
 <style>
   #playground-workbench {
     width: 100vw;
-    height: 100vh;
+    height: 100px;
   }
 </style>
 
@@ -41,9 +42,10 @@ title: VexaScript Playground
     }
 
     withEmbeds((embeds) => {
+      const mobileViewport = window.matchMedia("(max-width: 800px)").matches
       embeds.createWorkbenchEditor("#playground-workbench", {
         activePath: "/src/main.vx",
-        height: "100vh",
+        height: mobileViewport ? "auto" : "100vh",
         inlayHints: true,
         storageKey: "vexa.playground.workbench.v6",
         sessionStorageKey: "vexa.playground.workbench.session.v6",

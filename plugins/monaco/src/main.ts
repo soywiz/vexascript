@@ -49,6 +49,12 @@ import {
   type NavigationTarget,
 } from "./navigationHistory";
 import { registerEditorShortcuts } from "./editorShortcuts";
+import {
+  COMPACT_WORKSPACE_MEDIA_QUERY,
+  deriveWorkspaceSidebarState,
+  workspaceToggleLabel,
+  type WorkspaceSidebarState,
+} from "./workspaceSidebar";
 
 self.MonacoEnvironment = {
   getWorker(_id: string, _label: string): Worker {
@@ -199,6 +205,7 @@ async function main(): Promise<void> {
   let savedSnapshot = JSON.stringify(entries);
   let diagnosticsTimer: number | undefined;
   let contextMenuEntry: WorkspaceEntry | null = null;
+  let workspaceSidebarState: WorkspaceSidebarState = { compact: false, open: true };
   let navigationHistory: NavigationHistoryState = {
     backStack: [],
     current: { uri: MAIN_DOCUMENT_URI, lineNumber: 1, column: 1 },
@@ -325,6 +332,8 @@ async function main(): Promise<void> {
   const startupModel = ensureModel(restoredInitialSession?.activeUri ?? MAIN_DOCUMENT_URI) ?? initialModel;
 
   const editorContainer = document.getElementById("editor-container")!;
+  const workspaceToggleButton = document.getElementById("btn-workspace-toggle") as HTMLButtonElement | null;
+  const workspaceBackdrop = document.getElementById("workspace-backdrop") as HTMLDivElement | null;
   const editor = monaco.editor.create(editorContainer, {
     model: startupModel,
     theme: VEXA_MONACO_THEME_NAME,
@@ -362,6 +371,16 @@ async function main(): Promise<void> {
       void pullDiagnostics(model, sessionCache, providerWorkspaceContext);
       void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
     });
+  };
+
+  const applyWorkspaceSidebarState = (): void => {
+    document.body.classList.toggle("workspace-compact", workspaceSidebarState.compact);
+    document.body.classList.toggle("workspace-open", workspaceSidebarState.open);
+    if (workspaceToggleButton) {
+      workspaceToggleButton.textContent = workspaceToggleLabel(workspaceSidebarState);
+      workspaceToggleButton.setAttribute("aria-expanded", String(workspaceSidebarState.open));
+    }
+    window.requestAnimationFrame(() => editor.layout());
   };
 
   const persistEditorSession = (): void => {
@@ -455,6 +474,10 @@ async function main(): Promise<void> {
     }
     persistEditorSession();
     syncEditorState();
+    if (workspaceSidebarState.compact && workspaceSidebarState.open) {
+      workspaceSidebarState = { ...workspaceSidebarState, open: false };
+      applyWorkspaceSidebarState();
+    }
     if (isEditableVexaScriptFile(entry)) {
       void pullDiagnostics(model, sessionCache, providerWorkspaceContext);
       void updateAutoAwaitGlyphs(editor, sessionCache, providerWorkspaceContext);
@@ -670,6 +693,12 @@ async function main(): Promise<void> {
   schedulePostLayoutAutoAwaitRefresh(startupModel);
   persistEditorSession();
   syncEditorState();
+  const workspaceCompactMedia = window.matchMedia(COMPACT_WORKSPACE_MEDIA_QUERY);
+  const syncWorkspaceCompactMode = (matches: boolean): void => {
+    workspaceSidebarState = deriveWorkspaceSidebarState(workspaceSidebarState, matches);
+    applyWorkspaceSidebarState();
+  };
+  syncWorkspaceCompactMode(workspaceCompactMedia.matches);
   setStatus("Compiler Connected", "connected");
 
   document.getElementById("btn-format")?.addEventListener("click", () => {
@@ -687,6 +716,14 @@ async function main(): Promise<void> {
   document.getElementById("btn-new-folder")?.addEventListener("click", () => createWorkspaceEntry("folder"));
   document.getElementById("btn-nav-back")?.addEventListener("click", () => navigateHistory("back"));
   document.getElementById("btn-nav-forward")?.addEventListener("click", () => navigateHistory("forward"));
+  workspaceToggleButton?.addEventListener("click", () => {
+    workspaceSidebarState = { ...workspaceSidebarState, open: !workspaceSidebarState.open };
+    applyWorkspaceSidebarState();
+  });
+  workspaceBackdrop?.addEventListener("click", () => {
+    workspaceSidebarState = { ...workspaceSidebarState, open: false };
+    applyWorkspaceSidebarState();
+  });
   document.getElementById("tree-context-open")?.addEventListener("click", () => {
     if (contextMenuEntry?.kind === "file") {
       selectDocument(contextMenuEntry.uri);
@@ -704,7 +741,14 @@ async function main(): Promise<void> {
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideTreeContextMenu();
+      if (workspaceSidebarState.compact && workspaceSidebarState.open) {
+        workspaceSidebarState = { ...workspaceSidebarState, open: false };
+        applyWorkspaceSidebarState();
+      }
     }
+  });
+  workspaceCompactMedia.addEventListener("change", (event) => {
+    syncWorkspaceCompactMode(event.matches);
   });
 
   registerEditorShortcuts(editor, monaco, {

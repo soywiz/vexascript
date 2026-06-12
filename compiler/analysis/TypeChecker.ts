@@ -2611,6 +2611,12 @@ export class TypeChecker {
       return this.isTypeAssignable(expandedSourceType, expandedTargetType);
     }
 
+    const normalizedSourceType = this.normalizeLooseNamedType(sourceType);
+    const normalizedTargetType = this.normalizeLooseNamedType(targetType);
+    if (!isSameType(normalizedSourceType, sourceType) || !isSameType(normalizedTargetType, targetType)) {
+      return this.isTypeAssignable(normalizedSourceType, normalizedTargetType);
+    }
+
     if (isSameType(sourceType, targetType)) {
       return true;
     }
@@ -2815,6 +2821,25 @@ export class TypeChecker {
     } finally {
       this.assignabilityChecksInProgress.delete(assignabilityKey);
     }
+  }
+
+  private normalizeLooseNamedType(type: AnalysisType): AnalysisType {
+    if (type.kind !== "named") {
+      return type;
+    }
+    const computed = this.typeFromComputedTypeNameLoose(type.name);
+    if (computed) {
+      return computed;
+    }
+    const functionType = this.functionTypeFromAnnotationText(type.name);
+    if (functionType) {
+      return functionType;
+    }
+    const objectType = this.objectTypeFromAnnotationText(type.name);
+    if (objectType) {
+      return objectType;
+    }
+    return type;
   }
 
   private analysisTypeId(type: AnalysisType): number {
@@ -4123,6 +4148,11 @@ export class TypeChecker {
     calleeType: AnalysisType,
     scope: Scope
   ): (AnalysisType & { kind: "function" }) | null {
+    const directConstructSignature = this.constructableTypeFrom(calleeType);
+    if (directConstructSignature) {
+      return directConstructSignature;
+    }
+
     const preferredInterfaceName = calleeType.kind === "named"
       ? calleeType.name
       : newExpression.callee.kind === "Identifier"
@@ -4194,6 +4224,38 @@ export class TypeChecker {
       );
     });
     return result;
+  }
+
+  private constructableTypeFrom(type: AnalysisType): (AnalysisType & { kind: "function" }) | null {
+    if (type.kind === "function") {
+      return type;
+    }
+    if (type.kind === "named" && type.name.trim().startsWith("{")) {
+      const objectLiteralType = this.objectTypeFromAnnotationText(type.name);
+      if (objectLiteralType) {
+        return this.constructableTypeFrom(objectLiteralType);
+      }
+    }
+    if (type.kind === "object") {
+      const constructorType = type.properties["constructor"];
+      return constructorType?.kind === "function" ? constructorType : null;
+    }
+    if (type.kind === "intersection") {
+      for (const member of type.types) {
+        const constructable = this.constructableTypeFrom(member);
+        if (constructable) {
+          return constructable;
+        }
+      }
+      return null;
+    }
+    if (type.kind !== "union") {
+      return null;
+    }
+    const constructableMembers = type.types
+      .map((member) => this.constructableTypeFrom(member))
+      .filter((member): member is AnalysisType & { kind: "function" } => member !== null);
+    return constructableMembers[0] ?? null;
   }
 
   private selectBestConstructorOverload(
@@ -7319,6 +7381,7 @@ export class TypeChecker {
     if (!typeAnnotation) {
       return undefined;
     }
+    const normalizedTypeName = typeAnnotation.name.trim();
     const functionType = this.functionTypeFromAnnotationText(typeAnnotation.name);
     if (functionType) {
       return functionType;
@@ -7335,7 +7398,24 @@ export class TypeChecker {
       return computedType;
     }
 
-    const parsed = parseTypeNameShape(typeAnnotation.name);
+    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
+    if (unionParts.length > 1) {
+      return unionType(unionParts.map((part) => this.typeFromTypeNameLoose(part)));
+    }
+    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
+    if (intersectionParts.length > 1) {
+      return intersectionType(intersectionParts.map((part) => this.typeFromTypeNameLoose(part)));
+    }
+    if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
+      const tupleBody = normalizedTypeName.slice(1, -1).trim();
+      return tupleType(
+        tupleBody.length === 0
+          ? []
+          : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(this.tupleElementTypeText(part)))
+      );
+    }
+
+    const parsed = parseTypeNameShape(normalizedTypeName);
     let resolvedBase: AnalysisType;
     if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolvedBase = builtinType(
@@ -7356,6 +7436,7 @@ export class TypeChecker {
   }
 
   private typeFromTypeNameLoose(typeName: string): AnalysisType {
+    const normalizedTypeName = typeName.trim();
     const functionType = this.functionTypeFromAnnotationText(typeName);
     if (functionType) {
       return functionType;
@@ -7372,7 +7453,24 @@ export class TypeChecker {
       return computedType;
     }
 
-    const parsed = parseTypeNameShape(typeName);
+    const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
+    if (unionParts.length > 1) {
+      return unionType(unionParts.map((part) => this.typeFromTypeNameLoose(part)));
+    }
+    const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
+    if (intersectionParts.length > 1) {
+      return intersectionType(intersectionParts.map((part) => this.typeFromTypeNameLoose(part)));
+    }
+    if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
+      const tupleBody = normalizedTypeName.slice(1, -1).trim();
+      return tupleType(
+        tupleBody.length === 0
+          ? []
+          : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(this.tupleElementTypeText(part)))
+      );
+    }
+
+    const parsed = parseTypeNameShape(normalizedTypeName);
     let resolved: AnalysisType;
     if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolved = builtinType(
@@ -7659,7 +7757,48 @@ export class TypeChecker {
     }
 
     return splitTopLevelDelimitedTypeText(body, new Set([",", ";"])).map((part) => {
-      const colonIndex = findTopLevelTypeCharacter(part, ":");
+      const trimmedPart = part.trim();
+      const colonIndex = findTopLevelTypeCharacter(trimmedPart, ":");
+      if (trimmedPart.startsWith("new(")) {
+        const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, 3, "(", ")");
+        if (closeParenIndex >= 0) {
+          const returnTypeSeparator = trimmedPart.slice(closeParenIndex + 1).trimStart();
+          if (returnTypeSeparator.startsWith(":")) {
+            const parameterText = trimmedPart.slice(3, closeParenIndex + 1);
+            const returnTypeName = returnTypeSeparator.slice(1).trim();
+            return {
+              name: "constructor",
+              typeName: `${parameterText} => ${returnTypeName}`
+            };
+          }
+        }
+      }
+
+      const signatureParenIndex = trimmedPart.indexOf("(");
+      if (signatureParenIndex > 0 && (colonIndex < 0 || signatureParenIndex < colonIndex)) {
+        const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, signatureParenIndex, "(", ")");
+        if (closeParenIndex >= 0) {
+          const returnTypeSeparator = trimmedPart.slice(closeParenIndex + 1).trimStart();
+          if (returnTypeSeparator.startsWith(":")) {
+            let name = trimmedPart.slice(0, signatureParenIndex).trim();
+            let optional = false;
+            if (name.endsWith("?")) {
+              optional = true;
+              name = name.slice(0, -1).trim();
+            }
+            if (name.startsWith("readonly ")) {
+              name = name.slice("readonly ".length).trim();
+            }
+            const parameterText = trimmedPart.slice(signatureParenIndex, closeParenIndex + 1);
+            const returnTypeName = returnTypeSeparator.slice(1).trim();
+            return {
+              name,
+              typeName: `${parameterText} => ${returnTypeName}`,
+              ...(optional ? { optional: true } : {})
+            };
+          }
+        }
+      }
       if (colonIndex < 0) {
         return { name: part.trim(), typeName: "unknown" };
       }
@@ -7669,6 +7808,9 @@ export class TypeChecker {
       if (name.endsWith("?")) {
         optional = true;
         name = name.slice(0, -1).trim();
+      }
+      if (name.startsWith("readonly ")) {
+        name = name.slice("readonly ".length).trim();
       }
       if ((name.startsWith('"') && name.endsWith('"')) || (name.startsWith("'") && name.endsWith("'"))) {
         name = name.slice(1, -1);

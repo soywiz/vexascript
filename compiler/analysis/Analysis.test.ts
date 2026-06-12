@@ -208,6 +208,14 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("accepts constructing DOM URL objects from ambient declarations", async () => {
+    const source = 'fetch(new URL("http://localhost"))\n';
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("builds nested scopes and exposes function parameters/local variables", () => {
     const source = dedent`
       let top = 1

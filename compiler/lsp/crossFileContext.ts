@@ -186,6 +186,47 @@ export async function preferVirtualRuntimeDeclarationFilePath(
   return filePath;
 }
 
+async function runtimeDeclarationRangeForName(
+  context: ResolveContext,
+  filePath: string,
+  symbolName: string
+): Promise<CanonicalSymbol["range"] | null> {
+  const source = await readTextDocument(context, filePath);
+  if (!source) {
+    return null;
+  }
+  const patterns = [
+    `declare function ${symbolName}(`,
+    `declare var ${symbolName}:`,
+    `declare const ${symbolName}:`,
+    `declare class ${symbolName}`,
+    `interface ${symbolName} `,
+    `interface ${symbolName}{`,
+    `type ${symbolName} =`,
+    `declare namespace ${symbolName}`,
+    `namespace ${symbolName}`,
+  ];
+  const lines = source.split("\n");
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex]!;
+    for (const pattern of patterns) {
+      const patternIndex = line.indexOf(pattern);
+      if (patternIndex < 0) {
+        continue;
+      }
+      const symbolIndex = line.indexOf(symbolName, patternIndex);
+      if (symbolIndex < 0) {
+        continue;
+      }
+      return {
+        start: { line: lineIndex, character: symbolIndex },
+        end: { line: lineIndex, character: symbolIndex + symbolName.length }
+      };
+    }
+  }
+  return null;
+}
+
 export async function resolveImportTargetInContext(
   importerFilePath: string,
   importPath: string,
@@ -291,28 +332,40 @@ export async function resolveCanonicalSymbol(context: ResolveContext): Promise<C
   }
 
   const importBinding = findImportForSymbolNode(context.session.ast, symbolAt.symbol.node);
-  if (!importBinding) {
-    if (isEcmaScriptRuntimeNode(symbolAt.symbol.node)) {
-      return {
-        name: symbolAt.symbol.name,
-        filePath: await getEcmaScriptRuntimeDeclarationFilePath(),
-        range: definition.range
-      };
-    }
-    if (isVexaScriptRuntimeNode(symbolAt.symbol.node)) {
-      return {
-        name: symbolAt.symbol.name,
-        filePath: await getVexaScriptRuntimeDeclarationFilePath(),
-        range: definition.range
-      };
-    }
-    if (isDomRuntimeNode(symbolAt.symbol.node)) {
-      return {
-        name: symbolAt.symbol.name,
-        filePath: getDomDeclarationFilePath(),
-        range: definition.range
-      };
-    }
+    if (!importBinding) {
+      if (isEcmaScriptRuntimeNode(symbolAt.symbol.node)) {
+        const filePath = await preferVirtualRuntimeDeclarationFilePath(
+          await getEcmaScriptRuntimeDeclarationFilePath(),
+          context
+        );
+        return {
+          name: symbolAt.symbol.name,
+          filePath,
+          range: await runtimeDeclarationRangeForName(context, filePath, symbolAt.symbol.name) ?? definition.range
+        };
+      }
+      if (isVexaScriptRuntimeNode(symbolAt.symbol.node)) {
+        const filePath = await preferVirtualRuntimeDeclarationFilePath(
+          await getVexaScriptRuntimeDeclarationFilePath(),
+          context
+        );
+        return {
+          name: symbolAt.symbol.name,
+          filePath,
+          range: await runtimeDeclarationRangeForName(context, filePath, symbolAt.symbol.name) ?? definition.range
+        };
+      }
+      if (isDomRuntimeNode(symbolAt.symbol.node)) {
+        const filePath = await preferVirtualRuntimeDeclarationFilePath(
+          getDomDeclarationFilePath(),
+          context
+        );
+        return {
+          name: symbolAt.symbol.name,
+          filePath,
+          range: await runtimeDeclarationRangeForName(context, filePath, symbolAt.symbol.name) ?? definition.range
+        };
+      }
     // Symbols resolved through external (imported) declarations - e.g. a
     // cross-file operator overload reached from a `a + b` usage - carry a node
     // that belongs to the imported file, not the current document. Locate the
