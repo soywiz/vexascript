@@ -21,8 +21,8 @@ a { color: #5b45ff; }
   justify-content: space-between;
   gap: 1rem;
   padding: 1rem clamp(1rem, 4vw, 4rem);
-  background: rgba(247, 248, 255, 0.88);
-  backdrop-filter: blur(16px);
+  background: rgba(247, 248, 255, 0.8);
+  backdrop-filter: blur(5px);
   border-bottom: 1px solid rgba(26, 34, 64, 0.08);
 }
 

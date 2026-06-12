@@ -39,7 +39,7 @@ describe("website project", () => {
     expect(embedSource.includes("refreshDiagnosticsAndGlyphs(editor, model, `${reason}-runtime-ready`)")).toBe(true);
     expect(embedSource.includes("autoAwaitGlyphRefreshVersions")).toBe(true);
     expect(embedSource.includes("const workspaceSessionCache")).toBe(false);
-    expect(embedSource.includes('data-action="toggle-inlay-hints"')).toBe(true);
+    expect(embedSource.includes('data-action="menu-toggle-inlay-hints"')).toBe(true);
     expect(embedSource.includes("inlayHintsStorageKey")).toBe(true);
     expect(embedSource.includes("editor.updateOptions({")).toBe(true);
     expect(embedSource.includes("stabilizeEditorLayout")).toBe(true);

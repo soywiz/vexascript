@@ -59,7 +59,7 @@ The `sync` modifier declares a function that behaves like `async` but **automati
 ```vexa
 // VexaScript
 sync fun loadUser(id: string): User {
-  val data = fetchJson("/users/" + id)   // auto-awaited; data: User
+  val data = fetchJson(`/users/${id}`)   // auto-awaited; data: User
   return data
 }
 ```
@@ -67,7 +67,7 @@ sync fun loadUser(id: string): User {
 ```typescript
 // TypeScript equivalent
 async function loadUser(id: string): Promise<User> {
-  const data = await fetchJson("/users/" + id);
+  const data = await fetchJson(`/users/${id}`);
   return data;
 }
 ```
