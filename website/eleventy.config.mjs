@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadSyntaxDocument, renderMarkdownDocument } from "./src/siteContent.mjs";
+import { loadSyntaxDocument, loadDifferencesDocument, renderMarkdownDocument } from "./src/siteContent.mjs";
 import { renderHighlightedCodeBlock } from "./src/syntaxHighlight.mjs";
 
 const configDirectory = dirname(fileURLToPath(import.meta.url));
@@ -34,6 +34,10 @@ export default function eleventyConfig(config) {
   config.addGlobalData("syntaxDocumentHtml", async function() {
     const syntaxDocument = await loadSyntaxDocument(projectRoot);
     return renderMarkdownDocument(syntaxDocument);
+  });
+  config.addGlobalData("differencesDocumentHtml", async function() {
+    const differencesDocument = await loadDifferencesDocument(projectRoot);
+    return renderMarkdownDocument(differencesDocument);
   });
   config.addGlobalData("generatedAssetHrefs", async function() {
     return {

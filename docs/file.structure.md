@@ -156,9 +156,9 @@ This section is the fast onboarding map for agents and contributors.
   - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`): `compiler/lsp/importedDeclarations.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
 - Website and embeddable learning playground (project root: `website/`):
-  - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/syntax.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/playground.njk`, `website/src/blog/index.njk`, `website/src/blog/article1.njk`, `website/src/404.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
+  - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/syntax.njk`, `website/src/differences.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/playground.njk`, `website/src/blog/index.njk`, `website/src/blog/article1.njk`, `website/src/404.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
   - Website build orchestrator, which ensures the compiler CLI bundle exists, regenerates the website-safe JS syntax module from the compiler's canonical syntax source, then runs the esbuild embed bundler and 11ty: `website/scripts/build.ts`
-  - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
+  - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md` and the `/differences/` page sourced from `docs/vexa_syntax_differences.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
   - Website-only syntax highlighter sources used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.ts`, `website/src/syntaxHighlight.mjs`
   - Website content-loader tests: `website/src/siteContent.test.ts`
   - Esbuild-powered embeddable Monaco helper sources for single-file, tabbed, workspace, and full workbench tutorial editors: `website/scripts/buildEmbed.ts`, `website/src/assets/vexa-embed.ts`
@@ -176,6 +176,7 @@ This section is the fast onboarding map for agents and contributors.
 ### Docs and Specs
 
 - Supported syntax: `docs/syntax.md`
+- VexaScript vs TypeScript syntax differences: `docs/vexa_syntax_differences.md`
 - Pending technical tasks/backlog: `docs/tasks.pending.md`
 - LSP services status: `docs/lsp.services.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
