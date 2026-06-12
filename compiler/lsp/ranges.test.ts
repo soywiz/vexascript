@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  bodyEndInsertRange,
   comparePosition,
   containsPosition,
   nodeRange,
@@ -57,5 +58,42 @@ describe("LSP range helpers", () => {
   it("uses a stable weighted size for multi-line ranges", () => {
     assert.equal(rangeSize({ start: { line: 0, character: 3 }, end: { line: 0, character: 8 } }), 5);
     assert.equal(rangeSize({ start: { line: 0, character: 3 }, end: { line: 2, character: 8 } }), 200_005);
+  });
+
+  it("computes member insertion points before a closing brace", () => {
+    const range = bodyEndInsertRange({
+      lastToken: {
+        type: "symbol",
+        value: "}",
+        range: {
+          start: { line: 4, column: 0 },
+          end: { line: 4, column: 1 }
+        }
+      }
+    });
+
+    assert.deepEqual(range, {
+      start: { line: 4, character: 0 },
+      end: { line: 4, character: 0 }
+    });
+  });
+
+  it("computes member insertion points after brace-less declarations", () => {
+    const range = bodyEndInsertRange({
+      lastToken: {
+        type: "symbol",
+        value: ")",
+        range: {
+          start: { line: 1, column: 30 },
+          end: { line: 1, column: 31 }
+        }
+      }
+    });
+
+    assert.deepEqual(range, {
+      start: { line: 1, character: 31 },
+      end: { line: 1, character: 31 }
+    });
+    assert.equal(bodyEndInsertRange({}), null);
   });
 });

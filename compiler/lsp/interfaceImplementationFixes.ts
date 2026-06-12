@@ -1,6 +1,8 @@
 import type { Program, ClassMethodMember, ClassStatement } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
+import { splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import { CodeActionKind } from "./codeActionKinds";
+import { bodyEndInsertRange } from "./ranges";
 import { pathToUri } from "./importFixes";
 import {
   createClassResolverCache,
@@ -146,87 +148,6 @@ function classObjectTypeName(classStatement: ClassStatement): string {
   return `${classStatement.name.name}<${typeParameters.join(", ")}>`;
 }
 
-function classEndInsertRange(classStatement: ClassStatement): Range | null {
-  const last = classStatement.lastToken;
-  if (!last) {
-    return null;
-  }
-
-  if (last.type === "symbol" && last.value === "}") {
-    return {
-      start: {
-        line: last.range.start.line,
-        character: last.range.start.column
-      },
-      end: {
-        line: last.range.start.line,
-        character: last.range.start.column
-      }
-    };
-  }
-
-  return {
-    start: {
-      line: last.range.end.line,
-      character: last.range.end.column
-    },
-    end: {
-      line: last.range.end.line,
-      character: last.range.end.column
-    }
-  };
-}
-
-function splitTopLevel(value: string, separator: string): string[] {
-  const result: string[] = [];
-  let current = "";
-  let angleDepth = 0;
-  let parenDepth = 0;
-  let bracketDepth = 0;
-  let braceDepth = 0;
-
-  for (const ch of value) {
-    if (ch === "<") {
-      angleDepth += 1;
-    } else if (ch === ">" && angleDepth > 0) {
-      angleDepth -= 1;
-    } else if (ch === "(") {
-      parenDepth += 1;
-    } else if (ch === ")" && parenDepth > 0) {
-      parenDepth -= 1;
-    } else if (ch === "[") {
-      bracketDepth += 1;
-    } else if (ch === "]" && bracketDepth > 0) {
-      bracketDepth -= 1;
-    } else if (ch === "{") {
-      braceDepth += 1;
-    } else if (ch === "}" && braceDepth > 0) {
-      braceDepth -= 1;
-    }
-
-    if (
-      ch === separator &&
-      angleDepth === 0 &&
-      parenDepth === 0 &&
-      bracketDepth === 0 &&
-      braceDepth === 0
-    ) {
-      result.push(current.trim());
-      current = "";
-      continue;
-    }
-
-    current += ch;
-  }
-
-  const tail = current.trim();
-  if (tail.length > 0) {
-    result.push(tail);
-  }
-
-  return result;
-}
-
 function parseFunctionTypeLabel(typeLabel: string): ParsedFunctionType | null {
   const trimmed = typeLabel.trim();
   const arrowIndex = trimmed.lastIndexOf("=>");
@@ -241,7 +162,7 @@ function parseFunctionTypeLabel(typeLabel: string): ParsedFunctionType | null {
 
   const parameters: ParsedFunctionParameter[] = [];
   if (paramsPart.length > 0) {
-    for (const rawParameter of splitTopLevel(paramsPart, ",")) {
+    for (const rawParameter of splitTopLevelTypeText(paramsPart, ",")) {
       const match = /^([A-Za-z_][A-Za-z0-9_]*)(\?)?:\s*(.+)$/.exec(rawParameter);
       if (!match) {
         return null;
@@ -352,7 +273,7 @@ export async function createInterfaceImplementationCodeActions(params: {
     }
 
     if (parsed.kind === "missing") {
-      const range = classEndInsertRange(classResolution.classStatement);
+      const range = bodyEndInsertRange(classResolution.classStatement);
       if (!range) {
         continue;
       }
