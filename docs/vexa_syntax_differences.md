@@ -287,7 +287,7 @@ Variables can delegate reads and writes to an external object using `by`, inspir
 
 ```vexa
 fun useState(initial: number) {
-  return [initial, (v: number) => { initial = v }]
+  return [() => initial, (v: number) => { initial = v }]
 }
 
 var count by useState(0)
