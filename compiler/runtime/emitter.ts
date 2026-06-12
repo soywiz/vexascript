@@ -1194,8 +1194,7 @@ function emitEnumComputedMemberExpression(member: MemberExpression, objectText: 
 
   const keyText = emitExpression(member.property);
   const memberNames = JSON.stringify(Array.from(enumInfo.memberNames));
-  const rawValues = JSON.stringify(enumInfo.rawValues);
-  const body = `(function ($enum, $key) { return ${memberNames}.includes($key) ? $enum[$key] : ${rawValues}.includes($key) ? $key : undefined; })(${objectText}, ${keyText})`;
+  const body = `(function ($enum, $key) { return ${memberNames}.includes($key) ? $enum[$key] : Object.values($enum).includes($key) ? $key : undefined; })(${objectText}, ${keyText})`;
   return member.optional ? `(${objectText} == null ? undefined : ${body})` : body;
 }
 
@@ -1460,10 +1459,11 @@ function emitEnumStatement(statement: EnumStatement): string {
   const name = resolveJsName(statement.name.name);
   const lines: string[] = [`var ${name};`, `(function (${name}) {`];
   let nextNumericValue = 0;
+  const emittedMemberNames = new Set<string>();
   for (const member of statement.members) {
     const memberName = member.name.name;
     if (member.initializer) {
-      const initializer = emitExpression(member.initializer);
+      const initializer = emitEnumInitializerExpression(member.initializer, name, emittedMemberNames);
       if (member.initializer.kind === "StringLiteral") {
         lines.push(`  ${name}[${JSON.stringify(memberName)}] = ${initializer};`);
       } else {
@@ -1474,13 +1474,46 @@ function emitEnumStatement(statement: EnumStatement): string {
       } else {
         nextNumericValue = 0;
       }
+      emittedMemberNames.add(memberName);
       continue;
     }
     lines.push(`  ${name}[${name}[${JSON.stringify(memberName)}] = ${nextNumericValue}] = ${JSON.stringify(memberName)};`);
     nextNumericValue += 1;
+    emittedMemberNames.add(memberName);
   }
   lines.push(`})(${name} || (${name} = {}));`);
   return lines.join("\n");
+}
+
+function emitEnumInitializerExpression(expression: Expr, enumName: string, memberNames: ReadonlySet<string>): string {
+  switch (expression.kind) {
+    case "Identifier": {
+      const identifier = expression as Identifier;
+      return memberNames.has(identifier.name) ? `${enumName}.${identifier.name}` : emitExpression(expression);
+    }
+    case "BinaryExpression": {
+      const binary = expression as BinaryExpression;
+      return `${emitEnumInitializerExpression(binary.left, enumName, memberNames)} ${binary.operator} ${emitEnumInitializerExpression(binary.right, enumName, memberNames)}`;
+    }
+    case "UnaryExpression": {
+      const unary = expression as UnaryExpression;
+      const spacing = /^[A-Za-z]/.test(unary.operator) ? " " : "";
+      return `${unary.operator}${spacing}${emitEnumInitializerExpression(unary.argument, enumName, memberNames)}`;
+    }
+    case "MemberExpression": {
+      const member = expression as MemberExpression;
+      const objectText = emitEnumInitializerExpression(member.object, enumName, memberNames);
+      if (member.computed) {
+        return `${objectText}[${emitEnumInitializerExpression(member.property, enumName, memberNames)}]`;
+      }
+      if (member.property.kind === "Identifier") {
+        return `${objectText}.${(member.property as Identifier).name}`;
+      }
+      return `${objectText}.${emitEnumInitializerExpression(member.property, enumName, memberNames)}`;
+    }
+    default:
+      return emitExpression(expression);
+  }
 }
 
 function exportedDeclarationNames(statement: Statement): string[] {

@@ -23,7 +23,7 @@ async function versionedAssetHref(sourceRelativePath, publicPath) {
 export default function eleventyConfig(config) {
   config.addPassthroughCopy({ "src/assets/generated": "assets/generated" });
   config.addPassthroughCopy({ "src/assets/site.css": "assets/site.css" });
-  config.addPassthroughCopy({ "src/assets/favicon.svg": "favicon.svg" });
+  config.addPassthroughCopy({ "src/assets/favicon.png": "favicon.png" });
 
   config.addShortcode("year", function() {
     return String(new Date().getUTCFullYear());

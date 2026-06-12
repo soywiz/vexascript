@@ -106,7 +106,7 @@ describe("website project", () => {
     expect(buildEmbedScript.includes("if (sourceContent === targetContent)")).toBe(true);
     expect(eleventyConfig.includes('./src/siteContent.mjs')).toBe(true);
     expect(eleventyConfig.includes('./src/syntaxHighlight.mjs')).toBe(true);
-    expect(eleventyConfig.includes('{ "src/assets/favicon.svg": "favicon.svg" }')).toBe(true);
+    expect(eleventyConfig.includes('{ "src/assets/favicon.png": "favicon.png" }')).toBe(true);
     expect(eleventyConfig.includes('config.addGlobalData("generatedAssetHrefs"')).toBe(true);
     expect(eleventyConfig.includes('src/assets/generated/vexa-embed.js')).toBe(true);
     expect(eleventyConfig.includes('src/assets/generated/style.css')).toBe(true);

@@ -3322,6 +3322,42 @@ describe("enum semantic analysis", () => {
       "Property 'ADA' does not exist on type 'StrEnum'"
     );
   });
+
+  it("supports bitwise operators on int-backed enum values and enum computed members", () => {
+    const source = dedent`
+      enum Demo { HELLO = 1, WORLD = 2 }
+      enum FileAccess {
+        None,
+        Read = 1 << 1,
+        Write = 1 << 2,
+        ReadWrite = Read | Write,
+        G = "123".length,
+      }
+      let combined = Demo.HELLO | Demo.WORLD
+      let reverseLookup = FileAccess[FileAccess.ReadWrite]
+      let computedReverseLookup = FileAccess[FileAccess.G]
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const visible = symbolsOfVisibleSymbolsAt(source, 10, 4);
+
+    expect(analysis.getIssues()).toEqual([]);
+    expect(visible.get("combined")?.valueType).toBe("int");
+    expect(visible.get("reverseLookup")?.valueType).toBe("int");
+    expect(visible.get("computedReverseLookup")?.valueType).toBe("int");
+  });
+
+  it("requires an initializer after a non-numeric-constant enum member", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      enum Bad {
+        A = "value",
+        B,
+      }
+    `)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Enum member 'B' must have an initializer because the previous member is not a numeric constant"
+    );
+  });
   it("resolves unqualified members inside classes and extension members", () => {
     const source = dedent`
       class Counter(val value: int) {

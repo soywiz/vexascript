@@ -181,6 +181,25 @@ console.log(Label[Label.Start])
     expect(executeTranspiled(source)).toEqual([[0], [0], [0], ["start"], ["start"], ["start"]]);
   });
 
+  it("supports numeric enum bitwise constants and computed members at runtime", () => {
+    const source = `enum Demo { HELLO = 1, WORLD = 2 }
+enum FileAccess {
+  None,
+  Read = 1 << 1,
+  Write = 1 << 2,
+  ReadWrite = Read | Write,
+  G = "123".length,
+}
+console.log(Demo.HELLO | Demo.WORLD)
+console.log(FileAccess[FileAccess.ReadWrite])
+console.log(FileAccess[6])
+console.log(FileAccess[FileAccess.G])
+console.log(FileAccess[3])
+`;
+
+    expect(executeTranspiled(source)).toEqual([[3], [6], [6], [3], [3]]);
+  });
+
 });
 
 describe("destructured parameter runtime integration", () => {

@@ -113,6 +113,13 @@ import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarat
 import { declarationIndexForStatements } from "./declarationIndex";
 import { walkAst } from "compiler/ast/traversal";
 
+type EnumResolvedValue =
+  | { kind: "constant-int"; value: number }
+  | { kind: "constant-string"; value: string }
+  | { kind: "computed-int" }
+  | { kind: "computed-string" }
+  | { kind: "invalid" };
+
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
   private readonly identifierResolutions: IdentifierResolution[] = [];
@@ -127,7 +134,10 @@ export class TypeChecker {
   private readonly extensionPropertiesByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
   private readonly importedExtensionPropertyNames: Set<string> = new Set();
   private readonly importedExtensionPropertyTypes: Map<string, AnalysisType> = new Map();
+  private readonly importedBindingNames: Set<string> = new Set();
   private readonly enumStatementsByName: Map<string, EnumStatement> = new Map();
+  private readonly enumMemberResolutionCache: WeakMap<EnumMember, EnumResolvedValue> = new WeakMap();
+  private readonly enumStatementMemberMapCache: WeakMap<EnumStatement, Map<string, EnumMember>> = new WeakMap();
   private readonly namespaceStatementsByName: Map<string, NamespaceStatement> = new Map();
   private readonly interfaceStatementsByName: Map<string, InterfaceStatement> = new Map();
   private readonly typeAliasStatementsByName: Map<string, TypeAliasStatement> = new Map();
@@ -202,6 +212,7 @@ export class TypeChecker {
     this.collectClassStatements(program.body);
     this.collectExtensionOperators(program);
     this.collectExtensionMethods(program);
+    this.collectImportedBindingNames(program);
     this.collectImportedExtensionPropertyNames(program);
     this.collectEnumStatements(program.body);
     this.collectNamespaceStatements(program.body);
@@ -1057,7 +1068,7 @@ export class TypeChecker {
 
   private visitEnumStatement(statement: EnumStatement, scope: Scope): void {
     const enumScope = this.scopeFor(statement, scope);
-    for (const member of statement.members) {
+    for (const [index, member] of statement.members.entries()) {
       if (member.initializer) {
         const initializerType = this.visitExpression(member.initializer, enumScope);
         if (!this.isTypeAssignable(initializerType, builtinType("int")) && !this.isTypeAssignable(initializerType, builtinType("string"))) {
@@ -1066,7 +1077,32 @@ export class TypeChecker {
             node: member.initializer
           });
         }
+        this.resolveEnumMemberValue(statement, member);
+        continue;
       }
+
+      if (index === 0) {
+        this.enumMemberResolutionCache.set(member, { kind: "constant-int", value: 0 });
+        continue;
+      }
+
+      const previous = statement.members[index - 1];
+      const previousValue: EnumResolvedValue = previous
+        ? this.resolveEnumMemberValue(statement, previous)
+        : { kind: "invalid" };
+      if (previousValue.kind === "constant-int") {
+        this.enumMemberResolutionCache.set(member, {
+          kind: "constant-int",
+          value: previousValue.value + 1
+        });
+        continue;
+      }
+
+      this.enumMemberResolutionCache.set(member, { kind: "invalid" });
+      this.issues.push({
+        message: `Enum member '${member.name.name}' must have an initializer because the previous member is not a numeric constant`,
+        node: member.name
+      });
     }
   }
 
@@ -2506,6 +2542,9 @@ export class TypeChecker {
       operator === "|" ||
       operator === "^"
     ) {
+      if (this.isIntEnumLikeType(leftType) && this.isIntEnumLikeType(rightType)) {
+        return builtinType("int");
+      }
       if (this.isIntType(leftType) && this.isIntType(rightType)) {
         return builtinType("int");
       }
@@ -5490,6 +5529,13 @@ export class TypeChecker {
       (type.kind === "literal" && type.base === "number" && Number.isInteger(type.value));
   }
 
+  private isIntEnumLikeType(type: AnalysisType): boolean {
+    if (this.isIntType(type)) {
+      return true;
+    }
+    return type.kind === "named" && this.enumUnderlyingValueTypeName(type.name) === "int";
+  }
+
   private isStringLikeType(type: AnalysisType): boolean {
     return (type.kind === "builtin" && type.name === "string") ||
       (type.kind === "literal" && type.base === "string");
@@ -5805,6 +5851,22 @@ export class TypeChecker {
         if (importedType) {
           this.importedExtensionPropertyTypes.set(localName, importedType);
         }
+      }
+    }
+  }
+
+  private collectImportedBindingNames(program: Program): void {
+    for (const statement of program.body) {
+      if (statement.kind !== "ImportStatement") continue;
+      const importStatement = statement as ImportStatement;
+      if (importStatement.defaultImport) {
+        this.importedBindingNames.add(importStatement.defaultImport.name);
+      }
+      if (importStatement.namespaceImport) {
+        this.importedBindingNames.add(importStatement.namespaceImport.name);
+      }
+      for (const specifier of importStatement.specifiers) {
+        this.importedBindingNames.add((specifier.local ?? specifier.imported).name);
       }
     }
   }
@@ -6261,6 +6323,9 @@ export class TypeChecker {
       this.bound.rootScope,
       (member.object as Identifier).firstToken?.range.start.offset
     );
+    if (this.importedBindingNames.has((member.object as Identifier).name)) {
+      return null;
+    }
     return symbol?.kind === "class" ? null : objectType;
   }
 
@@ -6317,6 +6382,18 @@ export class TypeChecker {
       const enumSymbol = enumScope?.symbols.get(memberName);
       if (enumSymbol) {
         return enumSymbol;
+      }
+      if (enumStatement.members.some((member) => member.name.name === memberName)) {
+        const enumType = namedType(enumStatement.name.name);
+        return {
+          name: memberName,
+          kind: "variable",
+          node: enumStatement.name,
+          isReadonly: true,
+          type: enumType,
+          valueType: typeToString(enumType),
+          declaredOffset: enumStatement.name.firstToken?.range.start.offset ?? -1
+        };
       }
     }
 
@@ -6418,32 +6495,211 @@ export class TypeChecker {
     return uniqueTypes.length === 1 ? uniqueTypes[0]! : unionType(uniqueTypes);
   }
 
-  private enumMemberValueType(member: EnumMember): AnalysisType | null {
-    if (!member.initializer) {
-      return builtinType("int");
+  private enumUnderlyingValueTypeName(enumName: string): "int" | "string" | "mixed" | "unknown" {
+    const enumStatement = this.enumStatementsByName.get(enumName);
+    if (!enumStatement) {
+      return "unknown";
     }
-    if (member.initializer.kind === "IntLiteral") {
-      return builtinType("int");
+    const underlying = this.enumUnderlyingValueType(enumStatement);
+    if (this.isIntType(underlying)) {
+      return "int";
     }
-    if (member.initializer.kind === "StringLiteral") {
-      return builtinType("string");
+    if (this.isStringLikeType(underlying)) {
+      return "string";
     }
+    return underlying.kind === "union" ? "mixed" : "unknown";
+  }
 
-    const initializerType = this.expressionTypes.get(member.initializer) ?? UNKNOWN_TYPE;
-    if (this.isIntType(initializerType)) {
+  private enumMemberValueType(member: EnumMember): AnalysisType | null {
+    const resolved = this.resolveEnumMemberValueByMember(member);
+    if (resolved.kind === "constant-int" || resolved.kind === "computed-int") {
       return builtinType("int");
     }
-    if (this.isStringLikeType(initializerType)) {
+    if (resolved.kind === "constant-string" || resolved.kind === "computed-string") {
       return builtinType("string");
     }
     return null;
   }
 
   private enumMemberStringValue(member: EnumMember): string | null {
-    if (member.initializer?.kind === "StringLiteral") {
-      return (member.initializer as StringLiteral).value;
+    const resolved = this.resolveEnumMemberValueByMember(member);
+    return resolved.kind === "constant-string" ? resolved.value : null;
+  }
+
+  private resolveEnumMemberValueByMember(member: EnumMember): EnumResolvedValue {
+    const parentEnum = this.enumStatementForMember(member);
+    return parentEnum ? this.resolveEnumMemberValue(parentEnum, member) : { kind: "invalid" };
+  }
+
+  private resolveEnumMemberValue(
+    enumStatement: EnumStatement,
+    member: EnumMember,
+    visiting: Set<EnumMember> = new Set()
+  ): EnumResolvedValue {
+    const cached = this.enumMemberResolutionCache.get(member);
+    if (cached) {
+      return cached;
+    }
+    if (visiting.has(member)) {
+      return { kind: "invalid" };
+    }
+    visiting.add(member);
+
+    let resolved: EnumResolvedValue;
+    if (!member.initializer) {
+      const index = enumStatement.members.indexOf(member);
+      if (index === 0) {
+        resolved = { kind: "constant-int", value: 0 };
+      } else {
+        const previous = enumStatement.members[index - 1];
+        const previousValue: EnumResolvedValue = previous
+          ? this.resolveEnumMemberValue(enumStatement, previous, visiting)
+          : { kind: "invalid" };
+        resolved = previousValue.kind === "constant-int"
+          ? { kind: "constant-int", value: previousValue.value + 1 }
+          : { kind: "invalid" };
+      }
+    } else {
+      resolved = this.resolveEnumInitializerValue(enumStatement, member.initializer, visiting);
+    }
+
+    visiting.delete(member);
+    this.enumMemberResolutionCache.set(member, resolved);
+    return resolved;
+  }
+
+  private resolveEnumInitializerValue(
+    enumStatement: EnumStatement,
+    expression: Expr,
+    visiting: Set<EnumMember>
+  ): EnumResolvedValue {
+    switch (expression.kind) {
+      case "IntLiteral":
+        return { kind: "constant-int", value: (expression as IntLiteral).value };
+      case "StringLiteral":
+        return { kind: "constant-string", value: (expression as StringLiteral).value };
+      case "UnaryExpression": {
+        const unary = expression as UnaryExpression;
+        const argument = this.resolveEnumInitializerValue(enumStatement, unary.argument, visiting);
+        if (argument.kind !== "constant-int") {
+          return this.enumComputedValueFromExpression(expression);
+        }
+        switch (unary.operator) {
+          case "+":
+            return { kind: "constant-int", value: +argument.value };
+          case "-":
+            return { kind: "constant-int", value: -argument.value };
+          case "~":
+            return { kind: "constant-int", value: ~argument.value };
+          default:
+            return this.enumComputedValueFromExpression(expression);
+        }
+      }
+      case "BinaryExpression": {
+        const binary = expression as BinaryExpression;
+        const left = this.resolveEnumInitializerValue(enumStatement, binary.left, visiting);
+        const right = this.resolveEnumInitializerValue(enumStatement, binary.right, visiting);
+        const constant = this.foldConstantEnumBinary(binary.operator, left, right);
+        return constant ?? this.enumComputedValueFromExpression(expression);
+      }
+      case "Identifier": {
+        const memberRef = this.enumMemberNamed(enumStatement, (expression as Identifier).name);
+        return memberRef ? this.resolveEnumMemberValue(enumStatement, memberRef, visiting) : this.enumComputedValueFromExpression(expression);
+      }
+      case "MemberExpression": {
+        const memberExpression = expression as MemberExpression;
+        if (memberExpression.computed || memberExpression.object.kind !== "Identifier" || memberExpression.property.kind !== "Identifier") {
+          return this.enumComputedValueFromExpression(expression);
+        }
+        const targetEnum = this.enumStatementsByName.get((memberExpression.object as Identifier).name);
+        const targetMember = targetEnum
+          ? this.enumMemberNamed(targetEnum, (memberExpression.property as Identifier).name)
+          : undefined;
+        return targetEnum && targetMember
+          ? this.resolveEnumMemberValue(targetEnum, targetMember, visiting)
+          : this.enumComputedValueFromExpression(expression);
+      }
+      default:
+        return this.enumComputedValueFromExpression(expression);
+    }
+  }
+
+  private foldConstantEnumBinary(
+    operator: BinaryExpression["operator"],
+    left: EnumResolvedValue,
+    right: EnumResolvedValue
+  ): EnumResolvedValue | null {
+    if (left.kind !== "constant-int" || right.kind !== "constant-int") {
+      return null;
+    }
+    let value: number;
+    switch (operator) {
+      case "+":
+        value = left.value + right.value;
+        break;
+      case "-":
+        value = left.value - right.value;
+        break;
+      case "*":
+        value = left.value * right.value;
+        break;
+      case "/":
+        value = left.value / right.value;
+        break;
+      case "%":
+        value = left.value % right.value;
+        break;
+      case "<<":
+        value = left.value << right.value;
+        break;
+      case ">>":
+        value = left.value >> right.value;
+        break;
+      case ">>>":
+        value = left.value >>> right.value;
+        break;
+      case "&":
+        value = left.value & right.value;
+        break;
+      case "|":
+        value = left.value | right.value;
+        break;
+      case "^":
+        value = left.value ^ right.value;
+        break;
+      default:
+        return null;
+    }
+    return Number.isFinite(value) ? { kind: "constant-int", value } : { kind: "invalid" };
+  }
+
+  private enumComputedValueFromExpression(expression: Expr): EnumResolvedValue {
+    const initializerType = this.expressionTypes.get(expression) ?? UNKNOWN_TYPE;
+    if (this.isIntType(initializerType)) {
+      return { kind: "computed-int" };
+    }
+    if (this.isStringLikeType(initializerType)) {
+      return { kind: "computed-string" };
+    }
+    return { kind: "invalid" };
+  }
+
+  private enumStatementForMember(member: EnumMember): EnumStatement | null {
+    for (const enumStatement of this.enumStatementsByName.values()) {
+      if (enumStatement.members.includes(member)) {
+        return enumStatement;
+      }
     }
     return null;
+  }
+
+  private enumMemberNamed(enumStatement: EnumStatement, name: string): EnumMember | undefined {
+    let memberMap = this.enumStatementMemberMapCache.get(enumStatement);
+    if (!memberMap) {
+      memberMap = new Map(enumStatement.members.map((member) => [member.name.name, member]));
+      this.enumStatementMemberMapCache.set(enumStatement, memberMap);
+    }
+    return memberMap.get(name);
   }
 
   private isNullishType(type: AnalysisType): boolean {

@@ -17,7 +17,9 @@ declare abstract class AbstractShape {
 }
 
 enum Demo {
-  HELLO = 0, WORLD = 1
+  NONE = 0,
+  HELLO = 1 << 0, WORLD = 1 << 1,
+  HELLO_AND_WORLD = HELLO | WORLD;
 }
 
 enum StrEnum {
@@ -25,10 +27,12 @@ enum StrEnum {
 }
 
 const value = Demo.WORLD
-const val1 = Demo[Demo.HELLO]
+const val1 = Demo[Demo.HELLO_AND_WORLD]
 const val2 = Demo[0]
-const val3 = StrEnum["b"]
+const val3 = StrEnum["CPP"]
 const val4 = StrEnum[StrEnum.CPP]
+
+//console.log(value, val1, Demo.HELLO_AND_WORLD, val2, val3, val4, StrEnum.CPP)
 
 annotation DemoAnnotation
 annotation DemoTag(val label: string)
