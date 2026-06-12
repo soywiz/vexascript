@@ -1,6 +1,5 @@
 import { baseTypeName } from "compiler/analysis/typeNames";
-import type { Identifier, MemberExpression, Program } from "compiler/ast/ast";
-import { walkAst } from "compiler/ast/traversal";
+import type { Identifier } from "compiler/ast/ast";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
 import type { AnalysisSession } from "./analysisSession";
@@ -11,6 +10,7 @@ import {
   resolveClassStatementAcrossFiles,
   resolveExpressionTypeName as resolveCrossFileExpressionTypeName
 } from "./classResolver";
+import { collectMemberExpressions } from "./crossFileTypeResolution";
 import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 
 interface CollectMemberDiagnosticsParams {
@@ -18,16 +18,6 @@ interface CollectMemberDiagnosticsParams {
   session: AnalysisSession;
   sourceRoots: string[];
   getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
-}
-
-function collectMemberExpressions(program: Program): MemberExpression[] {
-  const expressions: MemberExpression[] = [];
-  walkAst(program, (node) => {
-    if (node.kind === "MemberExpression") {
-      expressions.push(node as MemberExpression);
-    }
-  });
-  return expressions;
 }
 
 export async function collectCrossFileMemberDiagnostics(
