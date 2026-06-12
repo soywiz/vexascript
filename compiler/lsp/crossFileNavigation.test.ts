@@ -556,6 +556,70 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves definition and hover for imported class members after an 'instanceof' smart-cast", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-smart-cast-instanceof-"));
+    const astPath = join(root, "ast.vx");
+    const mainPath = join(root, "optimizer.vx");
+    const astSource = dedent`
+      export class NumberExpr(val value: number) {
+        readonly kind = "number"
+      }
+      export class UnaryExpr(val operator: string, val operand: NumberExpr | UnaryExpr) {
+        readonly kind = "unary"
+      }
+    `;
+    const mainSource = dedent`
+      import { NumberExpr, UnaryExpr } from "./ast.vx"
+      export function foldConstants(expression: NumberExpr | UnaryExpr): NumberExpr | UnaryExpr {
+        if (expression instanceof UnaryExpr) {
+          expression.operator
+        }
+        return expression
+      }
+    `;
+
+    await writeFile(astPath, astSource, "utf8");
+    await writeFile(mainPath, mainSource, "utf8");
+
+    const baseSession = createAnalysisSession(mainSource);
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root]
+    });
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+
+    const definition = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 3,
+      character: mainSource.split("\n")[3]!.indexOf(".operator") + 2,
+      session,
+      sourceRoots: [root]
+    });
+    const hover = await resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 3,
+      character: mainSource.split("\n")[3]!.indexOf(".operator") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(definition).toEqual({
+      uri: pathToFileURL(astPath).toString(),
+      range: {
+        start: { line: 3, character: 27 },
+        end: { line: 3, character: 35 }
+      }
+    });
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "operator: string"
+    });
+  });
+
   it("resolves DOM type and member definitions from tsconfig lib declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-dom-"));
     const file = join(root, "main.vx");

@@ -1539,6 +1539,63 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("operand");
   });
 
+  it("offers members from an 'instanceof' smart-cast against an imported class", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-smart-cast-instanceof-"));
+    const astPath = join(root, "ast.vx");
+    const optimizerPath = join(root, "optimizer.vx");
+    await writeFile(astPath, dedent`
+      export class NumberExpr(val value: number) {
+        readonly kind = "number"
+      }
+
+      export class UnaryExpr(val operator: string, val operand: any) {
+        readonly kind = "unary"
+      }
+    `, "utf8");
+    const marked = sourceWithCursor(dedent`
+      import { NumberExpr, UnaryExpr } from "./ast.vx"
+
+      export function foldConstants(expression: any): any {
+        if (expression instanceof UnaryExpr) {
+          return expression.opera^^^
+        }
+      }
+    `);
+    await writeFile(optimizerPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const projectIndex = getProjectIndex([root]);
+    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(optimizerPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
+    });
+    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+      uri: pathToFileURL(optimizerPath).href,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
+    });
+    const session = createAnalysisSession(marked.source, externalDeclarations, importedSymbolTypes);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      marked.line,
+      marked.character,
+      session.analysis!,
+      [],
+      {
+        text: marked.source,
+        uri: pathToFileURL(optimizerPath).href,
+        sourceRoots: [root],
+        getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath),
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, externalDeclarations, importedSymbolTypes)
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("operator");
+    expect(labels).toContain("operand");
+  });
+
   it("offers smart-cast members for incomplete member access inside nested expressions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-completion-smart-cast-nested-"));
     const astPath = join(root, "ast.vx");

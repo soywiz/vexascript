@@ -1,7 +1,7 @@
 import { build, context, type BuildOptions, type Plugin } from "esbuild";
 import { mkdir, readFile, rm, watch, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { pathExists } from "./prepare.ts";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -181,6 +181,15 @@ async function writeGeneratedRuntimeBrowserModules(): Promise<void> {
   ]);
 }
 
+export async function ensureGeneratedEmbedSupportFiles(): Promise<void> {
+  await Promise.all([
+    mkdir(generatedAssetsRoot, { recursive: true }),
+    mkdir(generatedRuntimeRoot, { recursive: true }),
+    writeGeneratedManifest(),
+    writeGeneratedRuntimeBrowserModules(),
+  ]);
+}
+
 async function writeFileIfChanged(filePath: string, nextContent: string): Promise<boolean> {
   const previousContent = await readFile(filePath, "utf8").catch(() => null);
   if (previousContent === nextContent) {
@@ -280,6 +289,9 @@ function embedBuildOptions(): BuildOptions {
       {
         name: "vexa-embed-postbuild",
         setup(buildContext) {
+          buildContext.onStart(async () => {
+            await ensureGeneratedEmbedSupportFiles();
+          });
           buildContext.onEnd(async (result) => {
             if (result.errors.length > 0) {
               return;
@@ -307,8 +319,7 @@ async function startRuntimeAssetWatchers(): Promise<void> {
 }
 
 async function runBuild(): Promise<void> {
-  await writeGeneratedManifest();
-  await writeGeneratedRuntimeBrowserModules();
+  await ensureGeneratedEmbedSupportFiles();
   await removeLegacyPlaygroundArtifacts();
   await copyRuntimeAssets();
   if (isWatch) {
@@ -327,4 +338,10 @@ async function runBuild(): Promise<void> {
   ]);
 }
 
-await runBuild();
+const isMainModule = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (isMainModule) {
+  await runBuild();
+}

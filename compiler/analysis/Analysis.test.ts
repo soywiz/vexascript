@@ -3492,6 +3492,28 @@ describe("enum semantic analysis", () => {
     expect(messages.some((message) => message === "Property 'operand' does not exist on type 'UnaryExpr'")).toBe(false);
   });
 
+  it("smart-casts identifiers for 'instanceof' checks when accessing narrowed members", () => {
+    const source = dedent`
+      class NumberExpr(val value: number) {
+        readonly kind = "number"
+      }
+      class UnaryExpr(val operator: string, val operand: any) {
+        readonly kind = "unary"
+      }
+      function foldConstants(expression: NumberExpr | UnaryExpr): any {
+        if (expression instanceof UnaryExpr) {
+          expression.operator
+          expression.operand
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.some((message) => message === "Property 'operator' does not exist on type 'UnaryExpr'")).toBe(false);
+    expect(messages.some((message) => message === "Property 'operand' does not exist on type 'UnaryExpr'")).toBe(false);
+  });
+
   it("preserves outer smart-casts inside nested conditional blocks", () => {
     const source = dedent`
       class NumberExpr(val value: number) {

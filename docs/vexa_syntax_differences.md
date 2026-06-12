@@ -313,7 +313,7 @@ VexaScript extends the TypeScript type system with explicit integer types.
 | Type | Description | TypeScript equivalent |
 |---|---|---|
 | `int` | 32-bit integer | `number` |
-| `number` | floating-point number | `number` |
+| `number` | 64-bit floating-point number | `number` |
 | `numeric` | common supertype of `int`/`number`/`long`/`bigint` | — |
 | `long` | 64-bit signed integer | `bigint` |
 | `bigint` | arbitrary-precision integer | `bigint` |

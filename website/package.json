@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "clean": "tsx ../scripts/clean.ts",
     "build": "tsx scripts/build.ts",
     "build:site": "eleventy --config eleventy.config.mjs",
     "build:embeds": "tsx scripts/buildEmbed.ts",

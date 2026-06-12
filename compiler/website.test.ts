@@ -59,15 +59,16 @@ describe("website project", () => {
     expect(playgroundPage.includes("embeds.createWorkbenchEditor")).toBe(true);
     expect(playgroundPage.includes('window.addEventListener("vexa-embeds-ready"')).toBe(true);
     expect(playgroundPage.includes("requestAnimationFrame")).toBe(false);
-    expect(syntaxPage.includes('class="section"')).toBe(true);
+    expect(syntaxPage.includes('class="doc-shell"')).toBe(true);
     expect(cliPage.includes("<code>bundle</code>")).toBe(true);
     expect(notFoundPage.includes("permalink: 404.html")).toBe(true);
     expect(notFoundPage.includes("<h1>Page not found.</h1>")).toBe(true);
   });
 
   it("keeps the website build wired through embed generation and Eleventy", async () => {
-    const [buildScript, devScript, prepareScript, buildEmbedScript, packageJsonText, eleventyConfig, syntaxHighlighter, faviconExists] = await Promise.all([
+    const [buildScript, cleanScript, devScript, prepareScript, buildEmbedScript, packageJsonText, eleventyConfig, syntaxHighlighter, faviconExists] = await Promise.all([
       readFile("website/scripts/build.ts", "utf8"),
+      readFile("scripts/clean.ts", "utf8"),
       readFile("website/scripts/dev.ts", "utf8"),
       readFile("website/scripts/prepare.ts", "utf8"),
       readFile("website/scripts/buildEmbed.ts", "utf8"),
@@ -81,6 +82,7 @@ describe("website project", () => {
       dependencies?: Record<string, string>;
     };
 
+    expect(packageJson.scripts?.["clean"]).toBe("tsx ../scripts/clean.ts");
     expect(packageJson.scripts?.["build"]).toBe("tsx scripts/build.ts");
     expect(packageJson.scripts?.["dev"]).toBe("tsx scripts/dev.ts");
     expect(packageJson.scripts?.["build:site"]).toBe("eleventy --config eleventy.config.mjs");
@@ -91,6 +93,9 @@ describe("website project", () => {
     expect(buildScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
     expect(buildScript.includes("scripts/buildEmbed.ts")).toBe(true);
     expect(buildScript.includes("eleventy.config.mjs")).toBe(true);
+    expect(cleanScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
+    expect(cleanScript.includes("ensureGeneratedEmbedSupportFiles")).toBe(true);
+    expect(cleanScript.includes('website/_site/syntax')).toBe(true);
     expect(devScript.includes("ensureGeneratedSyntaxModule")).toBe(true);
     expect(devScript.includes("scripts/buildEmbed.ts")).toBe(true);
     expect(devScript.includes("--watch")).toBe(true);
@@ -111,6 +116,8 @@ describe("website project", () => {
     expect(buildEmbedScript.includes("domDeclarations.browser.ts")).toBe(true);
     expect(buildEmbedScript.includes("patchRuntimeDeclarationsHost")).toBe(true);
     expect(buildEmbedScript.includes('node:fs/promises')).toBe(true);
+    expect(buildEmbedScript.includes("ensureGeneratedEmbedSupportFiles")).toBe(true);
+    expect(buildEmbedScript.includes("buildContext.onStart")).toBe(true);
     expect(buildEmbedScript.includes("async function writeFileIfChanged")).toBe(true);
     expect(buildEmbedScript.includes("async function copyFileIfChanged")).toBe(true);
     expect(buildEmbedScript.includes("if (sourceContent === targetContent)")).toBe(true);
