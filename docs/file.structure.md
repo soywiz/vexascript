@@ -193,6 +193,8 @@ This section is the fast onboarding map for agents and contributors.
 - Fixture tests: `testFixtures/@test.test.ts`
 - Shared async file helpers: `compiler/utils/fs.ts`
 - Shared async process/I/O helpers: `compiler/utils/io.ts`, tests: `compiler/utils/io.test.ts`
+- Browser virtual-workspace path helpers (leading-slash normalization shared by the Monaco workspace and website embeds): `compiler/utils/workspacePaths.ts`
+- Shared editor-shell sidebar state machine (Monaco workspace sidebar and website workbench sidebar): `compiler/utils/sidebarState.ts`
 - Reader utilities used by parser/tokenizer:
   - `compiler/utils/ListReader.ts`, tests: `compiler/utils/ListReader.test.ts`
   - `compiler/utils/StrReader.ts`, tests: `compiler/utils/StrReader.test.ts`

@@ -1,3 +1,10 @@
+import {
+  normalizeWorkspacePath as normalizePath,
+  workspacePathBasename as basename,
+  workspacePathDirname as dirname,
+  workspacePathToUri
+} from "compiler/utils/workspacePaths";
+
 export const MAIN_DOCUMENT_URI = "file:///main.vx";
 export const RUNTIME_DOCUMENT_URI = "file:///es2025.d.ts";
 export const WORKSPACE_STORAGE_KEY = "vexa.monaco.workspace.v1";
@@ -43,27 +50,9 @@ export interface StoredWorkspaceSessionSnapshot {
   column: number;
 }
 
-function normalizePath(path: string): string {
-  const trimmed = path.trim().replace(/\\/g, "/");
-  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withLeadingSlash.replace(/\/+/g, "/");
-}
-
-function dirname(path: string): string {
-  const normalized = normalizePath(path);
-  const lastSlash = normalized.lastIndexOf("/");
-  if (lastSlash <= 0) return "/";
-  return normalized.slice(0, lastSlash);
-}
-
-function basename(path: string): string {
-  const normalized = normalizePath(path);
-  const lastSlash = normalized.lastIndexOf("/");
-  return lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
-}
 
 export function pathToUri(path: string): string {
-  return `file://${normalizePath(path)}`;
+  return workspacePathToUri(path);
 }
 
 function normalizeEditorLanguage(language?: "vexa" | "typescript"): "vexa" {
