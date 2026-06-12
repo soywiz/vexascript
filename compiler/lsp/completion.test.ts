@@ -1711,4 +1711,18 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("label");
     expect(labels).not.toContain("Lowercase");
   });
+  it("keeps the completion strategy modules layered under the orchestrator", async () => {
+    // completion.ts orchestrates the strategy modules; the strategies must
+    // never import back from it, so each one stays testable in isolation.
+    const { readFile } = await import("node:fs/promises");
+    for (const strategyModule of [
+      "compiler/lsp/completionModel.ts",
+      "compiler/lsp/memberCompletion.ts",
+      "compiler/lsp/argumentCompletion.ts",
+      "compiler/lsp/importCompletion.ts"
+    ]) {
+      const source = await readFile(strategyModule, "utf8");
+      expect(source.includes('from "./completion"')).toBe(false);
+    }
+  });
 });

@@ -130,7 +130,8 @@ This section is the fast onboarding map for agents and contributors.
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`
-  - Completion, including member/extension completion over imports resolved through the shared module resolver: `compiler/lsp/completion.ts`
+  - Completion orchestrator that runs the completion strategies in priority order (annotations, member access, named call arguments, ranked in-scope symbols, auto-imports, keyword fallback): `compiler/lsp/completion.ts`
+  - Completion strategy modules: shared item kinds/request contracts/snippet helpers in `compiler/lsp/completionModel.ts`, member-access completion (receiver-type recovery plus class/interface/enum/type-alias/extension/namespace member items, including members resolved over imports through the shared module resolver) in `compiler/lsp/memberCompletion.ts`, call-argument completion (named arguments and expected-type inference) in `compiler/lsp/argumentCompletion.ts`, and auto-import completion in `compiler/lsp/importCompletion.ts`
   - Diagnostics: `compiler/lsp/diagnostics.ts`
   - Cross-file type diagnostics: `compiler/lsp/crossFileTypeDiagnostics.ts`
   - Member diagnostics: `compiler/lsp/memberDiagnostics.ts`
@@ -179,7 +180,6 @@ This section is the fast onboarding map for agents and contributors.
 
 - Supported syntax: `docs/syntax.md`
 - VexaScript vs TypeScript syntax differences: `docs/vexa_syntax_differences.md`
-- Pending technical tasks/backlog: `docs/tasks.pending.md`
 - LSP services status: `docs/lsp.services.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
 - Transpilation design note: `docs/transpilation.design.md`

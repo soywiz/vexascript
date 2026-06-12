@@ -151,4 +151,5 @@ This semantic layer is intentionally conservative today:
 
 - Full generic constraints and call-argument contextual inference remain pending.
 
-Pending roadmap items are tracked in `docs/tasks.pending.md` and `docs/syntax.pending.md`.
+New roadmap items should be filed as GitHub issues; the technical backlog
+file was retired once all its items were implemented.
