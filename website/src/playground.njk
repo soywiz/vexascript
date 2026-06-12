@@ -43,6 +43,7 @@ permalink: /playground.html
 
     withEmbeds((embeds) => {
       const mobileViewport = window.matchMedia("(max-width: 800px)").matches
+      const BACKTICK = '`'
       embeds.createWorkbenchEditor("#playground-workbench", {
         activePath: "/src/main.vx",
         height: mobileViewport ? "auto" : "100vh",
@@ -55,10 +56,10 @@ permalink: /playground.html
             content: dedent`
               import { increment } from "./counter.vx"
               import { Point } from "./point.vx"
-              import { TimeSpan, delay, seconds, milliseconds, operator+ } from "./time.vx"
+              import { TimeSpan, delay, seconds, milliseconds, operator+, operator/ } from "./time.vx"
 
               fun describe(point: Point): string {
-                return "(\${point.x}, \${point.y})"
+                return ${BACKTICK}(\${point.x}, \${point.y})${BACKTICK}
               }
 
               fun drawCard(c2d, origin: Point, size: Point, fill: string, label: string) {
@@ -98,9 +99,11 @@ permalink: /playground.html
                 drawCard(c2d, cardOrigin, cardSize, "#8cb3d9", "VexaScript")
                 drawDot(c2d, pulseCenter, 12, "#17324d")
 
-                delay(pulseDelay)
-                drawDot(c2d, pulseCenter, 28, "#4d7ea8")
-                drawDot(c2d, pulseCenter, 12, "#17324d")
+                for (n in 0..<40) {
+                  drawDot(c2d, pulseCenter, 18 + n / 2.0, "#4d7ea8")
+                  drawDot(c2d, pulseCenter, 12 - n / 10.0, "#17324d")
+                  delay(pulseDelay / 100)
+                }
 
                 console.log(TimeSpan(500.0).ms)
                 console.log((pulseDelay + 500.milliseconds).ms)
@@ -138,6 +141,9 @@ permalink: /playground.html
               export val number.milliseconds => TimeSpan(this)
 
               fun TimeSpan.operator+(other: TimeSpan): TimeSpan => TimeSpan(ms + other.ms)
+              fun TimeSpan.operator-(other: TimeSpan): TimeSpan => TimeSpan(ms - other.ms)
+              fun TimeSpan.operator*(scale: number): TimeSpan => TimeSpan(ms * scale)
+              fun TimeSpan.operator/(scale: number): TimeSpan => TimeSpan(ms / scale)
 
               export fun delay(time: TimeSpan) {
                 return new Promise { resolve, reject ->
