@@ -3,7 +3,10 @@ import "@fortawesome/fontawesome-free/css/all.min.css";
 import * as monaco from "monaco-editor";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
 import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
-import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import {
+  ensureEcmaScriptRuntimeProgram,
+  ensureVexaScriptRuntimeProgram,
+} from "compiler/runtime/ecmascriptDeclarations";
 import { collectCodeActions } from "compiler/lsp/codeActionsAggregate";
 import {
   createCompletionItemsForPosition,
@@ -38,7 +41,12 @@ import {
   type PortableLanguageConfiguration,
   type PortableMonarchLanguage,
 } from "compiler/syntax";
-import { bundledDomRuntimeUrl, bundledRuntimeUrl, editorWorkerUrl } from "../generated/embed-asset-manifest";
+import {
+  bundledDomRuntimeUrl,
+  bundledRuntimeUrl,
+  bundledVexaRuntimeUrl,
+  editorWorkerUrl,
+} from "../generated/embed-asset-manifest";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
 import type { SymbolExport } from "compiler/lsp/importFixes";
@@ -135,8 +143,9 @@ let modelCounter = 0;
 let autoAwaitGlyphStyleInjected = false;
 let cachedDomAmbientDeclarations: Statement[] | null = null;
 let bundledRuntimeContent: string | null = null;
+let bundledVexaRuntimeContent: string | null = null;
 let bundledDomRuntimeContent: string | null = null;
-let bundledRuntimeLoadPromise: Promise<{ runtime: string; dom: string }> | null = null;
+let bundledRuntimeLoadPromise: Promise<{ runtime: string; vexa: string; dom: string }> | null = null;
 let embeddedRuntimeReady = false;
 let embeddedRuntimeReadyPromise: Promise<void> | null = null;
 const embedWorkspaceContextsByUri = new Map<string, EmbedWorkspaceContext>();
@@ -230,7 +239,9 @@ function basename(path: string): string {
 
 function isRuntimeDeclarationPath(path: string): boolean {
   const normalized = normalizePath(path);
-  return normalized === "/runtime/dom.d.ts" || normalized === "/runtime/es2025.d.ts";
+  return normalized === "/runtime/dom.d.ts"
+    || normalized === "/runtime/es2025.d.ts"
+    || normalized === "/runtime/vexascript.d.vx";
 }
 
 async function loadTextAsset(url: string): Promise<string> {
@@ -241,18 +252,24 @@ async function loadTextAsset(url: string): Promise<string> {
   return response.text();
 }
 
-function ensureBundledRuntimeContents(): Promise<{ runtime: string; dom: string }> {
-  if (bundledRuntimeContent !== null && bundledDomRuntimeContent !== null) {
-    return Promise.resolve({ runtime: bundledRuntimeContent, dom: bundledDomRuntimeContent });
+function ensureBundledRuntimeContents(): Promise<{ runtime: string; vexa: string; dom: string }> {
+  if (bundledRuntimeContent !== null && bundledVexaRuntimeContent !== null && bundledDomRuntimeContent !== null) {
+    return Promise.resolve({
+      runtime: bundledRuntimeContent,
+      vexa: bundledVexaRuntimeContent,
+      dom: bundledDomRuntimeContent,
+    });
   }
   if (!bundledRuntimeLoadPromise) {
     bundledRuntimeLoadPromise = Promise.all([
       loadTextAsset(bundledRuntimeUrl),
+      loadTextAsset(bundledVexaRuntimeUrl),
       loadTextAsset(bundledDomRuntimeUrl),
-    ]).then(([runtime, dom]) => {
+    ]).then(([runtime, vexa, dom]) => {
       bundledRuntimeContent = runtime;
+      bundledVexaRuntimeContent = vexa;
       bundledDomRuntimeContent = dom;
-      return { runtime, dom };
+      return { runtime, vexa, dom };
     });
   }
   return bundledRuntimeLoadPromise;
@@ -265,6 +282,11 @@ function createBundledRuntimeEntries(): WorkspaceEntry[] {
       language: "vexa",
       readOnly: true,
       uri: pathToUri("/runtime/es2025.d.ts"),
+    }),
+    createFileEntry("/runtime/vexascript.d.vx", bundledVexaRuntimeContent ?? RUNTIME_LOADING_PLACEHOLDER, {
+      language: "vexa",
+      readOnly: true,
+      uri: pathToUri("/runtime/vexascript.d.vx"),
     }),
     createFileEntry("/runtime/dom.d.ts", bundledDomRuntimeContent ?? RUNTIME_LOADING_PLACEHOLDER, {
       language: "vexa",
@@ -282,6 +304,7 @@ function ensureEmbeddedRuntimeReady(): Promise<void> {
     embeddedRuntimeReadyPromise = Promise.all([
       ensureBundledRuntimeContents(),
       ensureEcmaScriptRuntimeProgram(),
+      ensureVexaScriptRuntimeProgram(),
       getDomAmbientDeclarations(),
     ]).then(() => {
       embeddedRuntimeReady = true;
@@ -1658,7 +1681,11 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
 
   const createInitialWorkbenchEntries = (): WorkspaceEntry[] => createEntries(options.files);
   const initialEditableEntries = createInitialWorkbenchEntries().filter(
-    (entry) => entry.path !== "/runtime" && entry.path !== "/runtime/es2025.d.ts" && entry.path !== "/runtime/dom.d.ts"
+    (entry) =>
+      entry.path !== "/runtime"
+      && entry.path !== "/runtime/es2025.d.ts"
+      && entry.path !== "/runtime/vexascript.d.vx"
+      && entry.path !== "/runtime/dom.d.ts"
   );
   const initialWorkbenchSnapshot = JSON.stringify(
     serializeEditableWorkbenchEntries(initialEditableEntries)
@@ -1888,9 +1915,10 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   };
 
   const refreshBundledRuntimeEntries = async (): Promise<void> => {
-    const { runtime, dom } = await ensureBundledRuntimeContents();
+    const { runtime, vexa, dom } = await ensureBundledRuntimeContents();
     for (const [path, content] of [
       ["/runtime/es2025.d.ts", runtime],
+      ["/runtime/vexascript.d.vx", vexa],
       ["/runtime/dom.d.ts", dom],
     ] as const) {
       const uri = pathToUri(path);

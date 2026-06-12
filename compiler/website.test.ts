@@ -32,6 +32,9 @@ describe("website project", () => {
     expect(embedSource.includes("registerCodeActionProvider")).toBe(true);
     expect(embedSource.includes("ensureEmbeddedRuntimeReady")).toBe(true);
     expect(embedSource.includes("await ensureEmbeddedRuntimeReady();")).toBe(true);
+    expect(embedSource.includes("ensureVexaScriptRuntimeProgram")).toBe(true);
+    expect(embedSource.includes("bundledVexaRuntimeUrl")).toBe(true);
+    expect(embedSource.includes('"/runtime/vexascript.d.vx"')).toBe(true);
     expect(embedSource.includes("refreshDiagnosticsAndGlyphs(editor, model, `${reason}-runtime-ready`)")).toBe(true);
     expect(embedSource.includes("autoAwaitGlyphRefreshVersions")).toBe(true);
     expect(embedSource.includes("const workspaceSessionCache")).toBe(false);
