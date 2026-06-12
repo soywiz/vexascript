@@ -1,6 +1,6 @@
 import type { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
-import { walkAst } from "compiler/ast/traversal";
+import { findBestMatch } from "./nodeSearch";
 import type {
   AssignmentExpression,
   ClassStatement,
@@ -21,37 +21,23 @@ import { pathToUri } from "./importFixes";
 import { parseTypeMismatchDiagnostic } from "./diagnosticCodes";
 import { nodeRange, rangeContains, rangeSize } from "./ranges";
 
-interface FindAssignmentResult {
-  assignment: AssignmentExpression;
-  range: Range;
-  size: number;
-}
-
 function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range): AssignmentExpression | null {
-  let best: FindAssignmentResult | null = null;
-
-  walkAst(ast, (node) => {
+  return findBestMatch(ast, (node) => {
     if (node.kind !== "AssignmentExpression") {
-      return;
+      return null;
     }
 
     const assignment = node as AssignmentExpression;
     const rightRange = nodeRange(assignment.right);
     if (!rightRange || !rangeContains(diagnosticRange, rightRange)) {
-      return;
+      return null;
     }
     const assignmentRange = nodeRange(assignment);
     if (!assignmentRange) {
-      return;
+      return null;
     }
-    const size = rangeSize(assignmentRange);
-    if (!best || size <= best.size) {
-      best = { assignment, range: assignmentRange, size };
-    }
+    return { size: rangeSize(assignmentRange), value: assignment };
   });
-
-  const resolvedBest = best as FindAssignmentResult | null;
-  return resolvedBest?.assignment ?? null;
 }
 
 function buildMemberTypeEdit(

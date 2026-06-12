@@ -1,8 +1,8 @@
 import type { MemberExpression, Program } from "compiler/ast/ast";
-import { walkAst } from "compiler/ast/traversal";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
-import { comparePosition, rangeSize, type NodeRange } from "./ranges";
+import { findBestMatch } from "./nodeSearch";
+import { comparePosition, nodeRange, rangeSize, type NodeRange } from "./ranges";
 
 const NULLABLE_MEMBER_ACCESS_MESSAGE =
   "Object is possibly 'null' or 'undefined'. Use optional access '?.' or a non-null assertion '!'";
@@ -36,42 +36,27 @@ function memberAccessDotRange(member: MemberExpression): Range | null {
 }
 
 function findNullableMemberTarget(ast: Program, diagnostic: Diagnostic): NullableMemberTarget | null {
-  let best: NullableMemberTarget | null = null;
-  let bestSize = Number.POSITIVE_INFINITY;
-
-  walkAst(ast, (node) => {
+  return findBestMatch(ast, (node) => {
     if (node.kind !== "MemberExpression") {
-      return;
+      return null;
     }
 
     const member = node as MemberExpression;
     if (member.optional === true || member.nonNullAsserted === true) {
-      return;
+      return null;
     }
 
     const dotRange = memberAccessDotRange(member);
     if (!dotRange || !rangesEqual(dotRange, diagnostic.range)) {
-      return;
+      return null;
     }
 
-    const memberRange = {
-      start: {
-        line: member.firstToken!.range.start.line,
-        character: member.firstToken!.range.start.column
-      },
-      end: {
-        line: member.lastToken!.range.end.line,
-        character: member.lastToken!.range.end.column
-      }
-    };
-    const size = rangeSize(memberRange);
-    if (size <= bestSize) {
-      best = { member, dotRange };
-      bestSize = size;
+    const memberRange = nodeRange(member);
+    if (!memberRange) {
+      return null;
     }
+    return { size: rangeSize(memberRange), value: { member, dotRange } };
   });
-
-  return best;
 }
 
 export function createNullableAccessCodeActions(params: {

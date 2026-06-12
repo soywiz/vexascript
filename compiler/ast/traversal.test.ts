@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import type { ExportStatement, Node, Statement } from "./ast";
-import { childNodes, unwrapExportedDeclaration, walkAst } from "./traversal";
+import { childNodes, findNode, unwrapExportedDeclaration, walkAst } from "./traversal";
 
 describe("AST traversal", () => {
   it("walks structural child nodes in source property order without visiting token metadata", () => {
@@ -50,6 +50,32 @@ describe("AST traversal", () => {
     walkAst(root, (node) => visited.push(node.kind));
 
     expect(visited).toEqual(["Program", "Identifier"]);
+  });
+
+  it("stops the whole walk when the visitor returns false", () => {
+    const first: Node = { kind: "Identifier" };
+    const nested: Node = { kind: "IntLiteral" };
+    const second = { kind: "BinaryExpression", left: nested } as unknown as Node;
+    const root = { kind: "Program", body: [first, second] } as unknown as Node;
+
+    const visited: string[] = [];
+    walkAst(root, (node) => {
+      visited.push(node.kind);
+      return node.kind !== "Identifier";
+    });
+
+    expect(visited).toEqual(["Program", "Identifier"]);
+  });
+});
+
+describe("findNode", () => {
+  it("returns the first pre-order node accepted by the predicate", () => {
+    const target: Node = { kind: "Identifier" };
+    const later: Node = { kind: "Identifier" };
+    const root = { kind: "Program", body: [{ kind: "ExpressionStatement", expression: target } as unknown as Node, later] } as unknown as Node;
+
+    expect(findNode(root, (node): node is Node => node.kind === "Identifier")).toBe(target);
+    expect(findNode(root, (node): node is Node => node.kind === "ClassStatement")).toBe(null);
   });
 });
 

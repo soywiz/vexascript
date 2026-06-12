@@ -101,4 +101,27 @@ describe("findDeclarationKeywordReplacementAtPosition", () => {
       }
     });
   });
+
+  it("finds declarations nested inside lambda initializers of outer declarations", () => {
+    const source = "val run = () => {\n  let inner = 1\n}";
+    const ast = parseFile(tokenizeReader(source));
+
+    expect(findDeclarationKeywordReplacementAtPosition(ast, 1, 3)).toEqual({
+      from: "let",
+      to: "const",
+      range: {
+        start: { line: 1, character: 2 },
+        end: { line: 1, character: 5 }
+      }
+    });
+
+    expect(findDeclarationKeywordReplacementAtPosition(ast, 0, 1)).toEqual({
+      from: "val",
+      to: "var",
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 3 }
+      }
+    });
+  });
 });

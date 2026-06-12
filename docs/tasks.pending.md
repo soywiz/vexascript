@@ -21,8 +21,13 @@ single `BUILTIN_TYPE_NAMES` in `compiler/analysis/types.ts`, shared
 cross-file top-level declaration resolution via
 `compiler/lsp/declarationResolver.ts`, imported extension-member completion
 now reuses `compiler/moduleResolution.ts`, both LSP transports now share the
-request-handler core in `compiler/lsp/serverCore.ts`, and class-body member
-insertion points share `bodyEndInsertRange` in `compiler/lsp/ranges.ts`).
+request-handler core in `compiler/lsp/serverCore.ts`, class-body member
+insertion points share `bodyEndInsertRange` in `compiler/lsp/ranges.ts`,
+quick-fix target lookup shares the size-ranked best-match searches in
+`compiler/lsp/nodeSearch.ts` and `findNode` in `compiler/ast/traversal.ts`
+instead of bespoke statement visitors, and the ECMAScript/DOM declaration
+modules share the load/cache/retry plumbing in
+`compiler/runtime/declarationProgramCache.ts`).
 Future quick fixes should use
 `nodeSearch.ts`/`walkAst` instead of adding bespoke recursive visitors, and LSP
 features that need top-level declarations across imports/runtime/project files

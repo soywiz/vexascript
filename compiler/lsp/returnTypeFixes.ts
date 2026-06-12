@@ -4,12 +4,12 @@ import type {
   FunctionStatement,
   Program
 } from "compiler/ast/ast";
-import { walkAst } from "compiler/ast/traversal";
 import { type CodeAction } from "vscode-languageserver/node.js";
 import { CodeActionKind } from "./codeActionKinds";
 import type { ClassResolverOptions } from "./classResolver";
 import { pickFunctionReturnTypeFromBody } from "./inlayHints";
-import { containsPosition, nodeRange, rangeSize, tokenRange, type Position } from "./ranges";
+import { findBestMatchAtPosition } from "./nodeSearch";
+import { nodeRange, rangeSize, tokenRange, type Position } from "./ranges";
 
 type FunctionLikeNode = FunctionStatement | ClassMethodMember;
 
@@ -26,25 +26,25 @@ interface ReturnTypeTarget {
  * "in the parentheses after the arguments".
  */
 function findReturnTypeTargetAtPosition(ast: Program, position: Position): ReturnTypeTarget | null {
-  const state: { best: { target: ReturnTypeTarget; size: number } | null } = {
-    best: null
-  };
-
-  const consider = (node: FunctionLikeNode): void => {
+  return findBestMatchAtPosition(ast, position, (candidate) => {
+    if (candidate.kind !== "FunctionStatement" && candidate.kind !== "ClassMethodMember") {
+      return null;
+    }
+    const node = candidate as FunctionLikeNode;
     if (node.returnType) {
-      return;
+      return null;
     }
     if (node.kind === "ClassMethodMember" && node.accessorKind === "set") {
-      return;
+      return null;
     }
     if (!node.parametersCloseParen) {
-      return;
+      return null;
     }
 
     const nameFirstToken = node.name.firstToken;
     const closeParen = node.parametersCloseParen;
     if (!nameFirstToken) {
-      return;
+      return null;
     }
 
     const triggerRange = {
@@ -57,32 +57,17 @@ function findReturnTypeTargetAtPosition(ast: Program, position: Position): Retur
         character: closeParen.range.end.column
       }
     };
-    if (!containsPosition(triggerRange, position)) {
-      return;
-    }
-
     const functionRange = nodeRange(node);
     if (!functionRange) {
-      return;
+      return null;
     }
 
-    const size = rangeSize(functionRange);
-    if (!state.best || size <= state.best.size) {
-      state.best = { target: { node }, size };
-    }
-  };
-
-  walkAst(ast, (node) => {
-    if (node.kind === "FunctionStatement") {
-      consider(node as FunctionStatement);
-      return;
-    }
-    if (node.kind === "ClassMethodMember") {
-      consider(node as ClassMethodMember);
-    }
+    return {
+      range: triggerRange,
+      size: rangeSize(functionRange),
+      build: () => ({ node })
+    };
   });
-
-  return state.best ? state.best.target : null;
 }
 
 export async function createReturnTypeCodeActions(params: {

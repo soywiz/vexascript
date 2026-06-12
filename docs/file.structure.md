@@ -13,7 +13,7 @@ This section is the fast onboarding map for agents and contributors.
 - AST:
   - AST node definitions: `compiler/ast/ast.ts`
   - Binding-pattern traversal helpers: `compiler/ast/bindingPatterns.ts`
-  - Shared structural AST traversal: `compiler/ast/traversal.ts`
+  - Shared structural AST traversal (pre-order walk with early termination plus first-match search): `compiler/ast/traversal.ts`
 - Source locations:
   - Shared user-facing source coordinate formatting: `compiler/sourceLocations.ts`
   - Source location tests: `compiler/sourceLocations.test.ts`
@@ -47,6 +47,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared ECMAScript runtime declaration parsing/cache logic plus the Node bootstrap wrapper used by compiler consumers: `compiler/runtime/ecmascriptDeclarations.shared.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
   - Shared DOM runtime declaration parsing/cache logic plus the Node bootstrap wrapper used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/domDeclarations.shared.ts`, `compiler/runtime/domDeclarations.ts`
   - Shared browser-safe cache for parsed runtime declaration programs, backed by `localStorage` when available and an in-memory fallback otherwise: `compiler/runtime/programCache.ts`
+  - Shared declaration-program loader plumbing (parse-with-error-check, node membership index, and the single-in-flight-load/retry-after-failure contract) used by the ECMAScript and DOM declaration modules: `compiler/runtime/declarationProgramCache.ts`, tests: `compiler/runtime/declarationProgramCache.test.ts`
   - Declaration-cache concurrency tests (single in-flight load shared across concurrent callers, retry after failed loads): `compiler/runtime/declarationsConcurrency.test.ts`
 - Emitter / transpilation:
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
@@ -134,7 +135,7 @@ This section is the fast onboarding map for agents and contributors.
   - Member diagnostics: `compiler/lsp/memberDiagnostics.ts`
   - Diagnostic code mapping and shared semantic diagnostic parsing for quick fixes: `compiler/lsp/diagnosticCodes.ts`
   - Shared position/range helpers for LSP quick fixes and document features: `compiler/lsp/ranges.ts`
-  - Shared AST node search helpers for LSP quick-fix target lookup: `compiler/lsp/nodeSearch.ts`
+  - Shared AST node search helpers for LSP quick-fix target lookup, including generic size-ranked best-match searches used by the quick-fix modules: `compiler/lsp/nodeSearch.ts`
   - Navigation/rename/references: `compiler/lsp/navigation.ts`, `compiler/lsp/crossFileNavigation.ts`
   - Signature help: `compiler/lsp/signatureHelp.ts`
   - Document/workspace symbols: `compiler/lsp/symbols.ts`
