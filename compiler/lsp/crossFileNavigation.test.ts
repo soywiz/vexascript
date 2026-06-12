@@ -1471,4 +1471,16 @@ describe("cross-file navigation", () => {
     expect(location?.range).toBeTruthy();
   });
 
+  it("keeps the cross-file module layering acyclic", async () => {
+    // crossFileNavigation.ts orchestrates the operations on top of the shared
+    // helper modules; the helpers must never import back from it (or from each
+    // other in the wrong direction), so they stay reusable in isolation.
+    const contextSource = await readFile("compiler/lsp/crossFileContext.ts", "utf8");
+    const typeResolutionSource = await readFile("compiler/lsp/crossFileTypeResolution.ts", "utf8");
+
+    expect(contextSource.includes("./crossFileNavigation")).toBe(false);
+    expect(contextSource.includes("./crossFileTypeResolution")).toBe(false);
+    expect(typeResolutionSource.includes("./crossFileNavigation")).toBe(false);
+    expect(typeResolutionSource.includes("./crossFileContext")).toBe(true);
+  });
 });
