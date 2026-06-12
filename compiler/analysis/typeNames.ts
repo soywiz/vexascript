@@ -146,6 +146,23 @@ export function baseTypeName(typeName: string): string {
   return parseTypeNameShape(typeName).baseName;
 }
 
+/** Maps VexaScript primitive type names to their JavaScript boxed equivalents. */
+export function boxedPrimitiveTypeName(typeName: string): string {
+  if (typeName === "int" || typeName === "number" || typeName === "numeric") {
+    return "Number";
+  }
+  if (typeName === "string") {
+    return "String";
+  }
+  if (typeName === "boolean") {
+    return "Boolean";
+  }
+  if (typeName === "bigint" || typeName === "long") {
+    return "BigInt";
+  }
+  return typeName;
+}
+
 export function substituteTypeNameText(typeName: string, substitutions: Map<string, string>): string {
   const parsed = parseTypeNameShape(typeName);
   const substitutedBase = substitutions.get(parsed.baseName) ?? parsed.baseName;

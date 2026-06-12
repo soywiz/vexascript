@@ -102,20 +102,24 @@ export class AnalysisSessionCache {
 
     // Kick off async resolution if not already in progress for this version
     if (!this.pending.has(docUri)) {
-      const promise = Promise.resolve(this.resolveExternalDeclarations(document, baseSession)).then((resolved) => {
-        const session = buildSessionFromResolved(docText, baseSession, resolved);
-        // Only update if version still matches
-        const still = this.cache.get(docUri);
-        if (!still || still.version <= docVersion) {
-          this.cache.set(docUri, { version: docVersion, session });
-          this.onSessionUpdated?.();
+      const resolveExternalDeclarations = this.resolveExternalDeclarations;
+      const promise = (async () => {
+        try {
+          const resolved = await resolveExternalDeclarations(document, baseSession);
+          const session = buildSessionFromResolved(docText, baseSession, resolved);
+          // Only update if version still matches
+          const still = this.cache.get(docUri);
+          if (!still || still.version <= docVersion) {
+            this.cache.set(docUri, { version: docVersion, session });
+            this.onSessionUpdated?.();
+          }
+          this.pending.delete(docUri);
+          return session;
+        } catch {
+          this.pending.delete(docUri);
+          return baseSession;
         }
-        this.pending.delete(docUri);
-        return session;
-      }).catch(() => {
-        this.pending.delete(docUri);
-        return baseSession;
-      });
+      })();
       this.pending.set(docUri, { version: docVersion, promise });
     }
 

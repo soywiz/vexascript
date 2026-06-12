@@ -15,8 +15,8 @@ async function ensurePackageJson(projectDir: string): Promise<void> {
   }
 }
 
-function detectPackageManager(projectDir: string): Promise<"pnpm" | "npm"> {
-  return fileExists(resolve(projectDir, "pnpm-lock.yaml")).then((has) => (has ? "pnpm" : "npm"));
+async function detectPackageManager(projectDir: string): Promise<"pnpm" | "npm"> {
+  return (await fileExists(resolve(projectDir, "pnpm-lock.yaml"))) ? "pnpm" : "npm";
 }
 
 export async function ensureDependencies(

@@ -7,6 +7,7 @@
  * orchestrating those helpers into an LSP response.
  */
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
+import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type {
   FunctionStatement,
@@ -50,7 +51,6 @@ import {
   type ResolveContext
 } from "./crossFileContext";
 import {
-  boxedNavigationTypeName,
   classMemberDeclarationRangeByName,
   classMemberInfoByName,
   collectMemberExpressions,
@@ -105,7 +105,7 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   if (objectType.kind === "named" || objectType.kind === "array" || objectType.kind === "builtin") {
     const resolvedReceiverTypeName = objectType.kind === "array"
       ? receiverTypeNames[0]!
-      : boxedNavigationTypeName(receiverTypeNames[0]!);
+      : boxedPrimitiveTypeName(receiverTypeNames[0]!);
     const classResolution = await resolveTypeDefinitionAcrossFiles(context, resolvedReceiverTypeName);
     if (classResolution) {
       const resolverContext = {
@@ -523,7 +523,7 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
   const resolvedClassName = objectType.kind === "array"
     ? "Array"
     : objectType.kind === "named" || objectType.kind === "builtin"
-      ? boxedNavigationTypeName(objectType.name)
+      ? boxedPrimitiveTypeName(objectType.name)
       : null;
   const classResolution = resolvedClassName
     ? await resolveTypeDefinitionAcrossFiles(context, resolvedClassName)
