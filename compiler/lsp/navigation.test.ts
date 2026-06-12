@@ -35,6 +35,35 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("provides hover and definition for parameter references inside documentation comments", () => {
+    const marked = sourceWithCursor(dedent`
+      /// Returns the distance between two points.
+      /// [^^^a] and [b] must be in the same coordinate space.
+      fun distance(a: Point, b: Point): number => Math.hypot(a.x - b.x, a.y - b.y)
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    const hover = createHover(analysis, marked.line, marked.character, ast);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "parameter a: Point"
+    });
+    expect(hover?.range).toEqual({
+      start: { line: 1, character: 5 },
+      end: { line: 1, character: 6 }
+    });
+
+    const definition = createDefinitionLocation(analysis, URI, marked.line, marked.character, ast);
+    expect(definition).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 2, character: 13 },
+        end: { line: 2, character: 14 }
+      }
+    });
+  });
+
   it("provides hover and definition for JSX component attributes declared by destructured props", () => {
     const marked = sourceWithCursor(dedent`
       function Page({ name: string }) {
@@ -238,6 +267,104 @@ describe("lsp navigation", () => {
               end: { line: 2, character: 14 }
             },
             newText: "renamed"
+          }
+        ]
+      }
+    });
+  });
+
+  it("includes documentation parameter references in find references and rename", () => {
+    const marked = sourceWithCursor(dedent`
+      /// [a] is the start point.
+      /// [^^^a] must be in the same coordinate space as [b].
+      fun distance(a: Point, b: Point): number => Math.hypot(a.x - b.x, a.y - b.y)
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    expect(createPrepareRename(analysis, marked.line, marked.character, ast)).toEqual({
+      range: {
+        start: { line: 1, character: 5 },
+        end: { line: 1, character: 6 }
+      },
+      placeholder: "a"
+    });
+
+    expect(createReferences(analysis, URI, 2, 13, true, ast)).toEqual([
+      {
+        uri: URI,
+        range: {
+          start: { line: 2, character: 13 },
+          end: { line: 2, character: 14 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 2, character: 55 },
+          end: { line: 2, character: 56 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 2, character: 66 },
+          end: { line: 2, character: 67 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 0, character: 5 },
+          end: { line: 0, character: 6 }
+        }
+      },
+      {
+        uri: URI,
+        range: {
+          start: { line: 1, character: 5 },
+          end: { line: 1, character: 6 }
+        }
+      }
+    ]);
+
+    expect(createRenameWorkspaceEdit(analysis, URI, marked.line, marked.character, "start", ast)).toEqual({
+      changes: {
+        [URI]: [
+          {
+            range: {
+              start: { line: 2, character: 13 },
+              end: { line: 2, character: 14 }
+            },
+            newText: "start"
+          },
+          {
+            range: {
+              start: { line: 2, character: 55 },
+              end: { line: 2, character: 56 }
+            },
+            newText: "start"
+          },
+          {
+            range: {
+              start: { line: 2, character: 66 },
+              end: { line: 2, character: 67 }
+            },
+            newText: "start"
+          },
+          {
+            range: {
+              start: { line: 0, character: 5 },
+              end: { line: 0, character: 6 }
+            },
+            newText: "start"
+          },
+          {
+            range: {
+              start: { line: 1, character: 5 },
+              end: { line: 1, character: 6 }
+            },
+            newText: "start"
           }
         ]
       }

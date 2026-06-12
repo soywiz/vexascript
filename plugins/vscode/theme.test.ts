@@ -30,6 +30,7 @@ describe("VS Code color theme", () => {
     expect(findRule("entity.name.function.call.vexa")?.settings.foreground).toBe("#DCDCAA");
     expect(findRule("entity.name.type.vexa")?.settings.foreground).toBe("#4EC9B0");
     expect(findRule("variable.other.property.vexa")?.settings.foreground).toBe("#9CDCFE");
+    expect(findRule("variable.parameter.documentation.vexa")?.settings.foreground).toBe("#D7BA7D");
     expect(findRule("string.quoted.template.vexa")?.settings.foreground).toBe("#CE9178");
     expect(findRule("constant.numeric.integer.vexa")?.settings.foreground).toBe("#B5CEA8");
     expect(findRule("comment.line.double-slash.vexa")?.settings.foreground).toBe("#6A9955");

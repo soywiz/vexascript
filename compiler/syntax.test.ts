@@ -38,6 +38,7 @@ describe("shared syntax generators", () => {
     const vscodeGrammar = createVscodeTmLanguageGrammar();
     const repository = vscodeGrammar["repository"] as Record<string, unknown>;
     const jsxAttributes = repository["jsx-attributes"] as { patterns: Array<Record<string, unknown>> };
+    const comments = repository["comments"] as { patterns: Array<Record<string, unknown>> };
 
     expect(monacoLanguage.tokenizer["root"]).toContainEqual({
       match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`,
@@ -53,9 +54,21 @@ describe("shared syntax generators", () => {
       token: "delimiter.bracket",
       next: "@pop",
     });
+    expect(monacoLanguage.tokenizer["doc_line_comment"]).toContainEqual({
+      match: String.raw`\[[A-Za-z_][A-Za-z0-9_]*\]`,
+      token: "comment.doc.param",
+    });
     expect(jsxAttributes.patterns).toContainEqual({
       match: "([_$A-Za-z][-_:$A-Za-z0-9]*)(?=\\s*=)",
       name: "entity.other.attribute-name.vexa",
+    });
+    expect(comments.patterns).toContainEqual({
+      name: "comment.block.documentation.vexa",
+      begin: "/\\*\\*",
+      beginCaptures: { "0": { name: "punctuation.definition.comment.begin.vexa" } },
+      end: "\\*/",
+      endCaptures: { "0": { name: "punctuation.definition.comment.end.vexa" } },
+      patterns: [{ include: "#doc-comment-params" }],
     });
   });
 

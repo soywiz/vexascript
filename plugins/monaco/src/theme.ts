@@ -22,6 +22,7 @@ export function createVexaScriptMonacoTheme(): MonacoStandaloneThemeData {
     rules: [
       { token: "comment", foreground: "6A9955" },
       { token: "comment.doc", foreground: "9CDC8C", fontStyle: "italic" },
+      { token: "comment.doc.param", foreground: "D7BA7D", fontStyle: "bold" },
       { token: "keyword.declaration", foreground: "569CD6" },
       { token: "keyword.control", foreground: "C586C0" },
       { token: "tag", foreground: "D4D4D4" },

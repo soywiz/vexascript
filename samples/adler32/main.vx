@@ -3,6 +3,7 @@ class Adler32 {
   private checksum = 1
   value => checksum
 
+  /// [data]
   update(data: Uint8Array) {
     let s1 = checksum & 0xffff;
     let s2 = checksum >>> 16;

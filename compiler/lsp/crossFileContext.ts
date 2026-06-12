@@ -9,6 +9,7 @@ import { findTopLevelDeclarationInProgram, topLevelDeclarationNames } from "./de
 import { uriToFilePath } from "./importFixes";
 import { getProjectIndex, getProjectSessionForFilePath } from "./projectAnalysis";
 import { containsPosition, nodeRange } from "./ranges";
+import { createReferences, createRenameWorkspaceEdit } from "./navigation";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { ClassStatement, FunctionStatement, ImportStatement, InterfaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
@@ -65,39 +66,31 @@ export function localReferencesFromContext(
   context: ResolveContext,
   includeDeclaration: boolean
 ): Location[] {
-  if (!context.session.analysis) {
+  if (!context.session.analysis || !context.session.ast) {
     return [];
   }
-  const ranges = context.session.analysis.getReferenceRangesAt(
+  return createReferences(
+    context.session.analysis,
+    context.uri,
     context.line,
     context.character,
-    includeDeclaration
+    includeDeclaration,
+    context.session.ast
   );
-  return ranges.map((range) => ({
-    uri: context.uri,
-    range
-  }));
 }
 
 export function localRenameWorkspaceEdit(context: ResolveContext, newName: string): WorkspaceEdit | null {
-  if (!context.session.analysis) {
+  if (!context.session.analysis || !context.session.ast) {
     return null;
   }
-  const ranges = context.session.analysis.getRenameRangesAt(
+  return createRenameWorkspaceEdit(
+    context.session.analysis,
+    context.uri,
     context.line,
-    context.character
+    context.character,
+    newName,
+    context.session.ast
   );
-  if (ranges.length === 0) {
-    return null;
-  }
-  return {
-    changes: {
-      [context.uri]: ranges.map((range) => ({
-        range,
-        newText: newName
-      }))
-    }
-  };
 }
 
 export function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: string; name: string } | null {

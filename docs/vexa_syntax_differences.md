@@ -285,6 +285,8 @@ VexaScript extends the TypeScript type system with explicit integer types.
 
 `long` literals use the `L` suffix: `10L`, `0xffL`. At runtime, `long` values are lowered to JavaScript `bigint` with 64-bit wrapping (`BigInt.asIntN(64, ...)`).
 
+`int` expressions are wrapped with `|0` to keep the values `int32`.
+
 ```vexa
 val count: int = 0
 val big: long = 9_223_372_036_854_775_807L

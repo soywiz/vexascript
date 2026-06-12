@@ -77,8 +77,9 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
     controlKeywords,
     tokenizer: {
       root: [
-        { match: String.raw`\/\/\/.*$`, token: "comment.doc" },
+        { match: String.raw`\/\/\/`, token: "comment.doc", next: "@doc_line_comment" },
         { match: String.raw`\/\/.*$`, token: "comment" },
+        { match: String.raw`\/\*\*`, token: "comment.doc", next: "@doc_block_comment" },
         { match: String.raw`\/\*`, token: "comment", next: "@block_comment" },
         { match: String.raw`(?<![\w)\]])<>`, token: "tag", next: "@jsx_children" },
         { match: String.raw`(?<![\w)\]])<\/?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`, token: "tag", next: "@jsx_tag" },
@@ -94,6 +95,19 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`[^/*]+`, token: "comment" },
         { match: String.raw`\*\/`, token: "comment", next: "@pop" },
         { match: String.raw`[/*]`, token: "comment" },
+      ],
+      doc_line_comment: [
+        { match: String.raw`\[[A-Za-z_][A-Za-z0-9_]*\]`, token: "comment.doc.param" },
+        { match: String.raw`[^\[]+$`, token: "comment.doc", next: "@pop" },
+        { match: String.raw`[^\[]+`, token: "comment.doc" },
+        { match: String.raw`\[`, token: "comment.doc" },
+      ],
+      doc_block_comment: [
+        { match: String.raw`\[[A-Za-z_][A-Za-z0-9_]*\]`, token: "comment.doc.param" },
+        { match: String.raw`[^/*\[]+`, token: "comment.doc" },
+        { match: String.raw`\*\/`, token: "comment.doc", next: "@pop" },
+        { match: String.raw`[/*]`, token: "comment.doc" },
+        { match: String.raw`\[`, token: "comment.doc" },
       ],
       jsx_tag: [
         { match: String.raw`\s+`, token: "" },
@@ -196,6 +210,15 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
             begin: "///",
             beginCaptures: { "0": { name: "punctuation.definition.comment.vexa" } },
             end: "$\\n?",
+            patterns: [{ include: "#doc-comment-params" }]
+          },
+          {
+            name: "comment.block.documentation.vexa",
+            begin: "/\\*\\*",
+            beginCaptures: { "0": { name: "punctuation.definition.comment.begin.vexa" } },
+            end: "\\*/",
+            endCaptures: { "0": { name: "punctuation.definition.comment.end.vexa" } },
+            patterns: [{ include: "#doc-comment-params" }]
           },
           {
             name: "comment.line.double-slash.vexa",
@@ -211,6 +234,14 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
             endCaptures: { "0": { name: "punctuation.definition.comment.end.vexa" } },
           },
         ],
+      },
+      "doc-comment-params": {
+        patterns: [
+          {
+            name: "variable.parameter.documentation.vexa",
+            match: "\\[[_$A-Za-z][_$A-Za-z0-9]*\\]"
+          }
+        ]
       },
       strings: {
         patterns: [

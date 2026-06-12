@@ -24,6 +24,7 @@ import { createAutoAwaitDecorations } from "compiler/lsp/autoAwaitDecorations";
 import {
   createHover,
   createPrepareRename,
+  createRenameWorkspaceEdit,
 } from "compiler/lsp/navigation";
 import {
   resolveDefinitionAcrossFiles,
@@ -561,7 +562,7 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
       } catch {
         memberHover = null;
       }
-      const hover = memberHover ?? createHover(session.analysis, line, character);
+      const hover = memberHover ?? createHover(session.analysis, line, character, session.ast);
       if (!hover) return null;
       return {
         contents: hoverContentsToMarkdown(hover.contents),
@@ -681,7 +682,12 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
       };
       const session = await getSessionAsync(model, cache, workspaceContext);
       if (!session.analysis) return reject;
-      const prepared = createPrepareRename(session.analysis, position.lineNumber - 1, position.column - 1);
+      const prepared = createPrepareRename(
+        session.analysis,
+        position.lineNumber - 1,
+        position.column - 1,
+        session.ast ?? undefined
+      );
       return normalizePrepareRenameResult(prepared) ?? reject;
     },
     async provideRenameEdits(model, position, newName) {
@@ -709,8 +715,16 @@ export function registerProviders(workspaceContext?: ProviderWorkspaceContext, {
   monaco.languages.registerLinkedEditingRangeProvider(LANG_ID, {
     async provideLinkedEditingRanges(model, position) {
       const session = await getSessionAsync(model, cache, workspaceContext);
-      if (!session.analysis) return null;
-      const ranges = session.analysis.getRenameRangesAt(position.lineNumber - 1, position.column - 1);
+      if (!session.analysis || !session.ast) return null;
+      const edit = createRenameWorkspaceEdit(
+        session.analysis,
+        model.uri.toString(),
+        position.lineNumber - 1,
+        position.column - 1,
+        "__linked__",
+        session.ast
+      );
+      const ranges = edit?.changes?.[model.uri.toString()]?.map((entry) => entry.range) ?? [];
       if (ranges.length <= 1) return null;
       return {
         ranges: ranges.map(toMonacoRange),

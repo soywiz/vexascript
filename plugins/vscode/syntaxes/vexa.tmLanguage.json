@@ -50,7 +50,32 @@
               "name": "punctuation.definition.comment.vexa"
             }
           },
-          "end": "$\\n?"
+          "end": "$\\n?",
+          "patterns": [
+            {
+              "include": "#doc-comment-params"
+            }
+          ]
+        },
+        {
+          "name": "comment.block.documentation.vexa",
+          "begin": "/\\*\\*",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.vexa"
+            }
+          },
+          "end": "\\*/",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.vexa"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#doc-comment-params"
+            }
+          ]
         },
         {
           "name": "comment.line.double-slash.vexa",
@@ -76,6 +101,14 @@
               "name": "punctuation.definition.comment.end.vexa"
             }
           }
+        }
+      ]
+    },
+    "doc-comment-params": {
+      "patterns": [
+        {
+          "name": "variable.parameter.documentation.vexa",
+          "match": "\\[[_$A-Za-z][_$A-Za-z0-9]*\\]"
         }
       ]
     },

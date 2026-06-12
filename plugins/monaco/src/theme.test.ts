@@ -10,6 +10,7 @@ describe("monaco theme", () => {
     const theme = createVexaScriptMonacoTheme();
     const regularComment = theme.rules.find((rule) => rule.token === "comment");
     const docComment = theme.rules.find((rule) => rule.token === "comment.doc");
+    const docParam = theme.rules.find((rule) => rule.token === "comment.doc.param");
     const jsxTag = theme.rules.find((rule) => rule.token === "tag");
     const jsxAttribute = theme.rules.find((rule) => rule.token === "attribute.name");
 
@@ -22,6 +23,11 @@ describe("monaco theme", () => {
       token: "comment.doc",
       foreground: "9CDC8C",
       fontStyle: "italic",
+    });
+    expect(docParam).toEqual({
+      token: "comment.doc.param",
+      foreground: "D7BA7D",
+      fontStyle: "bold",
     });
     expect(jsxTag).toEqual({
       token: "tag",

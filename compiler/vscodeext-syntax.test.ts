@@ -108,6 +108,7 @@ describe("VS Code extension syntax highlighting", () => {
     expect(commentPatterns.some((pattern) =>
       pattern.name === "comment.line.documentation.vexa" && pattern.begin === "///"
     )).toBe(true);
+    expect(JSON.stringify(grammar.repository)).toContain("variable.parameter.documentation.vexa");
   });
 
   it("includes embedded XML/JSX highlighting patterns", async () => {

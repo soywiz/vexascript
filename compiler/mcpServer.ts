@@ -266,14 +266,16 @@ export class VexaMcpCodebaseServer {
       }
       case "vexa_hover": {
         const context = await this.navigationContext(args);
-        const localHover = context.session.analysis ? createHover(context.session.analysis, context.line, context.character) : null;
+        const localHover = context.session.analysis && context.session.ast
+          ? createHover(context.session.analysis, context.line, context.character, context.session.ast)
+          : null;
         return textResult(localHover);
       }
       case "vexa_definition": {
         const context = await this.navigationContext(args);
         const crossFile = await resolveDefinitionAcrossFiles(context);
-        const local = !crossFile && context.session.analysis
-          ? createDefinitionLocation(context.session.analysis, context.uri, context.line, context.character)
+        const local = !crossFile && context.session.analysis && context.session.ast
+          ? createDefinitionLocation(context.session.analysis, context.uri, context.line, context.character, context.session.ast)
           : null;
         return textResult(crossFile ?? local);
       }

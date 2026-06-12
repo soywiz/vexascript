@@ -42,7 +42,12 @@ import {
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
-import { createHover, createPrepareRename } from "./navigation";
+import {
+  createDefinitionLocation,
+  createHover,
+  createPrepareRename,
+  createRenameWorkspaceEdit
+} from "./navigation";
 import { createSignatureHelp } from "./signatureHelp";
 import { createInlayHints } from "./inlayHints";
 import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
@@ -334,6 +339,10 @@ export function startLspServer(options: LspServerOptions): void {
     if (!doc) return null;
     const session = await analysisSessions.getForDocumentAsync(doc);
     if (!session.analysis || !session.ast) return null;
+    const localDefinition = createDefinitionLocation(session.analysis, uri, line, character, session.ast);
+    if (localDefinition) {
+      return localDefinition;
+    }
     return await resolveDefinitionAcrossFiles({
       ...featureContext(uri),
       line,
@@ -388,7 +397,7 @@ export function startLspServer(options: LspServerOptions): void {
     }
 
     for (const character of candidateCharacters(params.position.character)) {
-      const hover = createHover(session.analysis, params.position.line, character);
+      const hover = createHover(session.analysis, params.position.line, character, session.ast);
       if (hover) {
         return hover;
       }
@@ -408,7 +417,7 @@ export function startLspServer(options: LspServerOptions): void {
     }
 
     for (const character of candidateCharacters(params.position.character)) {
-      const result = createPrepareRename(analysis, params.position.line, character);
+      const result = createPrepareRename(analysis, params.position.line, character, analysisSessions.getForDocument(doc).ast ?? undefined);
       if (result) {
         return result;
       }
@@ -599,7 +608,11 @@ export function startLspServer(options: LspServerOptions): void {
     if (!doc) return null;
     const analysis = analysisSessions.getForDocument(doc).analysis;
     if (!analysis) return null;
-    const ranges = analysis.getRenameRangesAt(params.position.line, params.position.character);
+    const session = analysisSessions.getForDocument(doc);
+    const edit = session.analysis && session.ast
+      ? createRenameWorkspaceEdit(session.analysis, doc.uri, params.position.line, params.position.character, "__linked__", session.ast)
+      : null;
+    const ranges = edit?.changes?.[doc.uri]?.map((entry) => entry.range) ?? [];
     return ranges.length > 1 ? { ranges, wordPattern: "[A-Za-z_][A-Za-z0-9_]*" } : null;
   });
 

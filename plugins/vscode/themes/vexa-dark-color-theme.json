@@ -18,6 +18,16 @@
       }
     },
     {
+      "scope": [
+        "variable.parameter.documentation.vexa",
+        "comment.line.documentation.vexa variable.parameter.documentation.vexa",
+        "comment.block.documentation.vexa variable.parameter.documentation.vexa"
+      ],
+      "settings": {
+        "foreground": "#D7BA7D"
+      }
+    },
+    {
       "scope": "keyword.declaration.vexa",
       "settings": {
         "foreground": "#569CD6"
