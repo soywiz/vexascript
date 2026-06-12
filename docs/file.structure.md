@@ -136,7 +136,7 @@ This section is the fast onboarding map for agents and contributors.
   - Diagnostic code mapping and shared semantic diagnostic parsing for quick fixes: `compiler/lsp/diagnosticCodes.ts`
   - Shared position/range helpers for LSP quick fixes and document features: `compiler/lsp/ranges.ts`
   - Shared AST node search helpers for LSP quick-fix target lookup, including generic size-ranked best-match searches used by the quick-fix modules: `compiler/lsp/nodeSearch.ts`
-  - Navigation/rename/references: `compiler/lsp/navigation.ts`, `compiler/lsp/crossFileNavigation.ts`
+  - Navigation/rename/references: `compiler/lsp/navigation.ts`, plus the cross-file operations (definition/hover/references/rename) in `compiler/lsp/crossFileNavigation.ts`, built on the shared resolve-context/canonical-symbol plumbing in `compiler/lsp/crossFileContext.ts` and the member/type shape and declaration resolution helpers in `compiler/lsp/crossFileTypeResolution.ts`
   - Signature help: `compiler/lsp/signatureHelp.ts`
   - Document/workspace symbols: `compiler/lsp/symbols.ts`
   - Document structure/navigation services: `compiler/lsp/documentFeatures.ts`
