@@ -122,41 +122,27 @@ interface JavaScriptImplementationInfo {
   parameters: FunctionParameter[];
 }
 
-let activeProgramOverloads: Map<string, RuntimeOverloadInfo[]> = new Map();
-let activeOperators: Map<string, RuntimeOperatorInfo[]> = new Map();
-let activeExtensionMethods: Map<string, RuntimeExtensionMethodInfo[]> = new Map();
-let activeExtensionProperties: Map<string, string> = new Map();
-let activeClassNames: Set<string> = new Set();
-let activeInterfaceNames: Set<string> = new Set();
-let activeInterfaceMembers: Map<string, InterfaceStatement["members"]> = new Map();
-let activeConstructableOnlyNames: Set<string> = new Set();
-// Parameter names (in declaration order) keyed by callable name (top-level
-// functions and class constructors), used to reorder named call arguments
-// (`fetch(url: ...)`) into the callee's positional parameter order.
-let activeParameterNames: Map<string, string[]> = new Map();
-let activeJavaScriptImplementations: Map<string, JavaScriptImplementationInfo> = new Map();
-// Source-name to final JavaScript-name overrides declared via `@JsName("...")`.
-let activeJsNames: Map<string, string> = new Map();
-
 interface RuntimeVariableDelegateInfo {
   backingName: string;
   kind: "function" | "tupleFunction" | "tupleValue" | "objectValue" | "unknownTuple";
 }
 
-let activeVariableDelegates: Map<string, RuntimeVariableDelegateInfo> = new Map();
-let activeImportedExtensionRuntimeNames: Map<string, string[]> = new Map();
-// activeExtensionThis is saved/restored locally within each extension method emission
-// and intentionally excluded from ActiveEmitState (it is not a top-level call context).
-let activeExtensionThis = false;
-let activeImplicitReceiverIdentifiers: ReadonlySet<Node> = new Set();
-let activeStaticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map();
+// Configurable factories used to lower embedded XML/JSX. They default to the
+// classic React runtime but can be overridden per emission (e.g. `h` /
+// `Fragment` for Preact, or a custom `jsx`/`jsxFragmentFactory`).
+export const DEFAULT_JSX_FACTORY = "React.createElement";
+export const DEFAULT_JSX_FRAGMENT_FACTORY = "React.Fragment";
 
-// ActiveEmitState groups all module-level emit globals that must be saved and
-// restored around each emitProgramStatementPairs call. The typed interface
-// ensures TypeScript catches any new field that is added to the globals but
-// forgotten in captureActiveEmitState / restoreActiveEmitState.
-// NOTE: activeExtensionThis is excluded — it is managed locally within each
-// extension method emission and is not a top-level call context.
+// activeExtensionThis is saved/restored locally within each extension method
+// emission and intentionally lives outside ActiveEmitState (it is not a
+// top-level call context).
+let activeExtensionThis = false;
+
+// All other per-emission emitter state lives in this single state object:
+// emitProgramStatementPairs swaps in a fresh object and restores the previous
+// one with a single assignment, so a save/restore pair can never miss a field,
+// and scoped overrides replace the whole object (`activeState = { ...activeState,
+// field }`) instead of mutating it in place.
 interface ActiveEmitState {
   programOverloads: Map<string, RuntimeOverloadInfo[]>;
   operators: Map<string, RuntimeOperatorInfo[]>;
@@ -166,64 +152,57 @@ interface ActiveEmitState {
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
   constructableOnlyNames: Set<string>;
+  /**
+   * Parameter names (in declaration order) keyed by callable name (top-level
+   * functions and class constructors), used to reorder named call arguments
+   * (`fetch(url: ...)`) into the callee's positional parameter order.
+   */
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
+  /** Source-name to final JavaScript-name overrides declared via `@JsName("...")`. */
   jsNames: Map<string, string>;
   variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
   importedExtensionRuntimeNames: Map<string, string[]>;
   implicitReceiverIdentifiers: ReadonlySet<Node>;
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string>;
   expressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
+  /**
+   * Expressions flagged by the analyzer as receiving an implicit `await`
+   * because they evaluate to a Promise inside a `sync` function body.
+   * Auto-await placement (including which positions opt out) is decided
+   * entirely by the analyzer; the emitter just inserts `await` for the
+   * flagged nodes.
+   */
   autoAwaitExpressions: ReadonlySet<Node>;
   jsxFactory: string;
   jsxFragmentFactory: string;
 }
 
-function captureActiveEmitState(): ActiveEmitState {
+function createEmptyEmitState(): ActiveEmitState {
   return {
-    programOverloads: activeProgramOverloads,
-    operators: activeOperators,
-    extensionMethods: activeExtensionMethods,
-    extensionProperties: activeExtensionProperties,
-    classNames: activeClassNames,
-    interfaceNames: activeInterfaceNames,
-    interfaceMembers: activeInterfaceMembers,
-    constructableOnlyNames: activeConstructableOnlyNames,
-    parameterNames: activeParameterNames,
-    javaScriptImplementations: activeJavaScriptImplementations,
-    jsNames: activeJsNames,
-    variableDelegates: activeVariableDelegates,
-    importedExtensionRuntimeNames: activeImportedExtensionRuntimeNames,
-    implicitReceiverIdentifiers: activeImplicitReceiverIdentifiers,
-    staticImplicitReceiverIdentifiers: activeStaticImplicitReceiverIdentifiers,
-    expressionTypes: activeExpressionTypes,
-    autoAwaitExpressions: activeAutoAwaitExpressions,
-    jsxFactory: activeJsxFactory,
-    jsxFragmentFactory: activeJsxFragmentFactory
+    programOverloads: new Map(),
+    operators: new Map(),
+    extensionMethods: new Map(),
+    extensionProperties: new Map(),
+    classNames: new Set(),
+    interfaceNames: new Set(),
+    interfaceMembers: new Map(),
+    constructableOnlyNames: new Set(),
+    parameterNames: new Map(),
+    javaScriptImplementations: new Map(),
+    jsNames: new Map(),
+    variableDelegates: new Map(),
+    importedExtensionRuntimeNames: new Map(),
+    implicitReceiverIdentifiers: new Set(),
+    staticImplicitReceiverIdentifiers: new Map(),
+    expressionTypes: undefined,
+    autoAwaitExpressions: new Set(),
+    jsxFactory: DEFAULT_JSX_FACTORY,
+    jsxFragmentFactory: DEFAULT_JSX_FRAGMENT_FACTORY
   };
 }
 
-function restoreActiveEmitState(state: ActiveEmitState): void {
-  activeProgramOverloads = state.programOverloads;
-  activeOperators = state.operators;
-  activeExtensionMethods = state.extensionMethods;
-  activeExtensionProperties = state.extensionProperties;
-  activeClassNames = state.classNames;
-  activeInterfaceNames = state.interfaceNames;
-  activeInterfaceMembers = state.interfaceMembers;
-  activeConstructableOnlyNames = state.constructableOnlyNames;
-  activeParameterNames = state.parameterNames;
-  activeJavaScriptImplementations = state.javaScriptImplementations;
-  activeJsNames = state.jsNames;
-  activeVariableDelegates = state.variableDelegates;
-  activeImportedExtensionRuntimeNames = state.importedExtensionRuntimeNames;
-  activeImplicitReceiverIdentifiers = state.implicitReceiverIdentifiers;
-  activeStaticImplicitReceiverIdentifiers = state.staticImplicitReceiverIdentifiers;
-  activeExpressionTypes = state.expressionTypes;
-  activeAutoAwaitExpressions = state.autoAwaitExpressions;
-  activeJsxFactory = state.jsxFactory;
-  activeJsxFragmentFactory = state.jsxFragmentFactory;
-}
+let activeState: ActiveEmitState = createEmptyEmitState();
 
 const PREC_COMMA = 1;
 const PREC_ASSIGNMENT = 2;
@@ -243,19 +222,6 @@ const PREC_UNARY = 15;
 const PREC_UPDATE = 16;
 const PREC_MEMBER = 17;
 const PREC_PRIMARY = 18;
-let activeExpressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
-// Expressions flagged by the analyzer as receiving an implicit `await` because they evaluate to a
-// Promise inside a `sync` function body. Auto-await placement (including which positions opt out)
-// is decided entirely by the analyzer; the emitter just inserts `await` for the flagged nodes.
-let activeAutoAwaitExpressions: ReadonlySet<Node> = new Set();
-
-// Configurable factories used to lower embedded XML/JSX. They default to the
-// classic React runtime but can be overridden per emission (e.g. `h` /
-// `Fragment` for Preact, or a custom `jsx`/`jsxFragmentFactory`).
-export const DEFAULT_JSX_FACTORY = "React.createElement";
-export const DEFAULT_JSX_FRAGMENT_FACTORY = "React.Fragment";
-let activeJsxFactory = DEFAULT_JSX_FACTORY;
-let activeJsxFragmentFactory = DEFAULT_JSX_FRAGMENT_FACTORY;
 
 export interface EmitOptions {
   /** Callee used for elements, e.g. `React.createElement` (default) or `h`. */
@@ -273,7 +239,7 @@ function asyncEmitPrefix(node: { async?: boolean; sync?: boolean }): string {
 }
 
 function isAutoAwaited(expression: Expr): boolean {
-  return activeAutoAwaitExpressions.has(expression as unknown as Node);
+  return activeState.autoAwaitExpressions.has(expression as unknown as Node);
 }
 
 function normalizeVarKind(kind: string): "let" | "var" | "const" {
@@ -415,11 +381,11 @@ function resolveOverloadedFunctionCall(call: CallExpression): string | null {
     return null;
   }
   const name = (call.callee as Identifier).name;
-  const overloads = activeProgramOverloads.get(name);
+  const overloads = activeState.programOverloads.get(name);
   if (!overloads || overloads.length <= 1) {
     return null;
   }
-  const argumentTypes = call.arguments.map((argument) => typeMangleName(activeExpressionTypes?.get(argument as unknown as Node)));
+  const argumentTypes = call.arguments.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
   const match = overloads.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))
     ?? overloads.find((candidate) => candidate.hasBody && candidate.parameterTypes.length === call.arguments.length);
   return match?.emittedName ?? null;
@@ -433,7 +399,7 @@ function emitJavaScriptImplementationCall(call: CallExpression): string | null {
   if (call.optional === true || call.callee.kind !== "Identifier") {
     return null;
   }
-  const implementation = activeJavaScriptImplementations.get((call.callee as Identifier).name);
+  const implementation = activeState.javaScriptImplementations.get((call.callee as Identifier).name);
   if (!implementation) {
     return null;
   }
@@ -452,15 +418,15 @@ function emitJavaScriptImplementationCall(call: CallExpression): string | null {
 }
 
 function resolveOperatorMethod(binary: BinaryExpression): RuntimeOperatorInfo | null {
-  const leftType = activeExpressionTypes?.get(binary.left as unknown as Node);
+  const leftType = activeState.expressionTypes?.get(binary.left as unknown as Node);
   if (leftType?.kind !== "named") {
     return null;
   }
-  const operators = activeOperators.get(leftType.name)?.filter((candidate) => candidate.operator === binary.operator);
+  const operators = activeState.operators.get(leftType.name)?.filter((candidate) => candidate.operator === binary.operator);
   if (!operators || operators.length === 0) {
     return null;
   }
-  const rightType = typeMangleName(activeExpressionTypes?.get(binary.right as unknown as Node));
+  const rightType = typeMangleName(activeState.expressionTypes?.get(binary.right as unknown as Node));
   return operators.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, [rightType]))
     ?? operators.find((candidate) => candidate.hasBody)
     ?? null;
@@ -470,11 +436,11 @@ function resolveUnaryOperatorMethod(unary: UnaryExpression): RuntimeOperatorInfo
   if (unary.operator !== "+" && unary.operator !== "-") {
     return null;
   }
-  const argumentType = activeExpressionTypes?.get(unary.argument as unknown as Node);
+  const argumentType = activeState.expressionTypes?.get(unary.argument as unknown as Node);
   if (argumentType?.kind !== "named") {
     return null;
   }
-  const operators = activeOperators.get(argumentType.name)?.filter((candidate) =>
+  const operators = activeState.operators.get(argumentType.name)?.filter((candidate) =>
     candidate.operator === unary.operator && candidate.parameterTypes.length === 0
   );
   if (!operators || operators.length === 0) {
@@ -504,16 +470,16 @@ function resolveExtensionMethodCall(call: CallExpression): string | null {
   if (member.computed || member.optional || member.property.kind !== "Identifier") {
     return null;
   }
-  const receiverType = extensionReceiverTypeName(activeExpressionTypes?.get(member.object));
+  const receiverType = extensionReceiverTypeName(activeState.expressionTypes?.get(member.object));
   if (!receiverType) {
     return null;
   }
   const methodName = (member.property as Identifier).name;
-  const methods = activeExtensionMethods.get(receiverType)?.filter((candidate) => candidate.name === methodName);
+  const methods = activeState.extensionMethods.get(receiverType)?.filter((candidate) => candidate.name === methodName);
   if (!methods || methods.length === 0) {
     return null;
   }
-  const argumentTypes = call.arguments.map((argument) => typeMangleName(activeExpressionTypes?.get(argument as unknown as Node)));
+  const argumentTypes = call.arguments.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
   return methods.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))?.emittedName
     ?? methods.find((candidate) => candidate.hasBody)?.emittedName
     ?? null;
@@ -524,9 +490,9 @@ function isBuiltinTypeNamed(type: AnalysisType | undefined, name: string): boole
 }
 
 function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, rightText: string): string | null {
-  const expressionType = activeExpressionTypes?.get(binary as unknown as Node);
-  const leftType = activeExpressionTypes?.get(binary.left as unknown as Node);
-  const rightType = activeExpressionTypes?.get(binary.right as unknown as Node);
+  const expressionType = activeState.expressionTypes?.get(binary as unknown as Node);
+  const leftType = activeState.expressionTypes?.get(binary.left as unknown as Node);
+  const rightType = activeState.expressionTypes?.get(binary.right as unknown as Node);
 
   if (
     !isBuiltinTypeNamed(expressionType, "int") ||
@@ -585,7 +551,7 @@ function functionParameterNames(parameters: FunctionParameter[]): string[] {
 }
 
 function resolveJsName(name: string): string {
-  return activeJsNames.get(name) ?? name;
+  return activeState.jsNames.get(name) ?? name;
 }
 
 function extensionPropertyRuntimeName(receiverType: string, propertyName: string): string {
@@ -593,22 +559,22 @@ function extensionPropertyRuntimeName(receiverType: string, propertyName: string
 }
 
 function importedExtensionRuntimeNames(importedName: string): string[] {
-  return activeImportedExtensionRuntimeNames.get(importedName) ?? [];
+  return activeState.importedExtensionRuntimeNames.get(importedName) ?? [];
 }
 
 function emitIdentifier(identifier: Identifier): string {
-  const delegate = activeVariableDelegates.get(identifier.name);
+  const delegate = activeState.variableDelegates.get(identifier.name);
   if (delegate) {
     return emitVariableDelegateRead(delegate);
   }
   if (activeExtensionThis && identifier.name === "this") {
     return "$this";
   }
-  const staticClassName = activeStaticImplicitReceiverIdentifiers.get(identifier);
+  const staticClassName = activeState.staticImplicitReceiverIdentifiers.get(identifier);
   if (staticClassName) {
     return `${staticClassName}.${identifier.name}`;
   }
-  if (activeImplicitReceiverIdentifiers.has(identifier)) {
+  if (activeState.implicitReceiverIdentifiers.has(identifier)) {
     return `${activeExtensionThis ? "$this" : "this"}.${identifier.name}`;
   }
   return resolveJsName(identifier.name);
@@ -618,16 +584,16 @@ function withVariableDelegateShadows<T>(names: readonly string[], emit: () => T)
   if (names.length === 0) {
     return emit();
   }
-  const previous = activeVariableDelegates;
-  const next = new Map(previous);
+  const previous = activeState;
+  const variableDelegates = new Map(previous.variableDelegates);
   for (const name of names) {
-    next.delete(name);
+    variableDelegates.delete(name);
   }
-  activeVariableDelegates = next;
+  activeState = { ...previous, variableDelegates };
   try {
     return emit();
   } finally {
-    activeVariableDelegates = previous;
+    activeState = previous;
   }
 }
 
@@ -709,7 +675,7 @@ function variableDelegateForTarget(target: Expr): RuntimeVariableDelegateInfo | 
   if (target.kind !== "Identifier") {
     return null;
   }
-  return activeVariableDelegates.get((target as Identifier).name) ?? null;
+  return activeState.variableDelegates.get((target as Identifier).name) ?? null;
 }
 
 function compoundAssignmentBinaryOperator(operator: AssignmentExpression["operator"]): BinaryExpression["operator"] | null {
@@ -765,7 +731,7 @@ function eraseTypeArguments(typeName: string): string {
 }
 
 function isLongExpression(expression: Expr): boolean {
-  const type = activeExpressionTypes?.get(expression as unknown as Node);
+  const type = activeState.expressionTypes?.get(expression as unknown as Node);
   return type?.kind === "builtin" && type.name === "long";
 }
 
@@ -800,12 +766,12 @@ function emitJsxElement(element: JsxElement): string {
   const tag = element.reference ? emitExpression(element.reference) : JSON.stringify(element.tagName);
   const props = emitJsxAttributes(element.attributes);
   const children = emitJsxChildren(element.children);
-  return `${activeJsxFactory}(${tag}, ${props}${children})`;
+  return `${activeState.jsxFactory}(${tag}, ${props}${children})`;
 }
 
 function emitJsxFragment(fragment: JsxFragment): string {
   const children = emitJsxChildren(fragment.children);
-  return `${activeJsxFactory}(${activeJsxFragmentFactory}, null${children})`;
+  return `${activeState.jsxFactory}(${activeState.jsxFragmentFactory}, null${children})`;
 }
 
 function emitJsxAttributes(attributes: JsxAttributeLike[]): string {
@@ -853,12 +819,12 @@ function emitJsxChildren(children: JsxChild[]): string {
  */
 function resolveCalleeParameterNames(callee: Expr): string[] | null {
   if (callee.kind === "Identifier") {
-    const fromDeclarations = activeParameterNames.get((callee as Identifier).name);
+    const fromDeclarations = activeState.parameterNames.get((callee as Identifier).name);
     if (fromDeclarations) {
       return fromDeclarations;
     }
   }
-  const calleeType = activeExpressionTypes?.get(callee as unknown as Node);
+  const calleeType = activeState.expressionTypes?.get(callee as unknown as Node);
   if (calleeType?.kind === "function") {
     return calleeType.parameters.map((parameter) => parameter.name);
   }
@@ -1023,7 +989,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const objectText = emitExpression(member.object, PREC_MEMBER, "left");
         if (!member.computed && member.property.kind === "Identifier") {
           const propertyName = (member.property as Identifier).name;
-          const receiverType = activeExtensionProperties.get(propertyName);
+          const receiverType = activeState.extensionProperties.get(propertyName);
           if (receiverType) {
             return `${extensionPropertyRuntimeName(receiverType, propertyName)}(${objectText})`;
           }
@@ -1059,8 +1025,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const isClassCall =
           call.optional !== true &&
           call.callee.kind === "Identifier" &&
-          (activeClassNames.has((call.callee as Identifier).name) ||
-            activeConstructableOnlyNames.has((call.callee as Identifier).name));
+          (activeState.classNames.has((call.callee as Identifier).name) ||
+            activeState.constructableOnlyNames.has((call.callee as Identifier).name));
         return isClassCall
           ? `new ${calleeText}(${argumentsText})`
           : `${calleeText}${call.optional ? "?." : ""}(${argumentsText})`;
@@ -1141,7 +1107,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
-        if (arrow.contextualObjectLiteral && activeExpressionTypes?.get(expression as unknown as Node)?.kind !== "function") {
+        if (arrow.contextualObjectLiteral && activeState.expressionTypes?.get(expression as unknown as Node)?.kind !== "function") {
           return emitExpression(arrow.contextualObjectLiteral, parentPrecedence, side);
         }
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
@@ -1334,7 +1300,7 @@ function emitClassDelegateMembers(statement: ClassStatement, members: Array<Clas
   const instanceMemberNames = classInstanceMemberNames(statement, members);
   const lines: string[] = [];
   for (const classDelegate of statement.classDelegates ?? []) {
-    for (const interfaceMember of activeInterfaceMembers.get(classDelegate.typeAnnotation.name) ?? []) {
+    for (const interfaceMember of activeState.interfaceMembers.get(classDelegate.typeAnnotation.name) ?? []) {
       if (existingNames.has(interfaceMember.name.name)) {
         continue;
       }
@@ -1599,7 +1565,7 @@ export function emitStatement(statement: Statement): string {
         }
 
         const localName = specifier.local?.name ?? specifier.imported.name;
-        const receiverType = activeExtensionProperties.get(localName);
+        const receiverType = activeState.extensionProperties.get(localName);
         if (receiverType) {
           const importedName = extensionPropertyRuntimeName(receiverType, specifier.imported.name);
           namedImports.push(specifier.local ? `${importedName} as ${specifier.local.name}` : importedName);
@@ -1662,8 +1628,8 @@ export function emitStatement(statement: Statement): string {
           activeExtensionThis = previousExtensionThis;
         }
       }
-      const overloads = activeProgramOverloads.get(fn.name.name);
-      const emittedName = activeJsNames.get(fn.name.name)
+      const overloads = activeState.programOverloads.get(fn.name.name);
+      const emittedName = activeState.jsNames.get(fn.name.name)
         ?? (overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name);
       return withVariableDelegateShadows(
         functionParameterBindingNames(fn.parameters),
@@ -1682,7 +1648,7 @@ export function emitStatement(statement: Statement): string {
         ...members.map((member) => emitClassMember(member)),
         ...emitClassDelegateMembers(classStatement, members)
       ];
-      const extendsClause = classStatement.extendsType && !activeInterfaceNames.has(classStatement.extendsType.name)
+      const extendsClause = classStatement.extendsType && !activeState.interfaceNames.has(classStatement.extendsType.name)
         ? ` extends ${eraseTypeArguments(classStatement.extendsType.name)}`
         : "";
       return `class ${resolveJsName(classStatement.name.name)}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
@@ -2223,32 +2189,34 @@ export function emitProgramStatementPairs(
   runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
 ): EmittedProgramStatement[] {
-  const saved = captureActiveEmitState();
-  activeProgramOverloads = runtimeContext.overloads;
-  activeOperators = runtimeContext.operators;
-  activeExtensionMethods = runtimeContext.extensionMethods;
-  activeExtensionProperties = runtimeContext.extensionProperties;
-  activeClassNames = runtimeContext.classNames;
-  activeInterfaceNames = runtimeContext.interfaceNames;
-  activeInterfaceMembers = runtimeContext.interfaceMembers;
-  activeConstructableOnlyNames = runtimeContext.constructableOnlyNames;
-  activeParameterNames = runtimeContext.parameterNames;
-  activeJavaScriptImplementations = runtimeContext.javaScriptImplementations;
-  activeJsNames = runtimeContext.jsNames;
-  activeVariableDelegates = runtimeContext.variableDelegates;
-  activeImportedExtensionRuntimeNames = runtimeContext.importedExtensionRuntimeNames;
-  activeImplicitReceiverIdentifiers = implicitReceiverIdentifiers;
-  activeStaticImplicitReceiverIdentifiers = staticImplicitReceiverIdentifiers;
-  activeExpressionTypes = expressionTypes;
-  activeAutoAwaitExpressions = autoAwaitExpressions;
-  activeJsxFactory = runtimeContext.jsxFactory;
-  activeJsxFragmentFactory = runtimeContext.jsxFragmentFactory;
+  const saved = activeState;
+  activeState = {
+    programOverloads: runtimeContext.overloads,
+    operators: runtimeContext.operators,
+    extensionMethods: runtimeContext.extensionMethods,
+    extensionProperties: runtimeContext.extensionProperties,
+    classNames: runtimeContext.classNames,
+    interfaceNames: runtimeContext.interfaceNames,
+    interfaceMembers: runtimeContext.interfaceMembers,
+    constructableOnlyNames: runtimeContext.constructableOnlyNames,
+    parameterNames: runtimeContext.parameterNames,
+    javaScriptImplementations: runtimeContext.javaScriptImplementations,
+    jsNames: runtimeContext.jsNames,
+    variableDelegates: runtimeContext.variableDelegates,
+    importedExtensionRuntimeNames: runtimeContext.importedExtensionRuntimeNames,
+    implicitReceiverIdentifiers,
+    staticImplicitReceiverIdentifiers,
+    expressionTypes,
+    autoAwaitExpressions,
+    jsxFactory: runtimeContext.jsxFactory,
+    jsxFragmentFactory: runtimeContext.jsxFragmentFactory
+  };
   try {
     return program.body.map((statement) => ({
       statement,
       emitted: emitStatement(statement)
     }));
   } finally {
-    restoreActiveEmitState(saved);
+    activeState = saved;
   }
 }

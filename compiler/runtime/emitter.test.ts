@@ -507,4 +507,18 @@ describe("emit embedded XML / JSX", () => {
       'const d = h(Fragment, null, h("span", null));'
     );
   });
+
+  it("restores the previous emit context after an emission completes", () => {
+    const jsxAst = () => parseFile(tokenizeReader("val d = <><span/></>", { jsx: true }), { language: "vexa" });
+
+    expect(emitProgram(jsxAst(), undefined, undefined, undefined, { jsxFactory: "h", jsxFragmentFactory: "Fragment" })).toBe(
+      'const d = h(Fragment, null, h("span", null));'
+    );
+
+    // A later emission without options must not observe the factories (or any
+    // other per-emission state) configured by the previous call.
+    expect(emitProgram(jsxAst())).toBe(
+      'const d = React.createElement(React.Fragment, null, React.createElement("span", null));'
+    );
+  });
 });
