@@ -20,7 +20,21 @@ async function versionedAssetHref(sourceRelativePath, publicPath) {
   }
 }
 
+function htmlDateString(date) {
+  return new Date(date).toISOString().slice(0, 10);
+}
+
+function readableDate(date) {
+  return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+}
+
 export default function eleventyConfig(config) {
+  config.addFilter("htmlDateString", htmlDateString);
+  config.addFilter("readableDate", readableDate);
+
+  config.addCollection("blog", function(collectionApi) {
+    return collectionApi.getFilteredByTag("blog").sort((a, b) => a.date - b.date);
+  });
   config.addPassthroughCopy({ "src/assets/generated": "assets/generated" });
   config.addPassthroughCopy({ "src/assets/site.css": "assets/site.css" });
   config.addPassthroughCopy({ "src/assets/favicon.svg": "favicon.svg" });

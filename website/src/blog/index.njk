@@ -10,16 +10,20 @@ permalink: /blog.html
     <p class="lead">Release announcements, roadmap milestones, and practical updates for people following the language.</p>
   </div>
   <div class="blog-list">
+    {% for post in collections.blog | reverse %}
     <article class="card">
       <div class="blog-meta">
-        <time datetime="2026-06-13">June 13, 2026</time>
-        <span>Release</span>
+        <time datetime="{{ post.date | htmlDateString }}">{{ post.date | readableDate }}</time>
+        {% if post.data.category %}<span>{{ post.data.category }}</span>{% endif %}
       </div>
-      <h2>VexaScript 0.9.0 becomes the first public release</h2>
-      <p class="blog-summary">The first public VexaScript release is scheduled for June 13, 2026, bringing the language, tooling, website, and editor integrations together in a single preview milestone.</p>
+      <h2><a href="{{ post.url }}" style="text-decoration: none; color: inherit;">{{ post.data.title }}</a></h2>
+      {% if post.data.summary %}<p class="blog-summary">{{ post.data.summary }}</p>{% endif %}
       <div class="actions">
-        <a class="button" href="/blog/vexa-0.9.0">Read the announcement</a>
+        <a class="button" href="{{ post.url }}">Read more</a>
       </div>
     </article>
+    {% else %}
+    <p>No posts yet.</p>
+    {% endfor %}
   </div>
 </section>
