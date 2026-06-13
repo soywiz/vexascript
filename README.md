@@ -1,115 +1,119 @@
 # VexaScript
 
-VexaScript is a language derived from TypeScript.
+VexaScript is a modern language derived from TypeScript. It is a non-strict TypeScript superset that compiles to JavaScript and integrates directly with the existing JS/TS ecosystem — no wrappers, no adapters.
 
-Node.js CLI project with:
+It is designed to be concise for humans and efficient for AI: less syntactic noise, fewer tokens, same expressive power.
 
-- Compiler CLI in a single bundle (`dist/vexa.js`).
-- Language Server embedded in the same CLI with `--language-server` or `--lsp`.
+## Features
+
+- **Concise declarations** — `fun`, `val`, primary-constructor classes, shorthand properties
+- **Operator overloading** — define `operator+`, `operator-`, `operator*`, etc. on any class
+- **Await-less async** — `sync fun` automatically awaits produced promises; `go` opts out
+- **Delegated variables** — Kotlin-style `by` delegates for computed properties and reactive state
+- **New-less instantiation** — call `Point(1, 2)` instead of `new Point(1, 2)`
+- **Optional `this`** — members can omit `this.` in most positions
+- **`int` and `long` types** — integer semantics on top of JS numbers
+- **Trailing lambdas** — pass a lambda after the closing paren of a call
+- **Null-aware access** — `?.`, `??`, and non-null assertions
+- **Full JS/TS interop** — consume any npm package or TypeScript declaration file
 
 ## Install
 
 ```bash
+npm install -g vexascript
+```
+
+## Quick start
+
+```bash
+# Run a file directly
+vexa run hello.vx
+
+# Compile to JavaScript
+vexa build hello.vx -o dist/hello.js
+
+# Format in place
+vexa format hello.vx --write
+
+# Run tests
+vexa test
+```
+
+## VS Code extension
+
+Install the [VexaScript VS Code extension](https://marketplace.visualstudio.com/items?itemName=soywiz.vexascript-vscodeext) for diagnostics, quick fixes, go-to-definition, hover docs, and completions.
+
+## CLI reference
+
+| Command | Description |
+|---|---|
+| `vexa run <file>` | Execute a `.vx` file |
+| `vexa build <file> -o <out>` | Compile to JavaScript |
+| `vexa format <file> [--write]` | Format source (print or overwrite) |
+| `vexa tokens <file>` | Print the token stream |
+| `vexa ast <file>` | Print the simplified AST |
+| `vexa test [paths…]` | Run `.test.vx` files |
+| `vexa --lsp` | Start the language server over stdio |
+
+## Language tour
+
+```vexascript
+// Primary-constructor class with operator overloading
+class Point(val x: number, val y: number) {
+  operator-() => Point(-x, -y)
+  operator+(other: Point) => Point(x + other.x, y + other.y)
+  operator*(scale: number) => Point(x * scale, y * scale)
+  length => Math.hypot(x, y)
+}
+
+val origin = Point(0, 0)
+val p = -Point(1, 2) + Point(3, 4) * 2
+
+// sync fun — await-less async
+sync fun loadUser(id: string): User {
+  val data = fetch(`/api/users/${id}`).json()
+  return User(data.id, data.name)
+}
+
+// Delegated reactive variable
+fun useState(value: number) {
+  return [() => value, (v: number) => { value = v }]
+}
+
+var count by useState(0)
+count++
+```
+
+## Documentation
+
+- [Syntax reference](https://vexascript.com/syntax)
+- [CLI guide](https://vexascript.com/cli)
+- [Quickstart](https://vexascript.com/quickstart)
+- [Embedding guide](https://vexascript.com/embed)
+- [Playground](https://vexascript.com/playground)
+
+## Development
+
+```bash
+# Install dependencies
 pnpm install
-```
 
-## Build
-
-```bash
+# Build the compiler bundle (dist/vexa.js)
 pnpm build
-```
 
-This generates:
+# Run the full test suite
+pnpm test
 
-- `dist/vexa.js` (single bundle for compiler + tooling + LSP)
+# Run with coverage
+pnpm coverage
 
-## Build and run CLI in one command
+# Open VS Code with the extension in dev mode
+pnpm code
 
-```bash
+# Run the CLI from source
 pnpm run cli <args>
 ```
 
-Example:
+## License
 
-```bash
-pnpm run cli tokens example.vx
-```
-
-## Tests (TDD)
-
-```bash
-pnpm test
-```
-
-VexaScript test files use the `.test.vx` suffix and have inline `test` and `assert` helpers available without imports:
-
-```my
-test(() => {
-  assert(1 + 1 == 2)
-})
-```
-
-Run every `.test.vx` file below the current directory, or pass one or more files/directories to limit discovery:
-
-```bash
-pnpm run cli test
-pnpm run cli test compiler-tests math.test.vx
-```
-
-## CLI usage
-
-### Compile a file
-
-```bash
-pnpm node dist/vexa.js build example.vx -o example.js
-```
-
-### View tokens
-
-```bash
-pnpm node dist/vexa.js tokens example.vx
-```
-
-### View simplified AST
-
-```bash
-pnpm node dist/vexa.js ast example.vx
-```
-
-### Format a file
-
-```bash
-pnpm node dist/vexa.js format example.vx
-```
-
-Overwrite the input file in place:
-
-```bash
-pnpm node dist/vexa.js format example.vx --write
-```
-
-### Start language server
-
-```bash
-pnpm node dist/vexa.js --language-server
-```
-
-```bash
-pnpm node dist/vexa.js --lsp
-```
-
-The LSP server communicates via `stdio` for editor integration.
-
-You can also see this documented in CLI help:
-
-```bash
-pnpm node dist/vexa.js --help
-```
-
-## VS Code extension (local dev)
-
-```bash
-pnpm run vscodeext:launch
-```
-
-This command installs extension dependencies, builds the compiler/LSP, and opens VS Code with `plugins/vscode` as the extension development path.
+See [LICENSE](LICENSE).

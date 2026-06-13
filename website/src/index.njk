@@ -1,118 +1,187 @@
 ---
 layout: layout.njk
-title: VexaScript — A modern TypeScript-derived language
+title: VexaScript — Modern language for the JavaScript ecosystem
 ---
 <section class="hero">
   <div>
-    <p class="eyebrow">TypeScript roots, modern language ergonomics</p>
+    <p class="eyebrow">TypeScript superset · Compiles to JavaScript</p>
     <h1>VexaScript</h1>
     <div class="lead">
       <p>
-        VexaScript programming language is a non-strict TypeScript superset. Human and AI friendly: easier to read for humans; less tokens for AI.
+        A modern language built on TypeScript. Concise for humans, efficient for AI — less syntactic noise, same expressive power, full compatibility with the JS/TS ecosystem.
       </p>
-
       <p>
-        Consume javascript and typescript libraries directly, adds concise declarations, function and operator overloading, delegated variables and classes, trailing lambdas, await-less asynchronous code, new-less instantiation, optional this, int and long types and plenty of quick fixes among other features.
+        Operator overloading, await-less async, primary-constructor classes, delegated variables, new-less instantiation, and more — without leaving the tools you already use.
       </p>
     </div>
     <div class="actions">
-      <a class="button" href="/playground">Try the editor</a>
-      <a class="button secondary" href="/quickstart">Open the quickstart</a>
-      <a class="button secondary" href="/syntax">Open syntax reference</a>
+      <a class="button" href="/playground">Try the playground</a>
+      <a class="button secondary" href="/quickstart">Get started</a>
+      <a class="button secondary" href="https://marketplace.visualstudio.com/items?itemName=soywiz.vexascript-vscodeext" target="_blank" rel="noopener">VS Code extension</a>
     </div>
   </div>
   <div class="code-panel" aria-label="VexaScript code sample">
     <div class="panel-title">hello.vx</div>
 {% highlightVexaScript %}
-class User(val name: string, val score: int)
+class Point(val x: number, val y: number) {
+  operator-() => Point(-x, -y)
+  operator+(other: Point) => Point(x + other.x, y + other.y)
+  operator*(scale: number) => Point(x * scale, y * scale)
+  length => Math.hypot(x, y)
+}
 
-sync fun loadMessage(user: User): string {
-  let bonus = fetchBonus(user.name)
-  return `Hello ${user.name}, score: ${user.score + bonus}`
+sync fun loadUser(id: string): User {
+  val data = fetch(`/api/users/${id}`).json()
+  return User(data.id, data.name)
 }
 {% endhighlightVexaScript %}
   </div>
 </section>
 
-<section id="getting-started" class="section getting-started-section">
+<section id="features" class="section alt">
   <div class="section-heading">
-    <p class="eyebrow">Getting Started</p>
-    <h2>Start coding with VexaScript in a few minutes</h2>
-    <p class="lead">Install the published <code>vexascript</code> npm package, use the <code>vexa</code> CLI, add the VS Code extension, and embed Monaco-powered editors when you want interactive docs or demos.</p>
-    <div class="actions">
-      <a class="button secondary" href="/quickstart">Open the quickstart</a>
-    </div>
+    <p class="eyebrow">Language features</p>
+    <h2>Familiar syntax, modern ergonomics</h2>
+    <p class="lead">VexaScript is a non-strict TypeScript superset. Every valid TypeScript file is a valid VexaScript file. The additions are opt-in and stack on top of each other naturally.</p>
+  </div>
+  <div class="grid">
+    <article class="card">
+      <h3>Primary-constructor classes</h3>
+      <p>Declare class members directly in the constructor signature. <code>val</code> for read-only, <code>var</code> for mutable. No boilerplate.</p>
+{% highlightVexaScript %}
+class User(val id: string, var name: string, val score: int = 0)
+
+val u = User("u1", "Alice")
+u.name = "Bob"
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Operator overloading</h3>
+      <p>Define arithmetic, comparison, and index operators directly on your types. Shorthand arrow syntax keeps definitions terse.</p>
+{% highlightVexaScript %}
+class Vec2(val x: number, val y: number) {
+  operator+(b: Vec2) => Vec2(x + b.x, y + b.y)
+  operator*(s: number) => Vec2(x * s, y * s)
+  length => Math.hypot(x, y)
+}
+
+val v = Vec2(1, 0) + Vec2(0, 1) * 3
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Await-less async</h3>
+      <p><code>sync fun</code> automatically awaits any <code>Promise</code> produced inside the body. Write async logic that reads like sync code — no <code>await</code> keywords needed.</p>
+{% highlightVexaScript %}
+sync fun loadBytes(url: string): Uint8Array {
+  val res = fetch(url)
+  return Uint8Array(res.arrayBuffer())
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Delegated variables</h3>
+      <p>Kotlin-style <code>by</code> delegates let you attach custom read/write behaviour to any variable. Works with React-style state tuples out of the box.</p>
+{% highlightVexaScript %}
+fun useState(init: number) {
+  return [() => init, (v: number) => { init = v }]
+}
+
+var count by useState(0)
+count++
+console.log(count) // 1
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Null-aware access</h3>
+      <p>Optional chaining and nullish coalescing are fully supported. Non-null assertions let you opt out of null checks when you know better.</p>
+{% highlightVexaScript %}
+val city = user.address?.city ?? "Unknown"
+val label = maybeUser!.name.toUpperCase()
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>New-less instantiation</h3>
+      <p>Call constructors without <code>new</code>. Classes and built-ins like <code>Map</code>, <code>Set</code>, and <code>Uint8Array</code> work the same way.</p>
+{% highlightVexaScript %}
+val users = Map<string, User>()
+val buf = Uint8Array(1024)
+val pt = Point(3, 4)
+{% endhighlightVexaScript %}
+    </article>
+  </div>
+</section>
+
+<section id="getting-started" class="section">
+  <div class="section-heading">
+    <p class="eyebrow">Get started</p>
+    <h2>Install and write your first file in under two minutes</h2>
+    <p class="lead">One npm install, one command. The VS Code extension adds a full language-server experience on top.</p>
+  </div>
+  <div class="grid getting-started-grid">
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">1</span>
+        <h3>Install the CLI</h3>
+      </div>
+{% highlightVexaScript %}
+npm install -g vexascript
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">2</span>
+        <h3>Run or compile</h3>
+      </div>
+{% highlightVexaScript %}
+vexa run hello.vx
+vexa build hello.vx -o dist/hello.js
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">3</span>
+        <h3>Add the VS Code extension</h3>
+      </div>
+      <p>Diagnostics, quick fixes, completions, and go-to-definition as you type.</p>
+      <div class="actions">
+        <a class="button primary" href="https://marketplace.visualstudio.com/items?itemName=soywiz.vexascript-vscodeext" target="_blank" rel="noopener">Install VS Code extension</a>
+        <a class="button secondary" href="/quickstart">Full quickstart</a>
+      </div>
+    </article>
   </div>
 </section>
 
 <section id="syntax" class="section alt">
   <div class="section-heading">
-    <p class="eyebrow">Syntax tour</p>
-    <h2>Readable syntax for application code</h2>
-    <p class="lead">
-      The full supported syntax reference lives on its own page and is rendered directly from the canonical documentation file of the language.
-    </p>
+    <p class="eyebrow">Syntax reference</p>
+    <h2>Everything the language supports, in one place</h2>
+    <p class="lead">The full syntax guide covers every construct — variables, functions, classes, types, generics, async patterns, destructuring, and more — rendered directly from the canonical language documentation.</p>
     <div class="actions">
-      <a class="button secondary" href="/syntax">Read the full syntax guide</a>
-    </div>
-  </div>
-  <div class="grid">
-    <article class="card">
-      <h3>Concise declarations</h3>
-      <p>Use <code>fun</code> or <code>function</code>, <code>val</code> for read-only values, and primary-constructor class members. Operator overloading and shorthand functions and properties.</p>
-{% highlightVexaScript %}
-class Point(val x: number, val y: number) {
-  operator+() { return this }
-  operator-() => Point(-x, -y)
-  operator+(other: Point) => Point(x + other.x, y + other.y)
-  operator-(other: Point) => Point(x - other.x, y - other.y)
-  operator*(scale: number) => Point(x * scale, y * scale)
-  length => Math.hypot(x, y)
-}
-val point = -Point(1, 2) + Point(3, 4) * 2
-{% endhighlightVexaScript %}
-    </article>
-    <article class="card">
-      <h3>Null-aware access</h3>
-      <p>Optional chaining, non-null assertions, and type analysis help make nullable flows explicit.</p>
-{% highlightVexaScript %}
-let city = user.address?.city ?? "Unknown"
-let name = maybeUser!.name
-{% endhighlightVexaScript %}
-    </article>
-    <article class="card">
-      <h3>Sync async style</h3>
-      <p><code>sync</code> await-less functions automatically await produced promises, while <code>go</code> avoids awaiting for manual orchestration.</p>
-{% highlightVexaScript %}
-declare class Fetch { arrayBuffer(): Promise<ArrayBuffer> }
-declare fun fetch(str: string): Promise<Fetch>
-
-sync fun loadBytes(): Uint8Array {
-  return Uint8Array(fetch('file.bin').arrayBuffer())
-}
-{% endhighlightVexaScript %}
-    </article>
-  </div>
-</section>
-
-<section id="samples" class="section">
-  <div class="section-heading">
-    <p class="eyebrow">Samples</p>
-    <h2>Patterns that teach the language</h2>
-    <p class="lead">Browse focused language samples on their own page, with operator overloads, JSX, and concise class patterns collected in one place.</p>
-    <div class="actions">
-      <a class="button secondary" href="/samples">Open the samples page</a>
+      <a class="button secondary" href="/syntax">Read the syntax reference</a>
+      <a class="button secondary" href="/samples">Browse code samples</a>
     </div>
   </div>
 </section>
 
-<section id="cli" class="section alt">
+<section id="cli" class="section">
   <div class="section-heading">
-    <p class="eyebrow">VexaScript CLI</p>
-    <h2>Compile, bundle, run, inspect, and format from the terminal</h2>
-    <p class="lead">The CLI guide lives on its own page, with the core commands, supported switches, and copy-ready examples for compiler, syntax, and test workflows.</p>
+    <p class="eyebrow">CLI</p>
+    <h2>Compile, run, test, and inspect from the terminal</h2>
+    <p class="lead">The <code>vexa</code> CLI bundles the compiler, formatter, test runner, and language server in a single binary. The CLI guide has every command with copy-ready examples.</p>
     <div class="actions">
       <a class="button secondary" href="/cli">Open the CLI guide</a>
+    </div>
+  </div>
+</section>
+
+<section id="embed" class="section alt">
+  <div class="section-heading">
+    <p class="eyebrow">Embedding API</p>
+    <h2>Live editors inside your own pages</h2>
+    <p class="lead">Drop a Monaco-powered VexaScript editor into any documentation page or product demo. The embedding guide has copy-ready setup snippets for both single-editor and full-workbench modes.</p>
+    <div class="actions">
+      <a class="button secondary" href="/embed">Open the embed guide</a>
+      <a class="button secondary" href="/playground">Try the playground</a>
     </div>
   </div>
 </section>
@@ -120,21 +189,10 @@ sync fun loadBytes(): Uint8Array {
 <section class="section">
   <div class="section-heading">
     <p class="eyebrow">Blog</p>
-    <h2>Follow release news and project updates</h2>
-    <p class="lead">Read launch announcements, milestone notes, and ecosystem updates from the VexaScript team.</p>
+    <h2>Release notes and project updates</h2>
+    <p class="lead">Follow new language features, milestone releases, and ecosystem news from the VexaScript team.</p>
     <div class="actions">
       <a class="button secondary" href="/blog">Open the blog</a>
-    </div>
-  </div>
-</section>
-
-<section class="section alt">
-  <div class="section-heading">
-    <p class="eyebrow">Embedding API</p>
-    <h2>Bring the editors into your own site</h2>
-    <p class="lead">The full embedding guide now lives on its own page with copy-ready setup snippets for both editor modes.</p>
-    <div class="actions">
-      <a class="button secondary" href="/embed">Open the embed guide</a>
     </div>
   </div>
 </section>

@@ -6,54 +6,103 @@ permalink: /quickstart.html
 <section class="section getting-started-section">
   <div class="section-heading">
     <p class="eyebrow">Quickstart</p>
-    <h1>Start coding with VexaScript in a few minutes</h1>
-    <p class="lead">Install the published <code>vexascript</code> npm package, use the <code>vexa</code> CLI, add the VS Code extension, and embed Monaco-powered editors when you want interactive docs or demos.</p>
+    <h1>Up and running in minutes</h1>
+    <p class="lead">Install the <code>vexascript</code> npm package, write your first <code>.vx</code> file, add the VS Code extension for a full editor experience, and optionally embed a live Monaco editor in your own site.</p>
   </div>
   <div class="grid getting-started-grid">
+
     <article class="card getting-started-card">
       <div class="step-heading">
         <span class="step-badge">1</span>
         <h3>Install the CLI</h3>
       </div>
-      <p>Use the published npm package and call the binary as <code>vexa</code>.</p>
+      <p>Install the <code>vexascript</code> package globally. The <code>vexa</code> binary becomes available immediately.</p>
 {% highlightVexaScript %}
 npm install -g vexascript
-vexa --help
+vexa --version
+{% endhighlightVexaScript %}
+      <p>Alternatively, run it without installing via <code>npx</code>:</p>
+{% highlightVexaScript %}
+npx vexascript run hello.vx
 {% endhighlightVexaScript %}
     </article>
+
     <article class="card getting-started-card">
       <div class="step-heading">
         <span class="step-badge">2</span>
-        <h3>Compile or run a file</h3>
+        <h3>Write your first file</h3>
       </div>
-      <p>Create a <code>main.vx</code> file and use the CLI to execute or build it.</p>
+      <p>Create a <code>hello.vx</code> file. VexaScript is a TypeScript superset — valid TypeScript is valid VexaScript.</p>
 {% highlightVexaScript %}
-vexa run main.vx
-vexa build main.vx -o dist/main.js
+class Greeter(val name: string) {
+  fun greet() => `Hello, ${name}!`
+}
+
+val g = Greeter("world")
+console.log(g.greet())
+{% endhighlightVexaScript %}
+      <p>Run it directly or compile to JavaScript:</p>
+{% highlightVexaScript %}
+vexa run hello.vx
+vexa build hello.vx -o dist/hello.js
 {% endhighlightVexaScript %}
     </article>
+
     <article class="card getting-started-card">
       <div class="step-heading">
         <span class="step-badge">3</span>
-        <h3>Use the VS Code extension</h3>
+        <h3>Install the VS Code extension</h3>
       </div>
-      <p>Install the published VS Code extension to get diagnostics, quick fixes, navigation, and language-aware editing while you work.</p>
+      <p>The official extension gives you diagnostics, quick fixes, go-to-definition, hover docs, and completions as you type.</p>
       <div class="actions">
         <a class="button primary" href="https://marketplace.visualstudio.com/items?itemName=soywiz.vexascript-vscodeext" target="_blank" rel="noopener">Install VS Code extension</a>
-        <a class="button secondary" href="/syntax">Open syntax reference</a>
-        <a class="button secondary" href="/cli">Open CLI guide</a>
       </div>
+      <p>Once installed, open any <code>.vx</code> file and the language server starts automatically. Use the <a href="/syntax">syntax reference</a> or the <a href="/cli">CLI guide</a> to explore further.</p>
     </article>
+
     <article class="card getting-started-card">
       <div class="step-heading">
         <span class="step-badge">4</span>
-        <h3>Embed Monaco in docs or apps</h3>
+        <h3>Run tests</h3>
       </div>
-      <p>The website bundle includes embeddable Monaco editors and a full workbench, so tutorials and product pages can run VexaScript directly in the browser.</p>
+      <p>Test files use the <code>.test.vx</code> suffix. The <code>test</code> and <code>assert</code> helpers are available without any import.</p>
+{% highlightVexaScript %}
+test("arithmetic", () => {
+  assert(1 + 1 == 2)
+  assert(2 * 3 == 6)
+})
+{% endhighlightVexaScript %}
+      <p>Run all tests under the current directory, or pass specific paths:</p>
+{% highlightVexaScript %}
+vexa test
+vexa test src/math.test.vx
+{% endhighlightVexaScript %}
+    </article>
+
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">5</span>
+        <h3>Embed Monaco in your site</h3>
+      </div>
+      <p>The website bundle ships embeddable Monaco-powered editors. Drop a live, editable VexaScript snippet into any docs page or product demo.</p>
       <div class="actions">
-        <a class="button secondary" href="/embed">Open embed guide</a>
+        <a class="button secondary" href="/embed">Open the embed guide</a>
         <a class="button secondary" href="/playground">Try the playground</a>
       </div>
     </article>
+
+    <article class="card getting-started-card">
+      <div class="step-heading">
+        <span class="step-badge">6</span>
+        <h3>Read the docs</h3>
+      </div>
+      <p>Explore the full language, all CLI commands, and the embedding API.</p>
+      <div class="actions">
+        <a class="button secondary" href="/syntax">Syntax reference</a>
+        <a class="button secondary" href="/cli">CLI guide</a>
+        <a class="button secondary" href="/samples">Code samples</a>
+      </div>
+    </article>
+
   </div>
 </section>
