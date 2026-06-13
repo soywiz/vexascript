@@ -44,7 +44,7 @@ To create a `.vsix` package you can send/install:
 pnpm run package
 ```
 
-This writes `vexa-vscodeext.vsix` in `plugins/vscode`.
+This writes `vexascript.vsix` in `plugins/vscode`.
 The packaging command uses `vsce --no-dependencies` because the extension dependencies are installed with PNPM and `vsce`'s default npm dependency scan can fail on PNPM's layout.
 The extension package bundles the VS Code client entrypoint into `dist/extension.js`, so the generated `.vsix` includes the `vscode-languageclient` runtime even though `vsce` is invoked with `--no-dependencies`.
 The extension manifest now declares the repository and uses an explicit `files` allowlist, so `vsce` packages only the runtime assets we ship.

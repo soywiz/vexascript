@@ -3,12 +3,12 @@
   "displayName": "VexaScript",
   "description": "VS Code support for VexaScript (.vx) using the bundled VexaScript LSP",
   "version": "0.0.1",
-  "publisher": "vexa",
+  "publisher": "soywiz",
   "icon": "icons/vexa-file.png",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/soywiz/vexa.git"
+    "url": "https://github.com/soywiz/vexascript.git"
   },
   "engines": {
     "vscode": "^1.74.0"
@@ -82,12 +82,12 @@
     "stage-server-deps": "node scripts/stageServerDeps.mjs",
     "bundle-client": "pnpm exec esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
     "bundle-extension": "pnpm run bundle-server && pnpm run stage-server-deps && pnpm run bundle-client",
-    "package": "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexa-vscodeext.vsix",
+    "package": "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexascript.vsix",
     "launch": "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)",
-    "install": "pnpm package && (code --uninstall-extension vexa.vexascript-vscodeext || true) && code --install-extension vexa-vscodeext.vsix",
-    "uninstall": "code --uninstall-extension vexa.vexascript-vscodeext"
+    "install": "pnpm package && (code --uninstall-extension vexa.vexascript || true) && code --install-extension vexascript.vsix",
+    "uninstall": "code --uninstall-extension vexa.vexascript"
   },
-  "dependencies": {
+  "devDependencies": {
     "vscode-languageclient": "^9.0.1"
   }
 }
