@@ -1,0 +1,119 @@
+# VexaScript for AI Agents
+
+VexaScript (`.vx` files) is a TypeScript superset — all valid TypeScript works. This reference only lists additions and changes.
+
+## Variables
+
+| VexaScript | TypeScript | Notes |
+|---|---|---|
+| `val x: T = v` | `const x: T = v` | immutable; prefer `val` |
+| `var x: T = v` | `let x: T = v` | mutable |
+
+Destructuring: `:` = type annotation, `::` = rename (reversed from TS):
+
+```vexa
+let { name :: alias, age: number } = obj
+```
+
+## Functions
+
+```vexa
+fun add(a: number, b: number): number { return a + b }   // prefer over `function`
+fun double(x: number): number => x * 2                    // single-expression shorthand
+```
+
+`sync` (auto-await): like `async` but every Promise used as a value is automatically awaited; return type is `T`, not `Promise<T>`.
+
+```vexa
+sync fun load(id: string): User {
+  val data = fetchJson(`/users/${id}`)  // auto-awaited
+  return data
+}
+```
+
+Use `go expr` inside `sync` to keep a Promise unawaited: `val p: Promise<User> = go fetchUser(id)`.
+
+**Named arguments:** `connect(port: 8080, host: "localhost")`
+
+**Tail lambdas:**
+
+```vexa
+list.map { it * 2 }               // implicit `it` parameter
+list.map { n: number -> n * 2 }   // explicit parameter
+```
+
+## Classes
+
+```vexa
+class Point(val x: number, val y: number)  // primary constructor; val/var params become properties
+val p = Point(1, 2)                         // no `new` needed (new still works)
+```
+
+Inside methods, `this.` is implicit — write `x` instead of `this.x`.
+
+```vexa
+class Rect(val w: number, val h: number) {
+  fun area(): number => w * h
+  operator*(scale: number): Rect => Rect(w * scale, h * scale)
+}
+```
+
+Interface delegation via `by`:
+
+```vexa
+class Widget(val d: Drawable) : Drawable by { d }
+```
+
+## Extension members
+
+```vexa
+fun String.shout(): string => this.toUpperCase() + "!"
+val number.seconds: Duration => Duration(this * 1000)
+```
+
+Must be imported before use.
+
+## Numeric types
+
+| Type | Description | TS equivalent |
+|---|---|---|
+| `int` | 32-bit integer, wrapped with `\|0` | `number` |
+| `number` | 64-bit float | `number` |
+| `long` | 64-bit signed int; literal suffix `L` | `bigint` |
+| `numeric` | supertype of all numeric types | — |
+
+## Statements
+
+```vexa
+for (item of items) { }           // no declaration keyword needed
+for (key in map) { }
+
+for (n of 0 ..< 10) { }           // exclusive range → for (let n = 0; n < 10; n++)
+for (n of 0 ... 10) { }           // inclusive range (0 through 10)
+
+defer file.close()                 // runs at block exit, like finally
+
+if (x is Circle) { x.radius }     // smart cast; compiles to instanceof
+```
+
+## JSX / type casts
+
+JSX is always enabled in `.vx` files. Use `value as Type` for casts — `<Type>value` is **not valid** in `.vx`.
+
+## Comments
+
+```vexa
+// single-line
+/// doc comment — shown in editor hover and completion tooltips
+/* block */
+```
+
+## Conventions
+
+- Semicolons are optional; idiomatic VexaScript omits them.
+- Prefer `val` over `const`, `fun` over `function`.
+- Annotations: `annotation Benchmark` / `@Benchmark fun measure() {}`
+- `@JsName("jsName")` overrides the emitted JavaScript identifier.
+- `@JsInline("js template")` inlines raw JS at each call site.
+- Runtime namespaces: `namespace Foo { export fun bar() {} }` creates a real JS object.
+- Delegated variables: `var count by useState(0)` routes reads/writes through the delegate.

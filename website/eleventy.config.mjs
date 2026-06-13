@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadSyntaxDocument, loadDifferencesDocument, renderMarkdownDocument } from "./src/siteContent.mjs";
+import { loadSyntaxDocument, loadDifferencesDocument, loadAgentsDocument, renderMarkdownDocument } from "./src/siteContent.mjs";
 import { renderHighlightedCodeBlock } from "./src/syntaxHighlight.mjs";
 
 const configDirectory = dirname(fileURLToPath(import.meta.url));
@@ -26,6 +26,7 @@ export default function eleventyConfig(config) {
   config.addPassthroughCopy({ "src/assets/favicon.svg": "favicon.svg" });
   config.addPassthroughCopy({ "src/assets/favicon.png": "favicon.png" });
 
+  config.addFilter("jsonEncode", (value) => JSON.stringify(value));
   config.addShortcode("year", function() {
     return String(new Date().getUTCFullYear());
   });
@@ -39,6 +40,13 @@ export default function eleventyConfig(config) {
   config.addGlobalData("differencesDocumentHtml", async function() {
     const differencesDocument = await loadDifferencesDocument(projectRoot);
     return renderMarkdownDocument(differencesDocument);
+  });
+  config.addGlobalData("agentsDocumentHtml", async function() {
+    const doc = await loadAgentsDocument(projectRoot);
+    return renderMarkdownDocument(doc);
+  });
+  config.addGlobalData("agentsDocumentRaw", async function() {
+    return await loadAgentsDocument(projectRoot);
   });
   config.addGlobalData("generatedAssetHrefs", async function() {
     return {
