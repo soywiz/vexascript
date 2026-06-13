@@ -6,33 +6,11 @@ permalink: /syntax.html
 <section class="doc-shell">
   <article class="doc-content">
     <p>
-      This document shows the diff related to TypeScript that should be enough for most people and AI agents.
-      There is another section with the
-      <a href="/syntax/full">full syntax</a> including TypeScript.
+      This page covers the differences from TypeScript — enough for most humans.
+      See the <a href="/syntax/full">full syntax reference</a> for everything including TypeScript,
+      or the <a href="/syntax/ai">AI agent reference</a> for a compact token-efficient version suited for <code>AGENTS.md</code>.
     </p>
 
     {{ differencesDocumentHtml | safe }}
   </article>
-
-  <article class="doc-content agents-example">
-    <div class="agents-example-header">
-      <div class="agents-example-intro">
-        <h2 class="agents-example-title">AGENTS.md template for AI agents</h2>
-        <p>Drop this file into any repository so AI agents can write and edit <code>.vx</code> files correctly. It assumes TypeScript knowledge and only covers VexaScript-specific additions — keeping token usage low.</p>
-      </div>
-      <button class="button secondary agents-copy-btn" id="agentsCopyBtn">Copy to clipboard</button>
-    </div>
-    {{ agentsDocumentHtml | safe }}
-  </article>
-
-  <script>
-    var _agentsMd = {{ agentsDocumentRaw | jsonEncode | safe }};
-    document.getElementById('agentsCopyBtn').addEventListener('click', function() {
-      var btn = this;
-      navigator.clipboard.writeText(_agentsMd).then(function() {
-        btn.textContent = 'Copied!';
-        setTimeout(function() { btn.textContent = 'Copy to clipboard'; }, 2000);
-      });
-    });
-  </script>
 </section>
