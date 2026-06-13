@@ -782,6 +782,9 @@ export class TypeChecker {
     if (delegateType.kind === "object") {
       return delegateType.properties["value"] !== undefined;
     }
+    if (delegateType.kind === "named") {
+      return this.memberTypeFromObjectType(delegateType, "value") !== null;
+    }
     if (delegateType.kind === "union") {
       return delegateType.types.every((member) => this.isValidVariableDelegateType(member));
     }
@@ -848,6 +851,9 @@ export class TypeChecker {
     }
     if (delegateType.kind === "object") {
       return delegateType.properties["value"] ?? UNKNOWN_TYPE;
+    }
+    if (delegateType.kind === "named") {
+      return this.memberTypeFromObjectType(delegateType, "value") ?? UNKNOWN_TYPE;
     }
     return UNKNOWN_TYPE;
   }
@@ -1696,7 +1702,11 @@ export class TypeChecker {
             scope
           );
           this.validateConstructorArity(call, calledClass);
-          result = namedType(calledClass.name.name, explicitTypeArguments);
+          const typeParameters = calledClass.typeParameters?.map((tp) => tp.name.name) ?? [];
+          const inferredTypeArguments = explicitTypeArguments.length > 0 || typeParameters.length === 0
+            ? explicitTypeArguments
+            : this.inferClassTypeArguments(calledClass, typeParameters, argumentTypes);
+          result = namedType(calledClass.name.name, inferredTypeArguments);
           break;
         }
         const callableType = this.callableTypeFrom(calleeType, argumentTypes);
@@ -2056,11 +2066,20 @@ export class TypeChecker {
         result = this.visitExpression(spread.argument, scope);
         break;
       }
-      case "UpdateExpression":
-        this.validateReadonlyAssignmentTarget((expression as UpdateExpression).argument, scope);
-        this.visitExpression((expression as UpdateExpression).argument, scope);
+      case "UpdateExpression": {
+        const updateExpr = expression as UpdateExpression;
+        this.validateReadonlyAssignmentTarget(updateExpr.argument, scope);
+        const updateOperandType = this.visitExpression(updateExpr.argument, scope);
+        if (!isUnknownType(updateOperandType) && !this.isNumericFamilyType(updateOperandType)) {
+          this.issues.push({
+            message: `Operator '${updateExpr.operator}' cannot be applied to type '${typeToString(updateOperandType)}'`,
+            node: updateExpr.argument,
+            code: ANALYSIS_ISSUE_CODES.OPERATOR_NOT_APPLICABLE
+          });
+        }
         result = builtinType("int");
         break;
+      }
       case "ArrayLiteral":
         result = this.inferArrayLiteralType(expression as ArrayLiteral, scope, expectedType);
         break;
@@ -3451,6 +3470,21 @@ export class TypeChecker {
       substituted.typeParameters,
       substituted.typeParameterConstraints
     );
+  }
+
+  private inferClassTypeArguments(
+    calledClass: ClassStatement,
+    typeParameters: string[],
+    argumentTypes: AnalysisType[]
+  ): AnalysisType[] {
+    const substitutions = new Map<string, AnalysisType>();
+    const typeParameterSet = new Set(typeParameters);
+    const constructorParams = calledClass.primaryConstructorParameters ?? [];
+    for (let i = 0; i < constructorParams.length && i < argumentTypes.length; i += 1) {
+      const paramType = this.typeFromAnnotationLoose(constructorParams[i]!.typeAnnotation) ?? UNKNOWN_TYPE;
+      this.inferTypeParameterSubstitutions(paramType, argumentTypes[i]!, typeParameterSet, new Set(), substitutions);
+    }
+    return typeParameters.map((tp) => substitutions.get(tp) ?? UNKNOWN_TYPE);
   }
 
   private inferTypeParameterSubstitutions(

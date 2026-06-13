@@ -615,7 +615,18 @@ function variableDelegateBackingName(name: string): string {
   return `__$delegate_${resolveJsName(name)}`;
 }
 
-function variableDelegateKind(type: AnalysisType | undefined): RuntimeVariableDelegateInfo["kind"] {
+function namedTypeHasValueMember(typeName: string, program: Program): boolean {
+  for (const statement of program.body) {
+    const decl = statement.kind === "ExportStatement" ? (statement as ExportStatement).declaration : statement;
+    if (!decl || decl.kind !== "ClassStatement") continue;
+    const cls = decl as ClassStatement;
+    if (cls.name.name !== typeName) continue;
+    return cls.members.some((m) => m.kind === "ClassMethodMember" && m.accessorKind === "get" && m.name.name === "value");
+  }
+  return false;
+}
+
+function variableDelegateKind(type: AnalysisType | undefined, program: Program): RuntimeVariableDelegateInfo["kind"] {
   if (type?.kind === "function") {
     return "function";
   }
@@ -627,6 +638,9 @@ function variableDelegateKind(type: AnalysisType | undefined): RuntimeVariableDe
     return "tupleValue";
   }
   if (type?.kind === "object" && type.properties["value"]) {
+    return "objectValue";
+  }
+  if (type?.kind === "named" && namedTypeHasValueMember(type.name, program)) {
     return "objectValue";
   }
   return "unknownTuple";
@@ -647,7 +661,7 @@ function collectVariableDelegates(program: Program, expressionTypes?: ReadonlyMa
       const sourceName = declaration.name.name;
       delegates.set(sourceName, {
         backingName: variableDelegateBackingName(sourceName),
-        kind: variableDelegateKind(expressionTypes?.get(declaration.delegate as unknown as Node))
+        kind: variableDelegateKind(expressionTypes?.get(declaration.delegate as unknown as Node), program)
       });
     }
   });

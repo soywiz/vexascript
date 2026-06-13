@@ -866,6 +866,39 @@ c.value`;
     expect(result.code).toContain("value = newValue;");
   });
 
+  it("reports an error when ++ is applied to a non-numeric type", () => {
+    const source = `class Foo(val x: int) {}
+let f = Foo(1)
+f++`;
+    const result = transpile(source);
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0]).toContain("Operator '++' cannot be applied to type 'Foo'");
+  });
+
+  it("does not report duplicate declaration for a class with both get and set accessors", () => {
+    const source = `class Box<T>(var current: T) {
+  get value(): T => current
+  set value(newValue: T) { current = newValue }
+}`;
+    const result = transpile(source);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("delegates a variable to a class instance via its value getter/setter", () => {
+    const source = `class Counter(var current: int) {
+  get value(): int => current
+  set value(n: int) { current = n }
+}
+let c by Counter(0)
+c++
+c += 5`;
+    const result = transpile(source);
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const __$delegate_c = new Counter(0);");
+    expect(result.code).toContain("__$delegate_c.value = __$delegate_c.value + 1;");
+    expect(result.code).toContain("__$delegate_c.value = __$delegate_c.value + 5;");
+  });
+
   it("supports delegated variables backed by getter functions and value objects", () => {
     const source = [
       "var stored = 1",

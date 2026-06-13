@@ -1747,7 +1747,27 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   const contentListeners = new Map<string, monaco.IDisposable>();
   const collapsedFolders = new Set<string>();
   let workspaceRevision = 0;
-  let activeUri = pathToUri(normalizePath(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
+  const savedSession = (() => {
+    try {
+      const raw = storage?.getItem(sessionStorageKey);
+      if (!raw) return null;
+      const data = JSON.parse(raw) as { activeUri?: unknown; lineNumber?: unknown; column?: unknown };
+      if (
+        typeof data.activeUri === "string" &&
+        typeof data.lineNumber === "number" &&
+        typeof data.column === "number"
+      ) {
+        return data as { activeUri: string; lineNumber: number; column: number };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  })();
+  let activeUri =
+    savedSession?.activeUri && editableFiles().some((e) => e.uri === savedSession.activeUri)
+      ? savedSession.activeUri
+      : pathToUri(normalizePath(options.activePath ?? editableFiles()[0]?.path ?? "/main.vx"));
   const workbenchHistoryId = `vexa-workbench:${entriesStorageKey}`;
   let browserHistorySnapshot = readWorkbenchBrowserHistorySnapshot(window.history.state, workbenchHistoryId)
     ?? createWorkbenchBrowserHistorySnapshot(activeUri);
@@ -1888,6 +1908,15 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       }));
     }
     renderTabs();
+  };
+
+  const persistSession = (): void => {
+    const position = editor.getPosition();
+    storage?.setItem(sessionStorageKey, JSON.stringify({
+      activeUri,
+      lineNumber: position?.lineNumber ?? 1,
+      column: position?.column ?? 1,
+    }));
   };
 
   const isDirty = (): boolean => JSON.stringify(serializeEditableWorkbenchEntries(entries)) !== savedSnapshot;
@@ -2182,6 +2211,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       applySidebarState();
       stabilizeEditorLayout(editor);
     }
+    persistSession();
   };
 
   const createFolderAtPath = (parentFolderPath: string): void => {
@@ -2488,6 +2518,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     openFile(nextEntry.path, undefined, false);
   };
   window.addEventListener("popstate", handleBrowserPopState);
+  window.addEventListener("beforeunload", persistSession);
 
   syncExpandButton();
   applyInlayHintsPreference();
@@ -2510,7 +2541,10 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   void ensureEmbeddedRuntimeReady()
     .then(async () => {
       await refreshBundledRuntimeEntries();
-      openFile(initialEntry.path, options.selection, false);
+      const restoredPosition: monaco.IPosition | undefined = savedSession
+        ? { lineNumber: savedSession.lineNumber, column: savedSession.column }
+        : undefined;
+      openFile(initialEntry.path, options.selection ?? restoredPosition, false);
       await runCurrentWorkspace();
     })
     .catch((error) => {

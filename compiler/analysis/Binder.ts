@@ -584,14 +584,16 @@ export class Binder {
             valueType: typeToString(propertyType)
           });
         } else if (method.accessorKind === "set") {
-          const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
-          this.declare(classScope, {
-            name: method.name.name,
-            kind: "variable",
-            node: method.name,
-            type: propertyType,
-            valueType: typeToString(propertyType)
-          });
+          if (!classScope.symbols.has(method.name.name)) {
+            const propertyType = this.typeFromAnnotationLoose(method.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+            this.declare(classScope, {
+              name: method.name.name,
+              kind: "variable",
+              node: method.name,
+              type: propertyType,
+              valueType: typeToString(propertyType)
+            });
+          }
         } else {
           const methodType = functionType(
             method.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
@@ -780,15 +782,17 @@ export class Binder {
         continue;
       }
       if (member.accessorKind === "set") {
-        const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: member.name.name,
-          kind: "variable",
-          node: member.name,
-          implicitReceiver: true,
-          type: propertyType,
-          valueType: typeToString(propertyType)
-        });
+        if (!scope.symbols.has(member.name.name)) {
+          const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+          this.declare(scope, {
+            name: member.name.name,
+            kind: "variable",
+            node: member.name,
+            implicitReceiver: true,
+            type: propertyType,
+            valueType: typeToString(propertyType)
+          });
+        }
         continue;
       }
       const methodType = functionType(
@@ -883,16 +887,18 @@ export class Binder {
         continue;
       }
       if (member.accessorKind === "set") {
-        const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
-        this.declare(scope, {
-          name: member.name.name,
-          kind: "variable",
-          node: member.name,
-          implicitReceiver: true,
-          ...(member.static === true ? { implicitReceiverClassName: className } : {}),
-          type: propertyType,
-          valueType: typeToString(propertyType)
-        });
+        if (!scope.symbols.has(member.name.name)) {
+          const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
+          this.declare(scope, {
+            name: member.name.name,
+            kind: "variable",
+            node: member.name,
+            implicitReceiver: true,
+            ...(member.static === true ? { implicitReceiverClassName: className } : {}),
+            type: propertyType,
+            valueType: typeToString(propertyType)
+          });
+        }
         continue;
       }
       const methodType = functionType(

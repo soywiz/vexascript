@@ -125,4 +125,21 @@ dedent`
     expect(labels).toContain("host: ");
     expect(labels).not.toContain("port: ");
   });
+
+  it("infers generic type arguments for class constructor calls", async () => {
+    const source = dedent`
+      class Box<T>(val value: T)
+      let b = Box(42)
+      let s = Box("hello")
+      `;
+    const session = createAnalysisSession(source);
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 10, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+    expect(labels).toContain(": Box<int>");
+    expect(labels).toContain(": Box<string>");
+  });
 });
