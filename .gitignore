@@ -10,3 +10,4 @@ package-lock.json
 **/*.cpuprofile
 website/_site
 website/src/assets/generated
+*.tgz

@@ -27,7 +27,8 @@
     "vscodeext:launch": "pnpm --dir plugins/vscode run launch",
     "vscodeext:package": "pnpm --dir plugins/vscode run package",
     "website:build": "pnpm --dir website build",
-    "website": "pnpm --dir website dev"
+    "website": "pnpm --dir website dev",
+    "package": "pnpm clean && pnpm build && pnpm pack"
   },
   "dependencies": {
     "commander": "^13.1.0",
