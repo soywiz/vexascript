@@ -52,7 +52,7 @@ Assignments, compound assignments, and update expressions use the delegate sette
 
 ```vexa
 fun useState(value: number) {
-  return [value, (newValue: number) => { value = newValue }]
+  return [() => value, (newValue: number) => { value = newValue }]
 }
 
 var count by useState(0)

@@ -71,7 +71,7 @@ class ShapeLogger(val shape: Shape, val label: string) : Shape by { shape } {
       <p>A <code>[value, setter]</code> tuple delegate wires reads and writes through custom accessors — like React's <code>useState</code>.</p>
 {% highlightVexaScript %}
 fun useState(value: number) {
-  return [value, (newValue: number) => { value = newValue }]
+  return [() => value, (newValue: number) => { value = newValue }]
 }
 
 var count by useState(0)
