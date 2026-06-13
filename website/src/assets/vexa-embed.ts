@@ -26,10 +26,9 @@ import { createInlayHints } from "compiler/lsp/inlayHints";
 import {
   createPrepareRename,
   createHover,
-  createDefinitionLocation,
 } from "compiler/lsp/navigation";
 import {
-  resolveDefinitionAcrossFiles,
+  resolveDefinitionWithLocalFallback,
   resolveReferencesAcrossFiles,
   resolveMemberHoverAcrossFiles,
   resolveRenameAcrossFiles,
@@ -830,26 +829,15 @@ function registerDefinitionProvider(): void {
     const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
     const line = position.lineNumber - 1;
     const character = position.column - 1;
-    const location = workspaceContext
-      ? await resolveDefinitionAcrossFiles({
-          line,
-          character,
-          session,
-          ...resolverContext(model, workspaceContext),
-        })
-      : null;
-    if (location) {
-      return [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }];
-    }
-    const localLocation = createDefinitionLocation(
-      session.analysis,
-      model.uri.toString(),
+    const location = await resolveDefinitionWithLocalFallback({
       line,
       character,
-      session.ast ?? undefined
-    );
-    return localLocation
-      ? [{ uri: monaco.Uri.parse(localLocation.uri), range: toMonacoRange(localLocation.range) }]
+      session,
+      uri: model.uri.toString(),
+      ...(workspaceContext ? resolverContext(model, workspaceContext) : { sourceRoots: [] }),
+    });
+    return location
+      ? [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }]
       : [];
   };
 

@@ -67,6 +67,7 @@ import {
   resolveTypeDefinitionAcrossFiles,
   type ClassMemberInfo
 } from "./crossFileTypeResolution";
+import { createDefinitionLocation } from "./navigation";
 
 
 async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Promise<Location | null> {
@@ -583,6 +584,31 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
     };
   }
   return null;
+}
+
+/**
+ * Resolves go-to-definition preferring cross-file navigation (imports, member
+ * access across modules) and falling back to local navigation (doc comment
+ * parameter refs, annotation refs, local symbol declarations).
+ *
+ * This is the canonical resolution order: cross-file first so that clicking an
+ * imported name jumps to its declaration in the source file rather than to the
+ * import specifier on the current file.
+ */
+export async function resolveDefinitionWithLocalFallback(
+  context: ResolveContext
+): Promise<Location | null> {
+  const crossFile = await resolveDefinitionAcrossFiles(context);
+  if (crossFile) {
+    return crossFile;
+  }
+  return createDefinitionLocation(
+    context.session.analysis!,
+    context.uri,
+    context.line,
+    context.character,
+    context.session.ast ?? undefined
+  );
 }
 
 function createMemberHoverContents(

@@ -11,6 +11,7 @@ import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/do
 import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveDefinitionAcrossFiles,
+  resolveDefinitionWithLocalFallback,
   resolveMemberHoverAcrossFiles,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
@@ -1705,6 +1706,85 @@ describe("cross-file navigation", () => {
     expect(location?.range).toBeTruthy();
     const domLine = domSource.split("\n").findIndex((line) => line.includes("beginPath()"));
     expect(location?.range.start.line).toBe(domLine);
+  });
+
+  describe("resolveDefinitionWithLocalFallback", () => {
+    it("navigates imported symbol to source declaration, not import line", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-def-fallback-"));
+      const fileA = join(root, "a.vx");
+      const fileB = join(root, "b.vx");
+      const sourceA = dedent`
+        export fun greet(): string { return "hello" }
+      `;
+      const sourceB = dedent`
+        import { greet } from "./a"
+        fun demo() { greet() }
+      `;
+      await writeFile(fileA, sourceA, "utf8");
+      await writeFile(fileB, sourceB, "utf8");
+
+      const sessionA = createAnalysisSession(sourceA);
+      const sessionB = createAnalysisSession(sourceB);
+      const uriB = pathToFileURL(fileB).toString();
+
+      // cursor on "greet" in the import specifier line (line 0, col 9)
+      const importLocation = await resolveDefinitionWithLocalFallback({
+        uri: uriB,
+        line: 0,
+        character: 9,
+        session: sessionB,
+        sourceRoots: [root],
+        getSessionForFilePath: (p) => {
+          if (p === fileA) return sessionA;
+          if (p === fileB) return sessionB;
+          return null;
+        },
+      });
+
+      expect(importLocation).not.toBeNull();
+      expect(importLocation?.uri).toBe(pathToFileURL(fileA).toString());
+      expect(importLocation?.range.start.line).toBe(0);
+
+      // cursor on the call "greet()" usage (line 1, col 13)
+      const callLocation = await resolveDefinitionWithLocalFallback({
+        uri: uriB,
+        line: 1,
+        character: 13,
+        session: sessionB,
+        sourceRoots: [root],
+        getSessionForFilePath: (p) => {
+          if (p === fileA) return sessionA;
+          if (p === fileB) return sessionB;
+          return null;
+        },
+      });
+
+      expect(callLocation).not.toBeNull();
+      expect(callLocation?.uri).toBe(pathToFileURL(fileA).toString());
+      expect(callLocation?.range.start.line).toBe(0);
+    });
+
+    it("falls back to local definition when no cross-file resolution matches", async () => {
+      const source = dedent`
+        fun localFn(): int { return 42 }
+        fun demo() { localFn() }
+      `;
+      const uri = "file:///virtual/test.vx";
+      const session = createAnalysisSession(source);
+
+      // cursor on "localFn" call (line 1, col 13)
+      const location = await resolveDefinitionWithLocalFallback({
+        uri,
+        line: 1,
+        character: 13,
+        session,
+        sourceRoots: [],
+      });
+
+      expect(location).not.toBeNull();
+      expect(location?.uri).toBe(uri);
+      expect(location?.range.start.line).toBe(0);
+    });
   });
 
   it("keeps the cross-file module layering acyclic", async () => {
