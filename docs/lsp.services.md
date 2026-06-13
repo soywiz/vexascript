@@ -65,11 +65,12 @@ This document tracks common Language Server Protocol services and their status i
 
 ## Monaco editor parity (no LSP)
 
-The Monaco browser plugin (`plugins/monaco/src/compiler-providers.ts`) reaches
-feature parity with the VS Code extension **without** running an LSP. Instead of
-speaking the protocol, it registers Monaco language providers that call the
-compiler's `compiler/lsp/*` feature functions directly in-process and maps the
-results to Monaco types. The following services are wired this way:
+The website's Monaco embeds (`website/src/assets/vexa-embed.ts`, with the
+supporting modules in `website/src/assets/monaco/`) reach feature parity with
+the VS Code extension **without** running an LSP. Instead of speaking the
+protocol, they register Monaco language providers that call the compiler's
+`compiler/lsp/*` feature functions directly in-process and map the results to
+Monaco types. The following services are wired this way:
 
 - Completion (with keyword-only fallback), hover (with in-file member hover),
   signature help.
@@ -85,9 +86,9 @@ results to Monaco types. The following services are wired this way:
 - Document, range and on-type formatting.
 
 Not implemented in Monaco because the standalone editor has no public provider
-API for them (and the static demo is single-file): call hierarchy and workspace
-symbol search. Cross-file features degrade gracefully to in-file results since
-the browser has no real file system.
+API for them: call hierarchy and workspace symbol search. Cross-file features
+resolve against the browser-only virtual workspace
+(`website/src/assets/monaco/workspace.ts`) instead of a real file system.
 
 ## Recently completed services
 

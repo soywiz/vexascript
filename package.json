@@ -26,7 +26,6 @@
     "vscodeext:bundle": "pnpm --dir plugins/vscode run bundle-extension",
     "vscodeext:launch": "pnpm --dir plugins/vscode run launch",
     "vscodeext:package": "pnpm --dir plugins/vscode run package",
-    "monaco": "pnpm --dir plugins/monaco monaco",
     "website:build": "pnpm --dir website build",
     "website": "pnpm --dir website dev"
   },
