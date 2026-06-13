@@ -20,6 +20,10 @@ export async function loadDifferencesDocument(projectRoot) {
   return await readFile(resolve(projectRoot, "docs/vexa_syntax_differences.md"), "utf8");
 }
 
+export async function loadAgentsDocument(projectRoot) {
+  return await readFile(resolve(projectRoot, "docs/agents-vexascript.md"), "utf8");
+}
+
 export function renderMarkdownDocument(content) {
   return markdown.render(content);
 }
