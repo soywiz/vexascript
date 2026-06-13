@@ -116,6 +116,7 @@ h3 { font-size: 1.35rem; margin: 0.6rem 0; }
 }
 
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.samples-group-heading { font-size: clamp(1.1rem, 2vw, 1.4rem); color: #6657ff; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 800; margin: 2.5rem 0 0.75rem; }
 .getting-started-grid { align-items: stretch; }
 .getting-started-card {
   display: grid;
