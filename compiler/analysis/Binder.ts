@@ -659,13 +659,27 @@ export class Binder {
     }
     const interfaceStatements = this.interfaceStatementsByName.get(receiverName);
     if (interfaceStatements) {
+      const visited = new Set<string>();
       for (const interfaceStatement of interfaceStatements) {
-        this.declareInterfaceMembers(scope, interfaceStatement);
+        this.declareInterfaceMembers(scope, interfaceStatement, visited);
       }
     }
   }
 
-  private declareInterfaceMembers(scope: Scope, statement: InterfaceStatement): void {
+  private declareInterfaceMembers(scope: Scope, statement: InterfaceStatement, visited?: Set<string>): void {
+    if (visited) {
+      if (visited.has(statement.name.name)) return;
+      visited.add(statement.name.name);
+    }
+    for (const extendedType of statement.extendsTypes ?? []) {
+      const parentStatements = this.interfaceStatementsByName.get(extendedType.name);
+      if (parentStatements) {
+        const visitedSet = visited ?? new Set<string>();
+        for (const parentStatement of parentStatements) {
+          this.declareInterfaceMembers(scope, parentStatement, visitedSet);
+        }
+      }
+    }
     for (const member of statement.members) {
       if (member.kind === "InterfacePropertyMember") {
         const propertyType = this.typeFromAnnotationLoose(member.typeAnnotation) ?? UNKNOWN_TYPE;
@@ -713,6 +727,16 @@ export class Binder {
         this.typeFromAnnotationLoose(member.returnType) ?? UNKNOWN_TYPE,
         member.typeParameters?.map((parameter) => parameter.name.name)
       );
+      const existingMethod = scope.symbols.get(member.name.name);
+      if (existingMethod?.kind === "method" && existingMethod.type) {
+        const existingTypes = existingMethod.type.kind === "union" ? existingMethod.type.types : [existingMethod.type];
+        if (!existingTypes.some((t) => t.kind === "function" && isSameType(t, methodType))) {
+          const mergedType = unionType([...existingTypes, methodType]);
+          existingMethod.type = mergedType;
+          existingMethod.valueType = typeToString(mergedType);
+        }
+        continue;
+      }
       this.declare(scope, {
         name: member.name.name,
         kind: "method",

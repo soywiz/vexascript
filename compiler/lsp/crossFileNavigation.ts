@@ -10,9 +10,11 @@ import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type {
+  ExportStatement,
   FunctionStatement,
   Identifier,
   ImportStatement,
+  Program,
   TypeAliasStatement,
   VarStatement
 } from "compiler/ast/ast";
@@ -443,6 +445,107 @@ export async function resolveImportPathHover(context: ResolveContext): Promise<H
   };
 }
 
+function findEnclosingReceiverTypeName(
+  ast: Program,
+  line: number,
+  character: number
+): string | null {
+  for (const statement of ast.body) {
+    let candidate: (FunctionStatement | VarStatement) | null = null;
+    if (statement.kind === "FunctionStatement" || statement.kind === "VarStatement") {
+      candidate = statement as FunctionStatement | VarStatement;
+    } else if (statement.kind === "ExportStatement") {
+      const decl = (statement as ExportStatement).declaration;
+      if (decl && (decl.kind === "FunctionStatement" || decl.kind === "VarStatement")) {
+        candidate = decl as FunctionStatement | VarStatement;
+      }
+    }
+    if (!candidate?.receiverType) {
+      continue;
+    }
+    const range = nodeRange(candidate);
+    if (!range) {
+      continue;
+    }
+    const { start, end } = range;
+    const afterStart =
+      line > start.line || (line === start.line && character >= start.character);
+    const beforeEnd =
+      line < end.line || (line === end.line && character <= end.character);
+    if (afterStart && beforeEnd) {
+      return candidate.receiverType.name;
+    }
+  }
+  return null;
+}
+
+async function resolveImplicitReceiverMemberDefinition(
+  context: ResolveContext
+): Promise<Location | null> {
+  if (!context.session.ast || !context.session.analysis) {
+    return null;
+  }
+
+  const symbolAt = context.session.analysis.getSymbolAt(context.line, context.character);
+  if (!symbolAt || symbolAt.symbol.implicitReceiver !== true || symbolAt.symbol.implicitReceiverClassName) {
+    return null;
+  }
+
+  const receiverTypeName = findEnclosingReceiverTypeName(
+    context.session.ast,
+    context.line,
+    context.character
+  );
+  if (!receiverTypeName) {
+    return null;
+  }
+
+  const memberName = symbolAt.symbol.name;
+  const resolvedReceiverTypeName = boxedPrimitiveTypeName(receiverTypeName);
+  const classResolution = await resolveTypeDefinitionAcrossFiles(context, resolvedReceiverTypeName);
+  if (!classResolution) {
+    return null;
+  }
+
+  const resolverContext = {
+    ast: context.session.ast,
+    options: {
+      uri: context.uri,
+      sourceRoots: context.sourceRoots,
+      ...(context.getSessionForFilePath ? { getSessionForFilePath: context.getSessionForFilePath } : {})
+    },
+    analysis: context.session.analysis,
+    cache: createClassResolverCache()
+  };
+
+  const interfaceMemberDeclaration = classResolution.declaration.kind === "InterfaceStatement"
+    ? await resolveInterfaceMemberDeclaration(
+      { interfaceStatement: classResolution.declaration, filePath: classResolution.filePath },
+      memberName,
+      resolvedReceiverTypeName,
+      resolverContext
+    )
+    : null;
+
+  const memberOwner = interfaceMemberDeclaration?.declaration ?? classResolution.declaration;
+  const memberFilePath = await preferVirtualRuntimeDeclarationFilePath(
+    interfaceMemberDeclaration?.filePath ?? classResolution.filePath,
+    context
+  );
+
+  const range = classMemberDeclarationRangeByName(memberOwner, memberName)
+    ?? (
+      memberOwner.kind === "InterfaceStatement"
+        ? await fallbackInterfaceMemberRangeInFile(context, memberFilePath, memberOwner.name.name, memberName)
+        : null
+    );
+
+  if (range) {
+    return { uri: pathToUri(memberFilePath), range };
+  }
+  return null;
+}
+
 export async function resolveDefinitionAcrossFiles(context: ResolveContext): Promise<Location | null> {
   const importPathDefinition = await resolveImportPathDefinition(context);
   if (importPathDefinition) {
@@ -452,6 +555,11 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
   const memberDefinition = await resolveMemberDefinitionAcrossFiles(context);
   if (memberDefinition) {
     return memberDefinition;
+  }
+
+  const implicitReceiverDefinition = await resolveImplicitReceiverMemberDefinition(context);
+  if (implicitReceiverDefinition) {
+    return implicitReceiverDefinition;
   }
 
   const typeIdentifier = context.session.ast

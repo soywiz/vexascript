@@ -1671,6 +1671,42 @@ describe("cross-file navigation", () => {
     expect(location?.range.start.line).toBe(urlLine);
   });
 
+  it("resolves implicit receiver method calls (bare method without this.) to the correct DOM file location", async () => {
+    const mainPath = "/src/main.vx";
+    const virtualDomPath = "/runtime/dom.d.ts";
+    const mainSource = [
+      "fun CanvasRenderingContext2D.myDraw(): void {",
+      "  beginPath()",
+      "}"
+    ].join("\n");
+    const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const domSession = createAnalysisSession(domSource);
+
+    const beginPathLine = 1;
+    const beginPathChar = mainSource.split("\n")[1]!.indexOf("beginPath") + 2;
+    const location = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: beginPathLine,
+      character: beginPathChar,
+      session: mainSession,
+      sourceRoots: [],
+      vfs: new MyVfs(virtualDomPath, domSource),
+      getSessionForFilePath: (filePath) => {
+        if (filePath === mainPath) return mainSession;
+        if (filePath === virtualDomPath) return domSession;
+        return null;
+      }
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(virtualDomPath).toString());
+    expect(location?.range).toBeTruthy();
+    const domLine = domSource.split("\n").findIndex((line) => line.includes("beginPath()"));
+    expect(location?.range.start.line).toBe(domLine);
+  });
+
   it("keeps the cross-file module layering acyclic", async () => {
     // crossFileNavigation.ts orchestrates the operations on top of the shared
     // helper modules; the helpers must never import back from it (or from each

@@ -62,6 +62,16 @@ permalink: /playground.html
                 return ${BACKTICK}(\${point.x}, \${point.y})${BACKTICK}
               }
 
+              fun CanvasRenderingContext2D.circle(p: Point, radius: number) {
+                this.beginPath()
+                this.arc(p.x, p.y, radius, 0, Math.PI * 2)
+              }
+
+              fun CanvasRenderingContext2D.fillWithStyle(fill: string | CanvasGradient | CanvasPattern) {
+                this.fillStyle = fill
+                this.fill()
+              }
+
               fun drawCard(c2d, origin: Point, size: Point, fill: string, label: string) {
                 c2d.fillStyle = fill
                 c2d.fillRect(origin.x, origin.y, size.x, size.y)
@@ -70,11 +80,9 @@ permalink: /playground.html
                 c2d.fillText(label, origin.x + 16, origin.y + 32)
               }
 
-              fun drawDot(c2d, center: Point, radius: number, fill: string) {
-                c2d.fillStyle = fill
-                c2d.beginPath()
-                c2d.arc(center.x, center.y, radius, 0, Math.PI * 2)
-                c2d.fill()
+              fun drawDot(c2d: CanvasRenderingContext2D, center: Point, radius: number, fill: string) {
+                c2d.circle(center, radius)
+                c2d.fillWithStyle(fill)
               }
 
               val cardOrigin = Point(36, 28)

@@ -615,6 +615,27 @@ describe("transpile", () => {
     );
   });
 
+  it("qualifies inherited interface methods without this. in extension functions", () => {
+    const source = `interface Base {
+  baseMethod(): void
+  baseProp: number
+}
+interface Child extends Base {
+  childMethod(): void
+}
+fun Child.myExtension(): void {
+  baseMethod()
+  childMethod()
+  val x = baseProp
+}`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("this.baseMethod()");
+    expect(result.code).toContain("this.childMethod()");
+    expect(result.code).toContain("this.baseProp");
+  });
+
   it("qualifies unqualified class and extension members with their receiver", () => {
     const source = `class Counter(val value: int) {
   increment(amount: int): int { return value + amount }
