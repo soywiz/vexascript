@@ -4,7 +4,7 @@
 
 VexaScript is a language derived from TypeScript with some features and ideas from Swift, Kotlin, C# and other languages.
 
-- Monaco sample theme configuration, including editor token colors for VexaScript-specific comment styling, lives in `plugins/monaco/src/theme.ts`.
+- Monaco editor theme configuration for the website embeds, including editor token colors for VexaScript-specific comment styling, lives in `website/src/assets/monaco/theme.ts`.
 - Shared LSP declaration-documentation extraction for `///` and block doc comments lives in `compiler/lsp/documentation.ts`.
 - Instance-member `this.` add/remove quick fixes live in `compiler/lsp/thisFixes.ts`.
 
@@ -19,14 +19,13 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Keep the `test` script as `tsc --noEmit && node --import tsx --test --test-reporter spec`. Do not add explicit test-file globs or `rg`/`find` enumeration to it unless the current autodiscovery behavior actually breaks. In this repository, Node's test runner with `--import tsx` already discovers and runs the `.test.ts` suite correctly.
 - Run tests with coverage: `pnpm coverage`
 - Run vscode with the plugin+lsp: `pnpm code`
-- Run monaco sample: `pnpm monaco`
 - Print embedded editor syntax bundles: `pnpm tsx compiler/cli.ts syntax --monaco|--vscode-grammar|--vscode-configuration|--codemirror`
 
 ## File Structure & Maintenance Rule
 
 - In docs/file.structure.md there is a explanation of the file structure of the repository. Keep it updated.
 - If a new architectural piece/module is added (new compiler phase, new service, new plugin integration, new docs surface, etc.), this Architecture Map in `docs/file.structure.md` must be updated in the same change so future agents can understand the repository quickly.
-- The Monaco sample shell lives in `plugins/monaco/src/main.ts`, its browser-only virtual workspace lives in `plugins/monaco/src/workspace.ts`, and cross-tab navigation history helpers live in `plugins/monaco/src/navigationHistory.ts`.
+- The Monaco editor support for the website embeds lives in `website/src/assets/monaco/` (browser-only virtual workspace in `workspace.ts`, Monaco/LSP conversions in `providerConversions.ts`, theme in `theme.ts`); the embed shell itself is `website/src/assets/vexa-embed.ts`.
 - Shared async file helpers live in `compiler/utils/fs.ts`, and shared async process helpers live in `compiler/utils/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
 - Repository samples live under `samples/<name>/`. The sample test harness runs directories that contain expected.txt, installs package.json dependencies with pnpm install when node_modules is absent, and lets each sample provide its own tsconfig.json for compiler options such as JSX factories or DOM libraries.
 

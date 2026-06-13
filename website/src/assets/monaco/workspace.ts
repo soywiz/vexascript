@@ -3,7 +3,7 @@ import {
   workspacePathBasename as basename,
   workspacePathDirname as dirname,
   workspacePathToUri
-} from "compiler/utils/workspacePaths";
+} from "./workspacePaths";
 
 export const MAIN_DOCUMENT_URI = "file:///main.vx";
 export const RUNTIME_DOCUMENT_URI = "file:///es2025.d.ts";

@@ -9,7 +9,6 @@ const projectRoot = resolve(scriptDirectory, "..");
 
 const pathsToRemove = [
   resolve(projectRoot, "dist"),
-  resolve(projectRoot, "plugins/monaco/dist"),
   resolve(projectRoot, "plugins/vscode/dist"),
   resolve(projectRoot, "website/_site"),
   resolve(projectRoot, "website/src/generated"),

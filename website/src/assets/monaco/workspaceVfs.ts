@@ -1,7 +1,7 @@
 import { Vfs, VfsDirEntry, VfsStat } from "compiler/vfs";
 import type { WorkspaceEntry } from "./workspace";
 import { pathToUri } from "./workspace";
-import { normalizeWorkspacePath as normalizePath, workspacePathDirname as dirname } from "compiler/utils/workspacePaths";
+import { normalizeWorkspacePath as normalizePath, workspacePathDirname as dirname } from "./workspacePaths";
 
 function contentVersion(content: string): number {
   let hash = 0;

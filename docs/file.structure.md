@@ -98,31 +98,14 @@ This section is the fast onboarding map for agents and contributors.
   - CLI tests: `compiler/cli.test.ts`
   - `test` command delegates test-file discovery and helper injection to `compiler/runtime/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
-- Monaco browser plugin (project root: `plugins/monaco/`):
-  - Static Monaco demo entrypoint: `plugins/monaco/src/main.ts`
-  - Monaco-to-compiler provider adapter (in-process; does NOT use LSP, calls the
-    compiler's `compiler/lsp/*` feature functions directly and maps them to
-    Monaco's `monaco.languages.register*Provider` APIs to reach VS Code feature
-    parity): `plugins/monaco/src/compiler-providers.ts`
-  - Shared Monaco provider conversion helpers for preserving LSP diagnostic metadata
-    such as `source`/`code` when adapting Monaco markers to compiler quick-fix
-    inputs: `plugins/monaco/src/providerConversions.ts`
-  - Optional LSP-over-Web-Worker path (alternative transport, not wired into the
-    default demo; reuses shared single-file LSP feature collectors such as the
-    code-action aggregator with browser-safe empty source roots):
-    `plugins/monaco/src/lsp-providers.ts`, `plugins/monaco/src/compiler-client.ts`,
-    `plugins/monaco/src/lsp-worker.ts`, `plugins/monaco/src/lsp-client.ts`,
-    `compiler/lsp/server-browser.ts`
-  - Browser stubs for Node built-ins used by shared compiler modules:
-    `plugins/monaco/src/browser-stubs/`
-  - Client-side Monaco sample shell with workspace tabs, left-hand file tree, cross-tab navigation history (back/forward), and on-demand model creation over a browser-only virtual workspace: `plugins/monaco/src/main.ts`
-  - Client-side virtual-workspace and persistence helpers (bundled sample + runtime declarations + `localStorage`): `plugins/monaco/src/workspace.ts`
-  - Monaco virtual file-system adapter that exposes open/editor workspace files through the compiler's async VFS interface: `plugins/monaco/src/workspaceVfs.ts`
-  - Monaco sample navigation-history state helpers used by toolbar/shortcut back-forward navigation: `plugins/monaco/src/navigationHistory.ts`
-  - Responsive Monaco workspace-sidebar state helpers controlling the compact drawer/toggle behavior on narrow viewports: `plugins/monaco/src/workspaceSidebar.ts`
-  - Code-lens command bridge translating LSP-style commands to native Monaco commands: `plugins/monaco/src/codeLensCommands.ts`
-  - Shared Monaco theme definitions for the sample UI, including distinct styling for regular and documentation comments: `plugins/monaco/src/theme.ts`
-  - Monaco package manifest and Vite config: `plugins/monaco/package.json`, `plugins/monaco/vite.config.ts`
+- Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):
+  - Browser-only virtual-workspace and persistence helpers (workspace tabs, folders, runtime declarations, `localStorage`): `website/src/assets/monaco/workspace.ts`
+  - Monaco virtual file-system adapter that exposes workspace files through the compiler's async VFS interface: `website/src/assets/monaco/workspaceVfs.ts`
+  - Virtual-workspace path helpers (leading-slash normalization, no dot-segment resolution): `website/src/assets/monaco/workspacePaths.ts`
+  - Monaco provider conversion helpers for preserving LSP diagnostic metadata such as `source`/`code` when adapting Monaco markers to compiler quick-fix inputs: `website/src/assets/monaco/providerConversions.ts`
+  - Workspace-wide diagnostics collection over the compiler's single-file and cross-file diagnostic passes: `website/src/assets/monaco/workspaceDiagnostics.ts`
+  - Monaco theme definitions, including distinct styling for regular and documentation comments: `website/src/assets/monaco/theme.ts`
+  - Browser stubs for Node built-ins used by shared compiler modules when bundling the embeds: `website/src/assets/monaco/browser-stubs/`
 - LSP server and features:
   - Shared LSP request-handler core registering all document-lifecycle and request handlers for both transports, parameterized by an environment (source roots, project-session lookup, optional workspace features): `compiler/lsp/serverCore.ts`
   - Server-core tests (handler parity across environments, capability gating, hover/completion/diagnostics handler behavior): `compiler/lsp/serverCore.test.ts`
@@ -193,8 +176,6 @@ This section is the fast onboarding map for agents and contributors.
 - Fixture tests: `testFixtures/@test.test.ts`
 - Shared async file helpers: `compiler/utils/fs.ts`
 - Shared async process/I/O helpers: `compiler/utils/io.ts`, tests: `compiler/utils/io.test.ts`
-- Browser virtual-workspace path helpers (leading-slash normalization shared by the Monaco workspace and website embeds): `compiler/utils/workspacePaths.ts`
-- Shared editor-shell sidebar state machine (Monaco workspace sidebar and website workbench sidebar): `compiler/utils/sidebarState.ts`
 - Reader utilities used by parser/tokenizer:
   - `compiler/utils/ListReader.ts`, tests: `compiler/utils/ListReader.test.ts`
   - `compiler/utils/StrReader.ts`, tests: `compiler/utils/StrReader.test.ts`

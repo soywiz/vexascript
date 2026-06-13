@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { expect } from "../../../compiler/test/expect";
+import { expect } from "../../../../compiler/test/expect";
 import {
   createFileInWorkspace,
   createFolderInWorkspace,

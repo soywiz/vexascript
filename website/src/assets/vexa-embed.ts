@@ -2,7 +2,7 @@ import "monaco-editor/min/vs/editor/editor.main.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import * as monaco from "monaco-editor";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
-import { normalizeWorkspacePath as normalizePath, workspacePathBasename as basename, workspacePathDirname as dirname } from "compiler/utils/workspacePaths";
+import { normalizeWorkspacePath as normalizePath, workspacePathBasename as basename, workspacePathDirname as dirname } from "./monaco/workspacePaths";
 import { collectTopLevelDeclarationsFromAst } from "compiler/analysis/projectIndex";
 import {
   ensureEcmaScriptRuntimeProgram,
@@ -54,8 +54,8 @@ import type { SymbolExport } from "compiler/lsp/importFixes";
 import { bundleModuleGraph } from "compiler/runtime/moduleGraph";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { buildPreviewDocument } from "./previewDocument";
-import { completionInsertText, markerToDiagnostic } from "../../../plugins/monaco/src/providerConversions";
-import { WorkspaceVfs } from "../../../plugins/monaco/src/workspaceVfs";
+import { completionInsertText, markerToDiagnostic } from "./monaco/providerConversions";
+import { WorkspaceVfs } from "./monaco/workspaceVfs";
 import {
   createFileInWorkspace,
   createFileEntry,
@@ -67,9 +67,9 @@ import {
   updateFileContent,
   type WorkspaceEntry,
   type WorkspaceFile,
-} from "../../../plugins/monaco/src/workspace";
-import { createVexaScriptMonacoTheme, VEXA_MONACO_THEME_NAME } from "../../../plugins/monaco/src/theme";
-import { collectWorkspaceDiagnostics } from "../../../plugins/monaco/src/workspaceDiagnostics";
+} from "./monaco/workspace";
+import { createVexaScriptMonacoTheme, VEXA_MONACO_THEME_NAME } from "./monaco/theme";
+import { collectWorkspaceDiagnostics } from "./monaco/workspaceDiagnostics";
 import {
   createWorkbenchBrowserHistorySnapshot,
   pushWorkbenchBrowserHistorySnapshot,
