@@ -128,9 +128,23 @@ export class Analysis {
   getImplicitReceiverIdentifiers(): ReadonlySet<Node> {
     return new Set(
       this.identifierResolutions
-        .filter((resolution) => resolution.symbol.implicitReceiver === true && !resolution.symbol.implicitReceiverClassName)
+        .filter((resolution) =>
+          resolution.symbol.implicitReceiver === true &&
+          !resolution.symbol.implicitReceiverClassName &&
+          !resolution.symbol.implicitReceiverExtensionReceiver
+        )
         .map((resolution) => resolution.identifier)
     );
+  }
+
+  getImplicitReceiverExtensionIdentifiers(): ReadonlyMap<Node, string> {
+    const result = new Map<Node, string>();
+    for (const resolution of this.identifierResolutions) {
+      if (resolution.symbol.implicitReceiverExtensionReceiver) {
+        result.set(resolution.identifier, resolution.symbol.implicitReceiverExtensionReceiver);
+      }
+    }
+    return result;
   }
 
   getStaticImplicitReceiverIdentifiers(): ReadonlyMap<Node, string> {

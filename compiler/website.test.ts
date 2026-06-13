@@ -60,7 +60,9 @@ describe("website project", () => {
     expect(playgroundPage.includes('id="playground-workbench"')).toBe(true);
     expect(playgroundPage.includes("embeds.createWorkbenchEditor")).toBe(true);
     expect(playgroundPage.includes('window.addEventListener("vexa-embeds-ready"')).toBe(true);
-    expect(playgroundPage.includes('drawCard(c2d, cardOrigin, cardSize, "#8cb3d9", "VexaScript")')).toBe(true);
+    expect(playgroundPage.includes('c2d.drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")')).toBe(true);
+    expect(playgroundPage.includes('import { drawCard, drawDot } from "./c2d.vx"')).toBe(true);
+    expect(playgroundPage.includes('path: "/src/c2d.vx"')).toBe(true);
     expect(playgroundPage.includes('return ${BACKTICK}(\\${point.x}, \\${point.y})${BACKTICK}')).toBe(true);
     expect(playgroundPage.includes("delay(pulseDelay / 100)")).toBe(true);
     expect(playgroundPage.includes("requestAnimationFrame")).toBe(false);

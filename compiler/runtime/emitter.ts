@@ -138,10 +138,11 @@ interface RuntimeVariableDelegateInfo {
 export const DEFAULT_JSX_FACTORY = "React.createElement";
 export const DEFAULT_JSX_FRAGMENT_FACTORY = "React.Fragment";
 
-// activeExtensionThis is saved/restored locally within each extension method
-// emission and intentionally lives outside ActiveEmitState (it is not a
-// top-level call context).
+// activeExtensionThis / activeExtensionReceiverTypeName are saved/restored
+// locally within each extension method emission and intentionally live
+// outside ActiveEmitState (they are not a top-level call context).
 let activeExtensionThis = false;
+let activeExtensionReceiverTypeName: string | null = null;
 
 // All other per-emission emitter state lives in this single state object:
 // emitProgramStatementPairs swaps in a fresh object and restores the previous
@@ -171,6 +172,7 @@ interface ActiveEmitState {
   importedExtensionRuntimeNames: Map<string, string[]>;
   implicitReceiverIdentifiers: ReadonlySet<Node>;
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string>;
+  implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string>;
   expressionTypes: ReadonlyMap<Node, AnalysisType> | undefined;
   /**
    * Expressions flagged by the analyzer as receiving an implicit `await`
@@ -202,6 +204,7 @@ function createEmptyEmitState(): ActiveEmitState {
     importedExtensionRuntimeNames: new Map(),
     implicitReceiverIdentifiers: new Set(),
     staticImplicitReceiverIdentifiers: new Map(),
+    implicitReceiverExtensionIdentifiers: new Map(),
     expressionTypes: undefined,
     autoAwaitExpressions: new Set(),
     jsxFactory: DEFAULT_JSX_FACTORY,
@@ -1030,6 +1033,29 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           const callArguments = [receiverText, ...emitCallArgumentTexts(call.callee, call.arguments)];
           return `${extensionMethodName}(${callArguments.join(", ")})`;
         }
+        if (
+          !call.optional &&
+          call.callee.kind === "Identifier" &&
+          activeExtensionReceiverTypeName &&
+          activeState.implicitReceiverExtensionIdentifiers.has(call.callee as Node)
+        ) {
+          const methodName = (call.callee as Identifier).name;
+          const receiverMethods = activeState.extensionMethods.get(activeExtensionReceiverTypeName);
+          const candidates = receiverMethods?.filter((m) => m.name === methodName);
+          if (candidates && candidates.length > 0) {
+            const argumentTypes = call.arguments.map((arg) =>
+              typeMangleName(activeState.expressionTypes?.get(arg as unknown as Node))
+            );
+            const resolvedName =
+              candidates.find((c) => c.hasBody && isOverloadMatch(c, argumentTypes))?.emittedName ??
+              candidates.find((c) => c.hasBody)?.emittedName;
+            if (resolvedName) {
+              const thisReceiver = activeExtensionThis ? "$this" : "this";
+              const callArguments = [thisReceiver, ...emitCallArgumentTexts(call.callee, call.arguments)];
+              return `${resolvedName}(${callArguments.join(", ")})`;
+            }
+          }
+        }
         const overloadedName = resolveOverloadedFunctionCall(call);
         const calleeText = overloadedName ?? emitExpression(call.callee, PREC_MEMBER, "left");
         const argumentsText = emitCallArgumentTexts(call.callee, call.arguments).join(", ");
@@ -1664,11 +1690,14 @@ export function emitStatement(statement: Statement): string {
       const property = statement as VarStatement;
       if (property.receiverType) {
         const previousExtensionThis = activeExtensionThis;
+        const previousReceiverTypeName = activeExtensionReceiverTypeName;
         activeExtensionThis = true;
+        activeExtensionReceiverTypeName = property.receiverType.name;
         try {
           return `const ${extensionPropertyRuntimeName(property.receiverType.name, (property.name as Identifier).name)} = ($this) => ${property.initializer ? emitExpression(property.initializer) : "undefined"};`;
         } finally {
           activeExtensionThis = previousExtensionThis;
+          activeExtensionReceiverTypeName = previousReceiverTypeName;
         }
       }
       return emitVarStatement(property);
@@ -1689,7 +1718,9 @@ export function emitStatement(statement: Statement): string {
         const visibleParameters = emitFunctionParameters(fn.parameters);
         const parameterList = visibleParameters.length > 0 ? `$this, ${visibleParameters}` : "$this";
         const previousExtensionThis = activeExtensionThis;
+        const previousReceiverTypeName = activeExtensionReceiverTypeName;
         activeExtensionThis = true;
+        activeExtensionReceiverTypeName = fn.receiverType.name;
         try {
           return withVariableDelegateShadows(
             functionParameterBindingNames(fn.parameters),
@@ -1697,6 +1728,7 @@ export function emitStatement(statement: Statement): string {
           );
         } finally {
           activeExtensionThis = previousExtensionThis;
+          activeExtensionReceiverTypeName = previousReceiverTypeName;
         }
       }
       const overloads = activeState.programOverloads.get(fn.name.name);
@@ -2294,7 +2326,8 @@ export function emitProgramStatementPairs(
   implicitReceiverIdentifiers: ReadonlySet<Node> = new Set(),
   autoAwaitExpressions: ReadonlySet<Node> = new Set(),
   runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
-  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
+  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
+  implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map()
 ): EmittedProgramStatement[] {
   const saved = activeState;
   activeState = {
@@ -2314,6 +2347,7 @@ export function emitProgramStatementPairs(
     importedExtensionRuntimeNames: runtimeContext.importedExtensionRuntimeNames,
     implicitReceiverIdentifiers,
     staticImplicitReceiverIdentifiers,
+    implicitReceiverExtensionIdentifiers,
     expressionTypes,
     autoAwaitExpressions,
     jsxFactory: runtimeContext.jsxFactory,

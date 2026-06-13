@@ -8,6 +8,7 @@ import type {
   ForStatement,
   FunctionStatement,
   ExportStatement,
+  Identifier,
   InterfaceStatement,
   ImportStatement,
   IfStatement,
@@ -83,6 +84,7 @@ export class Binder {
   private readonly rootScope: Scope;
   private readonly classStatementsByName = new Map<string, ClassStatement>();
   private readonly interfaceStatementsByName = new Map<string, InterfaceStatement[]>();
+  private readonly extensionsByReceiver = new Map<string, (FunctionStatement | VarStatement)[]>();
   private readonly issues: AnalysisIssue[] = [];
 
   constructor(
@@ -107,6 +109,9 @@ export class Binder {
     this.collectInterfaceStatements(this.externalDeclarations);
     this.collectInterfaceStatements(this.ambientDeclarations);
     this.collectInterfaceStatements(this.program.body);
+    this.collectExtensionStatements(this.externalDeclarations);
+    this.collectExtensionStatements(this.ambientDeclarations);
+    this.collectExtensionStatements(this.program.body);
     this.bindBuiltins();
     this.bindGlobalDeclarations(getVexaScriptRuntimeProgram().body, this.rootScope, -1);
     this.bindGlobalDeclarations(getEcmaScriptRuntimeProgram().body, this.rootScope, -1);
@@ -651,17 +656,86 @@ export class Binder {
     }
   }
 
+  private collectExtensionStatements(statements: Statement[]): void {
+    const index = declarationIndexForStatements(statements);
+    for (const fn of index.functions) {
+      if (!fn.receiverType) continue;
+      const existing = this.extensionsByReceiver.get(fn.receiverType.name) ?? [];
+      existing.push(fn);
+      this.extensionsByReceiver.set(fn.receiverType.name, existing);
+    }
+    for (const varStmt of index.vars) {
+      if (!varStmt.receiverType) continue;
+      const existing = this.extensionsByReceiver.get(varStmt.receiverType.name) ?? [];
+      existing.push(varStmt);
+      this.extensionsByReceiver.set(varStmt.receiverType.name, existing);
+    }
+  }
+
   private declareReceiverMembers(scope: Scope, receiverName: string): void {
     const classStatement = this.classStatementsByName.get(receiverName);
     if (classStatement) {
       this.declareClassMembers(scope, classStatement);
-      return;
+    } else {
+      const interfaceStatements = this.interfaceStatementsByName.get(receiverName);
+      if (interfaceStatements) {
+        const visited = new Set<string>();
+        for (const interfaceStatement of interfaceStatements) {
+          this.declareInterfaceMembers(scope, interfaceStatement, visited);
+        }
+      }
     }
-    const interfaceStatements = this.interfaceStatementsByName.get(receiverName);
-    if (interfaceStatements) {
-      const visited = new Set<string>();
-      for (const interfaceStatement of interfaceStatements) {
-        this.declareInterfaceMembers(scope, interfaceStatement, visited);
+    this.declareExtensionReceiverMembers(scope, receiverName);
+  }
+
+  private declareExtensionReceiverMembers(scope: Scope, receiverName: string): void {
+    const extensions = this.extensionsByReceiver.get(receiverName);
+    if (!extensions) return;
+    for (const ext of extensions) {
+      if (ext.kind === "VarStatement") {
+        const name = ext.name.kind === "Identifier" ? (ext.name as Identifier).name : null;
+        if (!name) continue;
+        const propertyType = this.typeFromAnnotationLoose(ext.typeAnnotation) ?? UNKNOWN_TYPE;
+        this.declare(scope, {
+          name,
+          kind: "variable",
+          node: ext.name as Identifier,
+          implicitReceiver: true,
+          implicitReceiverExtensionReceiver: receiverName,
+          type: propertyType,
+          valueType: typeToString(propertyType)
+        });
+      } else {
+        const fn = ext as FunctionStatement;
+        if (fn.operator || !fn.name) continue;
+        const methodType = functionType(
+          fn.parameters.filter((p) => p.thisParameter !== true).map((p) => ({
+            name: bindingNameText(p.name),
+            type: this.typeFromAnnotationLoose(p.typeAnnotation) ?? UNKNOWN_TYPE,
+            optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
+            rest: p.rest === true
+          })),
+          this.typeFromAnnotationLoose(fn.returnType) ?? UNKNOWN_TYPE,
+          fn.typeParameters?.map((tp) => tp.name.name)
+        );
+        const existingMethod = scope.symbols.get(fn.name.name);
+        if (existingMethod?.kind === "method" && existingMethod.type) {
+          const existingTypes = existingMethod.type.kind === "union" ? existingMethod.type.types : [existingMethod.type];
+          if (!existingTypes.some((t) => t.kind === "function" && isSameType(t, methodType))) {
+            existingMethod.type = unionType([...existingTypes, methodType]);
+            existingMethod.valueType = typeToString(existingMethod.type);
+          }
+          continue;
+        }
+        this.declare(scope, {
+          name: fn.name.name,
+          kind: "method",
+          node: fn.name,
+          implicitReceiver: true,
+          implicitReceiverExtensionReceiver: receiverName,
+          type: methodType,
+          valueType: typeToString(methodType)
+        });
       }
     }
   }

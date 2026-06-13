@@ -201,7 +201,8 @@ function emitProgramStatementSegments(
   contextProgram: Program = program,
   emitOptions: EmitOptions = {},
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
-  baseRuntimeSeed?: ReturnType<typeof createEmitProgramRuntimeSeed>
+  baseRuntimeSeed?: ReturnType<typeof createEmitProgramRuntimeSeed>,
+  implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map()
 ): { statement: Statement; emitted: string }[] {
   const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions, baseRuntimeSeed);
   return emitProgramStatementPairs(
@@ -211,7 +212,8 @@ function emitProgramStatementSegments(
     implicitReceiverIdentifiers,
     autoAwaitExpressions,
     runtimeContext,
-    staticImplicitReceiverIdentifiers
+    staticImplicitReceiverIdentifiers,
+    implicitReceiverExtensionIdentifiers
   ).filter(({ emitted }) => emitted.trim().length > 0);
 }
 
@@ -374,6 +376,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const expressionTypes = artifacts.analysis.getExpressionTypes();
   const implicitReceiverIdentifiers = artifacts.analysis.getImplicitReceiverIdentifiers();
   const staticImplicitReceiverIdentifiers = artifacts.analysis.getStaticImplicitReceiverIdentifiers();
+  const implicitReceiverExtensionIdentifiers = artifacts.analysis.getImplicitReceiverExtensionIdentifiers();
   const autoAwaitExpressions = artifacts.analysis.getAutoAwaitExpressions();
   const emittedSegments = emitProgramStatementSegments(
     programForEmission,
@@ -386,7 +389,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
     },
     staticImplicitReceiverIdentifiers,
-    cachedEcmaScriptRuntimeEmitSeed
+    cachedEcmaScriptRuntimeEmitSeed,
+    implicitReceiverExtensionIdentifiers
   );
   const emittedWithOffsets = options.preserveSourceLineOffsets
     ? emitSegmentsWithSourceLineOffsets(emittedSegments)

@@ -15,6 +15,8 @@ export interface AnalysisSymbol {
   isReadonly?: boolean;
   implicitReceiver?: boolean;
   implicitReceiverClassName?: string;
+  /** Set when this implicit receiver symbol is a user-defined extension method/property on a receiver type. */
+  implicitReceiverExtensionReceiver?: string;
   type?: AnalysisType;
   valueType?: AnalysisValueType;
 }

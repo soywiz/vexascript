@@ -26,6 +26,7 @@ import { createInlayHints } from "compiler/lsp/inlayHints";
 import {
   createPrepareRename,
   createHover,
+  createDefinitionLocation,
 } from "compiler/lsp/navigation";
 import {
   resolveDefinitionAcrossFiles,
@@ -670,7 +671,8 @@ function registerRenameProvider(): void {
       const prepared = createPrepareRename(
         session.analysis,
         position.lineNumber - 1,
-        position.column - 1
+        position.column - 1,
+        session.ast ?? undefined
       );
       return normalizePrepareRenameResult(prepared) ?? reject;
     },
@@ -803,8 +805,8 @@ function registerHoverProvider(): void {
             character: position.column - 1,
             session,
             ...resolverContext(model, workspaceContext),
-          }) ?? createHover(session.analysis, position.lineNumber - 1, position.column - 1)
-        : createHover(session.analysis, position.lineNumber - 1, position.column - 1);
+          }) ?? createHover(session.analysis, position.lineNumber - 1, position.column - 1, session.ast ?? undefined)
+        : createHover(session.analysis, position.lineNumber - 1, position.column - 1, session.ast ?? undefined);
       if (!hover) {
         return null;
       }
@@ -826,6 +828,16 @@ function registerDefinitionProvider(): void {
       return [];
     }
     const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+    const localLocation = createDefinitionLocation(
+      session.analysis,
+      model.uri.toString(),
+      position.lineNumber - 1,
+      position.column - 1,
+      session.ast ?? undefined
+    );
+    if (localLocation) {
+      return [{ uri: monaco.Uri.parse(localLocation.uri), range: toMonacoRange(localLocation.range) }];
+    }
     const location = workspaceContext
       ? await resolveDefinitionAcrossFiles({
           line: position.lineNumber - 1,

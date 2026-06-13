@@ -615,6 +615,19 @@ describe("transpile", () => {
     );
   });
 
+  it("calls other extension methods on the same receiver type without this.", () => {
+    const source = `class Counter(val value: int) {}
+fun Counter.doubled(): int { return value + value }
+fun Counter.tripled(): int { return doubled() + value }`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("function Counter$$doubled$$void($this) {");
+    expect(result.code).toContain("return $this.value + $this.value;");
+    expect(result.code).toContain("function Counter$$tripled$$void($this) {");
+    expect(result.code).toContain("Counter$$doubled$$void($this)");
+  });
+
   it("qualifies inherited interface methods without this. in extension functions", () => {
     const source = `interface Base {
   baseMethod(): void
