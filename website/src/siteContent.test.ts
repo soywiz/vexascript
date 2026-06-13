@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadSyntaxDocument, renderMarkdownDocument } from "./siteContent.ts";
+import { loadSyntaxDocument, loadAgentsDocument, renderMarkdownDocument } from "./siteContent.ts";
 import { highlightVexaScriptHtml } from "./syntaxHighlight.ts";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
@@ -13,6 +13,14 @@ test("loadSyntaxDocument reads the canonical syntax reference", async () => {
 
   assert.match(content, /^# VexaScript Supported Syntax/m);
   assert.match(content, /## Variables/m);
+});
+
+test("loadAgentsDocument reads the VexaScript AI agent reference", async () => {
+  const content = await loadAgentsDocument(projectRoot);
+
+  assert.match(content, /^# VexaScript for AI Agents/m);
+  assert.match(content, /## Functions/m);
+  assert.match(content, /sync fun/m);
 });
 
 test("renderMarkdownDocument renders headings and fenced code blocks", () => {
