@@ -7,8 +7,10 @@ permalink: /samples.html
   <div class="section-heading">
     <p class="eyebrow">Samples</p>
     <h1>Patterns that teach the language.</h1>
-    <p class="lead">Explore focused VexaScript snippets that highlight operator overloads, JSX interop, and concise member access.</p>
+    <p class="lead">Focused VexaScript snippets covering operator overloads, delegates, sync functions, ranges, extensions, and more.</p>
   </div>
+
+  <h2 class="samples-group-heading">Classes &amp; Objects</h2>
   <div class="grid">
     <article class="card">
       <h3>Operator overloading</h3>
@@ -39,6 +41,217 @@ fun Welcome({ name: string }) {
 class Counter(var value: int) {
   fun increment(): int => ++value
 }
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Class delegates</h3>
+      <p>Satisfy an interface by forwarding its members to another value using <code>by</code>.</p>
+{% highlightVexaScript %}
+interface Shape {
+  area: number
+  fill(color: string): string
+}
+
+class Rectangle(val width: number, val height: number) : Shape {
+  area => width * height
+  fill(color: string) => `${color}:${width}x${height}`
+}
+
+class ShapeLogger(val shape: Shape, val label: string) : Shape by { shape } {
+  describe() => `${label}: area=${area}`
+}
+{% endhighlightVexaScript %}
+    </article>
+  </div>
+
+  <h2 class="samples-group-heading">Delegated Properties</h2>
+  <div class="grid">
+    <article class="card">
+      <h3>Tuple delegate</h3>
+      <p>A <code>[value, setter]</code> tuple delegate wires reads and writes through custom accessors — like React's <code>useState</code>.</p>
+{% highlightVexaScript %}
+fun useState(value: number) {
+  return [value, (newValue: number) => { value = newValue }]
+}
+
+var count by useState(0)
+count = count + 1
+count += 1
+count++
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Object &amp; function delegates</h3>
+      <p>A <code>{ value }</code> object or a zero-argument function also work as delegates — all assignments route through the accessor.</p>
+{% highlightVexaScript %}
+fun box<T>(initial: T) {
+  return { value: initial }
+}
+
+var source = 1
+var observed by () => source   // function delegate: reads source
+var total by box(0)            // object delegate: reads/writes .value
+
+total = observed + 2
+source = 5
+total += observed
+total++
+{% endhighlightVexaScript %}
+    </article>
+  </div>
+
+  <h2 class="samples-group-heading">Async &amp; Sync</h2>
+  <div class="grid">
+    <article class="card">
+      <h3>Sync functions</h3>
+      <p><code>sync</code> functions auto-await any <code>Promise</code>-typed expression. Write sequential code without explicit <code>await</code>.</p>
+{% highlightVexaScript %}
+sync fun fetchPrice(item: string): number {
+  return fetch(`/prices/${item}`).json()
+}
+
+sync fun checkout(): number {
+  const base = fetchPrice("book")   // auto-awaited
+  const tax = fetchPrice("tax")     // auto-awaited
+  return base + tax
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>The <code>go</code> operator</h3>
+      <p>Inside a <code>sync</code> function, prefix an expression with <code>go</code> to keep the raw <code>Promise</code> instead of auto-awaiting it.</p>
+{% highlightVexaScript %}
+sync fun main(): void {
+  // fire-and-forget — result Promise kept, not awaited
+  const pending: Promise<number> = go fetchPrice("audit")
+
+  // normal sync call — awaited automatically
+  const price = fetchPrice("book")
+
+  console.log(price)
+  console.log(await pending)
+}
+{% endhighlightVexaScript %}
+    </article>
+  </div>
+
+  <h2 class="samples-group-heading">Control Flow</h2>
+  <div class="grid">
+    <article class="card">
+      <h3>Defer</h3>
+      <p><code>defer</code> schedules cleanup for the end of the block — it runs even when the block returns early or throws.</p>
+{% highlightVexaScript %}
+fun readValue(): int {
+  console.log("open")
+  defer console.log("close-2")
+  defer console.log("close-1")
+  console.log("read")
+  return 7
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Range expressions</h3>
+      <p><code>...</code> is end-inclusive; <code>..<</code> is end-exclusive. Both work directly in <code>for-of</code> loops and as values.</p>
+{% highlightVexaScript %}
+for (n of 0 ..< 5) {
+  console.log(n)    // 0, 1, 2, 3, 4
+}
+
+for (n of 1 ... 5) {
+  console.log(n)    // 1, 2, 3, 4, 5
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Smart casts</h3>
+      <p>Inside <code>if</code> branches, <code>is</code> and <code>in</code> narrow the type of a stable identifier automatically.</p>
+{% highlightVexaScript %}
+class Cat { meow() {} }
+class Dog { bark() {} }
+
+fun greet(animal: Cat | Dog) {
+  if (animal is Cat) {
+    animal.meow()   // type narrowed to Cat here
+  } else {
+    animal.bark()   // type narrowed to Dog here
+  }
+}
+
+fun clamp(value: int | string) {
+  if (value in 0 ... 100) {
+    const safe: int = value
+  }
+}
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Tail lambdas</h3>
+      <p>A lambda after the closing parenthesis — or as the only argument — follows Kotlin/Swift style and reduces visual noise.</p>
+{% highlightVexaScript %}
+val doubled = [1, 2, 3].map { it * 2 }
+
+val even = [1, 2, 3, 4].filter { it % 2 == 0 }
+
+val result = [1, 2, 3].map {
+  const tripled = it * 3
+  tripled + 1   // implicit return
+}
+{% endhighlightVexaScript %}
+    </article>
+  </div>
+
+  <h2 class="samples-group-heading">Extensions &amp; Calls</h2>
+  <div class="grid">
+    <article class="card">
+      <h3>Extension properties</h3>
+      <p>Add read-only properties to existing types. Import them where needed; access without an import is an error.</p>
+{% highlightVexaScript %}
+class Duration(val milliseconds: number)
+
+val number.milliseconds => Duration(this)
+val number.seconds: Duration => Duration(this * 1000)
+val number.minutes: Duration => Duration(this * 60_000)
+
+val d1 = 500.milliseconds
+val d2 = 2.seconds
+val d3 = 1.minutes
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Generic extension methods</h3>
+      <p>Extension methods can be generic and work with built-in collection types like <code>Array&lt;T&gt;</code>.</p>
+{% highlightVexaScript %}
+fun <T> Array<T>.second(): T => this[1]
+val <T> Array<T>.doubledLength => length * 2
+
+val xs = [10, 20, 30]
+console.log(xs.second())        // 20
+console.log(xs.doubledLength)   // 6
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Named arguments</h3>
+      <p>Pass arguments by parameter name in any order. The compiler reorders them to match the callee's parameter list.</p>
+{% highlightVexaScript %}
+fun connect(host: string, port: number, tls: boolean = false) {}
+
+connect(port: 8080, host: "localhost")
+connect("localhost", port: 8080, tls: true)
+
+class Point(val x: number, val y: number)
+val p = Point(y: 2, x: 1)
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Function overloads</h3>
+      <p>Multiple functions can share the same name when their parameter types differ. The compiler picks the right one at each call site.</p>
+{% highlightVexaScript %}
+function describe(value: int): string { return "int:" + value }
+function describe(value: string): string { return "str:" + value }
+
+console.log(describe(42))       // "int:42"
+console.log(describe("hello"))  // "str:hello"
 {% endhighlightVexaScript %}
     </article>
   </div>
