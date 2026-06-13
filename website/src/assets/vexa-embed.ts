@@ -828,26 +828,28 @@ function registerDefinitionProvider(): void {
       return [];
     }
     const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
-    const localLocation = createDefinitionLocation(
-      session.analysis,
-      model.uri.toString(),
-      position.lineNumber - 1,
-      position.column - 1,
-      session.ast ?? undefined
-    );
-    if (localLocation) {
-      return [{ uri: monaco.Uri.parse(localLocation.uri), range: toMonacoRange(localLocation.range) }];
-    }
+    const line = position.lineNumber - 1;
+    const character = position.column - 1;
     const location = workspaceContext
       ? await resolveDefinitionAcrossFiles({
-          line: position.lineNumber - 1,
-          character: position.column - 1,
+          line,
+          character,
           session,
           ...resolverContext(model, workspaceContext),
         })
       : null;
-    return location
-      ? [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }]
+    if (location) {
+      return [{ uri: monaco.Uri.parse(location.uri), range: toMonacoRange(location.range) }];
+    }
+    const localLocation = createDefinitionLocation(
+      session.analysis,
+      model.uri.toString(),
+      line,
+      character,
+      session.ast ?? undefined
+    );
+    return localLocation
+      ? [{ uri: monaco.Uri.parse(localLocation.uri), range: toMonacoRange(localLocation.range) }]
       : [];
   };
 
