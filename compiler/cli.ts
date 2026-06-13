@@ -535,11 +535,23 @@ async function main(): Promise<void> {
   await runCli(process.argv);
 }
 
-const isDirectExecution =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+async function isDirectExecution(): Promise<boolean> {
+  if (process.argv[1] === undefined) return false;
+  if (pathToFileURL(process.argv[1]).href === import.meta.url) return true;
+  try {
+    const { realpath } = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const [resolvedArgv1, resolvedSelf] = await Promise.all([
+      realpath(process.argv[1]),
+      realpath(fileURLToPath(import.meta.url)),
+    ]);
+    return resolvedArgv1 === resolvedSelf;
+  } catch {
+    return false;
+  }
+}
 
-if (isDirectExecution) {
+if (await isDirectExecution()) {
   main().catch((error) => {
     if (!(error instanceof DiagnosticError)) {
       console.error(error instanceof Error ? error.message : String(error));

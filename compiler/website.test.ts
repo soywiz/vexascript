@@ -70,7 +70,7 @@ describe("website project", () => {
     expect(syntaxPage.includes('class="doc-shell"')).toBe(true);
     expect(cliPage.includes("<code>bundle</code>")).toBe(true);
     expect(notFoundPage.includes("permalink: 404.html")).toBe(true);
-    expect(notFoundPage.includes("<h1>Page not found.</h1>")).toBe(true);
+    expect(notFoundPage.includes("<h1>Page not found</h1>")).toBe(true);
   });
 
   it("keeps the website build wired through embed generation and Eleventy", async () => {

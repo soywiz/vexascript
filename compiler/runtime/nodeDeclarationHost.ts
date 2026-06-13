@@ -1,4 +1,5 @@
 import "compiler/localVfs";
+import { realpath } from "node:fs/promises";
 import { fileExists } from "compiler/utils/fs";
 import { dirname, fileURLToPath, resolve } from "compiler/utils/path";
 import {
@@ -13,12 +14,17 @@ import { VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME } from "./vexascriptDeclaratio
 import type { RuntimeDeclarationsHost, RuntimeDeclarationSource } from "./declarationHost";
 import { vfs } from "compiler/vfs";
 
-function currentDirectory(): string {
-  return dirname(fileURLToPath(import.meta.url));
+async function currentDirectory(): Promise<string> {
+  const filePath = fileURLToPath(import.meta.url);
+  try {
+    return dirname(await realpath(filePath));
+  } catch {
+    return dirname(filePath);
+  }
 }
 
 async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDeclarationSource> {
-  const bundledPath = resolve(currentDirectory(), fileName);
+  const bundledPath = resolve(await currentDirectory(), fileName);
   if (await fileExists(bundledPath)) {
     return {
       filePath: bundledPath,
