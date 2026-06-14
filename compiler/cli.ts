@@ -120,6 +120,7 @@ async function buildFile(
     outputFilePath: outputPath,
     target,
     ambientDeclarations,
+    rewriteImportExtensions: true,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
     ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
     ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
@@ -171,29 +172,7 @@ async function bundleFile(
     throw new Error(`Compilation failed for ${sourcePath}`);
   }
 
-  const esbuild = await import("esbuild");
-  const bundled = await esbuild.build({
-    stdin: {
-      contents: result.code,
-      resolveDir: dirname(sourcePath),
-      sourcefile: sourcePath,
-      loader: "js"
-    },
-    bundle: true,
-    format: "esm",
-    platform: "neutral",
-    mainFields: ["module", "main"],
-    conditions: ["import", "default"],
-    target: "es2020",
-    write: false,
-    logLevel: "silent"
-  });
-  const outputCode = bundled.outputFiles[0]?.text;
-  if (outputCode === undefined) {
-    throw new Error(`Bundling failed for ${sourcePath}`);
-  }
-
-  await vfs().writeFile(outputPath, outputCode);
+  await vfs().writeFile(outputPath, result.code);
   console.log(`Bundled: ${sourcePath} -> ${outputPath}`);
   if (result.warnings.length > 0) {
     for (const warning of result.warnings) {

@@ -73,6 +73,15 @@ import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 
 type Assoc = "left" | "right";
 
+// Rewrite source-language import paths so the emitted JS resolves correctly:
+// .vx → .js, .ts/.tsx → .js, .mts → .mjs (only for relative paths).
+// Only applied when activeState.rewriteImportExtensions is true (vexa build).
+function rewriteImportPath(path: string): string {
+  if (!activeState.rewriteImportExtensions) return path;
+  if (!path.startsWith("./") && !path.startsWith("../")) return path;
+  return path.replace(/\.(vx|ts|tsx)$/, ".js").replace(/\.mts$/, ".mjs");
+}
+
 const OPERATOR_METHOD_NAMES: Partial<Record<BinaryExpression["operator"], string>> = {
   "+": "operator$plus",
   "-": "operator$minus",
@@ -183,6 +192,7 @@ interface ActiveEmitState {
    */
   autoAwaitExpressions: ReadonlySet<Node>;
   asyncForStatements: ReadonlySet<Node>;
+  rewriteImportExtensions: boolean;
   jsxFactory: string;
   jsxFragmentFactory: string;
 }
@@ -209,6 +219,7 @@ function createEmptyEmitState(): ActiveEmitState {
     expressionTypes: undefined,
     autoAwaitExpressions: new Set(),
     asyncForStatements: new Set(),
+    rewriteImportExtensions: false,
     jsxFactory: DEFAULT_JSX_FACTORY,
     jsxFragmentFactory: DEFAULT_JSX_FRAGMENT_FACTORY
   };
@@ -240,6 +251,12 @@ export interface EmitOptions {
   jsxFactory?: string;
   /** Expression used for fragments, e.g. `React.Fragment` (default) or `Fragment`. */
   jsxFragmentFactory?: string;
+  /**
+   * When true, rewrite source-language extensions in import/export paths to .js
+   * so the emitted file can be run directly (e.g. vexa build single-file output).
+   * Leave false when bundling, where local imports are stripped anyway.
+   */
+  rewriteImportExtensions?: boolean;
 }
 
 function isAsyncEmittedFunction(node: { async?: boolean; sync?: boolean }): boolean {
@@ -1641,7 +1658,7 @@ export function emitStatement(statement: Statement): string {
         return "";
       }
       if (exportStatement.exportAll) {
-        return exportStatement.from ? `export * from ${JSON.stringify(exportStatement.from.value)};` : "";
+        return exportStatement.from ? `export * from ${JSON.stringify(rewriteImportPath(exportStatement.from.value))};` : "";
       }
       if (exportStatement.specifiers) {
         const names = exportStatement.specifiers
@@ -1652,7 +1669,7 @@ export function emitStatement(statement: Statement): string {
             return localName === specifier.exported.name ? specifier.exported.name : `${localName} as ${specifier.exported.name}`;
           })
           .join(", ");
-        const fromClause = exportStatement.from ? ` from ${JSON.stringify(exportStatement.from.value)}` : "";
+        const fromClause = exportStatement.from ? ` from ${JSON.stringify(rewriteImportPath(exportStatement.from.value))}` : "";
         return `export { ${names} }${fromClause};`;
       }
       if (!exportStatement.declaration) {
@@ -1672,7 +1689,7 @@ export function emitStatement(statement: Statement): string {
       if (importStatement.typeOnly) {
         return "";
       }
-      const source = JSON.stringify(importStatement.from.value);
+      const source = JSON.stringify(rewriteImportPath(importStatement.from.value));
       if (importStatement.sideEffectOnly) {
         return `import ${source};`;
       }
@@ -1907,6 +1924,7 @@ interface EmitProgramRuntimeContext {
   jsNames: Map<string, string>;
   variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
   enumInfos: Map<string, RuntimeEnumInfo>;
+  rewriteImportExtensions: boolean;
   jsxFactory: string;
   jsxFragmentFactory: string;
 }
@@ -2308,6 +2326,7 @@ function collectEmitProgramRuntimeContext(
     jsNames,
     variableDelegates,
     enumInfos,
+    rewriteImportExtensions: options.rewriteImportExtensions ?? false,
     jsxFactory: options.jsxFactory ?? DEFAULT_JSX_FACTORY,
     jsxFragmentFactory: options.jsxFragmentFactory ?? DEFAULT_JSX_FRAGMENT_FACTORY
   };
@@ -2385,6 +2404,7 @@ export function emitProgramStatementPairs(
     expressionTypes,
     autoAwaitExpressions,
     asyncForStatements,
+    rewriteImportExtensions: runtimeContext.rewriteImportExtensions,
     jsxFactory: runtimeContext.jsxFactory,
     jsxFragmentFactory: runtimeContext.jsxFragmentFactory
   };

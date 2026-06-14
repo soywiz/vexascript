@@ -125,6 +125,12 @@ export interface TranspileOptions {
    * `React.Fragment`.
    */
   jsxFragmentFactory?: string;
+  /**
+   * When true, rewrite source-language extensions (.vx, .ts, .tsx) in
+   * import/export paths to .js in the emitted output. Set for single-file
+   * builds (vexa build) where sibling imports are not inlined.
+   */
+  rewriteImportExtensions?: boolean;
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -389,7 +395,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     contextProgram,
     {
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
-      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
+      ...(options.rewriteImportExtensions ? { rewriteImportExtensions: true } : {})
     },
     staticImplicitReceiverIdentifiers,
     cachedEcmaScriptRuntimeEmitSeed,

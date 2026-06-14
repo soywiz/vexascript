@@ -64,7 +64,7 @@ describe("CLI", () => {
     expect(outputCode).toContain('h(Fragment, null, h("span", null, "hi"))');
   });
 
-  it("build command creates an ESM bundle with VexaScript, TypeScript, JavaScript, and package imports", async () => {
+  it("build command creates an ESM bundle inlining VexaScript and TypeScript, leaving JS and npm imports as ESM", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-"));
     const input = join(dir, "main.vx");
     const output = join(dir, "bundle.mjs");
@@ -86,12 +86,14 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "build", input, "--bundle", "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
-    expect(outputCode).toContain("-from-js");
-    expect(outputCode).toContain("offset = 1");
+    // VexaScript and TypeScript imports are inlined — their specifiers disappear
     expect(outputCode).not.toContain('from "./math"');
     expect(outputCode).not.toContain('from "./message.ts"');
-    expect(outputCode).not.toContain('from "tiny-lib"');
+    // Plain JS and npm package imports remain as ESM (Node.js resolves them at runtime)
+    expect(outputCode).toContain('from "./suffix.js"');
+    expect(outputCode).toContain('from "tiny-lib"');
 
+    // The bundle is fully runnable: Node.js resolves the remaining ESM imports
     const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: string };
     expect(imported.bundled).toBe("answer-from-js:41");
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
