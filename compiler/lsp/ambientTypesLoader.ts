@@ -5,9 +5,16 @@ import { localVfs } from "compiler/localVfs";
 import { dirname, resolve } from "compiler/utils/path";
 import type { Vfs } from "compiler/vfs";
 
+export interface AmbientModuleLocation {
+  filePath: string;
+  line: number;
+  character: number;
+}
+
 export interface AmbientTypesResult {
   globalDeclarations: Statement[];
   moduleDeclarations: Map<string, Statement[]>;
+  moduleDeclarationLocations: Map<string, AmbientModuleLocation>;
 }
 
 interface CacheEntry {
@@ -33,6 +40,7 @@ async function parseAndCollect(
   visited: Set<string>,
   globalDeclarations: Statement[],
   moduleDeclarations: Map<string, Statement[]>,
+  moduleDeclarationLocations: Map<string, AmbientModuleLocation>,
   vfs: Vfs
 ): Promise<void> {
   if (visited.has(filePath)) {
@@ -48,7 +56,7 @@ async function parseAndCollect(
   // Follow /// <reference path="..."> directives before adding statements from this file
   const dir = dirname(filePath);
   for (const refPath of extractReferencePaths(source)) {
-    await parseAndCollect(resolve(dir, refPath), visited, globalDeclarations, moduleDeclarations, vfs);
+    await parseAndCollect(resolve(dir, refPath), visited, globalDeclarations, moduleDeclarations, moduleDeclarationLocations, vfs);
   }
 
   const parsed = parseSource(source, { language: "typescript" });
@@ -67,6 +75,13 @@ async function parseAndCollect(
         } else {
           moduleDeclarations.set(name, [...ns.body.body]);
         }
+        if (!moduleDeclarationLocations.has(name)) {
+          moduleDeclarationLocations.set(name, {
+            filePath,
+            line: ns.firstToken?.range.start.line ?? 0,
+            character: ns.firstToken?.range.start.column ?? 0
+          });
+        }
         continue;
       }
     }
@@ -77,8 +92,9 @@ async function parseAndCollect(
 async function loadFromEntry(entryPath: string, vfs: Vfs): Promise<AmbientTypesResult> {
   const globalDeclarations: Statement[] = [];
   const moduleDeclarations = new Map<string, Statement[]>();
-  await parseAndCollect(entryPath, new Set(), globalDeclarations, moduleDeclarations, vfs);
-  return { globalDeclarations, moduleDeclarations };
+  const moduleDeclarationLocations = new Map<string, AmbientModuleLocation>();
+  await parseAndCollect(entryPath, new Set(), globalDeclarations, moduleDeclarations, moduleDeclarationLocations, vfs);
+  return { globalDeclarations, moduleDeclarations, moduleDeclarationLocations };
 }
 
 /**
@@ -99,9 +115,10 @@ export async function loadAmbientTypesForProject(
   const vfs = options.vfs ?? localVfs;
   const globalDeclarations: Statement[] = [];
   const moduleDeclarations = new Map<string, Statement[]>();
+  const moduleDeclarationLocations = new Map<string, AmbientModuleLocation>();
 
   if (!importerFilePath || types.length === 0) {
-    return { globalDeclarations, moduleDeclarations };
+    return { globalDeclarations, moduleDeclarations, moduleDeclarationLocations };
   }
 
   for (const typePkg of types) {
@@ -131,7 +148,12 @@ export async function loadAmbientTypesForProject(
         moduleDeclarations.set(name, [...stmts]);
       }
     }
+    for (const [name, loc] of result.moduleDeclarationLocations) {
+      if (!moduleDeclarationLocations.has(name)) {
+        moduleDeclarationLocations.set(name, loc);
+      }
+    }
   }
 
-  return { globalDeclarations, moduleDeclarations };
+  return { globalDeclarations, moduleDeclarations, moduleDeclarationLocations };
 }

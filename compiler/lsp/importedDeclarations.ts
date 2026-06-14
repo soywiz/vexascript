@@ -1,9 +1,14 @@
 import type {
   ClassStatement,
   EnumStatement,
+  ExprStatement,
   FunctionStatement,
+  Identifier,
   ImportStatement,
+  InterfaceMember,
+  InterfaceMethodMember,
   InterfaceStatement,
+  NamespaceStatement,
   Program,
   Statement,
   TypeAliasStatement,
@@ -78,6 +83,171 @@ function callableTypeFromExternalFunction(declarations: readonly Statement[], na
       fn.typeParameters?.map((parameter) => parameter.name.name)
     );
   }
+  return null;
+}
+
+function buildFunctionTypeFromStatement(fn: FunctionStatement): AnalysisType {
+  return functionType(
+    fn.parameters
+      .filter((p) => p.thisParameter !== true)
+      .map((p) => ({
+        name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
+        type: typeFromAnnotationText(p.typeAnnotation?.name),
+        optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
+        rest: p.rest === true
+      })),
+    typeFromAnnotationText(fn.returnType?.name),
+    fn.typeParameters?.map((tp) => tp.name.name)
+  );
+}
+
+function buildFunctionTypeFromInterfaceMember(member: InterfaceMethodMember): AnalysisType {
+  return functionType(
+    member.parameters
+      .filter((p) => p.thisParameter !== true)
+      .map((p) => ({
+        name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
+        type: typeFromAnnotationText(p.typeAnnotation?.name),
+        optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
+        rest: p.rest === true
+      })),
+    typeFromAnnotationText(member.returnType?.name)
+  );
+}
+
+function typeFromInterfaceMember(member: InterfaceMember): AnalysisType {
+  if (member.kind === "InterfaceMethodMember") {
+    return buildFunctionTypeFromInterfaceMember(member as InterfaceMethodMember);
+  }
+  return typeFromAnnotationText(member.typeAnnotation?.name);
+}
+
+function detectExportEqualsNameInDecls(stmts: Statement[]): string | null {
+  for (const stmt of stmts) {
+    if (stmt.kind === "ExprStatement") {
+      const expr = (stmt as ExprStatement).expression;
+      if (expr?.kind === "Identifier") return (expr as Identifier).name;
+    }
+  }
+  return null;
+}
+
+function findNamespaceBodyInStmts(stmts: Statement[], namespaceName: string): Statement[] | null {
+  for (const stmt of stmts) {
+    if (stmt.kind === "NamespaceStatement") {
+      const ns = stmt as NamespaceStatement;
+      if (ns.names?.[0]?.name === namespaceName) {
+        return ns.body?.body ?? null;
+      }
+    }
+  }
+  return null;
+}
+
+function extractDirectTypeForName(stmts: Statement[], symbolName: string): AnalysisType | null {
+  for (const stmt of stmts) {
+    const decl =
+      stmt.kind === "ExportStatement"
+        ? (stmt as { declaration?: Statement }).declaration ?? stmt
+        : stmt;
+
+    if (decl.kind === "FunctionStatement") {
+      const fn = decl as FunctionStatement;
+      if (fn.name?.name === symbolName) {
+        return buildFunctionTypeFromStatement(fn);
+      }
+    }
+
+    if (decl.kind === "VarStatement") {
+      const v = decl as VarStatement;
+      const varName = v.name?.kind === "Identifier" ? (v.name as Identifier).name : null;
+      if (varName === symbolName && (v as { typeAnnotation?: { name?: string } }).typeAnnotation?.name) {
+        return typeFromAnnotationText((v as { typeAnnotation?: { name?: string } }).typeAnnotation?.name);
+      }
+    }
+
+    if (
+      decl.kind === "ClassStatement" ||
+      decl.kind === "InterfaceStatement" ||
+      decl.kind === "EnumStatement" ||
+      decl.kind === "TypeAliasStatement"
+    ) {
+      const named = decl as unknown as { name: { name: string } };
+      if (named.name?.name === symbolName) {
+        return namedType(named.name.name);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolves the AnalysisType for a named import (`symbolName`) from an ambient
+ * module (`importName`). Handles:
+ * - Direct `export function` / `export const` declarations
+ * - The `export = X` + `namespace X { interface I { member } }` + `const X: ns.I`
+ *   pattern used by @types/node (e.g. `path`, `node:path`)
+ * - Strips the `node:` prefix and retries with the base name when needed
+ */
+function resolveAmbientNamedImportType(
+  importName: string,
+  symbolName: string,
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>
+): AnalysisType | null {
+  const candidates = [importName];
+  if (importName.startsWith("node:")) {
+    candidates.push(importName.slice("node:".length));
+  }
+
+  for (const candidate of candidates) {
+    const decls = ambientModuleDeclarations.get(candidate);
+    if (!decls || decls.length === 0) continue;
+
+    // 1. Try direct export
+    const direct = extractDirectTypeForName(decls, symbolName);
+    if (direct) return direct;
+
+    // 2. Follow export = X pattern
+    const exportEqualsName = detectExportEqualsNameInDecls(decls);
+    if (!exportEqualsName) continue;
+
+    // 2a. Look directly inside namespace with the same name
+    const nsBody = findNamespaceBodyInStmts(decls, exportEqualsName);
+    if (nsBody) {
+      const fromNs = extractDirectTypeForName(nsBody, symbolName);
+      if (fromNs) return fromNs;
+    }
+
+    // 2b. Find the var statement for the export= name to get its type (e.g. `const path: path.PlatformPath`)
+    for (const stmt of decls) {
+      if (stmt.kind !== "VarStatement") continue;
+      const v = stmt as VarStatement;
+      const varName = v.name?.kind === "Identifier" ? (v.name as Identifier).name : null;
+      const typeName = (v as { typeAnnotation?: { name?: string } }).typeAnnotation?.name;
+      if (varName !== exportEqualsName || !typeName) continue;
+
+      // Parse "path.PlatformPath" → namespace "path", interface "PlatformPath"
+      const dotIdx = typeName.lastIndexOf(".");
+      const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
+      const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
+
+      const searchNsBody = nsName ? findNamespaceBodyInStmts(decls, nsName) : decls;
+      if (!searchNsBody) continue;
+
+      for (const s of searchNsBody) {
+        const d =
+          s.kind === "ExportStatement"
+            ? (s as { declaration?: Statement }).declaration ?? s
+            : s;
+        if (d.kind !== "InterfaceStatement") continue;
+        const iface = d as InterfaceStatement;
+        if (iface.name?.name !== ifaceName) continue;
+        const member = (iface.members ?? []).find((m) => m.name?.name === symbolName);
+        if (member) return typeFromInterfaceMember(member);
+      }
+    }
+  }
+
   return null;
 }
 
@@ -195,12 +365,23 @@ export async function collectAllImportedDeclarations(
       } else {
         // Fall back to ambient module declarations (e.g. `declare module "fs"` loaded
         // from @types/node via tsconfig compilerOptions.types).
-        const ambientDecls = context.ambientModuleDeclarations?.get(importStatement.from.value);
+        const importPath = importStatement.from.value;
+        const ambientDecls = context.ambientModuleDeclarations?.get(importPath);
         if (ambientDecls) {
           for (const targetStatement of ambientDecls) {
             if (!seen.has(targetStatement as ImportableDeclaration)) {
               seen.add(targetStatement as ImportableDeclaration);
               externalDeclarations.push(targetStatement);
+            }
+          }
+          if (context.ambientModuleDeclarations) {
+            for (const specifier of importStatement.specifiers) {
+              const localName = (specifier.local ?? specifier.imported).name;
+              const importedName = specifier.imported.name;
+              const type = resolveAmbientNamedImportType(importPath, importedName, context.ambientModuleDeclarations);
+              if (type) {
+                importedSymbolTypes.set(localName, type);
+              }
             }
           }
         }

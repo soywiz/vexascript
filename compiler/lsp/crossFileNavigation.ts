@@ -406,12 +406,26 @@ async function resolveImportPathDefinition(context: ResolveContext): Promise<Loc
   const resolvedPath =
     await resolveImportTargetInContext(importerFilePath, importPath, context) ??
     await resolveNodeModulesTypingsPath(importerFilePath, importPath, { vfs: context.vfs });
-  if (!resolvedPath) return null;
+  if (resolvedPath) {
+    return {
+      uri: pathToUri(resolvedPath),
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+    };
+  }
 
-  return {
-    uri: pathToUri(resolvedPath),
-    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
-  };
+  // Fall back to ambient module declarations (e.g. `declare module "node:path"` in @types/node)
+  const ambientLoc = context.session.ambientModuleLocations?.get(importPath);
+  if (ambientLoc) {
+    return {
+      uri: pathToUri(ambientLoc.filePath),
+      range: {
+        start: { line: ambientLoc.line, character: ambientLoc.character },
+        end: { line: ambientLoc.line, character: ambientLoc.character }
+      }
+    };
+  }
+
+  return null;
 }
 
 export async function resolveImportPathHover(context: ResolveContext): Promise<Hover | null> {

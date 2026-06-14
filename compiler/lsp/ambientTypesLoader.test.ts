@@ -73,4 +73,24 @@ describe("loadAmbientTypesForProject", () => {
 
     expect(result.moduleDeclarations.has("mylib2/extra")).toBe(true);
   });
+
+  it("records moduleDeclarationLocations for each declare module block", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
+    const pkgDir = join(root, "node_modules", "@types", "mymod");
+    await mkdir(pkgDir, { recursive: true });
+    const dtsPath = join(pkgDir, "index.d.ts");
+    await writeFile(
+      dtsPath,
+      `declare module "mymod" {\n  export function hello(): void;\n}\n`,
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "package.json"), JSON.stringify({ name: "@types/mymod", types: "index.d.ts" }), "utf8");
+
+    const result = await loadAmbientTypesForProject(join(root, "main.vx"), ["mymod"]);
+
+    expect(result.moduleDeclarationLocations.has("mymod")).toBe(true);
+    const loc = result.moduleDeclarationLocations.get("mymod")!;
+    expect(loc.filePath).toBe(dtsPath);
+    expect(loc.line).toBe(0);
+  });
 });

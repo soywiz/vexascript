@@ -5,6 +5,7 @@ import type { ParseIssue } from "compiler/parser/parser";
 import type { TokenizeError } from "compiler/parser/tokenizer";
 import { compileSource } from "compiler/pipeline/compile";
 import type { TextDocument } from "vscode-languageserver-textdocument";
+import type { AmbientModuleLocation } from "./ambientTypesLoader";
 
 export interface AnalysisSession {
   ast: Program | null;
@@ -17,6 +18,7 @@ export interface AnalysisSession {
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
   ambientDeclarations: Statement[];
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>;
+  ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation>;
 }
 
 export function createAnalysisSession(
@@ -24,7 +26,8 @@ export function createAnalysisSession(
   externalDeclarations: Statement[] = [],
   importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
   ambientDeclarations: Statement[] = [],
-  ambientModuleDeclarations: ReadonlyMap<string, Statement[]> = new Map()
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]> = new Map(),
+  ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation> = new Map()
 ): AnalysisSession {
   const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes, ambientDeclarations });
   return {
@@ -37,7 +40,8 @@ export function createAnalysisSession(
     externalDeclarations: [...externalDeclarations],
     importedSymbolTypes,
     ambientDeclarations: [...ambientDeclarations],
-    ambientModuleDeclarations
+    ambientModuleDeclarations,
+    ambientModuleLocations
   };
 }
 
@@ -56,6 +60,7 @@ export interface ResolvedExternals {
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
   ambientDeclarations?: Statement[];
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
+  ambientModuleLocations?: ReadonlyMap<string, AmbientModuleLocation>;
 }
 
 export type ExternalDeclarationsResolver = (
@@ -72,6 +77,7 @@ function buildSessionFromResolved(
   const importedSymbolTypes = resolved.importedSymbolTypes ?? new Map();
   const ambientDeclarations = resolved.ambientDeclarations ?? [];
   const ambientModuleDeclarations = resolved.ambientModuleDeclarations ?? new Map();
+  const ambientModuleLocations = resolved.ambientModuleLocations ?? new Map();
   if (
     externalDeclarations.length === 0 &&
     importedSymbolTypes.size === 0 &&
@@ -80,7 +86,7 @@ function buildSessionFromResolved(
   ) {
     return baseSession;
   }
-  return createAnalysisSession(docText, externalDeclarations, importedSymbolTypes, ambientDeclarations, ambientModuleDeclarations);
+  return createAnalysisSession(docText, externalDeclarations, importedSymbolTypes, ambientDeclarations, ambientModuleDeclarations, ambientModuleLocations);
 }
 
 export class AnalysisSessionCache {

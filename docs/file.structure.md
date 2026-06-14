@@ -110,7 +110,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared LSP request-handler core registering all document-lifecycle and request handlers for both transports, parameterized by an environment (source roots, project-session lookup, optional workspace features): `compiler/lsp/serverCore.ts`
   - Server-core tests (handler parity across environments, capability gating, hover/completion/diagnostics handler behavior): `compiler/lsp/serverCore.test.ts`
   - Node stdio server entrypoint (thin adapter wiring the stdio transport, workspace source roots, project index, DOM ambient declarations, and tsconfig-driven ambient type packages into the shared core): `compiler/lsp/server.ts`
-  - Ambient types loader — resolves `compilerOptions.types` packages (e.g. `@types/node`) from node_modules, recursively follows `/// <reference path>` directives, and splits declarations into global ambients and per-module ambient declarations (from `declare module "name" { ... }` blocks): `compiler/lsp/ambientTypesLoader.ts`
+  - Ambient types loader — resolves `compilerOptions.types` packages (e.g. `@types/node`) from node_modules, recursively follows `/// <reference path>` directives, splits declarations into global ambients and per-module ambient declarations (from `declare module "name" { ... }` blocks), and tracks source locations of each block for go-to-definition: `compiler/lsp/ambientTypesLoader.ts`
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`
@@ -139,7 +139,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared cross-file top-level declaration resolution helpers: `compiler/lsp/declarationResolver.ts`
   - Class/interface resolution helpers: `compiler/lsp/classResolver.ts`
   - Shared declaration-documentation extraction for `///` and block doc comments used by completion/signature/hover surfaces: `compiler/lsp/documentation.ts`
-  - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`): `compiler/lsp/importedDeclarations.ts`
+  - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`); also resolves named import types from ambient modules (including `export =` / namespace / interface-member chains): `compiler/lsp/importedDeclarations.ts`, `compiler/lsp/importedDeclarations.test.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
 - Website and embeddable learning playground (project root: `website/`):
   - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/quickstart.njk`, `website/src/samples.njk`, `website/src/syntax.njk`, `website/src/syntax_ai.njk`, `website/src/differences.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/playground.njk`, `website/src/blog/index.njk`, `website/src/blog/article1.njk`, `website/src/404.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`

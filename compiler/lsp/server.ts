@@ -82,7 +82,8 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     externalDeclarations,
     importedSymbolTypes,
     ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
-    ambientModuleDeclarations: ambientTypes.moduleDeclarations
+    ambientModuleDeclarations: ambientTypes.moduleDeclarations,
+    ambientModuleLocations: ambientTypes.moduleDeclarationLocations
   };
 }, () => connection.languages.diagnostics.refresh());
 

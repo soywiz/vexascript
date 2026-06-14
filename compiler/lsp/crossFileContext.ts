@@ -29,6 +29,7 @@ export interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
   ambientDeclarations?: Statement[];
+  ambientModuleLocations?: ReadonlyMap<string, { filePath: string; line: number; character: number }>;
 }
 
 export interface ResolveContext {
