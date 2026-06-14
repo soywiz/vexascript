@@ -50,7 +50,7 @@ describe("VS Code extension packaging", () => {
     expect(pkg.main).toBe("./dist/extension.js");
     expect(pkg.scripts?.["setup"]).toBe("CI=true pnpm install");
     expect(pkg.scripts?.["bundle-server"]).toBe(
-      "rm -rf dist && mkdir -p dist && pnpm --dir ../.. exec esbuild compiler/lsp/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/vscode/dist/vexa.mjs --sourcemap --external:vscode-languageserver --external:vscode-languageserver/node.js --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp ../../compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp ../../compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/vexa.mjs"
+      "rm -rf dist && mkdir -p dist && pnpm --dir ../.. exec esbuild compiler/lsp/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/vscode/dist/vexa.mjs --sourcemap --external:vscode-languageserver --external:vscode-languageserver/node.js --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp ../../compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp ../../compiler/runtime/dom.d.ts dist/dom.d.ts && cp ../../compiler/runtime/vexascript.d.vx dist/vexascript.d.vx && chmod +x dist/vexa.mjs"
     );
     expect(pkg.scripts?.["stage-server-deps"]).toBe(
       "node scripts/stageServerDeps.mjs"

@@ -88,7 +88,7 @@
   "scripts": {
     "lint": "echo \"No lint configured\"",
     "setup": "CI=true pnpm install",
-    "bundle-server": "rm -rf dist && mkdir -p dist && pnpm --dir ../.. exec esbuild compiler/lsp/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/vscode/dist/vexa.mjs --sourcemap --external:vscode-languageserver --external:vscode-languageserver/node.js --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp ../../compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp ../../compiler/runtime/dom.d.ts dist/dom.d.ts && chmod +x dist/vexa.mjs",
+    "bundle-server": "rm -rf dist && mkdir -p dist && pnpm --dir ../.. exec esbuild compiler/lsp/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/vscode/dist/vexa.mjs --sourcemap --external:vscode-languageserver --external:vscode-languageserver/node.js --external:vscode-languageserver-textdocument --banner:js='#!/usr/bin/env node' --log-level=error && cp ../../compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp ../../compiler/runtime/dom.d.ts dist/dom.d.ts && cp ../../compiler/runtime/vexascript.d.vx dist/vexascript.d.vx && chmod +x dist/vexa.mjs",
     "stage-server-deps": "node scripts/stageServerDeps.mjs",
     "bundle-client": "pnpm exec esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
     "bundle-extension": "pnpm run bundle-server && pnpm run stage-server-deps && pnpm run bundle-client",
