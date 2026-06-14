@@ -209,6 +209,12 @@ describe("formatSource", () => {
     );
   });
 
+  it("preserves template literals after yield", () => {
+    expect(formatSource("sync fun * demo(){for(n in 0..<3){yield `${n}`}}")).toBe(
+      "sync fun * demo() {\n  for (n in 0 ..< 3) {\n    yield `${n}`\n  }\n}"
+    );
+  });
+
   it("formats range operator with binary spacing", () => {
     expect(formatSource("for(a of 0...10)console.log(a)"))
       .toBe("for (a of 0 ... 10)console.log(a)");

@@ -179,6 +179,26 @@ function skipFormatString(source: string, start: number): number {
   return index;
 }
 
+function skipFormatTemplate(source: string, start: number): number {
+  let index = start + 1;
+  while (index < source.length) {
+    const ch = charAtOrEmpty(source, index);
+    if (ch === "\\") {
+      index += 2;
+      continue;
+    }
+    if (ch === "$" && charAtOrEmpty(source, index + 1) === "{") {
+      index = skipFormatBraces(source, index + 1);
+      continue;
+    }
+    if (ch === "`") {
+      return index + 1;
+    }
+    index += 1;
+  }
+  return index;
+}
+
 // Skips a balanced `{ ... }` block (used for JSX expression containers),
 // ignoring braces that appear inside string/template literals.
 function skipFormatBraces(source: string, start: number): number {
@@ -186,8 +206,12 @@ function skipFormatBraces(source: string, start: number): number {
   let depth = 0;
   while (index < source.length) {
     const ch = charAtOrEmpty(source, index);
-    if (ch === '"' || ch === "'" || ch === "`") {
+    if (ch === '"' || ch === "'") {
       index = skipFormatString(source, index);
+      continue;
+    }
+    if (ch === "`") {
+      index = skipFormatTemplate(source, index);
       continue;
     }
     if (ch === "{") {
@@ -363,6 +387,13 @@ function tokenizeForFormatting(source: string): FormatToken[] {
         }
         i += 1;
       }
+      tokens.push({ type: "string", value: source.slice(start, i) });
+      continue;
+    }
+
+    if (ch === "`") {
+      const start = i;
+      i = skipFormatTemplate(source, i);
       tokens.push({ type: "string", value: source.slice(start, i) });
       continue;
     }

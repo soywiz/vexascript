@@ -66,6 +66,7 @@ describe("VS Code extension syntax highlighting", () => {
     expect(keywordPatterns.join(" ")).toContain("function");
     expect(keywordPatterns.join(" ")).toContain("fun");
     expect(keywordPatterns.join(" ")).toContain("declare");
+    expect(keywordPatterns.join(" ")).toContain("namespace");
     expect(keywordPatterns.join(" ")).toContain("class");
     expect(keywordPatterns.join(" ")).toContain("interface");
     expect(keywordPatterns.join(" ")).toContain("extends");
