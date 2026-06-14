@@ -43,7 +43,8 @@ describe("collectCodeActions aggregator", () => {
       sourceRoots: []
     });
     const titles = actions.map((action) => action.title);
-    expect(titles).toContain("Replace 'let' with 'const'");
+    expect(titles).toContain("Replace 'let' with 'var'");
+    expect(titles).toContain("Replace 'let' with 'val'");
   });
 
   it("offers class-member keyword quick fixes for the preferred member style", async () => {

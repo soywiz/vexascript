@@ -1,4 +1,6 @@
-import type { Program, VarStatement } from "compiler/ast/ast";
+import type { AssignmentExpression, Identifier, Program, UpdateExpression, VarStatement } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
+import { walkAst } from "compiler/ast/traversal";
 import { findNodeAtPosition } from "./nodeSearch";
 
 export interface KeywordReplacement {
@@ -9,13 +11,6 @@ export interface KeywordReplacement {
     end: { line: number; character: number };
   };
 }
-
-const ALTERNATES: Record<KeywordReplacement["from"], KeywordReplacement["to"]> = {
-  let: "const",
-  const: "let",
-  var: "val",
-  val: "var"
-};
 
 function isPositionInsideTokenRange(
   token:
@@ -49,41 +44,98 @@ function isPositionInsideTokenRange(
   return true;
 }
 
-export function findDeclarationKeywordReplacementAtPosition(
+function collectDeclaredNames(varStatement: VarStatement): Set<string> {
+  const names = new Set<string>();
+  for (const id of bindingIdentifiers(varStatement.name)) {
+    names.add(id.name);
+  }
+  for (const decl of varStatement.declarations ?? []) {
+    for (const id of bindingIdentifiers(decl.name)) {
+      names.add(id.name);
+    }
+  }
+  return names;
+}
+
+function isReassigned(ast: Program, names: Set<string>): boolean {
+  let found = false;
+  walkAst(ast, (node) => {
+    if (found) return false;
+    if (node.kind === "AssignmentExpression") {
+      const left = (node as AssignmentExpression).left;
+      if (left.kind === "Identifier" && names.has((left as Identifier).name)) {
+        found = true;
+        return false;
+      }
+    }
+    if (node.kind === "UpdateExpression") {
+      const arg = (node as UpdateExpression).argument;
+      if (arg.kind === "Identifier" && names.has((arg as Identifier).name)) {
+        found = true;
+        return false;
+      }
+    }
+    return undefined;
+  });
+  return found;
+}
+
+export function findDeclarationKeywordReplacementsAtPosition(
   ast: Program,
   line: number,
   character: number
-): KeywordReplacement | null {
+): KeywordReplacement[] {
   const variableStatement = findNodeAtPosition(
     ast,
     { line, character },
     (node): node is VarStatement => node.kind === "VarStatement"
   );
   if (!variableStatement) {
-    return null;
+    return [];
   }
 
   const declarationToken = variableStatement.firstToken;
   if (!declarationToken || declarationToken.type !== "identifier") {
-    return null;
+    return [];
   }
 
   if (!isPositionInsideTokenRange(declarationToken, line, character)) {
-    return null;
+    return [];
   }
 
   const from = declarationToken.value as KeywordReplacement["from"];
-  const to = ALTERNATES[from];
-  if (!to) {
-    return null;
+  const tokenRange = {
+    start: { line: declarationToken.range.start.line, character: declarationToken.range.start.column },
+    end: { line: declarationToken.range.end.line, character: declarationToken.range.end.column }
+  };
+
+  const replacements: KeywordReplacement[] = [];
+
+  if (from === "const") {
+    replacements.push({ from, to: "val", range: tokenRange });
+  } else if (from === "let") {
+    replacements.push({ from, to: "var", range: tokenRange });
+    const names = collectDeclaredNames(variableStatement);
+    if (!isReassigned(ast, names)) {
+      replacements.push({ from, to: "val", range: tokenRange });
+    }
+  } else if (from === "var") {
+    const names = collectDeclaredNames(variableStatement);
+    if (!isReassigned(ast, names)) {
+      replacements.push({ from, to: "val", range: tokenRange });
+    }
+  } else if (from === "val") {
+    replacements.push({ from, to: "var", range: tokenRange });
   }
 
-  return {
-    from,
-    to,
-    range: {
-      start: { line: declarationToken.range.start.line, character: declarationToken.range.start.column },
-      end: { line: declarationToken.range.end.line, character: declarationToken.range.end.column }
-    }
-  };
+  return replacements;
+}
+
+/** @deprecated Use findDeclarationKeywordReplacementsAtPosition */
+export function findDeclarationKeywordReplacementAtPosition(
+  ast: Program,
+  line: number,
+  character: number
+): KeywordReplacement | null {
+  return findDeclarationKeywordReplacementsAtPosition(ast, line, character)[0] ?? null;
 }

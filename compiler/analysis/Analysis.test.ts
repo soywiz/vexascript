@@ -1265,11 +1265,68 @@ let after = bind`));
     );
   });
 
+  it("validates increment/decrement operator targets as l-values", () => {
+    const ERROR_MSG = "The left-hand side of an increment/decrement operator must be a variable or property access";
+
+    for (const invalid of ["++10", "--10", "+++10", "++++10", "---10", "----10"]) {
+      const ast = parseFile(tokenizeReader(invalid));
+      const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+      expect(messages, `expected error for: ${invalid}`).toContain(ERROR_MSG);
+    }
+
+    for (const valid of ["let a = 1\n++a", "let a = 1\n--a", "let obj = {x: 1}\n++obj.x"]) {
+      const ast = parseFile(tokenizeReader(valid));
+      const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
+      expect(messages, `expected no error for: ${valid}`).not.toContain(ERROR_MSG);
+    }
+  });
+
+  it("requires const and val declarations to have an initializer", () => {
+    for (const keyword of ["const", "val"]) {
+      const astBad = parseFile(tokenizeReader(`${keyword} a: int`));
+      const msgsBad = new Analysis(astBad).getIssues().map((i) => i.message);
+      expect(msgsBad, `${keyword} without initializer`).toContain(`'${keyword}' declarations must be initialized`);
+
+      const astGood = parseFile(tokenizeReader(`${keyword} a = 1`));
+      const msgsGood = new Analysis(astGood).getIssues().map((i) => i.message);
+      expect(msgsGood, `${keyword} with initializer`).not.toContain(`'${keyword}' declarations must be initialized`);
+    }
+
+    // declare const is exempt (TypeScript mode)
+    const astDeclareConst = parseFile(tokenizeReader("declare const a: int"), { language: "typescript" });
+    expect(new Analysis(astDeclareConst).getIssues().map((i) => i.message)).not.toContain("'const' declarations must be initialized");
+
+    // declare val is exempt (VexaScript mode)
+    const astDeclareVal = parseFile(tokenizeReader("declare val a: int"));
+    expect(new Analysis(astDeclareVal).getIssues().map((i) => i.message)).not.toContain("'val' declarations must be initialized");
+  });
+
+  it("requires var declarations to have an explicit type when not initialized", () => {
+    const astBad = parseFile(tokenizeReader("var a"));
+    const msgsBad = new Analysis(astBad).getIssues().map((i) => i.message);
+    expect(msgsBad).toContain("Variable 'a' implicitly has an 'any' type");
+
+    // with type annotation — ok
+    const astType = parseFile(tokenizeReader("var a: int"));
+    const msgsType = new Analysis(astType).getIssues().map((i) => i.message);
+    expect(msgsType).not.toContain("Variable 'a' implicitly has an 'any' type");
+
+    // with initializer — ok
+    const astInit = parseFile(tokenizeReader("var a = 1"));
+    const msgsInit = new Analysis(astInit).getIssues().map((i) => i.message);
+    expect(msgsInit).not.toContain("Variable 'a' implicitly has an 'any' type");
+
+    // declare var is exempt
+    const astDeclare = parseFile(tokenizeReader("declare var a"), { language: "typescript" });
+    const msgsDeclare = new Analysis(astDeclare).getIssues().map((i) => i.message);
+    expect(msgsDeclare).not.toContain("Variable 'a' implicitly has an 'any' type");
+  });
+
   it("reports incompatible assignment types", () => {
     const source = dedent`
       var a = 10
       a = "test"
-      
+
 `;
 
     const ast = parseFile(tokenizeReader(source));

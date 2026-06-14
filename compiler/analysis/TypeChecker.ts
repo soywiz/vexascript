@@ -644,6 +644,28 @@ export class TypeChecker {
     return false;
   }
 
+  private validateVarDeclaration(
+    declarationKind: VariableDeclarationKind,
+    isDeclared: boolean | undefined,
+    hasInitializer: boolean,
+    hasDelegate: boolean,
+    hasTypeAnnotation: boolean,
+    nameNode: BindingName
+  ): void {
+    if (isDeclared) return;
+    if ((declarationKind === "const" || declarationKind === "val") && !hasInitializer && !hasDelegate) {
+      this.issues.push({
+        message: `'${declarationKind}' declarations must be initialized`,
+        node: nameNode
+      });
+    } else if (declarationKind === "var" && !hasInitializer && !hasDelegate && !hasTypeAnnotation) {
+      this.issues.push({
+        message: `Variable '${bindingNameText(nameNode)}' implicitly has an 'any' type`,
+        node: nameNode
+      });
+    }
+  }
+
   private visitVarStatement(statement: VarStatement, scope: Scope): void {
     if (statement.receiverType) {
       const extensionScope = this.scopeFor(statement, scope);
@@ -668,6 +690,14 @@ export class TypeChecker {
     }
     if (statement.declarations && statement.declarations.length > 0) {
       for (const declaration of statement.declarations) {
+        this.validateVarDeclaration(
+          statement.declarationKind,
+          statement.declared,
+          !!declaration.initializer,
+          !!declaration.delegate,
+          !!declaration.typeAnnotation,
+          declaration.name
+        );
         const explicitType = this.resolveTypeAnnotation(declaration.typeAnnotation, scope);
         const delegateType = declaration.delegate
           ? this.visitExpression(declaration.delegate, scope)
@@ -705,6 +735,14 @@ export class TypeChecker {
       return;
     }
 
+    this.validateVarDeclaration(
+      statement.declarationKind,
+      statement.declared,
+      !!statement.initializer,
+      !!statement.delegate,
+      !!statement.typeAnnotation,
+      statement.name
+    );
     const explicitType = this.resolveTypeAnnotation(statement.typeAnnotation, scope);
     const delegateType = statement.delegate
       ? this.visitExpression(statement.delegate, scope)
@@ -2068,6 +2106,12 @@ export class TypeChecker {
       }
       case "UpdateExpression": {
         const updateExpr = expression as UpdateExpression;
+        if (!this.isLValueExpression(updateExpr.argument)) {
+          this.issues.push({
+            message: `The left-hand side of an increment/decrement operator must be a variable or property access`,
+            node: updateExpr.argument
+          });
+        }
         this.validateReadonlyAssignmentTarget(updateExpr.argument, scope);
         const updateOperandType = this.visitExpression(updateExpr.argument, scope);
         if (!isUnknownType(updateOperandType) && !this.isNumericFamilyType(updateOperandType)) {

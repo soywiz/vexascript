@@ -7,7 +7,7 @@ import { CodeActionKind } from "./codeActionKinds";
 import type { Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";
-import { findDeclarationKeywordReplacementAtPosition } from "./keywordFixes";
+import { findDeclarationKeywordReplacementsAtPosition } from "./keywordFixes";
 import { createAutoImportCodeActions } from "./importFixes";
 import { createCallFixCodeActions } from "./callFixes";
 import { createFunctionShorthandCodeActions } from "./functionShorthandFixes";
@@ -58,12 +58,12 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
 
   const actions: CodeAction[] = [];
 
-  const replacement = findDeclarationKeywordReplacementAtPosition(
+  const replacements = findDeclarationKeywordReplacementsAtPosition(
     ast,
     range.start.line,
     range.start.character
   );
-  if (replacement) {
+  for (const replacement of replacements) {
     actions.push({
       title: `Replace '${replacement.from}' with '${replacement.to}'`,
       kind: CodeActionKind.QuickFix,
