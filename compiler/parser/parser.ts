@@ -4854,6 +4854,12 @@ export class Parser {
         let isSyncMember = false;
 
         while (this.tokens.peek()?.type === "identifier" && this.isClassMemberModifier(this.tokens.peek()!.value)) {
+            const peekValue = this.tokens.peek()!.value;
+            // 'async'/'sync' followed by ':' or '?' means it is the member name, not a modifier
+            if ((peekValue === "async" || peekValue === "sync") &&
+                (this.peekToken(1)?.value === ":" || this.peekToken(1)?.value === "?")) {
+                break;
+            }
             const modifierToken = this.tokens.read()!;
             memberStartToken ??= modifierToken;
             if (modifierToken.value === "override") {
@@ -4907,6 +4913,37 @@ export class Parser {
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "*") {
             this.tokens.skip();
             isGeneratorMember = true;
+        }
+
+        // Skip computed property members like [Symbol.asyncIterator]() — valid in TypeScript
+        // .d.ts files but not representable in our AST. Consume the whole member signature.
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "[") {
+            let bracketDepth = 0;
+            while (this.tokens.hasMore) {
+                const t = this.tokens.peek();
+                if (!t || this.isEofToken(t)) break;
+                if (t.type === "symbol" && t.value === "[") { bracketDepth++; this.tokens.skip(); continue; }
+                if (t.type === "symbol" && t.value === "]") { bracketDepth--; this.tokens.skip(); if (bracketDepth === 0) break; continue; }
+                this.tokens.skip();
+            }
+            while (this.tokens.hasMore) {
+                const t = this.tokens.peek();
+                if (!t || this.isEofToken(t)) break;
+                if (t.type === "symbol" && t.value === ";") { this.tokens.skip(); break; }
+                if (t.type === "symbol" && t.value === "{") {
+                    let braceDepth = 0;
+                    while (this.tokens.hasMore) {
+                        const bt = this.tokens.peek();
+                        if (!bt || this.isEofToken(bt)) break;
+                        if (bt.type === "symbol" && bt.value === "{") { braceDepth++; this.tokens.skip(); continue; }
+                        if (bt.type === "symbol" && bt.value === "}") { braceDepth--; this.tokens.skip(); if (braceDepth === 0) break; continue; }
+                        this.tokens.skip();
+                    }
+                    break;
+                }
+                this.tokens.skip();
+            }
+            return [];
         }
 
         const memberNameToken = this.tokens.read();
