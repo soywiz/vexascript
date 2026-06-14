@@ -556,6 +556,23 @@ let after = bind`));
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("infers string yields through template interpolation in sync generators", () => {
+    const source = dedent`
+      sync fun * demo() {
+        for (n in 0 ..< 3) {
+          yield \`\${n}\`
+        }
+      }
+      sync fun sample() {
+        val res = demo()
+        res
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(analysis.getVisibleSymbolsAt(7, 8).find((symbol) => symbol.name === "res")?.valueType).toBe("AsyncGenerator<string>");
+  });
+
   it("types plain generator functions as Generator<T> inferred from yield expressions", () => {
     const source = dedent`
       fun * values() {

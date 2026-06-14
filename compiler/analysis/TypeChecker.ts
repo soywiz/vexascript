@@ -5017,14 +5017,106 @@ export class TypeChecker {
   }
 
   private collectYieldTypesFromExpression(expr: Expr, collected: AnalysisType[]): void {
-    if (expr.kind === "UnaryExpression") {
-      const unary = expr as UnaryExpression;
-      if (unary.operator === "yield" || unary.operator === "yield*") {
-        const yieldedType = this.expressionTypes.get(unary.argument);
-        if (yieldedType && !isUnknownType(yieldedType)) {
-          collected.push(yieldedType);
+    switch (expr.kind) {
+      case "UnaryExpression": {
+        const unary = expr as UnaryExpression;
+        if (unary.operator === "yield" || unary.operator === "yield*") {
+          const yieldedType = this.expressionTypes.get(unary.argument);
+          if (yieldedType && !isUnknownType(yieldedType)) {
+            collected.push(yieldedType);
+          }
         }
+        this.collectYieldTypesFromExpression(unary.argument, collected);
+        return;
       }
+      case "BinaryExpression":
+        this.collectYieldTypesFromExpression((expr as BinaryExpression).left, collected);
+        this.collectYieldTypesFromExpression((expr as BinaryExpression).right, collected);
+        return;
+      case "AssignmentExpression":
+        this.collectYieldTypesFromExpression((expr as AssignmentExpression).left, collected);
+        this.collectYieldTypesFromExpression((expr as AssignmentExpression).right, collected);
+        return;
+      case "MemberExpression":
+        this.collectYieldTypesFromExpression((expr as MemberExpression).object, collected);
+        this.collectYieldTypesFromExpression((expr as MemberExpression).property, collected);
+        return;
+      case "CallExpression":
+        this.collectYieldTypesFromExpression((expr as CallExpression).callee, collected);
+        for (const argument of (expr as CallExpression).arguments) {
+          this.collectYieldTypesFromExpression(argument, collected);
+        }
+        return;
+      case "ConditionalExpression":
+        this.collectYieldTypesFromExpression((expr as ConditionalExpression).test, collected);
+        this.collectYieldTypesFromExpression((expr as ConditionalExpression).consequent, collected);
+        this.collectYieldTypesFromExpression((expr as ConditionalExpression).alternate, collected);
+        return;
+      case "ArrayLiteral":
+        for (const element of (expr as ArrayLiteral).elements) {
+          if (element.kind !== "ArrayHole") {
+            this.collectYieldTypesFromExpression(element, collected);
+          }
+        }
+        return;
+      case "ObjectLiteral":
+        for (const property of (expr as ObjectLiteral).properties) {
+          if (property.kind === "ObjectSpreadProperty") {
+            this.collectYieldTypesFromExpression((property as ObjectSpreadProperty).argument, collected);
+            continue;
+          }
+          const objectProperty = property as ObjectProperty;
+          this.collectYieldTypesFromExpression(objectProperty.key, collected);
+          this.collectYieldTypesFromExpression(objectProperty.value, collected);
+        }
+        return;
+      case "SpreadExpression":
+        this.collectYieldTypesFromExpression((expr as SpreadExpression).argument, collected);
+        return;
+      case "NamedArgument":
+        this.collectYieldTypesFromExpression((expr as NamedArgument).value, collected);
+        return;
+      case "NonNullExpression":
+        this.collectYieldTypesFromExpression((expr as NonNullExpression).expression, collected);
+        return;
+      case "AsExpression":
+        this.collectYieldTypesFromExpression((expr as AsExpression).expression, collected);
+        return;
+      case "ArrowFunctionExpression": {
+        const arrow = expr as ArrowFunctionExpression;
+        if (arrow.body.kind === "BlockStatement") {
+          for (const statement of (arrow.body as BlockStatement).body) {
+            this.collectYieldTypesFromStatement(statement, collected);
+          }
+        } else {
+          this.collectYieldTypesFromExpression(arrow.body as Expr, collected);
+        }
+        return;
+      }
+      case "FunctionExpression":
+        for (const statement of (expr as FunctionExpression).body.body) {
+          this.collectYieldTypesFromStatement(statement, collected);
+        }
+        return;
+      case "JsxExpressionContainer":
+        this.collectYieldTypesFromExpression((expr as JsxExpressionContainer).expression, collected);
+        return;
+      case "JsxElement":
+        for (const child of (expr as JsxElement).children) {
+          if (child.kind === "JsxExpressionContainer" || child.kind === "JsxElement" || child.kind === "JsxFragment") {
+            this.collectYieldTypesFromExpression(child as Expr, collected);
+          }
+        }
+        return;
+      case "JsxFragment":
+        for (const child of (expr as JsxFragment).children) {
+          if (child.kind === "JsxExpressionContainer" || child.kind === "JsxElement" || child.kind === "JsxFragment") {
+            this.collectYieldTypesFromExpression(child as Expr, collected);
+          }
+        }
+        return;
+      default:
+        return;
     }
   }
 
