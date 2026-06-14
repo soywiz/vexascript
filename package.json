@@ -13,7 +13,7 @@
   "scripts": {
     "clean": "tsx scripts/clean.ts",
     "cli": "pnpm --silent build && node dist/vexa.js",
-    "build": "esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/vexa.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --external:esbuild --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && cp compiler/runtime/vexascript.d.vx dist/vexascript.d.vx && chmod +x dist/vexa.js",
+    "build": "node_modules/.bin/esbuild compiler/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/vexa.js --sourcemap --external:commander --external:vscode-languageserver --external:vscode-languageserver-textdocument --external:source-map --external:esbuild --banner:js='#!/usr/bin/env node' --log-level=error && cp compiler/runtime/es2025.d.ts dist/es2025.d.ts && cp compiler/runtime/dom.d.ts dist/dom.d.ts && cp compiler/runtime/vexascript.d.vx dist/vexascript.d.vx && chmod +x dist/vexa.js",
     "test": "tsc --noEmit && node --import tsx --test --test-reporter spec",
     "coverage": "tsx --test --experimental-test-coverage",
     "code": "pnpm build && code --extensionDevelopmentPath=$(pwd)/plugins/vscode",
