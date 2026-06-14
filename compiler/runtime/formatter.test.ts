@@ -103,6 +103,24 @@ describe("formatSource", () => {
       .toBe("class Point {\n  operator*(other: Point): Point => Point(x * other.x, y * other.y)\n}");
   });
 
+  it("formats compound accessor blocks with nested accessor indentation", () => {
+    expect(formatSource("class Demo{\nvar _x=0.0\nvar x{get{return _x}set{console.log(_x, \"->\", newValue)\n_x=newValue}}}"))
+      .toBe(dedent`
+        class Demo {
+          var _x = 0.0
+          var x {
+            get {
+              return _x
+            }
+            set {
+              console.log(_x, \"->\", newValue)
+              _x = newValue
+            }
+          }
+        }
+      `.trimEnd());
+  });
+
   it("formats class declaration with field, constructor, and method", () => {
     expect(
       formatSource("class Demo { a=10; constructor(){}; demo(){} }")
