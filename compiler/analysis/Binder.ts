@@ -283,6 +283,7 @@ export class Binder {
         if (functionStatement.receiverType) {
           continue;
         }
+        const fnIsAsyncLike = functionStatement.async === true || functionStatement.sync === true;
         const symbolType = functionType(
           functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: bindingNameText(parameter.name),
@@ -290,7 +291,7 @@ export class Binder {
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
             rest: parameter.rest === true
           })),
-          this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE,
+          this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike),
           functionStatement.typeParameters?.map((parameter) => parameter.name.name)
         );
         this.declare(scope, {
@@ -519,6 +520,7 @@ export class Binder {
 
   private bindFunctionStatement(statement: FunctionStatement, scope: Scope, declareInParent: boolean): void {
     if (declareInParent && !statement.receiverType && !(scopeHasGlobalPredeclaration(scope) && scope.symbols.has(statement.name.name))) {
+      const stmtIsAsyncLike = statement.async === true || statement.sync === true;
       const symbolType = functionType(
         statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: bindingNameText(parameter.name),
@@ -526,7 +528,7 @@ export class Binder {
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
         })),
-        this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE,
+        this.effectiveReturnType(this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE, stmtIsAsyncLike),
         statement.typeParameters?.map((parameter) => parameter.name.name)
       );
       this.declare(scope, {
@@ -1016,6 +1018,12 @@ export class Binder {
       });
     }
     this.bindStatements(catchClause.body.body, catchScope);
+  }
+
+  private effectiveReturnType(rawReturnType: AnalysisType, isAsyncLike: boolean): AnalysisType {
+    if (!isAsyncLike) return rawReturnType;
+    if (rawReturnType.kind === "named" && rawReturnType.name === "Promise") return rawReturnType;
+    return namedType("Promise", [rawReturnType]);
   }
 
   private typeFromAnnotationLoose(typeAnnotation: TypeAnnotation | undefined) {

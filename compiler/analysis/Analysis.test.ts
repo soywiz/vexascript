@@ -981,6 +981,14 @@ let after = bind`));
   });
 
 
+  it("resolves Promise.resolve(value) to Promise<T> matching the argument type", () => {
+    const source = dedent`
+      let p: Promise<int> = Promise.resolve(10)
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("auto-wraps non-Promise annotations on async functions as Promise<T>", () => {
     const source = dedent`
       async function inferred(): number {
@@ -998,6 +1006,29 @@ let after = bind`));
     const analysis = new Analysis(parseFile(tokenizeReader(source)));
 
     expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("allows returning Promise<T> inside sync/async functions with non-Promise return annotation", () => {
+    const source = dedent`
+      sync fun demo(): int {
+        return Promise.resolve(10)
+      }
+      async function fetchStr(): string {
+        return Promise.resolve("hi")
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+
+    const wrongSource = dedent`
+      sync fun bad(): int {
+        return Promise.resolve("oops")
+      }
+    `;
+    const wrongAnalysis = new Analysis(parseFile(tokenizeReader(wrongSource)));
+    expect(wrongAnalysis.getIssues().map((issue) => issue.message)).toContain(
+      "Type 'Promise<string>' is not assignable to return type 'int'"
+    );
   });
 
   it("treats sync functions as Promise<T> producers without requiring a Promise annotation", () => {
@@ -3540,6 +3571,15 @@ describe("enum semantic analysis", () => {
     `)));
 
     expect(analysis.getIssues().map((issue) => issue.message)).toContain("Duplicate function signature for 'example'");
+  });
+
+  it("reports duplicate when async and sync functions share the same effective signature", () => {
+    const analysis = new Analysis(parseFile(tokenizeReader(dedent`
+      async fun demo(): Promise<int> { return 1 }
+      sync fun demo(): int { return 2 }
+    `)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain("Duplicate function signature for 'demo'");
   });
 
   it("still allows overloaded top-level functions with different parameter signatures", () => {

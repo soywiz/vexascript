@@ -477,7 +477,7 @@ export class TypeChecker {
             expectedReturnType &&
             !isUnknownType(expectedReturnType) &&
             !isUnknownType(actualReturnType) &&
-            !this.returnExpressionIsAssignable(actualReturnType, expectedReturnType, asyncReturnValueType)
+            !this.returnExpressionIsAssignable(actualReturnType, expectedReturnType, asyncReturnValueType, flow.inAsync === true)
           ) {
             this.reportReturnTypeMismatch(actualReturnType, expectedReturnType, returnStatement);
           }
@@ -5087,11 +5087,18 @@ export class TypeChecker {
   private returnExpressionIsAssignable(
     actualReturnType: AnalysisType,
     expectedReturnType: AnalysisType,
-    asyncReturnValueType: AnalysisType | null
+    asyncReturnValueType: AnalysisType | null,
+    inAsync: boolean = false
   ): boolean {
     if (asyncReturnValueType) {
       return this.isTypeAssignable(actualReturnType, asyncReturnValueType) ||
         this.isTypeAssignable(actualReturnType, expectedReturnType);
+    }
+    if (inAsync) {
+      const unwrappedActual = this.unwrapPromiseType(actualReturnType);
+      if (unwrappedActual !== null) {
+        return this.isTypeAssignable(unwrappedActual, expectedReturnType);
+      }
     }
     return this.isTypeAssignable(actualReturnType, expectedReturnType);
   }
@@ -8083,8 +8090,26 @@ export class TypeChecker {
     return this.expandTypeAliases(resolved);
   }
 
+  private isTypeParameterName(name: string): boolean {
+    return (
+      !this.typeAliasStatementsByName.has(name) &&
+      !this.interfaceStatementsByName.has(name) &&
+      !this.classStatementsByName.has(name) &&
+      !this.enumStatementsByName.has(name) &&
+      !this.namespaceStatementsByName.has(name) &&
+      !BUILTIN_TYPE_NAMES.has(name as BuiltinTypeName)
+    );
+  }
+
   private expandTypeAliases(type: AnalysisType): AnalysisType {
     if (type.kind === "named") {
+      if (type.name === "Awaited" && (type.typeArguments?.length ?? 0) === 1) {
+        const innerExpanded = this.expandTypeAliases(type.typeArguments![0]!);
+        if (innerExpanded.kind === "named" && this.isTypeParameterName(innerExpanded.name) && (innerExpanded.typeArguments?.length ?? 0) === 0) {
+          return namedType("Awaited", [innerExpanded]);
+        }
+        return this.evaluateAwaitedType(innerExpanded);
+      }
       const typeAlias = this.typeAliasStatementsByName.get(type.name);
       if (!typeAlias || this.activeTypeAliasNames.has(type.name)) {
         if (!type.typeArguments || type.typeArguments.length === 0) {
@@ -8166,6 +8191,10 @@ export class TypeChecker {
         }
         return sourceType;
       }
+      if (sourceType.name === "Awaited" && sourceType.typeArguments.length === 1) {
+        const inner = this.substituteTypeParameters(sourceType.typeArguments[0]!, substitutions);
+        return this.evaluateAwaitedType(inner);
+      }
       return namedType(
         sourceType.name,
         sourceType.typeArguments.map((typeArgument) =>
@@ -8225,6 +8254,13 @@ export class TypeChecker {
     }
 
     return sourceType;
+  }
+
+  private evaluateAwaitedType(inner: AnalysisType): AnalysisType {
+    if (inner.kind === "named" && (inner.name === "Promise" || inner.name === "PromiseLike") && inner.typeArguments?.length === 1) {
+      return inner.typeArguments[0]!;
+    }
+    return inner;
   }
 
   private substituteTypeParametersInComputedName(
