@@ -344,7 +344,7 @@ describe("LSP server core", () => {
     for (const withWorkspace of [true, false]) {
       const server = startServer(withWorkspace);
       server.fakeConnection.setConfiguration({
-        inlayHints: { enabled: true },
+        inlayHints: { parameters: true, types: true },
         referenceCodeLens: { enabled: true }
       });
 
@@ -353,6 +353,21 @@ describe("LSP server core", () => {
       assert.equal(server.fakeConnection.inlayHintRefreshes(), 1);
       assert.deepEqual(server.fakeConnection.sentRequests, ["workspace/codeLens/refresh"]);
     }
+  });
+
+  it("refreshes inlay hints independently when only one sub-setting changes", async () => {
+    const server = startServer(false);
+
+    server.fakeConnection.setConfiguration({ inlayHints: { parameters: false, types: true } });
+    await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+    assert.equal(server.fakeConnection.inlayHintRefreshes(), 1);
+
+    server.fakeConnection.setConfiguration({ inlayHints: { parameters: true, types: false } });
+    await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+    assert.equal(server.fakeConnection.inlayHintRefreshes(), 2);
+
+    await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+    assert.equal(server.fakeConnection.inlayHintRefreshes(), 2, "no refresh when config is unchanged");
   });
 
   it("derives completion prefixes and candidate characters consistently", () => {

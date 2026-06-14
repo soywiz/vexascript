@@ -64,6 +64,16 @@
           "type": "boolean",
           "default": false,
           "description": "Show inline reference counts (e.g. '2 references') above declarations."
+        },
+        "vexa.inlayHints.parameters": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show parameter name hints before call arguments."
+        },
+        "vexa.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inferred type hints for variables, function parameters, and return types."
         }
       }
     },

@@ -142,4 +142,42 @@ dedent`
     expect(labels).toContain(": Box<int>");
     expect(labels).toContain(": Box<string>");
   });
+
+  it("suppresses parameter hints when parameters option is false", async () => {
+    const source = dedent`
+      fun add(a: int, b: int): int { return a + b }
+      let result = add(1, 2)
+      `;
+    const session = createAnalysisSession(source);
+    const range = { start: { line: 0, character: 0 }, end: { line: 10, character: 0 } };
+
+    const withParams = await createInlayHints(session.ast!, session.analysis!, range, {}, { parameters: true, types: false });
+    const withoutParams = await createInlayHints(session.ast!, session.analysis!, range, {}, { parameters: false, types: false });
+
+    const withLabels = withParams.map((h) => (typeof h.label === "string" ? h.label : ""));
+    const withoutLabels = withoutParams.map((h) => (typeof h.label === "string" ? h.label : ""));
+
+    expect(withLabels).toContain("a: ");
+    expect(withLabels).toContain("b: ");
+    expect(withoutLabels).not.toContain("a: ");
+    expect(withoutLabels).not.toContain("b: ");
+  });
+
+  it("suppresses type hints when types option is false", async () => {
+    const source = dedent`
+      fun compute() { return 42 }
+      let x = compute()
+      `;
+    const session = createAnalysisSession(source);
+    const range = { start: { line: 0, character: 0 }, end: { line: 10, character: 0 } };
+
+    const withTypes = await createInlayHints(session.ast!, session.analysis!, range, {}, { parameters: false, types: true });
+    const withoutTypes = await createInlayHints(session.ast!, session.analysis!, range, {}, { parameters: false, types: false });
+
+    const withLabels = withTypes.map((h) => (typeof h.label === "string" ? h.label : ""));
+    const withoutLabels = withoutTypes.map((h) => (typeof h.label === "string" ? h.label : ""));
+
+    expect(withLabels.some((l) => l.startsWith(": "))).toBe(true);
+    expect(withoutLabels.some((l) => l.startsWith(": "))).toBe(false);
+  });
 });

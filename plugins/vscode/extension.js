@@ -66,7 +66,9 @@ function activate(context) {
       configurationSection: "vexa"
     },
     initializationOptions: {
-      enableReferenceCodeLens: vexaConfig.get("referenceCodeLens.enabled", false)
+      enableReferenceCodeLens: vexaConfig.get("referenceCodeLens.enabled", false),
+      enableInlayHintsParameters: vexaConfig.get("inlayHints.parameters", true),
+      enableInlayHintsTypes: vexaConfig.get("inlayHints.types", true)
     }
   };
 
