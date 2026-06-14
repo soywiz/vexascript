@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -372,6 +372,40 @@ describe("cross-file type diagnostics", () => {
     );
     const diag = diagnostics.find((d) => d.message === "Cannot find module '../testFixtures/unexistant_file.vx'");
     expect(diag?.range.start.line).toEqual(0);
+  });
+
+  it("does not report module-not-found for a bare specifier resolved via node_modules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const pkgDir = join(root, "node_modules", "mylib");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(join(pkgDir, "index.d.ts"), "export declare function hello(): void;\n", "utf8");
+    await writeFile(join(pkgDir, "package.json"), JSON.stringify({ name: "mylib", types: "index.d.ts" }), "utf8");
+    const mainFile = join(root, "main.vx");
+    const source = 'import { hello } from "mylib"\n';
+    await writeFile(mainFile, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const diagnostics = await collectModuleNotFoundDiagnostics({
+      uri: pathToFileURL(mainFile).toString(),
+      session
+    });
+
+    expect(diagnostics.map((d) => d.message)).not.toContain("Cannot find module 'mylib'");
+  });
+
+  it("reports module-not-found for a bare specifier not in node_modules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const mainFile = join(root, "main.vx");
+    const source = 'import { foo } from "nonexistent-package"\n';
+    await writeFile(mainFile, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const diagnostics = await collectModuleNotFoundDiagnostics({
+      uri: pathToFileURL(mainFile).toString(),
+      session
+    });
+
+    expect(diagnostics.map((d) => d.message)).toContain("Cannot find module 'nonexistent-package'");
   });
 
   it("reports cross-file call errors nested in arrow-function expressions", async () => {

@@ -24,7 +24,7 @@ import {
 } from "./classResolver";
 import { getProjectSessionForFilePath } from "./projectAnalysis";
 import { topLevelDeclarationNames } from "./declarationResolver";
-import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { uriToFilePath } from "./importFixes";
 
 export interface CollectCrossFileTypeDiagnosticsParams {
@@ -52,16 +52,18 @@ export async function collectModuleNotFoundDiagnostics(
     return [];
   }
   const diagnostics: Diagnostic[] = [];
+  const resolutionOptions = params.getSessionForFilePath
+    ? { getSessionForFilePath: params.getSessionForFilePath }
+    : {};
   for (const importStatement of collectImportStatements(session.ast)) {
-    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value, {
-      ...(params.getSessionForFilePath
-        ? { getSessionForFilePath: params.getSessionForFilePath }
-        : {}),
-    });
+    const importPath = importStatement.from.value;
+    const targetFilePath =
+      await resolveImportTargetFilePath(currentFilePath, importPath, resolutionOptions)
+      ?? await resolveNodeModulesTypingsPath(currentFilePath, importPath, resolutionOptions);
     if (!targetFilePath) {
       const diagnostic = diagnosticForNode(
         importStatement.from,
-        `Cannot find module '${importStatement.from.value}'`,
+        `Cannot find module '${importPath}'`,
         VEXA_DIAGNOSTIC_CODES.IMPORT_MODULE_NOT_FOUND
       );
       if (diagnostic) {
