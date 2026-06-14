@@ -35,7 +35,7 @@ describe("VS Code extension packaging", () => {
     expect(pkg.license).toBe("Apache-2.0");
     expect(pkg.repository).toEqual({
       type: "git",
-      url: "https://github.com/soywiz/vexa.git"
+      url: "https://github.com/soywiz/vexascript.git"
     });
     expect(pkg.files).toEqual([
       "dist/**",
@@ -65,7 +65,7 @@ describe("VS Code extension packaging", () => {
       "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)"
     );
     expect(pkg.scripts?.["package"]).toBe(
-      "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexa-vscodeext.vsix"
+      "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexascript.vsix"
     );
   });
 
