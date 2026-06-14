@@ -16,13 +16,15 @@ export interface AnalysisSession {
   externalDeclarations: Statement[];
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
   ambientDeclarations: Statement[];
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>;
 }
 
 export function createAnalysisSession(
   source: string,
   externalDeclarations: Statement[] = [],
   importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
-  ambientDeclarations: Statement[] = []
+  ambientDeclarations: Statement[] = [],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]> = new Map()
 ): AnalysisSession {
   const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes, ambientDeclarations });
   return {
@@ -34,7 +36,8 @@ export function createAnalysisSession(
     fatalError: artifacts.fatalError,
     externalDeclarations: [...externalDeclarations],
     importedSymbolTypes,
-    ambientDeclarations: [...ambientDeclarations]
+    ambientDeclarations: [...ambientDeclarations],
+    ambientModuleDeclarations
   };
 }
 
@@ -52,6 +55,7 @@ export interface ResolvedExternals {
   externalDeclarations: Statement[];
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
   ambientDeclarations?: Statement[];
+  ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
 }
 
 export type ExternalDeclarationsResolver = (
@@ -67,10 +71,16 @@ function buildSessionFromResolved(
   const externalDeclarations = resolved.externalDeclarations ?? [];
   const importedSymbolTypes = resolved.importedSymbolTypes ?? new Map();
   const ambientDeclarations = resolved.ambientDeclarations ?? [];
-  if (externalDeclarations.length === 0 && importedSymbolTypes.size === 0 && ambientDeclarations.length === 0) {
+  const ambientModuleDeclarations = resolved.ambientModuleDeclarations ?? new Map();
+  if (
+    externalDeclarations.length === 0 &&
+    importedSymbolTypes.size === 0 &&
+    ambientDeclarations.length === 0 &&
+    ambientModuleDeclarations.size === 0
+  ) {
     return baseSession;
   }
-  return createAnalysisSession(docText, externalDeclarations, importedSymbolTypes, ambientDeclarations);
+  return createAnalysisSession(docText, externalDeclarations, importedSymbolTypes, ambientDeclarations, ambientModuleDeclarations);
 }
 
 export class AnalysisSessionCache {

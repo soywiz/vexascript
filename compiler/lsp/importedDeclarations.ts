@@ -83,6 +83,7 @@ function callableTypeFromExternalFunction(declarations: readonly Statement[], na
 
 export interface CollectImportedDeclarationsContext extends ProjectContext {
   uri?: string;
+  ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
 }
 
 async function resolveImportTargetInContext(
@@ -189,6 +190,18 @@ export async function collectAllImportedDeclarations(
           for (const specifier of importStatement.specifiers) {
             const localName = (specifier.local ?? specifier.imported).name;
             importedSymbolTypes.set(localName, exportType);
+          }
+        }
+      } else {
+        // Fall back to ambient module declarations (e.g. `declare module "fs"` loaded
+        // from @types/node via tsconfig compilerOptions.types).
+        const ambientDecls = context.ambientModuleDeclarations?.get(importStatement.from.value);
+        if (ambientDecls) {
+          for (const targetStatement of ambientDecls) {
+            if (!seen.has(targetStatement as ImportableDeclaration)) {
+              seen.add(targetStatement as ImportableDeclaration);
+              externalDeclarations.push(targetStatement);
+            }
           }
         }
       }

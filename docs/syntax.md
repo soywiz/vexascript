@@ -230,14 +230,14 @@ Function parameters support:
 
 - plain parameters (`a`)
 - optional marker (`a?`)
-- optional type annotation (`a: Int`)
-- optional default value (`a: Int = demo`)
+- optional type annotation (`a: int`)
+- optional default value (`a: int = demo`)
 - rest parameters (`...items: Item[]`), which must be last
 
 Examples:
 
 ```vexa
-fun test(a, v, c?, d: Int = demo) {
+fun test(a, v, c?, d: int = demo) {
   return d
 }
 
@@ -262,7 +262,7 @@ function unpack(
 Functions support optional return type annotation:
 
 ```vexa
-fun demo(a, b): Int {
+fun demo(a, b): int {
   return a + b
 }
 ```
@@ -270,7 +270,7 @@ fun demo(a, b): Int {
 When the body is just a single returned expression, declarations and class methods can also use `=>` shorthand:
 
 ```vexa
-fun demo(a, b): Int => a + b
+fun demo(a, b): int => a + b
 
 class Point(val x: number, val y: number) {
   operator*(other: Point): Point => Point(x * other.x, y * other.y)
@@ -387,9 +387,7 @@ let c = a + b // emits as a.operator$plus$$Point(b) when a is Point
 Binary operators may also be declared as extension methods by placing the receiver type before `.operator`. Unlike class operators (which stay prototype methods), extension members — operators, named methods and properties — are emitted as standalone functions whose mangled runtime name begins with the receiver type and whose first argument is the receiver. They participate in the same type-directed lowering:
 
 ```my
-fun Point.operator+(other: Point): Point {
-  return new Point(this.x + other.x, this.y + other.y)
-}
+fun Point.operator+(other: Point): Point => Point(this.x + other.x, this.y + other.y)
 
 let c = a + b // emits as Point$$operator$plus$$Point(a, b)
 ```
@@ -748,10 +746,10 @@ Examples:
 ```vexa
 class Demo {
   var a = 10
-  let b: Int = 20
-  c: Int
+  let b: int = 20
+  c: int
   public val id?: string
-  private static var count: Int = 0
+  private static var count: int = 0
   service!: Service
 }
 ```

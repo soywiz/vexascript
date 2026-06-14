@@ -19,6 +19,7 @@ import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import { loadProject } from "compiler/project";
+import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
 import { startLspServer } from "./serverCore";
@@ -56,29 +57,33 @@ async function getSessionForFilePathFromOpenDocuments(filePath: string) {
 
 const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
   if (!baseSession.ast) {
-    return { externalDeclarations: [], importedSymbolTypes: new Map(), ambientDeclarations: [] };
+    return { externalDeclarations: [], importedSymbolTypes: new Map(), ambientDeclarations: [], ambientModuleDeclarations: new Map() };
   }
+  const filePath = uriToFilePath(document.uri);
+
+  // Load ambient types from tsconfig compilerOptions.types (e.g. @types/node)
+  const project = filePath ? await loadProject(filePath) : null;
+  const ambientTypes = await loadAmbientTypesForProject(filePath, project?.types ?? []);
+
+  // Load DOM declarations if tsconfig lib includes "dom"
+  const domDeclarations = (project?.libs ?? []).some((lib) => lib.toLowerCase() === "dom")
+    ? (await ensureDomProgram()).body
+    : [];
+
   const context = {
     uri: document.uri,
     sourceRoots,
-    getSessionForFilePath: getSessionForFilePathFromOpenDocuments
+    getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
+    ambientModuleDeclarations: ambientTypes.moduleDeclarations
   };
-  const filePath = uriToFilePath(document.uri);
-  const [{ externalDeclarations, importedSymbolTypes }, ambientDeclarations] = await Promise.all([
-    collectAllImportedDeclarations(baseSession.ast, context),
-    (async () => {
-      if (!filePath) {
-        return [];
-      }
-      const project = await loadProject(filePath);
-      const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
-      if (!requested.has("dom")) {
-        return [];
-      }
-      return (await ensureDomProgram()).body;
-    })()
-  ]);
-  return { externalDeclarations, importedSymbolTypes, ambientDeclarations };
+  const { externalDeclarations, importedSymbolTypes } = await collectAllImportedDeclarations(baseSession.ast, context);
+
+  return {
+    externalDeclarations,
+    importedSymbolTypes,
+    ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
+    ambientModuleDeclarations: ambientTypes.moduleDeclarations
+  };
 }, () => connection.languages.diagnostics.refresh());
 
 // Ensure runtime is loaded on server start (non-blocking background load)

@@ -17,6 +17,7 @@ describe("project configuration", () => {
       projectDir: dir,
       dependencies: { preact: "10.29.2" },
       libs: [],
+      types: [],
       jsxFactory: "h",
       jsxFragmentFactory: "Fragment"
     });
@@ -31,7 +32,22 @@ describe("project configuration", () => {
     expect(await loadProject(input)).toEqual({
       projectDir: dir,
       dependencies: {},
-      libs: ["es2025", "dom"]
+      libs: ["es2025", "dom"],
+      types: []
+    });
+  });
+
+  it("loads compilerOptions.types entries from tsconfig.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    const input = join(dir, "main.vx");
+    await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { types: ["node"] } }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect(await loadProject(input)).toEqual({
+      projectDir: dir,
+      dependencies: {},
+      libs: [],
+      types: ["node"]
     });
   });
 

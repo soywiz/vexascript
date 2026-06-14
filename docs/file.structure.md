@@ -65,7 +65,7 @@ This section is the fast onboarding map for agents and contributors.
 - Runnable samples and sample-test harness: `samples/`, `samples/samples.test.ts`
   - Each sample directory is discovered when it contains expected.txt; the harness runs main.vx with runFile and compares captured console.log output to expected.txt.
   - Sample-local package.json files are installed with pnpm install before execution when node_modules is missing, so samples can demonstrate npm package declarations and runtime dependencies.
-  - Sample-local tsconfig.json files are loaded by `compiler/project.ts`; they can set JSX factories/import sources and `compilerOptions.lib` entries such as `dom` for DOM ambient declarations.
+  - Sample-local tsconfig.json files are loaded by `compiler/project.ts`; they can set JSX factories/import sources, `compilerOptions.lib` entries such as `dom` for DOM ambient declarations, and `compilerOptions.types` entries such as `node` for loading @types packages as ambient declarations.
   - DOM-emulation sample: `samples/virtual-dom/` uses a lightweight local DOM shim plus `tsconfig.json` with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types without a heavy third-party runtime.
   - DefinitelyTyped sample: `samples/minimist/` uses the runtime-only `minimist` package together with `@types/minimist` to validate fallback resolution for npm packages that keep declarations in `node_modules/@types`.
   - Delegated-state sample: `samples/delegated-state/` validates end-to-end execution of Kotlin-style delegated variables backed by function and object delegates.
@@ -109,7 +109,8 @@ This section is the fast onboarding map for agents and contributors.
 - LSP server and features:
   - Shared LSP request-handler core registering all document-lifecycle and request handlers for both transports, parameterized by an environment (source roots, project-session lookup, optional workspace features): `compiler/lsp/serverCore.ts`
   - Server-core tests (handler parity across environments, capability gating, hover/completion/diagnostics handler behavior): `compiler/lsp/serverCore.test.ts`
-  - Node stdio server entrypoint (thin adapter wiring the stdio transport, workspace source roots, project index, and DOM ambient declarations into the shared core): `compiler/lsp/server.ts`
+  - Node stdio server entrypoint (thin adapter wiring the stdio transport, workspace source roots, project index, DOM ambient declarations, and tsconfig-driven ambient type packages into the shared core): `compiler/lsp/server.ts`
+  - Ambient types loader — resolves `compilerOptions.types` packages (e.g. `@types/node`) from node_modules, recursively follows `/// <reference path>` directives, and splits declarations into global ambients and per-module ambient declarations (from `declare module "name" { ... }` blocks): `compiler/lsp/ambientTypesLoader.ts`
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`

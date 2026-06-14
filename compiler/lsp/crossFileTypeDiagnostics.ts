@@ -59,7 +59,8 @@ export async function collectModuleNotFoundDiagnostics(
     const importPath = importStatement.from.value;
     const targetFilePath =
       await resolveImportTargetFilePath(currentFilePath, importPath, resolutionOptions)
-      ?? await resolveNodeModulesTypingsPath(currentFilePath, importPath, resolutionOptions);
+      ?? await resolveNodeModulesTypingsPath(currentFilePath, importPath, resolutionOptions)
+      ?? (params.session.ambientModuleDeclarations.has(importPath) ? "ambient" : null);
     if (!targetFilePath) {
       const diagnostic = diagnosticForNode(
         importStatement.from,
@@ -181,12 +182,34 @@ export async function collectCrossFileTypeDiagnostics(
     if (!currentFilePath) {
       continue;
     }
-    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value, {
-      ...(params.getSessionForFilePath
-        ? { getSessionForFilePath: params.getSessionForFilePath }
-        : {}),
-    });
+    const importPath = importStatement.from.value;
+    const resOptions = {
+      ...(params.getSessionForFilePath ? { getSessionForFilePath: params.getSessionForFilePath } : {}),
+    };
+    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importPath, resOptions);
     if (!targetFilePath) {
+      // Check ambient module declarations (e.g. `declare module "fs"` from @types/node)
+      const ambientDecls = session.ambientModuleDeclarations.get(importPath);
+      if (ambientDecls && importStatement.specifiers.length > 0) {
+        const exportedNames = new Set<string>();
+        for (const stmt of ambientDecls) {
+          for (const name of topLevelDeclarationNames(stmt)) {
+            exportedNames.add(name);
+          }
+        }
+        for (const specifier of importStatement.specifiers) {
+          if (exportedNames.has(specifier.imported.name)) {
+            continue;
+          }
+          pushDiagnostic(
+            diagnosticForNode(
+              specifier.imported,
+              `Module '${importPath}' has no exported symbol '${specifier.imported.name}'`,
+              VEXA_DIAGNOSTIC_CODES.IMPORT_MISSING_EXPORT
+            )
+          );
+        }
+      }
       continue;
     }
     if (importStatement.specifiers.length === 0) {
@@ -209,7 +232,7 @@ export async function collectCrossFileTypeDiagnostics(
       pushDiagnostic(
         diagnosticForNode(
           specifier.imported,
-          `Module '${importStatement.from.value}' has no exported symbol '${specifier.imported.name}'`,
+          `Module '${importPath}' has no exported symbol '${specifier.imported.name}'`,
           VEXA_DIAGNOSTIC_CODES.IMPORT_MISSING_EXPORT
         )
       );

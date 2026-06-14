@@ -8,6 +8,7 @@ export interface VexaProject {
   jsxFactory?: string;
   jsxFragmentFactory?: string;
   libs: string[];
+  types: string[];
 }
 
 interface PackageJsonConfig {
@@ -24,6 +25,7 @@ interface TsConfigJson {
     jsxFragmentFactory?: unknown;
     jsxImportSource?: unknown;
     lib?: unknown;
+    types?: unknown;
   };
 }
 
@@ -85,6 +87,15 @@ function libsFromTsConfig(tsconfig: TsConfigJson | null): string[] {
   }
 
   return lib.filter((entry): entry is string => typeof entry === "string");
+}
+
+function typesFromTsConfig(tsconfig: TsConfigJson | null): string[] {
+  const types = tsconfig?.compilerOptions?.types;
+  if (!Array.isArray(types)) {
+    return [];
+  }
+
+  return types.filter((entry): entry is string => typeof entry === "string");
 }
 
 function jsxOptionsFromTsConfig(tsconfig: TsConfigJson | null): { jsxFactory?: string; jsxFragmentFactory?: string } {
@@ -157,6 +168,7 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
     projectDir: packageDir ?? resolve(startDir),
     dependencies,
     libs: libsFromTsConfig(tsconfig),
+    types: typesFromTsConfig(tsconfig),
     ...jsxOptionsFromTsConfig(tsconfig)
   };
 }
