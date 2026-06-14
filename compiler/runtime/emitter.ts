@@ -1472,7 +1472,13 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
 }
 
 function isAsyncFor(statement: ForStatement): boolean {
-  return activeState.asyncForStatements.has(statement as unknown as Node);
+  // lowerProgram creates new ForStatement objects but copies firstToken by reference via copyNodeBounds,
+  // so we match by firstToken identity rather than node identity.
+  if (!statement.firstToken) return false;
+  for (const node of activeState.asyncForStatements) {
+    if ((node as { firstToken?: unknown }).firstToken === statement.firstToken) return true;
+  }
+  return false;
 }
 
 function emitForStatement(statement: ForStatement): string {

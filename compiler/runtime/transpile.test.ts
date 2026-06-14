@@ -919,4 +919,23 @@ c += 5`;
     expect(result.code).toContain("let result = __$delegate_fromObject.value;");
   });
 
+  it("emits for await when iterating a sync generator result through the full pipeline", () => {
+    const source = [
+      "sync fun * produce() {",
+      "  yield 1",
+      "}",
+      "sync fun consume() {",
+      "  val gen = produce()",
+      "  for (v in gen) {",
+      "    console.log(v)",
+      "  }",
+      "}"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("for await (const v of gen)");
+  });
+
 });
