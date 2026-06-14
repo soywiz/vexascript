@@ -19,7 +19,7 @@ import { uriToFilePath } from "./importFixes";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
-import type { AnalysisType } from "compiler/analysis/types";
+import type { AnalysisType, ArrayType } from "compiler/analysis/types";
 import { BUILTIN_TYPE_NAMES, arrayType, builtinType, functionType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
 import { parseTypeNameShape } from "compiler/analysis/typeNames";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
@@ -73,12 +73,17 @@ function callableTypeFromExternalFunction(declarations: readonly Statement[], na
       continue;
     }
     return functionType(
-      fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
-        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
-        type: typeFromAnnotationText(parameter.typeAnnotation?.name),
-        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-        rest: parameter.rest === true
-      })),
+      fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => {
+        const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name);
+        const isRest = parameter.rest === true;
+        const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
+        return {
+          name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+          type,
+          optional: parameter.optional === true || parameter.defaultValue !== undefined || isRest,
+          rest: isRest
+        };
+      }),
       typeFromAnnotationText(fn.returnType?.name),
       fn.typeParameters?.map((parameter) => parameter.name.name)
     );
@@ -90,12 +95,17 @@ function buildFunctionTypeFromStatement(fn: FunctionStatement): AnalysisType {
   return functionType(
     fn.parameters
       .filter((p) => p.thisParameter !== true)
-      .map((p) => ({
-        name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
-        type: typeFromAnnotationText(p.typeAnnotation?.name),
-        optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
-        rest: p.rest === true
-      })),
+      .map((p) => {
+        const rawType = typeFromAnnotationText(p.typeAnnotation?.name);
+        const isRest = p.rest === true;
+        const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
+        return {
+          name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
+          type,
+          optional: p.optional === true || p.defaultValue !== undefined || isRest,
+          rest: isRest
+        };
+      }),
     typeFromAnnotationText(fn.returnType?.name),
     fn.typeParameters?.map((tp) => tp.name.name)
   );
@@ -105,12 +115,17 @@ function buildFunctionTypeFromInterfaceMember(member: InterfaceMethodMember): An
   return functionType(
     member.parameters
       .filter((p) => p.thisParameter !== true)
-      .map((p) => ({
-        name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
-        type: typeFromAnnotationText(p.typeAnnotation?.name),
-        optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
-        rest: p.rest === true
-      })),
+      .map((p) => {
+        const rawType = typeFromAnnotationText(p.typeAnnotation?.name);
+        const isRest = p.rest === true;
+        const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
+        return {
+          name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
+          type,
+          optional: p.optional === true || p.defaultValue !== undefined || isRest,
+          rest: isRest
+        };
+      }),
     typeFromAnnotationText(member.returnType?.name)
   );
 }
