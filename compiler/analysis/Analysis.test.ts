@@ -1399,6 +1399,68 @@ let after = bind`));
     );
   });
 
+  it("reports read access to setter-only class property as an error", () => {
+    const source = dedent`
+      class Demo {
+        set value(v: int) {}
+      }
+      var demo = Demo()
+      demo.value
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((i) => i.message);
+    expect(messages).toContain("Property 'value' on type 'Demo' has no getter");
+  });
+
+  it("allows write access to setter-only class property", () => {
+    const source = dedent`
+      class Demo {
+        set value(v: int) {}
+      }
+      var demo = Demo()
+      demo.value = 10
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((i) => i.message);
+    expect(messages).not.toContain("Property 'value' on type 'Demo' has no getter");
+  });
+
+  it("allows read access when both getter and setter are defined", () => {
+    const source = dedent`
+      class Demo {
+        get value(): int { return 1 }
+        set value(v: int) {}
+      }
+      var demo = Demo()
+      demo.value
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((i) => i.message);
+    expect(messages).not.toContain("Property 'value' on type 'Demo' has no getter");
+  });
+
+  it("rejects named-type delegate with setter-only value property", () => {
+    const source = dedent`
+      class SetterOnly {
+        set value(v: int) {}
+      }
+      var x by SetterOnly()
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((i) => i.message);
+    expect(messages).toContain("Type 'SetterOnly' is not a valid property delegate; property 'value' has no getter");
+  });
+
+  it("accepts named-type delegate with object value property", () => {
+    const source = dedent`
+      fun makeState() => { value: 10 }
+      var x by makeState()
+    `;
+    const ast = parseFile(tokenizeReader(source));
+    const messages = new Analysis(ast).getIssues().map((i) => i.message);
+    expect(messages).not.toContain("Type 'makeState' is not a valid property delegate");
+  });
+
   it("infers tuple element types for destructuring and generic tuple returns", () => {
     const source = dedent`
       fun useState<T>(value: T) {

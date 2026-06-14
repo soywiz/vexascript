@@ -144,6 +144,8 @@ export class TypeChecker {
   private readonly annotationStatementsByName: Map<string, AnnotationStatement> = new Map();
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
+  private readonly setterOnlyMembersCache: Map<string, Set<string>> = new Map();
+  private readonly pureWriteTargetNodes = new WeakSet<Node>();
   private readonly activeTypeAliasNames: Set<string> = new Set();
   private readonly generatorFunctionStack: boolean[] = [];
   private readonly syncFunctionStack: boolean[] = [];
@@ -808,6 +810,23 @@ export class TypeChecker {
       this.validateTupleDelegateShape(delegateType.elements, node);
       return;
     }
+    if (delegateType.kind === "named") {
+      if (this.memberTypeFromObjectType(delegateType, "value") === null) {
+        this.issues.push({
+          message: `Type '${delegateType.name}' is not a valid property delegate; it must have a 'value' getter or property`,
+          node
+        });
+        return;
+      }
+      if (this.isSetterOnlyMember(delegateType.name, "value")) {
+        this.issues.push({
+          message: `Type '${delegateType.name}' is not a valid property delegate; property 'value' has no getter`,
+          node
+        });
+        return;
+      }
+      return;
+    }
     if (this.isValidVariableDelegateType(delegateType)) {
       return;
     }
@@ -866,6 +885,10 @@ export class TypeChecker {
     }
   }
 
+  private isSetterOnlyMember(typeName: string, propertyName: string): boolean {
+    return this.setterOnlyMembersCache.get(typeName)?.has(propertyName) ?? false;
+  }
+
   private isValidVariableDelegateType(delegateType: AnalysisType): boolean {
     if (isUnknownType(delegateType) || (delegateType.kind === "builtin" && delegateType.name === "any")) {
       return true;
@@ -877,7 +900,8 @@ export class TypeChecker {
       return delegateType.properties["value"] !== undefined;
     }
     if (delegateType.kind === "named") {
-      return this.memberTypeFromObjectType(delegateType, "value") !== null;
+      return this.memberTypeFromObjectType(delegateType, "value") !== null &&
+        !this.isSetterOnlyMember(delegateType.name, "value");
     }
     if (delegateType.kind === "union") {
       return delegateType.types.every((member) => this.isValidVariableDelegateType(member));
@@ -1661,6 +1685,9 @@ export class TypeChecker {
           });
         }
         this.validateReadonlyAssignmentTarget(assignment.left, scope);
+        if (assignment.operator === "=" && assignment.left.kind === "MemberExpression") {
+          this.pureWriteTargetNodes.add(assignment.left);
+        }
         const leftType = this.visitExpression(assignment.left, scope);
         const rightType = this.visitExpression(assignment.right, scope, leftType);
         if (
@@ -6629,6 +6656,16 @@ export class TypeChecker {
     }
     if (knownMembers.has(propertyName)) {
       this.validateMemberVisibility(member, resolvedObjectType, propertyName, scope);
+      if (
+        resolvedObjectType.kind === "named" &&
+        this.isSetterOnlyMember(resolvedObjectType.name, propertyName) &&
+        !this.pureWriteTargetNodes.has(member)
+      ) {
+        this.issues.push({
+          message: `Property '${propertyName}' on type '${resolvedObjectType.name}' has no getter`,
+          node: member.property
+        });
+      }
       return;
     }
 
@@ -7509,6 +7546,8 @@ export class TypeChecker {
     if (classStatement) {
       const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], type);
       const members = new Map<string, AnalysisType>();
+      const readableNames = new Set<string>();
+      const setterNames = new Set<string>();
       for (const parameter of classStatement.primaryConstructorParameters ?? []) {
         const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
         members.set(bindingNameText(parameter.name), this.substituteTypeParameters(parameterType, substitutions));
@@ -7526,6 +7565,7 @@ export class TypeChecker {
 
       for (const classMember of classStatement.members) {
         if (classMember.kind === "ClassFieldMember") {
+          readableNames.add(classMember.name.name);
           let fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation);
           if (!fieldType) {
             const classScope = this.bound.scopeByNode.get(classStatement);
@@ -7538,6 +7578,14 @@ export class TypeChecker {
             this.substituteTypeParameters(fieldType, substitutions)
           );
           continue;
+        }
+
+        if (classMember.accessorKind === "get" || classMember.getterShorthand === true) {
+          readableNames.add(classMember.name.name);
+        } else if (classMember.accessorKind === "set") {
+          setterNames.add(classMember.name.name);
+        } else {
+          readableNames.add(classMember.name.name);
         }
 
         const classScope = this.bound.scopeByNode.get(classStatement);
@@ -7610,6 +7658,14 @@ export class TypeChecker {
           }
         }
       }
+
+      const setterOnlyNames = new Set<string>();
+      for (const name of setterNames) {
+        if (!readableNames.has(name)) {
+          setterOnlyNames.add(name);
+        }
+      }
+      this.setterOnlyMembersCache.set(classStatement.name.name, setterOnlyNames);
 
       return members;
     }
