@@ -129,7 +129,8 @@ export interface LspServerOptions {
 export function startLspServer(options: LspServerOptions): void {
   const { connection, documents, analysisSessions, environment } = options;
   const workspace = environment.workspace;
-  let inlayHintsEnabled = false;
+  let inlayHintsParameters = false;
+  let inlayHintsTypes = false;
   let referenceCodeLensEnabled = false;
 
   function refreshDiagnostics(): void {
@@ -169,6 +170,8 @@ export function startLspServer(options: LspServerOptions): void {
   connection.onInitialize((params) => {
     environment.onInitialize?.(params);
     referenceCodeLensEnabled = params.initializationOptions?.enableReferenceCodeLens === true;
+    inlayHintsParameters = params.initializationOptions?.enableInlayHintsParameters !== false;
+    inlayHintsTypes = params.initializationOptions?.enableInlayHintsTypes !== false;
     return {
       capabilities: {
         textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -215,7 +218,7 @@ export function startLspServer(options: LspServerOptions): void {
           full: true,
           range: true
         },
-        ...(inlayHintsEnabled ? { inlayHintProvider: true } : {}),
+        inlayHintProvider: true,
         renameProvider: {
           prepareProvider: true
         }
@@ -551,7 +554,7 @@ export function startLspServer(options: LspServerOptions): void {
   }
 
   connection.languages.inlayHint.on(async (params) => {
-    if (!inlayHintsEnabled) return [];
+    if (!inlayHintsParameters && !inlayHintsTypes) return [];
 
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
@@ -567,7 +570,8 @@ export function startLspServer(options: LspServerOptions): void {
       session.ast,
       session.analysis,
       params.range,
-      featureContext(params.textDocument.uri)
+      featureContext(params.textDocument.uri),
+      { parameters: inlayHintsParameters, types: inlayHintsTypes }
     );
   });
 
@@ -623,9 +627,11 @@ export function startLspServer(options: LspServerOptions): void {
 
   connection.onDidChangeConfiguration(async () => {
     const config = await connection.workspace.getConfiguration("vexa");
-    const newEnabled = config?.inlayHints?.enabled === true;
-    if (newEnabled !== inlayHintsEnabled) {
-      inlayHintsEnabled = newEnabled;
+    const newParameters = config?.inlayHints?.parameters !== false;
+    const newTypes = config?.inlayHints?.types !== false;
+    if (newParameters !== inlayHintsParameters || newTypes !== inlayHintsTypes) {
+      inlayHintsParameters = newParameters;
+      inlayHintsTypes = newTypes;
       connection.languages.inlayHint.refresh();
     }
     const newCodeLensEnabled = config?.referenceCodeLens?.enabled === true;

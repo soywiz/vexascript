@@ -360,13 +360,21 @@ function pushArgumentParameterHints(
   }
 }
 
+export interface InlayHintsEnabledOptions {
+  parameters?: boolean;
+  types?: boolean;
+}
+
 export async function createInlayHints(
   ast: Program,
   analysis: Analysis,
   range: Range,
-  options: ClassResolverOptions = {}
+  options: ClassResolverOptions = {},
+  enabledOptions: InlayHintsEnabledOptions = {}
 ): Promise<InlayHint[]> {
   const hints: InlayHint[] = [];
+  const showParameters = enabledOptions.parameters !== false;
+  const showTypes = enabledOptions.types !== false;
 
   const visitExpression = async (expression: Expr): Promise<void> => {
     switch (expression.kind) {
@@ -376,7 +384,9 @@ export async function createInlayHints(
         for (const argument of call.arguments) {
           await visitExpression(argument);
         }
-        await pushParameterHintsForCall(call, analysis, ast, options, range, hints);
+        if (showParameters) {
+          await pushParameterHintsForCall(call, analysis, ast, options, range, hints);
+        }
         return;
       }
       case "NewExpression":
@@ -384,14 +394,16 @@ export async function createInlayHints(
         for (const argument of (expression as NewExpression).arguments ?? []) {
           await visitExpression(argument);
         }
-        await pushParameterHintsForNewExpression(
-          expression as NewExpression,
-          analysis,
-          ast,
-          options,
-          range,
-          hints
-        );
+        if (showParameters) {
+          await pushParameterHintsForNewExpression(
+            expression as NewExpression,
+            analysis,
+            ast,
+            options,
+            range,
+            hints
+          );
+        }
         return;
       case "MemberExpression":
         await visitExpression((expression as MemberExpression).object);
@@ -456,7 +468,9 @@ export async function createInlayHints(
   const visitStatement = async (statement: Statement): Promise<void> => {
     switch (statement.kind) {
       case "VarStatement":
-        await pushTypeHintForVarStatement(statement as VarStatement, analysis, ast, options, range, hints);
+        if (showTypes) {
+          await pushTypeHintForVarStatement(statement as VarStatement, analysis, ast, options, range, hints);
+        }
         if ((statement as VarStatement).declarations && (statement as VarStatement).declarations!.length > 0) {
           for (const declaration of (statement as VarStatement).declarations!) {
             if (declaration.initializer) {
@@ -484,25 +498,27 @@ export async function createInlayHints(
         }
         return;
       case "FunctionStatement":
-        await pushParameterTypeHints(
-          (statement as FunctionStatement).parameters,
-          analysis,
-          ast,
-          options,
-          range,
-          hints
-        );
-        await pushReturnTypeHint(
-          statement as FunctionStatement,
-          (statement as FunctionStatement).returnType,
-          (statement as FunctionStatement).body.body,
-          (statement as FunctionStatement).async === true,
-          analysis,
-          ast,
-          options,
-          range,
-          hints
-        );
+        if (showTypes) {
+          await pushParameterTypeHints(
+            (statement as FunctionStatement).parameters,
+            analysis,
+            ast,
+            options,
+            range,
+            hints
+          );
+          await pushReturnTypeHint(
+            statement as FunctionStatement,
+            (statement as FunctionStatement).returnType,
+            (statement as FunctionStatement).body.body,
+            (statement as FunctionStatement).async === true,
+            analysis,
+            ast,
+            options,
+            range,
+            hints
+          );
+        }
         for (const child of (statement as FunctionStatement).body.body) {
           await visitStatement(child);
         }
@@ -512,25 +528,27 @@ export async function createInlayHints(
           if (member.kind === "ClassFieldMember" && member.initializer) {
             await visitExpression(member.initializer);
           } else if (member.kind === "ClassMethodMember") {
-            await pushParameterTypeHints(
-              member.parameters,
-              analysis,
-              ast,
-              options,
-              range,
-              hints
-            );
-            await pushReturnTypeHint(
-              member,
-              member.returnType,
-              member.body.body,
-              member.async === true,
-              analysis,
-              ast,
-              options,
-              range,
-              hints
-            );
+            if (showTypes) {
+              await pushParameterTypeHints(
+                member.parameters,
+                analysis,
+                ast,
+                options,
+                range,
+                hints
+              );
+              await pushReturnTypeHint(
+                member,
+                member.returnType,
+                member.body.body,
+                member.async === true,
+                analysis,
+                ast,
+                options,
+                range,
+                hints
+              );
+            }
             for (const child of member.body.body) {
               await visitStatement(child);
             }
