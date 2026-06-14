@@ -6,7 +6,7 @@ This section is the fast onboarding map for agents and contributors.
 
 - Parser:
   - Main parser implementation: `compiler/parser/parser.ts`
-  - Parser tests: `compiler/parser/parser.test.ts`
+  - Parser tests: `compiler/parser/parser.expression.test.ts`, `compiler/parser/parser.statement.test.ts`, `compiler/parser/parser.program.test.ts`, and `compiler/parser/parser.file-recovery.test.ts`
 - Tokenizer:
   - Tokenization and lexical errors: `compiler/parser/tokenizer.ts`
   - Tokenizer tests: `compiler/parser/tokenizer.test.ts`
@@ -40,7 +40,7 @@ This section is the fast onboarding map for agents and contributors.
   - Project index tests: `compiler/analysis/projectIndex.test.ts`
   - Analysis model/types: `compiler/analysis/model.ts`, `compiler/analysis/types.ts`
   - Analysis issue codes/contracts: `compiler/analysis/issueCodes.ts`
-  - Analysis tests: `compiler/analysis/Analysis.test.ts`
+  - Analysis tests: `compiler/analysis/Analysis.test.ts`, `compiler/analysis/Analysis.generics.test.ts`, and `compiler/analysis/Analysis.enums-and-calls.test.ts`
 - Embedded runtime declarations:
   - Shared runtime-declaration host contract that lets Node/browser adapters provide bundled declaration sources without hard-wiring shared compiler code to `fs/path/url`: `compiler/runtime/declarationHost.ts`
   - Node runtime-declaration host that reads bundled `compiler/runtime/es2025.d.ts` and `compiler/runtime/dom.d.ts` from disk for the CLI/LSP/test environment: `compiler/runtime/nodeDeclarationHost.ts`
