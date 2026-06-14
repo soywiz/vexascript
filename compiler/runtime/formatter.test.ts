@@ -336,6 +336,57 @@ describe("formatSource", () => {
     `.trimEnd());
   });
 
+  it("does not insert a blank line between a /// doc comment and its function declaration", () => {
+    expect(
+      formatSource(dedent`
+        /// Hello
+        fun sample(): int {
+          return 0
+        }
+      `.trimEnd())
+    ).toBe(dedent`
+      /// Hello
+      fun sample(): int {
+        return 0
+      }
+    `.trimEnd());
+  });
+
+  it("does not insert a blank line between multiple /// doc comment lines and a function declaration", () => {
+    expect(
+      formatSource(dedent`
+        /// First line
+        /// Second line
+        fun sample(): int {
+          return 0
+        }
+      `.trimEnd())
+    ).toBe(dedent`
+      /// First line
+      /// Second line
+      fun sample(): int {
+        return 0
+      }
+    `.trimEnd());
+  });
+
+  it("still inserts a blank line before a /// doc comment that follows a function declaration", () => {
+    expect(
+      formatSource(dedent`
+        fun first() {}
+        /// Doc
+        fun second() {}
+      `.trimEnd())
+    ).toBe(dedent`
+      fun first() {
+      }
+
+      /// Doc
+      fun second() {
+      }
+    `.trimEnd());
+  });
+
   it("keeps scientific notation literals without splitting exponent sign", () => {
     expect(formatSource("let a=10e-3\nlet b=10.573"))
       .toBe("let a = 10e-3\nlet b = 10.573");

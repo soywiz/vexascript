@@ -3,7 +3,7 @@ interface FormatToken {
   value: string;
 }
 
-type TopLevelLineKind = "variableDeclaration" | "functionOrClassDeclaration" | "other";
+type TopLevelLineKind = "variableDeclaration" | "functionOrClassDeclaration" | "docComment" | "other";
 type GenericAngleRole = "open" | "close" | "splitClose" | undefined;
 interface GenericAngleClassification {
   emittedOverrides: Array<string | undefined>;
@@ -508,6 +508,9 @@ function isBinaryOperatorToken(current: FormatToken, previousSignificant: Format
 }
 
 function classifyTopLevelLineStart(token: FormatToken): TopLevelLineKind {
+  if (token.type === "commentLine" && token.value.startsWith("///")) {
+    return "docComment";
+  }
   if (token.type !== "identifier") {
     return "other";
   }
@@ -1161,6 +1164,7 @@ export function formatSource(source: string): string {
       currentTopLevelLineKind = currentKind;
       if (
         previousTopLevelLineKind &&
+        previousTopLevelLineKind !== "docComment" &&
         (previousTopLevelLineKind === "functionOrClassDeclaration" || currentKind === "functionOrClassDeclaration") &&
         !result.endsWith("\n\n")
       ) {
