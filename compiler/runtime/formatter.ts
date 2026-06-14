@@ -1311,7 +1311,17 @@ export function formatSource(source: string): string {
     }
 
     if (token.type === "symbol") {
-      if (token.value === "{" && (awaitingVariableBinding || bindingBraceDepth > 0)) {
+      if (
+        token.value === "{" &&
+        (
+          bindingBraceDepth > 0 ||
+          (
+            awaitingVariableBinding &&
+            significantBeforePrevious?.type === "identifier" &&
+            VARIABLE_DECLARATION_KEYWORDS.has(significantBeforePrevious.value)
+          )
+        )
+      ) {
         bindingBraceDepth += 1;
         result += " ";
         continue;
