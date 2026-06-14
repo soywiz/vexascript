@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createAnalysisSession } from "./analysisSession";
-import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
+import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
 
 describe("cross-file type diagnostics", () => {
   it("reports argument count and type errors for imported class methods", async () => {
@@ -346,6 +346,32 @@ describe("cross-file type diagnostics", () => {
     expect(messages).toContain(
       "Argument 1 of type 'int' is not assignable to parameter 'key' of type 'string'"
     );
+  });
+
+  it("reports an error when the imported module file does not exist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const helloFile = join(root, "hello.vx");
+
+    const helloSource = dedent`
+      import { milliseconds, delay } from "../testFixtures/unexistant_file.vx"
+      class Demo {
+        var x = 0.0
+      }
+    `;
+
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    const diagnostics = await collectModuleNotFoundDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session
+    });
+
+    expect(diagnostics.map((d) => d.message)).toContain(
+      "Cannot find module '../testFixtures/unexistant_file.vx'"
+    );
+    const diag = diagnostics.find((d) => d.message === "Cannot find module '../testFixtures/unexistant_file.vx'");
+    expect(diag?.range.start.line).toEqual(0);
   });
 
   it("reports cross-file call errors nested in arrow-function expressions", async () => {

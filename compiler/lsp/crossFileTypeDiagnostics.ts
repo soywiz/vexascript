@@ -34,6 +34,44 @@ export interface CollectCrossFileTypeDiagnosticsParams {
   getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
 }
 
+export interface CollectModuleNotFoundDiagnosticsParams {
+  uri: string;
+  session: AnalysisSession;
+  getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
+}
+
+export async function collectModuleNotFoundDiagnostics(
+  params: CollectModuleNotFoundDiagnosticsParams
+): Promise<Diagnostic[]> {
+  const { session } = params;
+  if (!session.ast) {
+    return [];
+  }
+  const currentFilePath = uriToFilePath(params.uri);
+  if (!currentFilePath) {
+    return [];
+  }
+  const diagnostics: Diagnostic[] = [];
+  for (const importStatement of collectImportStatements(session.ast)) {
+    const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value, {
+      ...(params.getSessionForFilePath
+        ? { getSessionForFilePath: params.getSessionForFilePath }
+        : {}),
+    });
+    if (!targetFilePath) {
+      const diagnostic = diagnosticForNode(
+        importStatement.from,
+        `Cannot find module '${importStatement.from.value}'`,
+        VEXA_DIAGNOSTIC_CODES.IMPORT_MODULE_NOT_FOUND
+      );
+      if (diagnostic) {
+        diagnostics.push(diagnostic);
+      }
+    }
+  }
+  return diagnostics;
+}
+
 function diagnosticForNode(
   node: { firstToken?: { range: { start: { line: number; column: number } } }; lastToken?: { range: { end: { line: number; column: number } } } },
   message: string,
@@ -141,15 +179,15 @@ export async function collectCrossFileTypeDiagnostics(
     if (!currentFilePath) {
       continue;
     }
-    if (importStatement.specifiers.length === 0) {
-      continue;
-    }
     const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importStatement.from.value, {
       ...(params.getSessionForFilePath
         ? { getSessionForFilePath: params.getSessionForFilePath }
         : {}),
     });
     if (!targetFilePath) {
+      continue;
+    }
+    if (importStatement.specifiers.length === 0) {
       continue;
     }
     const targetSession = await getProjectSessionForFilePath(targetFilePath, options);

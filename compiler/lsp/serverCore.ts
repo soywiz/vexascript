@@ -27,9 +27,9 @@ import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
-import { createDocumentDiagnosticReport } from "./diagnostics";
+import { collectDiagnosticsFromSession } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
-import { collectCrossFileTypeDiagnostics } from "./crossFileTypeDiagnostics";
+import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
 import { buildAutoImportSuggestions, uriToFilePath } from "./importFixes";
 import {
   createCompletionItemsForPosition,
@@ -456,7 +456,7 @@ export function startLspServer(options: LspServerOptions): void {
     return null;
   });
 
-  connection.languages.diagnostics.on((params) => {
+  connection.languages.diagnostics.on(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return {
@@ -466,12 +466,21 @@ export function startLspServer(options: LspServerOptions): void {
     }
 
     const session = analysisSessions.getForDocument(doc);
-    return createDocumentDiagnosticReport(
-      session,
-      doc.getText(),
-      (offset) => doc.positionAt(offset),
-      String(doc.version)
-    );
+    const context = { ...featureContext(doc.uri), session };
+    const [moduleNotFoundDiagnostics, crossFileTypeDiagnostics] = await Promise.all([
+      collectModuleNotFoundDiagnostics({
+        uri: doc.uri,
+        session,
+        getSessionForFilePath: environment.getSessionForFilePath
+      }),
+      collectCrossFileTypeDiagnostics(context)
+    ]);
+    const syncDiagnostics = collectDiagnosticsFromSession(session, doc.getText(), (offset) => doc.positionAt(offset));
+    return {
+      kind: DocumentDiagnosticReportKind.Full,
+      items: [...syncDiagnostics, ...moduleNotFoundDiagnostics, ...crossFileTypeDiagnostics],
+      resultId: String(doc.version)
+    };
   });
 
   if (workspace) {
