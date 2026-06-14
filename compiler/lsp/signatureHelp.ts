@@ -18,7 +18,7 @@ import {
   getVexaScriptRuntimeProgram
 } from "compiler/runtime/ecmascriptDeclarations";
 import {
-  resolveCallableSignature,
+  resolveCallableSignatures,
   resolveConstructorSignature,
   type ClassResolverOptions
 } from "./classResolver";
@@ -169,68 +169,70 @@ function formatParameterLabel(parameter: {
   return `${parameter.rest ? "..." : ""}${parameter.name}${parameter.optional === true && parameter.rest !== true ? "?" : ""}: ${parameter.typeName}`;
 }
 
-async function buildSignatureFromSymbol(
+function signatureInfoFromResolved(resolved: { name: string; parameters: { name: string; typeName: string; optional?: boolean; rest?: boolean }[]; returnTypeName: string; documentation?: string }): SignatureInformation {
+  const parameters = resolved.parameters.map((p) => ({ label: formatParameterLabel(p) }));
+  const label = `${resolved.name}(${parameters.map((p) => p.label).join(", ")}): ${resolved.returnTypeName}`;
+  return { label, parameters, ...(resolved.documentation ? { documentation: resolved.documentation } : {}) };
+}
+
+function bestActiveSignature(signatures: SignatureInformation[], activeParameter: number, argumentCount: number): number {
+  if (argumentCount === 0) {
+    const zeroParamIdx = signatures.findIndex((s) => (s.parameters?.length ?? 0) === 0);
+    if (zeroParamIdx >= 0) return zeroParamIdx;
+  }
+  for (let i = 0; i < signatures.length; i++) {
+    const paramCount = signatures[i]!.parameters?.length ?? 0;
+    if (paramCount >= activeParameter + 1) return i;
+  }
+  return signatures.length - 1;
+}
+
+async function buildSignaturesFromSymbol(
   context: InvocationContext,
   analysis: Analysis,
   program: Program,
   options: ClassResolverOptions
-): Promise<SignatureInformation | null> {
-  const callable = await resolveCallableSignature(context.callee, analysis, program, options);
-  if (callable) {
-    const parameters = callable.parameters.map((parameter) => ({
-      label: formatParameterLabel(parameter)
-    }));
-    const label = `${callable.name}(${parameters.map((parameter) => parameter.label).join(", ")}): ${callable.returnTypeName}`;
-    return {
-      label,
-      parameters,
-      ...(callable.documentation ? { documentation: callable.documentation } : {})
-    };
+): Promise<SignatureInformation[]> {
+  const callables = await resolveCallableSignatures(context.callee, analysis, program, options);
+  if (callables.length > 0) {
+    return callables.map(signatureInfoFromResolved);
   }
 
   const symbolMatch = symbolAtNode(analysis, context.callee);
   if (!symbolMatch) {
-    return null;
+    return [];
   }
 
   const functionType = toFunctionType(symbolMatch.symbol.type);
   if (functionType) {
-    const parameters = functionType.parameters.map((parameter) => ({
-      label: formatParameterLabel({
-        name: parameter.name,
-        typeName: typeToString(parameter.type),
-        optional: parameter.optional === true,
-        rest: parameter.rest === true
-      })
-    }));
-    const label = `${symbolMatch.symbol.name}(${parameters.map((parameter) => parameter.label).join(", ")}): ${typeToString(functionType.returnType)}`;
     const documentation =
       symbolMatch.symbol.node.kind === "Identifier"
         ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
         : undefined;
-    return {
-      label,
-      parameters,
+    return [signatureInfoFromResolved({
+      name: symbolMatch.symbol.name,
+      parameters: functionType.parameters.map((p) => ({
+        name: p.name,
+        typeName: typeToString(p.type),
+        optional: p.optional === true,
+        rest: p.rest === true
+      })),
+      returnTypeName: typeToString(functionType.returnType),
       ...(documentation ? { documentation } : {})
-    };
+    })];
   }
 
   if (context.isNewExpression) {
     const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
     if (!constructorSignature) {
-      return null;
+      return [];
     }
-    const parameters = constructorSignature.parameters.map((parameter) => ({
-      label: formatParameterLabel(parameter)
-    }));
-    const label = `new ${constructorSignature.className}(${parameters.map((parameter) => parameter.label).join(", ")})`;
-    return {
-      label,
-      parameters
-    };
+    const parameters = constructorSignature.parameters.map((p) => ({ label: formatParameterLabel(p) }));
+    const label = `new ${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
+    return [{ label, parameters }];
   }
 
-  return null;
+  return [];
 }
 
 function findAnnotationDeclaration(program: Program, name: string): AnnotationStatement | null {
@@ -303,14 +305,14 @@ export async function createSignatureHelp(
     return null;
   }
 
-  const signature = await buildSignatureFromSymbol(context, analysis, program, options);
-  if (!signature) {
+  const signatures = await buildSignaturesFromSymbol(context, analysis, program, options);
+  if (signatures.length === 0) {
     return null;
   }
 
   return {
-    signatures: [signature],
-    activeSignature: 0,
+    signatures,
+    activeSignature: bestActiveSignature(signatures, context.activeParameter, context.arguments.length),
     activeParameter: context.activeParameter
   };
 }

@@ -545,6 +545,15 @@ function resolveInterfaceOwnMember(
   memberName: string,
   substitutions: Map<string, string>
 ): ResolvedClassMember | null {
+  return resolveInterfaceOwnSignatures(interfaceStatement, memberName, substitutions)[0]?.member ?? null;
+}
+
+function resolveInterfaceOwnSignatures(
+  interfaceStatement: InterfaceStatement,
+  memberName: string,
+  substitutions: Map<string, string>
+): Array<{ member: ResolvedClassMember; signature: ResolvedFunctionSignature }> {
+  const results: Array<{ member: ResolvedClassMember; signature: ResolvedFunctionSignature }> = [];
   for (const member of interfaceStatement.members) {
     if (member.name.name !== memberName) {
       continue;
@@ -552,16 +561,23 @@ function resolveInterfaceOwnMember(
 
     if (member.kind === "InterfacePropertyMember") {
       const documentation = readDocumentationFromIdentifier(member.name);
-      const result: ResolvedClassMember = {
+      const resolved: ResolvedClassMember = {
         className: interfaceStatement.name.name,
         memberName,
         kind: "field",
         typeName: substituteTypeNameText(member.typeAnnotation?.name ?? "unknown", substitutions)
       };
       if (documentation) {
-        result.documentation = documentation;
+        resolved.documentation = documentation;
       }
-      return result;
+      // Properties are not callable overloads — return as a single entry with a dummy signature
+      const sig: ResolvedFunctionSignature = {
+        name: memberName,
+        parameters: [],
+        returnTypeName: resolved.typeName
+      };
+      results.push({ member: resolved, signature: sig });
+      return results;
     }
 
     const parameters: ResolvedParameter[] = member.parameters.map((parameter) => ({
@@ -578,7 +594,7 @@ function resolveInterfaceOwnMember(
       returnTypeName,
       ...(documentation ? { documentation } : {})
     };
-    return {
+    const resolved: ResolvedClassMember = {
       className: interfaceStatement.name.name,
       memberName,
       kind: "method",
@@ -586,9 +602,10 @@ function resolveInterfaceOwnMember(
       signature,
       ...(documentation ? { documentation } : {})
     };
+    results.push({ member: resolved, signature });
   }
 
-  return null;
+  return results;
 }
 
 async function resolveInterfaceMemberRecursive(
@@ -1446,6 +1463,108 @@ export async function resolveCallableSignature(
   }
 
   return null;
+}
+
+export async function resolveCallableSignatures(
+  callee: Expr,
+  analysis: Analysis,
+  ast: Program,
+  options: ClassResolverOptions
+): Promise<ResolvedFunctionSignature[]> {
+  if (callee.kind === "Identifier") {
+    const identifier = callee as Identifier;
+    if (!identifier.firstToken) return [];
+    const symbol = analysis.getSymbolAt(
+      identifier.firstToken.range.start.line,
+      identifier.firstToken.range.start.column
+    )?.symbol;
+    if (!symbol) return [];
+    const documentation =
+      symbol.node.kind === "Identifier"
+        ? readDocumentationFromProgramDeclaration(ast, symbol.node as Identifier)
+        : undefined;
+    if (symbol.type?.kind === "function") {
+      return [{
+        name: identifier.name,
+        parameters: symbol.type.parameters.map((parameter) => ({
+          name: parameter.name,
+          typeName: typeToString(parameter.type),
+          optional: parameter.optional === true,
+          rest: parameter.rest === true
+        })),
+        returnTypeName: typeToString(symbol.type.returnType),
+        ...(documentation ? { documentation } : {})
+      }];
+    }
+    if (symbol.type?.kind === "union") {
+      const sigs: ResolvedFunctionSignature[] = [];
+      for (const t of symbol.type.types) {
+        if (t.kind !== "function") continue;
+        sigs.push({
+          name: identifier.name,
+          parameters: t.parameters.map((parameter) => ({
+            name: parameter.name,
+            typeName: typeToString(parameter.type),
+            optional: parameter.optional === true,
+            rest: parameter.rest === true
+          })),
+          returnTypeName: typeToString(t.returnType),
+          ...(documentation ? { documentation } : {})
+        });
+      }
+      if (sigs.length > 0) return sigs;
+    }
+    return [];
+  }
+
+  if (callee.kind !== "MemberExpression") return [];
+  const member = callee as MemberExpression;
+  if (member.computed || member.property.kind !== "Identifier") return [];
+
+  const objectTypeName = await resolveExpressionTypeName(member.object, analysis, ast, options);
+  const parsedObjectType = objectTypeName ? parseTypeNameShape(objectTypeName) : null;
+  if (!parsedObjectType) return [];
+  const resolvedBaseTypeName = boxedPrimitiveTypeName(parsedObjectType.baseName);
+
+  const resolverCache = createClassResolverCache();
+  const memberName = (member.property as Identifier).name;
+  const memberContext = { ast, options, cache: resolverCache };
+
+  const classResolution = await resolveClassStatementAcrossFiles(ast, resolvedBaseTypeName, options, resolverCache);
+  if (classResolution) {
+    const memberResolution = await resolveClassMember(
+      classResolution.classStatement, memberName, objectTypeName ?? undefined, memberContext
+    );
+    if (memberResolution?.kind === "method" && memberResolution.signature) {
+      return [memberResolution.signature];
+    }
+  }
+
+  const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
+    ast, resolvedBaseTypeName, options, resolverCache
+  );
+  if (interfaceResolution) {
+    const substitutions = typeParameterSubstitutions(
+      interfaceResolution.interfaceStatement.typeParameters ?? [],
+      objectTypeName ?? undefined
+    );
+    const overloads = resolveInterfaceOwnSignatures(
+      interfaceResolution.interfaceStatement, memberName, substitutions
+    );
+    if (overloads.length > 0) {
+      return overloads.map((o) => o.signature);
+    }
+  }
+
+  const importerFilePath = options.uri ? uriToFilePath(options.uri) : null;
+  if (importerFilePath) {
+    const nodeModuleSig = await resolveNodeModuleNamespaceFunctionSignature(
+      ast, resolvedBaseTypeName, memberName, importerFilePath, options
+    );
+    if (nodeModuleSig) return [nodeModuleSig];
+  }
+
+  return [];
 }
 
 export async function resolveConstructorSignature(

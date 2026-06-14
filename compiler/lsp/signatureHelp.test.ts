@@ -397,4 +397,44 @@ describe("signature help", () => {
     expect(help!.activeSignature).toBe(0);
     expect(help!.activeParameter).toBe(1);
   });
+
+  it("shows all overloads for overloaded interface methods and selects the best matching signature", async () => {
+    const source = dedent`
+      fun demo() {
+        Promise.resolve()
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 17);
+    expect(help).not.toBeNull();
+    expect(help!.signatures.length).toBeGreaterThan(1);
+
+    const noArgSig = help!.signatures.find((s) => s.parameters?.length === 0);
+    const valueSig = help!.signatures.find((s) => s.parameters && s.parameters.length > 0);
+    expect(noArgSig).toBeTruthy();
+    expect(valueSig).toBeTruthy();
+
+    // With 0 active params, the first 0-parameter overload should be active
+    expect(help!.signatures[help!.activeSignature!]?.parameters?.length ?? 0).toBe(0);
+  });
+
+  it("selects the overload whose parameter count covers the active argument position", async () => {
+    const source = dedent`
+      fun demo() {
+        Promise.resolve(42)
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 18);
+    expect(help).not.toBeNull();
+    expect(help!.signatures.length).toBeGreaterThan(1);
+    // With 1 active param, an overload that accepts a value should be selected
+    const activeSig = help!.signatures[help!.activeSignature!];
+    expect(activeSig?.parameters?.length ?? 0).toBeGreaterThanOrEqual(1);
+  });
 });
