@@ -188,28 +188,9 @@ export async function collectCrossFileTypeDiagnostics(
     };
     const targetFilePath = await resolveImportTargetFilePath(currentFilePath, importPath, resOptions);
     if (!targetFilePath) {
-      // Check ambient module declarations (e.g. `declare module "fs"` from @types/node)
-      const ambientDecls = session.ambientModuleDeclarations.get(importPath);
-      if (ambientDecls && importStatement.specifiers.length > 0) {
-        const exportedNames = new Set<string>();
-        for (const stmt of ambientDecls) {
-          for (const name of topLevelDeclarationNames(stmt)) {
-            exportedNames.add(name);
-          }
-        }
-        for (const specifier of importStatement.specifiers) {
-          if (exportedNames.has(specifier.imported.name)) {
-            continue;
-          }
-          pushDiagnostic(
-            diagnosticForNode(
-              specifier.imported,
-              `Module '${importPath}' has no exported symbol '${specifier.imported.name}'`,
-              VEXA_DIAGNOSTIC_CODES.IMPORT_MISSING_EXPORT
-            )
-          );
-        }
-      }
+      // Ambient modules (e.g. `declare module "fs"` from @types/node) frequently use
+      // re-export patterns like `export = X` or `export * from "Y"` that can't be
+      // resolved with topLevelDeclarationNames. Skip the missing-export check for them.
       continue;
     }
     if (importStatement.specifiers.length === 0) {
