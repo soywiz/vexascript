@@ -4841,7 +4841,7 @@ export class Parser {
         return candidate in BINARY_OPERATOR_INFO && candidate !== "in" && candidate !== "instanceof" ? candidate : undefined;
     }
 
-    private parseClassMember(allowSignatureOnly: boolean = false): ClassMember {
+    private parseClassMember(allowSignatureOnly: boolean = false): ClassMember[] {
         const firstToken = this.tokens.peek();
         let memberStartToken = firstToken;
         let isOverrideMember = false;
@@ -5023,7 +5023,7 @@ export class Parser {
                     signatureOnlyMethod.returnType = returnType;
                 }
 
-                return this.attachNodeBounds(signatureOnlyMethod, memberStartToken, this.getLastReadToken() ?? memberNameToken);
+                return [this.attachNodeBounds(signatureOnlyMethod, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
             }
 
             const methodMember: ClassMethodMember = {
@@ -5072,7 +5072,7 @@ export class Parser {
                 methodMember.returnType = returnType;
             }
 
-            return this.attachNodeBounds(methodMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
+            return [this.attachNodeBounds(methodMember, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
         }
 
         if (accessorKind) {
@@ -5120,7 +5120,114 @@ export class Parser {
                 writable: true
             });
 
-            return this.attachNodeBounds(getterMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
+            return [this.attachNodeBounds(getterMember, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
+        }
+
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
+            this.tokens.skip(); // consume `{`
+            const compoundGetters: ClassMethodMember[] = [];
+            const compoundSetters: ClassMethodMember[] = [];
+
+            while (this.tokens.hasMore) {
+                const peekToken = this.tokens.peek();
+                if (peekToken?.type === "symbol" && peekToken.value === "}") break;
+                if (peekToken?.type === "symbol" && peekToken.value === ";") {
+                    this.tokens.skip();
+                    continue;
+                }
+
+                const subKeyword = this.tokens.read();
+                if (subKeyword?.type !== "identifier" || (subKeyword.value !== "get" && subKeyword.value !== "set")) {
+                    this.fail("Expected 'get' or 'set' inside accessor block", this.tokenAt(subKeyword));
+                }
+
+                if (subKeyword.value === "get") {
+                    const getterBody = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
+                        ? this.parseExpressionBodyAsBlock()
+                        : this.parseBlockStatement();
+                    const getterMember: ClassMethodMember = {
+                        kind: "ClassMethodMember",
+                        name: this.buildIdentifierFromToken(resolvedMemberNameToken),
+                        parameters: [],
+                        body: getterBody,
+                        accessorKind: "get"
+                    };
+                    if (typeAnnotation) {
+                        getterMember.returnType = typeAnnotation;
+                    }
+                    this.applyClassMemberModifiers(getterMember, {
+                        override: isOverrideMember, accessModifier,
+                        readonly: isReadonlyMember, static: isStaticMember, abstract: isAbstractMember
+                    });
+                    this.attachNonEnumerableToken(getterMember, "accessorToken", subKeyword);
+                    compoundGetters.push(this.attachNodeBounds(getterMember, subKeyword, this.getLastReadToken() ?? subKeyword));
+                } else {
+                    let setterParam: FunctionParameter;
+                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+                        this.tokens.skip();
+                        const paramNameToken = this.tokens.read();
+                        if (paramNameToken?.type !== "identifier") {
+                            this.fail("Expected setter parameter name", this.tokenAt(paramNameToken));
+                        }
+                        let paramType: Identifier | undefined = typeAnnotation;
+                        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                            this.tokens.skip();
+                            paramType = this.parseTypeAnnotationNode();
+                        }
+                        const closeParen = this.tokens.read();
+                        if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                            this.fail("Expected ')' after setter parameter", this.tokenAt(closeParen));
+                        }
+                        const paramName = this.buildIdentifierFromToken(paramNameToken);
+                        setterParam = this.attachNodeBounds(
+                            { kind: "FunctionParameter", name: paramName } as FunctionParameter,
+                            paramNameToken, this.getLastReadToken() ?? paramNameToken
+                        );
+                        if (paramType) {
+                            setterParam.typeAnnotation = paramType;
+                        }
+                    } else {
+                        const newValueIdent = this.attachNodeBounds(
+                            { kind: "Identifier", name: "newValue" } as Identifier,
+                            subKeyword, subKeyword
+                        );
+                        setterParam = this.attachNodeBounds(
+                            { kind: "FunctionParameter", name: newValueIdent } as FunctionParameter,
+                            subKeyword, subKeyword
+                        );
+                        if (typeAnnotation) {
+                            setterParam.typeAnnotation = typeAnnotation;
+                        }
+                    }
+                    const setterBody = this.parseBlockStatement();
+                    const setterMember: ClassMethodMember = {
+                        kind: "ClassMethodMember",
+                        name: this.buildIdentifierFromToken(resolvedMemberNameToken),
+                        parameters: [setterParam],
+                        body: setterBody,
+                        accessorKind: "set"
+                    };
+                    this.applyClassMemberModifiers(setterMember, {
+                        override: isOverrideMember, accessModifier,
+                        readonly: isReadonlyMember, static: isStaticMember, abstract: isAbstractMember
+                    });
+                    this.attachNonEnumerableToken(setterMember, "accessorToken", subKeyword);
+                    compoundSetters.push(this.attachNodeBounds(setterMember, subKeyword, this.getLastReadToken() ?? subKeyword));
+                }
+
+                this.consumeStatementSeparator("block", this.getLastReadToken());
+            }
+
+            const closeBrace = this.tokens.read();
+            if (closeBrace?.type !== "symbol" || closeBrace.value !== "}") {
+                this.fail("Expected '}' to close accessor block", this.tokenAt(this.tokens.peek()));
+            }
+            const compoundMembers = [...compoundGetters, ...compoundSetters];
+            if (compoundMembers.length === 0) {
+                this.fail("Accessor block must contain at least one 'get' or 'set'", this.tokenAt(closeBrace));
+            }
+
+            return compoundMembers;
         }
 
         let initializer: Expr | undefined;
@@ -5158,7 +5265,7 @@ export class Parser {
         if (initializer) {
             fieldMember.initializer = initializer;
         }
-        return this.attachNodeBounds(fieldMember, memberStartToken, this.getLastReadToken() ?? memberNameToken);
+        return [this.attachNodeBounds(fieldMember, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
     }
 
     private isClassMemberModifier(value: string): boolean {
@@ -5440,8 +5547,8 @@ export class Parser {
                 continue;
             }
 
-            const member = this.parseClassMember(declared);
-            members.push(member);
+            const parsedMembers = this.parseClassMember(declared);
+            members.push(...parsedMembers);
             this.consumeStatementSeparator("block", this.getLastReadToken());
         }
 

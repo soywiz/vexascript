@@ -2496,6 +2496,104 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses compound accessor block with implicit newValue setter parameter", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Point {\n  var x: int {\n    set { _x = newValue }\n    get { return _x }\n  }\n}")
+            )
+        ).toMatchObject({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Point" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "get",
+                    name: { kind: "Identifier", name: "x" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "int" }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "set",
+                    name: { kind: "Identifier", name: "x" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "newValue" },
+                            typeAnnotation: { kind: "Identifier", name: "int" }
+                        }
+                    ]
+                }
+            ]
+        });
+    });
+
+    it("parses compound accessor block with explicit setter parameter name", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Point {\n  var x: int {\n    set(value) { _x = value }\n    get { return _x }\n  }\n}")
+            )
+        ).toMatchObject({
+            kind: "ClassStatement",
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "get",
+                    name: { kind: "Identifier", name: "x" }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "set",
+                    name: { kind: "Identifier", name: "x" },
+                    parameters: [{ kind: "FunctionParameter", name: { kind: "Identifier", name: "value" } }]
+                }
+            ]
+        });
+    });
+
+    it("parses compound accessor block with typed setter parameter and arrow getter", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Point {\n  var x: int {\n    set(value: int) { _x = value }\n    get => _x\n  }\n}")
+            )
+        ).toMatchObject({
+            kind: "ClassStatement",
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "get",
+                    name: { kind: "Identifier", name: "x" }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    accessorKind: "set",
+                    name: { kind: "Identifier", name: "x" },
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "value" },
+                            typeAnnotation: { kind: "Identifier", name: "int" }
+                        }
+                    ]
+                }
+            ]
+        });
+    });
+
+    it("parses compound accessor block with getter defined first", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Point {\n  var x: int {\n    get { return _x }\n    set { _x = newValue }\n  }\n}")
+            )
+        ).toMatchObject({
+            kind: "ClassStatement",
+            members: [
+                { kind: "ClassMethodMember", accessorKind: "get", name: { kind: "Identifier", name: "x" } },
+                { kind: "ClassMethodMember", accessorKind: "set", name: { kind: "Identifier", name: "x" } }
+            ]
+        });
+    });
+
     it("parses class delegates in colon interface clauses", () => {
         expect(
             parseStatement(tokenizeReader("class MyDemo(val shape: Shape) : Shape by { shape } {}"))

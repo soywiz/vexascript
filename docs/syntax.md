@@ -616,6 +616,8 @@ class Box<T extends Entity> extends Base<T> {
 
 Class bodies support TypeScript-style property accessors. Getter accessors must not declare parameters, and setter accessors must declare exactly one parameter. Accessor type annotations participate in member type analysis as property types. Getters also support a shorthand form that omits `get` and the empty parameter list when the body is a single returned expression.
 
+VexaScript also supports a compound accessor block where the property name is written once and `get`/`set` sub-blocks are nested inside `{ }`. The setter parameter defaults to the implicit name `newValue` typed to the declared property type; it can be overridden by writing `set(name)` or `set(name: Type)`. Either `get`/`set` order is accepted.
+
 Example:
 
 ```vexa
@@ -631,6 +633,26 @@ class Box {
 
 class Rect {
   area: number => this.width * this.height
+}
+
+class Point {
+  private var _x = 0
+
+  // compound form — name appears once
+  var x: int {
+    set { _x = 2 * newValue }      // implicit 'newValue' parameter
+    get { return _x / 2 }
+  }
+
+  var y: int {
+    set(value) { _x = 2 * value }  // explicit parameter name
+    get => _x / 2                   // arrow shorthand getter
+  }
+
+  var z: int {
+    set(value: int) { _x = value }  // explicit parameter name and type
+    get { return _x }
+  }
 }
 ```
 
