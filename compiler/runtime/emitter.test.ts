@@ -3,7 +3,7 @@ import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
-import { emitProgram } from "./emitter";
+import { emitProgram, emitProgramStatements } from "./emitter";
 import { lowerProgram } from "./lowering";
 
 describe("emitProgram", () => {
@@ -58,6 +58,14 @@ describe("emitProgram", () => {
   it("emits vexa for-in as for-of const", () => {
     const program = parseFile(tokenizeReader("for (n in [1,2,3]) console.log(n)"));
     expect(emitProgram(program)).toContain("for (const n of [1, 2, 3]) console.log(n);");
+  });
+
+  it("emits for await when asyncForStatements contains the loop", () => {
+    const program = parseFile(tokenizeReader("for (n in iter) console.log(n)"));
+    const forStmt = program.body[0]!;
+    const asyncForStatements: ReadonlySet<object> = new Set([forStmt]);
+    const output = emitProgramStatements(program, undefined, undefined, undefined, undefined, undefined, undefined, asyncForStatements as ReadonlySet<never>);
+    expect(output.join("\n")).toContain("for await (const n of iter) console.log(n);");
   });
 
   it("keeps emitter focused on syntax emission without range-loop optimization", () => {

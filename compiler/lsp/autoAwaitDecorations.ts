@@ -24,6 +24,7 @@ export interface AutoAwaitDecoration {
 const IMPLICIT_AWAIT_MESSAGE =
   "Implicit await: this Promise is automatically awaited inside a sync function";
 const EXPLICIT_AWAIT_MESSAGE = "Awaited expression";
+const ASYNC_FOR_MESSAGE = "Async iteration: this for loop iterates an AsyncIterator and suspends on each value";
 
 function nodeRange(node: Node): AutoAwaitDecoration["range"] | null {
   if (!node.firstToken || !node.lastToken) {
@@ -91,6 +92,10 @@ export function createAutoAwaitDecorations(
 
   for (const node of analysis.getAutoAwaitExpressions()) {
     consider(node, IMPLICIT_AWAIT_MESSAGE);
+  }
+
+  for (const node of analysis.getAsyncForStatements()) {
+    consider(node, ASYNC_FOR_MESSAGE);
   }
 
   walkAst(ast, (node) => {

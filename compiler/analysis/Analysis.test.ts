@@ -544,6 +544,45 @@ let after = bind`));
     expect(messages.filter((message) => message === "The 'yield' keyword is only allowed inside generator functions")).toHaveLength(2);
   });
 
+  it("types sync generator functions as AsyncGenerator<T> inferred from yield expressions", () => {
+    const source = dedent`
+      sync fun * demo() {
+        yield 10
+        yield 20
+      }
+      val res = demo()
+      val ok: AsyncGenerator<int> = res
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("types plain generator functions as Generator<T> inferred from yield expressions", () => {
+    const source = dedent`
+      fun * values() {
+        yield "hello"
+      }
+      val ok: Generator<string> = values()
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves the element type of AsyncGenerator in for-in loops", () => {
+    const source = dedent`
+      sync fun * produce() {
+        yield 42
+      }
+      sync fun consume() {
+        for (v in produce()) {
+          val n: int = v
+        }
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("allows await only at top level and inside async or sync functions", () => {
     const source = dedent`
       declare function promised(): Promise<int>

@@ -202,7 +202,8 @@ function emitProgramStatementSegments(
   emitOptions: EmitOptions = {},
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
   baseRuntimeSeed?: ReturnType<typeof createEmitProgramRuntimeSeed>,
-  implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map()
+  implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map(),
+  asyncForStatements: ReadonlySet<Node> = new Set()
 ): { statement: Statement; emitted: string }[] {
   const runtimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes, emitOptions, baseRuntimeSeed);
   return emitProgramStatementPairs(
@@ -213,7 +214,8 @@ function emitProgramStatementSegments(
     autoAwaitExpressions,
     runtimeContext,
     staticImplicitReceiverIdentifiers,
-    implicitReceiverExtensionIdentifiers
+    implicitReceiverExtensionIdentifiers,
+    asyncForStatements
   ).filter(({ emitted }) => emitted.trim().length > 0);
 }
 
@@ -378,6 +380,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const staticImplicitReceiverIdentifiers = artifacts.analysis.getStaticImplicitReceiverIdentifiers();
   const implicitReceiverExtensionIdentifiers = artifacts.analysis.getImplicitReceiverExtensionIdentifiers();
   const autoAwaitExpressions = artifacts.analysis.getAutoAwaitExpressions();
+  const asyncForStatements = artifacts.analysis.getAsyncForStatements();
   const emittedSegments = emitProgramStatementSegments(
     programForEmission,
     expressionTypes,
@@ -390,7 +393,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     },
     staticImplicitReceiverIdentifiers,
     cachedEcmaScriptRuntimeEmitSeed,
-    implicitReceiverExtensionIdentifiers
+    implicitReceiverExtensionIdentifiers,
+    asyncForStatements
   );
   const emittedWithOffsets = options.preserveSourceLineOffsets
     ? emitSegmentsWithSourceLineOffsets(emittedSegments)

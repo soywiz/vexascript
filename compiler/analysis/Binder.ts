@@ -284,6 +284,7 @@ export class Binder {
           continue;
         }
         const fnIsAsyncLike = functionStatement.async === true || functionStatement.sync === true;
+        const fnIsGenerator = functionStatement.generator === true;
         const symbolType = functionType(
           functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: bindingNameText(parameter.name),
@@ -291,7 +292,7 @@ export class Binder {
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
             rest: parameter.rest === true
           })),
-          this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike),
+          this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike, fnIsGenerator),
           functionStatement.typeParameters?.map((parameter) => parameter.name.name)
         );
         this.declare(scope, {
@@ -521,6 +522,7 @@ export class Binder {
   private bindFunctionStatement(statement: FunctionStatement, scope: Scope, declareInParent: boolean): void {
     if (declareInParent && !statement.receiverType && !(scopeHasGlobalPredeclaration(scope) && scope.symbols.has(statement.name.name))) {
       const stmtIsAsyncLike = statement.async === true || statement.sync === true;
+      const stmtIsGenerator = statement.generator === true;
       const symbolType = functionType(
         statement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
           name: bindingNameText(parameter.name),
@@ -528,7 +530,7 @@ export class Binder {
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
         })),
-        this.effectiveReturnType(this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE, stmtIsAsyncLike),
+        this.effectiveReturnType(this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE, stmtIsAsyncLike, stmtIsGenerator),
         statement.typeParameters?.map((parameter) => parameter.name.name)
       );
       this.declare(scope, {
@@ -1020,7 +1022,14 @@ export class Binder {
     this.bindStatements(catchClause.body.body, catchScope);
   }
 
-  private effectiveReturnType(rawReturnType: AnalysisType, isAsyncLike: boolean): AnalysisType {
+  private effectiveReturnType(rawReturnType: AnalysisType, isAsyncLike: boolean, isGenerator: boolean = false): AnalysisType {
+    if (isGenerator) {
+      const wrapperName = isAsyncLike ? "AsyncGenerator" : "Generator";
+      if (rawReturnType.kind === "named" && (rawReturnType.name === "AsyncGenerator" || rawReturnType.name === "Generator" || rawReturnType.name === "AsyncIterator" || rawReturnType.name === "Iterator")) {
+        return rawReturnType;
+      }
+      return namedType(wrapperName, [rawReturnType]);
+    }
     if (!isAsyncLike) return rawReturnType;
     if (rawReturnType.kind === "named" && rawReturnType.name === "Promise") return rawReturnType;
     return namedType("Promise", [rawReturnType]);

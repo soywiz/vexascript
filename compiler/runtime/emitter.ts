@@ -182,6 +182,7 @@ interface ActiveEmitState {
    * flagged nodes.
    */
   autoAwaitExpressions: ReadonlySet<Node>;
+  asyncForStatements: ReadonlySet<Node>;
   jsxFactory: string;
   jsxFragmentFactory: string;
 }
@@ -207,6 +208,7 @@ function createEmptyEmitState(): ActiveEmitState {
     implicitReceiverExtensionIdentifiers: new Map(),
     expressionTypes: undefined,
     autoAwaitExpressions: new Set(),
+    asyncForStatements: new Set(),
     jsxFactory: DEFAULT_JSX_FACTORY,
     jsxFragmentFactory: DEFAULT_JSX_FRAGMENT_FACTORY
   };
@@ -1469,14 +1471,19 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   });
 }
 
+function isAsyncFor(statement: ForStatement): boolean {
+  return activeState.asyncForStatements.has(statement as unknown as Node);
+}
+
 function emitForStatement(statement: ForStatement): string {
   if (statement.iterationKind && statement.iterator && statement.iterable) {
+    const awaitPrefix = isAsyncFor(statement) ? "await " : "";
     if (statement.iterator.kind === "Identifier") {
       const iteratorName = (statement.iterator as Identifier).name;
-      return `for (const ${iteratorName} of ${emitExpression(statement.iterable)}) ${emitStatement(statement.body)}`;
+      return `for ${awaitPrefix}(const ${iteratorName} of ${emitExpression(statement.iterable)}) ${emitStatement(statement.body)}`;
     }
 
-    return `for (${emitForIteratorHeader(statement.iterator)} ${statement.iterationKind} ${emitExpression(statement.iterable)}) ${emitStatement(statement.body)}`;
+    return `for ${awaitPrefix}(${emitForIteratorHeader(statement.iterator)} ${statement.iterationKind} ${emitExpression(statement.iterable)}) ${emitStatement(statement.body)}`;
   }
 
   const initializer = statement.initializer
@@ -1863,7 +1870,8 @@ export function emitProgram(
   expressionTypes?: ReadonlyMap<Node, AnalysisType>,
   implicitReceiverIdentifiers?: ReadonlySet<Node>,
   autoAwaitExpressions?: ReadonlySet<Node>,
-  options: EmitOptions = {}
+  options: EmitOptions = {},
+  asyncForStatements?: ReadonlySet<Node>
 ): string {
   const runtimeContext = createEmitProgramRuntimeContext(program, expressionTypes, options);
   return emitProgramStatements(
@@ -1872,7 +1880,9 @@ export function emitProgram(
     program,
     implicitReceiverIdentifiers,
     autoAwaitExpressions,
-    runtimeContext
+    runtimeContext,
+    new Map(),
+    asyncForStatements
   ).join("\n");
 }
 
@@ -2318,7 +2328,8 @@ export function emitProgramStatements(
   implicitReceiverIdentifiers: ReadonlySet<Node> = new Set(),
   autoAwaitExpressions: ReadonlySet<Node> = new Set(),
   runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
-  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map()
+  staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
+  asyncForStatements: ReadonlySet<Node> = new Set()
 ): string[] {
   return emitProgramStatementPairs(
     program,
@@ -2327,7 +2338,9 @@ export function emitProgramStatements(
     implicitReceiverIdentifiers,
     autoAwaitExpressions,
     runtimeContext,
-    staticImplicitReceiverIdentifiers
+    staticImplicitReceiverIdentifiers,
+    new Map(),
+    asyncForStatements
   )
     .map(({ emitted }) => emitted)
     .filter((statement) => statement.trim().length > 0);
@@ -2341,7 +2354,8 @@ export function emitProgramStatementPairs(
   autoAwaitExpressions: ReadonlySet<Node> = new Set(),
   runtimeContext: EmitProgramRuntimeContext = createEmitProgramRuntimeContext(contextProgram, expressionTypes),
   staticImplicitReceiverIdentifiers: ReadonlyMap<Node, string> = new Map(),
-  implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map()
+  implicitReceiverExtensionIdentifiers: ReadonlyMap<Node, string> = new Map(),
+  asyncForStatements: ReadonlySet<Node> = new Set()
 ): EmittedProgramStatement[] {
   const saved = activeState;
   activeState = {
@@ -2364,6 +2378,7 @@ export function emitProgramStatementPairs(
     implicitReceiverExtensionIdentifiers,
     expressionTypes,
     autoAwaitExpressions,
+    asyncForStatements,
     jsxFactory: runtimeContext.jsxFactory,
     jsxFragmentFactory: runtimeContext.jsxFragmentFactory
   };

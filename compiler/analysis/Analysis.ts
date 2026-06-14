@@ -68,6 +68,7 @@ export class Analysis {
   private readonly operatorResolutions: OperatorResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
   private readonly autoAwaitExpressions: Set<Node>;
+  private readonly asyncForStatements: Set<Node>;
 
   constructor(program: Program, options: AnalysisOptions = {}) {
     const externalDeclarations = options.externalDeclarations ?? [];
@@ -82,6 +83,7 @@ export class Analysis {
     this.operatorResolutions = checked.operatorResolutions;
     this.expressionTypes = checked.expressionTypes;
     this.autoAwaitExpressions = checked.autoAwaitExpressions;
+    this.asyncForStatements = checked.asyncForStatements;
   }
 
   getVisibleSymbolsAt(line: number, character: number): AnalysisSymbol[] {
@@ -113,6 +115,10 @@ export class Analysis {
 
   getAutoAwaitExpressions(): ReadonlySet<Node> {
     return this.autoAwaitExpressions;
+  }
+
+  getAsyncForStatements(): ReadonlySet<Node> {
+    return this.asyncForStatements;
   }
 
   /**

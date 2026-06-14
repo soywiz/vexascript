@@ -75,4 +75,7 @@ export interface CheckedAnalysis {
   // Expressions that receive an implicit `await` because they evaluate to a Promise inside a
   // `sync` function body (and were not opted out via the `go` operator or `.then`-style usage).
   autoAwaitExpressions: Set<Node>;
+  // ForStatements whose iterable is an AsyncIterator/AsyncGenerator and that therefore need
+  // to be emitted as `for await (... of ...)` and decorated with a suspension gutter icon.
+  asyncForStatements: Set<Node>;
 }

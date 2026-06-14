@@ -127,6 +127,7 @@ export class TypeChecker {
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
+  private readonly asyncForStatements: Set<Node> = new Set();
   private readonly classStatementsByName: Map<string, ClassStatement> = new Map();
   private readonly functionStatementsByName: Map<string, FunctionStatement> = new Map();
   private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
@@ -251,7 +252,8 @@ export class TypeChecker {
       jsxAttributeResolutions: [...this.jsxAttributeResolutions],
       operatorResolutions: [...this.operatorResolutions],
       expressionTypes: this.expressionTypes,
-      autoAwaitExpressions: this.autoAwaitExpressions
+      autoAwaitExpressions: this.autoAwaitExpressions,
+      asyncForStatements: this.asyncForStatements
     };
   }
 
@@ -1174,7 +1176,8 @@ export class TypeChecker {
         const resolvedReturnType = this.finalizeFunctionReturnType(
           declaredReturnType,
           statement.body,
-          isAsyncLike
+          isAsyncLike,
+          statement.generator === true
         );
         if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
           this.updateSymbolType(
@@ -1184,7 +1187,7 @@ export class TypeChecker {
           );
         }
         if (statement.missingBody !== true) {
-          this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, isAsyncLike);
+          this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, isAsyncLike, statement.generator === true);
         }
       });
     })));
@@ -1371,7 +1374,8 @@ export class TypeChecker {
             const resolvedMethodReturnType = this.finalizeFunctionReturnType(
               declaredMethodReturnType,
               method.body,
-              methodIsAsyncLike
+              methodIsAsyncLike,
+              method.generator === true
             );
             this.updateSymbolType(
               classScope,
@@ -1385,7 +1389,7 @@ export class TypeChecker {
             );
             this.namedTypeMembersCache.clear();
             if (statement.declared !== true && method.missingBody !== true && method.abstract !== true) {
-              this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike);
+              this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike, method.generator === true);
             }
           });
         })));
@@ -1435,6 +1439,9 @@ export class TypeChecker {
       }
 
       const iterableType = this.visitExpression(statement.iterable, loopScope);
+      if (this.isAsyncIteratorType(iterableType)) {
+        this.asyncForStatements.add(statement);
+      }
       const iteratorType = this.elementTypeFromIterable(iterableType);
       this.propagateIteratorType(statement.iterator, iteratorType, loopScope);
       this.visitStatement(statement.body, loopScope, loopFlow);
@@ -2297,9 +2304,10 @@ export class TypeChecker {
           const returnType = this.finalizeFunctionReturnType(
             declaredReturnType ?? expectedFunctionType?.returnType,
             fn.body,
-            fnIsAsyncLike
+            fnIsAsyncLike,
+            fn.generator === true
           );
-          this.reportMissingReturnPath(fn.body, returnType, fn.name ?? fn, fnIsAsyncLike);
+          this.reportMissingReturnPath(fn.body, returnType, fn.name ?? fn, fnIsAsyncLike, fn.generator === true);
           result = this.buildFunctionType(fn.parameters, returnType, functionScope);
         })));
         break;
@@ -4945,11 +4953,27 @@ export class TypeChecker {
     // wrapped in Promise<T> by finalizeFunctionReturnType.
   }
 
+  private static readonly ASYNC_GENERATOR_TYPE_NAMES = new Set(["AsyncGenerator", "AsyncIterator", "AsyncIteratorObject"]);
+  private static readonly SYNC_GENERATOR_TYPE_NAMES = new Set(["Generator", "Iterator", "IteratorObject", "IterableIterator"]);
+
   private finalizeFunctionReturnType(
     declaredOrExpectedReturnType: AnalysisType | undefined,
     body: BlockStatement,
-    inAsync: boolean
+    inAsync: boolean,
+    inGenerator: boolean = false
   ): AnalysisType {
+    if (inGenerator) {
+      const wrapperName = inAsync ? "AsyncGenerator" : "Generator";
+      const generatorTypeNames = inAsync ? TypeChecker.ASYNC_GENERATOR_TYPE_NAMES : TypeChecker.SYNC_GENERATOR_TYPE_NAMES;
+      if (declaredOrExpectedReturnType && !isUnknownType(declaredOrExpectedReturnType)) {
+        if (declaredOrExpectedReturnType.kind === "named" && generatorTypeNames.has(declaredOrExpectedReturnType.name)) {
+          return declaredOrExpectedReturnType;
+        }
+        return namedType(wrapperName, [declaredOrExpectedReturnType]);
+      }
+      const yieldType = this.inferYieldTypeFromBlock(body);
+      return namedType(wrapperName, [yieldType]);
+    }
     if (declaredOrExpectedReturnType && !isUnknownType(declaredOrExpectedReturnType)) {
       if (inAsync && !this.getAsyncReturnValueType(declaredOrExpectedReturnType)) {
         return namedType("Promise", [declaredOrExpectedReturnType]);
@@ -4958,6 +4982,50 @@ export class TypeChecker {
     }
     const inferredReturnType = this.inferReturnTypeFromBlock(body);
     return inAsync ? namedType("Promise", [inferredReturnType]) : inferredReturnType;
+  }
+
+  private inferYieldTypeFromBlock(body: BlockStatement): AnalysisType {
+    const yieldTypes = this.collectYieldTypesFromStatements(body.body);
+    if (yieldTypes.length === 0) return UNKNOWN_TYPE;
+    return this.combineTypes(yieldTypes);
+  }
+
+  private collectYieldTypesFromStatements(statements: Statement[]): AnalysisType[] {
+    const collected: AnalysisType[] = [];
+    for (const statement of statements) {
+      this.collectYieldTypesFromStatement(statement, collected);
+    }
+    return collected;
+  }
+
+  private collectYieldTypesFromStatement(statement: Statement, collected: AnalysisType[]): void {
+    if (statement.kind === "ExprStatement") {
+      this.collectYieldTypesFromExpression((statement as ExprStatement).expression, collected);
+    } else if (statement.kind === "BlockStatement") {
+      for (const t of this.collectYieldTypesFromStatements((statement as BlockStatement).body)) collected.push(t);
+    } else if (statement.kind === "IfStatement") {
+      const ifStmt = statement as IfStatement;
+      this.collectYieldTypesFromStatement(ifStmt.thenBranch, collected);
+      if (ifStmt.elseBranch) this.collectYieldTypesFromStatement(ifStmt.elseBranch, collected);
+    } else if (statement.kind === "ForStatement") {
+      this.collectYieldTypesFromStatement((statement as ForStatement).body, collected);
+    } else if (statement.kind === "WhileStatement") {
+      this.collectYieldTypesFromStatement((statement as WhileStatement).body, collected);
+    } else if (statement.kind === "DoWhileStatement") {
+      this.collectYieldTypesFromStatement((statement as DoWhileStatement).body, collected);
+    }
+  }
+
+  private collectYieldTypesFromExpression(expr: Expr, collected: AnalysisType[]): void {
+    if (expr.kind === "UnaryExpression") {
+      const unary = expr as UnaryExpression;
+      if (unary.operator === "yield" || unary.operator === "yield*") {
+        const yieldedType = this.expressionTypes.get(unary.argument);
+        if (yieldedType && !isUnknownType(yieldedType)) {
+          collected.push(yieldedType);
+        }
+      }
+    }
   }
 
   private inferReturnTypeFromBlock(body: BlockStatement): AnalysisType {
@@ -5112,7 +5180,8 @@ export class TypeChecker {
       : this.returnValueIsOptional(expectedReturnType);
   }
 
-  private reportMissingReturnPath(body: BlockStatement, returnType: AnalysisType, node: Node, inAsync: boolean = false): void {
+  private reportMissingReturnPath(body: BlockStatement, returnType: AnalysisType, node: Node, inAsync: boolean = false, inGenerator: boolean = false): void {
+    if (inGenerator) return; // generators don't need explicit returns
     const asyncReturnValueType = inAsync ? this.getAsyncReturnValueType(returnType) : null;
     if (
       isUnknownType(returnType) ||
@@ -6297,6 +6366,11 @@ export class TypeChecker {
     return undefined;
   }
 
+  private static readonly ITERATOR_TYPE_NAMES = new Set([
+    "AsyncGenerator", "AsyncIterator", "AsyncIteratorObject",
+    "Generator", "Iterator", "IteratorObject", "IterableIterator", "Iterable"
+  ]);
+
   private elementTypeFromIterable(type: AnalysisType): AnalysisType {
     if (type.kind === "array") {
       return type.elementType;
@@ -6304,7 +6378,14 @@ export class TypeChecker {
     if (type.kind === "range") {
       return type.elementType;
     }
+    if (type.kind === "named" && TypeChecker.ITERATOR_TYPE_NAMES.has(type.name) && (type.typeArguments?.length ?? 0) >= 1) {
+      return type.typeArguments![0]!;
+    }
     return UNKNOWN_TYPE;
+  }
+
+  private isAsyncIteratorType(type: AnalysisType): boolean {
+    return type.kind === "named" && (type.name === "AsyncGenerator" || type.name === "AsyncIterator" || type.name === "AsyncIteratorObject");
   }
 
   private propagateIteratorType(
