@@ -1356,6 +1356,49 @@ let after = bind`));
     expect(messages).toContain("Type 'int' is not a valid property delegate; expected a function, tuple, or object with a 'value' property");
   });
 
+  it("validates tuple delegate shape: empty, wrong element count, non-function setter, type mismatch", () => {
+    function issues(src: string) {
+      return new Analysis(parseFile(tokenizeReader(src))).getIssues().map((i) => i.message);
+    }
+
+    // [] — empty tuple
+    expect(issues("fun f() => []\nvar a by f()")).toContain("Property delegate tuple must not be empty");
+
+    // [value] — single-element getter: valid, no error
+    expect(issues("fun f() => [1]\nvar a by f()")).not.toContain("Property delegate tuple must not be empty");
+    expect(issues("fun f() => [1]\nvar a by f()")).not.toContain("Second element of property delegate tuple must be a setter function, got 'int'");
+
+    // [a, b] where b is not a function — invalid setter
+    expect(issues("fun f() => [1, 2]\nvar a by f()")).toContain(
+      "Second element of property delegate tuple must be a setter function, got 'int'"
+    );
+
+    // [a, b, c] — too many elements
+    expect(issues("fun f() => [1, 2, 3]\nvar a by f()")).toContain(
+      "Property delegate tuple must have 1 or 2 elements, got 3"
+    );
+
+    // [value, setter] with matching types: valid
+    expect(issues(`fun f() => ["test", (value: string) => {}]\nvar a by f()`)).not.toContain(
+      "Getter type 'string' is not assignable to setter parameter type 'string'"
+    );
+
+    // [value, setter] with mismatched types: invalid
+    expect(issues("fun f() => [1, (value: string) => {}]\nvar a by f()")).toContain(
+      "Getter type 'int' is not assignable to setter parameter type 'string'"
+    );
+
+    // [getter fn, setter] with matching types: valid
+    expect(issues(`fun f() => [() => "test", (value: string) => {}]\nvar a by f()`)).not.toContain(
+      "Getter type 'string' is not assignable to setter parameter type 'string'"
+    );
+
+    // [getter fn, setter] with mismatched types: invalid
+    expect(issues("fun f() => [() => 10, (value: string) => {}]\nvar a by f()")).toContain(
+      "Getter type 'int' is not assignable to setter parameter type 'string'"
+    );
+  });
+
   it("infers tuple element types for destructuring and generic tuple returns", () => {
     const source = dedent`
       fun useState<T>(value: T) {

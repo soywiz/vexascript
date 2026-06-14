@@ -801,6 +801,13 @@ export class TypeChecker {
   }
 
   private validateVariableDelegateType(delegateType: AnalysisType, node: Node): void {
+    if (isUnknownType(delegateType) || (delegateType.kind === "builtin" && delegateType.name === "any")) {
+      return;
+    }
+    if (delegateType.kind === "tuple") {
+      this.validateTupleDelegateShape(delegateType.elements, node);
+      return;
+    }
     if (this.isValidVariableDelegateType(delegateType)) {
       return;
     }
@@ -810,11 +817,60 @@ export class TypeChecker {
     });
   }
 
+  private validateTupleDelegateShape(elements: AnalysisType[], node: Node): void {
+    if (elements.length === 0) {
+      this.issues.push({
+        message: "Property delegate tuple must not be empty",
+        node
+      });
+      return;
+    }
+    if (elements.length > 2) {
+      this.issues.push({
+        message: `Property delegate tuple must have 1 or 2 elements, got ${elements.length}`,
+        node
+      });
+      return;
+    }
+    if (elements.length === 1) {
+      return;
+    }
+    // elements.length === 2: [getter, setter]
+    const setter = elements[1]!;
+    if (setter.kind !== "function") {
+      this.issues.push({
+        message: `Second element of property delegate tuple must be a setter function, got '${typeToString(setter)}'`,
+        node
+      });
+      return;
+    }
+    if (setter.parameters.length === 0) {
+      this.issues.push({
+        message: "Setter function of property delegate tuple must have at least one parameter",
+        node
+      });
+      return;
+    }
+    const getterOrValue = elements[0]!;
+    const getterValueType = getterOrValue.kind === "function" ? getterOrValue.returnType : getterOrValue;
+    const setterParamType = setter.parameters[0]!.type;
+    if (
+      !isUnknownType(getterValueType) &&
+      !isUnknownType(setterParamType) &&
+      !this.isTypeAssignable(getterValueType, setterParamType)
+    ) {
+      this.issues.push({
+        message: `Getter type '${typeToString(getterValueType)}' is not assignable to setter parameter type '${typeToString(setterParamType)}'`,
+        node
+      });
+    }
+  }
+
   private isValidVariableDelegateType(delegateType: AnalysisType): boolean {
     if (isUnknownType(delegateType) || (delegateType.kind === "builtin" && delegateType.name === "any")) {
       return true;
     }
-    if (delegateType.kind === "function" || delegateType.kind === "tuple") {
+    if (delegateType.kind === "function") {
       return true;
     }
     if (delegateType.kind === "object") {
