@@ -16,7 +16,20 @@ import type {
 } from "vscode-languageserver/node.js";
 import { getProjectIndex, getProjectSessionForFilePath, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
 import { pathToUri } from "./importFixes";
-import { nodeRange, type TokenBackedNode } from "./ranges";
+import { nodeRange, rangeContains, type TokenBackedNode } from "./ranges";
+import type { Range } from "vscode-languageserver/node.js";
+
+function expandToContain(outer: Range, inner: Range): Range {
+  const startLine = Math.min(outer.start.line, inner.start.line);
+  const endLine = Math.max(outer.end.line, inner.end.line);
+  const start = startLine < outer.start.line ? inner.start
+    : startLine < inner.start.line ? outer.start
+    : outer.start.character <= inner.start.character ? outer.start : inner.start;
+  const end = endLine > outer.end.line ? inner.end
+    : endLine > inner.end.line ? outer.end
+    : outer.end.character >= inner.end.character ? outer.end : inner.end;
+  return { start, end };
+}
 
 const SymbolKind = {
   File: 1,
@@ -102,10 +115,13 @@ function collectDocumentSymbols(program: Program): DocumentSymbol[] {
         if (!methodRange || !methodNameRange) {
           continue;
         }
+        const effectiveMethodRange = rangeContains(methodRange, methodNameRange)
+          ? methodRange
+          : expandToContain(methodRange, methodNameRange);
         children.push({
           name: member.name.name,
           kind: member.accessorKind ? SymbolKind.Property : SymbolKind.Method,
-          range: methodRange,
+          range: effectiveMethodRange,
           selectionRange: methodNameRange
         });
       }

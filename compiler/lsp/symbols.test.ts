@@ -53,6 +53,29 @@ describe("lsp symbols", () => {
     expect(symbols[0]?.children?.map((child) => child.name)).toEqual(["move"]);
   });
 
+  it("ensures selectionRange is contained in range for compound accessor members", () => {
+    const source = dedent`
+      class Demo {
+        private var _x = 0
+        var x: int {
+          set { _x = newValue }
+          get { return _x }
+        }
+      }
+      `;
+    const ast = parseFile(tokenizeReader(source));
+    const symbols = createDocumentSymbols(ast);
+    const classSymbol = symbols[0];
+    expect(classSymbol?.children).toBeTruthy();
+    for (const child of classSymbol?.children ?? []) {
+      const r = child.range;
+      const s = child.selectionRange;
+      const startOk = r.start.line < s.start.line || (r.start.line === s.start.line && r.start.character <= s.start.character);
+      const endOk = r.end.line > s.end.line || (r.end.line === s.end.line && r.end.character >= s.end.character);
+      expect(startOk && endOk).toBe(true);
+    }
+  });
+
   it("finds workspace symbols across source roots", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-workspace-symbols-"));
     const worldFile = join(root, "world.vx");
