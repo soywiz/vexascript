@@ -95,7 +95,14 @@ export function createAutoAwaitDecorations(
   }
 
   for (const node of analysis.getAsyncForStatements()) {
-    consider(node, ASYNC_FOR_MESSAGE);
+    if (!node.firstToken) continue;
+    const line = node.firstToken.range.start.line;
+    const character = node.firstToken.range.start.column;
+    if (range && (line < range.start.line || line > range.end.line)) continue;
+    const existing = byLine.get(line);
+    if (!existing || character < existing.range.start.character) {
+      byLine.set(line, { range: { start: { line, character }, end: { line, character: node.firstToken.range.end.column } }, message: ASYNC_FOR_MESSAGE });
+    }
   }
 
   walkAst(ast, (node) => {
