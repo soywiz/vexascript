@@ -68,6 +68,7 @@ describe("CLI", () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-"));
     const input = join(dir, "main.vx");
     const output = join(dir, "bundle.mjs");
+    await writeFile(join(dir, "package.json"), JSON.stringify({ type: "module" }), "utf8");
     await writeFile(join(dir, "math.vx"), "export fun double(value: number) => value * 2\n", "utf8");
     await writeFile(join(dir, "message.ts"), "import { suffix } from './suffix.js'; export const label: string = `answer${suffix}`;\n", "utf8");
     await writeFile(join(dir, "suffix.js"), "export const suffix = '-from-js';\n", "utf8");
