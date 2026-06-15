@@ -30,7 +30,10 @@ import {
   resolveConstructorSignature,
   type ClassResolverOptions
 } from "./classResolver";
-import { readDocumentationFromProgramDeclaration } from "./documentation";
+import {
+  readDocumentationFromIdentifier,
+  readDocumentationFromProgramDeclaration
+} from "./documentation";
 import { findBestMatch } from "./nodeSearch";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
 
@@ -214,7 +217,10 @@ function signatureInfoFromResolved(resolved: { name: string; parameters: { name:
   return { label, parameters, ...(resolved.documentation ? { documentation: resolved.documentation } : {}) };
 }
 
-function ambientFunctionSignatureInfo(fn: FunctionStatement): SignatureInformation {
+function ambientFunctionSignatureInfo(
+  ownerStatement: Statement,
+  fn: FunctionStatement
+): SignatureInformation {
   const parameters = fn.parameters
     .filter((parameter) => parameter.thisParameter !== true)
     .map((parameter) => ({
@@ -225,9 +231,21 @@ function ambientFunctionSignatureInfo(fn: FunctionStatement): SignatureInformati
         rest: parameter.rest === true
       })
     }));
+  const documentation = readDocumentationFromProgramDeclaration(
+    { kind: "Program", body: [ownerStatement] },
+    fn.name
+  ) ?? readDocumentationFromIdentifier(fn.name) ?? (fn.firstToken
+      ? readDocumentationFromIdentifier({
+          kind: "Identifier",
+          name: fn.name.name,
+          firstToken: fn.firstToken,
+          lastToken: fn.firstToken
+        })
+      : undefined);
   return {
     label: `${fn.name.name}(${parameters.map((parameter) => parameter.label).join(", ")}): ${fn.returnType?.name ?? "unknown"}`,
-    parameters
+    parameters,
+    ...(documentation ? { documentation } : {})
   };
 }
 
@@ -279,7 +297,7 @@ function collectAmbientFunctionOverloads(
     }
     const fn = declaration as FunctionStatement;
     if (fn.name.name === memberName) {
-      signatures.push(ambientFunctionSignatureInfo(fn));
+      signatures.push(ambientFunctionSignatureInfo(statement, fn));
     }
   }
   return signatures;
@@ -357,6 +375,31 @@ function bestActiveSignature(signatures: SignatureInformation[], activeParameter
     if (paramCount >= activeParameter + 1) return i;
   }
   return signatures.length - 1;
+}
+
+function signatureParameterIsVariadic(parameter: { label: string | [number, number] } | undefined): boolean {
+  if (!parameter) {
+    return false;
+  }
+  if (typeof parameter.label !== "string") {
+    return false;
+  }
+  return parameter.label.trimStart().startsWith("...");
+}
+
+function activeParameterForSignature(signature: SignatureInformation | undefined, requestedActiveParameter: number): number {
+  const parameterCount = signature?.parameters?.length ?? 0;
+  if (parameterCount === 0) {
+    return 0;
+  }
+  if (requestedActiveParameter < parameterCount) {
+    return requestedActiveParameter;
+  }
+  const lastParameter = signature?.parameters?.[parameterCount - 1];
+  if (signatureParameterIsVariadic(lastParameter)) {
+    return parameterCount - 1;
+  }
+  return parameterCount - 1;
 }
 
 function parseDisplayFunctionSignatureText(
@@ -565,9 +608,11 @@ export async function createSignatureHelp(
     return null;
   }
 
+  const activeSignature = bestActiveSignature(signatures, context.activeParameter, context.arguments.length);
+
   return {
     signatures,
-    activeSignature: bestActiveSignature(signatures, context.activeParameter, context.arguments.length),
-    activeParameter: context.activeParameter
+    activeSignature,
+    activeParameter: activeParameterForSignature(signatures[activeSignature], context.activeParameter)
   };
 }

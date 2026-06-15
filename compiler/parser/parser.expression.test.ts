@@ -181,6 +181,29 @@ describe("parseExpression", () => {
         });
     });
 
+    it("accepts trailing commas in call argument lists", () => {
+        expect(parseExpression(tokenizeReader("fn(a, b,)"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "fn" },
+            arguments: [
+                { kind: "Identifier", name: "a" },
+                { kind: "Identifier", name: "b" }
+            ]
+        });
+    });
+
+    it("keeps parsing call argument lists with empty slots between commas", () => {
+        expect(parseExpression(tokenizeReader("fn(a,,b)"))).toEqual({
+            kind: "CallExpression",
+            callee: { kind: "Identifier", name: "fn" },
+            arguments: [
+                { kind: "Identifier", name: "a" },
+                { kind: "MissingExpression" },
+                { kind: "Identifier", name: "b" }
+            ]
+        });
+    });
+
     it("parses named call arguments as NamedArgument nodes", () => {
         expect(parseExpression(tokenizeReader('fetch(url: "https://hello.world")'))).toEqual({
             kind: "CallExpression",
@@ -1474,4 +1497,3 @@ describe("parseExpression", () => {
         }
     });
 })
-

@@ -6521,6 +6521,8 @@ export class TypeChecker {
     }
 
     const expectedProperties = this.expectedObjectProperties(expectedType);
+    const allowsAdditionalProperties = this.expectedObjectLiteralAllowsAdditionalProperties(expectedType);
+    const canReportUnknownProperties = this.canReportUnknownObjectLiteralProperties(expectedType);
     const properties: Record<string, AnalysisType> = {};
     for (const property of objectLiteral.properties) {
       if (property.kind === "ObjectSpreadProperty") {
@@ -6558,6 +6560,17 @@ export class TypeChecker {
         propertyName ? expectedProperties?.get(propertyName) : undefined
       );
       if (propertyName) {
+        if (
+          expectedProperties
+          && canReportUnknownProperties
+          && !expectedProperties.has(propertyName)
+          && !allowsAdditionalProperties
+        ) {
+          this.issues.push({
+            message: `Object literal property '${propertyName}' does not exist in type '${typeToString(expectedType!)}'`,
+            node: objectProperty.key
+          });
+        }
         properties[propertyName] = propertyType;
       }
     }
@@ -6655,6 +6668,146 @@ export class TypeChecker {
       return merged;
     }
     return undefined;
+  }
+
+  private expectedObjectLiteralAllowsAdditionalProperties(expectedType: AnalysisType | undefined): boolean {
+    if (!expectedType || isUnknownType(expectedType)) {
+      return true;
+    }
+    const contextualExpectedType = this.contextualObjectLiteralExpectedType(expectedType);
+    if (!contextualExpectedType || isUnknownType(contextualExpectedType)) {
+      return true;
+    }
+    return this.typeAllowsAdditionalObjectProperties(contextualExpectedType);
+  }
+
+  private canReportUnknownObjectLiteralProperties(expectedType: AnalysisType | undefined): boolean {
+    if (!expectedType || isUnknownType(expectedType)) {
+      return false;
+    }
+    const contextualExpectedType = this.contextualObjectLiteralExpectedType(expectedType);
+    if (!contextualExpectedType || isUnknownType(contextualExpectedType)) {
+      return false;
+    }
+    return this.typeHasCompleteKnownObjectShape(contextualExpectedType);
+  }
+
+  private typeHasCompleteKnownObjectShape(type: AnalysisType): boolean {
+    if (isUnknownType(type)) {
+      return false;
+    }
+    if (type.kind === "object") {
+      return true;
+    }
+    if (type.kind === "builtin") {
+      return false;
+    }
+    if (type.kind === "named") {
+      const normalized = this.normalizeLooseNamedType(type);
+      if (normalized !== type) {
+        return this.typeHasCompleteKnownObjectShape(normalized);
+      }
+      return this.namedTypeHasCompleteKnownObjectShape(type, new Set<string>());
+    }
+    if (type.kind === "intersection" || type.kind === "union") {
+      return type.types.every((member) => this.typeHasCompleteKnownObjectShape(member));
+    }
+    return false;
+  }
+
+  private namedTypeHasCompleteKnownObjectShape(
+    type: AnalysisType & { kind: "named" },
+    visited: Set<string>
+  ): boolean {
+    const visitKey = typeToString(type);
+    if (visited.has(visitKey)) {
+      return true;
+    }
+    visited.add(visitKey);
+
+    const interfaceStatement = this.interfaceStatementsByName.get(type.name);
+    if (interfaceStatement) {
+      const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
+      for (const parentType of interfaceStatement.extendsTypes ?? []) {
+        const resolvedParent = this.substituteTypeParameters(
+          this.typeFromTypeNameLoose(parentType.name),
+          substitutions
+        );
+        if (resolvedParent.kind !== "named") {
+          continue;
+        }
+        if (!this.namedTypeHasCompleteKnownObjectShape(resolvedParent, visited)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    const classStatement = this.classStatementsByName.get(type.name);
+    if (classStatement) {
+      const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], type);
+      if (classStatement.extendsType) {
+        const resolvedParent = this.substituteTypeParameters(
+          this.typeFromTypeNameLoose(classStatement.extendsType.name),
+          substitutions
+        );
+        if (resolvedParent.kind === "named" && !this.namedTypeHasCompleteKnownObjectShape(resolvedParent, visited)) {
+          return false;
+        }
+      }
+      for (const implementedType of classStatement.implementsTypes ?? []) {
+        const resolvedInterface = this.substituteTypeParameters(
+          this.typeFromTypeNameLoose(implementedType.name),
+          substitutions
+        );
+        if (resolvedInterface.kind === "named" && !this.namedTypeHasCompleteKnownObjectShape(resolvedInterface, visited)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  private typeAllowsAdditionalObjectProperties(type: AnalysisType): boolean {
+    if (isUnknownType(type)) {
+      return true;
+    }
+    if (type.kind === "builtin") {
+      return type.name === "any" || type.name === "unknown" || type.name === "object";
+    }
+    if (type.kind === "object") {
+      return false;
+    }
+    if (type.kind === "named") {
+      if (this.objectTypeTextHasDynamicProperties(type.name)) {
+        return true;
+      }
+      const normalized = this.normalizeLooseNamedType(type);
+      return normalized !== type
+        ? this.typeAllowsAdditionalObjectProperties(normalized)
+        : false;
+    }
+    if (type.kind === "intersection" || type.kind === "union") {
+      return type.types.some((member) => this.typeAllowsAdditionalObjectProperties(member));
+    }
+    return false;
+  }
+
+  private objectTypeTextHasDynamicProperties(typeName: string): boolean {
+    const trimmed = stripEnclosingTypeParens(typeName);
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+      return false;
+    }
+    const body = trimmed.slice(1, -1).trim();
+    if (body.length === 0) {
+      return false;
+    }
+    return splitTopLevelDelimitedTypeText(body, new Set([",", ";"])).some((part) => {
+      const member = part.trim();
+      return member.startsWith("[") || member.startsWith("readonly [");
+    });
   }
 
   private static readonly ITERATOR_TYPE_NAMES = new Set([

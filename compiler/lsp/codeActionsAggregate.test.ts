@@ -4,6 +4,7 @@ import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
+import { collectDiagnosticsFromSession } from "./diagnostics";
 import type { Range } from "vscode-languageserver/node.js";
 
 const URI = "file:///demo.vx";
@@ -13,6 +14,18 @@ function pointRange(line: number, character: number): Range {
     start: { line, character },
     end: { line, character }
   };
+}
+
+function positionAt(text: string, offset: number) {
+  let line = 0;
+  let lineStart = 0;
+  for (let index = 0; index < Math.min(offset, text.length); index += 1) {
+    if (text[index] === "\n") {
+      line += 1;
+      lineStart = index + 1;
+    }
+  }
+  return { line, character: Math.min(offset, text.length) - lineStart };
 }
 
 describe("collectCodeActions aggregator", () => {
@@ -140,6 +153,26 @@ describe("collectCodeActions aggregator", () => {
 
     expect(titles).toContain("Use optional access '?.'");
     expect(titles).toContain("Use non-null assertion '!.'");
+  });
+
+  it("offers a quick fix to remove an unused import", async () => {
+    const source = dedent`
+      import { readFile, utimes } from "fs/promises"
+      await readFile("demo.txt")
+      `;
+    const session = createAnalysisSession(source);
+    const diagnostics = collectDiagnosticsFromSession(session, source, (offset) => positionAt(source, offset));
+    const actions = await collectCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      range: pointRange(0, 21),
+      diagnostics,
+      sourceRoots: []
+    });
+
+    expect(actions.map((action) => action.title)).toContain("Remove unused import 'utimes'");
   });
 
   it("keeps both LSP transports on the shared code-action aggregator", async () => {

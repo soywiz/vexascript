@@ -1,16 +1,16 @@
 import { join } from "node:path"
 import { readFile, writeFile } from "node:fs/promises"
+import fs from "node:fs/promises"
 import { tmpdir } from "node:os"
 import util from "node:util"
 
 sync fun main() {
-  const folder = tmpdir()
-  const file = `${folder}/vexa.sample.tmp`
+  val folder = tmpdir()
+  val file = `${folder}/vexa.sample.tmp`
   console.log(join("hello", "world"))
   writeFile(file, "test")
   console.log(readFile(file, "utf-8"))
   console.log(util.format("00%d", 10))
-  util.formatWithOptions({ a: 10 })
 }
 
 await main()

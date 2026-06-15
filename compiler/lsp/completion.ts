@@ -36,6 +36,7 @@ import { buildNamedArgumentCompletionItems, inferExpectedTypeForPosition } from 
 import { CompletionCommand, CompletionItemInsertTextFormat, CompletionItemKind, KEYWORD_COMPLETIONS, symbolDetail, symbolKindToCompletionKind, withCallSnippet } from "./completionModel";
 import type { CompletionRequestOptions } from "./completionModel";
 import { buildExtensionMemberCompletionItems, buildMemberAccessCompletions, inferLiteralTypeName, parseMemberAccessTarget } from "./memberCompletion";
+import { buildContextualObjectLiteralCompletionItems } from "./objectLiteralCompletion";
 
 
 function annotationPrefixAtPosition(
@@ -330,6 +331,16 @@ export async function createCompletionItemsForPosition(
     if (literalExtensionCompletions.length > 0) {
       return literalExtensionCompletions.map(withCallSnippet);
     }
+  }
+  const objectLiteralCompletions = await buildContextualObjectLiteralCompletionItems(
+    ast,
+    resolvedAnalysis,
+    line,
+    character,
+    options
+  );
+  if (objectLiteralCompletions.length > 0) {
+    return objectLiteralCompletions;
   }
 
   const visibleSymbols = resolvedAnalysis.getVisibleSymbolsAt(line, character);

@@ -50,6 +50,59 @@ describe("signature help", () => {
     });
   });
 
+  it("provides signature help inside an empty call argument list", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun greet(name: string): void {
+      }
+      fun demo() {
+        greet(^^^)
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "greet(name: string): void",
+          parameters: [{ label: "name: string" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
+  it("keeps signature help available for calls with a trailing comma while editing the next argument", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun sum(a: int, b: int, c: int): int {
+        return a + b + c
+      }
+      fun demo() {
+        return sum(1, 2, ^^^)
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "sum(a: int, b: int, c: int): int",
+          parameters: [{ label: "a: int" }, { label: "b: int" }, { label: "c: int" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 2
+    });
+  });
+
   it("provides constructor signature for new expressions", async () => {
     const source = dedent`
       class Point(val x: int, val y: int)
@@ -129,6 +182,33 @@ describe("signature help", () => {
       ],
       activeSignature: 0,
       activeParameter: 0
+    });
+  });
+
+  it("keeps the variadic parameter highlighted for extra arguments", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun format(first: string, ...rest: string[]): string {
+        return first
+      }
+      fun demo() {
+        format("a", "b", ^^^"c")
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "format(first: string, ...rest: string[]): string",
+          parameters: [{ label: "first: string" }, { label: "...rest: string[]" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 1
     });
   });
 
@@ -607,5 +687,43 @@ describe("signature help", () => {
     expect(help).not.toBeNull();
     expect(help!.signatures[0]!.label).toBe("formatWithOptions(inspectOptions: InspectOptions, format?: any, ...param: any[]): string");
     expect(help!.signatures[0]!.label).not.toContain("{ colors");
+  });
+
+  it("includes block documentation for default-imported ambient module members", async () => {
+    const source = 'import util from "node:util"\nutil.format("value")\n';
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:util", parseAmbientModule(
+        `declare module "node:util" {
+          /**
+           * Formats a string using util-style placeholders.
+           */
+          export function format(value: string, inspectOptions?: { colors?: boolean }): string;
+        }`,
+        "node:util"
+      )]
+    ]);
+
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 12, {
+      ambientModuleDeclarations
+    });
+    expect(help).not.toBeNull();
+    expect(help!.signatures[0]!.documentation).toBe("Formats a string using util-style placeholders.");
   });
 });

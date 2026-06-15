@@ -21,6 +21,7 @@ import { createInterfaceImplementationCodeActions } from "./interfaceImplementat
 import { createThisCodeActions } from "./thisFixes";
 import { createNullableAccessCodeActions } from "./nullableAccessFixes";
 import { createMemberKeywordCodeActions } from "./memberKeywordFixes";
+import { createUnusedImportCodeActions } from "./unusedImportFixes";
 import type { SymbolExportProvider } from "./importFixes";
 
 /**
@@ -147,6 +148,15 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
     ...createNullableAccessCodeActions({
       uri,
       ast,
+      diagnostics
+    })
+  );
+
+  actions.push(
+    ...createUnusedImportCodeActions({
+      uri,
+      ast,
+      text,
       diagnostics
     })
   );

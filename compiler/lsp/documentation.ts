@@ -159,7 +159,31 @@ function readDocumentationFromStatement(
   if (statement.kind === "ExportStatement") {
     const exported = statement as ExportStatement;
     if (exported.declaration) {
-      return readDocumentationFromStatement(exported.declaration, identifier);
+      const declarationDocumentation = readDocumentationFromStatement(exported.declaration, identifier);
+      if (declarationDocumentation) {
+        return declarationDocumentation;
+      }
+
+      if (exported.declaration.kind === "FunctionStatement") {
+        const functionStatement = exported.declaration as FunctionStatement;
+        if (identifiersMatch(functionStatement.name, identifier)) {
+          return readDocumentationFromNodeFirstToken(exported);
+        }
+      }
+
+      if (exported.declaration.kind === "ClassStatement") {
+        const classStatement = exported.declaration as ClassStatement;
+        if (identifiersMatch(classStatement.name, identifier)) {
+          return readDocumentationFromNodeFirstToken(exported);
+        }
+      }
+
+      if (exported.declaration.kind === "InterfaceStatement") {
+        const interfaceStatement = exported.declaration as InterfaceStatement;
+        if (identifiersMatch(interfaceStatement.name, identifier)) {
+          return readDocumentationFromNodeFirstToken(exported);
+        }
+      }
     }
   }
 

@@ -1080,6 +1080,65 @@ describe("createCompletionItemsForPosition", () => {
     expect(items.map((item) => item.label)).toContain("format");
   });
 
+  it("offers contextual interface properties inside object literal arguments", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      import util from "node:util"
+
+      util.formatWithOptions({ ^^^}, "%s", "test")
+    `);
+    const ambientModuleDeclarations = new Map<string, import("compiler/ast/ast").Statement[]>([
+      ["node:util", parseAmbientModule(
+        `declare module "node:util" {
+          export interface InspectOptions {
+            showHidden?: boolean;
+            depth?: number;
+          }
+          export function formatWithOptions(inspectOptions: InspectOptions, format?: any, ...param: any[]): string;
+        }`,
+        "node:util"
+      )]
+    ]);
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx",
+      ambientModuleDeclarations,
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(
+          recoveredSource,
+          session.externalDeclarations,
+          session.importedSymbolTypes,
+          session.ambientDeclarations,
+          session.ambientModuleDeclarations,
+          session.ambientModuleLocations,
+          session.importedSymbolDisplayTypes,
+          session.invalidImportedBindings,
+          session.ambientDeclarationLocations
+        )
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(items.map((item) => item.label)).toContain("depth");
+    expect(items.map((item) => item.label)).toContain("showHidden");
+    expect(byLabel.get("showHidden")?.insertText).toBe("showHidden: ");
+    expect(byLabel.get("depth")?.insertText).toBe("depth: ");
+  });
+
   it("resolves go-to-definition for DOM members from ambient declarations with an absolute project root", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-definition-"));
     const file = join(root, "main.vx");

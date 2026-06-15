@@ -3049,13 +3049,33 @@ export class Parser {
         }
         const args: Expr[] = [];
 
-        if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
-            while (this.tokens.hasMore) {
+        while (this.tokens.hasMore) {
+            const next = this.tokens.peek();
+            if (next?.type === "symbol" && next.value === ")") {
+                break;
+            }
+            if (next?.type === "symbol" && next.value === ",") {
+                const comma = this.tokens.read();
+                const errorToken = this.tokenAt(comma);
+                this.errors.push({
+                    message: "Expected a number literal, string literal, identifier, '(', '[' or '{'",
+                    ...(errorToken ? { token: errorToken } : {})
+                });
+                args.push(this.attachNodeBounds({
+                    kind: "MissingExpression"
+                } as Expr, comma, comma));
+                continue;
+            }
+
+            if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")")) {
                 const namedArgument = this.tryParseNamedArgument();
                 args.push(namedArgument ?? (this.looksLikeCallLambdaArgument() ? this.parseCallLambdaArgument() : this.parseAssignment()));
                 const separator = this.tokens.peek();
                 if (separator?.type === "symbol" && separator.value === ",") {
                     this.tokens.skip();
+                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ")") {
+                        break;
+                    }
                     continue;
                 }
                 break;

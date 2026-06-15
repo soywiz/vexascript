@@ -163,6 +163,25 @@ describe("lsp analysis session", () => {
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
+  it("reports unknown contextual object literal properties against interface-shaped parameters", async () => {
+    const source = dedent`
+      interface InspectOptions {
+        showHidden?: boolean
+        depth?: number
+      }
+
+      fun formatWithOptions(inspectOptions: InspectOptions, format?: any, ...param: any[]): string => ""
+
+      formatWithOptions({ a: 10 }, "%s", "test")
+    `;
+    const session = createAnalysisSession(source);
+    const messages = session.semanticIssues.map((issue) => issue.message);
+
+    expect(messages.some((message) =>
+      message.includes("Object literal property 'a' does not exist in type 'InspectOptions'")
+    )).toBe(true);
+  });
+
   it("includes DOM ambient declarations from tsconfig lib entries", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-lsp-dom-"));
     const filePath = join(dir, "main.vx");
