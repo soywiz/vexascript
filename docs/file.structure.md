@@ -168,6 +168,7 @@ This section is the fast onboarding map for agents and contributors.
 - LSP services status: `docs/lsp.services.md`
 - LSP unification task list: `docs/tasks/lsp.unifications.md`
 - LSP current resolution-path baseline for unification work: `docs/lsp.resolution-paths.md`
+- LSP canonical cursor-target model design for unifying navigation, hover, references, rename, and signature help: `docs/lsp.cursor-target-model.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
 - Transpilation design note: `docs/transpilation.design.md`
 - Architecture map consistency guard: `compiler/architectureMap.test.ts`

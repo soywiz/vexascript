@@ -8,9 +8,9 @@
 
 ## Shared Resolution Model
 
-* [ ] Design a shared canonical cursor-target model for all navigation features.
-* [ ] Include local declarations, imported declarations, ambient globals, ambient module members, class members, interface members, extension members, annotations, and documentation-comment parameter references in that model.
-* [ ] Include canonical declaration location, symbol identity, owner/container information, callable metadata, and hover/display metadata in that model.
+* [x] Design a shared canonical cursor-target model for all navigation features. See `docs/lsp.cursor-target-model.md`.
+* [x] Include local declarations, imported declarations, ambient globals, ambient module members, class members, interface members, extension members, annotations, and documentation-comment parameter references in that model. See `docs/lsp.cursor-target-model.md`.
+* [x] Include canonical declaration location, symbol identity, owner/container information, callable metadata, and hover/display metadata in that model. See `docs/lsp.cursor-target-model.md`.
 
 ## Shared Entry Point
 
