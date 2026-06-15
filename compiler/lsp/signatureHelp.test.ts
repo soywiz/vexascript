@@ -76,6 +76,38 @@ describe("signature help", () => {
     });
   });
 
+  it("does not provide signature help before the opening parenthesis", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun greet(name: string): void {
+      }
+      fun demo() {
+        greet^^^()
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    expect(await createSignatureHelp(session.ast!, session.analysis!, line, character)).toBeNull();
+  });
+
+  it("does not provide signature help after the closing parenthesis", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      fun greet(name: string): void {
+      }
+      fun demo() {
+        greet()^^^
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    expect(await createSignatureHelp(session.ast!, session.analysis!, line, character)).toBeNull();
+  });
+
   it("keeps signature help available for calls with a trailing comma while editing the next argument", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       fun sum(a: int, b: int, c: int): int {
@@ -289,13 +321,13 @@ describe("signature help", () => {
         log(value: number): int { return 0 }
       }
       `;
-    const helloSource = dedent`
+    const { source: helloSource, line, character } = sourceWithCursor(dedent`
       import { Logger } from "./world"
       fun demo() {
         const logger = new Logger()
-        logger.log(1)
+        logger.log(^^^1)
       }
-      `;
+      `);
 
     await writeFile(worldFile, worldSource, "utf8");
     await writeFile(helloFile, helloSource, "utf8");
@@ -307,8 +339,8 @@ describe("signature help", () => {
     const help = await createSignatureHelp(
       session.ast!,
       session.analysis!,
-      3,
-      12,
+      line,
+      character,
       {
         uri: pathToFileURL(helloFile).toString(),
         sourceRoots: [root]
@@ -491,17 +523,17 @@ describe("signature help", () => {
   });
 
   it("shows all overloads for overloaded interface methods and selects the best matching signature", async () => {
-    const source = dedent`
+    const { source, line, character } = sourceWithCursor(dedent`
       fun demo() {
-        Promise.resolve()
+        Promise.resolve(^^^)
       }
-      `;
+      `);
 
     const session = createAnalysisSession(source);
     expect(session.ast).toBeTruthy();
     expect(session.analysis).toBeTruthy();
 
-    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 17);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
     expect(help).not.toBeNull();
     expect(help!.signatures.length).toBeGreaterThan(1);
 
@@ -534,7 +566,9 @@ describe("signature help", () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-sig-ambient-"));
     const nodeTypesDir = join(root, "node_modules", "@types", "node");
     const mainPath = join(root, "main.vx");
-    const source = 'import { readFile } from "fs/promises"\nawait readFile("hello", { encoding: "utf-8" })\n';
+    const { source, line, character } = sourceWithCursor(
+      'import { readFile } from "fs/promises"\nawait readFile(^^^"hello", { encoding: "utf-8" })\n'
+    );
 
     await mkdir(nodeTypesDir, { recursive: true });
     await writeFile(
@@ -597,7 +631,7 @@ describe("signature help", () => {
       imported.importedSymbolDisplayTypes
     );
 
-    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 14);
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
     expect(help).not.toBeNull();
     expect(help!.signatures[0]!.label).toContain("PathLike | FileHandle");
     expect(help!.signatures[0]!.label).not.toContain("string | Buffer | URL | object");

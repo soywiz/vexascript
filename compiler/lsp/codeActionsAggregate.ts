@@ -23,6 +23,7 @@ import { createNullableAccessCodeActions } from "./nullableAccessFixes";
 import { createMemberKeywordCodeActions } from "./memberKeywordFixes";
 import { createUnusedImportCodeActions } from "./unusedImportFixes";
 import type { SymbolExportProvider } from "./importFixes";
+import { createAssignVariableCodeActions } from "./assignVariableFixes";
 
 /**
  * Shared code-action collection used by both the LSP server and the Monaco
@@ -158,6 +159,15 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
       ast,
       text,
       diagnostics
+    })
+  );
+
+  actions.push(
+    ...createAssignVariableCodeActions({
+      uri,
+      ast,
+      text,
+      position: range.start
     })
   );
 

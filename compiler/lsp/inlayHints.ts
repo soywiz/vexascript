@@ -1,4 +1,7 @@
 import type { Analysis } from "compiler/analysis/Analysis";
+import type { AnalysisType } from "compiler/analysis/types";
+import { typeToString } from "compiler/analysis/types";
+import { parseTypeNameShape, splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import type {
   ArrayLiteral,
   AsExpression,
@@ -46,6 +49,153 @@ const InlayHintKind = {
   Type: 1,
   Parameter: 2
 } as const;
+
+function unwrapPromiseTypeForDisplay(type: AnalysisType): AnalysisType {
+  if (
+    type.kind === "named" &&
+    type.name === "Promise" &&
+    type.typeArguments &&
+    type.typeArguments.length > 0
+  ) {
+    return type.typeArguments[0]!;
+  }
+  return type;
+}
+
+function unwrapPromiseTypeNameForDisplay(typeName: string): string {
+  const parsed = parseTypeNameShape(typeName);
+  if (parsed.baseName === "Promise" && parsed.typeArguments.length > 0) {
+    return parsed.typeArguments[0]!;
+  }
+  return typeName;
+}
+
+function callableReturnTypeNameFromValueType(valueType: string | undefined): string | null {
+  if (!valueType) {
+    return null;
+  }
+  let angle = 0;
+  let paren = 0;
+  let bracket = 0;
+  let brace = 0;
+  let quote: string | null = null;
+
+  for (let index = 0; index < valueType.length - 1; index += 1) {
+    const character = valueType[index]!;
+    const next = valueType[index + 1]!;
+    const previous = index > 0 ? valueType[index - 1] : "";
+
+    if (quote) {
+      if (character === quote && previous !== "\\") {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === "\"" || character === "'") {
+      quote = character;
+      continue;
+    }
+
+    if (character === "<") angle += 1;
+    else if (character === ">") angle = Math.max(0, angle - 1);
+    else if (character === "(") paren += 1;
+    else if (character === ")") paren = Math.max(0, paren - 1);
+    else if (character === "[") bracket += 1;
+    else if (character === "]") bracket = Math.max(0, bracket - 1);
+    else if (character === "{") brace += 1;
+    else if (character === "}") brace = Math.max(0, brace - 1);
+
+    if (character === "=" && next === ">" && angle === 0 && paren === 0 && bracket === 0 && brace === 0) {
+      const returnType = valueType.slice(index + 2).trim();
+      return returnType.length > 0 ? returnType : null;
+    }
+  }
+
+  return null;
+}
+
+function selectedCallableReturnTypeNameFromValueType(
+  valueType: string | undefined,
+  overloadIndex: number
+): string | null {
+  if (!valueType) {
+    return null;
+  }
+  const candidates = splitTopLevelTypeText(valueType, "|")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && part.includes("=>"));
+  const selected = candidates[overloadIndex];
+  if (!selected) {
+    return null;
+  }
+  return callableReturnTypeNameFromValueType(selected);
+}
+
+async function resolveVariableInlayTypeName(
+  expression: Expr,
+  analysis: Analysis,
+  ast: Program,
+  options: ClassResolverOptions
+): Promise<string | null> {
+  if (expression.kind === "CallExpression") {
+    const callExpression = expression as CallExpression;
+    const calleeToken = callExpression.callee.firstToken;
+    if (calleeToken) {
+      const resolution = analysis.getSelectedCallResolutionAt(
+        calleeToken.range.start.line,
+        calleeToken.range.start.column
+      );
+      if (resolution) {
+        const symbol = analysis.getSymbolAt(
+          calleeToken.range.start.line,
+          calleeToken.range.start.column
+        )?.symbol;
+        const selectedReturnTypeName = selectedCallableReturnTypeNameFromValueType(
+          symbol?.valueType,
+          resolution.overloadIndex
+        );
+        if (selectedReturnTypeName) {
+          return analysis.getAutoAwaitExpressions().has(expression)
+            ? unwrapPromiseTypeNameForDisplay(selectedReturnTypeName)
+            : selectedReturnTypeName;
+        }
+        const returnType = analysis.getAutoAwaitExpressions().has(expression)
+          ? unwrapPromiseTypeForDisplay(resolution.overload.returnType)
+          : resolution.overload.returnType;
+        return typeToString(returnType);
+      }
+    }
+    if (callExpression.callee.kind === "Identifier" && callExpression.callee.firstToken) {
+      const symbol = analysis.getSymbolAt(
+        callExpression.callee.firstToken.range.start.line,
+        callExpression.callee.firstToken.range.start.column
+      )?.symbol;
+      const returnTypeName = callableReturnTypeNameFromValueType(symbol?.valueType);
+      if (returnTypeName) {
+        return analysis.getAutoAwaitExpressions().has(expression)
+          ? unwrapPromiseTypeNameForDisplay(returnTypeName)
+          : returnTypeName;
+      }
+    }
+    const signature = await resolveCallableSignature(callExpression.callee, analysis, ast, options);
+    if (signature?.returnTypeName) {
+      return analysis.getAutoAwaitExpressions().has(expression)
+        ? unwrapPromiseTypeNameForDisplay(signature.returnTypeName)
+        : signature.returnTypeName;
+    }
+    return await resolveExpressionTypeName(expression, analysis, ast, options);
+  }
+  if (expression.kind === "Identifier" && expression.firstToken) {
+    const symbol = analysis.getSymbolAt(
+      expression.firstToken.range.start.line,
+      expression.firstToken.range.start.column
+    )?.symbol;
+    if (symbol?.valueType) {
+      return symbol.valueType;
+    }
+  }
+  return await resolveExpressionTypeName(expression, analysis, ast, options);
+}
 
 function inRange(
   line: number,
@@ -249,7 +399,7 @@ async function pushTypeHintForVarStatement(
       if (declaration.typeAnnotation || !declaration.initializer || !declaration.name.lastToken) {
         continue;
       }
-      const inferredType = await resolveExpressionTypeName(declaration.initializer, analysis, ast, options);
+      const inferredType = await resolveVariableInlayTypeName(declaration.initializer, analysis, ast, options);
       if (!inferredType || inferredType === "unknown") {
         continue;
       }
@@ -272,7 +422,7 @@ async function pushTypeHintForVarStatement(
   if (statement.typeAnnotation || !statement.initializer || !statement.name.lastToken) {
     return;
   }
-  const inferredType = await resolveExpressionTypeName(statement.initializer, analysis, ast, options);
+  const inferredType = await resolveVariableInlayTypeName(statement.initializer, analysis, ast, options);
   if (!inferredType || inferredType === "unknown") {
     return;
   }

@@ -3,6 +3,13 @@ import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createInlayHints } from "./inlayHints";
+import { builtinType, functionType, namedType } from "compiler/analysis/types";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
+import { loadAmbientTypesForProject } from "./ambientTypesLoader";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 describe("inlay hints", () => {
   it("provides inferred type hints and parameter name hints", async () => {
@@ -179,5 +186,137 @@ dedent`
 
     expect(withLabels.some((l) => l.startsWith(": "))).toBe(true);
     expect(withoutLabels.some((l) => l.startsWith(": "))).toBe(false);
+  });
+
+  it("keeps alias names in variable inlay hints for auto-awaited call results", async () => {
+    const externalSource = dedent`
+      type BufferAlias = {
+        length: int
+      }
+      fun readFile(path: string): Promise<BufferAlias> {
+      }
+      `;
+    const externalSession = createAnalysisSession(externalSource);
+    const source = dedent`
+      import { readFile } from "node:fs/promises"
+      sync fun main() {
+        val bytes = readFile("test")
+      }
+      `;
+    const session = createAnalysisSession(
+      source,
+      externalSession.ast?.body ?? [],
+      new Map([
+        [
+          "readFile",
+          functionType(
+            [{ name: "path", type: builtinType("string") }],
+            namedType("Promise", [namedType("BufferAlias")])
+          )
+        ]
+      ]),
+      [],
+      new Map(),
+      new Map(),
+      new Map([
+        ["readFile", "(path: string) => Promise<BufferAlias>"]
+      ])
+    );
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": BufferAlias");
+    expect(labels.some((label) => label.includes("length:"))).toBe(false);
+  });
+
+  it("uses the selected ambient overload return type for variable inlay hints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-inlay-ambient-"));
+    const nodeTypesDir = join(root, "node_modules", "@types", "node");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { readFile } from "fs/promises"
+      sync fun main() {
+        val bytes = readFile("hello")
+        val hex = readFile("hello", "hex")
+      }
+      `;
+
+    await mkdir(nodeTypesDir, { recursive: true });
+    await writeFile(
+      join(nodeTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(nodeTypesDir, "index.d.ts"),
+      dedent`
+        declare module "node:events" {
+          export interface Abortable {
+            signal?: AbortSignal;
+          }
+          export interface AbortSignal {
+            parent?: AbortSignal;
+          }
+        }
+
+        declare module "node:fs" {
+          export class Buffer {}
+          export class URL {}
+          export type NonSharedBuffer = Buffer;
+          export type PathLike = string | Buffer | URL;
+          export type OpenMode = string;
+          export type BufferEncoding = "hex" | "utf-8";
+        }
+
+        declare module "fs/promises" {
+          import { Abortable } from "node:events";
+          import { BufferEncoding, NonSharedBuffer, OpenMode, PathLike } from "node:fs";
+
+          export interface FileHandle {}
+          export function readFile(
+            path: PathLike | FileHandle,
+            options?: ({ encoding?: null | undefined, flag?: OpenMode | undefined } & Abortable) | null,
+          ): Promise<NonSharedBuffer>;
+          export function readFile(
+            path: PathLike | FileHandle,
+            options: ({ encoding: BufferEncoding, flag?: OpenMode | undefined } & Abortable) | BufferEncoding,
+          ): Promise<string>;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      ambientModuleDeclarations: ambient.moduleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      ambient.globalDeclarations,
+      ambient.moduleDeclarations,
+      ambient.moduleDeclarationLocations,
+      imported.importedSymbolDisplayTypes
+    );
+
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": NonSharedBuffer");
+    expect(labels).toContain(": string");
+    expect(labels.some((label) => label.includes("PathLike"))).toBe(false);
   });
 });

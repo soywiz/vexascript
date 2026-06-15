@@ -10,7 +10,12 @@ sync fun main() {
   console.log(join("hello", "world"))
   writeFile(file, "test")
   console.log(readFile(file, "utf-8"))
+  val bytes = readFile(file)
+  val hex = readFile(file, 'hex')
   console.log(util.format("00%d", 10))
+  console.log(hex)
+  console.log(bytes[0])
+
 }
 
 await main()

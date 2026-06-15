@@ -166,6 +166,7 @@ This section is the fast onboarding map for agents and contributors.
 - VexaScript vs TypeScript syntax differences: `docs/vexa_syntax_differences.md`
 - Compact VexaScript reference for AI agents (AGENTS.md template for repos): `docs/agents-vexascript.md`
 - LSP services status: `docs/lsp.services.md`
+- LSP unification task list: `docs/tasks/lsp.unifications.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
 - Transpilation design note: `docs/transpilation.design.md`
 - Architecture map consistency guard: `compiler/architectureMap.test.ts`

@@ -1,9 +1,11 @@
 const path = require("node:path");
-const { commands, Location, Position, Range, Uri, workspace, window } = require("vscode");
+const { commands, Location, Position, Range, Selection, Uri, workspace, window } = require("vscode");
 const {
   LanguageClient,
   TransportKind
 } = require("vscode-languageclient/node");
+
+const SELECT_CODE_ACTION_RANGE_COMMAND = "vexa.selectCodeActionRange";
 const {
   shouldRetriggerParameterHints,
   shouldRetriggerParameterHintsForSelectionChange
@@ -35,6 +37,25 @@ function activate(context) {
         targetPosition,
         targetLocations
       );
+    })
+  );
+
+  context.subscriptions.push(
+    commands.registerCommand(SELECT_CODE_ACTION_RANGE_COMMAND, async (uri, range) => {
+      const editor = window.activeTextEditor;
+      if (!editor || !range) {
+        return;
+      }
+      const targetUri = typeof uri === "string" ? Uri.parse(uri) : uri;
+      if (editor.document.uri.toString() !== targetUri.toString()) {
+        return;
+      }
+      const selectionRange = new Range(
+        new Position(range.start.line, range.start.character),
+        new Position(range.end.line, range.end.character)
+      );
+      editor.selection = new Selection(selectionRange.start, selectionRange.end);
+      editor.revealRange(selectionRange);
     })
   );
 

@@ -103,7 +103,25 @@ function invocationContextForNode(
       line: callee.lastToken.range.end.line,
       character: callee.lastToken.range.end.column
     };
-    if (comparePosition(position, calleeEnd) < 0) {
+    if (comparePosition(position, calleeEnd) <= 0) {
+      return null;
+    }
+  }
+
+  const closeToken = node.lastToken as {
+    type?: string;
+    value?: string;
+    range: {
+      start: { line: number; column: number };
+      end: { line: number; column: number };
+    };
+  } | undefined;
+  if (closeToken?.type === "symbol" && closeToken.value === ")") {
+    const closeParenEnd: Position = {
+      line: closeToken.range.end.line,
+      character: closeToken.range.end.column
+    };
+    if (comparePosition(position, closeParenEnd) >= 0) {
       return null;
     }
   }

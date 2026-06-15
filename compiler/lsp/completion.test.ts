@@ -1078,6 +1078,72 @@ describe("createCompletionItemsForPosition", () => {
     });
 
     expect(items.map((item) => item.label)).toContain("format");
+    const format = items.find((item) => item.label === "format");
+    expect(format?.insertText).toBe("format($1)");
+    expect(format?.insertTextFormat).toBe(2);
+    expect(format?.command).toEqual({
+      title: "Trigger parameter hints",
+      command: "editor.action.triggerParameterHints",
+    });
+  });
+
+  it("returns call snippets for callable named imports", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { readFile } from "node:fs/promises"
+
+      readFi^^^
+    `);
+    const ambientModuleDeclarations = new Map<string, import("compiler/ast/ast").Statement[]>([
+      ["node:fs/promises", parseAmbientModule(
+        `declare module "node:fs/promises" {
+          export type PathLike = string;
+          export function readFile(path: PathLike, encoding?: string): Promise<string>;
+        }`,
+        "node:fs/promises"
+      )]
+    ]);
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx",
+      ambientModuleDeclarations,
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(
+          recoveredSource,
+          session.externalDeclarations,
+          session.importedSymbolTypes,
+          session.ambientDeclarations,
+          session.ambientModuleDeclarations,
+          session.ambientModuleLocations,
+          session.importedSymbolDisplayTypes,
+          session.invalidImportedBindings,
+          session.ambientDeclarationLocations
+        )
+    });
+
+    const readFile = items.find((item) => item.label === "readFile");
+    expect(readFile?.insertText).toBe("readFile($1)");
+    expect(readFile?.insertTextFormat).toBe(2);
+    expect(readFile?.command).toEqual({
+      title: "Trigger parameter hints",
+      command: "editor.action.triggerParameterHints",
+    });
   });
 
   it("offers contextual interface properties inside object literal arguments", async () => {

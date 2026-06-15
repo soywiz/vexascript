@@ -53,6 +53,13 @@ export type TypeAliasCompletionMember = {
   kind: typeof CompletionItemKind.Field | typeof CompletionItemKind.Method;
 };
 
+function isCallableValueType(valueType: string | undefined): boolean {
+  if (!valueType) {
+    return false;
+  }
+  return valueType.trim().startsWith("(") && valueType.includes("=>");
+}
+
 export const KEYWORD_COMPLETIONS: CompletionItem[] = [
   { label: "fn", kind: CompletionItemKind.Keyword, detail: "Keyword" },
   { label: "type", kind: CompletionItemKind.Keyword, detail: "Keyword" },
@@ -73,7 +80,7 @@ export const KEYWORD_COMPLETIONS: CompletionItem[] = [
 ];
 
 export function symbolKindToCompletionKind(symbol: AnalysisSymbol): CompletionItemKind {
-  if (symbol.kind === "function" || symbol.kind === "method") {
+  if (symbol.kind === "function" || symbol.kind === "method" || isCallableValueType(symbol.valueType)) {
     return CompletionItemKind.Function;
   }
   if (symbol.kind === "class") {

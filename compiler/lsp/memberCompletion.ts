@@ -733,6 +733,20 @@ export function parseObjectTypeTextMembers(
 
   const members: TypeAliasCompletionMember[] = [];
 
+  const isCallableTypeText = (typeText: string): boolean =>
+    splitTopLevelTypeText(typeText, "|").some((part) => {
+      const trimmedPart = stripEnclosingTypeParens(part.trim());
+      const parameterStart = findTopLevelTypeCharacter(trimmedPart, "(");
+      if (parameterStart !== 0) {
+        return false;
+      }
+      const parameterEnd = findMatchingTypeDelimiter(trimmedPart, parameterStart, "(", ")");
+      if (parameterEnd < 0) {
+        return false;
+      }
+      return trimmedPart.indexOf("=>", parameterEnd) >= 0;
+    });
+
   for (const entry of splitTopLevelDelimitedTypeText(body, new Set([",", ";"]))) {
     const trimmedEntry = entry.trim();
     if (trimmedEntry.length === 0) {
@@ -766,10 +780,11 @@ export function parseObjectTypeTextMembers(
     if (!name) {
       continue;
     }
+    const propertyTypeText = substituteTypeNameText(trimmedEntry.slice(propertyColon + 1).trim(), substitutions);
     members.push({
       name,
-      kind: CompletionItemKind.Field,
-      detail: `Type alias property: ${substituteTypeNameText(trimmedEntry.slice(propertyColon + 1).trim(), substitutions)}`
+      kind: isCallableTypeText(propertyTypeText) ? CompletionItemKind.Method : CompletionItemKind.Field,
+      detail: `${isCallableTypeText(propertyTypeText) ? "Type alias method" : "Type alias property"}: ${propertyTypeText}`
     });
   }
 
