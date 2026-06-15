@@ -44,6 +44,7 @@ import {
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import {
+  candidateCharacters,
   createHover,
   createPrepareRename,
   createRenameWorkspaceEdit
@@ -52,6 +53,7 @@ import { createSignatureHelp } from "./signatureHelp";
 import { createInlayHints } from "./inlayHints";
 import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
+export { candidateCharacters } from "./navigation";
 import {
   createSemanticTokens,
   VEXA_SEMANTIC_TOKENS_LEGEND
@@ -96,15 +98,6 @@ export interface LspServerEnvironment {
   onDocumentClosed?(document: TextDocument): void;
   /** Present when the environment supports workspace diagnostics/symbols (Node server). */
   workspace?: LspWorkspaceFeatures;
-}
-
-export function candidateCharacters(character: number): number[] {
-  const candidates = [character];
-  if (character > 0) {
-    candidates.push(character - 1);
-  }
-  candidates.push(character + 1);
-  return candidates;
 }
 
 export function completionPrefixAt(text: string, offset: number): string {
@@ -413,13 +406,7 @@ export function startLspServer(options: LspServerOptions): void {
       }
     }
 
-    for (const character of candidateCharacters(params.position.character)) {
-      const hover = createHover(session.analysis, params.position.line, character, session.ast);
-      if (hover) {
-        return hover;
-      }
-    }
-    return null;
+    return createHover(session.analysis, params.position.line, params.position.character, session.ast);
   });
 
   connection.onPrepareRename((params) => {
@@ -433,13 +420,7 @@ export function startLspServer(options: LspServerOptions): void {
       return null;
     }
 
-    for (const character of candidateCharacters(params.position.character)) {
-      const result = createPrepareRename(analysis, params.position.line, character, analysisSessions.getForDocument(doc).ast ?? undefined);
-      if (result) {
-        return result;
-      }
-    }
-    return null;
+    return createPrepareRename(analysis, params.position.line, params.position.character, analysisSessions.getForDocument(doc).ast ?? undefined);
   });
 
   connection.onRenameRequest(async (params) => {

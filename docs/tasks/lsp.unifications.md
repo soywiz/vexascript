@@ -14,8 +14,8 @@
 
 ## Shared Entry Point
 
-* [ ] Create a shared `resolveCursorTarget(...)` entrypoint in the LSP layer.
-* [ ] Move character probing and cursor normalization into that shared entrypoint.
+* [x] Create a shared `resolveCursorTarget(...)` entrypoint in the LSP layer.
+* [x] Move character probing and cursor normalization into that shared entrypoint.
 * [ ] Make hover, definition, references, rename, and signature help consume that shared entrypoint instead of resolving symbols independently.
 
 ## Definition And Declaration
