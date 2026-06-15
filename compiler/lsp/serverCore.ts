@@ -24,13 +24,14 @@ import type {
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
+import type { AnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
-import { buildAutoImportSuggestions, uriToFilePath } from "./importFixes";
+import { buildAmbientModuleSymbolExports, buildAutoImportSuggestions, buildSymbolExports, uriToFilePath } from "./importFixes";
 import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
@@ -142,6 +143,16 @@ export function startLspServer(options: LspServerOptions): void {
       sourceRoots: environment.getSourceRoots(),
       getSessionForFilePath: environment.getSessionForFilePath
     };
+  }
+
+  async function getExportedSymbolsForSession(session: AnalysisSession) {
+    return [
+      ...await buildSymbolExports(environment.getSourceRoots()),
+      ...buildAmbientModuleSymbolExports({
+        moduleDeclarations: session.ambientModuleDeclarations,
+        moduleLocations: session.ambientModuleLocations
+      })
+    ];
   }
 
   async function collectWorkspaceDiagnosticsForDocument(doc: TextDocument): Promise<Diagnostic[]> {
@@ -259,6 +270,7 @@ export function startLspServer(options: LspServerOptions): void {
       uri: doc.uri,
       ast: session.ast,
       sourceRoots: environment.getSourceRoots(),
+      getExportedSymbols: () => getExportedSymbolsForSession(session),
       prefix,
       excludeSymbols: new Set(visibleSymbols.map((symbol) => symbol.name))
     });
@@ -300,6 +312,7 @@ export function startLspServer(options: LspServerOptions): void {
       analysis: session.analysis,
       range: params.range,
       diagnostics: params.context.diagnostics,
+      getExportedSymbols: () => getExportedSymbolsForSession(session),
       ...(workspace ? { refreshDiagnosticsCommand: workspace.refreshDiagnosticsCommand } : {})
     });
 

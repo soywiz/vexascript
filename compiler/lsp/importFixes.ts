@@ -1,7 +1,16 @@
 import type {
+  ExportStatement,
+  ExprStatement,
+  FunctionStatement,
+  Identifier,
   ImportStatement,
+  ClassStatement,
+  InterfaceStatement,
+  NamespaceStatement,
   Program,
-  Statement
+  Statement,
+  TypeAliasStatement,
+  VarStatement
 } from "compiler/ast/ast";
 import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
 import { getProjectIndex, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
@@ -17,6 +26,7 @@ export interface SymbolExport {
   name: string;
   filePath: string;
   kind: ProjectTopLevelDeclarationKind;
+  importPath?: string;
   receiverType?: string;
   memberKind?: "property" | "method";
 }
@@ -43,6 +53,179 @@ export async function buildSymbolExports(sourceRoots: string[]): Promise<SymbolE
     }
   } catch {
     // Ignore unreadable files for quick-fix discovery.
+  }
+
+  return exports;
+}
+
+function ambientExportFilePath(
+  moduleName: string,
+  moduleLocations?: ReadonlyMap<string, { filePath: string }>
+): string {
+  return moduleLocations?.get(moduleName)?.filePath ?? `/ambient/${moduleName}.d.ts`;
+}
+
+function directAmbientDeclaration(statement: Statement): Statement {
+  return statement.kind === "ExportStatement"
+    ? (statement as ExportStatement).declaration ?? statement
+    : statement;
+}
+
+function pushAmbientSymbolExport(
+  exports: SymbolExport[],
+  seen: Set<string>,
+  moduleName: string,
+  filePath: string,
+  name: string,
+  kind: ProjectTopLevelDeclarationKind
+): void {
+  const key = `${moduleName}::${name}::${kind}`;
+  if (seen.has(key)) {
+    return;
+  }
+  seen.add(key);
+  exports.push({ name, kind, filePath, importPath: moduleName });
+}
+
+function collectDirectAmbientExports(
+  declarations: readonly Statement[],
+  moduleName: string,
+  filePath: string,
+  exports: SymbolExport[],
+  seen: Set<string>
+): void {
+  for (const statement of declarations) {
+    const declaration = directAmbientDeclaration(statement);
+    if (declaration.kind === "ClassStatement") {
+      pushAmbientSymbolExport(exports, seen, moduleName, filePath, (declaration as ClassStatement).name.name, "class");
+    } else if (declaration.kind === "InterfaceStatement") {
+      pushAmbientSymbolExport(exports, seen, moduleName, filePath, (declaration as InterfaceStatement).name.name, "interface");
+    } else if (declaration.kind === "TypeAliasStatement") {
+      pushAmbientSymbolExport(exports, seen, moduleName, filePath, (declaration as TypeAliasStatement).name.name, "type");
+    } else if (declaration.kind === "FunctionStatement") {
+      pushAmbientSymbolExport(exports, seen, moduleName, filePath, (declaration as FunctionStatement).name.name, "function");
+    } else if (declaration.kind === "VarStatement") {
+      const variable = declaration as VarStatement;
+      if (variable.name.kind === "Identifier") {
+        pushAmbientSymbolExport(exports, seen, moduleName, filePath, variable.name.name, "variable");
+      }
+    }
+  }
+}
+
+function detectAmbientExportEqualsName(declarations: readonly Statement[]): string | null {
+  for (const statement of declarations) {
+    if (statement.kind !== "ExprStatement") {
+      continue;
+    }
+    const expression = (statement as ExprStatement).expression;
+    if (expression?.kind === "Identifier") {
+      return (expression as Identifier).name;
+    }
+  }
+  return null;
+}
+
+function findAmbientNamespaceBody(declarations: readonly Statement[], namespaceName: string): Statement[] | null {
+  for (const statement of declarations) {
+    const declaration = directAmbientDeclaration(statement);
+    if (declaration.kind !== "NamespaceStatement") {
+      continue;
+    }
+    const namespace = declaration as NamespaceStatement;
+    if (namespace.names?.[0]?.name === namespaceName) {
+      return namespace.body.body;
+    }
+  }
+  return null;
+}
+
+function findAmbientInterface(declarations: readonly Statement[], interfaceName: string): InterfaceStatement | null {
+  for (const statement of declarations) {
+    const declaration = directAmbientDeclaration(statement);
+    if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === interfaceName) {
+      return declaration as InterfaceStatement;
+    }
+  }
+  return null;
+}
+
+function collectExportEqualsAmbientExports(
+  declarations: readonly Statement[],
+  moduleName: string,
+  filePath: string,
+  exports: SymbolExport[],
+  seen: Set<string>
+): void {
+  const exportEqualsName = detectAmbientExportEqualsName(declarations);
+  if (!exportEqualsName) {
+    return;
+  }
+
+  const exportNamespaceBody = findAmbientNamespaceBody(declarations, exportEqualsName);
+  if (exportNamespaceBody) {
+    collectDirectAmbientExports(exportNamespaceBody, moduleName, filePath, exports, seen);
+  }
+
+  for (const statement of declarations) {
+    const declaration = directAmbientDeclaration(statement);
+    if (declaration.kind !== "VarStatement") {
+      continue;
+    }
+    const variable = declaration as VarStatement;
+    if (variable.name.kind !== "Identifier" || variable.name.name !== exportEqualsName || !variable.typeAnnotation?.name) {
+      continue;
+    }
+    const typeName = variable.typeAnnotation.name;
+    const separator = typeName.lastIndexOf(".");
+    const namespaceName = separator > 0 ? typeName.slice(0, separator) : null;
+    const interfaceName = separator > 0 ? typeName.slice(separator + 1) : typeName;
+    const searchDeclarations = namespaceName ? findAmbientNamespaceBody(declarations, namespaceName) : declarations;
+    if (!searchDeclarations) {
+      continue;
+    }
+    const interfaceDeclaration = findAmbientInterface(searchDeclarations, interfaceName);
+    if (!interfaceDeclaration) {
+      continue;
+    }
+    for (const member of interfaceDeclaration.members) {
+      pushAmbientSymbolExport(
+        exports,
+        seen,
+        moduleName,
+        filePath,
+        member.name.name,
+        member.kind === "InterfaceMethodMember" ? "function" : "variable"
+      );
+    }
+  }
+}
+
+export function buildAmbientModuleSymbolExports(params: {
+  moduleDeclarations: ReadonlyMap<string, Statement[]>;
+  moduleLocations?: ReadonlyMap<string, { filePath: string; line: number; character: number }>;
+}): SymbolExport[] {
+  const { moduleDeclarations, moduleLocations } = params;
+  const exports: SymbolExport[] = [];
+  const seen = new Set<string>();
+
+  for (const [moduleName, declarations] of moduleDeclarations) {
+    const filePath = ambientExportFilePath(moduleName, moduleLocations);
+    const beforeDirect = exports.length;
+    collectDirectAmbientExports(declarations, moduleName, filePath, exports, seen);
+    collectExportEqualsAmbientExports(declarations, moduleName, filePath, exports, seen);
+
+    if (moduleName.startsWith("node:")) {
+      const baseModuleName = moduleName.slice("node:".length);
+      const baseDeclarations = moduleDeclarations.get(baseModuleName);
+      if (baseDeclarations) {
+        const hadDirectExports = exports.length > beforeDirect;
+        if (!hadDirectExports) {
+          collectDirectAmbientExports(baseDeclarations, moduleName, filePath, exports, seen);
+          collectExportEqualsAmbientExports(baseDeclarations, moduleName, filePath, exports, seen);
+        }
+      }
+    }
   }
 
   return exports;
@@ -146,20 +329,8 @@ export function toImportPath(fromFilePath: string, targetFilePath: string): stri
   return `./${relativePath}`;
 }
 
-function chooseBestExport(
-  candidates: SymbolExport[],
-  currentFilePath: string
-): SymbolExport | null {
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  const sorted = [...candidates].sort((a, b) => {
-    const aRel = relative(dirname(currentFilePath), a.filePath);
-    const bRel = relative(dirname(currentFilePath), b.filePath);
-    return aRel.length - bRel.length;
-  });
-  return sorted[0] ?? null;
+function importPathForSymbolExport(symbolExport: SymbolExport, currentFilePath: string): string {
+  return symbolExport.importPath ?? toImportPath(currentFilePath, symbolExport.filePath);
 }
 
 function findExistingImportFromPath(ast: Program, importPath: string): ImportStatement | null {
@@ -251,10 +422,7 @@ export async function createAutoImportCodeActions(params: {
         symbolExport.name === symbolName &&
         symbolExport.filePath !== currentFilePath
     );
-    const action = buildImportCodeAction({ uri, ast, range, symbolName, candidates, currentFilePath });
-    if (action) {
-      actions.push(action);
-    }
+    actions.push(...buildImportCodeActions({ uri, ast, range, symbolName, candidates, currentFilePath }));
   }
 
   for (const { symbolName, receiverType } of operatorImports) {
@@ -268,10 +436,7 @@ export async function createAutoImportCodeActions(params: {
         symbolExport.receiverType === receiverType &&
         symbolExport.filePath !== currentFilePath
     );
-    const action = buildImportCodeAction({ uri, ast, range, symbolName, candidates, currentFilePath });
-    if (action) {
-      actions.push(action);
-    }
+    actions.push(...buildImportCodeActions({ uri, ast, range, symbolName, candidates, currentFilePath }));
   }
 
   return actions;
@@ -282,16 +447,11 @@ function buildImportCodeAction(params: {
   ast: Program;
   range: Range;
   symbolName: string;
-  candidates: SymbolExport[];
+  candidate: SymbolExport;
   currentFilePath: string;
 }): CodeAction | null {
-  const { uri, ast, range, symbolName, candidates, currentFilePath } = params;
-  const best = chooseBestExport(candidates, currentFilePath);
-  if (!best) {
-    return null;
-  }
-
-  const importPath = toImportPath(currentFilePath, best.filePath);
+  const { uri, ast, range, symbolName, candidate, currentFilePath } = params;
+  const importPath = importPathForSymbolExport(candidate, currentFilePath);
   const existingImport = findExistingImportFromPath(ast, importPath);
 
   if (existingImport?.firstToken && existingImport?.lastToken) {
@@ -336,6 +496,33 @@ function buildImportCodeAction(params: {
       }
     }
   };
+}
+
+function buildImportCodeActions(params: {
+  uri: string;
+  ast: Program;
+  range: Range;
+  symbolName: string;
+  candidates: SymbolExport[];
+  currentFilePath: string;
+}): CodeAction[] {
+  const { uri, ast, range, symbolName, candidates, currentFilePath } = params;
+  const seen = new Set<string>();
+  const uniqueCandidates = candidates.filter((candidate) => {
+    const key = `${symbolName}::${importPathForSymbolExport(candidate, currentFilePath)}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+
+  return uniqueCandidates
+    .sort((a, b) =>
+      importPathForSymbolExport(a, currentFilePath).localeCompare(importPathForSymbolExport(b, currentFilePath))
+    )
+    .map((candidate) => buildImportCodeAction({ uri, ast, range, symbolName, candidate, currentFilePath }))
+    .filter((action): action is CodeAction => action !== null);
 }
 
 export function pathToUri(path: string): string {
@@ -427,28 +614,21 @@ export async function buildAutoImportSuggestions(params: {
     if (normalizedPrefix.length > 0 && !symbolExport.name.startsWith(normalizedPrefix)) {
       continue;
     }
-    if (seen.has(symbolExport.name)) {
+    const importPath = importPathForSymbolExport(symbolExport, currentFilePath);
+    const key = `${symbolExport.name}::${importPath}`;
+    if (seen.has(key)) {
       continue;
     }
-
-    const candidates = exportedSymbols.filter(
-      (candidate) =>
-        candidate.name === symbolExport.name &&
-        candidate.filePath !== currentFilePath
-    );
-    const best = chooseBestExport(candidates, currentFilePath);
-    if (!best) {
-      continue;
-    }
-
-    const importPath = toImportPath(currentFilePath, best.filePath);
-    seen.add(best.name);
+    seen.add(key);
     results.push({
-      symbol: best,
+      symbol: symbolExport,
       importPath,
       range
     });
   }
 
-  return results.sort((a, b) => a.symbol.name.localeCompare(b.symbol.name));
+  return results.sort((a, b) =>
+    a.symbol.name.localeCompare(b.symbol.name) ||
+    a.importPath.localeCompare(b.importPath)
+  );
 }

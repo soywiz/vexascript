@@ -314,6 +314,61 @@ describe("createCompletionItemsForPosition", () => {
     );
   });
 
+  it("computes auto-import completion items for ambient module exports", async () => {
+    const { source, line, character } = sourceWithCursor("fun demo() {\n  return gre^^^\n}\n");
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(
+      ast,
+      line,
+      character,
+      undefined,
+      [],
+      {
+        text: source,
+        uri: "file:///consumer.vx",
+        sourceRoots: [],
+        getExportedSymbols: async () => [
+          { name: "greet", filePath: "/virtual/@types/my-lib/index.d.ts", importPath: "my-lib", kind: "function" },
+        ],
+      }
+    );
+    const greet = items.find((item) => item.label === "greet");
+
+    expect(greet).toBeDefined();
+    expect(greet?.detail).toBe("Auto import from my-lib");
+    expect(greet?.additionalTextEdits?.[0]?.newText).toBe(
+      "import { greet } from \"my-lib\"\n"
+    );
+  });
+
+  it("shows all auto-import completion candidates when multiple modules export the same name", async () => {
+    const { source, line, character } = sourceWithCursor("fun demo() {\n  return gre^^^\n}\n");
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(
+      ast,
+      line,
+      character,
+      undefined,
+      [],
+      {
+        text: source,
+        uri: "file:///consumer.vx",
+        sourceRoots: [],
+        getExportedSymbols: async () => [
+          { name: "greet", filePath: "/virtual/@types/alpha/index.d.ts", importPath: "alpha", kind: "function" },
+          { name: "greet", filePath: "/virtual/@types/beta/index.d.ts", importPath: "beta", kind: "function" },
+        ],
+      }
+    );
+    const greets = items.filter((item) => item.label === "greet");
+
+    expect(greets).toHaveLength(2);
+    expect(greets.map((item) => item.detail)).toEqual([
+      "Auto import from alpha",
+      "Auto import from beta"
+    ]);
+  });
+
   it("offers exported runtime namespace members for member access", async () => {
     const { source, line, character } = sourceWithCursor(
       "namespace Tools { export const version = 1; const hidden = 2; export function read() { return version } }\nTools.^^^"

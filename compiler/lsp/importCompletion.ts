@@ -60,11 +60,16 @@ export function buildAutoImportCompletionItems(
   seenLabels: Set<string>
 ): CompletionItem[] {
   const items: CompletionItem[] = [];
+  const seenSuggestions = new Set<string>();
   for (const suggestion of suggestions) {
+    const suggestionKey = `${suggestion.symbol.name}::${suggestion.importPath}`;
+    if (seenSuggestions.has(suggestionKey)) {
+      continue;
+    }
+    seenSuggestions.add(suggestionKey);
     if (seenLabels.has(suggestion.symbol.name)) {
       continue;
     }
-    seenLabels.add(suggestion.symbol.name);
 
     let kind: CompletionItemKind = CompletionItemKind.Variable;
     if (suggestion.symbol.kind === "class") {

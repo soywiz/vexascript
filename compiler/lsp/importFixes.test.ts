@@ -5,9 +5,12 @@ import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
+import { parseSource } from "compiler/pipeline/parse";
+import type { Statement } from "compiler/ast/ast";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
 import {
+  buildAmbientModuleSymbolExports,
   buildAutoImportSuggestions,
   buildExtensionAutoImportSuggestions,
   createAutoImportCodeActions
@@ -51,6 +54,16 @@ function operatorNotDefinedDiagnostic(operator: string, leftType: string, rightT
       end: { line: 0, character: 1 }
     }
   };
+}
+
+function parseAmbientModule(src: string, moduleName: string): Statement[] {
+  const result = parseSource(src, { language: "typescript" });
+  const namespace = result.ast?.body.find(
+    (statement) =>
+      statement.kind === "NamespaceStatement" &&
+      (statement as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
+  ) as { body?: { body?: Statement[] } } | undefined;
+  return namespace?.body?.body ?? [];
 }
 
 describe("import quick fixes", () => {
@@ -234,6 +247,88 @@ describe("import quick fixes", () => {
     expect(suggestions[0]?.symbol.name).toBe("Point");
     expect(suggestions[0]?.importPath).toBe("./models/point.vx");
   });
+
+  it("builds ambient module symbol exports for direct functions and export-equals interface members", () => {
+    const exports = buildAmbientModuleSymbolExports({
+      moduleDeclarations: new Map<string, Statement[]>([
+        ["my-lib", parseAmbientModule(`declare module "my-lib" { export function greet(): string; }`, "my-lib")],
+        ["node:path", parseAmbientModule(`declare module "node:path" { export = path; }`, "node:path")],
+        ["path", parseAmbientModule(`declare module "path" {
+          namespace path {
+            interface PlatformPath {
+              join(...paths: string[]): string;
+            }
+          }
+          const path: path.PlatformPath;
+          export = path;
+        }`, "path")]
+      ])
+    });
+
+    expect(exports.find((item) => item.name === "greet" && item.importPath === "my-lib")?.kind).toBe("function");
+    expect(exports.find((item) => item.name === "join" && item.importPath === "node:path")?.kind).toBe("function");
+  });
+
+  it("builds auto-import suggestions for ambient module exports using the module specifier", async () => {
+    const source = "fun demo() {\n  return gre\n}\n";
+    const session = createAnalysisSession(source);
+    const suggestions = await buildAutoImportSuggestions({
+      uri: "file:///consumer.vx",
+      ast: session.ast,
+      sourceRoots: [],
+      prefix: "gre",
+      excludeSymbols: new Set(),
+      getExportedSymbols: async () => [
+        { name: "greet", filePath: "/virtual/@types/my-lib/index.d.ts", importPath: "my-lib", kind: "function" }
+      ],
+    });
+
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]?.symbol.name).toBe("greet");
+    expect(suggestions[0]?.importPath).toBe("my-lib");
+  });
+
+  it("creates auto-import code actions for ambient module exports using the module specifier", async () => {
+    const source = "fun demo() {\n  greet()\n}\n";
+    const session = createAnalysisSession(source);
+    const uri = "file:///consumer.vx";
+    const actions = await createAutoImportCodeActions({
+      uri,
+      ast: session.ast,
+      diagnostics: [undefinedVariableDiagnostic("greet")],
+      sourceRoots: [],
+      getExportedSymbols: async () => [
+        { name: "greet", filePath: "/virtual/@types/my-lib/index.d.ts", importPath: "my-lib", kind: "function" }
+      ]
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Import 'greet' from 'my-lib'");
+    expect(actions[0]?.edit?.changes?.[uri]?.[0]?.newText).toBe('import { greet } from "my-lib"\n');
+  });
+
+  it("creates one auto-import code action per matching module when names collide", async () => {
+    const source = "fun demo() {\n  greet()\n}\n";
+    const session = createAnalysisSession(source);
+    const uri = "file:///consumer.vx";
+    const actions = await createAutoImportCodeActions({
+      uri,
+      ast: session.ast,
+      diagnostics: [undefinedVariableDiagnostic("greet")],
+      sourceRoots: [],
+      getExportedSymbols: async () => [
+        { name: "greet", filePath: "/virtual/@types/alpha/index.d.ts", importPath: "alpha", kind: "function" },
+        { name: "greet", filePath: "/virtual/@types/beta/index.d.ts", importPath: "beta", kind: "function" }
+      ]
+    });
+
+    expect(actions).toHaveLength(2);
+    expect(actions.map((action) => action.title)).toEqual([
+      "Import 'greet' from 'alpha'",
+      "Import 'greet' from 'beta'"
+    ]);
+  });
+
   it("suggests importing an exported extension property for a missing member", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
     const durationFile = join(root, "duration.vx");
