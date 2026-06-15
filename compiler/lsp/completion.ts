@@ -409,7 +409,7 @@ export async function createCompletionItemsForPosition(
   }
 
   if (!suppressExistingSymbolCompletions) {
-    items.push(...buildAutoImportCompletionItems(resolvedAutoImportSuggestions, seenLabels));
+    items.push(...buildAutoImportCompletionItems(ast, resolvedAutoImportSuggestions, seenLabels));
   }
 
   for (let index = 0; index < KEYWORD_COMPLETIONS.length; index += 1) {

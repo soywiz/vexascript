@@ -21,6 +21,7 @@ import {
   UNKNOWN_TYPE,
   type AnalysisType
 } from "compiler/analysis/types";
+import { loadAmbientTypesForProject, type AmbientTypesResult, resolveAmbientNamedImportType } from "compiler/ambientModules";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { localVfs } from "compiler/localVfs";
 import type { Vfs } from "compiler/vfs";
@@ -36,6 +37,15 @@ interface CachedTypingsData {
 }
 
 const typingsCacheByPath = new Map<string, CachedTypingsData>();
+
+function ambientTypePackageNameFromTypingsPath(typingsPath: string): string | null {
+  const match = typingsPath.match(/[\\/]+@types[\\/]+([^\\/]+)/);
+  return match?.[1] ?? null;
+}
+
+function isFallbackModuleNamedType(type: AnalysisType | null | undefined, moduleName: string): boolean {
+  return type?.kind === "named" && type.name === moduleName;
+}
 
 /**
  * Resolves a project's local module graph and bundles it into a single
@@ -303,6 +313,16 @@ async function collectNodeModulesTypings(
   importedSymbolTypes: Map<string, AnalysisType>,
   vfs: Vfs
 ): Promise<void> {
+  const ambientByTypePackage = new Map<string, AmbientTypesResult>();
+  const loadAmbientTypePackage = async (typePackage: string): Promise<AmbientTypesResult> => {
+    const cached = ambientByTypePackage.get(typePackage);
+    if (cached) {
+      return cached;
+    }
+    const loaded = await loadAmbientTypesForProject(importerFilePath, [typePackage], { vfs });
+    ambientByTypePackage.set(typePackage, loaded);
+    return loaded;
+  };
   const loadTypings = async (typingsPath: string): Promise<CachedTypingsData | null> => {
     const cached = typingsCacheByPath.get(typingsPath);
     if (cached) {
@@ -338,7 +358,21 @@ async function collectNodeModulesTypings(
     if (specifier.startsWith(".") || specifier.startsWith("/")) continue;
 
     const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, specifier, { vfs });
-    if (!typingsPath) continue;
+    if (!typingsPath) {
+      const nodeAmbientTypes = await loadAmbientTypePackage("node");
+      for (const s of importStatement.specifiers) {
+        const ambientType = resolveAmbientNamedImportType(
+          specifier,
+          s.imported.name,
+          nodeAmbientTypes.moduleDeclarations,
+          nodeAmbientTypes.globalDeclarations
+        );
+        if (ambientType) {
+          importedSymbolTypes.set((s.local ?? s.imported).name, ambientType);
+        }
+      }
+      continue;
+    }
 
     const typings = await loadTypings(typingsPath);
     if (!typings) continue;
@@ -355,6 +389,10 @@ async function collectNodeModulesTypings(
     const declarationAnalysis = typings.analysis;
     const defaultExportName = typings.defaultExportName || specifier;
     const exportType = namedType(defaultExportName);
+    const ambientTypePackage = ambientTypePackageNameFromTypingsPath(typingsPath);
+    const ambientTypes = ambientTypePackage
+      ? await loadAmbientTypePackage(ambientTypePackage)
+      : null;
     if (importStatement.defaultImport) {
       const declaredDefaultType = declarationAnalysis?.getTopLevelSymbolType(defaultExportName);
       const defaultImportType = typings.hasFunctionNamespaceDualExport
@@ -372,7 +410,21 @@ async function collectNodeModulesTypings(
     }
     for (const s of importStatement.specifiers) {
       const localName = (s.local ?? s.imported).name;
-      importedSymbolTypes.set(localName, declarationAnalysis?.getTopLevelSymbolType(s.imported.name) ?? exportType);
+      const declaredType = declarationAnalysis?.getTopLevelSymbolType(s.imported.name);
+      const ambientType = ambientTypes
+        ? resolveAmbientNamedImportType(
+          specifier,
+          s.imported.name,
+          ambientTypes.moduleDeclarations,
+          ambientTypes.globalDeclarations
+        )
+        : null;
+      importedSymbolTypes.set(
+        localName,
+        !isFallbackModuleNamedType(declaredType, defaultExportName)
+          ? (declaredType ?? ambientType ?? exportType)
+          : (ambientType ?? declaredType ?? exportType)
+      );
     }
   }
 }

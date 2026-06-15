@@ -284,11 +284,17 @@ export function startLspServer(options: LspServerOptions): void {
       {
         text,
         ...featureContext(doc.uri),
+        ambientModuleDeclarations: session.ambientModuleDeclarations,
         recoverAnalysisSession: (source) => createAnalysisSession(
           source,
           session.externalDeclarations,
           session.importedSymbolTypes,
-          session.ambientDeclarations
+          session.ambientDeclarations,
+          session.ambientModuleDeclarations,
+          session.ambientModuleLocations,
+          session.importedSymbolDisplayTypes,
+          session.invalidImportedBindings,
+          session.ambientDeclarationLocations
         )
       }
     );
@@ -543,7 +549,10 @@ export function startLspServer(options: LspServerOptions): void {
       session.analysis,
       params.position.line,
       params.position.character,
-      featureContext(params.textDocument.uri)
+      {
+        ...featureContext(params.textDocument.uri),
+        ambientModuleDeclarations: session.ambientModuleDeclarations
+      }
     );
   });
 

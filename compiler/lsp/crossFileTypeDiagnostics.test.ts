@@ -130,6 +130,81 @@ describe("cross-file type diagnostics", () => {
     ).toEqual({ line: 0, character: 16 });
   });
 
+  it("reports importing a missing symbol from an ambient module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const nodeTypesDir = join(root, "node_modules", "@types", "node");
+    const mainPath = join(root, "main.vx");
+    const source =
+      'import { readFile, UNEXISTANT_UNEXISTANT_UNEXISTANT } from "fs/promises"\n'
+      + 'await readFile("hello")\n'
+      + 'UNEXISTANT_UNEXISTANT_UNEXISTANT()\n';
+
+    await mkdir(nodeTypesDir, { recursive: true });
+    await writeFile(
+      join(nodeTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(nodeTypesDir, "index.d.ts"),
+      dedent`
+      declare module "fs/promises" {
+        export function readFile(path: string): Promise<string>;
+      }
+
+      declare module "node:fs/promises" {
+        export * from "fs/promises";
+      }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+    const session = createAnalysisSession(
+      source,
+      [],
+      new Map(),
+      ambient.globalDeclarations,
+      ambient.moduleDeclarations,
+      ambient.moduleDeclarationLocations
+    );
+
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root]
+    });
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      ambientGlobalDeclarations: ambient.globalDeclarations,
+      ambientModuleDeclarations: ambient.moduleDeclarations
+    });
+    const resolvedSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      ambient.globalDeclarations,
+      ambient.moduleDeclarations,
+      ambient.moduleDeclarationLocations,
+      collected.importedSymbolDisplayTypes ?? new Map(),
+      collected.invalidImportedBindings ?? new Set()
+    );
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      "Module 'fs/promises' has no exported symbol 'UNEXISTANT_UNEXISTANT_UNEXISTANT'"
+    );
+    expect(resolvedSession.semanticIssues.map((issue) => issue.message)).toContain(
+      "Type 'unknown' is not callable"
+    );
+    expect(
+      diagnostics.find((diagnostic) => diagnostic.message === "Module 'fs/promises' has no exported symbol 'UNEXISTANT_UNEXISTANT_UNEXISTANT'")
+        ?.range.start
+    ).toEqual({ line: 0, character: 19 });
+  });
+
   it("anchors member-call arity diagnostics on the member name", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
     const worldFile = join(root, "world.vx");

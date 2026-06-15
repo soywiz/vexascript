@@ -66,12 +66,20 @@ export interface OperatorResolution {
   symbol: AnalysisSymbol;
 }
 
+export interface SelectedCallResolution {
+  call: Node;
+  callee: Node;
+  overload: AnalysisType & { kind: "function" };
+  overloadIndex: number;
+}
+
 export interface CheckedAnalysis {
   issues: AnalysisIssue[];
   identifierResolutions: IdentifierResolution[];
   jsxAttributeResolutions: JsxAttributeResolution[];
   operatorResolutions: OperatorResolution[];
   expressionTypes: Map<Node, AnalysisType>;
+  selectedCallResolutions: SelectedCallResolution[];
   // Expressions that receive an implicit `await` because they evaluate to a Promise inside a
   // `sync` function body (and were not opted out via the `go` operator or `.then`-style usage).
   autoAwaitExpressions: Set<Node>;

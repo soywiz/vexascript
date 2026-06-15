@@ -8,6 +8,7 @@ import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
+import { parseSource } from "compiler/pipeline/parse";
 import { createAnalysisSession } from "./analysisSession";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import {
@@ -15,8 +16,17 @@ import {
   createKeywordOnlyCompletionItems
 } from "./completion";
 import { resolveDefinitionAcrossFiles } from "./crossFileNavigation";
-import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
+import { collectAllImportedDeclarations, collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 import { getProjectIndex } from "./projectAnalysis";
+
+function parseAmbientModule(src: string, moduleName: string) {
+  const result = parseSource(src, { language: "typescript" });
+  const ns = result.ast?.body?.find(
+    (statement) => statement.kind === "NamespaceStatement"
+      && (statement as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
+  ) as { body?: { body?: import("compiler/ast/ast").Statement[] } } | undefined;
+  return ns?.body?.body ?? [];
+}
 
 describe("createCompletionItemsForPosition", () => {
   it("includes in-scope variables and parameters inside function body", async () => {
@@ -339,6 +349,39 @@ describe("createCompletionItemsForPosition", () => {
     expect(greet?.additionalTextEdits?.[0]?.newText).toBe(
       "import { greet } from \"my-lib\"\n"
     );
+  });
+
+  it("reuses an existing import from the same module when auto-import completion inserts another symbol", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { readFile } from "fs/promises"
+      fun demo() {
+        return rea^^^
+      }
+    `);
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(
+      ast,
+      line,
+      character,
+      undefined,
+      [],
+      {
+        text: source,
+        uri: "file:///consumer.vx",
+        sourceRoots: [],
+        getExportedSymbols: async () => [
+          { name: "readdir", filePath: "/virtual/@types/node/fs/promises.d.ts", importPath: "fs/promises", kind: "function" },
+        ],
+      }
+    );
+    const readdir = items.find((item) => item.label === "readdir");
+
+    expect(readdir).toBeDefined();
+    expect(readdir?.detail).toBe("Auto import from fs/promises");
+    expect(readdir?.additionalTextEdits?.[0]?.newText).toBe(
+      'import { readFile, readdir } from "fs/promises"'
+    );
+    expect(readdir?.additionalTextEdits?.[0]?.range.start).toEqual({ line: 0, character: 0 });
   });
 
   it("shows all auto-import completion candidates when multiple modules export the same name", async () => {
@@ -983,6 +1026,58 @@ describe("createCompletionItemsForPosition", () => {
     const labels = items.map((item) => item.label);
 
     expect(labels).toContain("createElement");
+  });
+
+  it("offers members for default imports backed by ambient module exports", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      import util from "node:util"
+
+      util.form^^^
+    `);
+    const ambientModuleDeclarations = new Map<string, import("compiler/ast/ast").Statement[]>([
+      ["node:util", parseAmbientModule(
+        `declare module "node:util" {
+          export function format(value: string): string;
+          export function inspect(value: unknown): string;
+        }`,
+        "node:util"
+      )]
+    ]);
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx",
+      ambientModuleDeclarations,
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(
+          recoveredSource,
+          session.externalDeclarations,
+          session.importedSymbolTypes,
+          session.ambientDeclarations,
+          session.ambientModuleDeclarations,
+          session.ambientModuleLocations,
+          session.importedSymbolDisplayTypes,
+          session.invalidImportedBindings,
+          session.ambientDeclarationLocations
+        )
+    });
+
+    expect(items.map((item) => item.label)).toContain("format");
   });
 
   it("resolves go-to-definition for DOM members from ambient declarations with an absolute project root", async () => {

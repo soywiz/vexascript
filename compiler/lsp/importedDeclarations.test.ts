@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import { createAnalysisSession } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
@@ -209,6 +210,67 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     expect(rendered).toContain("{ encoding: null | undefined");
   });
 
+  it("expands ambient global aliases referenced from imported module overloads", async () => {
+    const globalDeclarations = parseSource(
+      `type BufferEncoding = "utf8" | "utf-8"`,
+      { language: "typescript" }
+    ).ast!.body;
+    const fsDecls = parseAmbientModule(
+      `declare module "node:fs" {
+        export type OpenMode = string;
+        export type PathLike = string;
+        export interface ObjectEncodingOptions {
+          encoding?: BufferEncoding | null | undefined;
+        }
+      }`,
+      "node:fs"
+    );
+    const eventsDecls = parseAmbientModule(
+      `declare module "node:events" {
+        export interface Abortable {
+          signal?: AbortSignal;
+        }
+        export interface AbortSignal {}
+      }`,
+      "node:events"
+    );
+    const fsPromisesDecls = parseAmbientModule(
+      `declare module "fs/promises" {
+        import { Abortable } from "node:events";
+        import { ObjectEncodingOptions, OpenMode, PathLike } from "node:fs";
+        export interface FileHandle {}
+        interface FlagAndOpenMode {
+          flag?: OpenMode | undefined;
+        }
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: (ObjectEncodingOptions & FlagAndOpenMode & Abortable) | null,
+        ): Promise<string>;
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: ({ encoding: BufferEncoding, flag?: OpenMode | undefined } & Abortable) | BufferEncoding,
+        ): Promise<string>;
+      }`,
+      "fs/promises"
+    );
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:fs", fsDecls],
+      ["node:events", eventsDecls],
+      ["fs/promises", fsPromisesDecls]
+    ]);
+
+    const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
+    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations: globalDeclarations
+    });
+
+    const rendered = typeToString(importedSymbolTypes.get("readFile")!);
+    expect(rendered).toContain('"utf8" | "utf-8"');
+  });
+
   it("does not recurse forever on ambient interfaces that reference themselves indirectly", async () => {
     const eventsDecls = parseAmbientModule(
       `declare module "node:events" {
@@ -255,5 +317,85 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
 
     expect(importedSymbolTypes.get("readFile")?.kind).toBe("function");
     expect(typeToString(importedSymbolTypes.get("readFile")!)).toContain("Promise<string>");
+  });
+
+  it("resolves default import type from ambient module direct exports as a module-shaped object", async () => {
+    const utilDecls = parseAmbientModule(
+      `declare module "node:util" {
+        export function format(value: string): string;
+        export function inspect(value: unknown): string;
+      }`,
+      "node:util"
+    );
+    const ast = parseSource(`import util from "node:util"`, {}).ast!;
+
+    const { importedSymbolTypes, importedSymbolDisplayTypes } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations: new Map([["node:util", utilDecls]])
+    });
+
+    expect(typeToString(importedSymbolTypes.get("util")!)).toBe("{ format: (value: string) => string, inspect: (value: unknown) => string }");
+    expect(importedSymbolDisplayTypes.get("util")).toBe('typeof import("node:util")');
+  });
+
+  it("reports unknown members on default imports from ambient modules", async () => {
+    const utilDecls = parseAmbientModule(
+      `declare module "node:util" {
+        export function format(value: string): string;
+      }`,
+      "node:util"
+    );
+    const source = `import util from "node:util"\nutil.missing()\n`;
+    const ast = parseSource(source, {}).ast!;
+
+    const imported = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations: new Map([["node:util", utilDecls]])
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      new Map([["node:util", utilDecls]]),
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    expect(session.semanticIssues.map((issue: { message: string }) => issue.message)).toContain(
+      "Property 'missing' does not exist on type '{ format: (value: string) => string }'"
+    );
+  });
+
+  it("resolves default import type from export= namespace ambient modules", async () => {
+    const nodePathDecls = parseAmbientModule(
+      `declare module "node:mypath" { export = mypath; }`,
+      "node:mypath"
+    );
+    const mypathDecls = parseAmbientModule(
+      `declare module "mypath" {
+        namespace mypath {
+          export function join(...paths: string[]): string;
+          export function dirname(path: string): string;
+        }
+        export = mypath;
+      }`,
+      "mypath"
+    );
+    const ast = parseSource(`import path from "node:mypath"`, {}).ast!;
+
+    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations: new Map([
+        ["node:mypath", nodePathDecls],
+        ["mypath", mypathDecls]
+      ])
+    });
+
+    expect(typeToString(importedSymbolTypes.get("path")!)).toBe("{ join: (...paths: string) => string, dirname: (path: string) => string }");
   });
 });

@@ -101,13 +101,20 @@ function addIndent(text: string, indent: string): string {
     .join("\n");
 }
 
+function ensureTrailingNewline(text: string): string {
+  if (text.length === 0 || text.endsWith("\n")) {
+    return text;
+  }
+  return `${text}\n`;
+}
+
 export function createFullDocumentFormatEdit(source: string): LspTextEdit {
   return {
     range: {
       start: { line: 0, character: 0 },
       end: getDocumentEndPosition(source)
     },
-    newText: formatSource(source)
+    newText: ensureTrailingNewline(formatSource(source))
   };
 }
 

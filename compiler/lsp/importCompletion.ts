@@ -8,7 +8,7 @@
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import type { Program } from "compiler/ast/ast";
 import type { Analysis } from "compiler/analysis/Analysis";
-import { buildAutoImportSuggestions, type AutoImportSuggestion } from "./importFixes";
+import { buildAutoImportSuggestions, buildAutoImportTextEdits, type AutoImportSuggestion } from "./importFixes";
 import { CompletionItemKind, type CompletionRequestOptions } from "./completionModel";
 
 export function identifierPrefixAtPosition(
@@ -56,6 +56,7 @@ export async function resolveAutoImportSuggestions(params: {
 }
 
 export function buildAutoImportCompletionItems(
+  ast: Program,
   suggestions: AutoImportSuggestion[],
   seenLabels: Set<string>
 ): CompletionItem[] {
@@ -85,12 +86,7 @@ export function buildAutoImportCompletionItems(
       kind,
       detail: `Auto import from ${suggestion.importPath}`,
       sortText: `8-${suggestion.symbol.name}`,
-      additionalTextEdits: [
-        {
-          range: suggestion.range,
-          newText: `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
-        }
-      ]
+      additionalTextEdits: buildAutoImportTextEdits(ast, suggestion)
     });
   }
   return items;

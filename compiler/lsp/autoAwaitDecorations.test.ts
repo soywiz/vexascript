@@ -119,6 +119,24 @@ describe("auto-await decorations", () => {
     expect(decorations.every((decoration) => decoration.message.length > 0)).toBe(true);
   });
 
+  it("anchors explicit multiline await decorations to the await keyword line only", () => {
+    const source = dedent`
+      async fun readFile(path: string): Promise<string> { return path }
+      async fun demo(): Promise<void> {
+        console.log(await readFile(
+          "hello"
+        ))
+      }
+      `;
+
+    const session = createAnalysisSession(source);
+    const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
+
+    expect(decorations).toHaveLength(1);
+    expect(decorations[0]!.range.start.line).toBe(2);
+    expect(decorations[0]!.range.end.line).toBe(2);
+  });
+
   it("marks implicit awaits of a Promise-returning function imported from another file", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-auto-await-"));
     const depFile = join(root, "dep.vx");

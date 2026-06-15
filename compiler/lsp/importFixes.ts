@@ -12,7 +12,7 @@ import type {
   TypeAliasStatement,
   VarStatement
 } from "compiler/ast/ast";
-import type { CodeAction, Diagnostic, Range } from "vscode-languageserver/node.js";
+import type { CodeAction, Diagnostic, Range, TextEdit } from "vscode-languageserver/node.js";
 import { getProjectIndex, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
 import { dirname, fileURLToPath, pathToFileURL, relative } from "compiler/utils/path";
 import {
@@ -463,47 +463,17 @@ function buildImportCodeAction(params: {
 }): CodeAction | null {
   const { uri, ast, range, symbolName, candidate, currentFilePath } = params;
   const importPath = importPathForSymbolExport(candidate, currentFilePath);
-  const existingImport = findExistingImportFromPath(ast, importPath);
-
-  if (existingImport?.firstToken && existingImport?.lastToken) {
-    const existingNames = existingImport.specifiers.map((s) => s.imported.name);
-    const allNames = [...existingNames, symbolName];
-    const clauses: string[] = [];
-    if (existingImport.defaultImport) clauses.push(existingImport.defaultImport.name);
-    if (existingImport.namespaceImport) clauses.push(`* as ${existingImport.namespaceImport.name}`);
-    if (allNames.length > 0) clauses.push(`{ ${allNames.join(", ")} }`);
-    const start = existingImport.firstToken.range.start;
-    const end = existingImport.lastToken.range.end;
-    return {
-      title: `Import '${symbolName}' from '${importPath}'`,
-      kind: CODE_ACTION_KIND_QUICK_FIX,
-      edit: {
-        changes: {
-          [uri]: [
-            {
-              range: {
-                start: { line: start.line, character: start.column },
-                end: { line: end.line, character: end.column }
-              },
-              newText: `import ${clauses.join(", ")} from "${importPath}"`
-            }
-          ]
-        }
-      }
-    };
-  }
 
   return {
     title: `Import '${symbolName}' from '${importPath}'`,
     kind: CODE_ACTION_KIND_QUICK_FIX,
     edit: {
       changes: {
-        [uri]: [
-          {
-            range,
-            newText: `import { ${symbolName} } from "${importPath}"\n`
-          }
-        ]
+        [uri]: buildAutoImportTextEdits(ast, {
+          symbol: candidate,
+          importPath,
+          range
+        })
       }
     }
   };
@@ -552,6 +522,43 @@ export interface AutoImportSuggestion {
   symbol: SymbolExport;
   importPath: string;
   range: Range;
+}
+
+export function buildAutoImportTextEdits(
+  ast: Program,
+  suggestion: AutoImportSuggestion
+): TextEdit[] {
+  const existingImport = findExistingImportFromPath(ast, suggestion.importPath);
+  if (existingImport?.firstToken && existingImport?.lastToken) {
+    const existingNames = existingImport.specifiers.map((specifier) => specifier.imported.name);
+    const allNames = existingNames.includes(suggestion.symbol.name)
+      ? existingNames
+      : [...existingNames, suggestion.symbol.name];
+    const clauses: string[] = [];
+    if (existingImport.defaultImport) {
+      clauses.push(existingImport.defaultImport.name);
+    }
+    if (existingImport.namespaceImport) {
+      clauses.push(`* as ${existingImport.namespaceImport.name}`);
+    }
+    if (allNames.length > 0) {
+      clauses.push(`{ ${allNames.join(", ")} }`);
+    }
+    const start = existingImport.firstToken.range.start;
+    const end = existingImport.lastToken.range.end;
+    return [{
+      range: {
+        start: { line: start.line, character: start.column },
+        end: { line: end.line, character: end.column }
+      },
+      newText: `import ${clauses.join(", ")} from "${suggestion.importPath}"`
+    }];
+  }
+
+  return [{
+    range: suggestion.range,
+    newText: `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
+  }];
 }
 
 export async function buildExtensionAutoImportSuggestions(params: {

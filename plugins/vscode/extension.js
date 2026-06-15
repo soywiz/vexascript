@@ -4,6 +4,7 @@ const {
   LanguageClient,
   TransportKind
 } = require("vscode-languageclient/node");
+const { shouldRetriggerParameterHints } = require("./parameterHints.js");
 
 /** @type {LanguageClient | undefined} */
 let client;
@@ -135,6 +136,11 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
       const editor = window.activeTextEditor;
       if (editor && event.document === editor.document) {
         scheduleUpdate(editor);
+        if (shouldRetriggerParameterHints(event.contentChanges)) {
+          setTimeout(() => {
+            commands.executeCommand("editor.action.triggerParameterHints");
+          }, 0);
+        }
       }
     })
   );

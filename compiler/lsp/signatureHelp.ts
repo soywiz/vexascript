@@ -5,10 +5,17 @@ import type {
   AnnotationStatement,
   CallExpression,
   Expr,
+  ExportStatement,
+  ExprStatement,
+  FunctionStatement,
   Identifier,
+  MemberExpression,
+  ImportStatement,
   NewExpression,
+  NamespaceStatement,
   Node,
-  Program
+  Program,
+  Statement
 } from "compiler/ast/ast";
 import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
@@ -161,6 +168,37 @@ function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
   return type;
 }
 
+function signatureInfosFromAnalysisType(
+  name: string,
+  type: AnalysisType | undefined,
+  documentation?: string
+): SignatureInformation[] {
+  if (!type) {
+    return [];
+  }
+
+  if (type.kind === "function") {
+    return [signatureInfoFromResolved({
+      name,
+      parameters: type.parameters.map((parameter) => ({
+        name: parameter.name,
+        typeName: typeToString(parameter.type),
+        optional: parameter.optional === true,
+        rest: parameter.rest === true
+      })),
+      returnTypeName: typeToString(type.returnType),
+      ...(documentation ? { documentation } : {})
+    })];
+  }
+
+  if (type.kind === "union") {
+    const signatures = type.types.flatMap((candidate) => signatureInfosFromAnalysisType(name, candidate, documentation));
+    return signatures;
+  }
+
+  return [];
+}
+
 function formatParameterLabel(parameter: {
   name: string;
   typeName: string;
@@ -174,6 +212,139 @@ function signatureInfoFromResolved(resolved: { name: string; parameters: { name:
   const parameters = resolved.parameters.map((p) => ({ label: formatParameterLabel(p) }));
   const label = `${resolved.name}(${parameters.map((p) => p.label).join(", ")}): ${resolved.returnTypeName}`;
   return { label, parameters, ...(resolved.documentation ? { documentation: resolved.documentation } : {}) };
+}
+
+function ambientFunctionSignatureInfo(fn: FunctionStatement): SignatureInformation {
+  const parameters = fn.parameters
+    .filter((parameter) => parameter.thisParameter !== true)
+    .map((parameter) => ({
+      label: formatParameterLabel({
+        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+        typeName: parameter.typeAnnotation?.name ?? "unknown",
+        optional: parameter.optional === true || parameter.defaultValue !== undefined,
+        rest: parameter.rest === true
+      })
+    }));
+  return {
+    label: `${fn.name.name}(${parameters.map((parameter) => parameter.label).join(", ")}): ${fn.returnType?.name ?? "unknown"}`,
+    parameters
+  };
+}
+
+function unwrapAmbientStatement(statement: Statement): Statement {
+  return statement.kind === "ExportStatement"
+    ? (statement as ExportStatement).declaration ?? statement
+    : statement;
+}
+
+function detectAmbientExportEqualsName(statements: readonly Statement[]): string | null {
+  for (const statement of statements) {
+    if (statement.kind !== "ExprStatement") {
+      continue;
+    }
+    const expression = (statement as ExprStatement).expression;
+    if (expression?.kind === "Identifier") {
+      return (expression as Identifier).name;
+    }
+  }
+  return null;
+}
+
+function findAmbientNamespaceBody(
+  statements: readonly Statement[],
+  namespaceName: string
+): Statement[] | null {
+  for (const statement of statements) {
+    const declaration = unwrapAmbientStatement(statement);
+    if (declaration.kind !== "NamespaceStatement") {
+      continue;
+    }
+    const namespace = declaration as NamespaceStatement;
+    if (namespace.names?.[0]?.name === namespaceName) {
+      return namespace.body.body;
+    }
+  }
+  return null;
+}
+
+function collectAmbientFunctionOverloads(
+  statements: readonly Statement[],
+  memberName: string
+): SignatureInformation[] {
+  const signatures: SignatureInformation[] = [];
+  for (const statement of statements) {
+    const declaration = unwrapAmbientStatement(statement);
+    if (declaration.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = declaration as FunctionStatement;
+    if (fn.name.name === memberName) {
+      signatures.push(ambientFunctionSignatureInfo(fn));
+    }
+  }
+  return signatures;
+}
+
+function ambientDefaultImportMemberSignatures(
+  program: Program,
+  callee: MemberExpression,
+  options: ClassResolverOptions
+): SignatureInformation[] {
+  if (callee.object.kind !== "Identifier" || callee.property.kind !== "Identifier") {
+    return [];
+  }
+  const ambientModuleDeclarations = options.ambientModuleDeclarations;
+  if (!ambientModuleDeclarations) {
+    return [];
+  }
+
+  const receiverName = (callee.object as Identifier).name;
+  const memberName = (callee.property as Identifier).name;
+  for (const statement of program.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const defaultImport = importStatement.defaultImport;
+    const namespaceImport = importStatement.namespaceImport;
+    const matchesDefault = defaultImport?.kind === "Identifier" && defaultImport.name === receiverName;
+    const matchesNamespace = namespaceImport?.kind === "Identifier" && namespaceImport.name === receiverName;
+    if (!matchesDefault && !matchesNamespace) {
+      continue;
+    }
+
+    const moduleCandidates = [importStatement.from.value];
+    if (importStatement.from.value.startsWith("node:")) {
+      moduleCandidates.push(importStatement.from.value.slice("node:".length));
+    }
+
+    for (const moduleName of moduleCandidates) {
+      const declarations = ambientModuleDeclarations.get(moduleName);
+      if (!declarations || declarations.length === 0) {
+        continue;
+      }
+
+      const directSignatures = collectAmbientFunctionOverloads(declarations, memberName);
+      if (directSignatures.length > 0) {
+        return directSignatures;
+      }
+
+      const exportEqualsName = detectAmbientExportEqualsName(declarations);
+      if (!exportEqualsName) {
+        continue;
+      }
+      const namespaceBody = findAmbientNamespaceBody(declarations, exportEqualsName);
+      if (!namespaceBody) {
+        continue;
+      }
+      const namespaceSignatures = collectAmbientFunctionOverloads(namespaceBody, memberName);
+      if (namespaceSignatures.length > 0) {
+        return namespaceSignatures;
+      }
+    }
+  }
+
+  return [];
 }
 
 function bestActiveSignature(signatures: SignatureInformation[], activeParameter: number, argumentCount: number): number {
@@ -260,6 +431,17 @@ async function buildSignaturesFromSymbol(
     return callables.map(signatureInfoFromResolved);
   }
 
+  if (context.callee.kind === "MemberExpression") {
+    const ambientSignatures = ambientDefaultImportMemberSignatures(
+      program,
+      context.callee as MemberExpression,
+      options
+    );
+    if (ambientSignatures.length > 0) {
+      return ambientSignatures;
+    }
+  }
+
   const symbolMatch = symbolAtNode(analysis, context.callee);
   if (!symbolMatch) {
     return [];
@@ -280,17 +462,19 @@ async function buildSignaturesFromSymbol(
 
   const functionType = toFunctionType(symbolMatch.symbol.type);
   if (functionType) {
-    return [signatureInfoFromResolved({
-      name: symbolMatch.symbol.name,
-      parameters: functionType.parameters.map((p) => ({
-        name: p.name,
-        typeName: typeToString(p.type),
-        optional: p.optional === true,
-        rest: p.rest === true
-      })),
-      returnTypeName: typeToString(functionType.returnType),
-      ...(documentation ? { documentation } : {})
-    })];
+    return signatureInfosFromAnalysisType(symbolMatch.symbol.name, functionType, documentation);
+  }
+
+  if (context.callee.kind === "MemberExpression") {
+    const member = context.callee as MemberExpression;
+    if (!member.computed && member.property.kind === "Identifier") {
+      const memberName = (member.property as Identifier).name;
+      const memberType = analysis.getExpressionTypes().get(context.callee);
+      const signatures = signatureInfosFromAnalysisType(memberName, memberType);
+      if (signatures.length > 0) {
+        return signatures;
+      }
+    }
   }
 
   if (context.isNewExpression) {

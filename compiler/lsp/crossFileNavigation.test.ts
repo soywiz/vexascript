@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
@@ -17,6 +18,7 @@ import {
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
+import { pathToUri } from "./importFixes";
 import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
 import { getVexaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
 import { Vfs } from "compiler/vfs";
@@ -1652,6 +1654,204 @@ describe("cross-file navigation", () => {
     expect(location?.range.start.line).toBe(fetchLine);
   });
 
+  it("resolves ambient global console symbol and members to their declaring .d.ts locations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-console-"));
+    const nodeTypesDir = join(root, "node_modules", "@types", "node");
+    const mainPath = join(root, "main.vx");
+    const dtsPath = join(nodeTypesDir, "index.d.ts");
+    const source = 'console.log("hello")\n';
+    const dtsSource = dedent`
+      interface Console {
+        log(...data: any[]): void;
+      }
+
+      declare var console: Console;
+    `;
+
+    await mkdir(nodeTypesDir, { recursive: true });
+    await writeFile(
+      join(nodeTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(dtsPath, dtsSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+    const session = createAnalysisSession(
+      source,
+      [],
+      new Map(),
+      ambient.globalDeclarations,
+      ambient.moduleDeclarations,
+      ambient.moduleDeclarationLocations,
+      new Map(),
+      new Set(),
+      ambient.globalDeclarationLocations
+    );
+
+    const consoleLocation = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: source.indexOf("console") + 2,
+      session,
+      sourceRoots: [root]
+    });
+    const logLocation = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: source.indexOf("log") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(consoleLocation?.uri).toBe(pathToUri(dtsPath));
+    expect(consoleLocation?.range.start.line).toBe(4);
+    expect(logLocation?.uri).toBe(pathToUri(dtsPath));
+    expect(logLocation?.range.start.line).toBe(1);
+  });
+
+  it("navigates default-imported ambient module members to their declaration", async () => {
+    const source = dedent`
+      import util from "node:util"
+      util.format("value")
+    `;
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:util", parseAmbientModule(`declare module "node:util" {
+        export function format(value: string): string;
+        export function inspect(value: unknown): string;
+      }`, "node:util")]
+    ]);
+    const ambientModuleLocations = new Map([
+      ["node:util", { filePath: "/virtual/@types/node/util.d.ts", line: 0, character: 0 }]
+    ]);
+    const baseSession = createAnalysisSession(
+      source,
+      [],
+      new Map(),
+      [],
+      ambientModuleDeclarations,
+      ambientModuleLocations
+    );
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      ambientModuleLocations,
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: "file:///virtual/main.vx",
+      line: 1,
+      character: source.split("\n")[1]!.indexOf("format") + 2,
+      session,
+      sourceRoots: []
+    });
+
+    expect(location?.uri).toBe("file:///virtual/%40types/node/util.d.ts");
+    expect(location?.range.start.line).toBe(1);
+  });
+
+  it("prefers the receiver's ambient declaration file when duplicate global interface names exist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-console-pref-"));
+    const nodeTypesDir = join(root, "node_modules", "@types", "node");
+    const mainPath = join(root, "main.vx");
+    const consoleDtsPath = join(nodeTypesDir, "console.d.ts");
+    const globalsDtsPath = join(nodeTypesDir, "globals.d.ts");
+    const indexDtsPath = join(nodeTypesDir, "index.d.ts");
+    const source = 'console.log("hello")\n';
+    const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
+    const domDeclarations = (await ensureDomProgram()).body;
+    const domDeclarationLocations = new Map(
+      domDeclarations.map((statement) => [
+        statement,
+        {
+          filePath: getDomDeclarationFilePath(),
+          line: statement.firstToken?.range.start.line ?? 0,
+          character: statement.firstToken?.range.start.column ?? 0
+        }
+      ])
+    );
+
+    await mkdir(nodeTypesDir, { recursive: true });
+    await writeFile(
+      join(nodeTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      consoleDtsPath,
+      dedent`
+        interface Console {
+          log(...data: any[]): void;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      globalsDtsPath,
+      dedent`
+        declare var console: Console;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      indexDtsPath,
+      dedent`
+        /// <reference path="./console.d.ts" />
+        /// <reference path="./globals.d.ts" />
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+    const session = createAnalysisSession(
+      source,
+      [],
+      new Map(),
+      [...domDeclarations, ...ambient.globalDeclarations],
+      ambient.moduleDeclarations,
+      ambient.moduleDeclarationLocations,
+      new Map(),
+      new Set(),
+      new Map([
+        ...domDeclarationLocations,
+        ...ambient.globalDeclarationLocations
+      ])
+    );
+
+    const consoleLocation = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: source.indexOf("console") + 2,
+      session,
+      sourceRoots: [root]
+    });
+    const logLocation = await resolveDefinitionAcrossFiles({
+      uri: pathToFileURL(mainPath).toString(),
+      line: 0,
+      character: source.indexOf("log") + 2,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(consoleLocation?.uri).toBe(pathToUri(globalsDtsPath));
+    expect(logLocation?.uri).toBe(pathToUri(consoleDtsPath));
+    expect(logLocation?.range.start.line).toBe(1);
+    expect(logLocation?.uri).not.toBe(pathToUri(getDomDeclarationFilePath()));
+    expect(domSource.length).toBeGreaterThan(0);
+  });
+
   it("resolves top-level DOM constructor-like globals to the exact virtual runtime lines", async () => {
     const mainPath = "/src/main.vx";
     const virtualDomPath = "/runtime/dom.d.ts";
@@ -1912,6 +2112,96 @@ describe("cross-file navigation", () => {
       expect(hover?.contents).toContain("readFile");
       expect(hover?.contents).toContain("PathLike | FileHandle");
       expect(hover?.contents).not.toContain("string | Buffer | URL | object");
+    });
+
+    it("navigates ambient imported calls to the matched overload declaration", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-ambient-overload-definition-"));
+      const nodeTypesDir = join(root, "node_modules", "@types", "node");
+      const mainPath = join(root, "main.vx");
+      const { source, line, character } = sourceWithCursor(dedent`
+        import { readFile } from "fs/promises"
+        const file = "hello.txt"
+        await readFi^^^le(file, "utf-8")
+      `);
+      const nodeTypesSource = dedent`
+        declare module "node:events" {
+          export interface AbortSignal {
+            parent?: AbortSignal;
+          }
+          export interface Abortable {
+            signal?: AbortSignal;
+          }
+        }
+
+        declare module "node:fs" {
+          export class Buffer {}
+          export class URL {}
+          export type PathLike = string | Buffer | URL;
+          export type OpenMode = string | number;
+        }
+
+        declare module "fs/promises" {
+          import { Abortable } from "node:events";
+          import { OpenMode, PathLike } from "node:fs";
+
+          export interface FileHandle {}
+          export function readFile(
+            path: PathLike | FileHandle,
+            options: ({ encoding?: null | undefined, flag?: OpenMode | undefined } & Abortable) | null,
+          ): Promise<Buffer>;
+          export function readFile(
+            path: PathLike | FileHandle,
+            options: ({ encoding: string, flag?: OpenMode | undefined } & Abortable) | string,
+          ): Promise<string>;
+        }
+
+        declare module "node:fs/promises" {
+          export * from "fs/promises";
+        }
+      `;
+
+      await mkdir(nodeTypesDir, { recursive: true });
+      await writeFile(
+        join(nodeTypesDir, "package.json"),
+        JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+        "utf8"
+      );
+      await writeFile(join(nodeTypesDir, "index.d.ts"), nodeTypesSource, "utf8");
+      await writeFile(mainPath, source, "utf8");
+
+      const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+      const baseSession = createAnalysisSession(source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        ambientModuleDeclarations: ambient.moduleDeclarations
+      });
+      const session = createAnalysisSession(
+        source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        ambient.globalDeclarations,
+        ambient.moduleDeclarations,
+        ambient.moduleDeclarationLocations,
+        collected.importedSymbolDisplayTypes
+      );
+
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line,
+        character,
+        session,
+        sourceRoots: [root]
+      });
+
+      const overloadLines = nodeTypesSource
+        .split("\n")
+        .flatMap((text, index) => text.includes("export function readFile(") ? [index] : []);
+
+      expect(overloadLines.length).toBe(2);
+      expect(location).not.toBeNull();
+      expect(location?.uri?.endsWith("/node/index.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBe(overloadLines[1]);
     });
 
     it("navigates imported symbol to source declaration, not import line", async () => {

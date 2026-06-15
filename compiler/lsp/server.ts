@@ -17,7 +17,7 @@ import { TextDocument as LspTextDocument } from "vscode-languageserver-textdocum
 import { AnalysisSessionCache } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
-import { ensureDomProgram } from "compiler/runtime/domDeclarations";
+import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { loadProject } from "compiler/project";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
@@ -75,20 +75,37 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
   const domDeclarations = (project?.libs ?? []).some((lib) => lib.toLowerCase() === "dom")
     ? (await ensureDomProgram()).body
     : [];
+  const domDeclarationLocations = domDeclarations.length === 0
+    ? new Map()
+    : new Map(domDeclarations.map((statement) => [
+      statement,
+      {
+        filePath: getDomDeclarationFilePath(),
+        line: statement.firstToken?.range.start.line ?? 0,
+        character: statement.firstToken?.range.start.column ?? 0
+      }
+    ]));
 
   const context = {
     uri: document.uri,
     sourceRoots,
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
-    ambientModuleDeclarations: ambientTypes.moduleDeclarations
+    ambientModuleDeclarations: ambientTypes.moduleDeclarations,
+    ambientGlobalDeclarations: ambientTypes.globalDeclarations
   };
-  const { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes } = await collectAllImportedDeclarations(baseSession.ast, context);
+  const { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes, invalidImportedBindings } =
+    await collectAllImportedDeclarations(baseSession.ast, context);
 
   return {
     externalDeclarations,
     importedSymbolTypes,
     importedSymbolDisplayTypes,
+    invalidImportedBindings,
     ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
+    ambientDeclarationLocations: new Map([
+      ...domDeclarationLocations,
+      ...ambientTypes.globalDeclarationLocations
+    ]),
     ambientModuleDeclarations: ambientTypes.moduleDeclarations,
     ambientModuleLocations: ambientTypes.moduleDeclarationLocations
   };

@@ -17,7 +17,9 @@ export interface AnalysisSession {
   externalDeclarations: Statement[];
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
   importedSymbolDisplayTypes: ReadonlyMap<string, string>;
+  invalidImportedBindings: ReadonlySet<string>;
   ambientDeclarations: Statement[];
+  ambientDeclarationLocations: ReadonlyMap<Statement, AmbientModuleLocation>;
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>;
   ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation>;
 }
@@ -29,13 +31,16 @@ export function createAnalysisSession(
   ambientDeclarations: Statement[] = [],
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]> = new Map(),
   ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation> = new Map(),
-  importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map()
+  importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map(),
+  invalidImportedBindings: ReadonlySet<string> = new Set(),
+  ambientDeclarationLocations: ReadonlyMap<Statement, AmbientModuleLocation> = new Map()
 ): AnalysisSession {
   const artifacts = compileSource(source, {}, {
     externalDeclarations,
     importedSymbolTypes,
     importedSymbolDisplayTypes,
-    ambientDeclarations
+    ambientDeclarations,
+    invalidImportedBindings
   });
   return {
     ast: artifacts.ast,
@@ -47,7 +52,9 @@ export function createAnalysisSession(
     externalDeclarations: [...externalDeclarations],
     importedSymbolTypes,
     importedSymbolDisplayTypes,
+    invalidImportedBindings,
     ambientDeclarations: [...ambientDeclarations],
+    ambientDeclarationLocations,
     ambientModuleDeclarations,
     ambientModuleLocations
   };
@@ -67,7 +74,9 @@ export interface ResolvedExternals {
   externalDeclarations: Statement[];
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
   importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
+  invalidImportedBindings?: ReadonlySet<string>;
   ambientDeclarations?: Statement[];
+  ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
   ambientModuleLocations?: ReadonlyMap<string, AmbientModuleLocation>;
 }
@@ -86,13 +95,17 @@ function buildSessionFromResolved(
   const importedSymbolTypes = resolved.importedSymbolTypes ?? new Map();
   const importedSymbolDisplayTypes = resolved.importedSymbolDisplayTypes ?? new Map();
   const ambientDeclarations = resolved.ambientDeclarations ?? [];
+  const ambientDeclarationLocations = resolved.ambientDeclarationLocations ?? new Map();
   const ambientModuleDeclarations = resolved.ambientModuleDeclarations ?? new Map();
   const ambientModuleLocations = resolved.ambientModuleLocations ?? new Map();
+  const invalidImportedBindings = resolved.invalidImportedBindings ?? new Set();
   if (
     externalDeclarations.length === 0 &&
     importedSymbolTypes.size === 0 &&
     importedSymbolDisplayTypes.size === 0 &&
+    invalidImportedBindings.size === 0 &&
     ambientDeclarations.length === 0 &&
+    ambientDeclarationLocations.size === 0 &&
     ambientModuleDeclarations.size === 0
   ) {
     return baseSession;
@@ -104,7 +117,9 @@ function buildSessionFromResolved(
     ambientDeclarations,
     ambientModuleDeclarations,
     ambientModuleLocations,
-    importedSymbolDisplayTypes
+    importedSymbolDisplayTypes,
+    invalidImportedBindings,
+    ambientDeclarationLocations
   );
 }
 

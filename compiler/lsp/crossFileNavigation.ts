@@ -16,6 +16,7 @@ import type {
   Identifier,
   ImportStatement,
   InterfaceStatement,
+  MemberExpression,
   NamespaceStatement,
   Program,
   Statement,
@@ -42,6 +43,7 @@ import {
 import { findNodeModuleMemberLocation } from "./nodeModulesTypings";
 import { resolve } from "compiler/utils/path";
 import {
+  ambientDeclarationLocationForSymbol,
   declarationRangeForName,
   effectiveSourceRoots,
   findImportForSymbolNode,
@@ -74,6 +76,7 @@ import {
   type ClassMemberInfo
 } from "./crossFileTypeResolution";
 import { createDefinitionLocation } from "./navigation";
+import { buildFunctionTypeFromStatement } from "./importedDeclarations";
 
 function findAmbientModuleDeclarationByName(
   declarations: readonly Statement[],
@@ -198,6 +201,62 @@ function findAmbientImportedDeclarationRange(
   return null;
 }
 
+function collectAmbientFunctionDeclarationsByName(
+  declarations: readonly Statement[],
+  importedName: string
+): FunctionStatement[] {
+  const matches: FunctionStatement[] = [];
+  for (const statement of declarations) {
+    const candidate =
+      statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration ?? statement
+        : statement;
+    if (candidate.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = candidate as FunctionStatement;
+    if (fn.name.name === importedName) {
+      matches.push(fn);
+    }
+  }
+  return matches;
+}
+
+function findAmbientImportedOverloadRange(
+  context: ResolveContext,
+  declarations: readonly Statement[],
+  importedName: string
+) {
+  const selectedResolution = context.session.analysis?.getSelectedCallResolutionAt(context.line, context.character);
+  if (!selectedResolution) {
+    return null;
+  }
+  const overloadDeclarations = collectAmbientFunctionDeclarationsByName(declarations, importedName);
+  const indexedDeclaration = overloadDeclarations[selectedResolution.overloadIndex];
+  if (indexedDeclaration) {
+    return nodeRange(indexedDeclaration.name);
+  }
+  const selectedSignature = typeToString(selectedResolution.overload);
+  for (const declaration of overloadDeclarations) {
+    const declarationType = buildFunctionTypeFromStatement(declaration);
+    if (declarationType.kind !== "function") {
+      continue;
+    }
+    if (typeToString(declarationType) === selectedSignature) {
+      return nodeRange(declaration.name);
+    }
+  }
+  return null;
+}
+
+function resolveAmbientReceiverDeclarationFilePath(
+  context: ResolveContext,
+  symbolNode: unknown,
+  symbolName: string
+): string | null {
+  return ambientDeclarationLocationForSymbol(context.session, symbolNode, symbolName)?.filePath ?? null;
+}
+
 async function resolveAmbientImportedSymbolDefinition(
   context: ResolveContext
 ): Promise<Location | null> {
@@ -229,6 +288,14 @@ async function resolveAmbientImportedSymbolDefinition(
       continue;
     }
 
+    const overloadRange = findAmbientImportedOverloadRange(context, declarations, importBinding.name);
+    if (overloadRange) {
+      return {
+        uri: pathToUri(location.filePath),
+        range: overloadRange
+      };
+    }
+
     const range = findAmbientImportedDeclarationRange(declarations, importBinding.name);
     if (!range) {
       continue;
@@ -238,6 +305,70 @@ async function resolveAmbientImportedSymbolDefinition(
       uri: pathToUri(location.filePath),
       range
     };
+  }
+
+  return null;
+}
+
+async function resolveAmbientModuleObjectMemberDefinition(
+  context: ResolveContext,
+  memberExpression: MemberExpression,
+  memberName: string
+): Promise<Location | null> {
+  if (memberExpression.object.kind !== "Identifier" || !context.session.ast) {
+    return null;
+  }
+
+  const receiverName = (memberExpression.object as Identifier).name;
+  for (const statement of context.session.ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const defaultImport = importStatement.defaultImport as Identifier | undefined;
+    const namespaceImport = importStatement.namespaceImport as Identifier | undefined;
+    const defaultImportMatches =
+      defaultImport?.kind === "Identifier"
+      && defaultImport.name === receiverName;
+    const namespaceImportMatches =
+      namespaceImport?.kind === "Identifier"
+      && namespaceImport.name === receiverName;
+    const bindsModuleObject =
+      defaultImportMatches || namespaceImportMatches;
+    if (!bindsModuleObject) {
+      continue;
+    }
+
+    const moduleCandidates = [importStatement.from.value];
+    if (importStatement.from.value.startsWith("node:")) {
+      moduleCandidates.push(importStatement.from.value.slice("node:".length));
+    }
+
+    for (const moduleName of moduleCandidates) {
+      const declarations = context.session.ambientModuleDeclarations?.get(moduleName);
+      const location = context.session.ambientModuleLocations?.get(moduleName);
+      if (!declarations || !location) {
+        continue;
+      }
+
+      const overloadRange = findAmbientImportedOverloadRange(context, declarations, memberName);
+      if (overloadRange) {
+        return {
+          uri: pathToUri(location.filePath),
+          range: overloadRange
+        };
+      }
+
+      const range = findAmbientImportedDeclarationRange(declarations, memberName);
+      if (!range) {
+        continue;
+      }
+
+      return {
+        uri: pathToUri(location.filePath),
+        range
+      };
+    }
   }
 
   return null;
@@ -262,8 +393,26 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   }
 
   const memberName = (memberExpression.property as Identifier).name;
+  const ambientModuleObjectDefinition = await resolveAmbientModuleObjectMemberDefinition(
+    context,
+    memberExpression,
+    memberName
+  );
+  if (ambientModuleObjectDefinition) {
+    return ambientModuleObjectDefinition;
+  }
   const objectTypeLabel = typeToString(objectType);
   const structuralMember = parseObjectTypeMemberInfo(objectTypeLabel, memberName);
+  const receiverSymbol =
+    memberExpression.object.kind === "Identifier"
+      ? context.session.analysis.getSymbolAt(
+        memberExpression.object.firstToken?.range.start.line ?? context.line,
+        memberExpression.object.firstToken?.range.start.column ?? context.character
+      )
+      : null;
+  const preferredAmbientReceiverFilePath = receiverSymbol
+    ? resolveAmbientReceiverDeclarationFilePath(context, receiverSymbol.symbol.node, receiverSymbol.symbol.name)
+    : null;
 
   // Candidate receiver type names to match against, mirroring the type checker's
   // extension lookup (e.g. an `int` literal also matches extensions on `number`).
@@ -282,7 +431,11 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     const resolvedReceiverTypeName = objectType.kind === "array"
       ? receiverTypeNames[0]!
       : boxedPrimitiveTypeName(receiverTypeNames[0]!);
-    const classResolution = await resolveTypeDefinitionAcrossFiles(context, resolvedReceiverTypeName);
+    const classResolution = await resolveTypeDefinitionAcrossFiles(
+      context,
+      resolvedReceiverTypeName,
+      preferredAmbientReceiverFilePath ?? undefined
+    );
     if (classResolution) {
       const resolverContext = {
         ast: context.session.ast,

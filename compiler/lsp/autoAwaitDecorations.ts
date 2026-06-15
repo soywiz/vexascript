@@ -9,8 +9,9 @@ import type { Range } from "vscode-languageserver/node.js";
  * expression is auto-awaited inside a `sync` function body (similar to the suspend-call gutter icons
  * in Kotlin IDEs).
  *
- * One decoration is produced per affected line: `range` spans the awaited expression (useful for
- * hover), while editors typically render the gutter icon on `range.start.line`.
+ * One decoration is produced per affected line. The range is anchored to the token that should own
+ * the gutter marker (`await` itself for explicit awaits, or the most relevant call/member token for
+ * implicit awaits) so multi-line awaited expressions do not paint the gutter on every wrapped line.
  */
 export interface AutoAwaitDecoration {
   range: {
@@ -37,8 +38,8 @@ function nodeRange(node: Node): AutoAwaitDecoration["range"] | null {
       character: anchorToken.range.start.column
     },
     end: {
-      line: node.lastToken.range.end.line,
-      character: node.lastToken.range.end.column
+      line: anchorToken.range.end.line,
+      character: anchorToken.range.end.column
     }
   };
 }

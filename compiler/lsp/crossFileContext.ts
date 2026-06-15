@@ -29,6 +29,7 @@ export interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
   ambientDeclarations?: Statement[];
+  ambientDeclarationLocations?: ReadonlyMap<Statement, { filePath: string; line: number; character: number }>;
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
   ambientModuleLocations?: ReadonlyMap<string, { filePath: string; line: number; character: number }>;
 }
@@ -148,6 +149,34 @@ export function declarationRangeForName(statement: Statement, name: string) {
     return nodeRange((statement as FunctionStatement).name);
   }
   return nodeRange(statement);
+}
+
+export function ambientDeclarationLocationForSymbol(
+  session: SessionLike,
+  symbolNode: unknown,
+  symbolName: string
+): CanonicalSymbol | null {
+  const ambientDeclarations = session.ambientDeclarations ?? [];
+  const ambientDeclarationLocations = session.ambientDeclarationLocations;
+  if (!ambientDeclarationLocations) {
+    return null;
+  }
+  for (const declaration of ambientDeclarations) {
+    if (!declarationDeclaresNode(declaration, symbolNode)) {
+      continue;
+    }
+    const location = ambientDeclarationLocations.get(declaration);
+    const range = declarationRangeForName(declaration, symbolName);
+    if (!location || !range) {
+      continue;
+    }
+    return {
+      name: symbolName,
+      filePath: location.filePath,
+      range
+    };
+  }
+  return null;
 }
 
 export async function getSessionForFilePath(filePath: string, context: ResolveContext): Promise<SessionLike | null> {
@@ -366,6 +395,17 @@ export async function resolveCanonicalSymbol(context: ResolveContext): Promise<C
           name: symbolAt.symbol.name,
           filePath,
           range: await runtimeDeclarationRangeForName(context, filePath, symbolAt.symbol.name) ?? definition.range
+        };
+      }
+      const ambientLocation = ambientDeclarationLocationForSymbol(
+        context.session,
+        symbolAt.symbol.node,
+        symbolAt.symbol.name
+      );
+      if (ambientLocation) {
+        return {
+          ...ambientLocation,
+          filePath: await preferVirtualRuntimeDeclarationFilePath(ambientLocation.filePath, context)
         };
       }
     // Symbols resolved through external (imported) declarations - e.g. a

@@ -10,6 +10,17 @@ import { createAnalysisSession } from "./analysisSession";
 import { createSignatureHelp } from "./signatureHelp";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 import { collectAllImportedDeclarations, collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
+import { parseSource } from "compiler/pipeline/parse";
+import type { Statement } from "compiler/ast/ast";
+
+function parseAmbientModule(src: string, moduleName: string): Statement[] {
+  const result = parseSource(src, { language: "typescript" });
+  const ns = result.ast?.body?.find(
+    (statement) => statement.kind === "NamespaceStatement"
+      && (statement as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
+  ) as { body?: { body?: Statement[] } } | undefined;
+  return ns?.body?.body ?? [];
+}
 
 describe("signature help", () => {
   it("provides function signature and active parameter index", async () => {
@@ -510,5 +521,91 @@ describe("signature help", () => {
     expect(help).not.toBeNull();
     expect(help!.signatures[0]!.label).toContain("PathLike | FileHandle");
     expect(help!.signatures[0]!.label).not.toContain("string | Buffer | URL | object");
+  });
+
+  it("provides signature help for default-imported ambient module members", async () => {
+    const source = 'import util from "node:util"\nutil.format("value")\n';
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:util", parseAmbientModule(
+        `declare module "node:util" {
+          export function format(value: string, inspectOptions?: { colors?: boolean }): string;
+        }`,
+        "node:util"
+      )]
+    ]);
+
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 12, {
+      ambientModuleDeclarations
+    });
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "format(value: string, inspectOptions?: { colors?: boolean }): string",
+          parameters: [
+            { label: "value: string" },
+            { label: "inspectOptions?: { colors?: boolean }" }
+          ]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
+  it("does not expand ambient named types in default-import member signatures", async () => {
+    const source = 'import util from "node:util"\nutil.formatWithOptions({}, "x")\n';
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:util", parseAmbientModule(
+        `declare module "node:util" {
+          export interface InspectOptions {
+            colors?: boolean;
+            depth?: number | null;
+          }
+          export function formatWithOptions(inspectOptions: InspectOptions, format?: any, ...param: any[]): string;
+        }`,
+        "node:util"
+      )]
+    ]);
+
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 24, {
+      ambientModuleDeclarations
+    });
+    expect(help).not.toBeNull();
+    expect(help!.signatures[0]!.label).toBe("formatWithOptions(inspectOptions: InspectOptions, format?: any, ...param: any[]): string");
+    expect(help!.signatures[0]!.label).not.toContain("{ colors");
   });
 });

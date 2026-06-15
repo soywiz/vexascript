@@ -6,7 +6,12 @@
  * crossFileNavigation.ts.
  */
 import { classPropertyParameters } from "./classResolver";
-import { effectiveSourceRoots, preferVirtualRuntimeDeclarationFilePath, readTextDocument } from "./crossFileContext";
+import {
+  ambientDeclarationLocationForSymbol,
+  effectiveSourceRoots,
+  preferVirtualRuntimeDeclarationFilePath,
+  readTextDocument
+} from "./crossFileContext";
 import type { ResolveContext } from "./crossFileContext";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { uriToFilePath } from "./importFixes";
@@ -18,6 +23,7 @@ import { bindingNameText } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import { getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
+import { dirname } from "compiler/utils/path";
 
 
 export interface CanonicalMemberSymbol {
@@ -352,7 +358,8 @@ export function parseObjectTypeMemberInfo(
 
 export async function resolveTypeDefinitionAcrossFiles(
   context: ResolveContext,
-  typeName: string
+  typeName: string,
+  preferredAmbientFilePath?: string
 ): Promise<{ declaration: TypeLikeDeclaration; filePath: string } | null> {
   const currentFilePath = uriToFilePath(context.uri);
   if (!currentFilePath || !context.session.ast) {
@@ -374,13 +381,26 @@ export async function resolveTypeDefinitionAcrossFiles(
   });
 
   if (!resolved) {
-    const ambientDeclaration = findAmbientTypeDeclaration(context.session.ambientDeclarations ?? [], typeName);
+    const ambientDeclaration = findAmbientTypeDeclaration(
+      context.session.ambientDeclarations ?? [],
+      typeName,
+      context.session.ambientDeclarationLocations,
+      preferredAmbientFilePath
+    );
     if (!ambientDeclaration) {
       return null;
     }
+    const ambientLocation = ambientDeclarationLocationForSymbol(
+      context.session,
+      ambientDeclaration.name,
+      typeName
+    );
     return {
       declaration: ambientDeclaration,
-      filePath: await preferVirtualRuntimeDeclarationFilePath(getDomDeclarationFilePath(), context)
+      filePath: await preferVirtualRuntimeDeclarationFilePath(
+        ambientLocation?.filePath ?? getDomDeclarationFilePath(),
+        context
+      )
     };
   }
 
@@ -395,18 +415,59 @@ export async function resolveTypeDefinitionAcrossFiles(
 
 export function findAmbientTypeDeclaration(
   declarations: Statement[],
-  typeName: string
+  typeName: string,
+  declarationLocations?: ReadonlyMap<Statement, { filePath: string }>,
+  preferredFilePath?: string
 ): TypeLikeDeclaration | null {
+  let fallbackMatch: TypeLikeDeclaration | null = null;
+  let bestPreferredMatch: { declaration: TypeLikeDeclaration; score: number } | null = null;
   for (const statement of declarations) {
     const unwrapped = unwrapExportedDeclaration(statement) ?? statement;
     if (unwrapped.kind === "ClassStatement" || unwrapped.kind === "InterfaceStatement") {
       const declaration = unwrapped as TypeLikeDeclaration;
       if (declaration.name.name === typeName) {
-        return declaration;
+        if (preferredFilePath) {
+          const location = declarationLocations?.get(statement) ?? declarationLocations?.get(unwrapped);
+          const score = location?.filePath
+            ? preferredAmbientDeclarationScore(location.filePath, preferredFilePath)
+            : Number.POSITIVE_INFINITY;
+          if (!bestPreferredMatch || score < bestPreferredMatch.score) {
+            bestPreferredMatch = { declaration, score };
+          }
+        }
+        fallbackMatch ??= declaration;
       }
     }
   }
-  return null;
+  if (bestPreferredMatch && bestPreferredMatch.score !== Number.POSITIVE_INFINITY) {
+    return bestPreferredMatch.declaration;
+  }
+  return fallbackMatch;
+}
+
+function preferredAmbientDeclarationScore(candidateFilePath: string, preferredFilePath: string): number {
+  if (candidateFilePath === preferredFilePath) {
+    return 0;
+  }
+  if (dirname(candidateFilePath) === dirname(preferredFilePath)) {
+    return 1;
+  }
+  const candidatePackageRoot = ambientPackageRoot(candidateFilePath);
+  const preferredPackageRoot = ambientPackageRoot(preferredFilePath);
+  if (candidatePackageRoot && preferredPackageRoot && candidatePackageRoot === preferredPackageRoot) {
+    return 2;
+  }
+  return 3;
+}
+
+function ambientPackageRoot(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, "/");
+  const atTypesMatch = normalized.match(/^(.*\/node_modules\/@types\/[^/]+)/);
+  if (atTypesMatch?.[1]) {
+    return atTypesMatch[1];
+  }
+  const packageMatch = normalized.match(/^(.*\/node_modules\/[^/]+)/);
+  return packageMatch?.[1] ?? null;
 }
 
 export async function resolveTypeAliasDefinitionAcrossFiles(

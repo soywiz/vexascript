@@ -69,6 +69,7 @@ export type ClassResolverSessionLike = ProjectSessionLike;
 
 export interface ClassResolverOptions extends ProjectContext {
   uri?: string;
+  ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
 }
 
 export interface ResolvedClassStatement {

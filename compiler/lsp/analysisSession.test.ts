@@ -11,6 +11,7 @@ import {
   buildAnalysisForSource,
   createAnalysisSession
 } from "./analysisSession";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 
 describe("lsp analysis session", () => {
   it("builds analysis even when parser recovered from syntax errors", () => {
@@ -96,6 +97,70 @@ describe("lsp analysis session", () => {
     const messages = session.semanticIssues.map((issue) => issue.message);
 
     expect(messages).toEqual([]);
+  });
+
+  it("contextually types object literal arguments against unioned object overload branches", () => {
+    const source = dedent`
+      interface Abortable {
+        signal?: string
+      }
+
+      fun readFile(options: ({ encoding: "utf-8" | "utf8" } & Abortable) | "utf-8" | "utf8") {}
+
+      readFile({ encoding: "utf-8" })
+    `;
+
+    const session = createAnalysisSession(source);
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("keeps imported overload helpers available when imported function signatures reference local types", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-imported-overloads-"));
+    const libPath = join(root, "lib.vx");
+    const mainPath = join(root, "main.vx");
+
+    await writeFile(
+      libPath,
+      dedent`
+        interface Abortable {
+          signal?: string
+        }
+
+        export fun readFile(
+          path: string,
+          options: ({ encoding?: null | undefined, flag?: number | string | undefined } & Abortable) | null
+        ): string {
+          return ""
+        }
+
+        export fun readFile(
+          path: string,
+          options: ({ encoding: "utf8" | "utf-8", flag?: number | string | undefined } & Abortable) | "utf8" | "utf-8"
+        ): string {
+          return ""
+        }
+      `,
+      "utf8"
+    );
+
+    const source = dedent`
+      import { readFile } from "./lib"
+
+      await readFile("hello", { encoding: "utf-8" })
+    `;
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: `file://${mainPath}`,
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes
+    );
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
   it("includes DOM ambient declarations from tsconfig lib entries", async () => {

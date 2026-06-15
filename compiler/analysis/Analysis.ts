@@ -1,4 +1,4 @@
-import type { BinaryExpression, Node, Program, Statement } from "compiler/ast/ast";
+import type { BinaryExpression, Identifier, ImportStatement, Node, Program, Statement } from "compiler/ast/ast";
 import { Binder } from "./Binder";
 import type {
   AnalysisIssue,
@@ -6,6 +6,7 @@ import type {
   IdentifierResolution,
   JsxAttributeResolution,
   OperatorResolution,
+  SelectedCallResolution,
   Scope
 } from "./model";
 import { TypeChecker } from "./TypeChecker";
@@ -59,19 +60,23 @@ export interface AnalysisOptions {
    */
   importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
   importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
+  invalidImportedBindings?: ReadonlySet<string>;
 }
 
 export class Analysis {
+  private readonly program: Program;
   private readonly rootScope: Scope;
   private readonly issues: AnalysisIssue[];
   private readonly identifierResolutions: IdentifierResolution[];
   private readonly jsxAttributeResolutions: JsxAttributeResolution[];
   private readonly operatorResolutions: OperatorResolution[];
   private readonly expressionTypes: Map<Node, AnalysisType>;
+  private readonly selectedCallResolutions: SelectedCallResolution[];
   private readonly autoAwaitExpressions: Set<Node>;
   private readonly asyncForStatements: Set<Node>;
 
   constructor(program: Program, options: AnalysisOptions = {}) {
+    this.program = program;
     const externalDeclarations = options.externalDeclarations ?? [];
     const ambientDeclarations = options.ambientDeclarations ?? [];
     const bound = new Binder(
@@ -83,12 +88,19 @@ export class Analysis {
     ).bind();
     this.rootScope = bound.rootScope;
 
-    const checked = new TypeChecker(program, bound, externalDeclarations, ambientDeclarations).check();
+    const checked = new TypeChecker(
+      program,
+      bound,
+      externalDeclarations,
+      ambientDeclarations,
+      options.invalidImportedBindings
+    ).check();
     this.issues = [...bound.issues, ...checked.issues];
     this.identifierResolutions = checked.identifierResolutions;
     this.jsxAttributeResolutions = checked.jsxAttributeResolutions;
     this.operatorResolutions = checked.operatorResolutions;
     this.expressionTypes = checked.expressionTypes;
+    this.selectedCallResolutions = checked.selectedCallResolutions;
     this.autoAwaitExpressions = checked.autoAwaitExpressions;
     this.asyncForStatements = checked.asyncForStatements;
   }
@@ -118,6 +130,49 @@ export class Analysis {
 
   getExpressionTypes(): ReadonlyMap<Node, AnalysisType> {
     return this.expressionTypes;
+  }
+
+  getUnusedImportIdentifiers(): readonly Identifier[] {
+    const usedImportedBindings = new Set<Node>();
+    for (const resolution of this.identifierResolutions) {
+      if (resolution.symbol.node !== resolution.identifier) {
+        usedImportedBindings.add(resolution.symbol.node);
+      }
+    }
+
+    const unused: Identifier[] = [];
+    for (const statement of this.program.body) {
+      if (statement.kind !== "ImportStatement") {
+        continue;
+      }
+      const importStatement = statement as ImportStatement;
+      const bindings: Identifier[] = [];
+      if (importStatement.defaultImport) {
+        bindings.push(importStatement.defaultImport);
+      }
+      if (importStatement.namespaceImport) {
+        bindings.push(importStatement.namespaceImport);
+      }
+      for (const specifier of importStatement.specifiers) {
+        bindings.push(specifier.local ?? specifier.imported);
+      }
+      for (const binding of bindings) {
+        if (!usedImportedBindings.has(binding)) {
+          unused.push(binding);
+        }
+      }
+    }
+    return unused;
+  }
+
+  getSelectedCallResolutionAt(line: number, character: number): SelectedCallResolution | null {
+    for (const resolution of this.selectedCallResolutions) {
+      const range = this.nodeToRange(resolution.callee);
+      if (range && this.rangeContains(range, line, character)) {
+        return resolution;
+      }
+    }
+    return null;
   }
 
   getAutoAwaitExpressions(): ReadonlySet<Node> {

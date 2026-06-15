@@ -77,6 +77,7 @@ import type {
   IdentifierResolution,
   JsxAttributeResolution,
   OperatorResolution,
+  SelectedCallResolution,
   Scope
 } from "./model";
 import {
@@ -125,6 +126,7 @@ export class TypeChecker {
   private readonly identifierResolutions: IdentifierResolution[] = [];
   private readonly jsxAttributeResolutions: JsxAttributeResolution[] = [];
   private readonly operatorResolutions: OperatorResolution[] = [];
+  private readonly selectedCallResolutions: SelectedCallResolution[] = [];
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
   private readonly asyncForStatements: Set<Node> = new Set();
@@ -157,13 +159,15 @@ export class TypeChecker {
   private readonly assignabilityChecksInProgress: Set<string> = new Set();
   private readonly analysisTypeIds: WeakMap<object, number> = new WeakMap();
   private readonly explicitlyUnknownIdentifiers: WeakSet<object> = new WeakSet();
+  private readonly unresolvedImportedIdentifiers: WeakSet<object> = new WeakSet();
   private nextAnalysisTypeId = 1;
 
   constructor(
     private readonly program: Program,
     private readonly bound: BoundAnalysis,
     externalDeclarations: readonly Statement[] = [],
-    ambientDeclarations: readonly Statement[] = []
+    ambientDeclarations: readonly Statement[] = [],
+    private readonly invalidImportedBindings: ReadonlySet<string> = new Set()
   ) {
     const runtimeProgram = getEcmaScriptRuntimeProgram();
     const vexaRuntimeProgram = getVexaScriptRuntimeProgram();
@@ -216,6 +220,7 @@ export class TypeChecker {
     this.collectExtensionOperators(program);
     this.collectExtensionMethods(program);
     this.collectImportedBindingNames(program);
+    this.collectUnresolvedImportedIdentifiers(program);
     this.collectImportedExtensionPropertyNames(program);
     this.collectEnumStatements(program.body);
     this.collectNamespaceStatements(program.body);
@@ -238,6 +243,34 @@ export class TypeChecker {
     });
   }
 
+  private collectUnresolvedImportedIdentifiers(program: Program): void {
+    for (const statement of program.body) {
+      if (statement.kind !== "ImportStatement") continue;
+      const importStatement = statement as ImportStatement;
+      const bindings = [
+        ...(importStatement.defaultImport ? [importStatement.defaultImport] : []),
+        ...(importStatement.namespaceImport ? [importStatement.namespaceImport] : []),
+        ...importStatement.specifiers.map((specifier) => specifier.local ?? specifier.imported)
+      ];
+      for (const binding of bindings) {
+        const symbol = this.bound.rootScope.symbols.get(binding.name);
+        if (this.invalidImportedBindings.has(binding.name) && symbol?.type && isUnknownType(symbol.type)) {
+          this.unresolvedImportedIdentifiers.add(binding);
+        }
+      }
+    }
+  }
+
+  private shouldReportUnknownCallable(callee: Expr, scope: Scope): boolean {
+    if (callee.kind !== "Identifier") {
+      return false;
+    }
+    const identifier = callee as Identifier;
+    const usageOffset = identifier.firstToken?.range.start.offset;
+    const symbol = this.resolve(identifier.name, scope, usageOffset);
+    return !!symbol && this.unresolvedImportedIdentifiers.has(symbol.node);
+  }
+
   private collectAnnotationStatements(statements: readonly Statement[]): void {
     for (const statement of declarationIndexForStatements([...statements]).annotations) {
       this.annotationStatementsByName.set(statement.name.name, statement);
@@ -252,6 +285,7 @@ export class TypeChecker {
       jsxAttributeResolutions: [...this.jsxAttributeResolutions],
       operatorResolutions: [...this.operatorResolutions],
       expressionTypes: this.expressionTypes,
+      selectedCallResolutions: [...this.selectedCallResolutions],
       autoAwaitExpressions: this.autoAwaitExpressions,
       asyncForStatements: this.asyncForStatements
     };
@@ -1877,6 +1911,13 @@ export class TypeChecker {
             preferredInferenceArguments,
             expectedType
           ) ?? selectedCallableType;
+          const overloadIndex = Math.max(0, callableCandidates.findIndex((candidate) => candidate === bestCallableType));
+          this.selectedCallResolutions.push({
+            call,
+            callee: call.callee,
+            overload: bestCallableType,
+            overloadIndex
+          });
           const inferenceArgumentTypes = hasNamedArguments
             ? this.reorderNamedArgumentTypes(call.arguments, preferredInferenceArguments, bestCallableType)
             : this.literalSensitiveInferenceArgumentTypes(
@@ -1978,7 +2019,7 @@ export class TypeChecker {
           result = instantiatedConstructorType.returnType;
           break;
         }
-        if (!isUnknownType(calleeType)) {
+        if (!isUnknownType(calleeType) || this.shouldReportUnknownCallable(call.callee, scope)) {
           this.issues.push({
             message: `Type '${this.typeToDiagnosticLabel(calleeType)}' is not callable`,
             node: call.callee,
@@ -3506,6 +3547,30 @@ export class TypeChecker {
     switch (argument.kind) {
       case "StringLiteral":
         return literalType("string", (argument as StringLiteral).value);
+      case "ObjectLiteral": {
+        let changed = false;
+        const properties: Record<string, AnalysisType> = fallback.kind === "object"
+          ? { ...fallback.properties }
+          : {};
+        for (const property of (argument as ObjectLiteral).properties) {
+          if (property.kind !== "ObjectProperty") {
+            continue;
+          }
+          const objectProperty = property as ObjectProperty;
+          const propertyName = this.staticObjectPropertyName(objectProperty);
+          if (!propertyName) {
+            continue;
+          }
+          const currentType = properties[propertyName] ?? this.expressionTypes.get(objectProperty.value) ?? UNKNOWN_TYPE;
+          const narrowedType = this.literalArgumentType(objectProperty.value, currentType);
+          changed = changed || narrowedType !== currentType || fallback.kind !== "object";
+          properties[propertyName] = narrowedType;
+        }
+        if (!changed) {
+          return fallback;
+        }
+        return objectTypeWithProperties(properties);
+      }
       default:
         return fallback;
     }
@@ -3558,10 +3623,36 @@ export class TypeChecker {
       return expectedType.kind === "function" || arrow?.contextualObjectLiteral ? expectedType : null;
     }
     if (argument.kind === "ObjectLiteral") {
-      return expectedType.kind === "object" || expectedType.kind === "named" ? expectedType : null;
+      return this.contextualObjectLiteralExpectedType(expectedType);
     }
     if (argument.kind === "ArrayLiteral") {
       return expectedType.kind === "array" || expectedType.kind === "range" || expectedType.kind === "tuple" ? expectedType : null;
+    }
+    return null;
+  }
+
+  private contextualObjectLiteralExpectedType(expectedType: AnalysisType): AnalysisType | null {
+    const expandedExpectedType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
+    if (expandedExpectedType.kind === "object" || expandedExpectedType.kind === "named") {
+      return expandedExpectedType;
+    }
+    if (expandedExpectedType.kind === "intersection") {
+      const contextualMembers = expandedExpectedType.types
+        .map((member) => this.contextualObjectLiteralExpectedType(member))
+        .filter((member): member is AnalysisType => member !== null);
+      if (contextualMembers.length === 0) {
+        return null;
+      }
+      return contextualMembers.length === 1 ? contextualMembers[0]! : intersectionType(contextualMembers);
+    }
+    if (expandedExpectedType.kind === "union") {
+      const contextualMembers = expandedExpectedType.types
+        .map((member) => this.contextualObjectLiteralExpectedType(member))
+        .filter((member): member is AnalysisType => member !== null);
+      if (contextualMembers.length === 0) {
+        return null;
+      }
+      return contextualMembers.length === 1 ? contextualMembers[0]! : unionType(contextualMembers);
     }
     return null;
   }
@@ -4133,6 +4224,12 @@ export class TypeChecker {
     }
     if (type.kind === "union") {
       return type.types.some((member) => this.expectedTypeDependsOnLiteral(member));
+    }
+    if (type.kind === "intersection") {
+      return type.types.some((member) => this.expectedTypeDependsOnLiteral(member));
+    }
+    if (type.kind === "object") {
+      return Object.values(type.properties).some((member) => this.expectedTypeDependsOnLiteral(member));
     }
     return false;
   }
@@ -6364,11 +6461,12 @@ export class TypeChecker {
     if (!expectedType || literal.kind !== "literal") {
       return null;
     }
-    if (expectedType.kind === "literal" && this.isTypeAssignable(literal, expectedType)) {
-      return expectedType;
+    const expandedExpectedType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
+    if (expandedExpectedType.kind === "literal" && this.isTypeAssignable(literal, expandedExpectedType)) {
+      return expandedExpectedType;
     }
-    if (expectedType.kind === "union") {
-      return expectedType.types.find((member) => member.kind === "literal" && this.isTypeAssignable(literal, member)) ?? null;
+    if (expandedExpectedType.kind === "union") {
+      return expandedExpectedType.types.find((member) => member.kind === "literal" && this.isTypeAssignable(literal, member)) ?? null;
     }
     return null;
   }
@@ -6504,11 +6602,57 @@ export class TypeChecker {
     if (!expectedType || isUnknownType(expectedType)) {
       return undefined;
     }
-    if (expectedType.kind === "object") {
-      return new Map(Object.entries(expectedType.properties));
+    const contextualExpectedType = this.contextualObjectLiteralExpectedType(expectedType);
+    if (!contextualExpectedType || isUnknownType(contextualExpectedType)) {
+      return undefined;
     }
-    if (expectedType.kind === "named") {
-      return this.resolveNamedTypeMembers(expectedType) ?? undefined;
+    if (contextualExpectedType.kind === "object") {
+      return new Map(Object.entries(contextualExpectedType.properties));
+    }
+    if (contextualExpectedType.kind === "named") {
+      return this.resolveNamedTypeMembers(contextualExpectedType) ?? undefined;
+    }
+    if (contextualExpectedType.kind === "intersection") {
+      let merged: Map<string, AnalysisType> | undefined;
+      for (const member of contextualExpectedType.types) {
+        const memberProperties = this.expectedObjectProperties(member);
+        if (!memberProperties) {
+          continue;
+        }
+        if (!merged) {
+          merged = new Map(memberProperties);
+          continue;
+        }
+        for (const [name, type] of memberProperties) {
+          const existing = merged.get(name);
+          merged.set(name, existing ? intersectionType([existing, type]) : type);
+        }
+      }
+      return merged;
+    }
+    if (contextualExpectedType.kind === "union") {
+      const memberPropertyMaps = contextualExpectedType.types
+        .map((member) => this.expectedObjectProperties(member))
+        .filter((member): member is Map<string, AnalysisType> => member !== undefined);
+      if (memberPropertyMaps.length === 0) {
+        return undefined;
+      }
+      const combined = new Map<string, AnalysisType[]>();
+      for (const properties of memberPropertyMaps) {
+        for (const [name, type] of properties) {
+          const existing = combined.get(name);
+          if (existing) {
+            existing.push(type);
+          } else {
+            combined.set(name, [type]);
+          }
+        }
+      }
+      const merged = new Map<string, AnalysisType>();
+      for (const [name, types] of combined) {
+        merged.set(name, types.length === 1 ? types[0]! : unionType(types));
+      }
+      return merged;
     }
     return undefined;
   }

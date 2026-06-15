@@ -53,6 +53,26 @@ describe("loadAmbientTypesForProject", () => {
     expect(result.moduleDeclarations.size).toBe(0);
   });
 
+  it("extracts declarations from global blocks nested inside declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
+    const pkgDir = join(root, "node_modules", "@types", "myglobals");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      `global {\n  type BufferEncoding = "utf8" | "utf-8";\n}\n`,
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "package.json"), JSON.stringify({ name: "@types/myglobals", types: "index.d.ts" }), "utf8");
+
+    const result = await loadAmbientTypesForProject(join(root, "main.vx"), ["myglobals"]);
+
+    expect(
+      result.globalDeclarations.some(
+        (statement) => statement.kind === "TypeAliasStatement" && (statement as { name?: { name?: string } }).name?.name === "BufferEncoding"
+      )
+    ).toBe(true);
+  });
+
   it("follows /// <reference path> directives to load additional declaration files", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
     const pkgDir = join(root, "node_modules", "@types", "mylib2");

@@ -16,6 +16,10 @@ const DocumentDiagnosticReportKind = {
   Full: "full"
 } as const;
 
+const DiagnosticTag = {
+  Unnecessary: 1
+} as const;
+
 function fallbackRange() {
   return {
     start: { line: 0, character: 0 },
@@ -130,6 +134,30 @@ export function collectDiagnosticsFromSession(
         ...(issue.data ? { data: issue.data } : {})
       });
     }
+  }
+
+  for (const identifier of session.analysis?.getUnusedImportIdentifiers() ?? []) {
+    const token = identifier.firstToken;
+    if (!token) {
+      continue;
+    }
+    pushDiagnostic({
+      code: VEXA_DIAGNOSTIC_CODES.STYLE_UNUSED_IMPORT,
+      severity: DiagnosticSeverity.Hint,
+      range: {
+        start: {
+          line: token.range.start.line,
+          character: token.range.start.column
+        },
+        end: {
+          line: token.range.end.line,
+          character: token.range.end.column
+        }
+      },
+      message: `Imported symbol '${identifier.name}' is never used.`,
+      source: "vexa-ls",
+      tags: [DiagnosticTag.Unnecessary]
+    });
   }
 
   const anyIndex = text.indexOf("any");

@@ -99,6 +99,7 @@ export interface CompletionRequestOptions {
   uri?: string;
   sourceRoots?: string[];
   ambientDeclarations?: Statement[];
+  ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
   vfs?: Vfs;
   getSessionForFilePath?: (filePath: string) => CompletionSessionLike | null | Promise<CompletionSessionLike | null>;
   getExportedSymbols?: SymbolExportProvider;

@@ -263,6 +263,23 @@ function empty(): int {
     ).toBe(true);
   });
 
+  it("tags unused imported bindings as unnecessary so the editor can fade them", () => {
+    const source = dedent`
+      import { readFile, readdir } from "fs/promises"
+      await readFile("demo.txt")
+      `;
+
+    const diagnostics = diagnosticsFor(source);
+    const unusedImport = diagnostics.find(
+      (diagnostic) => diagnostic.code === VEXA_DIAGNOSTIC_CODES.STYLE_UNUSED_IMPORT
+    );
+
+    expect(unusedImport?.message).toBe("Imported symbol 'readdir' is never used.");
+    expect(unusedImport?.range.start).toEqual({ line: 0, character: 19 });
+    expect(unusedImport?.range.end).toEqual({ line: 0, character: 26 });
+    expect(unusedImport?.tags).toEqual([1]);
+  });
+
   it("does not report parser or semantic diagnostics for keyof, typeof, and indexed access types", () => {
     const source = dedent`
       interface Person { name: string; age: int }

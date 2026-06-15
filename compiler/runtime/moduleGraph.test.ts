@@ -195,6 +195,38 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("auto-awaits ambient node module named imports inside sync functions", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "node_modules/@types/node/package.json": JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+        "node_modules/@types/node/index.d.ts": dedent`
+          declare module "fs/promises" {
+            export function writeFile(path: string, data: string): Promise<void>;
+            export function readFile(path: string, encoding: string): Promise<string>;
+          }
+        `,
+        "main.vx": dedent`
+          import { readFile, writeFile } from "fs/promises"
+
+          sync fun main() {
+            writeFile("demo.txt", "test")
+            console.log(readFile("demo.txt", "utf-8"))
+          }
+
+          await main()
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+
+        expect(result.errors).toEqual([]);
+        expect(result.code).toContain('await writeFile("demo.txt", "test");');
+        expect(result.code).toContain('console.log(await readFile("demo.txt", "utf-8"));');
+      }
+    );
+  });
+
   it("preserves entry exports while still stripping bundled dependency module syntax", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(
