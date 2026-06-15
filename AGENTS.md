@@ -13,6 +13,13 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Do not use synchronous I/O API calls. Only use asynchronous I/O APIs. The compiler is intended to run both in node and the browser.
 - Except for the CLI and explicitly Node-only adapters, compiler modules must not depend on Node.js APIs. Shared compiler/runtime code should stay browser-compatible.
 
+
+## Design principles
+
+- Follow KISS, DRY, and clean code principles: keep implementations simple, avoid duplication, and prefer readable, maintainable designs over case-by-case branching.
+- Prefer unified code paths. When similar functionality exists, look for a common route and architecture instead of adding parallel implementations.
+- For areas such as module imports, symbol processing, hover, go to declaration, signature helpers, and similar compiler or LSP features, keep behavior simple and unified so each different combination of cases does not create its own branch that must be tested and maintained separately.
+
 ## Commands
 
 - Run tests once: `pnpm test`
