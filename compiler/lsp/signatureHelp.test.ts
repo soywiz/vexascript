@@ -760,4 +760,107 @@ describe("signature help", () => {
     expect(help).not.toBeNull();
     expect(help!.signatures[0]!.documentation).toBe("Formats a string using util-style placeholders.");
   });
+
+  it("falls back to display-string parsing when only a display type is available for the callee", async () => {
+    // When an imported function variable only has a display type string (no
+    // structured AnalysisType), signatureInfosFromDisplayFunctionType should
+    // parse the display string and produce the correct signature.
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { transform } from "./helpers"
+      transform(^^^1, 2)
+    `);
+
+    // Provide a display type string but no structured type — this forces the
+    // display-string fallback path in buildSignaturesFromSymbol.
+    const importedSymbolDisplayTypes = new Map<string, string>([
+      ["transform", "(a: number, b: number) => number"]
+    ]);
+    const session = createAnalysisSession(
+      source,
+      [],
+      new Map(),
+      [],
+      new Map(),
+      new Map(),
+      importedSymbolDisplayTypes
+    );
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).not.toBeNull();
+    expect(help!.signatures[0]!.label).toBe("transform(a: number, b: number): number");
+    expect(help!.signatures[0]!.parameters).toEqual([
+      { label: "a: number" },
+      { label: "b: number" }
+    ]);
+    expect(help!.activeSignature).toBe(0);
+    expect(help!.activeParameter).toBe(0);
+  });
+
+  it("selects the overload with enough parameters for the active argument position", async () => {
+    // Two overloads: one with 1 parameter, one with 2. When the cursor is on
+    // the second argument, bestActiveSignature should pick the 2-parameter overload.
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["helpers", parseAmbientModule(
+        `declare module "helpers" {
+          export function process(value: string): string;
+          export function process(value: string, radix: number): string;
+        }`,
+        "helpers"
+      )]
+    ]);
+
+    const source = 'import { process } from "helpers"\nprocess("test", 16)\n';
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    // Cursor is past the second argument (character 18 = inside 16)
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 18, {
+      ambientModuleDeclarations
+    });
+    expect(help).not.toBeNull();
+    expect(help!.signatures.length).toBe(2);
+    // The 2-parameter overload should be the active signature
+    const activeSig = help!.signatures[help!.activeSignature!];
+    expect(activeSig?.parameters?.length).toBe(2);
+    expect(help!.activeParameter).toBe(1);
+  });
+
+  it("provides constructor signature help with cursor markers", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Rectangle(val width: int, val height: int)
+      fun demo() {
+        return new Rectangle(^^^10, 20)
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "new Rectangle(width: int, height: int)",
+          parameters: [{ label: "width: int" }, { label: "height: int" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
 });

@@ -32,10 +32,10 @@
 
 ## Signature Help
 
-* [ ] Refactor signature help to resolve callees through the same shared target pipeline.
-* [ ] Remove signature-help-only fallback ladders where structured callable information can be shared with other features.
-* [ ] Standardize overload handling for local functions, imported functions, methods, constructors, extension methods, and ambient module members.
-* [ ] Keep display-string parsing only as an explicit fallback with dedicated tests.
+* [x] Refactor signature help to resolve callees through the same shared target pipeline. `resolveCalleeTarget` in `signatureHelp.ts` now calls `resolveCursorTarget` directly instead of a private `resolveAnalysisTargetAtNode` wrapper.
+* [x] Remove signature-help-only fallback ladders where structured callable information can be shared with other features. `collectAmbientFunctionOverloads` now delegates to the shared `collectAmbientFunctionStatements` from `crossFileContext.ts`.
+* [x] Standardize overload handling for local functions, imported functions, methods, constructors, extension methods, and ambient module members. `bestActiveSignature` selects by argument count; a cross-reference comment links it to `findAmbientImportedOverloadRange` in `crossFileNavigation.ts`.
+* [x] Keep display-string parsing only as an explicit fallback with dedicated tests. The display-string path runs before structured resolution for identifier callees that have a `valueType` (preserving type-alias names from ambient imports), and also as a last-resort fallback after structured resolution fails. Dedicated tests added in `signatureHelp.test.ts`.
 
 ## References And Rename
 
@@ -45,7 +45,7 @@
 
 ## Deduplication
 
-* [x] Extract shared helpers for ambient lookup: `detectAmbientExportEqualsName` and `findAmbientNamespaceBody` have been moved from private copies in both `crossFileNavigation.ts` and `signatureHelp.ts` to shared exports in `compiler/lsp/crossFileContext.ts`.
+* [x] Extract shared helpers for ambient lookup: `detectAmbientExportEqualsName` and `findAmbientNamespaceBody` have been moved from private copies in both `crossFileNavigation.ts` and `signatureHelp.ts` to shared exports in `compiler/lsp/crossFileContext.ts`. `collectAmbientFunctionStatements` has also been extracted to `crossFileContext.ts` and replaces both `collectAmbientFunctionDeclarationsByName` (in `crossFileNavigation.ts`) and the inline iteration in `collectAmbientFunctionOverloads` (in `signatureHelp.ts`).
 * [ ] Reduce duplicated helper logic across `crossFileNavigation.ts`, `crossFileContext.ts`, `crossFileTypeResolution.ts`, `declarationResolver.ts`, `classResolver.ts`, `importedDeclarations.ts`, and `signatureHelp.ts`.
 * [ ] Extract shared helpers for export unwrapping, imported-binding normalization, member ownership lookup, and declaration metadata building.
 * [ ] Remove ad hoc string-based or feature-specific symbol formatting where shared structured metadata can be used instead.

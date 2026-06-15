@@ -577,3 +577,34 @@ export function findAmbientNamespaceBody(
   }
   return null;
 }
+
+/**
+ * Collects all FunctionStatement nodes in `statements` whose declared name
+ * matches `name`. Unwraps ExportStatement wrappers so that both bare and
+ * exported declarations are found.
+ *
+ * Used by both `crossFileNavigation.ts` (for overload-range selection when
+ * navigating to a definition) and `signatureHelp.ts` (for building
+ * SignatureInformation from ambient overloads). The callers map the returned
+ * statements differently, so only the raw AST nodes are returned here.
+ */
+export function collectAmbientFunctionStatements(
+  statements: readonly Statement[],
+  name: string
+): FunctionStatement[] {
+  const matches: FunctionStatement[] = [];
+  for (const statement of statements) {
+    const candidate =
+      statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration ?? statement
+        : statement;
+    if (candidate.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = candidate as FunctionStatement;
+    if (fn.name.name === name) {
+      matches.push(fn);
+    }
+  }
+  return matches;
+}

@@ -42,6 +42,7 @@ import { findNodeModuleMemberLocation } from "./nodeModulesTypings";
 import { resolve } from "compiler/utils/path";
 import {
   ambientDeclarationLocationForSymbol,
+  collectAmbientFunctionStatements,
   declarationRangeForName,
   detectAmbientExportEqualsName,
   effectiveSourceRoots,
@@ -168,37 +169,20 @@ function findAmbientImportedDeclarationRange(
   return null;
 }
 
-function collectAmbientFunctionDeclarationsByName(
-  declarations: readonly Statement[],
-  importedName: string
-): FunctionStatement[] {
-  const matches: FunctionStatement[] = [];
-  for (const statement of declarations) {
-    const candidate =
-      statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration ?? statement
-        : statement;
-    if (candidate.kind !== "FunctionStatement") {
-      continue;
-    }
-    const fn = candidate as FunctionStatement;
-    if (fn.name.name === importedName) {
-      matches.push(fn);
-    }
-  }
-  return matches;
-}
-
 function findAmbientImportedOverloadRange(
   context: ResolveContext,
   declarations: readonly Statement[],
   importedName: string
 ) {
+  // Selects the best overload declaration for definition navigation.
+  // The counterpart for display (active signature selection at call sites) is
+  // `bestActiveSignature` in `signatureHelp.ts`, which uses argument count
+  // rather than the analysis-resolved overload index used here.
   const selectedResolution = context.session.analysis?.getSelectedCallResolutionAt(context.line, context.character);
   if (!selectedResolution) {
     return null;
   }
-  const overloadDeclarations = collectAmbientFunctionDeclarationsByName(declarations, importedName);
+  const overloadDeclarations = collectAmbientFunctionStatements(declarations, importedName);
   const indexedDeclaration = overloadDeclarations[selectedResolution.overloadIndex];
   if (indexedDeclaration) {
     return nodeRange(indexedDeclaration.name);
