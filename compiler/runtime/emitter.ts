@@ -1481,7 +1481,11 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   const accessorPrefix = method.accessorKind ? `${method.accessorKind} ` : "";
   const asyncPrefix = asyncEmitPrefix(method);
   const generatorPrefix = method.generator === true ? "*" : "";
-  const methodName = method.operator ? operatorMethodName(method.operator, method.parameters) : method.name.name;
+  const methodName = method.computed
+    ? `[${emitExpression(method.computedKey!)}]`
+    : method.operator
+      ? operatorMethodName(method.operator, method.parameters)
+      : method.name.name;
   return withVariableDelegateShadows(functionParameterBindingNames(method.parameters), () => {
     const body = methodName === "constructor" ? emitConstructorBlock(method) : emitBlock(method.body);
     return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;

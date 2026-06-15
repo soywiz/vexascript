@@ -410,6 +410,8 @@ export interface ClassMethodMember extends Node, ClassMemberModifiers {
     sync?: boolean
     generator?: boolean
     getterShorthand?: boolean
+    computed?: boolean
+    computedKey?: Expr
     name: Identifier
     operator?: BinaryExpression["operator"]
     override?: boolean
@@ -461,6 +463,8 @@ export interface InterfacePropertyMember extends Node {
 export interface InterfaceMethodMember extends Node {
     kind: "InterfaceMethodMember"
     declarationKind?: FunctionDeclarationKind
+    computed?: boolean
+    computedKey?: Expr
     name: Identifier
     accessorKind?: "get" | "set"
     declarationKeywordToken?: Token

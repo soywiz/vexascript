@@ -7808,6 +7808,9 @@ export class TypeChecker {
       }
 
       for (const classMember of classStatement.members) {
+        if (classMember.kind === "ClassMethodMember" && classMember.computed) {
+          continue;
+        }
         if (classMember.kind === "ClassFieldMember") {
           readableNames.add(classMember.name.name);
           let fieldType = this.typeFromAnnotationLoose(classMember.typeAnnotation);
@@ -7921,6 +7924,9 @@ export class TypeChecker {
     }
     const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
     for (const interfaceMember of interfaceStatement.members) {
+      if (interfaceMember.kind === "InterfaceMethodMember" && interfaceMember.computed) {
+        continue;
+      }
       if (interfaceMember.kind === "InterfacePropertyMember") {
         const rawMemberType = this.typeFromAnnotationLoose(interfaceMember.typeAnnotation) ?? UNKNOWN_TYPE;
         const memberType = interfaceMember.optional === true

@@ -152,6 +152,20 @@ console.log([].doubledLength)
     expect(logs).toEqual([[20], [6], [0]]);
   });
 
+  it("executes computed async-iterator class methods", () => {
+    const source = `class Counter {
+  async *[Symbol.asyncIterator](): AsyncGenerator<int> {
+    yield 1
+    yield 2
+  }
+}
+let counter = new Counter()
+console.log(typeof counter[Symbol.asyncIterator])
+`;
+
+    expect(executeTranspiled(source)).toEqual([["function"]]);
+  });
+
   it("executes nested object and array destructuring declarations", () => {
     const source = `let { id, name :: displayName, nested :: { value = 4 }, ...rest } = { id: 1, name: "Ada", nested: {}, extra: 7 }
 const [first, , third = 3, ...tail] = [10, 20]

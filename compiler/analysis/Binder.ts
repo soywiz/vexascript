@@ -774,6 +774,9 @@ export class Binder {
         continue;
       }
       if (member.accessorKind === "get") {
+        if (member.computed) {
+          continue;
+        }
         const propertyType = this.typeFromAnnotationLooseWithContext(member.returnType, statement.name.name) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name: member.name.name,
@@ -786,6 +789,9 @@ export class Binder {
         continue;
       }
       if (member.accessorKind === "set") {
+        if (member.computed) {
+          continue;
+        }
         if (!scope.symbols.has(member.name.name)) {
           const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
           this.declare(scope, {
@@ -809,6 +815,9 @@ export class Binder {
         this.typeFromAnnotationLooseWithContext(member.returnType, statement.name.name) ?? UNKNOWN_TYPE,
         member.typeParameters?.map((parameter) => parameter.name.name)
       );
+      if (member.computed) {
+        continue;
+      }
       const existingMethod = scope.symbols.get(member.name.name);
       if (existingMethod?.kind === "method" && existingMethod.type) {
         const existingTypes = existingMethod.type.kind === "union" ? existingMethod.type.types : [existingMethod.type];
@@ -878,6 +887,9 @@ export class Binder {
         continue;
       }
       if (member.accessorKind === "get") {
+        if (member.computed) {
+          continue;
+        }
         const propertyType = this.typeFromAnnotationLooseWithContext(member.returnType, className) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name: member.name.name,
@@ -891,6 +903,9 @@ export class Binder {
         continue;
       }
       if (member.accessorKind === "set") {
+        if (member.computed) {
+          continue;
+        }
         if (!scope.symbols.has(member.name.name)) {
           const propertyType = this.typeFromAnnotationLoose(member.parameters[0]?.typeAnnotation) ?? UNKNOWN_TYPE;
           this.declare(scope, {
@@ -915,6 +930,9 @@ export class Binder {
         this.typeFromAnnotationLooseWithContext(member.returnType, className) ?? UNKNOWN_TYPE,
         member.typeParameters?.map((parameter) => parameter.name.name)
       );
+      if (member.computed) {
+        continue;
+      }
       this.declare(scope, {
         name: member.name.name,
         kind: "method",

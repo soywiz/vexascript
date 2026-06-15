@@ -804,6 +804,48 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses computed class methods like [Symbol.asyncIterator]()", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Stream {\nasync *[Symbol.asyncIterator](): AsyncGenerator<int> { yield 1 }\n}", { jsx: false }),
+                { language: "typescript" }
+            )
+        ).toEqual({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Stream" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    async: true,
+                    generator: true,
+                    computed: true,
+                    computedKey: {
+                        kind: "MemberExpression",
+                        object: { kind: "Identifier", name: "Symbol" },
+                        property: { kind: "Identifier", name: "asyncIterator" },
+                        computed: false
+                    },
+                    name: { kind: "Identifier", name: "[Symbol.asyncIterator]" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "AsyncGenerator<int>" },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ExprStatement",
+                                expression: {
+                                    kind: "UnaryExpression",
+                                    operator: "yield",
+                                    argument: { kind: "IntLiteral", value: 1 }
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+    });
+
     it("parses class members with explicit property and function declaration keywords", () => {
         expect(
             parseStatement(
@@ -2092,6 +2134,34 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses computed interface methods like [Symbol.asyncIterator]()", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("interface Stream<T> { [Symbol.asyncIterator](): AsyncIterator<T> }", { jsx: false }),
+                { language: "typescript" }
+            )
+        ).toEqual({
+            kind: "InterfaceStatement",
+            name: { kind: "Identifier", name: "Stream" },
+            typeParameters: [{ kind: "TypeParameter", name: { kind: "Identifier", name: "T" } }],
+            members: [
+                {
+                    kind: "InterfaceMethodMember",
+                    computed: true,
+                    computedKey: {
+                        kind: "MemberExpression",
+                        object: { kind: "Identifier", name: "Symbol" },
+                        property: { kind: "Identifier", name: "asyncIterator" },
+                        computed: false
+                    },
+                    name: { kind: "Identifier", name: "[Symbol.asyncIterator]" },
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "AsyncIterator<T>" }
+                }
+            ]
+        });
+    });
+
     it("parses interface members with explicit property and function declaration keywords", () => {
         expect(
             parseStatement(
@@ -2412,4 +2482,3 @@ describe("parseStatement", () => {
         });
     });
 });
-

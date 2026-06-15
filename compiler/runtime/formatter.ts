@@ -2062,9 +2062,15 @@ class AstFormatter {
         this.sp();
       }
       if (m.generator) this.write("*");
-      this.write(m.name.name.startsWith("operator") ? m.name.name : m.name.name);
+      if (m.computed && m.computedKey) {
+        this.write("[");
+        this.emitExpr(m.computedKey);
+        this.write("]");
+      } else {
+        this.write(m.name.name.startsWith("operator") ? m.name.name : m.name.name);
+      }
       if (m.typeParameters?.length) this.emitTypeParams(m.typeParameters);
-      if (m.name.name !== "operator" || !m.operator) {
+      if (m.computed || m.name.name !== "operator" || !m.operator) {
         this.write("(");
         this.emitFunctionParams(m.parameters);
         this.write(")");
@@ -2114,7 +2120,13 @@ class AstFormatter {
       } else {
         if (m.declarationKind) { this.tok(m.declarationKind); this.sp(); }
         if (m.accessorKind) { this.write(m.accessorKind); this.sp(); }
-        this.write(m.name.name);
+        if (m.computed && m.computedKey) {
+          this.write("[");
+          this.emitExpr(m.computedKey);
+          this.write("]");
+        } else {
+          this.write(m.name.name);
+        }
         if (m.typeParameters?.length) this.emitTypeParams(m.typeParameters);
         this.write("(");
         this.emitFunctionParams(m.parameters);

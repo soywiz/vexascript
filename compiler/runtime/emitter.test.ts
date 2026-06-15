@@ -254,6 +254,13 @@ let promise = go fetchValue()
     expect(emitted).toContain("set value(next) {");
   });
 
+  it("emits computed class methods like [Symbol.asyncIterator]()", () => {
+    const program = parseFile(tokenizeReader("class Stream {\nasync *[Symbol.asyncIterator](): AsyncGenerator<int> { yield 1 }\n}", { jsx: false }), { language: "typescript" });
+    const emitted = emitProgram(program);
+    expect(emitted).toContain("async *[Symbol.asyncIterator]() {");
+    expect(emitted).toContain("yield 1;");
+  });
+
   it("emits getter shorthand class members as JavaScript getters", () => {
     const program = parseFile(tokenizeReader("class Rect {\narea: number => this.width * this.height\n}"));
     const emitted = emitProgram(program);

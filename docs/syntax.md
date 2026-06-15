@@ -780,6 +780,16 @@ class Builder {
 }
 ```
 
+TypeScript-style computed method names are also supported, including async-iterator hooks such as `[Symbol.asyncIterator]()`:
+
+```vexa
+class Stream {
+  async *[Symbol.asyncIterator](): AsyncGenerator<int> {
+    yield 1
+  }
+}
+```
+
 Class fields and methods also support the `override` modifier when redefining members from a base class:
 
 ```vexa
