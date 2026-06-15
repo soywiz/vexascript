@@ -774,7 +774,7 @@ export class Binder {
         continue;
       }
       if (member.accessorKind === "get") {
-        const propertyType = this.typeFromAnnotationLoose(member.returnType) ?? UNKNOWN_TYPE;
+        const propertyType = this.typeFromAnnotationLooseWithContext(member.returnType, statement.name.name) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name: member.name.name,
           kind: "variable",
@@ -806,7 +806,7 @@ export class Binder {
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
         })),
-        this.typeFromAnnotationLoose(member.returnType) ?? UNKNOWN_TYPE,
+        this.typeFromAnnotationLooseWithContext(member.returnType, statement.name.name) ?? UNKNOWN_TYPE,
         member.typeParameters?.map((parameter) => parameter.name.name)
       );
       const existingMethod = scope.symbols.get(member.name.name);
@@ -878,7 +878,7 @@ export class Binder {
         continue;
       }
       if (member.accessorKind === "get") {
-        const propertyType = this.typeFromAnnotationLoose(member.returnType) ?? UNKNOWN_TYPE;
+        const propertyType = this.typeFromAnnotationLooseWithContext(member.returnType, className) ?? UNKNOWN_TYPE;
         this.declare(scope, {
           name: member.name.name,
           kind: "variable",
@@ -912,7 +912,7 @@ export class Binder {
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
         })),
-        this.typeFromAnnotationLoose(member.returnType) ?? UNKNOWN_TYPE,
+        this.typeFromAnnotationLooseWithContext(member.returnType, className) ?? UNKNOWN_TYPE,
         member.typeParameters?.map((parameter) => parameter.name.name)
       );
       this.declare(scope, {
@@ -1059,6 +1059,23 @@ export class Binder {
       parsed.baseName,
       parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
     );
+  }
+
+  private typeFromAnnotationLooseWithContext(
+    typeAnnotation: TypeAnnotation | undefined,
+    contextualThisTypeName?: string
+  ): AnalysisType | undefined {
+    if (!typeAnnotation) {
+      return undefined;
+    }
+    const typeName = typeAnnotation.kind === "TypeReference" ? typeAnnotation.name.name : typeAnnotation.kind === "Identifier" ? typeAnnotation.name : undefined;
+    if (
+      contextualThisTypeName &&
+      typeName === "this"
+    ) {
+      return this.typeFromTypeNameLoose(contextualThisTypeName);
+    }
+    return this.typeFromAnnotationLoose(typeAnnotation);
   }
 
   private typeFromTypeNameLoose(typeName: string): AnalysisType {

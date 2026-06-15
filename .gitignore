@@ -12,4 +12,5 @@ website/_site
 website/src/assets/generated
 *.tgz
 /temp
+/.claude
 

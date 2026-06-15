@@ -1131,11 +1131,15 @@ export class TypeChecker {
         });
       }
     }
-    const isAsyncLike = this.isAsyncLike(statement);
+      const isAsyncLike = this.isAsyncLike(statement);
     this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => this.withAsyncLikeFunction(isAsyncLike, () => {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
       this.withTypeParameters(typeParameterNames, () => {
-        const declaredReturnType = this.resolveTypeAnnotation(statement.returnType, scope);
+        const functionScope = this.scopeFor(statement, scope);
+        const declaredReturnType = this.resolveTypeAnnotation(
+          statement.returnType,
+          statement.receiverType ? functionScope : scope
+        );
         if (isAsyncLike) {
           this.validateAsyncReturnTypeAnnotation(declaredReturnType, statement.returnType ?? statement.name);
         }
@@ -1146,7 +1150,6 @@ export class TypeChecker {
           this.updateSymbolType(scope, statement.name.name, fnType);
         }
 
-        const functionScope = this.scopeFor(statement, scope);
         for (const parameter of statement.parameters) {
           if (parameter.thisParameter === true) {
             continue;
@@ -2583,7 +2586,7 @@ export class TypeChecker {
 
   private createMethodSymbol(method: ClassMethodMember): AnalysisSymbol {
     if (method.accessorKind === "get") {
-      const propertyType = this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE;
+      const propertyType = this.typeFromAnnotationLoose(method.returnType, this.classNameForMember(method)) ?? UNKNOWN_TYPE;
       return {
         name: method.name.name,
         kind: "variable",
@@ -2612,7 +2615,7 @@ export class TypeChecker {
         optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
         rest: parameter.rest === true
       })),
-      this.typeFromAnnotationLoose(method.returnType) ?? UNKNOWN_TYPE,
+      this.typeFromAnnotationLoose(method.returnType, this.classNameForMember(method)) ?? UNKNOWN_TYPE,
       method.typeParameters?.map((parameter) => parameter.name.name)
     );
     return {
@@ -2633,7 +2636,7 @@ export class TypeChecker {
         optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
         rest: parameter.rest === true
       })),
-      this.typeFromAnnotationLoose(statement.returnType) ?? UNKNOWN_TYPE,
+      this.typeFromAnnotationLoose(statement.returnType, statement.receiverType?.name) ?? UNKNOWN_TYPE,
       statement.typeParameters?.map((parameter) => parameter.name.name)
     );
     return {
@@ -3267,20 +3270,30 @@ export class TypeChecker {
 
   private typeFromAnnotationLooseWithTypeParameters(
     typeAnnotation: Identifier | undefined,
-    localTypeParameterNames: readonly string[]
+    localTypeParameterNames: readonly string[],
+    contextualThisTypeName?: string
   ): AnalysisType | undefined {
     if (!typeAnnotation) {
       return undefined;
     }
-    return this.typeFromTypeNameLooseWithTypeParameters(typeAnnotation.name, new Set(localTypeParameterNames));
+    return this.typeFromTypeNameLooseWithTypeParameters(
+      typeAnnotation.name,
+      new Set(localTypeParameterNames),
+      contextualThisTypeName
+    );
   }
 
   private typeFromTypeNameLooseWithTypeParameters(
     typeName: string | undefined,
-    localTypeParameterNames: ReadonlySet<string>
+    localTypeParameterNames: ReadonlySet<string>,
+    contextualThisTypeName?: string
   ): AnalysisType | undefined {
     if (!typeName) {
       return undefined;
+    }
+    const normalizedTypeName = typeName.trim();
+    if (normalizedTypeName === "this" && contextualThisTypeName) {
+      return this.typeFromTypeNameLoose(contextualThisTypeName);
     }
     const functionType = this.functionTypeFromAnnotationText(typeName);
     if (functionType) {
@@ -3293,11 +3306,11 @@ export class TypeChecker {
     if (objectType) {
       return objectType;
     }
-    const normalizedTypeName = typeName.trim();
     if (normalizedTypeName.startsWith("keyof ")) {
       const targetType = this.typeFromTypeNameLooseWithTypeParameters(
         normalizedTypeName.slice("keyof ".length).trim(),
-        localTypeParameterNames
+        localTypeParameterNames,
+        contextualThisTypeName
       ) ?? UNKNOWN_TYPE;
       return this.keyofType(targetType);
     }
@@ -3308,11 +3321,13 @@ export class TypeChecker {
       }
       const objectType = this.typeFromTypeNameLooseWithTypeParameters(
         indexedAccess.objectTypeName,
-        localTypeParameterNames
+        localTypeParameterNames,
+        contextualThisTypeName
       ) ?? UNKNOWN_TYPE;
       const indexType = this.typeFromTypeNameLooseWithTypeParameters(
         indexedAccess.indexTypeName,
-        localTypeParameterNames
+        localTypeParameterNames,
+        contextualThisTypeName
       ) ?? UNKNOWN_TYPE;
       return this.indexedAccessType(objectType, indexType);
     }
@@ -3322,11 +3337,15 @@ export class TypeChecker {
     }
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
     if (unionParts.length > 1) {
-      return unionType(unionParts.map((part) => this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames) ?? UNKNOWN_TYPE));
+      return unionType(unionParts.map((part) =>
+        this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
+      ));
     }
     const intersectionParts = splitTopLevelTypeText(normalizedTypeName, "&");
     if (intersectionParts.length > 1) {
-      return intersectionType(intersectionParts.map((part) => this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames) ?? UNKNOWN_TYPE));
+      return intersectionType(intersectionParts.map((part) =>
+        this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
+      ));
     }
     if (normalizedTypeName.startsWith("[") && normalizedTypeName.endsWith("]")) {
       const tupleBody = normalizedTypeName.slice(1, -1).trim();
@@ -3334,13 +3353,17 @@ export class TypeChecker {
         tupleBody.length === 0
           ? []
           : splitTopLevelTypeText(tupleBody, ",").map((part) =>
-            this.typeFromTypeNameLooseWithTypeParameters(this.tupleElementTypeText(part), localTypeParameterNames) ?? UNKNOWN_TYPE
+            this.typeFromTypeNameLooseWithTypeParameters(
+              this.tupleElementTypeText(part),
+              localTypeParameterNames,
+              contextualThisTypeName
+            ) ?? UNKNOWN_TYPE
           )
       );
     }
     const parsed = parseTypeNameShape(normalizedTypeName);
     const resolvedTypeArguments = parsed.typeArguments.map((typeArgument) =>
-      this.typeFromTypeNameLooseWithTypeParameters(typeArgument, localTypeParameterNames) ?? UNKNOWN_TYPE
+      this.typeFromTypeNameLooseWithTypeParameters(typeArgument, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
     );
     if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       let resolved: AnalysisType = builtinType(parsed.baseName as BuiltinTypeName);
@@ -4002,11 +4025,19 @@ export class TypeChecker {
         methodType = functionType(
           interfaceMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: bindingNameText(parameter.name),
-            type: this.typeFromAnnotationLooseWithTypeParameters(parameter.typeAnnotation, availableTypeParameterNames) ?? UNKNOWN_TYPE,
+            type: this.typeFromAnnotationLooseWithTypeParameters(
+              parameter.typeAnnotation,
+              availableTypeParameterNames,
+              interfaceStatement.name.name
+            ) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
             rest: parameter.rest === true
           })),
-          this.typeFromAnnotationLooseWithTypeParameters(interfaceMember.returnType, availableTypeParameterNames) ?? builtinType("void"),
+          this.typeFromAnnotationLooseWithTypeParameters(
+            interfaceMember.returnType,
+            availableTypeParameterNames,
+            interfaceStatement.name.name
+          ) ?? builtinType("void"),
           methodTypeParameterNames,
           this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
         );
@@ -5426,6 +5457,12 @@ export class TypeChecker {
     captureResolution: boolean
   ): AnalysisType {
     const normalizedTypeName = stripEnclosingTypeParens(typeName);
+    if (normalizedTypeName === "this") {
+      const thisType = this.resolveContextualThisType(scope);
+      if (thisType) {
+        return thisType;
+      }
+    }
     if (this.isDeferredAdvancedTypeName(normalizedTypeName)) {
       return UNKNOWN_TYPE;
     }
@@ -5544,6 +5581,24 @@ export class TypeChecker {
       resolved = arrayType(resolved);
     }
     return resolved;
+  }
+
+  private resolveContextualThisType(scope: Scope): AnalysisType | null {
+    const thisSymbol = this.resolve("this", scope, undefined);
+    if (thisSymbol?.type) {
+      return thisSymbol.type;
+    }
+
+    for (let current: Scope | undefined = scope; current; current = current.parent) {
+      if (current.node.kind === "ClassStatement") {
+        return namedType((current.node as ClassStatement).name.name);
+      }
+      if (current.node.kind === "InterfaceStatement") {
+        return namedType((current.node as InterfaceStatement).name.name);
+      }
+    }
+
+    return null;
   }
 
 
@@ -6671,7 +6726,7 @@ export class TypeChecker {
           optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
           rest: parameter.rest === true
         })),
-        this.typeFromAnnotationLoose(extension.returnType) ?? UNKNOWN_TYPE,
+        this.typeFromAnnotationLoose(extension.returnType, extension.receiverType.name) ?? UNKNOWN_TYPE,
         extension.typeParameters?.map((parameter) => parameter.name.name)
       ));
       this.extensionMethodsByReceiver.set(extension.receiverType.name, methods);
@@ -6984,6 +7039,15 @@ export class TypeChecker {
       current = current.parent;
     }
     return null;
+  }
+
+  private classNameForMember(member: ClassMethodMember): string | undefined {
+    for (const classStatement of this.classStatementsByName.values()) {
+      if (classStatement.members.includes(member)) {
+        return classStatement.name.name;
+      }
+    }
+    return undefined;
   }
 
   private isClassDerivedFrom(className: string, baseClassName: string): boolean {
@@ -7562,7 +7626,7 @@ export class TypeChecker {
 
     if (candidate.kind === "FunctionStatement") {
       const fn = candidate as FunctionStatement;
-      const returnType = this.typeFromAnnotationLoose(fn.returnType) ?? UNKNOWN_TYPE;
+      const returnType = this.typeFromAnnotationLoose(fn.returnType, fn.receiverType?.name) ?? UNKNOWN_TYPE;
       const params = (fn.parameters ?? []).map((p) => ({
         name: typeof p.name === "object" && "name" in p.name ? (p.name as { name: string }).name : memberName,
         type: this.typeFromAnnotationLoose(p.typeAnnotation) ?? UNKNOWN_TYPE,
@@ -7770,7 +7834,7 @@ export class TypeChecker {
 
         const classScope = this.bound.scopeByNode.get(classStatement);
         const symbolType = classScope?.symbols.get(classMember.name.name)?.type;
-        let rawReturnType = this.typeFromAnnotationLoose(classMember.returnType);
+        let rawReturnType = this.typeFromAnnotationLoose(classMember.returnType, classStatement.name.name);
         if (!rawReturnType && symbolType?.kind === "function") {
           rawReturnType = symbolType?.kind === "function" ? symbolType.returnType : undefined;
         }
@@ -7870,7 +7934,7 @@ export class TypeChecker {
         continue;
       }
       if (interfaceMember.accessorKind === "get") {
-        const memberType = this.typeFromAnnotationLoose(interfaceMember.returnType) ?? UNKNOWN_TYPE;
+        const memberType = this.typeFromAnnotationLoose(interfaceMember.returnType, interfaceStatement.name.name) ?? UNKNOWN_TYPE;
         this.addResolvedMemberType(
           members,
           interfaceMember.name.name,
@@ -7895,11 +7959,19 @@ export class TypeChecker {
         methodType = functionType(
           interfaceMember.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
             name: bindingNameText(parameter.name),
-            type: this.typeFromAnnotationLooseWithTypeParameters(parameter.typeAnnotation, availableTypeParameterNames) ?? UNKNOWN_TYPE,
+            type: this.typeFromAnnotationLooseWithTypeParameters(
+              parameter.typeAnnotation,
+              availableTypeParameterNames,
+              interfaceStatement.name.name
+            ) ?? UNKNOWN_TYPE,
             optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
             rest: parameter.rest === true
           })),
-          this.typeFromAnnotationLooseWithTypeParameters(interfaceMember.returnType, availableTypeParameterNames) ?? builtinType("void"),
+          this.typeFromAnnotationLooseWithTypeParameters(
+            interfaceMember.returnType,
+            availableTypeParameterNames,
+            interfaceStatement.name.name
+          ) ?? builtinType("void"),
           methodTypeParameterNames,
           this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
         );
@@ -8055,7 +8127,7 @@ export class TypeChecker {
 
       const symbolType = classScope?.symbols.get(classMember.name.name)?.type;
       const returnType =
-        this.typeFromAnnotationLoose(classMember.returnType) ??
+        this.typeFromAnnotationLoose(classMember.returnType, classStatement.name.name) ??
         (symbolType?.kind === "function" ? symbolType.returnType : undefined) ??
         builtinType("void");
       if (classMember.accessorKind === "get") {
@@ -8151,12 +8223,16 @@ export class TypeChecker {
   }
 
   private typeFromAnnotationLoose(
-    typeAnnotation: (Node & { kind: "Identifier"; name: string }) | undefined
+    typeAnnotation: (Node & { kind: "Identifier"; name: string }) | undefined,
+    contextualThisTypeName?: string
   ): AnalysisType | undefined {
     if (!typeAnnotation) {
       return undefined;
     }
     const normalizedTypeName = typeAnnotation.name.trim();
+    if (normalizedTypeName === "this" && contextualThisTypeName) {
+      return this.typeFromTypeNameLoose(contextualThisTypeName);
+    }
     const functionType = this.functionTypeFromAnnotationText(typeAnnotation.name);
     if (functionType) {
       return functionType;

@@ -285,6 +285,46 @@ let after = bind`));
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("accepts 'this' return types in VexaScript classes and extension methods", () => {
+    const source = dedent`
+      class Builder {
+        fun next(): this {
+          return this
+        }
+      }
+
+      fun Builder.wrap(): this {
+        return this.next()
+      }
+
+      val builder: Builder = Builder().wrap()
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("accepts 'this' return types in TypeScript classes and interfaces", () => {
+    const source = dedent`
+      interface Chainable {
+        next(): this
+      }
+
+      class Builder implements Chainable {
+        next(): this {
+          return this
+        }
+      }
+
+      let builder: Builder = new Builder().next()
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source), { language: "typescript" }));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("treats ambient callable interfaces as invocable values", () => {
     const source = dedent`
       fun demo() {

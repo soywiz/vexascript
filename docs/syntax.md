@@ -770,6 +770,16 @@ class Demo {
 
 Method signatures support the same parameter syntax as function declarations.
 
+Instance methods may also declare a `this` return type for fluent APIs in both VexaScript and TypeScript-style syntax:
+
+```vexa
+class Builder {
+  fun next(): this {
+    return this
+  }
+}
+```
+
 Class fields and methods also support the `override` modifier when redefining members from a base class:
 
 ```vexa
@@ -791,6 +801,7 @@ interface PairStore<K, V> extends Iterable<K> {
   val keys: K[]
   val values: V[]
   fun get(key: K): V
+  fun snapshot(): this
 }
 ```
 
