@@ -4,14 +4,14 @@
  * local (same-file) reference/rename fallbacks used by every cross-file
  * navigation operation.
  */
-import type { Location, WorkspaceEdit } from "vscode-languageserver/node.js";
+import type { Location, Range, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { findTopLevelDeclarationInProgram, topLevelDeclarationNames } from "./declarationResolver";
 import { uriToFilePath } from "./importFixes";
 import { getProjectIndex, getProjectSessionForFilePath } from "./projectAnalysis";
 import { containsPosition, nodeRange } from "./ranges";
 import { createReferences, createRenameWorkspaceEdit } from "./navigation";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { AnnotationStatement, ClassStatement, ExprStatement, ExportStatement, FunctionStatement, Identifier, ImportStatement, InterfaceStatement, NamespaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
+import type { AnnotationStatement, ArrowFunctionExpression, BlockStatement, CallExpression, ClassStatement, ExprStatement, ExportStatement, FunctionStatement, Identifier, ImportStatement, InterfaceStatement, NamespaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { candidateImportTargetFilePaths, resolveImportTargetFilePath } from "compiler/moduleResolution";
@@ -575,6 +575,148 @@ export function findAmbientNamespaceBody(
       return namespaceStatement.body.body;
     }
   }
+  return null;
+}
+
+/**
+ * Looks up a named export within ambient module declarations, covering:
+ * 1. Direct top-level declaration by name.
+ * 2. `export = Alias` pattern — follows the alias to a namespace body and finds
+ *    the name there as a direct declaration.
+ * 3. `export = Alias` pattern — follows the alias to a namespace body, finds a
+ *    variable typed as an interface, and resolves the name as an interface member.
+ * 4. `global {}` blocks — if no match was found above, also searches inside any
+ *    `global { ... }` block for a direct declaration. In the AST, this syntax is
+ *    parsed as an ExprStatement whose expression is a CallExpression with callee
+ *    `"global"` and a single ArrowFunctionExpression body. Note: when ambient
+ *    types are loaded via `ambientTypesLoader.ts`, `global {}` content inside
+ *    `declare module` blocks is already flattened into the global declarations
+ *    list, so this branch primarily helps declarations assembled directly
+ *    (e.g. in editor virtual workspaces or unit tests).
+ *
+ * Returns the name-identifier range of the matching declaration, or `null`.
+ */
+export function findAmbientNamedExportRange(
+  declarations: readonly Statement[],
+  exportedName: string
+): Range | null {
+  // 1. Direct declaration by name.
+  const directDeclaration =
+    declarations.find(
+      (statement) => topLevelDeclarationNames(statement).includes(exportedName)
+    ) ?? null;
+  const directRange = directDeclaration
+    ? declarationRangeForName(directDeclaration, exportedName)
+    : null;
+  if (directRange) {
+    return directRange;
+  }
+
+  // 2 & 3. Follow the export = alias into a namespace body.
+  const exportEqualsName = detectAmbientExportEqualsName(declarations);
+  if (exportEqualsName) {
+    const exportNamespaceBody = findAmbientNamespaceBody(declarations, exportEqualsName);
+
+    // 2. Direct declaration inside the namespace body.
+    const namespaceDirectDeclaration = exportNamespaceBody
+      ? (exportNamespaceBody.find(
+          (statement) => topLevelDeclarationNames(statement).includes(exportedName)
+        ) ?? null)
+      : null;
+    const namespaceDirectRange = namespaceDirectDeclaration
+      ? declarationRangeForName(namespaceDirectDeclaration, exportedName)
+      : null;
+    if (namespaceDirectRange) {
+      return namespaceDirectRange;
+    }
+
+    // 3. Variable typed as an interface — find the member in that interface.
+    for (const statement of declarations) {
+      const candidate =
+        statement.kind === "ExportStatement"
+          ? (statement as ExportStatement).declaration ?? statement
+          : statement;
+      if (candidate.kind !== "VarStatement") {
+        continue;
+      }
+      const variableStatement = candidate as VarStatement;
+      const variableName =
+        variableStatement.name.kind === "Identifier" ? variableStatement.name.name : null;
+      const typeName = variableStatement.typeAnnotation?.name;
+      if (variableName !== exportEqualsName || !typeName) {
+        continue;
+      }
+      const separator = typeName.lastIndexOf(".");
+      const namespaceName = separator > 0 ? typeName.slice(0, separator) : null;
+      const interfaceName = separator > 0 ? typeName.slice(separator + 1) : typeName;
+      const searchDeclarations = namespaceName
+        ? findAmbientNamespaceBody(declarations, namespaceName)
+        : declarations;
+      if (!searchDeclarations) {
+        continue;
+      }
+      for (const decl of searchDeclarations) {
+        const declCandidate =
+          decl.kind === "ExportStatement"
+            ? (decl as ExportStatement).declaration ?? decl
+            : decl;
+        if (declCandidate.kind !== "InterfaceStatement") {
+          continue;
+        }
+        const interfaceStatement = declCandidate as InterfaceStatement;
+        if (interfaceStatement.name.name !== interfaceName) {
+          continue;
+        }
+        const member = interfaceStatement.members.find(
+          (item) => item.name.name === exportedName
+        );
+        if (member) {
+          return nodeRange(member.name);
+        }
+      }
+    }
+  }
+
+  // 4. Search inside any `global {}` block in the declarations.
+  // In the AST, `global { ... }` inside a module body is parsed as an
+  // ExprStatement wrapping a CallExpression with callee named "global" and a
+  // single ArrowFunctionExpression argument whose body is a BlockStatement.
+  // This handles cases where the declarations were not pre-flattened by
+  // ambientTypesLoader (which extracts global block content into globalDeclarations).
+  for (const statement of declarations) {
+    if (statement.kind !== "ExprStatement") {
+      continue;
+    }
+    const expression = (statement as ExprStatement).expression;
+    if (expression?.kind !== "CallExpression") {
+      continue;
+    }
+    const call = expression as CallExpression;
+    if (call.callee.kind !== "Identifier") {
+      continue;
+    }
+    const calleeIdentifier = call.callee as unknown as { name: string };
+    if (calleeIdentifier.name !== "global") {
+      continue;
+    }
+    const arg = call.arguments[0];
+    if (arg?.kind !== "ArrowFunctionExpression") {
+      continue;
+    }
+    const block = (arg as ArrowFunctionExpression).body;
+    if (block.kind !== "BlockStatement") {
+      continue;
+    }
+    const globalBodyStatements = (block as BlockStatement).body;
+    const globalDirectDeclaration =
+      globalBodyStatements.find(
+        (s) => topLevelDeclarationNames(s).includes(exportedName)
+      ) ?? null;
+    if (globalDirectDeclaration) {
+      return declarationRangeForName(globalDirectDeclaration, exportedName);
+    }
+  }
+
   return null;
 }
 

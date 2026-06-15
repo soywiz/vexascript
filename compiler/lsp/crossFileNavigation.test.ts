@@ -24,6 +24,7 @@ import { getVexaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmasc
 import { Vfs } from "compiler/vfs";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
+import { findAmbientNamedExportRange } from "./crossFileContext";
 
 class MyVfs extends Vfs {
     constructor(public virtualDomPath: string, public domSource: string) {
@@ -2293,5 +2294,84 @@ describe("cross-file navigation", () => {
     expect(contextSource.includes("./crossFileTypeResolution")).toBe(false);
     expect(typeResolutionSource.includes("./crossFileNavigation")).toBe(false);
     expect(typeResolutionSource.includes("./crossFileContext")).toBe(true);
+  });
+
+  describe("findAmbientNamedExportRange", () => {
+    it("finds a directly declared symbol inside a declare module block", () => {
+      const declarations = parseAmbientModule(
+        `declare module "my-module" {
+          export function readFile(path: string): string;
+          export function writeFile(path: string, data: string): void;
+        }`,
+        "my-module"
+      );
+
+      const range = findAmbientNamedExportRange(declarations, "readFile");
+      expect(range).not.toBeNull();
+      expect(range?.start.line).toBeGreaterThanOrEqual(0);
+      // "readFile" appears after "function " on line 1 (0-indexed)
+      const src = `declare module "my-module" {\n  export function readFile(path: string): string;\n  export function writeFile(path: string, data: string): void;\n}`;
+      const lineText = src.split("\n")[range?.start.line ?? -1] ?? "";
+      expect(lineText).toContain("readFile");
+    });
+
+    it("finds a symbol via the export = namespace body pattern", () => {
+      // Mirrors the node:path / path pattern used in real @types/node
+      const declarations = parseAmbientModule(
+        `declare module "path" {
+          namespace path {
+            interface PlatformPath {
+              join(...paths: string[]): string;
+              resolve(...paths: string[]): string;
+            }
+          }
+          const path: path.PlatformPath;
+          export = path;
+        }`,
+        "path"
+      );
+
+      const range = findAmbientNamedExportRange(declarations, "join");
+      expect(range).not.toBeNull();
+      // The range must point to the "join" member inside the PlatformPath interface
+      const src = `declare module "path" {\n  namespace path {\n    interface PlatformPath {\n      join(...paths: string[]): string;\n      resolve(...paths: string[]): string;\n    }\n  }\n  const path: path.PlatformPath;\n  export = path;\n}`;
+      const lineText = src.split("\n")[range?.start.line ?? -1] ?? "";
+      expect(lineText).toContain("join");
+    });
+
+    it("returns null for a name not present in the declarations", () => {
+      const declarations = parseAmbientModule(
+        `declare module "my-module" {
+          export function knownExport(): void;
+        }`,
+        "my-module"
+      );
+
+      const range = findAmbientNamedExportRange(declarations, "unknownExport");
+      expect(range).toBeNull();
+    });
+
+    it("finds a symbol declared inside a global {} block within a module", () => {
+      // When declarations are assembled directly (not via ambientTypesLoader which
+      // flattens global blocks), a declare global {} NamespaceStatement inside the
+      // module body should be searched as a fallback.
+      const declarations = parseAmbientModule(
+        `declare module "augmenting-module" {
+          export function moduleExport(): void;
+          global {
+            function globalHelper(): void;
+          }
+        }`,
+        "augmenting-module"
+      );
+
+      // The module export should resolve directly.
+      const moduleRange = findAmbientNamedExportRange(declarations, "moduleExport");
+      expect(moduleRange).not.toBeNull();
+
+      // The global {} member should be found via the global block search.
+      const globalRange = findAmbientNamedExportRange(declarations, "globalHelper");
+      expect(globalRange).not.toBeNull();
+    });
   });
 });

@@ -22,7 +22,7 @@
 
 * [x] Replace the current split definition flow with one shared declaration-location resolver. `resolveDefinitionWithLocalFallback` in `crossFileNavigation.ts` is the single unified entrypoint covering import paths, import specifiers, member expressions, ambient symbols, and local definitions.
 * [x] Make imported symbol navigation consistently jump to the source declaration rather than sometimes stopping on the import site. `resolveImportSpecifierDefinition` (private helper in `crossFileNavigation.ts`) handles the case where the cursor is on the import specifier name.
-* [ ] Standardize ambient declaration locations for `declare module`, `global {}`, namespace wrappers, `export =`, and bundled runtime declarations.
+* [x] Standardize ambient declaration locations for `declare module`, `global {}`, namespace wrappers, `export =`, and bundled runtime declarations. Extracted `findAmbientNamedExportRange` into `crossFileContext.ts` (exported, covering direct declaration, `export = Alias` → namespace body → direct and interface-member patterns, and `global {}` blocks). Replaced the private `findAmbientImportedDeclarationRange` in `crossFileNavigation.ts` with a call to the new shared helper; removed the now-redundant private helpers `findAmbientModuleDeclarationByName` and `findAmbientInterfaceMemberRange`. Tests added in `crossFileNavigation.test.ts` covering direct-declaration lookup, the `export =` namespace-body pattern, name-not-found, and `global {}` block search.
 
 ## Hover
 
