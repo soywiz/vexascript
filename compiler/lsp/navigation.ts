@@ -225,14 +225,18 @@ function collectReferenceRanges(
   includeDeclaration: boolean,
   program?: Program
 ): AnalysisRange[] {
-  const parameterIdentifier = parameterIdentifierFromCursor(analysis, program, line, character);
+  const target = resolveCursorTarget(analysis, line, character, program);
+  if (!target) {
+    return [];
+  }
+  const parameterIdentifier = parameterIdentifierFromCursor(analysis, program, target.line, target.character);
   if (!parameterIdentifier) {
-    return analysis.getReferenceRangesAt(line, character, includeDeclaration);
+    return analysis.getReferenceRangesAt(target.line, target.character, includeDeclaration);
   }
 
   const baseRanges = analysis.getReferenceRangesAt(
-    parameterIdentifier.firstToken?.range.start.line ?? line,
-    parameterIdentifier.firstToken?.range.start.column ?? character,
+    parameterIdentifier.firstToken?.range.start.line ?? target.line,
+    parameterIdentifier.firstToken?.range.start.column ?? target.character,
     includeDeclaration
   );
   const documentationRanges = program
@@ -251,6 +255,56 @@ function collectReferenceRanges(
   return merged;
 }
 
+export type CursorTarget =
+  | { kind: "documentationParameter"; line: number; character: number; reference: NonNullable<ReturnType<typeof findDocumentationParameterReference>> }
+  | { kind: "annotation"; line: number; character: number; reference: NonNullable<ReturnType<typeof annotationReferenceAt>> }
+  | { kind: "analysis"; line: number; character: number; symbolAt: ReturnType<Analysis["getSymbolAt"]>; definition: ReturnType<Analysis["getDefinitionAt"]>; hover: ReturnType<Analysis["getHoverAt"]> };
+
+export function candidateCharacters(character: number): number[] {
+  const candidates = [character];
+  if (character > 0) {
+    candidates.push(character - 1);
+  }
+  candidates.push(character + 1);
+  return candidates;
+}
+
+export function resolveCursorTarget(
+  analysis: Analysis,
+  line: number,
+  character: number,
+  program?: Program
+): CursorTarget | null {
+  for (const candidate of candidateCharacters(character)) {
+    const documentationReference = program
+      ? findDocumentationParameterReference(program, line, candidate)
+      : null;
+    if (documentationReference) {
+      return { kind: "documentationParameter", line, character: candidate, reference: documentationReference };
+    }
+
+    const annotationReference = annotationReferenceAt(program, line, candidate);
+    if (annotationReference) {
+      return { kind: "annotation", line, character: candidate, reference: annotationReference };
+    }
+
+    const symbolAt = analysis.getSymbolAt(line, candidate);
+    const definition = analysis.getDefinitionAt(line, candidate);
+    const hover = analysis.getHoverAt(line, candidate);
+    if (symbolAt || definition || hover) {
+      return {
+        kind: "analysis",
+        line,
+        character: candidate,
+        symbolAt,
+        definition,
+        hover
+      };
+    }
+  }
+  return null;
+}
+
 export function createDefinitionLocation(
   analysis: Analysis,
   uri: string,
@@ -258,25 +312,26 @@ export function createDefinitionLocation(
   character: number,
   program?: Program
 ): Location | null {
-  const documentationReference = definitionFromDocumentationReference(uri, program, line, character);
-  if (documentationReference) {
-    return documentationReference;
+  const target = resolveCursorTarget(analysis, line, character, program);
+  if (!target) {
+    return null;
   }
-  const annotationReference = annotationReferenceAt(program, line, character);
-  if (annotationReference) {
+  if (target.kind === "documentationParameter") {
+    return definitionFromDocumentationReference(uri, program, target.line, target.character);
+  }
+  if (target.kind === "annotation") {
     return {
       uri,
-      range: annotationReference.declarationRange
+      range: target.reference.declarationRange
     };
   }
-  const definition = analysis.getDefinitionAt(line, character);
-  if (!definition) {
+  if (!target.definition) {
     return null;
   }
 
   return {
     uri,
-    range: definition.range
+    range: target.definition.range
   };
 }
 
@@ -286,31 +341,32 @@ export function createHover(
   character: number,
   program?: Program
 ): Hover | null {
-  const documentationReference = hoverFromDocumentationReference(program, line, character);
-  if (documentationReference) {
-    return documentationReference;
+  const target = resolveCursorTarget(analysis, line, character, program);
+  if (!target) {
+    return null;
   }
-  const annotationReference = annotationReferenceAt(program, line, character);
-  if (annotationReference) {
+  if (target.kind === "documentationParameter") {
+    return hoverFromDocumentationReference(program, target.line, target.character);
+  }
+  if (target.kind === "annotation") {
     return {
       contents: {
         kind: "plaintext",
-        value: annotationHoverValue(annotationReference.declaration)
+        value: annotationHoverValue(target.reference.declaration)
       },
-      range: annotationReference.referenceRange
+      range: target.reference.referenceRange
     };
   }
-  const hover = analysis.getHoverAt(line, character);
-  if (!hover) {
+  if (!target.hover) {
     return null;
   }
 
   return {
     contents: {
       kind: "plaintext",
-      value: hover.contents
+      value: target.hover.contents
     },
-    range: hover.range
+    range: target.hover.range
   };
 }
 
@@ -320,10 +376,14 @@ export function createPrepareRename(
   character: number,
   program?: Program
 ): PrepareRenameResult | null {
-  const documentationReference = hoverFromDocumentationReference(program, line, character);
-  if (documentationReference) {
-    const parameterIdentifier = parameterIdentifierFromCursor(analysis, program, line, character);
-    if (!parameterIdentifier) {
+  const target = resolveCursorTarget(analysis, line, character, program);
+  if (!target) {
+    return null;
+  }
+  if (target.kind === "documentationParameter") {
+    const documentationReference = hoverFromDocumentationReference(program, target.line, target.character);
+    const parameterIdentifier = parameterIdentifierFromCursor(analysis, program, target.line, target.character);
+    if (!documentationReference || !parameterIdentifier) {
       return null;
     }
     return {
@@ -331,11 +391,11 @@ export function createPrepareRename(
       placeholder: parameterIdentifier.name
     };
   }
-
-  const symbolAt = analysis.getSymbolAt(line, character);
-  if (!symbolAt) {
+  if (target.kind === "annotation" || !target.symbolAt) {
     return null;
   }
+
+  const symbolAt = target.symbolAt;
   if (symbolAt.symbol.declaredOffset < 0) {
     return null;
   }

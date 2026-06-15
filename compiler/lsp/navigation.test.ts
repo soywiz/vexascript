@@ -9,6 +9,7 @@ import {
   createDefinitionLocation,
   createHover,
   createPrepareRename,
+  resolveCursorTarget,
   createReferences,
   createRenameWorkspaceEdit
 } from "./navigation";
@@ -132,6 +133,21 @@ describe("lsp navigation", () => {
       value: "expression: int"
     });
   });
+  it("normalizes cursor positions through the shared cursor target resolver", () => {
+    const source = "let value = 1\n";
+    const analysis = analysisOf(source);
+
+    const target = resolveCursorTarget(analysis, 0, 9);
+    expect(target?.kind).toBe("analysis");
+    expect(target?.character).toBe(9);
+
+    const hover = createHover(analysis, 0, 9);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "variable value: int"
+    });
+  });
+
 
   it("provides hover and definition for annotation applications", () => {
     const marked = sourceWithCursor(dedent`
