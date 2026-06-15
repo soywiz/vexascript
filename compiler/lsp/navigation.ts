@@ -11,7 +11,8 @@ import type { Analysis, AnalysisRange } from "compiler/analysis/Analysis";
 import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
 import {
   findDocumentationParameterReference,
-  findDocumentationReferenceRangesForIdentifier
+  findDocumentationReferenceRangesForIdentifier,
+  readDocumentationFromProgramDeclaration
 } from "./documentation";
 import {
   getEcmaScriptRuntimeProgram,
@@ -361,10 +362,18 @@ export function createHover(
     return null;
   }
 
+  const hoverTypeText = target.hover.contents;
+  const symbolNode = target.symbolAt?.symbol.node;
+  const documentation =
+    program && symbolNode?.kind === "Identifier"
+      ? readDocumentationFromProgramDeclaration(program, symbolNode as Identifier)
+      : undefined;
+  const hoverValue = documentation ? `${hoverTypeText}\n\n${documentation}` : hoverTypeText;
+
   return {
     contents: {
       kind: "plaintext",
-      value: target.hover.contents
+      value: hoverValue
     },
     range: target.hover.range
   };

@@ -678,4 +678,33 @@ describe("lsp navigation", () => {
     expect(createPrepareRename(analysis, 0, 9)).toBeNull();
     expect(createRenameWorkspaceEdit(analysis, URI, 0, 9, "yes")).toBeNull();
   });
+
+  it("includes triple-slash documentation in local hover", () => {
+    const marked = sourceWithCursor(dedent`
+      /// Greets a person by name.
+      fun ^^^greet(name: string): string => "Hello, " + name
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    const hover = createHover(analysis, marked.line, marked.character, ast);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "function greet: (name: string) => string\n\nGreets a person by name."
+    });
+  });
+
+  it("omits documentation from local hover when none is present", () => {
+    const marked = sourceWithCursor(dedent`
+      fun ^^^greet(name: string): string => "Hello, " + name
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    const hover = createHover(analysis, marked.line, marked.character, ast);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "function greet: (name: string) => string"
+    });
+  });
 });

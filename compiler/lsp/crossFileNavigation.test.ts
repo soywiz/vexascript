@@ -443,7 +443,7 @@ describe("cross-file navigation", () => {
     expect(definition?.uri).toBe(pathToFileURL(await getEcmaScriptRuntimeDeclarationFilePath()).toString());
     expect(hover?.contents).toEqual({
       kind: "plaintext",
-      value: "valueOf: () => number"
+      value: "valueOf: () => number\n\nReturns the primitive value of the specified object."
     });
   });
 
@@ -677,7 +677,7 @@ describe("cross-file navigation", () => {
     expect(memberDefinition?.uri).toBe(pathToFileURL(getDomDeclarationFilePath()).toString());
     expect(memberHover?.contents).toEqual({
       kind: "plaintext",
-      value: "className: string"
+      value: "className: string\n\nThe **string** property of the of the specified element.\n\n[MDN Reference](https://developer.mozilla.org/docs/Web/API/Element/className)"
     });
   });
 
@@ -790,6 +790,45 @@ describe("cross-file navigation", () => {
     expect(hover?.range).toEqual({
       start: { line: 3, character: 8 },
       end: { line: 3, character: 13 }
+    });
+  });
+
+  it("includes triple-slash documentation in cross-file member hover", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const fileA = join(root, "world.vx");
+    const fileB = join(root, "hello.vx");
+
+    const sourceA = dedent`
+      class Point {
+        /// The x coordinate.
+        x: number
+        /// The y coordinate.
+        y: number
+      }
+      `;
+    const sourceB = dedent`
+      import { Point } from "./world"
+      fun demo() {
+        const point = new Point()
+        point.x
+      }
+      `;
+
+    await writeFile(fileA, sourceA, "utf8");
+    await writeFile(fileB, sourceB, "utf8");
+
+    const sessionB = createAnalysisSession(sourceB);
+    const hover = await resolveMemberHoverAcrossFiles({
+      uri: pathToFileURL(fileB).toString(),
+      line: 3,
+      character: 8,
+      session: sessionB,
+      sourceRoots: [root]
+    });
+
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "x: number\n\nThe x coordinate."
     });
   });
 

@@ -27,8 +27,8 @@
 ## Hover
 
 * [x] Replace the layered hover flow with one hover builder that consumes the shared resolved target. `resolveHoverWithLocalFallback` in `crossFileNavigation.ts` is the single unified hover entrypoint used by `serverCore.ts`.
-* [ ] Make hover formatting consistent for local, imported, ambient, member, annotation, and documentation-reference targets.
-* [ ] Reuse shared documentation extraction for both local and cross-file declarations.
+* [x] Make hover formatting consistent for local, imported, ambient, member, annotation, and documentation-reference targets.
+* [x] Reuse shared documentation extraction for both local and cross-file declarations.
 
 ## Signature Help
 

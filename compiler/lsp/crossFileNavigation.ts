@@ -923,10 +923,13 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
     return null;
   }
   const memberRange = nodeRange(memberExpression.property) ?? nodeRange(memberExpression);
+  const typeLabel = resolvedMember?.typeName ?? fallbackMember?.typeLabel ?? structuralMember!.typeLabel;
+  const documentation = resolvedMember?.documentation;
+  const hoverValue = documentation ? `${memberName}: ${typeLabel}\n\n${documentation}` : `${memberName}: ${typeLabel}`;
   return {
     contents: {
       kind: "plaintext",
-      value: `${memberName}: ${resolvedMember?.typeName ?? fallbackMember?.typeLabel ?? structuralMember!.typeLabel}`
+      value: hoverValue
     },
     ...(memberRange ? { range: memberRange } : {})
   };
