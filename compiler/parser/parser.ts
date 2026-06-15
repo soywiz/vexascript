@@ -1030,6 +1030,11 @@ export class Parser {
     private parsePrimaryTypeAnnotationText(): string {
         const start = this.tokens.peek();
 
+        const templateLiteralType = this.tryParseTemplateLiteralTypeText();
+        if (templateLiteralType) {
+            return `${templateLiteralType}${this.parseTypeAnnotationSuffixText()}`;
+        }
+
         if (start?.type === "symbol" && start.value === "<") {
             const typeParameters = this.readAngleBracketTypeText();
             const openParen = this.tokens.read();
@@ -1081,6 +1086,12 @@ export class Parser {
                         this.tokens.skip();
                         this.tokens.skip();
                         elementType += `?: ${this.parseConditionalTypeAnnotationText()}`;
+                    } else if (
+                        afterQuestion?.type === "symbol" &&
+                        (afterQuestion.value === "," || afterQuestion.value === "]")
+                    ) {
+                        this.tokens.skip();
+                        elementType += "?";
                     }
                 } else if (optionalLabel?.type === "symbol" && optionalLabel.value === ":") {
                     this.tokens.skip();
@@ -1230,6 +1241,10 @@ export class Parser {
                 this.tokens.skip();
                 typeName += `.${this.tokens.read()!.value}`;
             }
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<") {
+                const argumentsText = this.parseTypeArgumentListText();
+                typeName += `<${argumentsText.join(", ")}>`;
+            }
             typeName += this.parseTypeAnnotationSuffixText();
             return typeName;
         }
@@ -1313,6 +1328,68 @@ export class Parser {
 
         typeName += this.parseTypeAnnotationSuffixText();
         return typeName;
+    }
+
+    private tryParseTemplateLiteralTypeText(): string | null {
+        const checkpoint = this.beginTokenCheckpoint();
+        const first = this.tokens.peek();
+        if (first?.type !== "string") {
+            this.restoreTokenCheckpoint(checkpoint);
+            return null;
+        }
+
+        const firstPlus = this.peekToken(1);
+        const firstInterpolationStart = this.peekToken(2);
+        if (firstPlus?.type !== "symbol" || firstPlus.value !== "+" || !firstInterpolationStart) {
+            this.restoreTokenCheckpoint(checkpoint);
+            return null;
+        }
+
+        let text = `\`${first.value}`;
+        this.tokens.skip();
+        let sawTemplateSegment = false;
+
+        while (this.tokens.hasMore) {
+            const plus = this.tokens.peek();
+            if (plus?.type !== "symbol" || plus.value !== "+") {
+                break;
+            }
+            this.tokens.skip();
+
+            const next = this.tokens.peek();
+            if (next?.type === "symbol" && next.value === "(") {
+                this.tokens.skip();
+                text += "${";
+                text += this.parseConditionalTypeAnnotationText();
+                const closeParen = this.tokens.read();
+                if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                    this.restoreTokenCheckpoint(checkpoint);
+                    return null;
+                }
+                text += "}";
+                sawTemplateSegment = true;
+                continue;
+            }
+
+            if (next?.type === "string") {
+                text += next.value;
+                this.tokens.skip();
+                sawTemplateSegment = true;
+                continue;
+            }
+
+            this.restoreTokenCheckpoint(checkpoint);
+            return null;
+        }
+
+        if (!sawTemplateSegment) {
+            this.restoreTokenCheckpoint(checkpoint);
+            return null;
+        }
+
+        text += "`";
+        this.commitTokenCheckpoint(checkpoint);
+        return text;
     }
 
     private isMappedTypeMemberStart(): boolean {

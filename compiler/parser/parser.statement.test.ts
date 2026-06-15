@@ -1651,9 +1651,24 @@ describe("parseStatement", () => {
             kind: "VarStatement",
             typeAnnotation: { kind: "Identifier", name: "[string, int]" }
         });
+        expect(parseStatement(tokenizeReader("let path: [EventTarget?]"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "[EventTarget?]" }
+        });
         expect(parseStatement(tokenizeReader("let point: { x: int; y?: string }"))).toMatchObject({
             kind: "VarStatement",
             typeAnnotation: { kind: "Identifier", name: "{ x: int, y?: string }" }
+        });
+    });
+
+    it("parses template-literal and import-member generic type annotations", () => {
+        expect(parseStatement(tokenizeReader("type UUID = `${string}-${string}-${string}-${string}-${string}`", { jsx: false }), { language: "typescript" })).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: "`${string}-${string}-${string}-${string}-${string}`" }
+        });
+        expect(parseStatement(tokenizeReader("type Stream<R = any> = typeof globalThis extends { onmessage: any } ? {} : import(\"stream/web\").ReadableStream<R>", { jsx: false }), { language: "typescript" })).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: 'typeof globalThis extends { onmessage: any } ? {  } : import("stream/web").ReadableStream<R>' }
         });
     });
 

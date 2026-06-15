@@ -29,9 +29,7 @@ async function compilerTypeScriptFiles(): Promise<string[]> {
 }
 
 describe("Parse compiler codebase", () => {
-  const expectedStrictFailures = [
-    "compiler/runtime/dom.d.ts: Expected ';', newline, or '}' between statements @ 8454:20 | Expected a number literal, string literal, identifier, '(', '[' or '{' @ 8455:0 | Expected ';', newline, or end of file between statements @ 39166:33 | Expected ';', newline, or end of file between statements @ 39167:45 | Expected ';', newline, or end of file between statements @ 39168:33 | Expected ';', newline, or end of file between statements @ 39222:49 | Expected ';', newline, or end of file between statements @ 39223:47"
-  ];
+  const expectedStrictFailures: string[] = [];
 
   it("discovers every TypeScript file under compiler/ for parser profiling", async () => {
     const files = await compilerTypeScriptFiles();

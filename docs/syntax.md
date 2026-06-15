@@ -849,9 +849,12 @@ type Text = string
 type Boxed<T> = Box<T>
 type Status = "ready" | "done"
 type Pair = [string, int]
+type EventPath = [EventTarget?]
 type UserKey = keyof User
 type UserName = User["name"]
 type NameCopy = typeof currentUser.name
+type UUID = `${string}-${string}-${string}-${string}-${string}`
+type Stream<R> = import("stream/web").ReadableStream<R>
 let name: Text = "Ada"
 let boxed: Boxed<Text> = new Box<string>()
 ```
@@ -871,10 +874,12 @@ Supported type annotation forms in declarations/members:
 - function types (`(value: int) => string`, including optional and rest parameters)
 - object type literals (`{ x: int; label?: string }`)
 - literal types (`"ready"`, `404`, `true`)
-- tuple types (`[string, int]`)
+- tuple types (`[string, int]`, `[value: T, setter: (newValue: T) => void]`, `[EventTarget?]`)
 - `keyof` type operators (`keyof User`)
 - `typeof` type queries over values and dotted members (`typeof config`, `typeof user.name`)
 - indexed access types (`User["name"]`, `Tuple[0]`, `User[keyof User]`)
+- template literal types (`` `${string}-${string}` ``)
+- import types (`import("stream/web").ReadableStream<R>`)
 - mapped types (`{ [K in keyof T]?: T[K] }`)
 - conditional types (`T extends U ? X : Y`)
 - inferred conditional-type variables (`T extends (infer U)[] ? U : T`)
