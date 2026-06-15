@@ -39,12 +39,12 @@ import {
 import {
   resolveDefinitionWithLocalFallback,
   resolveHoverWithLocalFallback,
+  resolvePrepareRenameAcrossFiles,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import {
   candidateCharacters,
-  createPrepareRename,
   createRenameWorkspaceEdit
 } from "./navigation";
 import { createSignatureHelp } from "./signatureHelp";
@@ -392,18 +392,23 @@ export function startLspServer(options: LspServerOptions): void {
     });
   });
 
-  connection.onPrepareRename((params) => {
+  connection.onPrepareRename(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return null;
     }
 
-    const analysis = analysisSessions.getForDocument(doc).analysis;
-    if (!analysis) {
+    const session = await analysisSessions.getForDocumentAsync(doc);
+    if (!session.analysis) {
       return null;
     }
 
-    return createPrepareRename(analysis, params.position.line, params.position.character, analysisSessions.getForDocument(doc).ast ?? undefined);
+    return resolvePrepareRenameAcrossFiles({
+      ...featureContext(params.textDocument.uri),
+      line: params.position.line,
+      character: params.position.character,
+      session
+    });
   });
 
   connection.onRenameRequest(async (params) => {

@@ -15,12 +15,17 @@ import {
   resolveDefinitionAcrossFiles,
   resolveDefinitionWithLocalFallback,
   resolveMemberHoverAcrossFiles,
+  resolvePrepareRenameAcrossFiles,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import { pathToUri } from "./importFixes";
-import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
-import { getVexaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
+import {
+  ensureEcmaScriptRuntimeProgram,
+  getEcmaScriptRuntimeDeclarationFilePath,
+  getEcmaScriptRuntimeProgram,
+  getVexaScriptRuntimeDeclarationFilePath
+} from "compiler/runtime/ecmascriptDeclarations";
 import { Vfs } from "compiler/vfs";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
@@ -2413,4 +2418,112 @@ describe("cross-file navigation", () => {
       expect(globalRange).not.toBeNull();
     });
   });
+
+  describe("rename and prepareRename for runtime/ambient symbols", () => {
+    it("resolveRenameAcrossFiles returns null for a built-in ECMAScript runtime symbol", async () => {
+      // parseInt is declared in the ECMAScript runtime (es2025.d.ts), so
+      // renaming it would only patch usage sites while leaving the declaration
+      // untouched — a half-working rename that must be blocked.
+      await ensureEcmaScriptRuntimeProgram();
+      const runtimeDeclarations = getEcmaScriptRuntimeProgram().body;
+
+      const { source, line, character } = sourceWithCursor(dedent`
+        val result = par^^^seInt("42", 10)
+      `);
+
+      const root = await mkdtemp(join(tmpdir(), "vexa-rename-runtime-"));
+      const file = join(root, "main.vx");
+      await writeFile(file, source, "utf8");
+
+      const session = createAnalysisSession(source, [], new Map(), runtimeDeclarations);
+      const edit = await resolveRenameAcrossFiles(
+        {
+          uri: pathToFileURL(file).toString(),
+          line,
+          character,
+          session,
+          sourceRoots: [root]
+        },
+        "parseInteger"
+      );
+
+      expect(edit).toBeNull();
+    });
+
+    it("resolveRenameAcrossFiles succeeds for a local user-defined function", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-rename-local-"));
+      const file = join(root, "main.vx");
+
+      const { source, line, character } = sourceWithCursor(dedent`
+        fun greet(name: string): string { return "Hello " + name }
+        val msg = gre^^^et("World")
+      `);
+
+      await writeFile(file, source, "utf8");
+
+      const session = createAnalysisSession(source);
+      const edit = await resolveRenameAcrossFiles(
+        {
+          uri: pathToFileURL(file).toString(),
+          line,
+          character,
+          session,
+          sourceRoots: [root]
+        },
+        "sayHello"
+      );
+
+      expect(edit).not.toBeNull();
+      expect(edit?.changes?.[pathToFileURL(file).toString()]).toBeDefined();
+    });
+
+    it("resolvePrepareRenameAcrossFiles returns null for a built-in ECMAScript runtime symbol", async () => {
+      // parseFloat lives in the ECMAScript runtime; prepareRename must refuse it.
+      await ensureEcmaScriptRuntimeProgram();
+      const runtimeDeclarations = getEcmaScriptRuntimeProgram().body;
+
+      const { source, line, character } = sourceWithCursor(dedent`
+        val n = parseF^^^loat("3.14")
+      `);
+
+      const root = await mkdtemp(join(tmpdir(), "vexa-prepare-rename-runtime-"));
+      const file = join(root, "main.vx");
+      await writeFile(file, source, "utf8");
+
+      const session = createAnalysisSession(source, [], new Map(), runtimeDeclarations);
+      const result = await resolvePrepareRenameAcrossFiles({
+        uri: pathToFileURL(file).toString(),
+        line,
+        character,
+        session,
+        sourceRoots: [root]
+      });
+
+      expect(result).toBeNull();
+    });
+
+    it("resolvePrepareRenameAcrossFiles returns a valid result for a local symbol", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-prepare-rename-local-"));
+      const file = join(root, "main.vx");
+
+      const { source, line, character } = sourceWithCursor(dedent`
+        fun localFu^^^nction(): int { return 1 }
+      `);
+
+      await writeFile(file, source, "utf8");
+
+      const session = createAnalysisSession(source);
+      const result = await resolvePrepareRenameAcrossFiles({
+        uri: pathToFileURL(file).toString(),
+        line,
+        character,
+        session,
+        sourceRoots: [root]
+      });
+
+      expect(result).not.toBeNull();
+      expect((result as { placeholder?: string })?.placeholder).toBe("localFunction");
+    });
+  });
 });
+

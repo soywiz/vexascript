@@ -40,8 +40,8 @@
 ## References And Rename
 
 * [x] Make references, rename, and highlight agree on whether they target the declaration, the imported binding, or the exported symbol behind it. `createDocumentHighlights` now uses `createReferences` (which uses `resolveCursorTarget`) so doc-param and annotation highlights are consistent with references.
-* [ ] Refactor references and rename to operate on one canonical symbol identity.
-* [ ] Ensure unsupported ambient/imported rename cases fail clearly instead of half-working.
+* [x] Refactor references and rename to operate on one canonical symbol identity. `resolveReferencesAcrossFiles` already uses `resolveCanonicalSymbol` as its identity anchor; confirmed the loop correctly covers all files. `resolveRenameAcrossFiles` now guards against virtual runtime and ambient symbols using the same canonical resolution, and the new `resolvePrepareRenameAcrossFiles` in `crossFileNavigation.ts` gates the editor UI before a rename is attempted.
+* [x] Ensure unsupported ambient/imported rename cases fail clearly instead of half-working. Added `resolvePrepareRenameAcrossFiles` (exported from `crossFileNavigation.ts`) that returns `null` for any symbol whose canonical location is a virtual runtime file (`/runtime/dom.d.ts`, `/runtime/es2025.d.ts`, `/runtime/vexascript.d.vx`) or an ambient declaration. `resolveRenameAcrossFiles` applies the same guard so both the prepare and the execution paths reject such symbols consistently. `serverCore.ts` now calls `resolvePrepareRenameAcrossFiles` instead of the local-only `createPrepareRename`. Tests added in `crossFileNavigation.test.ts`.
 
 ## Deduplication
 

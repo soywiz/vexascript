@@ -24,7 +24,7 @@ import {
   resolveTopLevelDeclarationAcrossFiles
 } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
-import type { Hover, Location, WorkspaceEdit } from "vscode-languageserver/node.js";
+import type { Hover, Location, PrepareRenameResult, WorkspaceEdit } from "vscode-languageserver/node.js";
 import { pathToUri, uriToFilePath } from "./importFixes";
 import { nodeRange } from "./ranges";
 import {
@@ -56,6 +56,9 @@ import {
   rangesEqual,
   resolveCanonicalSymbol,
   resolveImportTargetInContext,
+  VIRTUAL_DOM_DECLARATION_FILE_PATH,
+  VIRTUAL_ECMA_DECLARATION_FILE_PATH,
+  VIRTUAL_VEXA_DECLARATION_FILE_PATH,
   type ResolveContext
 } from "./crossFileContext";
 import {
@@ -73,8 +76,10 @@ import {
   resolveTypeDefinitionAcrossFiles,
   type ClassMemberInfo
 } from "./crossFileTypeResolution";
-import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
+import { candidateCharacters, createDefinitionLocation, createHover, createPrepareRename } from "./navigation";
 import { buildFunctionTypeFromStatement } from "./importedDeclarations";
+import { isDomRuntimeNode } from "compiler/runtime/domDeclarations";
+import { isEcmaScriptRuntimeNode, isVexaScriptRuntimeNode } from "compiler/runtime/ecmascriptDeclarations";
 
 function findAmbientImportedOverloadRange(
   context: ResolveContext,
@@ -1111,10 +1116,104 @@ export async function resolveHoverWithLocalFallback(context: ResolveContext): Pr
   return createHover(context.session.analysis, context.line, context.character, context.session.ast ?? undefined);
 }
 
+function isVirtualRuntimeFilePath(filePath: string): boolean {
+  return (
+    filePath === VIRTUAL_DOM_DECLARATION_FILE_PATH ||
+    filePath === VIRTUAL_ECMA_DECLARATION_FILE_PATH ||
+    filePath === VIRTUAL_VEXA_DECLARATION_FILE_PATH
+  );
+}
+
+/**
+ * Returns true when the symbol at the cursor belongs to the built-in
+ * ECMAScript/DOM/VexaScript runtime or an ambient (non-project) declaration.
+ * These symbols cannot be fully renamed because their declaration lives in a
+ * read-only file, so the rename would only patch usage sites.
+ */
+function isNonRenameableSymbol(context: ResolveContext, symbol: { filePath: string } | null): boolean {
+  // Virtual path guard — covers the normal LSP server path where the VFS maps
+  // the runtime declarations to well-known virtual paths.
+  if (symbol && isVirtualRuntimeFilePath(symbol.filePath)) {
+    return true;
+  }
+
+  if (!context.session.analysis) {
+    return false;
+  }
+
+  const symbolAt = context.session.analysis.getSymbolAt(context.line, context.character);
+  if (!symbolAt) {
+    return false;
+  }
+
+  // Direct runtime-node check — covers test scenarios where the runtime
+  // declarations are loaded as ambient declarations without a VFS and the
+  // resolved filePath is the real disk path rather than a virtual path.
+  if (
+    isEcmaScriptRuntimeNode(symbolAt.symbol.node) ||
+    isVexaScriptRuntimeNode(symbolAt.symbol.node) ||
+    isDomRuntimeNode(symbolAt.symbol.node)
+  ) {
+    return true;
+  }
+
+  // Ambient declaration guard — covers symbols declared in @types packages or
+  // other non-project declaration files loaded via ambientDeclarations.
+  if (context.session.ast) {
+    const ambientLocation = ambientDeclarationLocationForSymbol(
+      context.session,
+      symbolAt.symbol.node,
+      symbolAt.symbol.name
+    );
+    if (ambientLocation) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Cross-file prepareRename: returns null (blocking rename) if the canonical
+ * symbol resolves to a virtual runtime file or an ambient declaration that
+ * lives outside the editable workspace. Otherwise delegates to the local
+ * `createPrepareRename` so the editor shows the correct placeholder.
+ */
+export async function resolvePrepareRenameAcrossFiles(
+  context: ResolveContext
+): Promise<PrepareRenameResult | null> {
+  const symbol = await resolveCanonicalSymbol(context);
+
+  // Block rename for symbols that live in virtual runtime files or ambient
+  // declaration files — renaming them would only touch usage sites while the
+  // declaration itself stays unchanged, producing a broken half-rename.
+  if (isNonRenameableSymbol(context, symbol)) {
+    return null;
+  }
+
+  if (!context.session.analysis) {
+    return null;
+  }
+  return createPrepareRename(
+    context.session.analysis,
+    context.line,
+    context.character,
+    context.session.ast ?? undefined
+  );
+}
+
 export async function resolveRenameAcrossFiles(
   context: ResolveContext,
   newName: string
 ): Promise<WorkspaceEdit | null> {
+  // Block rename for virtual runtime symbols and ambient declarations.
+  // These renames would only touch usage sites while the declaration lives
+  // in a file that cannot be edited, producing a broken half-rename.
+  const symbol = await resolveCanonicalSymbol(context);
+  if (isNonRenameableSymbol(context, symbol)) {
+    return null;
+  }
+
   const locations = await resolveReferencesAcrossFiles(context, true);
   if (locations.length === 0) {
     return localRenameWorkspaceEdit(context, newName);
