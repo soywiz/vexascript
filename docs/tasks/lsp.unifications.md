@@ -2,7 +2,7 @@
 
 ## Scope
 
-* [ ] Map all current resolution paths used by hover, go to definition, declaration, type definition, implementation, references, rename, and signature help.
+* [x] Map all current resolution paths used by hover, go to definition, declaration, type definition, implementation, references, rename, and signature help. See `docs/lsp.resolution-paths.md`.
 * [ ] Document where each feature depends on `Analysis`, `crossFileNavigation`, `crossFileContext`, `classResolver`, `declarationResolver`, `importedDeclarations`, and ambient-type helpers.
 * [ ] List the current inconsistent cases: local functions, global functions, imported functions, ambient declarations, default imports, namespace imports, class members, interface members, extension members, constructors, overloads, single-file cases, and cross-file cases.
 
