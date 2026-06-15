@@ -6,13 +6,11 @@ import type {
   CallExpression,
   Expr,
   ExportStatement,
-  ExprStatement,
   FunctionStatement,
   Identifier,
   MemberExpression,
   ImportStatement,
   NewExpression,
-  NamespaceStatement,
   Node,
   Program,
   Statement
@@ -37,6 +35,7 @@ import {
 import { findBestMatch } from "./nodeSearch";
 import { resolveCursorTarget, type CursorTarget } from "./navigation";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
+import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
 
 interface InvocationContext {
   callee: Expr;
@@ -282,36 +281,6 @@ function unwrapAmbientStatement(statement: Statement): Statement {
   return statement.kind === "ExportStatement"
     ? (statement as ExportStatement).declaration ?? statement
     : statement;
-}
-
-function detectAmbientExportEqualsName(statements: readonly Statement[]): string | null {
-  for (const statement of statements) {
-    if (statement.kind !== "ExprStatement") {
-      continue;
-    }
-    const expression = (statement as ExprStatement).expression;
-    if (expression?.kind === "Identifier") {
-      return (expression as Identifier).name;
-    }
-  }
-  return null;
-}
-
-function findAmbientNamespaceBody(
-  statements: readonly Statement[],
-  namespaceName: string
-): Statement[] | null {
-  for (const statement of statements) {
-    const declaration = unwrapAmbientStatement(statement);
-    if (declaration.kind !== "NamespaceStatement") {
-      continue;
-    }
-    const namespace = declaration as NamespaceStatement;
-    if (namespace.names?.[0]?.name === namespaceName) {
-      return namespace.body.body;
-    }
-  }
-  return null;
 }
 
 function collectAmbientFunctionOverloads(

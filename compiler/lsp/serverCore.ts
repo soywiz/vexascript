@@ -38,14 +38,12 @@ import {
 } from "./completion";
 import {
   resolveDefinitionWithLocalFallback,
-  resolveMemberHoverAcrossFiles,
-  resolveImportPathHover,
+  resolveHoverWithLocalFallback,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import {
   candidateCharacters,
-  createHover,
   createPrepareRename,
   createRenameWorkspaceEdit
 } from "./navigation";
@@ -369,8 +367,10 @@ export function startLspServer(options: LspServerOptions): void {
   connection.onDocumentHighlight((params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
-    const analysis = analysisSessions.getForDocument(doc).analysis;
-    return analysis ? createDocumentHighlights(analysis, params.position.line, params.position.character) : [];
+    const session = analysisSessions.getForDocument(doc);
+    return session.analysis
+      ? createDocumentHighlights(session.analysis, params.position.line, params.position.character, session.ast ?? undefined)
+      : [];
   });
 
   connection.onHover(async (params) => {
@@ -384,29 +384,12 @@ export function startLspServer(options: LspServerOptions): void {
       return null;
     }
 
-    const importHover = await resolveImportPathHover({
+    return resolveHoverWithLocalFallback({
       ...featureContext(params.textDocument.uri),
       line: params.position.line,
       character: params.position.character,
       session
     });
-    if (importHover) {
-      return importHover;
-    }
-
-    for (const character of candidateCharacters(params.position.character)) {
-      const memberHover = await resolveMemberHoverAcrossFiles({
-        ...featureContext(params.textDocument.uri),
-        line: params.position.line,
-        character,
-        session
-      });
-      if (memberHover) {
-        return memberHover;
-      }
-    }
-
-    return createHover(session.analysis, params.position.line, params.position.character, session.ast);
   });
 
   connection.onPrepareRename((params) => {

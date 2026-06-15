@@ -20,13 +20,13 @@
 
 ## Definition And Declaration
 
-* [ ] Replace the current split definition flow with one shared declaration-location resolver.
-* [ ] Make imported symbol navigation consistently jump to the source declaration rather than sometimes stopping on the import site.
+* [x] Replace the current split definition flow with one shared declaration-location resolver. `resolveDefinitionWithLocalFallback` in `crossFileNavigation.ts` is the single unified entrypoint covering import paths, import specifiers, member expressions, ambient symbols, and local definitions.
+* [x] Make imported symbol navigation consistently jump to the source declaration rather than sometimes stopping on the import site. `resolveImportSpecifierDefinition` (private helper in `crossFileNavigation.ts`) handles the case where the cursor is on the import specifier name.
 * [ ] Standardize ambient declaration locations for `declare module`, `global {}`, namespace wrappers, `export =`, and bundled runtime declarations.
 
 ## Hover
 
-* [ ] Replace the layered hover flow with one hover builder that consumes the shared resolved target.
+* [x] Replace the layered hover flow with one hover builder that consumes the shared resolved target. `resolveHoverWithLocalFallback` in `crossFileNavigation.ts` is the single unified hover entrypoint used by `serverCore.ts`.
 * [ ] Make hover formatting consistent for local, imported, ambient, member, annotation, and documentation-reference targets.
 * [ ] Reuse shared documentation extraction for both local and cross-file declarations.
 
@@ -39,26 +39,28 @@
 
 ## References And Rename
 
+* [x] Make references, rename, and highlight agree on whether they target the declaration, the imported binding, or the exported symbol behind it. `createDocumentHighlights` now uses `createReferences` (which uses `resolveCursorTarget`) so doc-param and annotation highlights are consistent with references.
 * [ ] Refactor references and rename to operate on one canonical symbol identity.
-* [ ] Make references, rename, and highlight agree on whether they target the declaration, the imported binding, or the exported symbol behind it.
 * [ ] Ensure unsupported ambient/imported rename cases fail clearly instead of half-working.
 
 ## Deduplication
 
+* [x] Extract shared helpers for ambient lookup: `detectAmbientExportEqualsName` and `findAmbientNamespaceBody` have been moved from private copies in both `crossFileNavigation.ts` and `signatureHelp.ts` to shared exports in `compiler/lsp/crossFileContext.ts`.
 * [ ] Reduce duplicated helper logic across `crossFileNavigation.ts`, `crossFileContext.ts`, `crossFileTypeResolution.ts`, `declarationResolver.ts`, `classResolver.ts`, `importedDeclarations.ts`, and `signatureHelp.ts`.
-* [ ] Extract shared helpers for export unwrapping, ambient lookup, imported-binding normalization, member ownership lookup, and declaration metadata building.
+* [ ] Extract shared helpers for export unwrapping, imported-binding normalization, member ownership lookup, and declaration metadata building.
 * [ ] Remove ad hoc string-based or feature-specific symbol formatting where shared structured metadata can be used instead.
 
 ## Tests
 
+* [x] Add regression tests proving that multiple LSP features resolve the same canonical target in the same scenario. See `compiler/lsp/lspUnification.test.ts`.
+* [x] Prefer shared `^^^` cursor-marker fixtures for cross-feature scenarios.
+* [x] Add test coverage for local, imported, ambient, member, annotation, and documentation-reference scenarios in the unified cross-feature test file.
 * [ ] Expand tests so the same source scenarios are checked across hover, definition, references, rename, and signature help.
-* [ ] Add test coverage for local, imported, ambient, member, overload, runtime declaration, annotation, and documentation-reference scenarios.
-* [ ] Add regression tests proving that multiple LSP features resolve the same canonical target in the same scenario.
-* [ ] Prefer shared `^^^` cursor-marker fixtures for cross-feature scenarios.
+* [ ] Add test coverage for overload and runtime declaration scenarios.
 
 ## Migration
 
+* [x] Update `docs/lsp.services.md` with the new unified navigation architecture section.
+* [x] Keep `docs/file.structure.md` aligned with the final module layout (updated to mention `resolveHoverWithLocalFallback`, `lspUnification.test.ts`, and the shared ambient helpers).
 * [ ] Migrate feature by feature in this order: definition/declaration, hover, signature help, references/rename.
 * [ ] Remove obsolete fallback paths only after the new shared pipeline has coverage.
-* [ ] Update `docs/lsp.services.md` after the new architecture is in place.
-* [ ] Keep `docs/file.structure.md` aligned with the final module layout.

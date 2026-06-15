@@ -97,3 +97,12 @@ resolve against the browser-only virtual workspace
 - On-type formatting handles newline indentation and closing braces.
 - Call hierarchy reports same-document function calls.
 - Workspace diagnostic pulls report open documents. Configuration and watched-file changes refresh open-document diagnostics and invalidate changed project files.
+
+## Navigation architecture
+
+All navigation features (hover, definition, declaration, type definition, implementation, references, rename, highlight) share a common resolution pipeline:
+
+- `resolveCursorTarget(analysis, line, character, program)` in `compiler/lsp/navigation.ts` provides the shared cursor-target resolution for local (single-file) features.
+- `resolveHoverWithLocalFallback(context)` in `compiler/lsp/crossFileNavigation.ts` is the single unified hover entrypoint that handles import paths, member expressions, and local hover in one function.
+- `resolveDefinitionWithLocalFallback(context)` in `compiler/lsp/crossFileNavigation.ts` is the single unified definition entrypoint covering import paths, import specifiers, member expressions, ambient symbols, and local definitions.
+- Shared ambient-module helpers (`detectAmbientExportEqualsName`, `findAmbientNamespaceBody`) live in `compiler/lsp/crossFileContext.ts` and are used by both navigation and signature-help paths.

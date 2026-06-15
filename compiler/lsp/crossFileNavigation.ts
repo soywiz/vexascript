@@ -10,14 +10,12 @@ import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type {
-  ExprStatement,
   ExportStatement,
   FunctionStatement,
   Identifier,
   ImportStatement,
   InterfaceStatement,
   MemberExpression,
-  NamespaceStatement,
   Program,
   Statement,
   TypeAliasStatement,
@@ -45,7 +43,9 @@ import { resolve } from "compiler/utils/path";
 import {
   ambientDeclarationLocationForSymbol,
   declarationRangeForName,
+  detectAmbientExportEqualsName,
   effectiveSourceRoots,
+  findAmbientNamespaceBody,
   findImportForSymbolNode,
   findImportStringLiteralAtPosition,
   findMatchingImportSpecifierPositions,
@@ -75,7 +75,7 @@ import {
   resolveTypeDefinitionAcrossFiles,
   type ClassMemberInfo
 } from "./crossFileTypeResolution";
-import { createDefinitionLocation } from "./navigation";
+import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
 import { buildFunctionTypeFromStatement } from "./importedDeclarations";
 
 function findAmbientModuleDeclarationByName(
@@ -83,39 +83,6 @@ function findAmbientModuleDeclarationByName(
   name: string
 ) {
   return declarations.find((statement) => topLevelDeclarationNames(statement).includes(name)) ?? null;
-}
-
-function detectAmbientExportEqualsName(declarations: readonly Statement[]): string | null {
-  for (const statement of declarations) {
-    if (statement.kind !== "ExprStatement") {
-      continue;
-    }
-    const expression = (statement as ExprStatement).expression;
-    if (expression?.kind === "Identifier") {
-      return (expression as Identifier).name;
-    }
-  }
-  return null;
-}
-
-function findAmbientNamespaceBody(
-  declarations: readonly Statement[],
-  namespaceName: string
-): Statement[] | null {
-  for (const statement of declarations) {
-    const candidate =
-      statement.kind === "ExportStatement"
-        ? (statement as ExportStatement).declaration ?? statement
-        : statement;
-    if (candidate.kind !== "NamespaceStatement") {
-      continue;
-    }
-    const namespaceStatement = candidate as NamespaceStatement;
-    if (namespaceStatement.names?.[0]?.name === namespaceName) {
-      return namespaceStatement.body.body;
-    }
-  }
-  return null;
 }
 
 function findAmbientInterfaceMemberRange(
@@ -893,6 +860,11 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
     return importPathDefinition;
   }
 
+  const importSpecifierDefinition = await resolveImportSpecifierDefinition(context);
+  if (importSpecifierDefinition) {
+    return importSpecifierDefinition;
+  }
+
   const memberDefinition = await resolveMemberDefinitionAcrossFiles(context);
   if (memberDefinition) {
     return memberDefinition;
@@ -1159,6 +1131,90 @@ export async function resolveReferencesAcrossFiles(
   }
 
   return locations;
+}
+
+/**
+ * Handles the case where the cursor is on an import specifier name (e.g.,
+ * `Point` in `import { Point } from "./a"`). Jumps to the declaration in the
+ * target file instead of stopping at the import site.
+ */
+async function resolveImportSpecifierDefinition(context: ResolveContext): Promise<Location | null> {
+  if (!context.session.ast) {
+    return null;
+  }
+  const importerFilePath = uriToFilePath(context.uri);
+  if (!importerFilePath) {
+    return null;
+  }
+  for (const statement of context.session.ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    for (const specifier of importStatement.specifiers) {
+      const first = specifier.imported.firstToken;
+      const last = specifier.imported.lastToken;
+      if (!first || !last) {
+        continue;
+      }
+      const afterStart =
+        context.line > first.range.start.line ||
+        (context.line === first.range.start.line && context.character >= first.range.start.column);
+      const beforeEnd =
+        context.line < last.range.end.line ||
+        (context.line === last.range.end.line && context.character <= last.range.end.column);
+      if (!afterStart || !beforeEnd) {
+        continue;
+      }
+      const targetFilePath = await resolveImportTargetInContext(importerFilePath, importStatement.from.value, context);
+      if (!targetFilePath) {
+        return null;
+      }
+      const targetSession = await getSessionForFilePath(targetFilePath, context);
+      if (!targetSession?.ast) {
+        return null;
+      }
+      const declaration = findTopLevelDeclarationByName(targetSession.ast, specifier.imported.name);
+      if (!declaration) {
+        return null;
+      }
+      const range = declarationRangeForName(declaration, specifier.imported.name);
+      if (!range) {
+        return null;
+      }
+      return {
+        uri: pathToUri(targetFilePath),
+        range
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Unified hover entrypoint. Runs the full cascade:
+ * 1. Import path hover (cursor on a string literal import path)
+ * 2. Member hover (cursor on a member access expression), with candidate
+ *    character probing
+ * 3. Local hover fallback (doc-comment params, annotations, analysis hover)
+ */
+export async function resolveHoverWithLocalFallback(context: ResolveContext): Promise<Hover | null> {
+  const importHover = await resolveImportPathHover(context);
+  if (importHover) {
+    return importHover;
+  }
+
+  for (const character of candidateCharacters(context.character)) {
+    const memberHover = await resolveMemberHoverAcrossFiles({ ...context, character });
+    if (memberHover) {
+      return memberHover;
+    }
+  }
+
+  if (!context.session.analysis) {
+    return null;
+  }
+  return createHover(context.session.analysis, context.line, context.character, context.session.ast ?? undefined);
 }
 
 export async function resolveRenameAcrossFiles(

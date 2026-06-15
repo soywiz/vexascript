@@ -15,6 +15,7 @@ import type { Node, Program } from "compiler/ast/ast";
 import { walkAst } from "compiler/ast/traversal";
 import { containsPosition, nodeRange, rangeSize } from "./ranges";
 import type { TokenComment } from "compiler/parser/tokenizer";
+import { createReferences } from "./navigation";
 
 const SymbolKind = {
   File: 1,
@@ -52,9 +53,13 @@ function position(line: number, character: number): Position {
 export function createDocumentHighlights(
   analysis: Analysis,
   line: number,
-  character: number
+  character: number,
+  program?: Program
 ): DocumentHighlight[] {
-  return analysis.getReferenceRangesAt(line, character, true).map((range) => ({
+  // Use the same resolution as createReferences so that doc-comment parameter
+  // references and annotation references are highlighted consistently.
+  const references = createReferences(analysis, "", line, character, true, program);
+  return references.map(({ range }) => ({
     range,
     kind: DocumentHighlightKind.Read
   }));
