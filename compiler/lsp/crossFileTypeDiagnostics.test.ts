@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createAnalysisSession } from "./analysisSession";
 import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
+import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 
 describe("cross-file type diagnostics", () => {
   it("reports argument count and type errors for imported class methods", async () => {
@@ -207,6 +209,73 @@ describe("cross-file type diagnostics", () => {
     const messages = diagnostics.map((diagnostic) => diagnostic.message);
 
     expect(messages).toContain("Property 'level' of type 'Logger' is not callable");
+  });
+
+  it("accepts string arguments for ambient aliased union parameter types from imported node-style modules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const nodeTypesDir = join(root, "node_modules", "@types", "node");
+    const mainPath = join(root, "main.vx");
+    const source = 'import { readFile } from "fs/promises"\nreadFile("hello")\n';
+
+    await mkdir(nodeTypesDir, { recursive: true });
+    await writeFile(
+      join(nodeTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(nodeTypesDir, "index.d.ts"),
+      dedent`
+      declare module "fs" {
+        export class Buffer {}
+        export class URL {}
+        export type PathLike = string | Buffer | URL;
+      }
+
+      declare module "node:fs" {
+        export * from "fs";
+      }
+
+      declare module "fs/promises" {
+        import { PathLike } from "node:fs";
+
+        export interface FileHandle {}
+        export function readFile(path: PathLike | FileHandle): Promise<string>;
+      }
+
+      declare module "node:fs/promises" {
+        export * from "fs/promises";
+      }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      ambientModuleDeclarations: ambient.moduleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      ambient.globalDeclarations,
+      ambient.moduleDeclarations,
+      ambient.moduleDeclarationLocations
+    );
+
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Argument 1 of type 'string' is not assignable to parameter 'path' of type 'PathLike | FileHandle'"
+    );
   });
 
   it("supports variadic imported class methods", async () => {

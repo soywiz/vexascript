@@ -1,6 +1,13 @@
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Analysis } from "compiler/analysis/Analysis";
-import { baseTypeName, boxedPrimitiveTypeName, parseTypeNameShape, substituteTypeNameText } from "compiler/analysis/typeNames";
+import {
+  baseTypeName,
+  boxedPrimitiveTypeName,
+  parseTypeNameShape,
+  splitTopLevelTypeText,
+  stripEnclosingTypeParens,
+  substituteTypeNameText
+} from "compiler/analysis/typeNames";
 import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type {
   AsExpression,
@@ -1101,18 +1108,51 @@ export async function resolveInterfaceMemberDeclaration(
 }
 
 export function isTypeAssignableByName(sourceType: string, targetType: string): boolean {
+  const normalizedSourceType = stripEnclosingTypeParens(sourceType.trim());
+  const normalizedTargetType = stripEnclosingTypeParens(targetType.trim());
+
+  if (normalizedSourceType !== sourceType || normalizedTargetType !== targetType) {
+    return isTypeAssignableByName(normalizedSourceType, normalizedTargetType);
+  }
+
+  const targetUnionMembers = splitTopLevelTypeText(normalizedTargetType, "|");
+  if (targetUnionMembers.length > 1) {
+    return targetUnionMembers.some((member) => isTypeAssignableByName(normalizedSourceType, member));
+  }
+
+  const sourceUnionMembers = splitTopLevelTypeText(normalizedSourceType, "|");
+  if (sourceUnionMembers.length > 1) {
+    return sourceUnionMembers.every((member) => isTypeAssignableByName(member, normalizedTargetType));
+  }
+
+  const targetIntersectionMembers = splitTopLevelTypeText(normalizedTargetType, "&");
+  if (targetIntersectionMembers.length > 1) {
+    return targetIntersectionMembers.every((member) => isTypeAssignableByName(normalizedSourceType, member));
+  }
+
   if (sourceType === targetType) {
     return true;
   }
-  if (sourceType === "int" && targetType === "number") {
+  if (normalizedSourceType.endsWith("[]") && normalizedTargetType.endsWith("[]")) {
+    return isTypeAssignableByName(
+      normalizedSourceType.slice(0, -2).trim(),
+      normalizedTargetType.slice(0, -2).trim()
+    );
+  }
+  if (normalizedSourceType === "int" && normalizedTargetType === "number") {
     return true;
   }
-  if (sourceType === "long" && targetType === "bigint") {
+  if (normalizedSourceType === "long" && normalizedTargetType === "bigint") {
     return true;
   }
   if (
-    targetType === "numeric" &&
-    (sourceType === "int" || sourceType === "number" || sourceType === "long" || sourceType === "bigint")
+    normalizedTargetType === "numeric" &&
+    (
+      normalizedSourceType === "int" ||
+      normalizedSourceType === "number" ||
+      normalizedSourceType === "long" ||
+      normalizedSourceType === "bigint"
+    )
   ) {
     return true;
   }

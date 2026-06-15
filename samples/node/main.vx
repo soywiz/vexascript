@@ -1,3 +1,11 @@
 import { join } from "node:path"
+import { readFile } from "fs/promises"
+import { writeFile } from "fs/promises"
+import { tmpdir } from "node:os"
 
+const folder = tmpdir()
+const file = `${folder}/vexa.sample.tmp`
 console.log(join("hello", "world"))
+await writeFile(file, "test")
+
+console.log(await readFile(file, { encoding: "utf-8" }))
