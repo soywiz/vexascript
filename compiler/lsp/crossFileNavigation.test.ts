@@ -8,7 +8,7 @@ import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
-import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
+import { collectAllImportedDeclarations, collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveDefinitionAcrossFiles,
   resolveDefinitionWithLocalFallback,
@@ -19,6 +19,8 @@ import {
 import { getEcmaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
 import { getVexaScriptRuntimeDeclarationFilePath } from "compiler/runtime/ecmascriptDeclarations";
 import { Vfs } from "compiler/vfs";
+import { parseSource } from "compiler/pipeline/parse";
+import type { Statement } from "compiler/ast/ast";
 
 class MyVfs extends Vfs {
     constructor(public virtualDomPath: string, public domSource: string) {
@@ -33,6 +35,16 @@ class MyVfs extends Vfs {
       if (filePath !== this.virtualDomPath) throw new Error()
       return { mtimeMs: 0, isFile: true, isDirectory: false }
     }
+}
+
+function parseAmbientModule(src: string, moduleName: string): Statement[] {
+  const result = parseSource(src, { language: "typescript" });
+  const namespace = result.ast?.body.find(
+    (statement) =>
+      statement.kind === "NamespaceStatement" &&
+      (statement as { externalModuleName?: { value: string } }).externalModuleName?.value === moduleName
+  ) as { body?: { body?: Statement[] } } | undefined;
+  return namespace?.body?.body ?? [];
 }
 
 describe("cross-file navigation", () => {
@@ -1709,6 +1721,114 @@ describe("cross-file navigation", () => {
   });
 
   describe("resolveDefinitionWithLocalFallback", () => {
+    it("navigates ambient node:path imports to the interface member declaration", async () => {
+      const source = dedent`
+        import { join } from "node:path"
+        join("a", "b")
+      `;
+      const ambientModuleDeclarations = new Map<string, Statement[]>([
+        ["node:path", parseAmbientModule(`declare module "node:path" { export = path; }`, "node:path")],
+        ["path", parseAmbientModule(`declare module "path" {
+          namespace path {
+            interface PlatformPath {
+              join(...paths: string[]): string;
+            }
+          }
+          const path: path.PlatformPath;
+          export = path;
+        }`, "path")]
+      ]);
+      const ambientModuleLocations = new Map([
+        ["node:path", { filePath: "/virtual/@types/node/path.d.ts", line: 0, character: 0 }],
+        ["path", { filePath: "/virtual/@types/node/path.d.ts", line: 0, character: 0 }]
+      ]);
+
+      const baseSession = createAnalysisSession(
+        source,
+        [],
+        new Map(),
+        [],
+        ambientModuleDeclarations,
+        ambientModuleLocations
+      );
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: "file:///virtual/main.vx",
+        sourceRoots: [],
+        ambientModuleDeclarations
+      });
+      const session = createAnalysisSession(
+        source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        ambientModuleDeclarations,
+        ambientModuleLocations
+      );
+
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: "file:///virtual/main.vx",
+        line: 1,
+        character: 2,
+        session,
+        sourceRoots: []
+      });
+
+      expect(location).not.toBeNull();
+      expect(location?.uri?.endsWith("/node/path.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBeGreaterThanOrEqual(0);
+      expect(location?.range.start.character).toBeGreaterThanOrEqual(0);
+    });
+
+    it("navigates ambient node: module imports to the declared function definition", async () => {
+      const source = dedent`
+        import { readlink } from "node:fs/promises"
+        readlink("demo")
+      `;
+      const ambientModuleDeclarations = new Map<string, Statement[]>([
+        ["node:fs/promises", parseAmbientModule(`declare module "node:fs/promises" { export * from "fs/promises"; }`, "node:fs/promises")],
+        ["fs/promises", parseAmbientModule(`declare module "fs/promises" { export function readlink(path: string): Promise<string>; }`, "fs/promises")]
+      ]);
+      const ambientModuleLocations = new Map([
+        ["node:fs/promises", { filePath: "/virtual/@types/node/fs/promises.d.ts", line: 0, character: 0 }],
+        ["fs/promises", { filePath: "/virtual/@types/node/fs/promises.d.ts", line: 0, character: 0 }]
+      ]);
+
+      const baseSession = createAnalysisSession(
+        source,
+        [],
+        new Map(),
+        [],
+        ambientModuleDeclarations,
+        ambientModuleLocations
+      );
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: "file:///virtual/main.vx",
+        sourceRoots: [],
+        ambientModuleDeclarations
+      });
+      const session = createAnalysisSession(
+        source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        ambientModuleDeclarations,
+        ambientModuleLocations
+      );
+
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: "file:///virtual/main.vx",
+        line: 1,
+        character: 2,
+        session,
+        sourceRoots: []
+      });
+
+      expect(location).not.toBeNull();
+      expect(location?.uri?.endsWith("/node/fs/promises.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBe(0);
+      expect(location?.range.start.character).toBeGreaterThanOrEqual(0);
+    });
+
     it("navigates imported symbol to source declaration, not import line", async () => {
       const root = await mkdtemp(join(tmpdir(), "vexa-def-fallback-"));
       const fileA = join(root, "a.vx");

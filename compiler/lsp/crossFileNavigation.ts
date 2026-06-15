@@ -10,11 +10,15 @@ import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
 import type {
+  ExprStatement,
   ExportStatement,
   FunctionStatement,
   Identifier,
   ImportStatement,
+  InterfaceStatement,
+  NamespaceStatement,
   Program,
+  Statement,
   TypeAliasStatement,
   VarStatement
 } from "compiler/ast/ast";
@@ -40,6 +44,7 @@ import { resolve } from "compiler/utils/path";
 import {
   declarationRangeForName,
   effectiveSourceRoots,
+  findImportForSymbolNode,
   findImportStringLiteralAtPosition,
   findMatchingImportSpecifierPositions,
   findTopLevelDeclarationByName,
@@ -52,6 +57,7 @@ import {
   resolveImportTargetInContext,
   type ResolveContext
 } from "./crossFileContext";
+import { topLevelDeclarationNames } from "./declarationResolver";
 import {
   classMemberDeclarationRangeByName,
   classMemberInfoByName,
@@ -69,6 +75,173 @@ import {
 } from "./crossFileTypeResolution";
 import { createDefinitionLocation } from "./navigation";
 
+function findAmbientModuleDeclarationByName(
+  declarations: readonly Statement[],
+  name: string
+) {
+  return declarations.find((statement) => topLevelDeclarationNames(statement).includes(name)) ?? null;
+}
+
+function detectAmbientExportEqualsName(declarations: readonly Statement[]): string | null {
+  for (const statement of declarations) {
+    if (statement.kind !== "ExprStatement") {
+      continue;
+    }
+    const expression = (statement as ExprStatement).expression;
+    if (expression?.kind === "Identifier") {
+      return (expression as Identifier).name;
+    }
+  }
+  return null;
+}
+
+function findAmbientNamespaceBody(
+  declarations: readonly Statement[],
+  namespaceName: string
+): Statement[] | null {
+  for (const statement of declarations) {
+    const candidate =
+      statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration ?? statement
+        : statement;
+    if (candidate.kind !== "NamespaceStatement") {
+      continue;
+    }
+    const namespaceStatement = candidate as NamespaceStatement;
+    if (namespaceStatement.names?.[0]?.name === namespaceName) {
+      return namespaceStatement.body.body;
+    }
+  }
+  return null;
+}
+
+function findAmbientInterfaceMemberRange(
+  declarations: readonly Statement[],
+  interfaceName: string,
+  memberName: string
+) {
+  for (const statement of declarations) {
+    const candidate =
+      statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration ?? statement
+        : statement;
+    if (candidate.kind !== "InterfaceStatement") {
+      continue;
+    }
+    const interfaceStatement = candidate as InterfaceStatement;
+    if (interfaceStatement.name.name !== interfaceName) {
+      continue;
+    }
+    const member = interfaceStatement.members.find((item) => item.name.name === memberName);
+    if (member) {
+      return nodeRange(member.name);
+    }
+  }
+  return null;
+}
+
+function findAmbientImportedDeclarationRange(
+  declarations: readonly Statement[],
+  importedName: string
+) {
+  const directDeclaration = findAmbientModuleDeclarationByName(declarations, importedName);
+  const directRange = directDeclaration ? declarationRangeForName(directDeclaration, importedName) : null;
+  if (directRange) {
+    return directRange;
+  }
+
+  const exportEqualsName = detectAmbientExportEqualsName(declarations);
+  if (!exportEqualsName) {
+    return null;
+  }
+
+  const exportNamespaceBody = findAmbientNamespaceBody(declarations, exportEqualsName);
+  const namespaceDirectDeclaration = exportNamespaceBody
+    ? findAmbientModuleDeclarationByName(exportNamespaceBody, importedName)
+    : null;
+  const namespaceDirectRange = namespaceDirectDeclaration
+    ? declarationRangeForName(namespaceDirectDeclaration, importedName)
+    : null;
+  if (namespaceDirectRange) {
+    return namespaceDirectRange;
+  }
+
+  for (const statement of declarations) {
+    const candidate =
+      statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration ?? statement
+        : statement;
+    if (candidate.kind !== "VarStatement") {
+      continue;
+    }
+    const variableStatement = candidate as VarStatement;
+    const variableName = variableStatement.name.kind === "Identifier" ? variableStatement.name.name : null;
+    const typeName = variableStatement.typeAnnotation?.name;
+    if (variableName !== exportEqualsName || !typeName) {
+      continue;
+    }
+
+    const separator = typeName.lastIndexOf(".");
+    const namespaceName = separator > 0 ? typeName.slice(0, separator) : null;
+    const interfaceName = separator > 0 ? typeName.slice(separator + 1) : typeName;
+    const searchDeclarations = namespaceName ? findAmbientNamespaceBody(declarations, namespaceName) : declarations;
+    if (!searchDeclarations) {
+      continue;
+    }
+
+    const memberRange = findAmbientInterfaceMemberRange(searchDeclarations, interfaceName, importedName);
+    if (memberRange) {
+      return memberRange;
+    }
+  }
+
+  return null;
+}
+
+async function resolveAmbientImportedSymbolDefinition(
+  context: ResolveContext
+): Promise<Location | null> {
+  if (!context.session.ast || !context.session.analysis) {
+    return null;
+  }
+
+  const symbolAt =
+    context.session.analysis.getSymbolAt(context.line, context.character) ??
+    context.session.analysis.getOperatorSymbolAt(context.line, context.character);
+  if (!symbolAt) {
+    return null;
+  }
+
+  const importBinding = findImportForSymbolNode(context.session.ast, symbolAt.symbol.node);
+  if (!importBinding) {
+    return null;
+  }
+
+  const moduleCandidates = [importBinding.from];
+  if (importBinding.from.startsWith("node:")) {
+    moduleCandidates.push(importBinding.from.slice("node:".length));
+  }
+
+  for (const moduleName of moduleCandidates) {
+    const declarations = context.session.ambientModuleDeclarations?.get(moduleName);
+    const location = context.session.ambientModuleLocations?.get(moduleName);
+    if (!declarations || !location) {
+      continue;
+    }
+
+    const range = findAmbientImportedDeclarationRange(declarations, importBinding.name);
+    if (!range) {
+      continue;
+    }
+
+    return {
+      uri: pathToUri(location.filePath),
+      range
+    };
+  }
+
+  return null;
+}
 
 async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Promise<Location | null> {
   if (!context.session.ast || !context.session.analysis) {
@@ -588,6 +761,11 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
         range: nodeRange(typeDefinition.declaration.name) ?? nodeRange(typeIdentifier)!
       };
     }
+  }
+
+  const ambientImportedSymbolDefinition = await resolveAmbientImportedSymbolDefinition(context);
+  if (ambientImportedSymbolDefinition) {
+    return ambientImportedSymbolDefinition;
   }
 
   const symbol = await resolveCanonicalSymbol(context);

@@ -36,14 +36,13 @@ import {
   createKeywordOnlyCompletionItems
 } from "./completion";
 import {
-  resolveDefinitionAcrossFiles,
+  resolveDefinitionWithLocalFallback,
   resolveMemberHoverAcrossFiles,
   resolveImportPathHover,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import {
-  createDefinitionLocation,
   createHover,
   createPrepareRename,
   createRenameWorkspaceEdit
@@ -342,11 +341,7 @@ export function startLspServer(options: LspServerOptions): void {
     if (!doc) return null;
     const session = await analysisSessions.getForDocumentAsync(doc);
     if (!session.analysis || !session.ast) return null;
-    const localDefinition = createDefinitionLocation(session.analysis, uri, line, character, session.ast);
-    if (localDefinition) {
-      return localDefinition;
-    }
-    return await resolveDefinitionAcrossFiles({
+    return await resolveDefinitionWithLocalFallback({
       ...featureContext(uri),
       line,
       character,
