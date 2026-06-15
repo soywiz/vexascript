@@ -35,7 +35,7 @@ import {
 import { findBestMatch } from "./nodeSearch";
 import { resolveCursorTarget, type CursorTarget } from "./navigation";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
-import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
+import { collectAmbientFunctionStatements, detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
 
 interface InvocationContext {
   callee: Expr;
@@ -175,22 +175,6 @@ function findAnnotationInvocationContext(program: Program, line: number, charact
   return best;
 }
 
-function resolveAnalysisTargetAtNode(
-  analysis: Analysis,
-  program: Program,
-  node: Node
-): Extract<CursorTarget, { kind: "analysis" }> | null {
-  if (!node.firstToken) {
-    return null;
-  }
-  const target = resolveCursorTarget(
-    analysis,
-    node.firstToken.range.start.line,
-    node.firstToken.range.start.column,
-    program
-  );
-  return target?.kind === "analysis" ? target : null;
-}
 
 function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
   if (!type || type.kind !== "function") {
@@ -277,28 +261,23 @@ function ambientFunctionSignatureInfo(
   };
 }
 
-function unwrapAmbientStatement(statement: Statement): Statement {
-  return statement.kind === "ExportStatement"
-    ? (statement as ExportStatement).declaration ?? statement
-    : statement;
-}
-
 function collectAmbientFunctionOverloads(
   statements: readonly Statement[],
   memberName: string
 ): SignatureInformation[] {
-  const signatures: SignatureInformation[] = [];
-  for (const statement of statements) {
-    const declaration = unwrapAmbientStatement(statement);
-    if (declaration.kind !== "FunctionStatement") {
-      continue;
-    }
-    const fn = declaration as FunctionStatement;
-    if (fn.name.name === memberName) {
-      signatures.push(ambientFunctionSignatureInfo(statement, fn));
-    }
-  }
-  return signatures;
+  // Use collectAmbientFunctionStatements for the filtering logic and map each
+  // matched fn back to its owner statement (the ExportStatement wrapper, if
+  // any) so ambientFunctionSignatureInfo can read leading documentation comments
+  // from the export wrapper's first token.
+  return collectAmbientFunctionStatements(statements, memberName).map((fn) => {
+    const ownerStatement = statements.find((s) => {
+      const candidate = s.kind === "ExportStatement"
+        ? (s as ExportStatement).declaration ?? s
+        : s;
+      return candidate === fn;
+    }) ?? fn;
+    return ambientFunctionSignatureInfo(ownerStatement, fn);
+  });
 }
 
 function ambientDefaultImportMemberSignatures(
@@ -364,6 +343,10 @@ function ambientDefaultImportMemberSignatures(
 }
 
 function bestActiveSignature(signatures: SignatureInformation[], activeParameter: number, argumentCount: number): number {
+  // Selects the best signature for display based on argument count.
+  // The counterpart for definition navigation (jump-to-declaration) is
+  // `findAmbientImportedOverloadRange` in `crossFileNavigation.ts`, which
+  // uses the analysis-resolved overload index instead of argument count.
   if (argumentCount === 0) {
     const zeroParamIdx = signatures.findIndex((s) => (s.parameters?.length ?? 0) === 0);
     if (zeroParamIdx >= 0) return zeroParamIdx;
@@ -440,35 +423,60 @@ function signatureInfosFromDisplayFunctionType(
     .filter((signature): signature is SignatureInformation => signature !== null);
 }
 
+function resolveCalleeTarget(
+  analysis: Analysis,
+  program: Program,
+  callee: Expr
+): Extract<CursorTarget, { kind: "analysis" }> | null {
+  if (!callee.firstToken) {
+    return null;
+  }
+  const target = resolveCursorTarget(
+    analysis,
+    callee.firstToken.range.start.line,
+    callee.firstToken.range.start.column,
+    program
+  );
+  return target?.kind === "analysis" ? target : null;
+}
+
 async function buildSignaturesFromSymbol(
   context: InvocationContext,
   analysis: Analysis,
   program: Program,
   options: ClassResolverOptions
 ): Promise<SignatureInformation[]> {
-  if (context.callee.kind === "Identifier" && context.callee.firstToken) {
-    const symbol = resolveAnalysisTargetAtNode(analysis, program, context.callee)?.symbolAt?.symbol;
-    if (symbol) {
-      const documentation =
-        symbol.node.kind === "Identifier"
-          ? readDocumentationFromProgramDeclaration(program, symbol.node as Identifier)
-          : undefined;
-      const displaySignatures = signatureInfosFromDisplayFunctionType(
-        symbol.name,
-        symbol.valueType,
-        documentation
-      );
-      if (displaySignatures.length > 0) {
-        return displaySignatures;
-      }
+  // Resolve the callee through the shared cursor-target pipeline so all
+  // features use the same symbol identity instead of private analysis calls.
+  const target = resolveCalleeTarget(analysis, program, context.callee);
+  const symbolMatch = target?.symbolAt;
+
+  // For identifier callees, prefer the display type string when available:
+  // it preserves the original type alias names from ambient declarations
+  // (e.g. `PathLike | FileHandle` rather than the expanded `string | Buffer | URL`).
+  // When no display string is available, fall through to structured resolution.
+  if (context.callee.kind === "Identifier" && symbolMatch?.symbol.valueType) {
+    const documentation =
+      symbolMatch.symbol.node.kind === "Identifier"
+        ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
+        : undefined;
+    const displaySignatures = signatureInfosFromDisplayFunctionType(
+      symbolMatch.symbol.name,
+      symbolMatch.symbol.valueType,
+      documentation
+    );
+    if (displaySignatures.length > 0) {
+      return displaySignatures;
     }
   }
 
+  // Structured resolution: class/interface members, imported function types.
   const callables = await resolveCallableSignatures(context.callee, analysis, program, options);
   if (callables.length > 0) {
     return callables.map(signatureInfoFromResolved);
   }
 
+  // Ambient default-import member signatures (e.g. `util.format`).
   if (context.callee.kind === "MemberExpression") {
     const ambientSignatures = ambientDefaultImportMemberSignatures(
       program,
@@ -480,8 +488,27 @@ async function buildSignaturesFromSymbol(
     }
   }
 
-  const symbolMatch = resolveAnalysisTargetAtNode(analysis, program, context.callee)?.symbolAt;
   if (!symbolMatch) {
+    if (context.callee.kind === "MemberExpression") {
+      const member = context.callee as MemberExpression;
+      if (!member.computed && member.property.kind === "Identifier") {
+        const memberName = (member.property as Identifier).name;
+        const memberType = analysis.getExpressionTypes().get(context.callee);
+        const signatures = signatureInfosFromAnalysisType(memberName, memberType);
+        if (signatures.length > 0) {
+          return signatures;
+        }
+      }
+    }
+    if (context.isNewExpression) {
+      const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
+      if (!constructorSignature) {
+        return [];
+      }
+      const parameters = constructorSignature.parameters.map((p) => ({ label: formatParameterLabel(p) }));
+      const label = `new ${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
+      return [{ label, parameters }];
+    }
     return [];
   }
 
@@ -489,6 +516,16 @@ async function buildSignaturesFromSymbol(
     symbolMatch.symbol.node.kind === "Identifier"
       ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
       : undefined;
+
+  // Structured type resolution via the analysis type system.
+  const functionType = toFunctionType(symbolMatch.symbol.type);
+  if (functionType) {
+    return signatureInfosFromAnalysisType(symbolMatch.symbol.name, functionType, documentation);
+  }
+
+  // Display-string fallback: used when the analysis only has a display type
+  // string (e.g. for imported function variables typed as `(a: T) => R` with
+  // no structured AnalysisType registered).
   const displaySignatures = signatureInfosFromDisplayFunctionType(
     symbolMatch.symbol.name,
     symbolMatch.symbol.valueType,
@@ -496,11 +533,6 @@ async function buildSignaturesFromSymbol(
   );
   if (displaySignatures.length > 0) {
     return displaySignatures;
-  }
-
-  const functionType = toFunctionType(symbolMatch.symbol.type);
-  if (functionType) {
-    return signatureInfosFromAnalysisType(symbolMatch.symbol.name, functionType, documentation);
   }
 
   if (context.callee.kind === "MemberExpression") {
