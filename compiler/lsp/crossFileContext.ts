@@ -11,7 +11,7 @@ import { getProjectIndex, getProjectSessionForFilePath } from "./projectAnalysis
 import { containsPosition, nodeRange } from "./ranges";
 import { createReferences, createRenameWorkspaceEdit } from "./navigation";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { AnnotationStatement, ClassStatement, FunctionStatement, ImportStatement, InterfaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
+import type { AnnotationStatement, ClassStatement, ExprStatement, ExportStatement, FunctionStatement, Identifier, ImportStatement, InterfaceStatement, NamespaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { candidateImportTargetFilePaths, resolveImportTargetFilePath } from "compiler/moduleResolution";
@@ -529,6 +529,50 @@ export function findImportStringLiteralAtPosition(
     const fromRange = nodeRange(importStatement.from);
     if (fromRange && containsPosition(fromRange, { line, character })) {
       return importStatement;
+    }
+  }
+  return null;
+}
+
+/**
+ * Scans ambient module declarations for an `export = name` pattern (represented
+ * as an ExprStatement whose expression is an Identifier) and returns the
+ * identifier name. Used by both cross-file navigation and signature help to
+ * follow the ambient module's export alias.
+ */
+export function detectAmbientExportEqualsName(declarations: readonly Statement[]): string | null {
+  for (const statement of declarations) {
+    if (statement.kind !== "ExprStatement") {
+      continue;
+    }
+    const expression = (statement as ExprStatement).expression;
+    if (expression?.kind === "Identifier") {
+      return (expression as Identifier).name;
+    }
+  }
+  return null;
+}
+
+/**
+ * Scans ambient module declarations for a NamespaceStatement with the given
+ * name and returns its body statements. Used by both cross-file navigation and
+ * signature help to look up members within an ambient namespace.
+ */
+export function findAmbientNamespaceBody(
+  declarations: readonly Statement[],
+  namespaceName: string
+): Statement[] | null {
+  for (const statement of declarations) {
+    const candidate =
+      statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration ?? statement
+        : statement;
+    if (candidate.kind !== "NamespaceStatement") {
+      continue;
+    }
+    const namespaceStatement = candidate as NamespaceStatement;
+    if (namespaceStatement.names?.[0]?.name === namespaceName) {
+      return namespaceStatement.body.body;
     }
   }
   return null;
