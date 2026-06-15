@@ -35,6 +35,7 @@ import {
   readDocumentationFromProgramDeclaration
 } from "./documentation";
 import { findBestMatch } from "./nodeSearch";
+import { resolveCursorTarget, type CursorTarget } from "./navigation";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
 
 interface InvocationContext {
@@ -175,11 +176,21 @@ function findAnnotationInvocationContext(program: Program, line: number, charact
   return best;
 }
 
-function symbolAtNode(analysis: Analysis, node: Node) {
+function resolveAnalysisTargetAtNode(
+  analysis: Analysis,
+  program: Program,
+  node: Node
+): Extract<CursorTarget, { kind: "analysis" }> | null {
   if (!node.firstToken) {
     return null;
   }
-  return analysis.getSymbolAt(node.firstToken.range.start.line, node.firstToken.range.start.column);
+  const target = resolveCursorTarget(
+    analysis,
+    node.firstToken.range.start.line,
+    node.firstToken.range.start.column,
+    program
+  );
+  return target?.kind === "analysis" ? target : null;
 }
 
 function toFunctionType(type: AnalysisType | undefined): FunctionType | null {
@@ -467,10 +478,7 @@ async function buildSignaturesFromSymbol(
   options: ClassResolverOptions
 ): Promise<SignatureInformation[]> {
   if (context.callee.kind === "Identifier" && context.callee.firstToken) {
-    const symbol = analysis.getSymbolAt(
-      context.callee.firstToken.range.start.line,
-      context.callee.firstToken.range.start.column
-    )?.symbol;
+    const symbol = resolveAnalysisTargetAtNode(analysis, program, context.callee)?.symbolAt?.symbol;
     if (symbol) {
       const documentation =
         symbol.node.kind === "Identifier"
@@ -503,7 +511,7 @@ async function buildSignaturesFromSymbol(
     }
   }
 
-  const symbolMatch = symbolAtNode(analysis, context.callee);
+  const symbolMatch = resolveAnalysisTargetAtNode(analysis, program, context.callee)?.symbolAt;
   if (!symbolMatch) {
     return [];
   }
