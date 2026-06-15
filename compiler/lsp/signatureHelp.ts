@@ -12,6 +12,7 @@ import type {
 } from "compiler/ast/ast";
 import { declarationIndexForStatements } from "compiler/analysis/declarationIndex";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
+import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, splitTopLevelDelimitedTypeText, splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import type { SignatureHelp, SignatureInformation } from "vscode-languageserver/node.js";
 import {
   getEcmaScriptRuntimeProgram,
@@ -187,12 +188,73 @@ function bestActiveSignature(signatures: SignatureInformation[], activeParameter
   return signatures.length - 1;
 }
 
+function parseDisplayFunctionSignatureText(
+  name: string,
+  signatureText: string,
+  documentation?: string
+): SignatureInformation | null {
+  const trimmed = signatureText.trim();
+  const parameterStart = findTopLevelTypeCharacter(trimmed, "(");
+  if (parameterStart < 0) {
+    return null;
+  }
+  const parameterEnd = findMatchingTypeDelimiter(trimmed, parameterStart, "(", ")");
+  if (parameterEnd < 0) {
+    return null;
+  }
+  const arrowIndex = trimmed.indexOf("=>", parameterEnd);
+  if (arrowIndex < 0) {
+    return null;
+  }
+
+  const parameterText = trimmed.slice(parameterStart + 1, parameterEnd).trim();
+  const returnTypeName = trimmed.slice(arrowIndex + 2).trim();
+  const parameterLabels = parameterText.length === 0 ? [] : splitTopLevelDelimitedTypeText(parameterText, new Set([","]));
+  const parameters = parameterLabels.map((label) => ({ label }));
+  const label = `${name}(${parameterLabels.join(", ")}): ${returnTypeName}`;
+  return { label, parameters, ...(documentation ? { documentation } : {}) };
+}
+
+function signatureInfosFromDisplayFunctionType(
+  name: string,
+  displayType: string | undefined,
+  documentation?: string
+): SignatureInformation[] {
+  if (!displayType) {
+    return [];
+  }
+  return splitTopLevelTypeText(displayType, "|")
+    .map((part) => parseDisplayFunctionSignatureText(name, part, documentation))
+    .filter((signature): signature is SignatureInformation => signature !== null);
+}
+
 async function buildSignaturesFromSymbol(
   context: InvocationContext,
   analysis: Analysis,
   program: Program,
   options: ClassResolverOptions
 ): Promise<SignatureInformation[]> {
+  if (context.callee.kind === "Identifier" && context.callee.firstToken) {
+    const symbol = analysis.getSymbolAt(
+      context.callee.firstToken.range.start.line,
+      context.callee.firstToken.range.start.column
+    )?.symbol;
+    if (symbol) {
+      const documentation =
+        symbol.node.kind === "Identifier"
+          ? readDocumentationFromProgramDeclaration(program, symbol.node as Identifier)
+          : undefined;
+      const displaySignatures = signatureInfosFromDisplayFunctionType(
+        symbol.name,
+        symbol.valueType,
+        documentation
+      );
+      if (displaySignatures.length > 0) {
+        return displaySignatures;
+      }
+    }
+  }
+
   const callables = await resolveCallableSignatures(context.callee, analysis, program, options);
   if (callables.length > 0) {
     return callables.map(signatureInfoFromResolved);
@@ -203,12 +265,21 @@ async function buildSignaturesFromSymbol(
     return [];
   }
 
+  const documentation =
+    symbolMatch.symbol.node.kind === "Identifier"
+      ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
+      : undefined;
+  const displaySignatures = signatureInfosFromDisplayFunctionType(
+    symbolMatch.symbol.name,
+    symbolMatch.symbol.valueType,
+    documentation
+  );
+  if (displaySignatures.length > 0) {
+    return displaySignatures;
+  }
+
   const functionType = toFunctionType(symbolMatch.symbol.type);
   if (functionType) {
-    const documentation =
-      symbolMatch.symbol.node.kind === "Identifier"
-        ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
-        : undefined;
     return [signatureInfoFromResolved({
       name: symbolMatch.symbol.name,
       parameters: functionType.parameters.map((p) => ({

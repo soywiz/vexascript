@@ -40,6 +40,14 @@ export interface CollectModuleNotFoundDiagnosticsParams {
   getSessionForFilePath?: (filePath: string) => ClassResolverSessionLike | null | Promise<ClassResolverSessionLike | null>;
 }
 
+function hasAmbientModuleForImportPath(
+  ambientModuleDeclarations: ReadonlyMap<string, unknown>,
+  importPath: string
+): boolean {
+  return ambientModuleDeclarations.has(importPath)
+    || (importPath.startsWith("node:") && ambientModuleDeclarations.has(importPath.slice("node:".length)));
+}
+
 export async function collectModuleNotFoundDiagnostics(
   params: CollectModuleNotFoundDiagnosticsParams
 ): Promise<Diagnostic[]> {
@@ -60,7 +68,7 @@ export async function collectModuleNotFoundDiagnostics(
     const targetFilePath =
       await resolveImportTargetFilePath(currentFilePath, importPath, resolutionOptions)
       ?? await resolveNodeModulesTypingsPath(currentFilePath, importPath, resolutionOptions)
-      ?? (params.session.ambientModuleDeclarations.has(importPath) ? "ambient" : null);
+      ?? (hasAmbientModuleForImportPath(params.session.ambientModuleDeclarations, importPath) ? "ambient" : null);
     if (!targetFilePath) {
       const diagnostic = diagnosticForNode(
         importStatement.from,

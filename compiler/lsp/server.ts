@@ -57,7 +57,13 @@ async function getSessionForFilePathFromOpenDocuments(filePath: string) {
 
 const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
   if (!baseSession.ast) {
-    return { externalDeclarations: [], importedSymbolTypes: new Map(), ambientDeclarations: [], ambientModuleDeclarations: new Map() };
+    return {
+      externalDeclarations: [],
+      importedSymbolTypes: new Map(),
+      importedSymbolDisplayTypes: new Map(),
+      ambientDeclarations: [],
+      ambientModuleDeclarations: new Map()
+    };
   }
   const filePath = uriToFilePath(document.uri);
 
@@ -76,11 +82,12 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     getSessionForFilePath: getSessionForFilePathFromOpenDocuments,
     ambientModuleDeclarations: ambientTypes.moduleDeclarations
   };
-  const { externalDeclarations, importedSymbolTypes } = await collectAllImportedDeclarations(baseSession.ast, context);
+  const { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes } = await collectAllImportedDeclarations(baseSession.ast, context);
 
   return {
     externalDeclarations,
     importedSymbolTypes,
+    importedSymbolDisplayTypes,
     ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
     ambientModuleDeclarations: ambientTypes.moduleDeclarations,
     ambientModuleLocations: ambientTypes.moduleDeclarationLocations

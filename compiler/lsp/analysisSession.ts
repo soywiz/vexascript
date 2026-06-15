@@ -16,6 +16,7 @@ export interface AnalysisSession {
   fatalError: string | null;
   externalDeclarations: Statement[];
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
+  importedSymbolDisplayTypes: ReadonlyMap<string, string>;
   ambientDeclarations: Statement[];
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>;
   ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation>;
@@ -27,9 +28,15 @@ export function createAnalysisSession(
   importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
   ambientDeclarations: Statement[] = [],
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]> = new Map(),
-  ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation> = new Map()
+  ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation> = new Map(),
+  importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map()
 ): AnalysisSession {
-  const artifacts = compileSource(source, {}, { externalDeclarations, importedSymbolTypes, ambientDeclarations });
+  const artifacts = compileSource(source, {}, {
+    externalDeclarations,
+    importedSymbolTypes,
+    importedSymbolDisplayTypes,
+    ambientDeclarations
+  });
   return {
     ast: artifacts.ast,
     parserErrors: artifacts.parserIssues,
@@ -39,6 +46,7 @@ export function createAnalysisSession(
     fatalError: artifacts.fatalError,
     externalDeclarations: [...externalDeclarations],
     importedSymbolTypes,
+    importedSymbolDisplayTypes,
     ambientDeclarations: [...ambientDeclarations],
     ambientModuleDeclarations,
     ambientModuleLocations
@@ -58,6 +66,7 @@ export function buildAnalysisForSource(source: string): Analysis | null {
 export interface ResolvedExternals {
   externalDeclarations: Statement[];
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
+  importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
   ambientDeclarations?: Statement[];
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
   ambientModuleLocations?: ReadonlyMap<string, AmbientModuleLocation>;
@@ -75,18 +84,28 @@ function buildSessionFromResolved(
 ): AnalysisSession {
   const externalDeclarations = resolved.externalDeclarations ?? [];
   const importedSymbolTypes = resolved.importedSymbolTypes ?? new Map();
+  const importedSymbolDisplayTypes = resolved.importedSymbolDisplayTypes ?? new Map();
   const ambientDeclarations = resolved.ambientDeclarations ?? [];
   const ambientModuleDeclarations = resolved.ambientModuleDeclarations ?? new Map();
   const ambientModuleLocations = resolved.ambientModuleLocations ?? new Map();
   if (
     externalDeclarations.length === 0 &&
     importedSymbolTypes.size === 0 &&
+    importedSymbolDisplayTypes.size === 0 &&
     ambientDeclarations.length === 0 &&
     ambientModuleDeclarations.size === 0
   ) {
     return baseSession;
   }
-  return createAnalysisSession(docText, externalDeclarations, importedSymbolTypes, ambientDeclarations, ambientModuleDeclarations, ambientModuleLocations);
+  return createAnalysisSession(
+    docText,
+    externalDeclarations,
+    importedSymbolTypes,
+    ambientDeclarations,
+    ambientModuleDeclarations,
+    ambientModuleLocations,
+    importedSymbolDisplayTypes
+  );
 }
 
 export class AnalysisSessionCache {

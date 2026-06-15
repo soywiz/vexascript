@@ -27,10 +27,18 @@ import {
   functionType,
   intersectionType,
   namedType,
+  objectTypeWithProperties,
   unionType,
+  typeToString,
   UNKNOWN_TYPE
 } from "compiler/analysis/types";
-import { parseTypeNameShape, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
+import {
+  findTopLevelTypeCharacter,
+  parseTypeNameShape,
+  splitTopLevelDelimitedTypeText,
+  splitTopLevelTypeText,
+  stripEnclosingTypeParens
+} from "compiler/analysis/typeNames";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 
 /**
@@ -166,6 +174,101 @@ function findAmbientTypeAliasStatement(
   return null;
 }
 
+function findAmbientInterfaceStatement(
+  declarations: readonly Statement[],
+  typeName: string
+): InterfaceStatement | null {
+  for (const statement of declarations) {
+    const declaration = statement.kind === "ExportStatement"
+      ? (statement as { declaration?: Statement }).declaration ?? statement
+      : statement;
+    if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === typeName) {
+      return declaration as InterfaceStatement;
+    }
+  }
+  return null;
+}
+
+function parseAmbientObjectTypeAnnotation(
+  typeName: string
+): Array<{ name: string; typeName: string; optional: boolean }> | null {
+  const trimmed = typeName.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return null;
+  }
+  const body = trimmed.slice(1, -1).trim();
+  if (body.length === 0) {
+    return [];
+  }
+
+  const members = splitTopLevelDelimitedTypeText(body, new Set([",", ";"]));
+  const parsedMembers: Array<{ name: string; typeName: string; optional: boolean }> = [];
+  for (const member of members) {
+    const separatorIndex = findTopLevelTypeCharacter(member, ":");
+    if (separatorIndex < 0) {
+      return null;
+    }
+    const rawName = member.slice(0, separatorIndex).trim();
+    const propertyType = member.slice(separatorIndex + 1).trim();
+    if (!rawName || !propertyType) {
+      return null;
+    }
+    const optional = rawName.endsWith("?");
+    parsedMembers.push({
+      name: optional ? rawName.slice(0, -1).trim() : rawName,
+      typeName: propertyType,
+      optional
+    });
+  }
+  return parsedMembers;
+}
+
+function objectTypeFromAmbientAnnotationText(
+  typeName: string,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  visited: Set<string>
+): AnalysisType | null {
+  const members = parseAmbientObjectTypeAnnotation(typeName);
+  if (!members) {
+    return null;
+  }
+  const properties: Record<string, AnalysisType> = {};
+  for (const member of members) {
+    const propertyType = typeFromAmbientAnnotationText(member.typeName, declarations, ambientModuleDeclarations, visited);
+    properties[member.name] = member.optional
+      ? unionType([propertyType, builtinType("undefined")])
+      : propertyType;
+  }
+  return objectTypeWithProperties(properties);
+}
+
+function objectTypeFromAmbientInterfaceStatement(
+  interfaceStatement: InterfaceStatement,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  visited: Set<string>
+): AnalysisType {
+  const visitKey = `interface:${interfaceStatement.name.name}`;
+  if (visited.has(visitKey)) {
+    return namedType(interfaceStatement.name.name);
+  }
+  visited.add(visitKey);
+  const properties: Record<string, AnalysisType> = {};
+  try {
+    for (const member of interfaceStatement.members) {
+      const memberType = typeFromAmbientInterfaceMember(member, declarations, ambientModuleDeclarations, visited);
+      const optional = (member as { optional?: boolean }).optional === true;
+      properties[member.name.name] = optional
+        ? unionType([memberType, builtinType("undefined")])
+        : memberType;
+    }
+  } finally {
+    visited.delete(visitKey);
+  }
+  return objectTypeWithProperties(properties);
+}
+
 function hasAmbientNamedTypeDeclaration(
   declarations: readonly Statement[],
   typeName: string
@@ -244,6 +347,10 @@ function typeFromAmbientAnnotationText(
       typeFromAmbientAnnotationText(part, declarations, ambientModuleDeclarations, visited)
     ));
   }
+  const objectType = objectTypeFromAmbientAnnotationText(normalized, declarations, ambientModuleDeclarations, visited);
+  if (objectType) {
+    return objectType;
+  }
 
   const parsed = parseTypeNameShape(normalized);
   const resolvedTypeArguments = parsed.typeArguments.map((argument) =>
@@ -261,6 +368,17 @@ function typeFromAmbientAnnotationText(
       resolvedBase = typeFromAmbientAnnotationText(typeAlias.targetType.name, declarations, ambientModuleDeclarations, visited);
       visited.delete(visitKey);
     } else {
+      const interfaceStatement = findAmbientInterfaceStatement(declarations, parsed.baseName);
+      if (interfaceStatement && !visited.has(visitKey)) {
+        visited.add(visitKey);
+        resolvedBase = objectTypeFromAmbientInterfaceStatement(
+          interfaceStatement,
+          declarations,
+          ambientModuleDeclarations,
+          visited
+        );
+        visited.delete(visitKey);
+      } else {
       const importedReference = findAmbientImportedTypeReference(declarations, parsed.baseName);
       if (importedReference) {
         resolvedBase = resolveAmbientTypeReference(
@@ -271,6 +389,7 @@ function typeFromAmbientAnnotationText(
         ) ?? namedType(parsed.baseName, resolvedTypeArguments);
       } else {
         resolvedBase = namedType(parsed.baseName, resolvedTypeArguments);
+      }
       }
     }
   }
@@ -311,13 +430,14 @@ function buildAmbientFunctionTypeFromStatement(
 function buildAmbientFunctionTypeFromInterfaceMember(
   member: InterfaceMethodMember,
   declarations: readonly Statement[],
-  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  visited: Set<string>
 ): AnalysisType {
   return functionType(
     member.parameters
       .filter((p) => p.thisParameter !== true)
       .map((p) => {
-        const rawType = typeFromAmbientAnnotationText(p.typeAnnotation?.name, declarations, ambientModuleDeclarations);
+        const rawType = typeFromAmbientAnnotationText(p.typeAnnotation?.name, declarations, ambientModuleDeclarations, visited);
         const isRest = p.rest === true;
         const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
         return {
@@ -327,19 +447,25 @@ function buildAmbientFunctionTypeFromInterfaceMember(
           rest: isRest
         };
       }),
-    typeFromAmbientAnnotationText(member.returnType?.name, declarations, ambientModuleDeclarations)
+    typeFromAmbientAnnotationText(member.returnType?.name, declarations, ambientModuleDeclarations, visited)
   );
 }
 
 function typeFromAmbientInterfaceMember(
   member: InterfaceMember,
   declarations: readonly Statement[],
-  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  visited: Set<string>
 ): AnalysisType {
   if (member.kind === "InterfaceMethodMember") {
-    return buildAmbientFunctionTypeFromInterfaceMember(member as InterfaceMethodMember, declarations, ambientModuleDeclarations);
+    return buildAmbientFunctionTypeFromInterfaceMember(
+      member as InterfaceMethodMember,
+      declarations,
+      ambientModuleDeclarations,
+      visited
+    );
   }
-  return typeFromAmbientAnnotationText(member.typeAnnotation?.name, declarations, ambientModuleDeclarations);
+  return typeFromAmbientAnnotationText(member.typeAnnotation?.name, declarations, ambientModuleDeclarations, visited);
 }
 
 function detectExportEqualsNameInDecls(stmts: Statement[]): string | null {
@@ -414,6 +540,17 @@ function resolveAmbientNamedImportType(
   symbolName: string,
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>
 ): AnalysisType | null {
+  const overloads: AnalysisType[] = [];
+  const seenOverloads = new Set<string>();
+  const pushOverload = (type: AnalysisType): void => {
+    const key = typeToString(type);
+    if (seenOverloads.has(key)) {
+      return;
+    }
+    seenOverloads.add(key);
+    overloads.push(type);
+  };
+
   const candidates = [importName];
   if (importName.startsWith("node:")) {
     candidates.push(importName.slice("node:".length));
@@ -431,11 +568,12 @@ function resolveAmbientNamedImportType(
           : statement;
 
       if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
-        return buildAmbientFunctionTypeFromStatement(
+        pushOverload(buildAmbientFunctionTypeFromStatement(
           declaration as FunctionStatement,
           decls,
           ambientModuleDeclarations
-        );
+        ));
+        continue;
       }
       if (declaration.kind === "VarStatement") {
         const variable = declaration as VarStatement;
@@ -447,7 +585,9 @@ function resolveAmbientNamedImportType(
     }
 
     const direct = extractDirectTypeForName(decls, symbolName);
-    if (direct) return direct;
+    if (direct && direct.kind !== "function") {
+      return direct;
+    }
 
     // 2. Follow export = X pattern
     const exportEqualsName = detectExportEqualsNameInDecls(decls);
@@ -484,12 +624,117 @@ function resolveAmbientNamedImportType(
         if (d.kind !== "InterfaceStatement") continue;
         const iface = d as InterfaceStatement;
         if (iface.name?.name !== ifaceName) continue;
-        const member = (iface.members ?? []).find((m) => m.name?.name === symbolName);
-        if (member) return typeFromAmbientInterfaceMember(member, searchNsBody, ambientModuleDeclarations);
+        const members = (iface.members ?? []).filter((m) => m.name?.name === symbolName);
+        for (const member of members) {
+          pushOverload(typeFromAmbientInterfaceMember(member, searchNsBody, ambientModuleDeclarations, new Set()));
+        }
       }
     }
   }
 
+  if (overloads.length === 1) {
+    return overloads[0] ?? null;
+  }
+  if (overloads.length > 1) {
+    return unionType(overloads);
+  }
+  return null;
+}
+
+function resolveAmbientNamedImportDisplayType(
+  importName: string,
+  symbolName: string,
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>
+): string | null {
+  const overloads: string[] = [];
+  const seenOverloads = new Set<string>();
+  const pushOverload = (display: string): void => {
+    if (seenOverloads.has(display)) {
+      return;
+    }
+    seenOverloads.add(display);
+    overloads.push(display);
+  };
+
+  const candidates = [importName];
+  if (importName.startsWith("node:")) {
+    candidates.push(importName.slice("node:".length));
+  }
+
+  for (const candidate of candidates) {
+    const decls = ambientModuleDeclarations.get(candidate);
+    if (!decls || decls.length === 0) continue;
+
+    for (const statement of decls) {
+      const declaration =
+        statement.kind === "ExportStatement"
+          ? (statement as { declaration?: Statement }).declaration ?? statement
+          : statement;
+
+      if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
+        pushOverload(renderAmbientFunctionDisplayFromStatement(declaration as FunctionStatement));
+        continue;
+      }
+      if (declaration.kind === "VarStatement") {
+        const variable = declaration as VarStatement;
+        const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
+        if (varName === symbolName) {
+          return renderAmbientTypeAnnotationText(variable.typeAnnotation?.name);
+        }
+      }
+    }
+
+    const exportEqualsName = detectExportEqualsNameInDecls(decls);
+    if (!exportEqualsName) continue;
+
+    const nsBody = findNamespaceBodyInStmts(decls, exportEqualsName);
+    if (nsBody) {
+      for (const statement of nsBody) {
+        const declaration =
+          statement.kind === "ExportStatement"
+            ? (statement as { declaration?: Statement }).declaration ?? statement
+            : statement;
+        if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
+          return renderAmbientFunctionDisplayFromStatement(declaration as FunctionStatement);
+        }
+      }
+    }
+
+    for (const stmt of decls) {
+      if (stmt.kind !== "VarStatement") continue;
+      const v = stmt as VarStatement;
+      const varName = v.name?.kind === "Identifier" ? (v.name as Identifier).name : null;
+      const typeName = (v as { typeAnnotation?: { name?: string } }).typeAnnotation?.name;
+      if (varName !== exportEqualsName || !typeName) continue;
+
+      const dotIdx = typeName.lastIndexOf(".");
+      const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
+      const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
+      const searchNsBody = nsName ? findNamespaceBodyInStmts(decls, nsName) : decls;
+      if (!searchNsBody) continue;
+
+      for (const s of searchNsBody) {
+        const d =
+          s.kind === "ExportStatement"
+            ? (s as { declaration?: Statement }).declaration ?? s
+            : s;
+        if (d.kind !== "InterfaceStatement") continue;
+        const iface = d as InterfaceStatement;
+        if (iface.name?.name !== ifaceName) continue;
+        const members = (iface.members ?? []).filter((m) => m.name?.name === symbolName);
+        for (const member of members) {
+          pushOverload(renderAmbientInterfaceMemberDisplay(member));
+        }
+      }
+    }
+  }
+
+  if (overloads.length === 1) {
+    return overloads[0] ?? null;
+  }
+  if (overloads.length > 1) {
+    return overloads.join(" | ");
+  }
   return null;
 }
 
@@ -551,6 +796,71 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
 export interface CollectedImportedDeclarations {
   externalDeclarations: Statement[];
   importedSymbolTypes: Map<string, AnalysisType>;
+  importedSymbolDisplayTypes: Map<string, string>;
+}
+
+function renderAmbientTypeAnnotationText(typeName: string | undefined): string {
+  return typeName?.trim() || "unknown";
+}
+
+function renderAmbientFunctionDisplayFromParts(
+  parameters: Array<{ name: string; typeName: string; optional: boolean; rest: boolean }>,
+  returnTypeName: string,
+  typeParameters?: string[]
+): string {
+  const typeParameterPrefix = typeParameters && typeParameters.length > 0
+    ? `<${typeParameters.join(", ")}>`
+    : "";
+  return `${typeParameterPrefix}(${parameters
+    .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}${parameter.optional ? "?" : ""}: ${parameter.typeName}`)
+    .join(", ")}) => ${returnTypeName}`;
+}
+
+function renderAmbientFunctionDisplayFromStatement(fn: FunctionStatement): string {
+  return renderAmbientFunctionDisplayFromParts(
+    fn.parameters
+      .filter((parameter) => parameter.thisParameter !== true)
+      .map((parameter) => ({
+        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+        typeName: renderAmbientTypeAnnotationText(parameter.typeAnnotation?.name),
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
+      })),
+    renderAmbientTypeAnnotationText(fn.returnType?.name),
+    fn.typeParameters?.map((parameter) => parameter.name.name)
+  );
+}
+
+function renderAmbientFunctionDisplayFromInterfaceMember(member: InterfaceMethodMember): string {
+  return renderAmbientFunctionDisplayFromParts(
+    member.parameters
+      .filter((parameter) => parameter.thisParameter !== true)
+      .map((parameter) => ({
+        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+        typeName: renderAmbientTypeAnnotationText(parameter.typeAnnotation?.name),
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
+      })),
+    renderAmbientTypeAnnotationText(member.returnType?.name)
+  );
+}
+
+function renderAmbientInterfaceMemberDisplay(member: InterfaceMember): string {
+  if (member.kind === "InterfaceMethodMember") {
+    return renderAmbientFunctionDisplayFromInterfaceMember(member as InterfaceMethodMember);
+  }
+  return renderAmbientTypeAnnotationText(member.typeAnnotation?.name);
+}
+
+function ambientModuleDeclarationCandidates(
+  importPath: string,
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]> | undefined
+): Statement[] | null {
+  if (!ambientModuleDeclarations) {
+    return null;
+  }
+  return ambientModuleDeclarations.get(importPath)
+    ?? (importPath.startsWith("node:") ? ambientModuleDeclarations.get(importPath.slice("node:".length)) ?? null : null);
 }
 
 /**
@@ -565,11 +875,12 @@ export async function collectAllImportedDeclarations(
 ): Promise<CollectedImportedDeclarations> {
   const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
   if (!currentFilePath) {
-    return { externalDeclarations: [], importedSymbolTypes: new Map() };
+    return { externalDeclarations: [], importedSymbolTypes: new Map(), importedSymbolDisplayTypes: new Map() };
   }
 
   const externalDeclarations: Statement[] = [];
   const importedSymbolTypes = new Map<string, AnalysisType>();
+  const importedSymbolDisplayTypes = new Map<string, string>();
   const seen = new Set<ImportableDeclaration>();
 
   for (const statement of ast.body) {
@@ -608,7 +919,7 @@ export async function collectAllImportedDeclarations(
         // Fall back to ambient module declarations (e.g. `declare module "fs"` loaded
         // from @types/node via tsconfig compilerOptions.types).
         const importPath = importStatement.from.value;
-        const ambientDecls = context.ambientModuleDeclarations?.get(importPath);
+        const ambientDecls = ambientModuleDeclarationCandidates(importPath, context.ambientModuleDeclarations);
         if (ambientDecls) {
           for (const targetStatement of ambientDecls) {
             if (!seen.has(targetStatement as ImportableDeclaration)) {
@@ -623,6 +934,10 @@ export async function collectAllImportedDeclarations(
               const type = resolveAmbientNamedImportType(importPath, importedName, context.ambientModuleDeclarations);
               if (type) {
                 importedSymbolTypes.set(localName, type);
+              }
+              const displayType = resolveAmbientNamedImportDisplayType(importPath, importedName, context.ambientModuleDeclarations);
+              if (displayType) {
+                importedSymbolDisplayTypes.set(localName, displayType);
               }
             }
           }
@@ -662,7 +977,7 @@ export async function collectAllImportedDeclarations(
     }
   }
 
-  return { externalDeclarations, importedSymbolTypes };
+  return { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes };
 }
 
 /**

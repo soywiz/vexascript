@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import { expect } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
+import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 import { collectAllImportedDeclarations, collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveDefinitionAcrossFiles,
@@ -1762,7 +1763,8 @@ describe("cross-file navigation", () => {
         collected.importedSymbolTypes,
         [],
         ambientModuleDeclarations,
-        ambientModuleLocations
+        ambientModuleLocations,
+        collected.importedSymbolDisplayTypes
       );
 
       const location = await resolveDefinitionWithLocalFallback({
@@ -1812,7 +1814,8 @@ describe("cross-file navigation", () => {
         collected.importedSymbolTypes,
         [],
         ambientModuleDeclarations,
-        ambientModuleLocations
+        ambientModuleLocations,
+        collected.importedSymbolDisplayTypes
       );
 
       const location = await resolveDefinitionWithLocalFallback({
@@ -1827,6 +1830,88 @@ describe("cross-file navigation", () => {
       expect(location?.uri?.endsWith("/node/fs/promises.d.ts")).toBe(true);
       expect(location?.range.start.line).toBe(0);
       expect(location?.range.start.character).toBeGreaterThanOrEqual(0);
+    });
+
+    it("hovers ambient readFile overloads without recursing forever on node typings", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-ambient-hover-"));
+      const nodeTypesDir = join(root, "node_modules", "@types", "node");
+      const mainPath = join(root, "main.vx");
+      const source = dedent`
+        import { readFile } from "fs/promises"
+        await readFile("hello", { encoding: "utf-8" })
+      `;
+
+      await mkdir(nodeTypesDir, { recursive: true });
+      await writeFile(
+        join(nodeTypesDir, "package.json"),
+        JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+        "utf8"
+      );
+      await writeFile(
+        join(nodeTypesDir, "index.d.ts"),
+        dedent`
+        declare module "node:events" {
+          export interface AbortSignal {
+            parent?: AbortSignal;
+          }
+          export interface Abortable {
+            signal?: AbortSignal;
+          }
+        }
+
+        declare module "node:fs" {
+          export class Buffer {}
+          export class URL {}
+          export type PathLike = string | Buffer | URL;
+          export type OpenMode = string;
+        }
+
+        declare module "fs/promises" {
+          import { Abortable } from "node:events";
+          import { OpenMode, PathLike } from "node:fs";
+
+          export interface FileHandle {}
+          export function readFile(
+            path: PathLike | FileHandle,
+            options: ({ encoding?: null | undefined, flag?: OpenMode | undefined } & Abortable) | null,
+          ): Promise<Buffer>;
+          export function readFile(
+            path: PathLike | FileHandle,
+            options: ({ encoding: string, flag?: OpenMode | undefined } & Abortable) | string,
+          ): Promise<string>;
+        }
+
+        declare module "node:fs/promises" {
+          export * from "fs/promises";
+        }
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, source, "utf8");
+
+      const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+      const baseSession = createAnalysisSession(source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        ambientModuleDeclarations: ambient.moduleDeclarations
+      });
+      const session = createAnalysisSession(
+        source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        ambient.globalDeclarations,
+        ambient.moduleDeclarations,
+        ambient.moduleDeclarationLocations,
+        collected.importedSymbolDisplayTypes
+      );
+
+      const hover = session.analysis?.getHoverAt(1, source.split("\n")[1]!.indexOf("readFile") + 1);
+
+      expect(hover).not.toBeNull();
+      expect(hover?.contents).toContain("readFile");
+      expect(hover?.contents).toContain("PathLike | FileHandle");
+      expect(hover?.contents).not.toContain("string | Buffer | URL | object");
     });
 
     it("navigates imported symbol to source declaration, not import line", async () => {

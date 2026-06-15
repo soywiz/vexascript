@@ -165,4 +165,14 @@ describe("resolveNodeModulesTypingsPath", () => {
 
     expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "minimist")).toBe(dtsPath);
   });
+
+  it("treats node: builtins like their base package name when resolving typings", async () => {
+    const typesDir = join(root, "node_modules", "@types", "os");
+    await mkdir(typesDir, { recursive: true });
+    const dtsPath = join(typesDir, "index.d.ts");
+    await writeFile(join(typesDir, "package.json"), JSON.stringify({ name: "@types/os" }), "utf8");
+    await writeFile(dtsPath, "export declare function tmpdir(): string;\n", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "node:os")).toBe(dtsPath);
+  });
 });

@@ -278,6 +278,90 @@ describe("cross-file type diagnostics", () => {
     );
   });
 
+  it("accepts ambient imported overloads selected by an options object argument", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const nodeTypesDir = join(root, "node_modules", "@types", "node");
+    const mainPath = join(root, "main.vx");
+    const source = 'import { readFile } from "fs/promises"\nawait readFile("hello", { encoding: "utf-8" })\n';
+
+    await mkdir(nodeTypesDir, { recursive: true });
+    await writeFile(
+      join(nodeTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(nodeTypesDir, "index.d.ts"),
+      dedent`
+      declare module "fs" {
+        export class Buffer {}
+        export class URL {}
+        export type PathLike = string | Buffer | URL;
+        export type OpenMode = string;
+      }
+
+      declare module "node:fs" {
+        export * from "fs";
+      }
+
+      declare module "node:events" {
+        export interface Abortable {
+          signal?: AbortSignal;
+        }
+        export interface AbortSignal {}
+      }
+
+      declare module "fs/promises" {
+        import { Abortable } from "node:events";
+        import { PathLike } from "node:fs";
+        import { OpenMode } from "node:fs";
+
+        export interface FileHandle {}
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: ({ encoding?: null | undefined, flag?: OpenMode | undefined } & Abortable) | null,
+        ): Promise<Buffer>;
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: ({ encoding: string, flag?: OpenMode | undefined } & Abortable) | string,
+        ): Promise<string>;
+      }
+
+      declare module "node:fs/promises" {
+        export * from "fs/promises";
+      }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      ambientModuleDeclarations: ambient.moduleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      ambient.globalDeclarations,
+      ambient.moduleDeclarations,
+      ambient.moduleDeclarationLocations
+    );
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics).toEqual([]);
+  });
+
   it("supports variadic imported class methods", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
     const worldFile = join(root, "world.vx");
@@ -475,6 +559,21 @@ describe("cross-file type diagnostics", () => {
     });
 
     expect(diagnostics.map((d) => d.message)).toContain("Cannot find module 'nonexistent-package'");
+  });
+
+  it("does not report module-not-found when a node: builtin is available via the base ambient module name", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const mainFile = join(root, "main.vx");
+    const source = 'import { tmpdir } from "node:os"\n';
+    await writeFile(mainFile, source, "utf8");
+
+    const session = createAnalysisSession(source, [], new Map(), [], new Map([["os", []]]));
+    const diagnostics = await collectModuleNotFoundDiagnostics({
+      uri: pathToFileURL(mainFile).toString(),
+      session
+    });
+
+    expect(diagnostics.map((d) => d.message)).not.toContain("Cannot find module 'node:os'");
   });
 
   it("reports cross-file call errors nested in arrow-function expressions", async () => {

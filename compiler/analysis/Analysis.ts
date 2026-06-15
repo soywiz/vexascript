@@ -58,6 +58,7 @@ export interface AnalysisOptions {
    * pervasive auto-await, instead of being treated as `unknown`.
    */
   importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
+  importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
 }
 
 export class Analysis {
@@ -73,7 +74,13 @@ export class Analysis {
   constructor(program: Program, options: AnalysisOptions = {}) {
     const externalDeclarations = options.externalDeclarations ?? [];
     const ambientDeclarations = options.ambientDeclarations ?? [];
-    const bound = new Binder(program, externalDeclarations, options.importedSymbolTypes, ambientDeclarations).bind();
+    const bound = new Binder(
+      program,
+      externalDeclarations,
+      options.importedSymbolTypes,
+      ambientDeclarations,
+      options.importedSymbolDisplayTypes
+    ).bind();
     this.rootScope = bound.rootScope;
 
     const checked = new TypeChecker(program, bound, externalDeclarations, ambientDeclarations).check();

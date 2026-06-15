@@ -91,7 +91,8 @@ export class Binder {
     private readonly program: Program,
     private readonly externalDeclarations: Statement[] = [],
     private readonly importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
-    private readonly ambientDeclarations: Statement[] = []
+    private readonly ambientDeclarations: Statement[] = [],
+    private readonly importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map()
   ) {
     this.rootScope = this.createScope(undefined, program);
   }
@@ -217,7 +218,7 @@ export class Binder {
             kind: resolvedType.kind === "function" ? "function" : "variable",
             node: importStatement.defaultImport,
             type: resolvedType,
-            valueType: typeToString(resolvedType)
+            valueType: this.importedSymbolDisplayTypes.get(importStatement.defaultImport.name) ?? typeToString(resolvedType)
           }, declaredOffsetOverride);
         }
         if (importStatement.namespaceImport) {
@@ -227,7 +228,7 @@ export class Binder {
             kind: resolvedType.kind === "function" ? "function" : "variable",
             node: importStatement.namespaceImport,
             type: resolvedType,
-            valueType: typeToString(resolvedType)
+            valueType: this.importedSymbolDisplayTypes.get(importStatement.namespaceImport.name) ?? typeToString(resolvedType)
           }, declaredOffsetOverride);
         }
         for (const specifier of importStatement.specifiers) {
@@ -241,7 +242,7 @@ export class Binder {
             kind: resolvedType.kind === "function" ? "function" : "variable",
             node: local,
             type: resolvedType,
-            valueType: typeToString(resolvedType)
+            valueType: this.importedSymbolDisplayTypes.get(local.name) ?? typeToString(resolvedType)
           }, declaredOffsetOverride);
         }
         continue;

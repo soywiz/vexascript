@@ -13,4 +13,4 @@ website/src/assets/generated
 *.tgz
 /temp
 /.claude
-
+/.codegraph

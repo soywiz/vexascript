@@ -3,6 +3,7 @@ import { expect } from "../test/expect";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
+import { typeToString } from "compiler/analysis/types";
 
 function parseAmbientModule(src: string, moduleName: string): Statement[] {
   // Parse `declare module "<name>" { ... }` and return the body statements
@@ -116,5 +117,143 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
 
     expect(importedSymbolTypes.has("process")).toBe(true);
     expect(importedSymbolTypes.get("process")!.kind).toBe("function");
+  });
+
+  it("preserves ambient function overloads for named imports", async () => {
+    const fsDecls = parseAmbientModule(
+      `declare module "node:fs" {
+        export class Buffer {}
+        export class URL {}
+        export type PathLike = string | Buffer | URL;
+      }`,
+      "node:fs"
+    );
+    const fsPromisesDecls = parseAmbientModule(
+      `declare module "fs/promises" {
+        import { PathLike } from "node:fs";
+        export interface FileHandle {}
+        export function readFile(path: PathLike | FileHandle): Promise<Buffer>;
+        export function readFile(path: PathLike | FileHandle, options: { encoding: string }): Promise<string>;
+      }`,
+      "fs/promises"
+    );
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:fs", fsDecls],
+      ["fs/promises", fsPromisesDecls]
+    ]);
+
+    const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
+    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+
+    expect(importedSymbolTypes.get("readFile")?.kind).toBe("union");
+    expect(typeToString(importedSymbolTypes.get("readFile")!)).toContain("(path: string | Buffer | URL | object) => Promise<Buffer>");
+    expect(typeToString(importedSymbolTypes.get("readFile")!)).toContain("(path: string | Buffer | URL | object, options: { encoding: string }) => Promise<string>");
+  });
+
+  it("expands ambient object and interface types inside overload parameters", async () => {
+    const fsDecls = parseAmbientModule(
+      `declare module "node:fs" {
+        export class Buffer {}
+        export class URL {}
+        export type PathLike = string | Buffer | URL;
+        export type OpenMode = string;
+      }`,
+      "node:fs"
+    );
+    const eventsDecls = parseAmbientModule(
+      `declare module "node:events" {
+        export interface Abortable {
+          signal?: AbortSignal;
+        }
+        export interface AbortSignal {}
+      }`,
+      "node:events"
+    );
+    const fsPromisesDecls = parseAmbientModule(
+      `declare module "fs/promises" {
+        import { Abortable } from "node:events";
+        import { OpenMode, PathLike } from "node:fs";
+        export interface FileHandle {}
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: ({ encoding?: null | undefined, flag?: OpenMode | undefined } & Abortable) | null,
+        ): Promise<Buffer>;
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: ({ encoding: string, flag?: OpenMode | undefined } & Abortable) | string,
+        ): Promise<string>;
+      }`,
+      "fs/promises"
+    );
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:fs", fsDecls],
+      ["node:events", eventsDecls],
+      ["fs/promises", fsPromisesDecls]
+    ]);
+
+    const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
+    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+
+    const rendered = typeToString(importedSymbolTypes.get("readFile")!);
+    expect(rendered).toContain("{ encoding: string");
+    expect(rendered).toContain("flag: string | undefined");
+    expect(rendered).toContain("{ signal: object | undefined }");
+    expect(rendered).toContain("{ encoding: null | undefined");
+  });
+
+  it("does not recurse forever on ambient interfaces that reference themselves indirectly", async () => {
+    const eventsDecls = parseAmbientModule(
+      `declare module "node:events" {
+        export interface AbortSignal {
+          parent?: AbortSignal;
+        }
+        export interface Abortable {
+          signal?: AbortSignal;
+        }
+      }`,
+      "node:events"
+    );
+    const fsDecls = parseAmbientModule(
+      `declare module "node:fs" {
+        export type OpenMode = string;
+        export type PathLike = string;
+      }`,
+      "node:fs"
+    );
+    const fsPromisesDecls = parseAmbientModule(
+      `declare module "fs/promises" {
+        import { Abortable } from "node:events";
+        import { OpenMode, PathLike } from "node:fs";
+        export interface FileHandle {}
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: ({ encoding: string, flag?: OpenMode | undefined } & Abortable) | string,
+        ): Promise<string>;
+      }`,
+      "fs/promises"
+    );
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:events", eventsDecls],
+      ["node:fs", fsDecls],
+      ["fs/promises", fsPromisesDecls]
+    ]);
+
+    const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
+    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+
+    expect(importedSymbolTypes.get("readFile")?.kind).toBe("function");
+    expect(typeToString(importedSymbolTypes.get("readFile")!)).toContain("Promise<string>");
   });
 });

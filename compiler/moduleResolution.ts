@@ -3,6 +3,10 @@ import { localVfs } from "./localVfs";
 import { dirname, extname, resolve } from "./utils/path";
 import type { Vfs } from "./vfs";
 
+function normalizeNodeBuiltinSpecifier(packageName: string): string {
+  return packageName.startsWith("node:") ? packageName.slice("node:".length) : packageName;
+}
+
 
 export function candidateImportTargetFilePaths(
   importerFilePath: string,
@@ -154,25 +158,30 @@ export async function resolveNodeModulesTypingsPath(
   if (packageName.startsWith(".") || packageName.startsWith("/")) {
     return null;
   }
+  const normalizedPackageName = normalizeNodeBuiltinSpecifier(packageName);
   let dir = dirname(importerFilePath);
   while (true) {
     const nodeModulesDir = resolve(dir, "node_modules");
-    const pkgDir = resolve(nodeModulesDir, packageName);
+    const pkgDir = resolve(nodeModulesDir, normalizedPackageName);
     const packageTypings = await declarationPathInPackage(pkgDir, vfs);
     if (packageTypings) {
       return packageTypings;
     }
 
-    const typesPkgDir = resolve(nodeModulesDir, typesPackageNameFor(packageName));
+    const typesPkgDir = resolve(nodeModulesDir, typesPackageNameFor(normalizedPackageName));
     const definitelyTypedTypings = await declarationPathInPackage(typesPkgDir, vfs);
     if (definitelyTypedTypings) {
       return definitelyTypedTypings;
     }
-    const pnpmPackageTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, packageName, vfs);
+    const pnpmPackageTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, normalizedPackageName, vfs);
     if (pnpmPackageTypings) {
       return pnpmPackageTypings;
     }
-    const pnpmTypesTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, typesPackageNameFor(packageName), vfs);
+    const pnpmTypesTypings = await declarationPathInPnpmVirtualStore(
+      nodeModulesDir,
+      typesPackageNameFor(normalizedPackageName),
+      vfs
+    );
     if (pnpmTypesTypings) {
       return pnpmTypesTypings;
     }

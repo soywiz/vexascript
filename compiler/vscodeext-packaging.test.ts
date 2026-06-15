@@ -67,6 +67,12 @@ describe("VS Code extension packaging", () => {
     expect(pkg.scripts?.["package"]).toBe(
       "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexascript.vsix"
     );
+    expect(pkg.scripts?.["install"]).toBe(
+      "pnpm package && (code --uninstall-extension soywiz.vexascript-vscodeext || true) && code --install-extension vexascript.vsix --force"
+    );
+    expect(pkg.scripts?.["uninstall"]).toBe(
+      "code --uninstall-extension soywiz.vexascript-vscodeext"
+    );
   });
 
   it("launches the packaged extension server from the extension dist directory", async () => {

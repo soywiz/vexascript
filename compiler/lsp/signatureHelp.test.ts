@@ -8,7 +8,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createAnalysisSession } from "./analysisSession";
 import { createSignatureHelp } from "./signatureHelp";
-import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
+import { loadAmbientTypesForProject } from "./ambientTypesLoader";
+import { collectAllImportedDeclarations, collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 
 describe("signature help", () => {
   it("provides function signature and active parameter index", async () => {
@@ -436,5 +437,78 @@ describe("signature help", () => {
     // With 1 active param, an overload that accepts a value should be selected
     const activeSig = help!.signatures[help!.activeSignature!];
     expect(activeSig?.parameters?.length ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  it("uses the concise ambient imported signature text for node typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-sig-ambient-"));
+    const nodeTypesDir = join(root, "node_modules", "@types", "node");
+    const mainPath = join(root, "main.vx");
+    const source = 'import { readFile } from "fs/promises"\nawait readFile("hello", { encoding: "utf-8" })\n';
+
+    await mkdir(nodeTypesDir, { recursive: true });
+    await writeFile(
+      join(nodeTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/node", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(nodeTypesDir, "index.d.ts"),
+      dedent`
+      declare module "node:events" {
+        export interface Abortable {
+          signal?: AbortSignal;
+        }
+        export interface AbortSignal {
+          parent?: AbortSignal;
+        }
+      }
+
+      declare module "node:fs" {
+        export class Buffer {}
+        export class URL {}
+        export type PathLike = string | Buffer | URL;
+        export type OpenMode = string;
+      }
+
+      declare module "fs/promises" {
+        import { Abortable } from "node:events";
+        import { OpenMode, PathLike } from "node:fs";
+
+        export interface FileHandle {}
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: ({ encoding?: null | undefined, flag?: OpenMode | undefined } & Abortable) | null,
+        ): Promise<Buffer>;
+        export function readFile(
+          path: PathLike | FileHandle,
+          options: ({ encoding: string, flag?: OpenMode | undefined } & Abortable) | string,
+        ): Promise<string>;
+      }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      ambientModuleDeclarations: ambient.moduleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      ambient.globalDeclarations,
+      ambient.moduleDeclarations,
+      ambient.moduleDeclarationLocations,
+      imported.importedSymbolDisplayTypes
+    );
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 14);
+    expect(help).not.toBeNull();
+    expect(help!.signatures[0]!.label).toContain("PathLike | FileHandle");
+    expect(help!.signatures[0]!.label).not.toContain("string | Buffer | URL | object");
   });
 });
