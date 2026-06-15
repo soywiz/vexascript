@@ -344,6 +344,17 @@ function findExistingImportFromPath(ast: Program, importPath: string): ImportSta
   return null;
 }
 
+function importedModulePaths(ast: Program): Set<string> {
+  const paths = new Set<string>();
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    paths.add((statement as ImportStatement).from.value);
+  }
+  return paths;
+}
+
 export function importInsertionRange(ast: Program): Range {
   let lastImport: Statement | null = null;
   for (const statement of ast.body) {
@@ -507,6 +518,7 @@ function buildImportCodeActions(params: {
   currentFilePath: string;
 }): CodeAction[] {
   const { uri, ast, range, symbolName, candidates, currentFilePath } = params;
+  const preferredImportPaths = importedModulePaths(ast);
   const seen = new Set<string>();
   const uniqueCandidates = candidates.filter((candidate) => {
     const key = `${symbolName}::${importPathForSymbolExport(candidate, currentFilePath)}`;
@@ -518,9 +530,16 @@ function buildImportCodeActions(params: {
   });
 
   return uniqueCandidates
-    .sort((a, b) =>
-      importPathForSymbolExport(a, currentFilePath).localeCompare(importPathForSymbolExport(b, currentFilePath))
-    )
+    .sort((a, b) => {
+      const aPath = importPathForSymbolExport(a, currentFilePath);
+      const bPath = importPathForSymbolExport(b, currentFilePath);
+      const aPreferred = preferredImportPaths.has(aPath) ? 0 : 1;
+      const bPreferred = preferredImportPaths.has(bPath) ? 0 : 1;
+      if (aPreferred !== bPreferred) {
+        return aPreferred - bPreferred;
+      }
+      return aPath.localeCompare(bPath);
+    })
     .map((candidate) => buildImportCodeAction({ uri, ast, range, symbolName, candidate, currentFilePath }))
     .filter((action): action is CodeAction => action !== null);
 }
@@ -597,6 +616,7 @@ export async function buildAutoImportSuggestions(params: {
   if (normalizedPrefix.length === 0 && allowEmptyPrefix !== true) {
     return [];
   }
+  const preferredImportPaths = importedModulePaths(ast);
   const results: AutoImportSuggestion[] = [];
   const seen = new Set<string>();
   const range = importInsertionRange(ast);
@@ -629,6 +649,7 @@ export async function buildAutoImportSuggestions(params: {
 
   return results.sort((a, b) =>
     a.symbol.name.localeCompare(b.symbol.name) ||
+    ((preferredImportPaths.has(a.importPath) ? 0 : 1) - (preferredImportPaths.has(b.importPath) ? 0 : 1)) ||
     a.importPath.localeCompare(b.importPath)
   );
 }

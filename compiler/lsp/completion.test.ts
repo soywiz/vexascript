@@ -369,6 +369,36 @@ describe("createCompletionItemsForPosition", () => {
     ]);
   });
 
+  it("prioritizes auto-import completions from modules already imported in the file", async () => {
+    const { source, line, character } = sourceWithCursor(
+      'import { existing } from "beta"\nfun demo() {\n  return gre^^^\n}\n'
+    );
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(
+      ast,
+      line,
+      character,
+      undefined,
+      [],
+      {
+        text: source,
+        uri: "file:///consumer.vx",
+        sourceRoots: [],
+        getExportedSymbols: async () => [
+          { name: "greet", filePath: "/virtual/@types/alpha/index.d.ts", importPath: "alpha", kind: "function" },
+          { name: "greet", filePath: "/virtual/@types/beta/index.d.ts", importPath: "beta", kind: "function" },
+        ],
+      }
+    );
+    const greets = items.filter((item) => item.label === "greet");
+
+    expect(greets).toHaveLength(2);
+    expect(greets.map((item) => item.detail)).toEqual([
+      "Auto import from beta",
+      "Auto import from alpha"
+    ]);
+  });
+
   it("offers exported runtime namespace members for member access", async () => {
     const { source, line, character } = sourceWithCursor(
       "namespace Tools { export const version = 1; const hidden = 2; export function read() { return version } }\nTools.^^^"

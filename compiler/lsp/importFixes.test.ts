@@ -329,6 +329,28 @@ describe("import quick fixes", () => {
     ]);
   });
 
+  it("prioritizes auto-import code actions from modules already imported in the file", async () => {
+    const source = 'import { existing } from "beta"\nfun demo() {\n  greet()\n}\n';
+    const session = createAnalysisSession(source);
+    const uri = "file:///consumer.vx";
+    const actions = await createAutoImportCodeActions({
+      uri,
+      ast: session.ast,
+      diagnostics: [undefinedVariableDiagnostic("greet")],
+      sourceRoots: [],
+      getExportedSymbols: async () => [
+        { name: "greet", filePath: "/virtual/@types/alpha/index.d.ts", importPath: "alpha", kind: "function" },
+        { name: "greet", filePath: "/virtual/@types/beta/index.d.ts", importPath: "beta", kind: "function" }
+      ]
+    });
+
+    expect(actions).toHaveLength(2);
+    expect(actions.map((action) => action.title)).toEqual([
+      "Import 'greet' from 'beta'",
+      "Import 'greet' from 'alpha'"
+    ]);
+  });
+
   it("suggests importing an exported extension property for a missing member", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
     const durationFile = join(root, "duration.vx");
