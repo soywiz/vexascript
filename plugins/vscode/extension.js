@@ -8,7 +8,8 @@ const {
 const SELECT_CODE_ACTION_RANGE_COMMAND = "vexa.selectCodeActionRange";
 const {
   shouldRetriggerParameterHints,
-  shouldRetriggerParameterHintsForSelectionChange
+  shouldRetriggerParameterHintsForSelectionChange,
+  selectionStateFromEvent
 } = require("./parameterHints.js");
 
 /** @type {LanguageClient | undefined} */
@@ -125,10 +126,20 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
   let pending;
   let parameterHintsPending;
   let parameterHintsRetryPending;
+  let parameterHintsArmed = false;
+  let lastParameterHintsSelection;
   const isVexaScript = (document) =>
     document && (document.languageId === "vexa" || document.uri.fsPath.endsWith(".vx"));
 
-  function scheduleParameterHints() {
+  function scheduleParameterHints(editor, reason = "typing") {
+    const selectionState = editor && editor.selection
+      ? {
+          line: editor.selection.active.line,
+          character: editor.selection.active.character
+        }
+      : undefined;
+    parameterHintsArmed = true;
+    lastParameterHintsSelection = selectionState;
     if (parameterHintsPending) {
       clearTimeout(parameterHintsPending);
     }
@@ -180,18 +191,34 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
       if (editor && event.document === editor.document) {
         scheduleUpdate(editor);
         if (shouldRetriggerParameterHints(event.contentChanges)) {
-          scheduleParameterHints();
+          scheduleParameterHints(editor, "typing");
         }
       }
     }),
     window.onDidChangeTextEditorSelection((event) => {
       const editor = window.activeTextEditor;
       if (!editor || event.textEditor !== editor || !isVexaScript(editor.document)) {
+        parameterHintsArmed = false;
+        lastParameterHintsSelection = undefined;
         return;
       }
-      if (shouldRetriggerParameterHintsForSelectionChange(event)) {
-        scheduleParameterHints();
+      const selectionState = selectionStateFromEvent(event);
+      if (!selectionState) {
+        parameterHintsArmed = false;
+        lastParameterHintsSelection = undefined;
+        return;
       }
+      if (shouldRetriggerParameterHintsForSelectionChange(event, {
+        parameterHintsArmed,
+        lastSelection: lastParameterHintsSelection
+      })) {
+        scheduleParameterHints(editor, "selection");
+        return;
+      }
+      if (lastParameterHintsSelection && selectionState.line !== lastParameterHintsSelection.line) {
+        parameterHintsArmed = false;
+      }
+      lastParameterHintsSelection = selectionState;
     })
   );
 
