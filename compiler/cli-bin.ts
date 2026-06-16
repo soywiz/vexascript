@@ -10,7 +10,7 @@ const CLI_HELP_TEXT = [
   "",
   "Commands:",
   "  build <input>     Compile a VexaScript file",
-  "  bundle <input>    Bundle a VexaScript entry file and its local modules as ESM",
+  "  bundle <input>    Bundle a VexaScript entry file and its local/package modules as ESM",
   "  run <input>       Transpile and run a VexaScript file with Node.js",
   `  test [paths...]    Discover and run .test.vx files`,
   "  tokens <input>    Show file tokens",

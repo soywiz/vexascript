@@ -169,15 +169,7 @@ async function bundleFile(
   await ensureCompilerRuntimePrograms();
 
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".mjs"));
-  const ambientDeclarations = await ambientDeclarationsForProject(project);
-  const { bundleModuleGraph } = await import("./runtime/moduleGraph");
-  const result = await bundleModuleGraph(sourcePath, target, {
-    ambientDeclarations,
-    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
-    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
-    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
-    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
-  });
+  const result = await createBundledModuleCode(sourcePath, target, project, jsxOptions);
   if (result.errors.length > 0) {
     printDiagnostics(result, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
@@ -190,6 +182,32 @@ async function bundleFile(
       console.warn(`warning: ${warning}`);
     }
   }
+}
+
+async function createBundledModuleCode(
+  sourcePath: string,
+  target: TranspileTarget,
+  project: VexaProject | null,
+  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
+): Promise<{ code: string; warnings: string[]; errors: string[]; diagnostics: TranspileDiagnostic[] }> {
+  const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const { bundleModuleGraphAsModules } = await import("./runtime/moduleGraph");
+  const result = await bundleModuleGraphAsModules(sourcePath, target, {
+    ambientDeclarations,
+    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
+    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
+    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
+    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
+  });
+  if (result.errors.length > 0) {
+    return { code: "", warnings: result.warnings, errors: result.errors, diagnostics: result.diagnostics };
+  }
+
+  const { bundleNodeModuleGraph } = await import("./runtime/nodeModuleBundle");
+  const code = await bundleNodeModuleGraph(result.entrySource, sourcePath, {
+    virtualSources: result.moduleSources
+  });
+  return { code, warnings: result.warnings, errors: result.errors, diagnostics: result.diagnostics };
 }
 
 async function loadPackageJsonDeps(dir: string): Promise<Record<string, string> | null> {
@@ -207,17 +225,9 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
-  // Bundle the entry file together with its local module graph so cross-file
-  // references resolve, then execute the combined module.
   await ensureCompilerRuntimePrograms();
-  const ambientDeclarations = await ambientDeclarationsForProject(project);
-  const { bundleModuleGraph } = await import("./runtime/moduleGraph");
-  const result = await bundleModuleGraph(sourcePath, target, {
-    ambientDeclarations,
-    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
-    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {})
-  });
-  await executeCompiled(result, sourcePath);
+  const result = await createBundledModuleCode(sourcePath, target, project);
+  await executeCompiled({ code: result.code, warnings: result.warnings, errors: result.errors, diagnostics: result.diagnostics }, sourcePath);
 }
 
 async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
@@ -239,7 +249,7 @@ async function executeSource(source: string, sourcePath: string, target: Transpi
 }
 
 async function executeCompiled(
-  result: { code: string; warnings: string[]; errors: string[]; sourceMap?: string },
+  result: { code: string; warnings: string[]; errors: string[]; sourceMap?: string; diagnostics?: TranspileDiagnostic[] },
   sourcePath: string
 ): Promise<void> {
   if (result.errors.length > 0) {
@@ -432,7 +442,7 @@ function createProgram(): Command {
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and package modules as ESM")
+    .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM")
     .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
       if (opts.bundle) {
@@ -444,7 +454,7 @@ function createProgram(): Command {
 
   program
     .command("bundle")
-    .description("Bundle a VexaScript entry file and its referenced modules as ESM")
+    .description("Bundle a VexaScript entry file and its resolved local and package modules as ESM")
     .argument("<input>", "Input file")
     .option("-o, --out <file>", "Output file")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")

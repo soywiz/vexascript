@@ -5,6 +5,8 @@ dist
 package-lock.json
 .pnpm-store
 .tmp-ts-lib
+*.mjs
+*.js
 
 **/.vexa-run-profile-*.mjs
 **/*.cpuprofile

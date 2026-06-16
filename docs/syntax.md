@@ -555,6 +555,24 @@ export type { Shape } from "./types"
 export as namespace MyLib
 ```
 
+In VexaScript source files (`.vx`), top-level runtime declarations are exported implicitly unless they are marked `private`. This means `export` is optional for public top-level variables, functions, classes, enums, namespaces, extension methods, and extension properties:
+
+```vexa
+fun greet(name: string): string {
+  return `Hello ${name}`
+}
+
+private fun hidden(): string {
+  return "secret"
+}
+```
+
+```vexa
+import { greet } from "./helpers"
+```
+
+The explicit `export` keyword is still supported and remains useful for re-exports, default exports, type-only exports, and codebases that prefer the extra clarity at the declaration site.
+
 Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output. `export as namespace` is supported for TypeScript-style global UMD declarations; it participates in parsing and editor highlighting and is omitted from JavaScript output.
 
 ## Classes

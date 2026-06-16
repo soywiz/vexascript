@@ -443,6 +443,21 @@ MathUtils.circleArea(5)
 
 TypeScript namespaces are erased to IIFEs and are primarily a compile-time construct (their emitted objects are accessed through the same IIFE pattern, but VexaScript makes this the first-class runtime model).
 
+## Module exports
+
+In VexaScript `.vx` files, top-level runtime declarations are exported implicitly unless they are marked `private`, so `export` is optional for public top-level symbols:
+
+```vexa
+fun greet(name: string): string => `Hello ${name}`
+private fun hidden(): string => "secret"
+```
+
+```vexa
+import { greet } from "./helpers"
+```
+
+Explicit `export` is still supported and remains useful for default exports, re-exports, type-only exports, and teams that prefer the extra clarity at the declaration site.
+
 ## Comment styles
 
 VexaScript supports three comment styles (TypeScript supports only the first two):

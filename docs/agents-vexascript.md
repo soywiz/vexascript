@@ -33,6 +33,8 @@ sync fun load(id: string): User {
 
 Use `go expr` inside `sync` to keep a Promise unawaited: `val p: Promise<User> = go fetchUser(id)`.
 
+In `.vx` files, public top-level runtime declarations are exported implicitly unless marked `private`, so `export` is optional for normal module symbols.
+
 **Named arguments:** `connect(port: 8080, host: "localhost")`
 
 **Tail lambdas:**

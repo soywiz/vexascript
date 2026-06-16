@@ -615,6 +615,25 @@ describe("transpile", () => {
     );
   });
 
+  it("rewrites imported overloaded function calls to their runtime-mangled bindings", () => {
+    const declarationSource = [
+      "export function describe(value: int): string { return `int:${value}` }",
+      "export function describe(value: string): string { return `string:${value}` }"
+    ].join("\n");
+    const externalDeclarations = compileSource(declarationSource).ast!.body;
+
+    const source = [
+      'import { describe } from "./other"',
+      'const values = `${describe(4)}:${describe("x")}`'
+    ].join("\n");
+
+    const result = transpile(source, { target: "conservative", externalDeclarations });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('import { describe$$int, describe$$string } from "./other";');
+    expect(result.code).toContain('const values = "" + describe$$int(4) + ":" + describe$$string("x") + "";');
+  });
+
   it("calls other extension methods on the same receiver type without this.", () => {
     const source = `class Counter(val value: int) {}
 fun Counter.doubled(): int { return value + value }

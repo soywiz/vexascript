@@ -141,7 +141,7 @@ describe("CLI", () => {
     expect(outputCode).toContain('h(Fragment, null, h("span", null, "hi"))');
   });
 
-  it("build command creates an ESM bundle inlining VexaScript and TypeScript, leaving JS and npm imports as ESM", async () => {
+  it("build command creates an ESM bundle inlining VexaScript, JavaScript, and node_modules dependencies", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-"));
     const input = join(dir, "main.vx");
     const output = join(dir, "bundle.mjs");
@@ -152,11 +152,15 @@ describe("CLI", () => {
     await mkdir(join(dir, "node_modules", "tiny-lib"), { recursive: true });
     await writeFile(join(dir, "node_modules", "tiny-lib", "package.json"), JSON.stringify({ type: "module", main: "index.js" }), "utf8");
     await writeFile(join(dir, "node_modules", "tiny-lib", "index.js"), "export const offset = 1;\n", "utf8");
+    await mkdir(join(dir, "node_modules", "tiny-cjs"), { recursive: true });
+    await writeFile(join(dir, "node_modules", "tiny-cjs", "package.json"), JSON.stringify({ main: "index.cjs" }), "utf8");
+    await writeFile(join(dir, "node_modules", "tiny-cjs", "index.cjs"), "exports.bump = (value) => value + 2;\n", "utf8");
     await writeFile(input, [
       'import { double } from "./math"',
       'import { label } from "./message.ts"',
       'import { offset } from "tiny-lib"',
-      'export const bundled = `${label}:${double(20) + offset}`'
+      'import { bump } from "tiny-cjs"',
+      'export const bundled = `${label}:${bump(double(20) + offset)}`'
     ].join("\n"), "utf8");
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -164,16 +168,22 @@ describe("CLI", () => {
     await runCli(["node", "vexa", "build", input, "--bundle", "--out", output]);
 
     const outputCode = await readFile(output, "utf8");
-    // VexaScript and TypeScript imports are inlined — their specifiers disappear
+    // VexaScript, TypeScript, JavaScript, and node_modules imports are bundled away.
     expect(outputCode).not.toContain('from "./math"');
     expect(outputCode).not.toContain('from "./message.ts"');
-    // Plain JS and npm package imports remain as ESM (Node.js resolves them at runtime)
-    expect(outputCode).toContain('from "./suffix.js"');
-    expect(outputCode).toContain('from "tiny-lib"');
+    expect(outputCode).not.toContain('from "./suffix.js"');
+    expect(outputCode).not.toContain('from "tiny-lib"');
+    expect(outputCode).not.toContain('from "tiny-cjs"');
+    expect(outputCode).not.toContain(dir);
+    expect(outputCode).toContain("function double(value)");
+    expect(outputCode).toContain('exports.label = "answer" + suffix_js_1.suffix + "";');
+    expect(outputCode).toContain("const __vexaModules = {");
+    expect(outputCode).toContain("async function (module, exports, __requireFrom)");
+    expect(outputCode).toContain('exports.suffix = \'-from-js\';');
 
-    // The bundle is fully runnable: Node.js resolves the remaining ESM imports
+    // The bundle is fully runnable without runtime package resolution for these deps.
     const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: string };
-    expect(imported.bundled).toBe("answer-from-js:41");
+    expect(imported.bundled).toBe("answer-from-js:43");
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
   });
 
@@ -199,12 +209,67 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
   });
 
+  it("bundle keeps each local VexaScript file scoped as its own module", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-scope-"));
+    const input = join(dir, "main.vx");
+    const output = join(dir, "scoped-bundle.mjs");
+    await writeFile(join(dir, "left.vx"), [
+      "const hidden = 10",
+      "export fun readLeft() => hidden"
+    ].join("\n"), "utf8");
+    await writeFile(join(dir, "right.vx"), [
+      "const hidden = 20",
+      "export fun readRight() => hidden"
+    ].join("\n"), "utf8");
+    await writeFile(input, [
+      'import { readLeft } from "./left"',
+      'import { readRight } from "./right"',
+      'export const bundled = `${readLeft()}:${readRight()}`'
+    ].join("\n"), "utf8");
+
+    await runCli(["node", "vexa", "bundle", input, "--out", output]);
+
+    const outputCode = await readFile(output, "utf8");
+    expect(outputCode).toContain("__vexa_module_");
+    expect(outputCode).toContain('const hidden = 10;');
+    expect(outputCode).toContain('const hidden = 20;');
+    expect(outputCode).toContain("exports.readLeft = readLeft;");
+    expect(outputCode).toContain("exports.readRight = readRight;");
+
+    const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: string };
+    expect(imported.bundled).toBe("10:20");
+  });
+
   it("run command executes testFixtures/sample.vx", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runCli(["node", "vexa", "run", "testFixtures/sample.vx"]);
 
     expect(logSpy.mock.calls).toEqual([[42], [1], [2], [3], ['[a]'], ['[b]', { x: 4, y: 6 }]]);
+  });
+
+  it("run command keeps each local VexaScript file scoped as its own module", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-run-scope-"));
+    const input = join(dir, "main.vx");
+    await writeFile(join(dir, "left.vx"), [
+      "const hidden = 10",
+      "fun readLeft() => hidden"
+    ].join("\n"), "utf8");
+    await writeFile(join(dir, "right.vx"), [
+      "const hidden = 20",
+      "fun readRight() => hidden"
+    ].join("\n"), "utf8");
+    await writeFile(input, [
+      'import { readLeft } from "./left"',
+      'import { readRight } from "./right"',
+      'console.log(`${readLeft()}:${readRight()}`)'
+    ].join("\n"), "utf8");
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "vexa", "run", input]);
+
+    expect(logSpy.mock.calls).toEqual([["10:20"]]);
   });
 
   it("run command supports conservative target mode", async () => {

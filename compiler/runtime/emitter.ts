@@ -379,6 +379,11 @@ function overloadedFunctionName(name: string, parameters: FunctionParameter[]): 
   return `${name}$$${overloadSuffix(parameters)}`;
 }
 
+function overloadedFunctionNameFromParameterTypes(name: string, parameterTypes: readonly string[]): string {
+  const suffix = parameterTypes.map((parameterType) => sanitizeManglePart(parameterType)).join("$$") || "void";
+  return `${name}$$${suffix}`;
+}
+
 function typeMangleName(type: AnalysisType | undefined): string | null {
   if (!type) {
     return null;
@@ -589,6 +594,22 @@ function extensionPropertyRuntimeName(receiverType: string, propertyName: string
 
 function importedExtensionRuntimeNames(importedName: string): string[] {
   return activeState.importedExtensionRuntimeNames.get(importedName) ?? [];
+}
+
+function importedOverloadRuntimeNames(importedName: string, localName: string): string[] {
+  const overloads = activeState.programOverloads.get(importedName);
+  if (!overloads || overloads.length <= 1) {
+    return [];
+  }
+  return overloads
+    .filter((overload) => overload.hasBody)
+    .map((overload) => {
+      if (localName === importedName) {
+        return overload.emittedName;
+      }
+      const localRuntimeName = overloadedFunctionNameFromParameterTypes(localName, overload.parameterTypes);
+      return `${overload.emittedName} as ${localRuntimeName}`;
+    });
 }
 
 function emitIdentifier(identifier: Identifier): string {
@@ -1703,13 +1724,19 @@ export function emitStatement(statement: Statement): string {
       }
       const namedImports: string[] = [];
       for (const specifier of importStatement.specifiers) {
+        const localName = specifier.local?.name ?? specifier.imported.name;
+        const overloadRuntimeNames = importedOverloadRuntimeNames(specifier.imported.name, localName);
+        if (overloadRuntimeNames.length > 0) {
+          namedImports.push(...overloadRuntimeNames);
+          continue;
+        }
+
         const extensionRuntimeNames = importedExtensionRuntimeNames(specifier.imported.name);
         if (extensionRuntimeNames.length > 0) {
           namedImports.push(...extensionRuntimeNames);
           continue;
         }
 
-        const localName = specifier.local?.name ?? specifier.imported.name;
         const receiverType = activeState.extensionProperties.get(localName);
         if (receiverType) {
           const importedName = extensionPropertyRuntimeName(receiverType, specifier.imported.name);
@@ -2205,11 +2232,14 @@ function collectEmitProgramRuntimeContext(
   const javaScriptImplementations = seed.javaScriptImplementations;
   const jsNames = seed.jsNames;
   const importedNames = new Set<string>();
+  const importedOverloadAliases: Array<{ importedName: string; localName: string }> = [];
 
   for (const statement of contextProgram.body) {
     if (statement.kind === "ImportStatement") {
       for (const specifier of (statement as ImportStatement).specifiers) {
-        importedNames.add((specifier.local ?? specifier.imported).name);
+        const localName = (specifier.local ?? specifier.imported).name;
+        importedNames.add(localName);
+        importedOverloadAliases.push({ importedName: specifier.imported.name, localName });
       }
     }
 
@@ -2287,6 +2317,21 @@ function collectEmitProgramRuntimeContext(
     }
     overloads.set(name, functions.map((fn) => ({
       emittedName: overloadedFunctionName(name, fn.parameters),
+      parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
+      hasBody: fn.missingBody !== true
+    })));
+  }
+
+  for (const { importedName, localName } of importedOverloadAliases) {
+    if (localName === importedName) {
+      continue;
+    }
+    const functions = overloadBuckets.get(importedName);
+    if (!functions || functions.length <= 1) {
+      continue;
+    }
+    overloads.set(localName, functions.map((fn) => ({
+      emittedName: overloadedFunctionName(localName, fn.parameters),
       parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
       hasBody: fn.missingBody !== true
     })));

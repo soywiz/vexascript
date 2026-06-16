@@ -1,6 +1,8 @@
 import type { ParserOptions } from "compiler/parser/parser";
 import type {
+  BinaryExpression,
   FunctionStatement,
+  FunctionParameter,
   Identifier,
   ImportStatement,
   Program,
@@ -501,6 +503,130 @@ function stripBundledModuleSyntax(
     .join("\n");
 }
 
+function sanitizeRuntimeManglePart(text: string): string {
+  const normalized = text.replace(/[^A-Za-z0-9]+/g, "$").replace(/^\$+|\$+$/g, "");
+  return normalized.length > 0 ? normalized : "unknown";
+}
+
+function parameterTypeNameForExport(parameter: FunctionParameter): string {
+  return parameter.typeAnnotation?.name ?? "unknown";
+}
+
+function overloadSuffixForExport(parameters: FunctionParameter[]): string {
+  const visibleParameters = parameters.filter((parameter) => parameter.thisParameter !== true);
+  return visibleParameters
+    .map((parameter) => sanitizeRuntimeManglePart(parameterTypeNameForExport(parameter)))
+    .join("$$") || "void";
+}
+
+function overloadedRuntimeName(name: string, parameters: FunctionParameter[]): string {
+  return `${name}$$${overloadSuffixForExport(parameters)}`;
+}
+
+function operatorBaseRuntimeName(operator: BinaryExpression["operator"]): string {
+  const map: Record<BinaryExpression["operator"], string> = {
+    "+": "operator$plus",
+    "-": "operator$minus",
+    "*": "operator$multiply",
+    "/": "operator$divide",
+    "%": "operator$mod",
+    "**": "operator$power",
+    "<<": "operator$shiftLeft",
+    ">>": "operator$shiftRight",
+    ">>>": "operator$unsignedShiftRight",
+    "<": "operator$lessThan",
+    ">": "operator$greaterThan",
+    "<=": "operator$lessThanOrEqual",
+    ">=": "operator$greaterThanOrEqual",
+    "in": "operator$in",
+    "is": "operator$is",
+    "instanceof": "operator$instanceof",
+    "==": "operator$equals",
+    "!=": "operator$notEquals",
+    "===": "operator$strictEquals",
+    "!==": "operator$strictNotEquals",
+    "&": "operator$bitAnd",
+    "|": "operator$bitOr",
+    "^": "operator$bitXor",
+    "||": "operator$or",
+    "&&": "operator$and",
+    "??": "operator$nullishCoalesce"
+  };
+  return map[operator] ?? `operator$${sanitizeRuntimeManglePart(operator)}`;
+}
+
+function extensionMethodRuntimeExportName(receiverType: string, baseName: string, parameters: FunctionParameter[]): string {
+  return `${sanitizeRuntimeManglePart(receiverType)}$$${overloadedRuntimeName(baseName, parameters)}`;
+}
+
+function extensionPropertyRuntimeExportName(receiverType: string, propertyName: string): string {
+  return `${sanitizeRuntimeManglePart(receiverType)}$$${sanitizeRuntimeManglePart(propertyName)}`;
+}
+
+function implicitRuntimeExportNames(statement: Statement): string[] {
+  switch (statement.kind) {
+    case "VarStatement": {
+      const variable = statement as VarStatement;
+      if (variable.declared) {
+        return [];
+      }
+      if (variable.receiverType && variable.name.kind === "Identifier") {
+        return [extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name)];
+      }
+      const names = new Set<string>();
+      for (const identifier of bindingIdentifiers(variable.name)) {
+        names.add(identifier.name);
+      }
+      for (const declarator of variable.declarations ?? []) {
+        for (const identifier of bindingIdentifiers(declarator.name)) {
+          names.add(identifier.name);
+        }
+      }
+      return [...names];
+    }
+    case "FunctionStatement": {
+      const fn = statement as FunctionStatement;
+      if (fn.declared || fn.missingBody) {
+        return [];
+      }
+      if (fn.receiverType) {
+        const baseName = fn.operator ? operatorBaseRuntimeName(fn.operator) : fn.name.name;
+        return [extensionMethodRuntimeExportName(fn.receiverType.name, baseName, fn.parameters)];
+      }
+      return [fn.name.name];
+    }
+    case "ClassStatement":
+    case "EnumStatement":
+      return [((statement as { name?: Identifier }).name?.name ?? "")].filter((name) => name.length > 0);
+    case "NamespaceStatement": {
+      const names = (statement as { names?: Identifier[] }).names;
+      return names && names.length > 0 ? [names[0]!.name] : [];
+    }
+    default:
+      return [];
+  }
+}
+
+function appendImplicitVexaExports(code: string, ast: Program | null, filePath: string): string {
+  if (extname(filePath).toLowerCase() !== ".vx" || !ast) {
+    return code;
+  }
+  const exportNames = new Set<string>();
+  for (const statement of ast.body) {
+    if (statement.kind === "ExportStatement") {
+      continue;
+    }
+    for (const name of implicitRuntimeExportNames(statement)) {
+      exportNames.add(name);
+    }
+  }
+  if (exportNames.size === 0) {
+    return code;
+  }
+  const exportClause = `export { ${[...exportNames].join(", ")} };`;
+  return code.trim().length > 0 ? `${code}\n${exportClause}` : exportClause;
+}
+
 export async function bundleModuleGraph(
   entryFilePath: string,
   target: TranspileTarget,
@@ -675,4 +801,183 @@ export async function bundleModuleGraph(
     .join("\n");
 
   return { code, warnings, errors, diagnostics };
+}
+
+export interface ModuleGraphSourcesResult {
+  entrySource: string;
+  moduleSources: Map<string, string>;
+  warnings: string[];
+  errors: string[];
+  diagnostics: TranspileResult["diagnostics"];
+}
+
+export async function bundleModuleGraphAsModules(
+  entryFilePath: string,
+  target: TranspileTarget,
+  options: { vfs?: Vfs; jsxFactory?: string; jsxFragmentFactory?: string; ambientDeclarations?: Statement[] } = {}
+): Promise<ModuleGraphSourcesResult> {
+  const vfs = options.vfs ?? localVfs;
+  const ambientDeclarations = options.ambientDeclarations ?? [];
+  await ensureEcmaScriptRuntimeProgram();
+
+  const emittedByPath = new Map<string, string>();
+  const analysisByPath = new Map<string, Analysis | null>();
+  const sourceByPath = new Map<string, string>();
+  const parsedByPath = new Map<string, ParseArtifacts | null>();
+  const inProgress = new Set<string>();
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const diagnostics: TranspileResult["diagnostics"] = [];
+
+  const loadSource = async (filePath: string): Promise<string | null> => {
+    if (sourceByPath.has(filePath)) {
+      return sourceByPath.get(filePath) ?? null;
+    }
+    const source = await vfs.readFile(filePath);
+    if (source !== null) {
+      sourceByPath.set(filePath, source);
+    }
+    return source;
+  };
+
+  const loadParsed = async (filePath: string, parserOptions: ParserOptions): Promise<ParseArtifacts | null> => {
+    if (parsedByPath.has(filePath)) {
+      return parsedByPath.get(filePath) ?? null;
+    }
+    const source = await loadSource(filePath);
+    if (source === null) {
+      return null;
+    }
+    const parsed = parseSource(source, parserOptions);
+    parsedByPath.set(filePath, parsed);
+    return parsed;
+  };
+
+  const visit = async (filePath: string): Promise<void> => {
+    if (emittedByPath.has(filePath) || inProgress.has(filePath)) {
+      return;
+    }
+    inProgress.add(filePath);
+
+    const source = await loadSource(filePath);
+    if (source === null) {
+      errors.push(`Unable to read module '${filePath}'`);
+      inProgress.delete(filePath);
+      return;
+    }
+    const parserOptions = parserOptionsForModulePath(filePath);
+    const parsed = await loadParsed(filePath, parserOptions);
+    const ast = parsed?.ast ?? null;
+
+    const externalDeclarations: Statement[] = [];
+    const importedSymbolTypes = new Map<string, AnalysisType>();
+    const bundledAssetSpecifiers = new Set<string>();
+    if (ast) {
+      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, vfs);
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, vfs)) {
+        bundledAssetSpecifiers.add(statement.from.value);
+        const assetSource = await loadSource(targetPath);
+        if (assetSource === null) {
+          errors.push(`Unable to read asset module '${targetPath}'`);
+          continue;
+        }
+        try {
+          const { importedType } = emitAssetImportBindings(statement, targetPath, assetSource);
+          for (const bindingName of assetImportBindingNames(statement)) {
+            importedSymbolTypes.set(bindingName, importedType);
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errors.push(`Unable to load asset module '${targetPath}': ${message}`);
+        }
+      }
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, vfs)) {
+        await visit(targetPath);
+        const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
+        if (dependencyAst) {
+          const importedNames = new Set(
+            statement.specifiers.map((specifier) => specifier.imported.name)
+          );
+          externalDeclarations.push(...collectImportedDeclarations(dependencyAst, importedNames));
+        }
+        const dependencyAnalysis = analysisByPath.get(targetPath);
+        if (dependencyAnalysis) {
+          for (const specifier of statement.specifiers) {
+            const importedType = dependencyAnalysis.getTopLevelSymbolType(specifier.imported.name);
+            if (importedType) {
+              importedSymbolTypes.set((specifier.local ?? specifier.imported).name, importedType);
+            }
+          }
+        }
+      }
+    }
+
+    const compilationArtifacts = parsed
+      ? compileParsedSource(parsed, {
+          externalDeclarations,
+          ambientDeclarations,
+          importedSymbolTypes
+        })
+      : compileSource(source, parserOptions, {
+          externalDeclarations,
+          ambientDeclarations,
+          importedSymbolTypes
+        });
+    analysisByPath.set(filePath, compilationArtifacts.analysis);
+
+    const result = transpile(source, {
+      compilationArtifacts,
+      sourceFilePath: filePath,
+      target,
+      emitSourceMap: false,
+      parserOptions,
+      externalDeclarations,
+      importedSymbolTypes,
+      ambientDeclarations,
+      ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
+      ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
+    });
+    errors.push(...result.errors);
+    diagnostics.push(...result.diagnostics);
+    warnings.push(...result.warnings);
+
+    const assetBindingChunks: string[] = [];
+    if (ast) {
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, vfs)) {
+        const assetSource = await loadSource(targetPath);
+        if (assetSource === null) {
+          continue;
+        }
+        try {
+          const { code } = emitAssetImportBindings(statement, targetPath, assetSource);
+          if (code) {
+            assetBindingChunks.push(code);
+          }
+        } catch {
+          // The earlier type-collection pass already recorded the load error.
+        }
+      }
+    }
+
+    const emittedCode = stripBundledModuleSyntax(result.code, bundledAssetSpecifiers, {
+      preserveExports: true
+    });
+    const emittedWithImplicitExports = appendImplicitVexaExports(emittedCode, ast, filePath);
+    emittedByPath.set(
+      filePath,
+      [...assetBindingChunks, emittedWithImplicitExports].filter((chunk) => chunk.trim().length > 0).join("\n")
+    );
+
+    inProgress.delete(filePath);
+  };
+
+  await visit(entryFilePath);
+
+  return {
+    entrySource: emittedByPath.get(entryFilePath) ?? "",
+    moduleSources: emittedByPath,
+    warnings,
+    errors,
+    diagnostics
+  };
 }

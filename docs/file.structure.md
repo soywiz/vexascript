@@ -55,8 +55,9 @@ This section is the fast onboarding map for agents and contributors.
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
-  - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.vx` entry file together with its transitively imported local `.vx` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before downstream JavaScript/package bundling): `compiler/runtime/moduleGraph.ts`
+  - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.vx` entry file together with its transitively imported local `.vx` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before the CLI hands the emitted JavaScript to the Node-side package bundler): `compiler/runtime/moduleGraph.ts`
   - Module-graph bundling tests: `compiler/runtime/moduleGraph.test.ts`
+  - Node-side JavaScript/package bundler used by the CLI `build --bundle` / `bundle` commands; transpiles remaining JS/CJS/ESM modules to per-module CommonJS wrappers, resolves local files plus `node_modules`, and emits one final ESM bundle without relying on esbuild: `compiler/runtime/nodeModuleBundle.ts`
   - Runtime tooling helpers: `compiler/runtime/tooling.ts`
   - VexaScript test-file discovery/orchestration and inline test helpers used by the CLI test command: `compiler/runtime/testRunner.ts`
   - Test-runner orchestration tests: `compiler/runtime/testRunner.test.ts`
