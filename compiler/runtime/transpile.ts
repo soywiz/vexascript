@@ -131,6 +131,13 @@ export interface TranspileOptions {
    * builds (vexa build) where sibling imports are not inlined.
    */
   rewriteImportExtensions?: boolean;
+  /**
+   * When false, semantic diagnostics are ignored and emission proceeds from the
+   * parsed AST. This is useful for TypeScript compatibility/transpile-only
+   * flows where VexaScript's stricter analyzer cannot model every external or
+   * advanced TypeScript type yet.
+   */
+  checkSemanticDiagnostics?: boolean;
 }
 
 const BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -285,9 +292,10 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const externalDeclarations = options.externalDeclarations ?? [];
   const importedSymbolTypes = options.importedSymbolTypes ?? new Map();
   const ambientDeclarations = options.ambientDeclarations ?? [];
+  const parserOptions = parserOptionsForTranspile(options);
   const artifacts = options.compilationArtifacts ?? compileSource(
     source,
-    parserOptionsForTranspile(options),
+    parserOptions,
     { externalDeclarations, ambientDeclarations, importedSymbolTypes }
   );
   const errors: string[] = [];
@@ -327,30 +335,32 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     return { code: "", warnings: [], errors, diagnostics };
   }
 
-  for (const issue of artifacts.semanticIssues) {
-    errors.push(formatSemanticIssue(issue));
-    const range = issue.range
-      ? {
-          start: {
-            offset: 0,
-            line: issue.range.start.line,
-            column: issue.range.start.character
-          },
-          end: {
-            offset: 0,
-            line: issue.range.end.line,
-            column: issue.range.end.character
+  if (options.checkSemanticDiagnostics ?? true) {
+    for (const issue of artifacts.semanticIssues) {
+      errors.push(formatSemanticIssue(issue));
+      const range = issue.range
+        ? {
+            start: {
+              offset: 0,
+              line: issue.range.start.line,
+              column: issue.range.start.character
+            },
+            end: {
+              offset: 0,
+              line: issue.range.end.line,
+              column: issue.range.end.character
+            }
           }
-        }
-      : issue.node.firstToken?.range;
-    const code =
-      mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
-      classifySemanticDiagnosticMessage(issue.message) ??
-      VEXA_DIAGNOSTIC_CODES.SEMANTIC_ERROR;
-    diagnostics.push(makeDiagnostic(issue.message, range, code));
-  }
-  if (errors.length > 0) {
-    return { code: "", warnings: [], errors, diagnostics };
+        : issue.node.firstToken?.range;
+      const code =
+        mapAnalysisIssueCodeToDiagnosticCode(issue.code) ??
+        classifySemanticDiagnosticMessage(issue.message) ??
+        VEXA_DIAGNOSTIC_CODES.SEMANTIC_ERROR;
+      diagnostics.push(makeDiagnostic(issue.message, range, code));
+    }
+    if (errors.length > 0) {
+      return { code: "", warnings: [], errors, diagnostics };
+    }
   }
 
   if (!artifacts.ast || !artifacts.analysis) {
@@ -396,7 +406,8 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     {
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
-      ...(options.rewriteImportExtensions ? { rewriteImportExtensions: true } : {})
+      ...(options.rewriteImportExtensions ? { rewriteImportExtensions: true } : {}),
+      ...(parserOptions.language === "typescript" ? { preserveClassExtends: true } : {})
     },
     staticImplicitReceiverIdentifiers,
     cachedEcmaScriptRuntimeEmitSeed,

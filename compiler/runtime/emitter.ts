@@ -82,6 +82,35 @@ function rewriteImportPath(path: string): string {
   return path.replace(/\.(vx|ts|tsx)$/, ".js").replace(/\.mts$/, ".mjs");
 }
 
+function emitPropertyAccessSuffix(member: MemberExpression): string {
+  if (!member.computed && member.property.kind === "Identifier") {
+    const access = member.optional ? "?." : ".";
+    return `${access}${(member.property as Identifier).name}`;
+  }
+  if (member.computed) {
+    return member.optional
+      ? `?.[${emitExpression(member.property)}]`
+      : `[${emitExpression(member.property)}]`;
+  }
+  const access = member.optional ? "?." : ".";
+  return `${access}${emitExpression(member.property, PREC_MEMBER, "right")}`;
+}
+
+function emitMemberChainWithConstructedCall(expression: Expr): string | null {
+  if (expression.kind === "CallExpression") {
+    const call = expression as CallExpression;
+    const calleeText = emitExpression(call.callee, PREC_MEMBER, "left");
+    const constructorText = calleeText.startsWith("new ") ? calleeText : `new ${calleeText}`;
+    return `(${constructorText}(${emitCallArgumentTexts(call.callee, call.arguments).join(", ")}))`;
+  }
+  if (expression.kind !== "MemberExpression") {
+    return null;
+  }
+  const member = expression as MemberExpression;
+  const objectText = emitMemberChainWithConstructedCall(member.object);
+  return objectText ? `${objectText}${emitPropertyAccessSuffix(member)}` : null;
+}
+
 const OPERATOR_METHOD_NAMES: Partial<Record<BinaryExpression["operator"], string>> = {
   "+": "operator$plus",
   "-": "operator$minus",
@@ -193,6 +222,7 @@ interface ActiveEmitState {
   autoAwaitExpressions: ReadonlySet<Node>;
   asyncForStatements: ReadonlySet<Node>;
   rewriteImportExtensions: boolean;
+  preserveClassExtends: boolean;
   jsxFactory: string;
   jsxFragmentFactory: string;
 }
@@ -220,6 +250,7 @@ function createEmptyEmitState(): ActiveEmitState {
     autoAwaitExpressions: new Set(),
     asyncForStatements: new Set(),
     rewriteImportExtensions: false,
+    preserveClassExtends: false,
     jsxFactory: DEFAULT_JSX_FACTORY,
     jsxFragmentFactory: DEFAULT_JSX_FRAGMENT_FACTORY
   };
@@ -257,6 +288,9 @@ export interface EmitOptions {
    * Leave false when bundling, where local imports are stripped anyway.
    */
   rewriteImportExtensions?: boolean;
+  /** Preserve TypeScript `extends` clauses even when the analyzer sees the
+   * superclass name through declaration-only interface context. */
+  preserveClassExtends?: boolean;
 }
 
 function isAsyncEmittedFunction(node: { async?: boolean; sync?: boolean }): boolean {
@@ -1124,6 +1158,13 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "NewExpression": {
         const newExpression = expression as NewExpression;
+        const constructedMemberChain = emitMemberChainWithConstructedCall(newExpression.callee);
+        if (constructedMemberChain) {
+          const argumentsText = newExpression.arguments
+            ? `(${emitCallArgumentTexts(newExpression.callee, newExpression.arguments).join(", ")})`
+            : "";
+          return `(${constructedMemberChain})${argumentsText}`;
+        }
         const calleeText = emitExpression(newExpression.callee, PREC_MEMBER, "left");
         if (newExpression.arguments) {
           return `new ${calleeText}(${emitCallArgumentTexts(newExpression.callee, newExpression.arguments).join(", ")})`;
@@ -1826,7 +1867,7 @@ export function emitStatement(statement: Statement): string {
         ...members.map((member) => emitClassMember(member)),
         ...emitClassDelegateMembers(classStatement, members)
       ];
-      const extendsClause = classStatement.extendsType && !activeState.interfaceNames.has(classStatement.extendsType.name)
+      const extendsClause = classStatement.extendsType && (activeState.preserveClassExtends || !activeState.interfaceNames.has(classStatement.extendsType.name))
         ? ` extends ${eraseTypeArguments(classStatement.extendsType.name)}`
         : "";
       return `class ${resolveJsName(classStatement.name.name)}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
@@ -1956,6 +1997,7 @@ interface EmitProgramRuntimeContext {
   variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
   enumInfos: Map<string, RuntimeEnumInfo>;
   rewriteImportExtensions: boolean;
+  preserveClassExtends: boolean;
   jsxFactory: string;
   jsxFragmentFactory: string;
 }
@@ -2376,6 +2418,7 @@ function collectEmitProgramRuntimeContext(
     variableDelegates,
     enumInfos,
     rewriteImportExtensions: options.rewriteImportExtensions ?? false,
+    preserveClassExtends: options.preserveClassExtends ?? false,
     jsxFactory: options.jsxFactory ?? DEFAULT_JSX_FACTORY,
     jsxFragmentFactory: options.jsxFragmentFactory ?? DEFAULT_JSX_FRAGMENT_FACTORY
   };
@@ -2454,6 +2497,7 @@ export function emitProgramStatementPairs(
     autoAwaitExpressions,
     asyncForStatements,
     rewriteImportExtensions: runtimeContext.rewriteImportExtensions,
+    preserveClassExtends: runtimeContext.preserveClassExtends,
     jsxFactory: runtimeContext.jsxFactory,
     jsxFragmentFactory: runtimeContext.jsxFragmentFactory
   };

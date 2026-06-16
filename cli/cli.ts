@@ -1,4 +1,3 @@
-import "./localVfs";
 import { Command } from "commander";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "../compiler/language";
@@ -7,6 +6,7 @@ import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "../compil
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
 import { basename, dirname, pathToFileURL, resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
+import "./localVfs";
 import {
   ambientDeclarationsForProject,
   createBundledModuleArtifacts,
@@ -100,6 +100,7 @@ async function buildFile(
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
     target,
+    checkSemanticDiagnostics: !sourcePath.endsWith(".ts") && !sourcePath.endsWith(".tsx"),
     ambientDeclarations,
     rewriteImportExtensions: true,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -133,15 +134,15 @@ async function bundleFile(
   input: string,
   out?: string,
   target: TranspileTarget = "optimized",
-  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
+  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {},
+  externalDependencyStrategy: "runtime-error" | "node-require" = "runtime-error"
 ): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
-  await ensureCompilerRuntimePrograms();
 
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
-  const result = await createBundledModuleArtifacts(sourcePath, target, project, jsxOptions);
+  const result = await createBundledModuleArtifacts(sourcePath, target, project, jsxOptions, { externalDependencyStrategy });
   if (result.errors.length > 0) {
     printDiagnostics(result, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
@@ -371,6 +372,10 @@ function createProgram(): Command {
     }
   });
 
+  const resolveExternalDependencyStrategy = (strategy?: string): "runtime-error" | "node-require" => (
+    strategy === "node-require" ? "node-require" : "runtime-error"
+  );
+
   program
     .command("build")
     .description("Compile a VexaScript file to JavaScript")
@@ -380,10 +385,11 @@ function createProgram(): Command {
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM")
-    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
+    .option("--external-dependencies <strategy>", "External dependency handling for bundles: runtime-error|node-require", "runtime-error")
+    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean; externalDependencies?: string }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
       if (opts.bundle) {
-        await bundleFile(input, opts.out, target, jsxOptions);
+        await bundleFile(input, opts.out, target, jsxOptions, resolveExternalDependencyStrategy(opts.externalDependencies));
         return;
       }
       await buildFile(input, opts.out, target, jsxOptions);
@@ -397,9 +403,10 @@ function createProgram(): Command {
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
-    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }) => {
+    .option("--external-dependencies <strategy>", "External dependency handling: runtime-error|node-require", "runtime-error")
+    .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; externalDependencies?: string }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
-      await bundleFile(input, opts.out, target, jsxOptions);
+      await bundleFile(input, opts.out, target, jsxOptions, resolveExternalDependencyStrategy(opts.externalDependencies));
     });
 
   program

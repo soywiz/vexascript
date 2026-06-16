@@ -1,4 +1,4 @@
-import { readFile as nodeReadFile, readdir as nodeReadDir, stat as nodeStat, writeFile, unlink } from "node:fs/promises";
+import { readFile as nodeReadFile, readdir as nodeReadDir, stat as nodeStat, writeFile as nodeWriteFile, unlink } from "node:fs/promises";
 import { setVfs, Vfs, VfsDirEntry, VfsStat } from "../compiler/vfs";
 
 export class LocalVfs extends Vfs {
@@ -7,7 +7,7 @@ export class LocalVfs extends Vfs {
   }
 
   override async writeFile(path: string, content: string | ArrayBufferView) {
-    return await writeFile(path, content as string | NodeJS.ArrayBufferView);
+    return await nodeWriteFile(path, content as string | NodeJS.ArrayBufferView);
   }
 
   override async unlink(path: string) {

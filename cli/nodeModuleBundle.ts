@@ -89,7 +89,8 @@ async function resolvePathWithExtensions(
   vfs: Vfs,
   virtualSources: ReadonlyMap<string, string>
 ): Promise<string | null> {
-  const candidates = extname(basePath)
+  const extension = extname(basePath);
+  const candidates = [".vx", ".js", ".mjs", ".cjs", ".json", ".ts", ".tsx"].includes(extension)
     ? [basePath]
     : [
         basePath,
@@ -236,6 +237,20 @@ async function resolveDependency(
       return { kind: "bundled", filePath: targetPath };
     }
     return { kind: "external" };
+  }
+
+  const compilerRootIndex = importerFilePath.lastIndexOf("/compiler/");
+  const cliRootIndex = importerFilePath.lastIndexOf("/cli/");
+  const projectRoot = compilerRootIndex >= 0
+    ? importerFilePath.slice(0, compilerRootIndex)
+    : cliRootIndex >= 0
+      ? importerFilePath.slice(0, cliRootIndex)
+      : "";
+  if (projectRoot) {
+    const localPath = await resolveAsModulePath(resolve(projectRoot, specifier), vfs, virtualSources);
+    if (localPath) {
+      return { kind: "bundled", filePath: localPath };
+    }
   }
 
   const packagePath = await resolveBareSpecifier(importerFilePath, specifier, vfs, virtualSources);

@@ -12,8 +12,13 @@ export function candidateImportTargetFilePaths(
   importPath: string
 ): string[] {
   const baseDir = dirname(importerFilePath);
-  const direct = resolve(baseDir, importPath);
-  return extname(direct)
+  const compilerRootIndex = importerFilePath.lastIndexOf("/compiler/");
+  const projectRoot = compilerRootIndex >= 0 ? importerFilePath.slice(0, compilerRootIndex) : baseDir;
+  const direct = importPath.startsWith("./") || importPath.startsWith("../") || importPath.startsWith("/")
+    ? resolve(baseDir, importPath)
+    : resolve(projectRoot, importPath);
+  const extension = extname(direct);
+  return [LANGUAGE_FILE_EXTENSION, ".ts", ".tsx", ".json", ".txt"].includes(extension)
     ? [direct]
     : [direct, `${direct}${LANGUAGE_FILE_EXTENSION}`, `${direct}.ts`, `${direct}.tsx`, `${direct}.json`, `${direct}.txt`];
 }

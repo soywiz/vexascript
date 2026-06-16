@@ -28,10 +28,8 @@ function shouldPreloadRuntimeDeclarationsAtImportTime(): boolean {
 }
 
 if (shouldPreloadRuntimeDeclarationsAtImportTime()) {
-  await import("./ecmascriptDeclarations.shared").then(({ ensureEcmaScriptRuntimeProgram }) =>
-    ensureEcmaScriptRuntimeProgram()
-  );
-  await import("./vexascriptDeclarations.shared").then(({ ensureVexaScriptRuntimeProgram }) =>
-    ensureVexaScriptRuntimeProgram()
-  );
+  void import("./ecmascriptDeclarations.shared")
+    .then(({ ensureEcmaScriptRuntimeProgram }) => ensureEcmaScriptRuntimeProgram())
+    .then(() => import("./vexascriptDeclarations.shared"))
+    .then(({ ensureVexaScriptRuntimeProgram }) => ensureVexaScriptRuntimeProgram());
 }
