@@ -175,4 +175,25 @@ describe("resolveNodeModulesTypingsPath", () => {
 
     expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "node:os")).toBe(dtsPath);
   });
+
+  it("resolves typings from package exports subpaths such as preact/hooks", async () => {
+    const packageDir = join(root, "node_modules", "preact");
+    await mkdir(join(packageDir, "src"), { recursive: true });
+    await mkdir(join(packageDir, "hooks", "src"), { recursive: true });
+    const dtsPath = join(packageDir, "hooks", "src", "index.d.ts");
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({
+      name: "preact",
+      types: "./src/index.d.ts",
+      exports: {
+        "./hooks": {
+          types: "./hooks/src/index.d.ts",
+          import: "./hooks/dist/hooks.mjs"
+        }
+      }
+    }), "utf8");
+    await writeFile(join(packageDir, "src", "index.d.ts"), "export declare const root: number;", "utf8");
+    await writeFile(dtsPath, "export declare function useState<S>(value: S): [S, (value: S) => void];", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "preact/hooks")).toBe(dtsPath);
+  });
 });

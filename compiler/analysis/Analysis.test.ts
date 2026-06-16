@@ -1509,6 +1509,13 @@ let after = bind`));
       "Getter type 'string' is not assignable to setter parameter type 'string'"
     );
 
+    // [value, setterAlias] where setter is a callable type alias: valid
+    expect(issues(
+      "type Dispatch<T> = (value: T) => void\nfun f(): [int, Dispatch<int>] => [1, (value: int) => {}]\nvar a by f()"
+    )).not.toContain(
+      "Second element of property delegate tuple must be a setter function, got 'Dispatch<int>'"
+    );
+
     // [value, setter] with mismatched types: invalid
     expect(issues("fun f() => [1, (value: string) => {}]\nvar a by f()")).toContain(
       "Getter type 'int' is not assignable to setter parameter type 'string'"

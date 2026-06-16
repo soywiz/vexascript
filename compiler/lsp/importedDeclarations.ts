@@ -36,6 +36,7 @@ import {
   UNKNOWN_TYPE
 } from "compiler/analysis/types";
 import {
+  findMatchingTypeDelimiter,
   findTopLevelTypeCharacter,
   parseTypeNameShape,
   splitTopLevelDelimitedTypeText,
@@ -69,6 +70,13 @@ function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
     return UNKNOWN_TYPE;
   }
   const normalized = stripEnclosingTypeParens(typeName.trim());
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    const members = splitTopLevelDelimitedTypeText(normalized.slice(1, -1), new Set([","]));
+    return {
+      kind: "tuple",
+      elements: members.map((member) => typeFromAnnotationText(member.trim())).filter((member) => member !== UNKNOWN_TYPE)
+    };
+  }
   const unionParts = splitTopLevelTypeText(normalized, "|");
   if (unionParts.length > 1) {
     return unionType(unionParts.map((part) => typeFromAnnotationText(part)));
@@ -77,7 +85,24 @@ function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
   if (intersectionParts.length > 1) {
     return intersectionType(intersectionParts.map((part) => typeFromAnnotationText(part)));
   }
-  const parsed = parseTypeNameShape(typeName);
+  const arrowIndex = normalized.indexOf("=>");
+  const parameterListEnd = normalized.startsWith("(")
+    ? findMatchingTypeDelimiter(normalized, 0, "(", ")")
+    : -1;
+  if (parameterListEnd > 0 && arrowIndex > parameterListEnd) {
+    const parameterText = normalized.slice(1, parameterListEnd).trim();
+    const returnText = normalized.slice(arrowIndex + 2).trim();
+    return functionType(
+      parameterText.length === 0
+        ? []
+        : splitTopLevelDelimitedTypeText(parameterText, new Set([","])).map((parameter, index) => ({
+            name: `arg${index}`,
+            type: typeFromAnnotationText(parameter.split(":").slice(1).join(":").trim() || parameter.trim())
+          })),
+      typeFromAnnotationText(returnText)
+    );
+  }
+  const parsed = parseTypeNameShape(normalized);
   const resolvedTypeArguments = parsed.typeArguments.map((argument) => typeFromAnnotationText(argument));
   let resolvedBase: AnalysisType = BUILTIN_TYPE_NAMES.has(parsed.baseName)
     ? builtinType(parsed.baseName as Parameters<typeof builtinType>[0])
@@ -89,8 +114,9 @@ function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
 }
 
 function callableTypeFromExternalFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
+  const overloads: AnalysisType[] = [];
   for (const statement of declarations) {
-    if (statement.kind !== "ExportStatement" || (statement as { default?: boolean }).default !== true) {
+    if (statement.kind !== "ExportStatement") {
       continue;
     }
     const declaration = unwrapExportedDeclaration(statement);
@@ -101,7 +127,7 @@ function callableTypeFromExternalFunction(declarations: readonly Statement[], na
     if (fn.name.name !== name) {
       continue;
     }
-    return functionType(
+    overloads.push(functionType(
       fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => {
         const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name);
         const isRest = parameter.rest === true;
@@ -115,9 +141,12 @@ function callableTypeFromExternalFunction(declarations: readonly Statement[], na
       }),
       typeFromAnnotationText(fn.returnType?.name),
       fn.typeParameters?.map((parameter) => parameter.name.name)
-    );
+    ));
   }
-  return null;
+  if (overloads.length === 0) {
+    return null;
+  }
+  return overloads.length === 1 ? overloads[0]! : unionType(overloads);
 }
 
 export function buildFunctionTypeFromStatement(fn: FunctionStatement): AnalysisType {
@@ -1273,7 +1302,10 @@ export async function collectAllImportedDeclarations(
           }
           for (const specifier of importStatement.specifiers) {
             const localName = (specifier.local ?? specifier.imported).name;
-            importedSymbolTypes.set(localName, exportType);
+            importedSymbolTypes.set(
+              localName,
+              callableTypeFromExternalFunction(nodeModuleTypings.declarations, specifier.imported.name) ?? exportType
+            );
           }
         }
       } else {
@@ -1502,7 +1534,10 @@ export async function collectImportedSymbolTypes(
         }
         for (const specifier of importStatement.specifiers) {
           const localName = (specifier.local ?? specifier.imported).name;
-          result.set(localName, exportType);
+          result.set(
+            localName,
+            callableTypeFromExternalFunction(nodeModuleTypings.declarations, specifier.imported.name) ?? exportType
+          );
         }
       } else {
         const ambientDefaultType = context.ambientModuleDeclarations

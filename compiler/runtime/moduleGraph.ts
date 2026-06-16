@@ -15,12 +15,16 @@ import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { compileParsedSource, compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
 import {
+  arrayType,
   builtinType,
+  BUILTIN_TYPE_NAMES,
   functionType,
   intersectionType,
   namedType,
   objectTypeWithProperties,
   UNKNOWN_TYPE,
+  unionType,
+  tupleType,
   type AnalysisType
 } from "compiler/analysis/types";
 import { loadAmbientTypesForProject, type AmbientTypesResult, resolveAmbientNamedImportType } from "compiler/ambientModules";
@@ -28,6 +32,13 @@ import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "comp
 import { localVfs } from "compiler/localVfs";
 import type { Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
+import {
+  findMatchingTypeDelimiter,
+  parseTypeNameShape,
+  splitTopLevelDelimitedTypeText,
+  splitTopLevelTypeText,
+  stripEnclosingTypeParens
+} from "compiler/analysis/typeNames";
 import { extname } from "compiler/utils/path";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
@@ -161,6 +172,77 @@ function callableTypeFromDefaultExportedFunction(declarations: readonly Statemen
     );
   }
   return null;
+}
+
+function externalTypeFromAnnotationText(typeName: string | undefined): AnalysisType {
+  if (!typeName) {
+    return UNKNOWN_TYPE;
+  }
+  const normalized = stripEnclosingTypeParens(typeName.trim());
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    const members = splitTopLevelDelimitedTypeText(normalized.slice(1, -1), new Set([","]));
+    return tupleType(members.map((member) => externalTypeFromAnnotationText(member.trim())).filter((member) => member !== UNKNOWN_TYPE));
+  }
+  const unionParts = splitTopLevelTypeText(normalized, "|");
+  if (unionParts.length > 1) {
+    return unionType(unionParts.map((part) => externalTypeFromAnnotationText(part)));
+  }
+  const intersectionParts = splitTopLevelTypeText(normalized, "&");
+  if (intersectionParts.length > 1) {
+    return intersectionType(intersectionParts.map((part) => externalTypeFromAnnotationText(part)));
+  }
+  const arrowIndex = normalized.indexOf("=>");
+  const parameterListEnd = normalized.startsWith("(")
+    ? findMatchingTypeDelimiter(normalized, 0, "(", ")")
+    : -1;
+  if (parameterListEnd > 0 && arrowIndex > parameterListEnd) {
+    const parameterText = normalized.slice(1, parameterListEnd).trim();
+    const returnText = normalized.slice(arrowIndex + 2).trim();
+    const parameters = parameterText.length === 0
+      ? []
+      : splitTopLevelDelimitedTypeText(parameterText, new Set([","])).map((parameter, index) => ({
+          name: `arg${index}`,
+          type: externalTypeFromAnnotationText(parameter.split(":").slice(1).join(":").trim() || parameter.trim())
+        }));
+    return functionType(parameters, externalTypeFromAnnotationText(returnText));
+  }
+  const parsed = parseTypeNameShape(normalized);
+  const resolvedTypeArguments = parsed.typeArguments.map((argument) => externalTypeFromAnnotationText(argument));
+  let resolvedBase: AnalysisType = BUILTIN_TYPE_NAMES.has(parsed.baseName)
+    ? builtinType(parsed.baseName as Parameters<typeof builtinType>[0])
+    : namedType(parsed.baseName, resolvedTypeArguments);
+  for (let depth = 0; depth < parsed.arrayDepth; depth += 1) {
+    resolvedBase = arrayType(resolvedBase);
+  }
+  return resolvedBase;
+}
+
+function callableTypeFromNamedExportedFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
+  const overloads: AnalysisType[] = [];
+  for (const statement of declarations) {
+    const declaration = unwrapExportedDeclaration(statement);
+    if (declaration?.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = declaration as FunctionStatement;
+    if (fn.name.name !== name) {
+      continue;
+    }
+    overloads.push(functionType(
+      fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+        type: externalTypeFromAnnotationText(parameter.typeAnnotation?.name),
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+        rest: parameter.rest === true
+      })),
+      externalTypeFromAnnotationText(fn.returnType?.name),
+      fn.typeParameters?.map((parameter) => parameter.name.name)
+    ));
+  }
+  if (overloads.length === 0) {
+    return null;
+  }
+  return overloads.length === 1 ? overloads[0]! : unionType(overloads);
 }
 
 function jsonValueType(value: unknown): AnalysisType {
@@ -413,6 +495,7 @@ async function collectNodeModulesTypings(
     for (const s of importStatement.specifiers) {
       const localName = (s.local ?? s.imported).name;
       const declaredType = declarationAnalysis?.getTopLevelSymbolType(s.imported.name);
+      const exportedFunctionType = callableTypeFromNamedExportedFunction(typings.declarations, s.imported.name) ?? declaredType;
       const ambientType = ambientTypes
         ? resolveAmbientNamedImportType(
           specifier,
@@ -423,9 +506,9 @@ async function collectNodeModulesTypings(
         : null;
       importedSymbolTypes.set(
         localName,
-        !isFallbackModuleNamedType(declaredType, defaultExportName)
-          ? (declaredType ?? ambientType ?? exportType)
-          : (ambientType ?? declaredType ?? exportType)
+        !isFallbackModuleNamedType(exportedFunctionType, defaultExportName)
+          ? (exportedFunctionType ?? ambientType ?? exportType)
+          : (ambientType ?? exportedFunctionType ?? exportType)
       );
     }
   }

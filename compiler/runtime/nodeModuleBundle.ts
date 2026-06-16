@@ -258,8 +258,13 @@ function detectStaticRequires(source: string): string[] {
 }
 
 function transpileModuleSource(source: string, filePath: string): string {
+  const transpileFilePath = filePath.endsWith(".mjs")
+    ? `${filePath.slice(0, -4)}.js`
+    : filePath.endsWith(".cjs")
+      ? `${filePath.slice(0, -4)}.js`
+      : filePath;
   const transpiled = ts.transpileModule(source, {
-    fileName: filePath,
+    fileName: transpileFilePath,
     compilerOptions: {
       allowJs: true,
       esModuleInterop: true,

@@ -227,6 +227,37 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("resolves named imports from package exports subpath typings such as preact/hooks", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "node_modules/preact/package.json": JSON.stringify({
+          name: "preact",
+          exports: {
+            "./hooks": {
+              types: "./hooks/src/index.d.ts",
+              import: "./hooks/dist/hooks.mjs"
+            }
+          }
+        }),
+        "node_modules/preact/hooks/src/index.d.ts": dedent`
+          export type Dispatch<A> = (value: A) => void;
+          export type StateUpdater<S> = S | ((prevState: S) => S);
+          export function useState<S>(initialState: S | (() => S)): [S, Dispatch<StateUpdater<S>>];
+        `,
+        "main.vx": dedent`
+          import { useState } from "preact/hooks"
+          const [count, setCount] = useState(0)
+          setCount(count + 1)
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
+
   it("preserves entry exports while still stripping bundled dependency module syntax", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

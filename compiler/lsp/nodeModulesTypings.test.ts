@@ -166,6 +166,68 @@ describe("node_modules typings resolution", () => {
     expect(typeToString(symbolTypes.get("render")!)).toBe("<P>(vnode: VNode<P>, context: any) => string");
   });
 
+  it("assigns callable generic named imports from package exports subpath typings such as preact/hooks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "preact");
+    await mkdir(join(pkgDir, "hooks", "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "preact",
+        types: "./src/index.d.ts",
+        exports: {
+          ".": {
+            types: "./src/index.d.ts"
+          },
+          "./hooks": {
+            types: "./hooks/src/index.d.ts"
+          }
+        }
+      }),
+      "utf8"
+    );
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(join(pkgDir, "src", "index.d.ts"), "export function render(vnode: unknown, parent: unknown): void;\n", "utf8");
+    await writeFile(
+      join(pkgDir, "hooks", "src", "index.d.ts"),
+      dedent`
+        export type Dispatch<A> = (value: A) => void;
+        export type StateUpdater<S> = S | ((prevState: S) => S);
+        export function useState<S>(initialState: S | (() => S)): [S, Dispatch<StateUpdater<S>>];
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { render } from "preact"
+      import { useState } from "preact/hooks"
+
+      const [count, setCount] = useState(0)
+      setCount(count + 1)
+      render(count, count)
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(typeToString(collected.importedSymbolTypes.get("useState")!)).toBe("<S>(initialState: S | () => S) => [S, Dispatch<StateUpdater<S>>]");
+    expect(typeToString(collected.importedSymbolTypes.get("render")!)).toBe("(vnode: unknown, parent: unknown) => void");
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("findNodeModuleMemberLocation finds a member inside a namespace", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);

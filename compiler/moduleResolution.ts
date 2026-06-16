@@ -110,6 +110,43 @@ async function declarationPathInPackage(pkgDir: string, vfs: Vfs): Promise<strin
   return null;
 }
 
+function declarationExportTarget(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of ["types", "default", "import", "require", "browser", "node"]) {
+    const target = declarationExportTarget(record[key]);
+    if (target) {
+      return target;
+    }
+  }
+  return null;
+}
+
+async function declarationPathFromExports(
+  pkgDir: string,
+  pkg: Record<string, unknown>,
+  exportSubpath: string | null,
+  vfs: Vfs
+): Promise<string | null> {
+  const exportsField = pkg["exports"];
+  if (!exportsField || typeof exportsField !== "object" || Array.isArray(exportsField)) {
+    return null;
+  }
+  const exportsRecord = exportsField as Record<string, unknown>;
+  const exportKey = exportSubpath ? `./${exportSubpath}` : ".";
+  const exportTarget = declarationExportTarget(exportsRecord[exportKey]);
+  if (!exportTarget) {
+    return null;
+  }
+  const typingsPath = resolve(pkgDir, exportTarget);
+  return await vfs.fileExists(typingsPath) ? typingsPath : null;
+}
+
 async function declarationPathInPnpmVirtualStore(nodeModulesDir: string, packageName: string, vfs: Vfs): Promise<string | null> {
   const storeDir = resolve(nodeModulesDir, ".pnpm");
   let entries;
@@ -159,27 +196,46 @@ export async function resolveNodeModulesTypingsPath(
     return null;
   }
   const normalizedPackageName = normalizeNodeBuiltinSpecifier(packageName);
+  const packagePathParts = normalizedPackageName.startsWith("@")
+    ? normalizedPackageName.split("/").slice(0, 2)
+    : normalizedPackageName.split("/").slice(0, 1);
+  const rootPackageName = packagePathParts.join("/");
+  const exportSubpath = normalizedPackageName.slice(rootPackageName.length).replace(/^\/+/, "") || null;
   let dir = dirname(importerFilePath);
   while (true) {
     const nodeModulesDir = resolve(dir, "node_modules");
-    const pkgDir = resolve(nodeModulesDir, normalizedPackageName);
-    const packageTypings = await declarationPathInPackage(pkgDir, vfs);
+    const pkgDir = resolve(nodeModulesDir, rootPackageName);
+    let packageTypings: string | null = null;
+    if (exportSubpath) {
+      try {
+        const pkgText = await vfs.readFile(resolve(pkgDir, "package.json"));
+        if (pkgText !== null) {
+          const pkg = JSON.parse(pkgText) as Record<string, unknown>;
+          packageTypings = await declarationPathFromExports(pkgDir, pkg, exportSubpath, vfs);
+        }
+      } catch {
+        // malformed package.json
+      }
+    }
+    if (!packageTypings) {
+      packageTypings = await declarationPathInPackage(pkgDir, vfs);
+    }
     if (packageTypings) {
       return packageTypings;
     }
 
-    const typesPkgDir = resolve(nodeModulesDir, typesPackageNameFor(normalizedPackageName));
+    const typesPkgDir = resolve(nodeModulesDir, typesPackageNameFor(rootPackageName));
     const definitelyTypedTypings = await declarationPathInPackage(typesPkgDir, vfs);
     if (definitelyTypedTypings) {
       return definitelyTypedTypings;
     }
-    const pnpmPackageTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, normalizedPackageName, vfs);
+    const pnpmPackageTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, rootPackageName, vfs);
     if (pnpmPackageTypings) {
       return pnpmPackageTypings;
     }
     const pnpmTypesTypings = await declarationPathInPnpmVirtualStore(
       nodeModulesDir,
-      typesPackageNameFor(normalizedPackageName),
+      typesPackageNameFor(rootPackageName),
       vfs
     );
     if (pnpmTypesTypings) {
