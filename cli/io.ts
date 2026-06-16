@@ -1,5 +1,5 @@
 import { spawn, type StdioOptions } from "node:child_process";
-export { fileExists, isDirectory } from "./fs";
+export { fileExists, isDirectory } from "../compiler/utils/fs";
 
 export async function runCommand(
   command: string,

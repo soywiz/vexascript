@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { sourceWithCursor } from "./test/sourceWithCursor";
-import { VexaMcpCodebaseServer } from "./mcpServer";
+import { VexaMcpCodebaseServer } from "../cli/mcpServer";
 import { COMPILER_VERSION } from "./compilerVersion";
 import dedent from "compiler/utils/dedent";
 

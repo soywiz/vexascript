@@ -1,4 +1,3 @@
-import { readFile, realpath, stat } from "node:fs/promises";
 import { fileExists } from "compiler/utils/fs";
 import { dirname, fileURLToPath, resolve } from "compiler/utils/path";
 import {
@@ -12,17 +11,51 @@ import {
 import { VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME } from "./vexascriptDeclarations.shared";
 import type { RuntimeDeclarationsHost, RuntimeDeclarationSource } from "./declarationHost";
 
-async function currentDirectory(): Promise<string> {
+interface NodeStatLike {
+  mtimeMs: number;
+}
+
+interface NodeFsPromisesLike {
+  readFile(path: string, encoding: "utf8"): Promise<string>;
+  realpath(path: string): Promise<string>;
+  stat(path: string): Promise<NodeStatLike>;
+}
+
+function getNodeFsPromises(): NodeFsPromisesLike {
+  const builtinLoader = process.getBuiltinModule;
+  if (typeof builtinLoader !== "function") {
+    throw new Error("Node builtins are unavailable in this runtime");
+  }
+
+  const builtin = builtinLoader("node:fs/promises");
+  if (!builtin || typeof builtin !== "object") {
+    throw new Error("node:fs/promises is unavailable in this runtime");
+  }
+
+  const fsPromises = builtin as Partial<NodeFsPromisesLike>;
+  if (
+    typeof fsPromises.readFile !== "function" ||
+    typeof fsPromises.realpath !== "function" ||
+    typeof fsPromises.stat !== "function"
+  ) {
+    throw new Error("node:fs/promises does not expose the expected API");
+  }
+
+  return fsPromises as NodeFsPromisesLike;
+}
+
+async function currentDirectory(fsPromises: NodeFsPromisesLike): Promise<string> {
   const filePath = fileURLToPath(import.meta.url);
   try {
-    return dirname(await realpath(filePath));
+    return dirname(await fsPromises.realpath(filePath));
   } catch {
     return dirname(filePath);
   }
 }
 
 async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDeclarationSource> {
-  const declarationBaseDir = await currentDirectory();
+  const fsPromises = getNodeFsPromises();
+  const declarationBaseDir = await currentDirectory(fsPromises);
   const candidatePaths = [
     resolve(declarationBaseDir, fileName),
     resolve(declarationBaseDir, "..", "compiler", "runtime", fileName),
@@ -33,7 +66,7 @@ async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDe
     if (await fileExists(candidatePath)) {
       return {
         filePath: candidatePath,
-        source: await readFile(candidatePath, "utf8")
+        source: await fsPromises.readFile(candidatePath, "utf8")
       };
     }
   }
@@ -41,14 +74,15 @@ async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDe
   const sourcePath = resolve(process.cwd(), "compiler", "runtime", fileName);
   return {
     filePath: sourcePath,
-    source: await readFile(sourcePath, "utf8")
+    source: await fsPromises.readFile(sourcePath, "utf8")
   };
 }
 
 export const nodeRuntimeDeclarationsHost: RuntimeDeclarationsHost = {
   async loadEcmaScriptDeclarations(): Promise<RuntimeDeclarationSource & CachedRuntimeSourceMetadata> {
+    const fsPromises = getNodeFsPromises();
     const declaration = await readBundledDeclarationSource(TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME);
-    const { mtimeMs } = await stat(declaration.filePath);
+    const { mtimeMs } = await fsPromises.stat(declaration.filePath);
     return { ...declaration, mtimeMs };
   },
   async loadVexaScriptDeclarations(): Promise<RuntimeDeclarationSource> {

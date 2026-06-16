@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "../test/expect";
-import { bundleNodeModuleGraph } from "./nodeModuleBundle";
+import { bundleNodeModuleGraph } from "../../cli/nodeModuleBundle";
 
 async function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "vexa-node-module-bundle-"));

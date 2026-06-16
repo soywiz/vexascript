@@ -1,8 +1,8 @@
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { dirname, resolve } from "../compiler/utils/path";
 import { loadProject, type VexaProject } from "../compiler/project";
-import { ensureDependencies } from "../compiler/deps";
 import { vfs } from "../compiler/vfs";
+import { ensureDependencies } from "./deps";
 
 export async function ambientDeclarationsForProject(project: VexaProject | null) {
   const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
@@ -83,7 +83,7 @@ export async function createBundledModuleArtifacts(
     };
   }
 
-  const { bundleNodeModuleGraph } = await import("../compiler/runtime/nodeModuleBundle");
+  const { bundleNodeModuleGraph } = await import("./nodeModuleBundle");
   const bundled = await bundleNodeModuleGraph(result.entrySource, sourcePath, {
     virtualSources: result.moduleSources,
     externalDependencyStrategy: options.externalDependencyStrategy ?? "runtime-error"

@@ -47,6 +47,7 @@ describe("TypeScript runtime declarations", () => {
     const source = await readFile(join(process.cwd(), "compiler", "runtime", "nodeDeclarationHost.ts"), "utf8");
 
     expect(source).not.toContain('import "cli/');
-    expect(source).toContain('from "node:fs/promises"');
+    expect(source).not.toContain('from "node:');
+    expect(source).toContain('process.getBuiltinModule');
   });
 });

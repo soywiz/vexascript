@@ -215,7 +215,7 @@ async function executeCompiled(
 }
 
 async function runTests(paths: string[]): Promise<void> {
-  const { runVexaScriptTests } = await import("../compiler/runtime/testRunner");
+  const { runVexaScriptTests } = await import("./testRunner");
   const result = await runVexaScriptTests(paths, async (source, testFile) => {
     await executeSource(source, testFile, "conservative");
     console.log(`Passed: ${testFile}`);
@@ -333,7 +333,7 @@ function createProgram(): Command {
     .description("Start the VexaScript MCP codebase navigation server")
     .option("--root <dir>", "Workspace root used to resolve relative file paths and scan symbols", process.cwd())
     .action(async (opts: { root?: string }) => {
-      const { runMcpServer } = await import("../compiler/mcpServer");
+      const { runMcpServer } = await import("./mcpServer");
       await runMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
     });
 

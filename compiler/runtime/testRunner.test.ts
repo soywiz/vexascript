@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "../test/expect";
-import { appendTestRuntimeSource, discoverVexaScriptTestFiles, runVexaScriptTests } from "./testRunner";
+import { appendTestRuntimeSource, discoverVexaScriptTestFiles, runVexaScriptTests } from "../../cli/testRunner";
 
 describe("VexaScript test runner", () => {
   it("discovers sorted .test.vx files while skipping generated dependency directories", async () => {

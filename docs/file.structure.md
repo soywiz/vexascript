@@ -43,7 +43,7 @@ This section is the fast onboarding map for agents and contributors.
   - Analysis tests: `compiler/analysis/Analysis.test.ts`, `compiler/analysis/Analysis.generics.test.ts`, and `compiler/analysis/Analysis.enums-and-calls.test.ts`
 - Embedded runtime declarations:
   - Shared runtime-declaration host contract that lets Node/browser adapters provide bundled declaration sources without hard-wiring shared compiler code to `fs/path/url`: `compiler/runtime/declarationHost.ts`
-  - Node runtime-declaration host that reads bundled `compiler/runtime/es2025.d.ts` and `compiler/runtime/dom.d.ts` from disk for the CLI/LSP/test environment: `compiler/runtime/nodeDeclarationHost.ts`
+  - Node runtime-declaration host that reads bundled `compiler/runtime/es2025.d.ts` and `compiler/runtime/dom.d.ts` from disk for the CLI/LSP/test environment without static `node:*` imports (via `process.getBuiltinModule`): `compiler/runtime/nodeDeclarationHost.ts`
   - Shared ECMAScript runtime declaration parsing/cache logic plus the Node bootstrap wrapper used by compiler consumers: `compiler/runtime/ecmascriptDeclarations.shared.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
   - Shared DOM runtime declaration parsing/cache logic plus the Node bootstrap wrapper used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/domDeclarations.shared.ts`, `compiler/runtime/domDeclarations.ts`
   - Shared browser-safe cache for parsed runtime declaration programs, backed by `localStorage` in browser runtimes and by a lazy async Node cache (`vfs()` when already bound, otherwise `process.getBuiltinModule("node:fs/promises")`) in CLI/LSP/test runtimes: `compiler/runtime/programCache.ts`
@@ -57,10 +57,7 @@ This section is the fast onboarding map for agents and contributors.
   - Transpile orchestration: `compiler/runtime/transpile.ts`
   - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.vx` entry file together with its transitively imported local `.vx` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before the CLI hands the emitted JavaScript to the Node-side package bundler): `compiler/runtime/moduleGraph.ts`
   - Module-graph bundling tests: `compiler/runtime/moduleGraph.test.ts`
-  - Node-side JavaScript/package bundler used by the CLI `build --bundle` / `bundle` commands; transpiles remaining JS/CJS/ESM modules to per-module CommonJS wrappers, resolves local files plus `node_modules`, and emits one final ESM bundle without relying on esbuild: `compiler/runtime/nodeModuleBundle.ts`
   - Runtime tooling helpers: `compiler/runtime/tooling.ts`
-  - VexaScript test-file discovery/orchestration and inline test helpers used by the CLI test command: `compiler/runtime/testRunner.ts`
-  - Test-runner orchestration tests: `compiler/runtime/testRunner.test.ts`
   - Transpile tests: `compiler/runtime/transpile.test.ts`
   - Runtime integration tests: `compiler/runtime/runtime.integration.test.ts`
 - Runnable samples and sample-test harness: `samples/`, `samples/samples.test.ts`
@@ -84,7 +81,7 @@ This section is the fast onboarding map for agents and contributors.
 - Embedded syntax definitions:
   - Shared editor-syntax generators used by the CLI and editor integrations: `compiler/syntax.ts`
   - Syntax generator consistency tests: `compiler/syntax.test.ts`
-- Shared async file helpers live in `compiler/utils/fs.ts`, and shared async process helpers live in `compiler/utils/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
+- Shared async file helpers live in `compiler/utils/fs.ts`, and CLI-only async process helpers live in `cli/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
 
 ### Tooling and Integration Pieces
 
@@ -97,11 +94,16 @@ This section is the fast onboarding map for agents and contributors.
   - Node-only local disk implementation of the shared VFS contract for CLI/LSP/test flows: `cli/localVfs.ts`
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
   - CLI entrypoint and command implementation: `cli/cli.ts`
+  - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
+  - Node-only child-process helper used by CLI dependency installation and sample test setup: `cli/io.ts`
   - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `cli/cliShared.ts`
+  - Node-side JavaScript/package bundler used by the CLI `build --bundle` / `bundle` commands; transpiles remaining JS/CJS/ESM modules to per-module CommonJS wrappers, resolves local files plus `node_modules`, and emits one final ESM bundle without relying on esbuild: `cli/nodeModuleBundle.ts`
   - Node-only static dev server for the CLI `serve` command, including HTML bundle injection, SSE live reload, and dependency-aware rebundling watch: `cli/cliServe.ts`
+  - VexaScript test-file discovery/orchestration and inline test helpers used by the CLI test command: `cli/testRunner.ts`
   - Shared root-package compiler version loader used by the CLI and MCP server so `package.json` stays the source of truth: `compiler/compilerVersion.ts`
+  - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `cli/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - CLI tests: `cli/cli.test.ts`
-  - `test` command delegates test-file discovery and helper injection to `compiler/runtime/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
+  - `test` command delegates test-file discovery and helper injection to `cli/testRunner.ts`, keeping CLI command parsing separate from test orchestration.
   - `syntax` command prints embedded VexaScript syntax definitions for popular editor targets such as Monaco, VS Code/TextMate, and CodeMirror.
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):
   - Browser-only virtual-workspace and persistence helpers (workspace tabs, folders, runtime declarations, `localStorage`): `website/src/assets/monaco/workspace.ts`
@@ -116,7 +118,6 @@ This section is the fast onboarding map for agents and contributors.
   - Server-core tests (handler parity across environments, capability gating, hover/completion/diagnostics handler behavior): `compiler/lsp/serverCore.test.ts`
   - Node stdio server entrypoint (thin adapter wiring the stdio transport, workspace source roots, project index, DOM ambient declarations, and tsconfig-driven ambient type packages into the shared core): `compiler/lsp/server.ts`
   - Ambient types loader — resolves `compilerOptions.types` packages (e.g. `@types/node`) from node_modules, recursively follows `/// <reference path>` directives, splits declarations into global ambients and per-module ambient declarations (from `declare module "name" { ... }` blocks), and tracks source locations of each block for go-to-definition: `compiler/lsp/ambientTypesLoader.ts`
-  - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `compiler/mcpServer.ts`, `compiler/mcpServer.test.ts`
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`
   - Completion orchestrator that runs the completion strategies in priority order (annotations, member access, named call arguments, ranked in-scope symbols, auto-imports, keyword fallback): `compiler/lsp/completion.ts`
@@ -186,7 +187,7 @@ This section is the fast onboarding map for agents and contributors.
 - TypeScript compatibility fixture: `testFixtures/typescript-supported.d.ts`
 - Fixture tests: `testFixtures/@test.test.ts`
 - Shared async file helpers: `compiler/utils/fs.ts`
-- Shared async process/I/O helpers: `compiler/utils/io.ts`, tests: `compiler/utils/io.test.ts`
+- CLI async process/I/O helpers: `cli/io.ts`, tests: `compiler/utils/io.test.ts`
 - Reader utilities used by parser/tokenizer:
   - `compiler/utils/ListReader.ts`, tests: `compiler/utils/ListReader.test.ts`
   - `compiler/utils/StrReader.ts`, tests: `compiler/utils/StrReader.test.ts`

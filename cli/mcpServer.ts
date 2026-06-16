@@ -1,16 +1,16 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { WorkspaceEdit } from "vscode-languageserver/node.js";
-import { createAnalysisSession, type AnalysisSession } from "./lsp/analysisSession";
-import { collectAllImportedDeclarations } from "./lsp/importedDeclarations";
-import { createDefinitionLocation, createHover } from "./lsp/navigation";
-import { pathToUri, uriToFilePath } from "./lsp/importFixes";
-import { resolveDefinitionAcrossFiles, resolveReferencesAcrossFiles, resolveRenameAcrossFiles } from "./lsp/crossFileNavigation";
-import { createSignatureHelp } from "./lsp/signatureHelp";
-import { createDocumentSymbols, createWorkspaceSymbols } from "./lsp/symbols";
-import { COMPILER_VERSION } from "./compilerVersion";
-import { dirname, resolve } from "./utils/path";
-import { vfs } from "./vfs";
+import { createAnalysisSession, type AnalysisSession } from "../compiler/lsp/analysisSession";
+import { collectAllImportedDeclarations } from "../compiler/lsp/importedDeclarations";
+import { createDefinitionLocation, createHover } from "../compiler/lsp/navigation";
+import { pathToUri, uriToFilePath } from "../compiler/lsp/importFixes";
+import { resolveDefinitionAcrossFiles, resolveReferencesAcrossFiles, resolveRenameAcrossFiles } from "../compiler/lsp/crossFileNavigation";
+import { createSignatureHelp } from "../compiler/lsp/signatureHelp";
+import { createDocumentSymbols, createWorkspaceSymbols } from "../compiler/lsp/symbols";
+import { COMPILER_VERSION } from "../compiler/compilerVersion";
+import { dirname, resolve } from "../compiler/utils/path";
+import { vfs } from "../compiler/vfs";
 
 interface JsonRpcRequest {
   jsonrpc?: string;

@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { LANGUAGE_FILE_EXTENSION } from "../language";
-import { resolve } from "../utils/path";
+import { LANGUAGE_FILE_EXTENSION } from "../compiler/language";
+import { resolve } from "../compiler/utils/path";
 
 export type VexaScriptTestExecutor = (source: string, filePath: string) => Promise<void>;
 

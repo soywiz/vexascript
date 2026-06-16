@@ -15,7 +15,8 @@ const CORE_LAYER_DIRECTORIES = [
 ];
 
 const LSP_IMPORT_PATTERN = /from\s+["'](?:compiler\/lsp\/|(?:\.\.\/)+lsp\/)/;
-const IMPORT_SPECIFIER_PATTERN = /\b(?:import|export)\s+(?:type\s+)?(?:[^"'`]*?\s+from\s+)?["'`]([^"'`]+)["'`]|import\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
+const STATIC_IMPORT_SPECIFIER_PATTERN = /^\s*(?:import|export)\s+(?:type\s+)?(?:[^"'`]*?\s+from\s+)?["'`]([^"'`]+)["'`]\s*;?/gm;
+const DYNAMIC_IMPORT_SPECIFIER_PATTERN = /\bimport\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
 const FORBIDDEN_COMPILER_IMPORT_ROOTS = ["cli", "website", "plugins", "samples", "docs"];
 
 function isBareSpecifier(specifier: string): boolean {
@@ -53,13 +54,28 @@ function shouldCheckCompilerFile(filePath: string): boolean {
   return !normalized.endsWith(".test.ts") && !normalized.includes("compiler/test/");
 }
 
-function collectForbiddenCompilerImports(filePath: string, source: string): string[] {
-  const invalidSpecifiers: string[] = [];
-  for (const match of source.matchAll(IMPORT_SPECIFIER_PATTERN)) {
-    const specifier = match[1] ?? match[2];
+function collectImportSpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
+  for (const match of source.matchAll(STATIC_IMPORT_SPECIFIER_PATTERN)) {
+    const specifier = match[1];
     if (!specifier) {
       continue;
     }
+    specifiers.push(specifier);
+  }
+  for (const match of source.matchAll(DYNAMIC_IMPORT_SPECIFIER_PATTERN)) {
+    const specifier = match[1];
+    if (!specifier) {
+      continue;
+    }
+    specifiers.push(specifier);
+  }
+  return specifiers;
+}
+
+function collectForbiddenCompilerImports(filePath: string, source: string): string[] {
+  const invalidSpecifiers: string[] = [];
+  for (const specifier of collectImportSpecifiers(source)) {
     if (isBareSpecifier(specifier)) {
       if (isForbiddenBareSpecifier(specifier)) {
         invalidSpecifiers.push(specifier);
@@ -129,6 +145,25 @@ describe("layering", () => {
     expect(
       violations,
       `Compiler source files must not import sibling app folders such as cli/: ${violations.join(", ")}`
+    ).toEqual([]);
+  });
+
+  it("keeps non-test compiler source free of node:* imports", async () => {
+    const violations: string[] = [];
+    for (const filePath of await collectSourceFiles("compiler")) {
+      if (!shouldCheckCompilerFile(filePath)) {
+        continue;
+      }
+      const source = await readFile(filePath, "utf8");
+      const nodeSpecifiers = collectImportSpecifiers(source).filter((specifier) => specifier.startsWith("node:"));
+      if (nodeSpecifiers.length > 0) {
+        violations.push(`${filePath} -> ${nodeSpecifiers.join(", ")}`);
+      }
+    }
+
+    expect(
+      violations,
+      `Non-test compiler source files must not import node:* modules: ${violations.join(", ")}`
     ).toEqual([]);
   });
 });

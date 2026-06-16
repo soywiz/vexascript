@@ -4,7 +4,7 @@ import { it, describe } from "node:test";
 import { expect } from "../compiler/test/expect";
 import { runFile } from "../cli/cli";
 import { fileExists, isDirectory } from "../compiler/utils/fs";
-import { runCommand } from "../compiler/utils/io";
+import { runCommand } from "../cli/io";
 
 async function hookOutput(callback: () => Promise<void>) {
     const lines = [] as string[]

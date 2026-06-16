@@ -1,7 +1,7 @@
 import { builtinModules } from "node:module";
 import * as ts from "typescript";
-import { basename, dirname, extname, relative, resolve } from "compiler/utils/path";
-import { vfs, type Vfs } from "compiler/vfs";
+import { basename, dirname, extname, relative, resolve } from "../compiler/utils/path";
+import { vfs, type Vfs } from "../compiler/vfs";
 
 interface BundleNodeModulesOptions {
   vfs?: Vfs;

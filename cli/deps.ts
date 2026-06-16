@@ -1,7 +1,7 @@
-import { fileExists } from "./utils/fs";
-import { runCommand } from "./utils/io";
-import { resolve } from "./utils/path";
-import { vfs } from "./vfs";
+import { fileExists } from "../compiler/utils/fs";
+import { resolve } from "../compiler/utils/path";
+import { vfs } from "../compiler/vfs";
+import { runCommand } from "./io";
 
 async function isPackageInstalled(projectDir: string, pkg: string): Promise<boolean> {
   //console.error('isPackageInstalled', resolve(projectDir, "node_modules", pkg))
