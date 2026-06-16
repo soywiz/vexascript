@@ -76,3 +76,17 @@ jobs:
 
       - name: Run test suite
         run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run
+        run: ./vexa
+
+      - name: Link global
+        run: pnpm link --global
+
+      - name: Run global
+        run: vexa testFixtures/sample.vx
+
+

@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -6,6 +7,33 @@ import { afterEach, describe, it } from "node:test";
 import { expect, vi } from "./test/expect";
 import { ensureLspTransportArg, runCli } from "./cli";
 import { COMPILER_VERSION } from "./compilerVersion";
+
+async function spawnAndCapture(command: string, args: string[], cwd: string): Promise<{
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}> {
+  return await new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      resolvePromise({ code, stdout, stderr });
+    });
+  });
+}
 
 describe("CLI", () => {
   afterEach(() => {
@@ -277,6 +305,39 @@ describe("CLI", () => {
 
     expect(exitSpy).toHaveBeenCalledWith(0);
     expect(stdoutWriteSpy.mock.calls.some((call) => String(call[0] ?? "").includes(COMPILER_VERSION))).toBe(true);
+  });
+
+  it("built CLI starts without unsettled top-level await warnings", async () => {
+    const distPath = join(process.cwd(), "dist");
+    await rm(distPath, { recursive: true, force: true });
+
+    const build = await spawnAndCapture(
+      process.execPath,
+      [
+        "node_modules/esbuild/bin/esbuild",
+        "compiler/cli.ts",
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--target=node20",
+        "--outfile=dist/vexa.js",
+        "--external:commander",
+        "--external:vscode-languageserver",
+        "--external:vscode-languageserver-textdocument",
+        "--external:source-map",
+        "--external:esbuild",
+        "--banner:js=#!/usr/bin/env node",
+        "--log-level=error",
+      ],
+      process.cwd()
+    );
+    expect(build.code).toBe(0);
+    expect(build.stderr).toBe("");
+
+    const run = await spawnAndCapture(process.execPath, ["dist/vexa.js", "--version"], process.cwd());
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain(COMPILER_VERSION);
+    expect(run.stderr).not.toContain("Detected unsettled top-level await");
   });
 
   it("syntax command prints VS Code grammar JSON", async () => {
