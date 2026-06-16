@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "compiler/test/expect";
+import { describe, expect, it } from "compiler/test/expect";
 import type { Node, Program } from "compiler/ast/ast";
 import {
   collectProgramNodes,

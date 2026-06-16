@@ -1,6 +1,5 @@
-import { describe, it } from "node:test";
 import dedent from "compiler/utils/dedent";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { createAnalysisSession } from "./analysisSession";
 import {
   createAssignVariableCodeActions,

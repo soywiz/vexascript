@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {

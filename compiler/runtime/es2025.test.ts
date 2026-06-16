@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { ensureVexaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 
 function readBundledRuntime(): Promise<string> {

@@ -1,6 +1,5 @@
-import { describe, it } from "node:test";
 import type { Diagnostic } from "vscode-languageserver/node.js";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import {
   VEXA_DIAGNOSTIC_CODES,
   parseMissingMemberDiagnostic,

@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { cacheProgram } from "./programCache";
 import type { Program } from "compiler/ast/ast";
 import { globalVfs, setVfs, Vfs } from "compiler/vfs";

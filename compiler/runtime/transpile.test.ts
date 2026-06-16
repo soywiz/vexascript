@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { transpile } from "./transpile";
 import { compileSource } from "compiler/pipeline/compile";
 

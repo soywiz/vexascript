@@ -1,8 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
-import { expect } from "./test/expect";
+import { afterEach, beforeEach, describe, expect, it } from "./test/expect";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "./moduleResolution";
 import { compileSource } from "./pipeline/compile";
 import { Vfs, VfsStat } from "./vfs";

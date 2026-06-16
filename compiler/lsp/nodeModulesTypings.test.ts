@@ -1,8 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { getNodeModuleTypings, findNodeModuleMemberLocation } from "./nodeModulesTypings";
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes, collectAllImportedDeclarations } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";

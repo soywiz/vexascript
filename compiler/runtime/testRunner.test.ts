@@ -1,8 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { appendTestRuntimeSource, discoverVexaScriptTestFiles, runVexaScriptTests } from "../../cli/testRunner";
 
 describe("VexaScript test runner", () => {

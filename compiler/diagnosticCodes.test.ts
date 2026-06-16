@@ -1,6 +1,5 @@
-import { describe, it } from "node:test";
 import { ANALYSIS_ISSUE_CODES } from "compiler/analysis/issueCodes";
-import { expect } from "./test/expect";
+import { describe, expect, it } from "./test/expect";
 import {
   VEXA_DIAGNOSTIC_CODES,
   callDiagnosticKindFromMessage,

@@ -5,8 +5,7 @@
  * symbol, and that new unified entrypoints (resolveHoverWithLocalFallback,
  * resolveImportSpecifierDefinition) work correctly.
  */
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
