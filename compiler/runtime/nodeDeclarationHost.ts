@@ -24,12 +24,20 @@ async function currentDirectory(): Promise<string> {
 }
 
 async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDeclarationSource> {
-  const bundledPath = resolve(await currentDirectory(), fileName);
-  if (await fileExists(bundledPath)) {
-    return {
-      filePath: bundledPath,
-      source: await vfs().readFile(bundledPath)
-    };
+  const declarationBaseDir = await currentDirectory();
+  const candidatePaths = [
+    resolve(declarationBaseDir, fileName),
+    resolve(declarationBaseDir, "..", "compiler", "runtime", fileName),
+    resolve(declarationBaseDir, "compiler", "runtime", fileName)
+  ];
+
+  for (const candidatePath of candidatePaths) {
+    if (await fileExists(candidatePath)) {
+      return {
+        filePath: candidatePath,
+        source: await vfs().readFile(candidatePath)
+      };
+    }
   }
 
   const sourcePath = resolve(process.cwd(), "compiler", "runtime", fileName);

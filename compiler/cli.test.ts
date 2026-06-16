@@ -248,6 +248,36 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
   });
 
+  it("root vexa script works when invoked from another current working directory", async () => {
+    const projectDir = process.cwd();
+    const tempDir = await mkdtemp(join(tmpdir(), "vexa-cli-script-cwd-"));
+
+    const runResult = await spawnAndCapture(
+      join(projectDir, "vexa"),
+      ["--version"],
+      tempDir
+    );
+
+    expect(runResult.code).toBe(0);
+    expect(runResult.stdout).toContain(COMPILER_VERSION);
+  });
+
+  it("root vexa script resolves bundled runtime declarations from another current working directory", async () => {
+    const projectDir = process.cwd();
+    const sampleDir = join(projectDir, "samples", "preact");
+    const outputPath = join(sampleDir, "html.js");
+    const runResult = await spawnAndCapture(
+      join(projectDir, "vexa"),
+      ["bundle", "html.vx", "--out", "html.js"],
+      sampleDir
+    );
+
+    expect(runResult.code).toBe(0);
+    expect(runResult.stdout).toContain("Bundled:");
+    const outputCode = await readFile(outputPath, "utf8");
+    expect(outputCode).toContain("const __vexaModules = {");
+  });
+
   it("bundle keeps each local VexaScript file scoped as its own module", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-scope-"));
     const input = join(dir, "main.vx");

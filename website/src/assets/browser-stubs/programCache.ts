@@ -1,6 +1,6 @@
 import type { Program } from "compiler/ast/ast";
 
-const PROGRAM_CACHE_VERSION = 1;
+const PROGRAM_CACHE_VERSION = 2;
 const STORAGE_KEY_PREFIX = `vexa.runtime.program-cache.v${PROGRAM_CACHE_VERSION}.`;
 
 function getStorage(): Storage | null {

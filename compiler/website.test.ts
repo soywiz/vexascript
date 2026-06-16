@@ -146,6 +146,8 @@ describe("website project", () => {
 
   it("stores browser runtime programs under a path key plus a hash key", async () => {
     const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
     const storageState = new Map<string, string>();
     const fakeStorage = {
       getItem(key: string): string | null {
@@ -159,6 +161,14 @@ describe("website project", () => {
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
       value: fakeStorage,
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {},
     });
 
     try {
@@ -177,8 +187,8 @@ describe("website project", () => {
         return { kind: "Program", body: [] } as never;
       });
 
-      expect(storageState.has(`vexa.runtime.program-cache.v1.${sourceFilePath}`)).toBe(true);
-      expect(storageState.has(`vexa.runtime.program-cache.v1.${sourceFilePath}_hash`)).toBe(true);
+      expect(storageState.has(`vexa.runtime.program-cache.v2.${sourceFilePath}`)).toBe(true);
+      expect(storageState.has(`vexa.runtime.program-cache.v2.${sourceFilePath}_hash`)).toBe(true);
       expect(first).toEqual(program);
       expect(second).toEqual(program);
       expect(generateCount).toBe(1);
@@ -187,6 +197,16 @@ describe("website project", () => {
         Object.defineProperty(globalThis, "localStorage", previousDescriptor);
       } else {
         delete (globalThis as { localStorage?: unknown }).localStorage;
+      }
+      if (previousWindow) {
+        Object.defineProperty(globalThis, "window", previousWindow);
+      } else {
+        delete (globalThis as { window?: unknown }).window;
+      }
+      if (previousDocument) {
+        Object.defineProperty(globalThis, "document", previousDocument);
+      } else {
+        delete (globalThis as { document?: unknown }).document;
       }
     }
   });

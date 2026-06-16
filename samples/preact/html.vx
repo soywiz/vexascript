@@ -12,16 +12,11 @@ function MyButton(props) {
 function App() {
 	var count by useState(0)
 
-	const clicked = () => {
-		count++
-	}
-
 	return (
 		<div>
-			<p class="count">Count: {count}</p>
-			<MyButton style={{ color: 'purple' }} onClick={clicked}>
-				Click me
-			</MyButton>
+			<p class="count" style={count < 0 ? 'color:red' : 'color:black'}>Count: {count}</p>
+			<MyButton style={{ color: 'red' }} onClick={() => count--}>-</MyButton>
+			<MyButton style={{ color: 'green' }} onClick={() => count++}>+</MyButton>
 		</div>
 	)
 }

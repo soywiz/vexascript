@@ -1,2 +1,22 @@
-#!/bin/bash
-node dist/vexa.js $*
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CALLER_DIR="$(pwd)"
+SOURCE_CLI="$SCRIPT_DIR/compiler/cli.ts"
+TSX_LOADER="$SCRIPT_DIR/node_modules/tsx/dist/loader.mjs"
+BUILT_CLI="$SCRIPT_DIR/dist/vexa.js"
+
+if [[ -f "$SOURCE_CLI" && -f "$TSX_LOADER" ]]; then
+  cd "$CALLER_DIR"
+  export TSX_TSCONFIG_PATH="$SCRIPT_DIR/tsconfig.json"
+  exec node --import "$TSX_LOADER" "$SOURCE_CLI" "$@"
+fi
+
+cd "$SCRIPT_DIR"
+if [[ ! -f "$BUILT_CLI" || ! -f "$SCRIPT_DIR/dist/es2025.d.ts" || ! -f "$SCRIPT_DIR/dist/dom.d.ts" || ! -f "$SCRIPT_DIR/dist/vexascript.d.vx" ]]; then
+  pnpm --silent build
+fi
+
+cd "$CALLER_DIR"
+exec node "$BUILT_CLI" "$@"

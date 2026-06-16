@@ -46,7 +46,7 @@ This section is the fast onboarding map for agents and contributors.
   - Node runtime-declaration host that reads bundled `compiler/runtime/es2025.d.ts` and `compiler/runtime/dom.d.ts` from disk for the CLI/LSP/test environment: `compiler/runtime/nodeDeclarationHost.ts`
   - Shared ECMAScript runtime declaration parsing/cache logic plus the Node bootstrap wrapper used by compiler consumers: `compiler/runtime/ecmascriptDeclarations.shared.ts`, `compiler/runtime/ecmascriptDeclarations.ts`
   - Shared DOM runtime declaration parsing/cache logic plus the Node bootstrap wrapper used when a project requests `compilerOptions.lib` with `"dom"`: `compiler/runtime/domDeclarations.shared.ts`, `compiler/runtime/domDeclarations.ts`
-  - Shared browser-safe cache for parsed runtime declaration programs, backed by `localStorage` when available and an in-memory fallback otherwise: `compiler/runtime/programCache.ts`
+  - Shared browser-safe cache for parsed runtime declaration programs, backed by `localStorage` in browser runtimes and by a lazy async Node cache (`vfs()` when already bound, otherwise `process.getBuiltinModule("node:fs/promises")`) in CLI/LSP/test runtimes: `compiler/runtime/programCache.ts`
   - Shared declaration-program loader plumbing (parse-with-error-check, node membership index, and the single-in-flight-load/retry-after-failure contract) used by the ECMAScript and DOM declaration modules: `compiler/runtime/declarationProgramCache.ts`, tests: `compiler/runtime/declarationProgramCache.test.ts`
   - Declaration-cache concurrency tests (single in-flight load shared across concurrent callers, retry after failed loads): `compiler/runtime/declarationsConcurrency.test.ts`
 - Emitter / transpilation:
