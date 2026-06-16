@@ -2,10 +2,11 @@
 // Tests import from "../../expect" which resolves here via the scripts/resolver.mjs hook.
 import "../../cli/localVfs";
 import { describe, it, test, before, after, beforeEach, afterEach } from "node:test";
-import assert from "node:assert";
+import assert from "node:assert/strict";
 
 export { describe, it, test, beforeEach, afterEach };
 export { before as beforeAll, after as afterAll };
+export { assert };
 
 // ─── expect ──────────────────────────────────────────────────────────────────
 

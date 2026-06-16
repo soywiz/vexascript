@@ -1,5 +1,4 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { assert, test } from "../../compiler/test/expect";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadSyntaxDocument, loadAgentsDocument, renderMarkdownDocument } from "./siteContent.ts";

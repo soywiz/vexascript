@@ -1,8 +1,7 @@
-import { describe, it } from "node:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 
 describe("loadAmbientTypesForProject", () => {

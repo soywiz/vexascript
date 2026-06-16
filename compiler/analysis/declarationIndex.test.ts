@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { bindingIdentifiers } from "../ast/bindingPatterns";
 import { parseSource } from "../pipeline/parse";
 import dedent from "compiler/utils/dedent";

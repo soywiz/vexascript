@@ -1,8 +1,7 @@
 import { Analysis } from "compiler/analysis/Analysis";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createSemanticTokens, VEXA_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";

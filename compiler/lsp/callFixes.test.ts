@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";

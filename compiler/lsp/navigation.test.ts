@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";

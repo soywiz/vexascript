@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import { patchRuntimeDeclarationsHost } from "./declarationHost";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations.shared";
 import { ensureDomProgram } from "./domDeclarations.shared";

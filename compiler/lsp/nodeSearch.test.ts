@@ -1,8 +1,7 @@
-import { describe, it } from "node:test";
 import type { BinaryExpression, Identifier } from "compiler/ast/ast";
 import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
-import { expect } from "compiler/test/expect";
+import { describe, expect, it } from "compiler/test/expect";
 import { findBestMatch, findBestMatchAtPosition, findNodeAtPosition, findNodeContainingRange } from "./nodeSearch";
 import { nodeRange, type Position } from "./ranges";
 

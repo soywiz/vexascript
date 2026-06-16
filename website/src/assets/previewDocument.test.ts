@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import { expect } from "../../../compiler/test/expect";
+import { describe, expect, it } from "../../../compiler/test/expect";
 import { buildPreviewDocument } from "./previewDocument";
 
 describe("website preview document", () => {

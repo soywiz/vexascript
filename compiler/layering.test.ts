@@ -1,7 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { describe, it } from "node:test";
-import { expect } from "./test/expect";
+import { describe, expect, it } from "./test/expect";
 
 // Core compiler layers must stay usable without the LSP layer (and therefore
 // without `vscode-languageserver`), so editors, the CLI, and browser bundles

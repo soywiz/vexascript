@@ -1,9 +1,8 @@
 import { Script, createContext } from "node:vm";
-import { describe, it } from "node:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect } from "../test/expect";
+import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { bundleModuleGraph } from "./moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";

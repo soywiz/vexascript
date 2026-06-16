@@ -1,5 +1,4 @@
-import { test } from "node:test";
-import { strict as assert } from "node:assert";
+import { assert, test } from "../test/expect";
 import { parseToml } from "./toml";
 
 test("empty document", () => {
