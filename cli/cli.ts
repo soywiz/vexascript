@@ -1,12 +1,12 @@
-import "./localVfs";
+import "../compiler/localVfs";
 import { Command } from "commander";
-import type { TranspileDiagnostic, TranspileTarget } from "./runtime/transpile";
-import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "./language";
-import { loadProject } from "./project";
-import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
-import { COMPILER_VERSION } from "./compilerVersion";
-import { basename, dirname, pathToFileURL, resolve } from "./utils/path";
-import { vfs } from "./vfs";
+import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
+import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "../compiler/language";
+import { loadProject } from "../compiler/project";
+import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "../compiler/syntax";
+import { COMPILER_VERSION } from "../compiler/compilerVersion";
+import { basename, dirname, pathToFileURL, resolve } from "../compiler/utils/path";
+import { vfs } from "../compiler/vfs";
 import {
   ambientDeclarationsForProject,
   createBundledModuleArtifacts,
@@ -64,7 +64,7 @@ function printDiagnostics(result: { errors: string[]; diagnostics?: TranspileDia
 }
 
 async function runLanguageServer(): Promise<void> {
-  await import("./lsp/server");
+  await import("../compiler/lsp/server");
 }
 
 function hasLspTransportArg(argv: string[]): boolean {
@@ -95,7 +95,7 @@ async function buildFile(
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
   await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(project);
-  const { transpile } = await import("./runtime/transpile");
+  const { transpile } = await import("../compiler/runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -172,7 +172,7 @@ async function executeSource(source: string, sourcePath: string, target: Transpi
   const project = await loadProject(sourcePath);
   await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(project);
-  const { transpile } = await import("./runtime/transpile");
+  const { transpile } = await import("../compiler/runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -215,7 +215,7 @@ async function executeCompiled(
 }
 
 async function runTests(paths: string[]): Promise<void> {
-  const { runVexaScriptTests } = await import("./runtime/testRunner");
+  const { runVexaScriptTests } = await import("../compiler/runtime/testRunner");
   const result = await runVexaScriptTests(paths, async (source, testFile) => {
     await executeSource(source, testFile, "conservative");
     console.log(`Passed: ${testFile}`);
@@ -226,21 +226,21 @@ async function runTests(paths: string[]): Promise<void> {
 async function printTokens(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
-  const { tokenize } = await import("./runtime/tooling");
+  const { tokenize } = await import("../compiler/runtime/tooling");
   console.log(JSON.stringify(tokenize(source), null, 2));
 }
 
 async function printAst(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
-  const { toAstPreview } = await import("./runtime/tooling");
+  const { toAstPreview } = await import("../compiler/runtime/tooling");
   console.log(JSON.stringify(toAstPreview(source), null, 2));
 }
 
 async function formatFile(input: string, opts: { write?: boolean; out?: string }): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
-  const { format } = await import("./runtime/tooling");
+  const { format } = await import("../compiler/runtime/tooling");
   const formatted = format(source);
   const formattedWithTrailingNewline = `${formatted}\n`;
 
@@ -333,7 +333,7 @@ function createProgram(): Command {
     .description("Start the VexaScript MCP codebase navigation server")
     .option("--root <dir>", "Workspace root used to resolve relative file paths and scan symbols", process.cwd())
     .action(async (opts: { root?: string }) => {
-      const { runMcpServer } = await import("./mcpServer");
+      const { runMcpServer } = await import("../compiler/mcpServer");
       await runMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
     });
 
@@ -416,8 +416,8 @@ function createProgram(): Command {
       opts: { bundle?: string; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }
     ) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
-      const { startServeSession } = await import("./cliServe");
       const rootDir = dir ?? ".";
+      const { startServeSession } = await import("./cliServe");
       await startServeSession({
         rootDir,
         bundleInput: await resolveServeBundleInput(rootDir, opts.bundle),

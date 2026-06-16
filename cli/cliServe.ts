@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile, watch } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import type { TranspileDiagnostic, TranspileTarget } from "./runtime/transpile";
-import { basename, extname, resolve } from "./utils/path";
+import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
+import { basename, extname, resolve } from "../compiler/utils/path";
 import {
   createBundledModuleArtifacts,
   ensureCompilerRuntimePrograms,

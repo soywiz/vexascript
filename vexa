@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CALLER_DIR="$(pwd)"
-SOURCE_CLI="$SCRIPT_DIR/compiler/cli.ts"
+SOURCE_CLI="$SCRIPT_DIR/cli/cli.ts"
 TSX_LOADER="$SCRIPT_DIR/node_modules/tsx/dist/loader.mjs"
 BUILT_CLI="$SCRIPT_DIR/dist/vexa.js"
 

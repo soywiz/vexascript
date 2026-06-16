@@ -1,9 +1,9 @@
-import "./localVfs";
+import "../compiler/localVfs";
 import { spawn } from "node:child_process";
-import { COMPILER_VERSION } from "./compilerVersion";
-import { LANGUAGE_CLI_BIN } from "./language";
-import { fileExists } from "./utils/fs";
-import { pathToFileURL, resolve } from "./utils/path";
+import { COMPILER_VERSION } from "../compiler/compilerVersion";
+import { LANGUAGE_CLI_BIN } from "../compiler/language";
+import { fileExists } from "../compiler/utils/fs";
+import { pathToFileURL, resolve } from "../compiler/utils/path";
 
 const CLI_HELP_TEXT = [
   `Usage: ${LANGUAGE_CLI_BIN} [options] [command]`,
@@ -37,7 +37,7 @@ function isHelpRequest(argv: string[]): boolean {
 }
 
 async function runSourceCliIfAvailable(argv: string[]): Promise<boolean> {
-  const sourceCliPath = resolve(process.cwd(), "compiler", "cli.ts");
+  const sourceCliPath = resolve(process.cwd(), "cli", "cli.ts");
   const tsxLoaderPath = resolve(process.cwd(), "node_modules", "tsx", "dist", "loader.mjs");
   if (!(await fileExists(sourceCliPath)) || !(await fileExists(tsxLoaderPath))) {
     return false;

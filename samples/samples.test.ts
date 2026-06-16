@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises"
 import { format } from "node:util";
 import { it, describe } from "node:test";
 import { expect } from "../compiler/test/expect";
-import { runFile } from "../compiler/cli";
+import { runFile } from "../cli/cli";
 import { fileExists, isDirectory } from "../compiler/utils/fs";
 import { runCommand } from "../compiler/utils/io";
 

@@ -1,8 +1,8 @@
-import type { TranspileDiagnostic, TranspileTarget } from "./runtime/transpile";
-import { dirname, resolve } from "./utils/path";
-import { loadProject, type VexaProject } from "./project";
-import { ensureDependencies } from "./deps";
-import { vfs } from "./vfs";
+import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
+import { dirname, resolve } from "../compiler/utils/path";
+import { loadProject, type VexaProject } from "../compiler/project";
+import { ensureDependencies } from "../compiler/deps";
+import { vfs } from "../compiler/vfs";
 
 export async function ambientDeclarationsForProject(project: VexaProject | null) {
   const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
@@ -10,7 +10,7 @@ export async function ambientDeclarationsForProject(project: VexaProject | null)
     return [];
   }
 
-  const { ensureDomProgram } = await import("./runtime/domDeclarations");
+  const { ensureDomProgram } = await import("../compiler/runtime/domDeclarations");
   return (await ensureDomProgram()).body;
 }
 
@@ -18,7 +18,7 @@ export async function ensureCompilerRuntimePrograms(): Promise<void> {
   const {
     ensureEcmaScriptRuntimeProgram,
     ensureVexaScriptRuntimeProgram
-  } = await import("./runtime/ecmascriptDeclarations");
+  } = await import("../compiler/runtime/ecmascriptDeclarations");
   await Promise.all([
     ensureEcmaScriptRuntimeProgram(),
     ensureVexaScriptRuntimeProgram()
@@ -65,7 +65,7 @@ export async function createBundledModuleArtifacts(
   options: { externalDependencyStrategy?: "runtime-error" | "node-require" } = {}
 ): Promise<BundledModuleArtifacts> {
   const ambientDeclarations = await ambientDeclarationsForProject(project);
-  const { bundleModuleGraphAsModules } = await import("./runtime/moduleGraph");
+  const { bundleModuleGraphAsModules } = await import("../compiler/runtime/moduleGraph");
   const result = await bundleModuleGraphAsModules(sourcePath, target, {
     ambientDeclarations,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -83,7 +83,7 @@ export async function createBundledModuleArtifacts(
     };
   }
 
-  const { bundleNodeModuleGraph } = await import("./runtime/nodeModuleBundle");
+  const { bundleNodeModuleGraph } = await import("../compiler/runtime/nodeModuleBundle");
   const bundled = await bundleNodeModuleGraph(result.entrySource, sourcePath, {
     virtualSources: result.moduleSources,
     externalDependencyStrategy: options.externalDependencyStrategy ?? "runtime-error"

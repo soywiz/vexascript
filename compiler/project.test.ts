@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { loadProject } from "./project";
-import { resolveServeBundleInput } from "./cliShared";
+import { resolveServeBundleInput } from "../cli/cliShared";
 
 describe("project configuration", () => {
   it("loads dependencies from package.json and JSX factories from tsconfig.json", async () => {

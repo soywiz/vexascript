@@ -83,9 +83,9 @@ permalink: /cli.html
     </article>
   </div>
 {% highlightVexaScript %}
-pnpm tsx compiler/cli.ts build src/main.vx --out dist/main.js --target optimized
-pnpm tsx compiler/cli.ts serve demo/ --bundle demo/main.vx
-pnpm tsx compiler/cli.ts syntax --monaco
-pnpm tsx compiler/cli.ts test samples/
+pnpm tsx cli/cli.ts build src/main.vx --out dist/main.js --target optimized
+pnpm tsx cli/cli.ts serve demo/ --bundle demo/main.vx
+pnpm tsx cli/cli.ts syntax --monaco
+pnpm tsx cli/cli.ts test samples/
 {% endhighlightVexaScript %}
 </section>
