@@ -69,6 +69,38 @@ export function readDocumentationFromIdentifier(identifier: Identifier): string 
   return undefined;
 }
 
+type NamedDocumentationNode = {
+  firstToken?: Identifier["firstToken"];
+  name?: Identifier;
+};
+
+export function readDocumentationFromNamedNode(node: NamedDocumentationNode): string | undefined {
+  return readDocumentationFromNodeFirstToken(node) ?? (node.name ? readDocumentationFromIdentifier(node.name) : undefined);
+}
+
+export function readDocumentationFromFunctionParameter(parameter: FunctionParameter): string | undefined {
+  if (parameter.name.kind === "Identifier") {
+    return readDocumentationFromNamedNode({
+      firstToken: parameter.firstToken,
+      name: parameter.name
+    });
+  }
+  return readDocumentationFromNodeFirstToken(parameter);
+}
+
+export function readDocumentationFromParameterLike(parameter: {
+  firstToken?: Identifier["firstToken"];
+  name: FunctionParameter["name"] | Identifier;
+}): string | undefined {
+  if (parameter.name.kind === "Identifier") {
+    return readDocumentationFromNamedNode({
+      firstToken: parameter.firstToken,
+      name: parameter.name
+    });
+  }
+  return readDocumentationFromNodeFirstToken(parameter);
+}
+
 function identifiersMatch(left: Identifier, right: Identifier): boolean {
   if (left === right) {
     return true;
@@ -200,6 +232,87 @@ export function readDocumentationFromProgramDeclaration(
       return documentation;
     }
   }
+  return readDocumentationFromIdentifier(identifier);
+}
+
+function importedDocumentationCandidates(
+  program: Program,
+  identifier: Identifier
+): { importPath: string; importedName: string }[] {
+  const matches: { importPath: string; importedName: string }[] = [];
+  for (const statement of program.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as Statement & {
+      from: { value: string };
+      specifiers: Array<{ imported: Identifier; local?: Identifier }>;
+    };
+    for (const specifier of importStatement.specifiers) {
+      if (specifier.imported === identifier || specifier.local === identifier) {
+        matches.push({
+          importPath: importStatement.from.value,
+          importedName: specifier.imported.name
+        });
+      }
+    }
+  }
+  return matches;
+}
+
+function readDocumentationFromStatementsByName(
+  statements: readonly Statement[],
+  name: string
+): string | undefined {
+  return readDocumentationFromProgramDeclaration(
+    { kind: "Program", body: [...statements] },
+    {
+      kind: "Identifier",
+      name
+    } as Identifier
+  );
+}
+
+export function readDocumentationForSymbol(
+  program: Program,
+  identifier: Identifier,
+  options: {
+    externalDeclarations?: readonly Statement[] | undefined;
+    ambientModuleDeclarations?: ReadonlyMap<string, Statement[]> | undefined;
+  } = {}
+): string | undefined {
+  const localDocumentation = readDocumentationFromProgramDeclaration(program, identifier);
+  if (localDocumentation) {
+    return localDocumentation;
+  }
+
+  for (const candidate of importedDocumentationCandidates(program, identifier)) {
+    const externalDocumentation = options.externalDeclarations
+      ? readDocumentationFromStatementsByName(options.externalDeclarations, candidate.importedName)
+      : undefined;
+    if (externalDocumentation) {
+      return externalDocumentation;
+    }
+
+    const moduleCandidates = [candidate.importPath];
+    if (candidate.importPath.startsWith("node:")) {
+      moduleCandidates.push(candidate.importPath.slice("node:".length));
+    }
+    for (const moduleName of moduleCandidates) {
+      const ambientDeclarations = options.ambientModuleDeclarations?.get(moduleName);
+      if (!ambientDeclarations) {
+        continue;
+      }
+      const ambientDocumentation = readDocumentationFromStatementsByName(
+        ambientDeclarations,
+        candidate.importedName
+      );
+      if (ambientDocumentation) {
+        return ambientDocumentation;
+      }
+    }
+  }
+
   return readDocumentationFromIdentifier(identifier);
 }
 

@@ -24,7 +24,7 @@ import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
 import { typeToString } from "compiler/analysis/types";
-import { readDocumentationFromProgramDeclaration } from "./documentation";
+import { readDocumentationForSymbol } from "./documentation";
 import type { AutoImportSuggestion } from "./importFixes";
 import { buildAutoImportCompletionItems, resolveAutoImportSuggestions } from "./importCompletion";
 import { containsPosition, nodeRange } from "./ranges";
@@ -407,7 +407,9 @@ export async function createCompletionItemsForPosition(
       seenLabels.add(symbol.name);
       const documentation =
         symbol.node.kind === "Identifier"
-          ? readDocumentationFromProgramDeclaration(ast, symbol.node as Identifier)
+          ? readDocumentationForSymbol(ast, symbol.node as Identifier, {
+              ambientModuleDeclarations: options.ambientModuleDeclarations
+            })
           : undefined;
       items.push({
         label: symbol.name,

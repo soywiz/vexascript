@@ -1094,7 +1094,9 @@ export async function resolveHoverWithLocalFallback(context: ResolveContext): Pr
   if (!context.session.analysis) {
     return null;
   }
-  return createHover(context.session.analysis, context.line, context.character, context.session.ast ?? undefined);
+  return createHover(context.session.analysis, context.line, context.character, context.session.ast ?? undefined, {
+    ambientModuleDeclarations: context.session.ambientModuleDeclarations
+  });
 }
 
 function isVirtualRuntimeFilePath(filePath: string): boolean {

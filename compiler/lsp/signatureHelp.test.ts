@@ -807,6 +807,44 @@ describe("signature help", () => {
     expect(help!.signatures[0]!.documentation).toBe("Formats a string using util-style placeholders.");
   });
 
+  it("includes block documentation for directly imported ambient module functions", async () => {
+    const source = 'import { readFile } from "node:fs/promises"\nawait readFile("value")\n';
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:fs/promises", parseAmbientModule(
+        `declare module "node:fs/promises" {
+          /**
+           * Reads the entire contents of a file.
+           */
+          export function readFile(path: string): Promise<string>;
+        }`,
+        "node:fs/promises"
+      )]
+    ]);
+
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 16, {
+      ambientModuleDeclarations
+    });
+    expect(help).not.toBeNull();
+    expect(help!.signatures[0]!.documentation).toBe("Reads the entire contents of a file.");
+  });
+
   it("falls back to display-string parsing when only a display type is available for the callee", async () => {
     // When an imported function variable only has a display type string (no
     // structured AnalysisType), signatureInfosFromDisplayFunctionType should

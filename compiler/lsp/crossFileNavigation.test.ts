@@ -15,6 +15,7 @@ import {
   resolveDefinitionAcrossFiles,
   resolveDefinitionWithLocalFallback,
   resolveMemberHoverAcrossFiles,
+  resolveHoverWithLocalFallback,
   resolvePrepareRenameAcrossFiles,
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
@@ -2209,6 +2210,54 @@ describe("cross-file navigation", () => {
       expect(hover?.contents).not.toContain("string | Buffer | URL | object");
     });
 
+    it("includes documentation when hovering directly imported ambient module functions", async () => {
+      const source = dedent`
+        import { readFile } from "node:fs/promises"
+        await readFile("hello")
+      `;
+      const ambientModuleDeclarations = new Map<string, Statement[]>([
+        ["node:fs/promises", parseAmbientModule(
+          `declare module "node:fs/promises" {
+            /**
+             * Reads the entire contents of a file.
+             */
+            export function readFile(path: string): Promise<string>;
+          }`,
+          "node:fs/promises"
+        )]
+      ]);
+
+      const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: "file:///virtual/main.vx",
+        sourceRoots: [],
+        ambientModuleDeclarations
+      });
+      const session = createAnalysisSession(
+        source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        ambientModuleDeclarations,
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const hover = await resolveHoverWithLocalFallback({
+        uri: "file:///virtual/main.vx",
+        line: 1,
+        character: source.split("\n")[1]!.indexOf("readFile") + 1,
+        session,
+        sourceRoots: []
+      });
+
+      expect(hover?.contents).toEqual({
+        kind: "plaintext",
+        value: "function readFile: (path: string) => Promise<string>\n\nReads the entire contents of a file."
+      });
+    });
+
     it("navigates ambient imported calls to the matched overload declaration", async () => {
       const root = await mkdtemp(join(tmpdir(), "vexa-ambient-overload-definition-"));
       const nodeTypesDir = join(root, "node_modules", "@types", "node");
@@ -2576,4 +2625,3 @@ describe("cross-file navigation", () => {
     });
   });
 });
-

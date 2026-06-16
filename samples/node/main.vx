@@ -2,6 +2,7 @@ import { join } from "node:path"
 import { readFile, writeFile } from "node:fs/promises"
 import fs from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { format } from "node:util"
 import util from "node:util"
 
 sync fun main() {

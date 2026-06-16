@@ -37,7 +37,11 @@ import type {
 } from "compiler/ast/ast";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { uriToFilePath } from "./importFixes";
-import { readDocumentationFromIdentifier, readDocumentationFromProgramDeclaration } from "./documentation";
+import {
+  readDocumentationForSymbol,
+  readDocumentationFromParameterLike,
+  readDocumentationFromNamedNode
+} from "./documentation";
 import {
   findTopLevelDeclarationInProgram,
   isClassStatement,
@@ -469,7 +473,7 @@ function resolveClassOwnMember(
       continue;
     }
     const typeName = substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions);
-    const documentation = parameter.name.kind === "Identifier" ? readDocumentationFromIdentifier(parameter.name) : undefined;
+    const documentation = readDocumentationFromParameterLike(parameter);
     const result: ResolvedClassMember = {
       className: classStatement.name.name,
       memberName,
@@ -487,7 +491,7 @@ function resolveClassOwnMember(
       continue;
     }
     if (member.kind === "ClassFieldMember") {
-      const documentation = readDocumentationFromIdentifier(member.name);
+      const documentation = readDocumentationFromNamedNode(member);
       const result: ResolvedClassMember = {
         className: classStatement.name.name,
         memberName,
@@ -508,7 +512,7 @@ function resolveClassOwnMember(
       const inferredTypeName = !member.returnType && getterExpression && context?.analysis
         ? typeNameFromAnalysisType(context.analysis.getExpressionTypes().get(getterExpression))
         : null;
-      const documentation = readDocumentationFromIdentifier(member.name);
+      const documentation = readDocumentationFromNamedNode(member);
       const result: ResolvedClassMember = {
         className: classStatement.name.name,
         memberName,
@@ -522,7 +526,7 @@ function resolveClassOwnMember(
     }
 
     if (member.accessorKind === "set") {
-      const documentation = readDocumentationFromIdentifier(member.name);
+      const documentation = readDocumentationFromNamedNode(member);
       const result: ResolvedClassMember = {
         className: classStatement.name.name,
         memberName,
@@ -542,7 +546,7 @@ function resolveClassOwnMember(
       rest: parameter.rest === true
     }));
     const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "void", substitutions);
-    const documentation = readDocumentationFromIdentifier(member.name);
+    const documentation = readDocumentationFromNamedNode(member);
     const signature: ResolvedFunctionSignature = {
       name: member.name.name,
       parameters,
@@ -600,7 +604,7 @@ function resolveInterfaceOwnSignatures(
     }
 
     if (member.kind === "InterfacePropertyMember") {
-      const documentation = readDocumentationFromIdentifier(member.name);
+      const documentation = readDocumentationFromNamedNode(member);
       const resolved: ResolvedClassMember = {
         className: interfaceStatement.name.name,
         memberName,
@@ -627,7 +631,7 @@ function resolveInterfaceOwnSignatures(
       rest: parameter.rest === true
     }));
     const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "void", substitutions);
-    const documentation = readDocumentationFromIdentifier(member.name);
+    const documentation = readDocumentationFromNamedNode(member);
     const signature: ResolvedFunctionSignature = {
       name: member.name.name,
       parameters,
@@ -1445,7 +1449,9 @@ export async function resolveCallableSignature(
     if (symbol.type?.kind === "function") {
       const documentation =
         symbol.node.kind === "Identifier"
-          ? readDocumentationFromProgramDeclaration(ast, symbol.node as Identifier)
+          ? readDocumentationForSymbol(ast, symbol.node as Identifier, {
+              ambientModuleDeclarations: options.ambientModuleDeclarations
+            })
           : undefined;
       return {
         name: identifier.name,
@@ -1554,7 +1560,9 @@ export async function resolveCallableSignatures(
     if (!symbol) return [];
     const documentation =
       symbol.node.kind === "Identifier"
-        ? readDocumentationFromProgramDeclaration(ast, symbol.node as Identifier)
+        ? readDocumentationForSymbol(ast, symbol.node as Identifier, {
+            ambientModuleDeclarations: options.ambientModuleDeclarations
+          })
         : undefined;
     if (symbol.type?.kind === "function") {
       return [{

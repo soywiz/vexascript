@@ -29,8 +29,8 @@ import {
   type ClassResolverOptions
 } from "./classResolver";
 import {
-  readDocumentationFromIdentifier,
-  readDocumentationFromProgramDeclaration
+  readDocumentationForSymbol,
+  readDocumentationFromNamedNode
 } from "./documentation";
 import { findBestMatch } from "./nodeSearch";
 import { resolveCursorTarget, type CursorTarget } from "./navigation";
@@ -234,17 +234,10 @@ function ambientFunctionSignatureInfo(
         rest: parameter.rest === true
       })
     }));
-  const documentation = readDocumentationFromProgramDeclaration(
-    { kind: "Program", body: [ownerStatement] },
-    fn.name
-  ) ?? readDocumentationFromIdentifier(fn.name) ?? (fn.firstToken
-      ? readDocumentationFromIdentifier({
-          kind: "Identifier",
-          name: fn.name.name,
-          firstToken: fn.firstToken,
-          lastToken: fn.firstToken
-        })
-      : undefined);
+  const documentation = readDocumentationFromNamedNode({
+    firstToken: ownerStatement.firstToken ?? fn.firstToken,
+    name: fn.name
+  });
   return {
     label: `${fn.name.name}(${parameters.map((parameter) => parameter.label).join(", ")}): ${fn.returnType?.name ?? "unknown"}`,
     parameters,
@@ -435,7 +428,9 @@ async function buildSignaturesFromSymbol(
   if (context.callee.kind === "Identifier" && symbolMatch?.symbol.valueType) {
     const documentation =
       symbolMatch.symbol.node.kind === "Identifier"
-        ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
+        ? readDocumentationForSymbol(program, symbolMatch.symbol.node as Identifier, {
+            ambientModuleDeclarations: options.ambientModuleDeclarations
+          })
         : undefined;
     const displaySignatures = signatureInfosFromDisplayFunctionType(
       symbolMatch.symbol.name,
@@ -491,7 +486,9 @@ async function buildSignaturesFromSymbol(
 
   const documentation =
     symbolMatch.symbol.node.kind === "Identifier"
-      ? readDocumentationFromProgramDeclaration(program, symbolMatch.symbol.node as Identifier)
+      ? readDocumentationForSymbol(program, symbolMatch.symbol.node as Identifier, {
+          ambientModuleDeclarations: options.ambientModuleDeclarations
+        })
       : undefined;
 
   // Structured type resolution via the analysis type system.

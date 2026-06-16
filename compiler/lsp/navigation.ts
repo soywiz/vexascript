@@ -12,7 +12,7 @@ import { declarationIndexForStatements } from "compiler/analysis/declarationInde
 import {
   findDocumentationParameterReference,
   findDocumentationReferenceRangesForIdentifier,
-  readDocumentationFromProgramDeclaration
+  readDocumentationForSymbol
 } from "./documentation";
 import {
   getEcmaScriptRuntimeProgram,
@@ -340,7 +340,11 @@ export function createHover(
   analysis: Analysis,
   line: number,
   character: number,
-  program?: Program
+  program?: Program,
+  options: {
+    externalDeclarations?: readonly import("compiler/ast/ast").Statement[] | undefined;
+    ambientModuleDeclarations?: ReadonlyMap<string, import("compiler/ast/ast").Statement[]> | undefined;
+  } = {}
 ): Hover | null {
   const target = resolveCursorTarget(analysis, line, character, program);
   if (!target) {
@@ -366,7 +370,7 @@ export function createHover(
   const symbolNode = target.symbolAt?.symbol.node;
   const documentation =
     program && symbolNode?.kind === "Identifier"
-      ? readDocumentationFromProgramDeclaration(program, symbolNode as Identifier)
+      ? readDocumentationForSymbol(program, symbolNode as Identifier, options)
       : undefined;
   const hoverValue = documentation ? `${hoverTypeText}\n\n${documentation}` : hoverTypeText;
 
