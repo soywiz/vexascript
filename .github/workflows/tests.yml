@@ -20,6 +20,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
 
     steps:
       - name: Checkout repository
@@ -80,8 +81,11 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Run
+      - name: Run cli without arguments
         run: ./vexa
+
+      - name: Run testFixture/sample.vx
+        run: pnpm cli testFixtures/sample.vx
 
       - name: Link global
         run: pnpm link --global

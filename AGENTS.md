@@ -11,6 +11,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 ## Important
 
 - Do not use synchronous I/O API calls. Only use asynchronous I/O APIs. The compiler is intended to run both in node and the browser.
+- Do not use top-level awaits as they are problematic.
 - Except for the CLI and explicitly Node-only adapters, compiler modules must not depend on Node.js APIs. Shared compiler/runtime code should stay browser-compatible.
 
 
@@ -23,6 +24,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 ## Commands
 
 - Run tests once: `pnpm test`
+- Validate compiler CLI is working: `pnpm cli vexa testFixtures/sample.vx`
 - Keep the `test` script as `tsc --noEmit && node --import tsx --test --test-reporter spec`. Do not add explicit test-file globs or `rg`/`find` enumeration to it unless the current autodiscovery behavior actually breaks. In this repository, Node's test runner with `--import tsx` already discovers and runs the `.test.ts` suite correctly.
 - Run tests with coverage: `pnpm coverage`
 - Run vscode with the plugin+lsp: `pnpm code`
@@ -48,6 +50,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - If tests fail, they must be fixed before finishing the task.
 - If requirements change, update tests to match the new expected behavior instead of preserving outdated assertions.
 - For editor/LSP cursor-position tests, prefer the shared `^^^` marker helper in `compiler/test/sourceWithCursor.ts` over hardcoded line/column pairs.
+- We also validate CLI is working with `pnpm cli vexa testFixtures/sample.vx`
 
 ## Language policy
 

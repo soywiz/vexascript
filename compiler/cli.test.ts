@@ -35,6 +35,55 @@ async function spawnAndCapture(command: string, args: string[], cwd: string): Pr
   });
 }
 
+async function buildBundledCli(): Promise<{
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}> {
+  const bootstrapBuild = await spawnAndCapture(
+    process.execPath,
+    [
+      "node_modules/esbuild/bin/esbuild",
+      "compiler/cli-bin.ts",
+      "--bundle",
+      "--platform=node",
+      "--format=esm",
+      "--target=node20",
+      "--outfile=dist/vexa.js",
+      "--external:commander",
+      "--external:vscode-languageserver",
+      "--external:vscode-languageserver-textdocument",
+      "--external:source-map",
+      "--external:esbuild",
+      "--banner:js=#!/usr/bin/env node",
+      "--log-level=error",
+    ],
+    process.cwd()
+  );
+  if (bootstrapBuild.code !== 0) {
+    return bootstrapBuild;
+  }
+  return await spawnAndCapture(
+    process.execPath,
+    [
+      "node_modules/esbuild/bin/esbuild",
+      "compiler/cli.ts",
+      "--bundle",
+      "--platform=node",
+      "--format=esm",
+      "--target=node20",
+      "--outfile=dist/cli.js",
+      "--external:commander",
+      "--external:vscode-languageserver",
+      "--external:vscode-languageserver-textdocument",
+      "--external:source-map",
+      "--external:esbuild",
+      "--log-level=error",
+    ],
+    process.cwd()
+  );
+}
+
 describe("CLI", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -311,26 +360,7 @@ describe("CLI", () => {
     const distPath = join(process.cwd(), "dist");
     await rm(distPath, { recursive: true, force: true });
 
-    const build = await spawnAndCapture(
-      process.execPath,
-      [
-        "node_modules/esbuild/bin/esbuild",
-        "compiler/cli.ts",
-        "--bundle",
-        "--platform=node",
-        "--format=esm",
-        "--target=node20",
-        "--outfile=dist/vexa.js",
-        "--external:commander",
-        "--external:vscode-languageserver",
-        "--external:vscode-languageserver-textdocument",
-        "--external:source-map",
-        "--external:esbuild",
-        "--banner:js=#!/usr/bin/env node",
-        "--log-level=error",
-      ],
-      process.cwd()
-    );
+    const build = await buildBundledCli();
     expect(build.code).toBe(0);
     expect(build.stderr).toBe("");
 
@@ -338,6 +368,21 @@ describe("CLI", () => {
     expect(run.code).toBe(0);
     expect(run.stdout).toContain(COMPILER_VERSION);
     expect(run.stderr).not.toContain("Detected unsettled top-level await");
+  });
+
+  it("built CLI runs sample programs and preserves stdout", async () => {
+    const distPath = join(process.cwd(), "dist");
+    await rm(distPath, { recursive: true, force: true });
+
+    const build = await buildBundledCli();
+    expect(build.code).toBe(0);
+
+    const run = await spawnAndCapture(process.execPath, ["dist/vexa.js", "run", "samples/node/main.vx"], process.cwd());
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain("hello/world");
+    expect(run.stdout).toContain("0010");
+    expect(run.stdout).toContain("74657374");
+    expect(run.stderr).toBe("");
   });
 
   it("syntax command prints VS Code grammar JSON", async () => {

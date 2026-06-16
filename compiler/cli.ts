@@ -1,15 +1,10 @@
+import "./localVfs";
 import { Command } from "commander";
-import { transpile, type TranspileDiagnostic, type TranspileTarget } from "./runtime/transpile";
-import { bundleModuleGraph } from "./runtime/moduleGraph";
-import { ensureEcmaScriptRuntimeProgram } from "./runtime/ecmascriptDeclarations";
-import { ensureDomProgram } from "./runtime/domDeclarations";
-import { format, toAstPreview, tokenize } from "./runtime/tooling";
-import { runVexaScriptTests } from "./runtime/testRunner";
+import type { TranspileDiagnostic, TranspileTarget } from "./runtime/transpile";
 import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "./language";
 import { loadProject, type VexaProject } from "./project";
 import { ensureDependencies } from "./deps";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
-import { runMcpServer } from "./mcpServer";
 import { COMPILER_VERSION } from "./compilerVersion";
 import { basename, dirname, pathToFileURL, resolve } from "./utils/path";
 import { vfs } from "./vfs";
@@ -50,7 +45,19 @@ async function ambientDeclarationsForProject(project: VexaProject | null) {
     return [];
   }
 
+  const { ensureDomProgram } = await import("./runtime/domDeclarations");
   return (await ensureDomProgram()).body;
+}
+
+async function ensureCompilerRuntimePrograms(): Promise<void> {
+  const {
+    ensureEcmaScriptRuntimeProgram,
+    ensureVexaScriptRuntimeProgram
+  } = await import("./runtime/ecmascriptDeclarations");
+  await Promise.all([
+    ensureEcmaScriptRuntimeProgram(),
+    ensureVexaScriptRuntimeProgram()
+  ]);
 }
 
 function printDiagnostics(result: { errors: string[]; diagnostics?: TranspileDiagnostic[] }, file: string): void {
@@ -114,7 +121,9 @@ async function buildFile(
   const source = (await vfs().readFile(sourcePath))!;
   const project = await loadProject(sourcePath);
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
+  await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const { transpile } = await import("./runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -157,9 +166,11 @@ async function bundleFile(
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
+  await ensureCompilerRuntimePrograms();
 
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".mjs"));
   const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const { bundleModuleGraph } = await import("./runtime/moduleGraph");
   const result = await bundleModuleGraph(sourcePath, target, {
     ambientDeclarations,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -198,8 +209,9 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
   await ensureRuntimeDependencies(sourcePath, project);
   // Bundle the entry file together with its local module graph so cross-file
   // references resolve, then execute the combined module.
-  await ensureEcmaScriptRuntimeProgram();
+  await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const { bundleModuleGraph } = await import("./runtime/moduleGraph");
   const result = await bundleModuleGraph(sourcePath, target, {
     ambientDeclarations,
     ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
@@ -211,7 +223,9 @@ export async function runFile(input: string, target: TranspileTarget = "conserva
 async function executeSource(source: string, sourcePath: string, target: TranspileTarget): Promise<void> {
   const outputPath = replaceLanguageExtension(sourcePath, ".js");
   const project = await loadProject(sourcePath);
+  await ensureCompilerRuntimePrograms();
   const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const { transpile } = await import("./runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
     outputFilePath: outputPath,
@@ -254,6 +268,7 @@ async function executeCompiled(
 }
 
 async function runTests(paths: string[]): Promise<void> {
+  const { runVexaScriptTests } = await import("./runtime/testRunner");
   const result = await runVexaScriptTests(paths, async (source, testFile) => {
     await executeSource(source, testFile, "conservative");
     console.log(`Passed: ${testFile}`);
@@ -264,18 +279,21 @@ async function runTests(paths: string[]): Promise<void> {
 async function printTokens(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
+  const { tokenize } = await import("./runtime/tooling");
   console.log(JSON.stringify(tokenize(source), null, 2));
 }
 
 async function printAst(input: string): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
+  const { toAstPreview } = await import("./runtime/tooling");
   console.log(JSON.stringify(toAstPreview(source), null, 2));
 }
 
 async function formatFile(input: string, opts: { write?: boolean; out?: string }): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const source = await vfs().readFile(sourcePath);
+  const { format } = await import("./runtime/tooling");
   const formatted = format(source);
   const formattedWithTrailingNewline = `${formatted}\n`;
 
@@ -368,6 +386,7 @@ function createProgram(): Command {
     .description("Start the VexaScript MCP codebase navigation server")
     .option("--root <dir>", "Workspace root used to resolve relative file paths and scan symbols", process.cwd())
     .action(async (opts: { root?: string }) => {
+      const { runMcpServer } = await import("./mcpServer");
       await runMcpServer({ cwd: resolve(process.cwd(), opts.root ?? ".") });
     });
 
@@ -514,7 +533,14 @@ async function main(): Promise<void> {
   await runCli(process.argv);
 }
 
+function isBootstrappedCliExecution(): boolean {
+  return (globalThis as { __vexaCliBootstrappedEntry?: boolean }).__vexaCliBootstrappedEntry === true;
+}
+
 async function isDirectExecution(): Promise<boolean> {
+  if (isBootstrappedCliExecution()) {
+    return false;
+  }
   if (process.argv[1] === undefined) return false;
   if (pathToFileURL(process.argv[1]).href === import.meta.url) return true;
   try {
@@ -530,11 +556,23 @@ async function isDirectExecution(): Promise<boolean> {
   }
 }
 
-if (await isDirectExecution()) {
-  main().catch((error) => {
+const directExecutionKeepAlive = setTimeout(() => undefined, 1 << 30);
+isDirectExecution()
+  .then(async (directExecution) => {
+    if (!directExecution) {
+      return;
+    }
+    await main();
+  })
+  .catch((error) => {
     if (!(error instanceof DiagnosticError)) {
       console.error(error instanceof Error ? error.message : String(error));
     }
-    process.exit(1);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    clearTimeout(directExecutionKeepAlive);
+    if ((process.exitCode ?? 0) !== 0) {
+      process.exit(process.exitCode ?? 1);
+    }
   });
-}
