@@ -1,5 +1,4 @@
-import "cli/localVfs";
-import { realpath } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { fileExists } from "compiler/utils/fs";
 import { dirname, fileURLToPath, resolve } from "compiler/utils/path";
 import {
@@ -12,7 +11,6 @@ import {
 } from "./ecmascriptDeclarations.shared";
 import { VEXASCRIPT_RUNTIME_DECLARATION_FILE_NAME } from "./vexascriptDeclarations.shared";
 import type { RuntimeDeclarationsHost, RuntimeDeclarationSource } from "./declarationHost";
-import { vfs } from "compiler/vfs";
 
 async function currentDirectory(): Promise<string> {
   const filePath = fileURLToPath(import.meta.url);
@@ -35,7 +33,7 @@ async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDe
     if (await fileExists(candidatePath)) {
       return {
         filePath: candidatePath,
-        source: await vfs().readFile(candidatePath)
+        source: await readFile(candidatePath, "utf8")
       };
     }
   }
@@ -43,14 +41,14 @@ async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDe
   const sourcePath = resolve(process.cwd(), "compiler", "runtime", fileName);
   return {
     filePath: sourcePath,
-    source: await vfs().readFile(sourcePath)
+    source: await readFile(sourcePath, "utf8")
   };
 }
 
 export const nodeRuntimeDeclarationsHost: RuntimeDeclarationsHost = {
   async loadEcmaScriptDeclarations(): Promise<RuntimeDeclarationSource & CachedRuntimeSourceMetadata> {
     const declaration = await readBundledDeclarationSource(TYPESCRIPT_RUNTIME_DECLARATION_FILE_NAME);
-    const { mtimeMs } = await vfs().stat(declaration.filePath);
+    const { mtimeMs } = await stat(declaration.filePath);
     return { ...declaration, mtimeMs };
   },
   async loadVexaScriptDeclarations(): Promise<RuntimeDeclarationSource> {

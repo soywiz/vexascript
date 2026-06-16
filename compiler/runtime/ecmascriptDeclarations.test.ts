@@ -43,9 +43,10 @@ describe("TypeScript runtime declarations", () => {
     expect(isVexaScriptRuntimeNode(program.body[0]!)).toBe(true);
   });
 
-  it("boots the Node VFS from the Node declaration host", async () => {
+  it("keeps the Node declaration host self-contained within compiler/runtime", async () => {
     const source = await readFile(join(process.cwd(), "compiler", "runtime", "nodeDeclarationHost.ts"), "utf8");
 
-    expect(source).toContain('import "cli/localVfs";');
+    expect(source).not.toContain('import "cli/');
+    expect(source).toContain('from "node:fs/promises"');
   });
 });

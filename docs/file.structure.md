@@ -21,7 +21,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared editor-agnostic VexaScript diagnostic codes, message patterns, and message/issue-code classification used by both the runtime transpiler and the LSP layer: `compiler/diagnosticCodes.ts`
   - Shared diagnostic-code tests: `compiler/diagnosticCodes.test.ts`
   - LSP-facing diagnostic helpers (parsing `Diagnostic` payloads for quick fixes) that re-export the shared codes: `compiler/lsp/diagnosticCodes.ts`
-  - Layering guard test that keeps core compiler layers (parser/ast/analysis/runtime/pipeline) free of LSP-layer imports: `compiler/layering.test.ts`
+  - Layering guard test that keeps core compiler layers (parser/ast/analysis/runtime/pipeline) free of LSP-layer imports and prevents `compiler/` source files from importing sibling app folders such as `cli/`: `compiler/layering.test.ts`
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface used across compiler, LSP, runtime bundling, and browser adapters: `compiler/vfs.ts`
   - Shared abstract VFS contract used by compiler/runtime code across browser and Node hosts: `compiler/vfs.ts`
