@@ -3,6 +3,10 @@
         "baseUrl": "./",
         "jsx": "react-jsx",
         "jsxImportSource": "preact",
+        "lib": [
+            "es2025",
+            "dom"
+        ],
         "paths": {
             "react": [
                 "./node_modules/preact/compat"

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { expect } from "./test/expect";
 import { loadProject } from "./project";
+import { resolveServeBundleInput } from "./cliShared";
 
 describe("project configuration", () => {
   it("loads dependencies from package.json and JSX factories from tsconfig.json", async () => {
@@ -49,6 +50,28 @@ describe("project configuration", () => {
       libs: [],
       types: ["node"]
     });
+  });
+
+  it("loads bundle entrypoint from vexascript.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    const input = join(dir, "main.vx");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({ entrypoint: "html.vx" }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect(await loadProject(input)).toEqual({
+      projectDir: dir,
+      dependencies: {},
+      libs: [],
+      types: [],
+      bundleEntrypoint: join(dir, "html.vx")
+    });
+  });
+
+  it("resolves serve bundle input from vexascript.json when --bundle is omitted", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({ entrypoint: "html.vx" }), "utf8");
+
+    expect(await resolveServeBundleInput(dir)).toBe(join(dir, "html.vx"));
   });
 
   it("does not load legacy vexa.toml configuration", async () => {

@@ -9,6 +9,7 @@ export interface VexaProject {
   jsxFragmentFactory?: string;
   libs: string[];
   types: string[];
+  bundleEntrypoint?: string;
 }
 
 interface PackageJsonConfig {
@@ -27,6 +28,10 @@ interface TsConfigJson {
     lib?: unknown;
     types?: unknown;
   };
+}
+
+interface VexaScriptConfigJson {
+  entrypoint?: unknown;
 }
 
 interface CachedJsonFile<T> {
@@ -136,6 +141,8 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
   let dir = resolve(startDir);
   let packageDir: string | null = null;
   let tsconfig: TsConfigJson | null = null;
+  let vexaConfigDir: string | null = null;
+  let vexaConfig: VexaScriptConfigJson | null = null;
   let dependencies: Record<string, string> = {};
   while (true) {
     if (!packageDir) {
@@ -151,7 +158,15 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
       tsconfig = await readJsonFile<TsConfigJson>(resolve(dir, "tsconfig.json"));
     }
 
-    if (packageDir && tsconfig) {
+    if (!vexaConfig) {
+      const candidate = await readJsonFile<VexaScriptConfigJson>(resolve(dir, "vexascript.json"));
+      if (candidate) {
+        vexaConfig = candidate;
+        vexaConfigDir = dir;
+      }
+    }
+
+    if (packageDir && tsconfig && vexaConfig) {
       break;
     }
 
@@ -160,15 +175,18 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
     dir = parent;
   }
 
-  if (!packageDir && !tsconfig) {
+  if (!packageDir && !tsconfig && !vexaConfig) {
     return null;
   }
+
+  const bundleEntrypoint = typeof vexaConfig?.entrypoint === "string" ? resolve(vexaConfigDir ?? startDir, vexaConfig.entrypoint) : undefined;
 
   return {
     projectDir: packageDir ?? resolve(startDir),
     dependencies,
     libs: libsFromTsConfig(tsconfig),
     types: typesFromTsConfig(tsconfig),
+    ...(bundleEntrypoint ? { bundleEntrypoint } : {}),
     ...jsxOptionsFromTsConfig(tsconfig)
   };
 }

@@ -1,0 +1,29 @@
+import { render } from 'preact';
+import { useState } from 'preact/hooks';
+
+function MyButton(props) {
+	return (
+		<button style={props.style} onClick={props.onClick}>
+			{props.children}
+		</button>
+	);
+}
+
+function App() {
+	const [count, setCount] = useState<number>(0);
+
+	const clicked = () => {
+		setCount(count + 1);
+	};
+
+	return (
+		<div>
+			<p class="count">Count: {count}</p>
+			<MyButton style={{ color: 'purple' }} onClick={clicked}>
+				Click me
+			</MyButton>
+		</div>
+	);
+}
+
+render(<App />, document.getElementById('app') as any);

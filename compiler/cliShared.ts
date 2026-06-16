@@ -100,3 +100,17 @@ export async function createBundledModuleArtifacts(
 export async function resolveProjectForSource(sourcePath: string): Promise<VexaProject | null> {
   return await loadProject(sourcePath);
 }
+
+export async function resolveServeBundleInput(rootDir: string, explicitBundleInput?: string): Promise<string> {
+  if (explicitBundleInput) {
+    return resolve(process.cwd(), explicitBundleInput);
+  }
+
+  const resolvedRootDir = resolve(process.cwd(), rootDir);
+  const project = await loadProject(resolvedRootDir);
+  if (project?.bundleEntrypoint) {
+    return project.bundleEntrypoint;
+  }
+
+  throw new Error(`No bundle entrypoint provided. Pass --bundle <input> or add "entrypoint" to ${resolvedRootDir}/vexascript.json`);
+}

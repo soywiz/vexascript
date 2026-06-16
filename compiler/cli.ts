@@ -11,7 +11,8 @@ import {
   ambientDeclarationsForProject,
   createBundledModuleArtifacts,
   ensureCompilerRuntimePrograms,
-  ensureRuntimeDependencies
+  ensureRuntimeDependencies,
+  resolveServeBundleInput
 } from "./cliShared";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
@@ -404,21 +405,22 @@ function createProgram(): Command {
   program
     .command("serve")
     .description("Serve a static folder, inject the bundle into HTML, and live-reload on bundle changes")
-    .argument("<dir>", "Folder to serve")
-    .requiredOption("--bundle <input>", "Bundle entry VexaScript file")
+    .argument("[dir]", "Folder to serve", ".")
+    .option("--bundle <input>", "Bundle entry VexaScript file")
     .option("--port <number>", "HTTP port", "8080")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .action(async (
-      dir: string,
-      opts: { bundle: string; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }
+      dir: string | undefined,
+      opts: { bundle?: string; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }
     ) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
       const { startServeSession } = await import("./cliServe");
+      const rootDir = dir ?? ".";
       await startServeSession({
-        rootDir: dir,
-        bundleInput: opts.bundle,
+        rootDir,
+        bundleInput: await resolveServeBundleInput(rootDir, opts.bundle),
         port: Number.parseInt(opts.port ?? "8080", 10),
         target,
         ...jsxOptions,
