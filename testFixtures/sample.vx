@@ -1,9 +1,4 @@
 import { Point, seconds, TimeSpan, operator+, delay } from "./other"
-declare class Console {
-    log(...a: any[])
-}
-
-declare var console: Console
 
 console.log(42)
 
