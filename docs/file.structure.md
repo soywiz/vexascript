@@ -93,7 +93,7 @@ This section is the fast onboarding map for agents and contributors.
   - Compile phase: `compiler/pipeline/compile.ts`
   - Compile phase tests: `compiler/pipeline/compile.test.ts`
 - CLI:
-  - Lightweight bundled bootstrap for `dist/vexa.js` that serves startup help/version requests without loading the full compiler graph: `compiler/cli-bin.ts`
+  - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `compiler/cli-bin.ts`
   - CLI entrypoint and command implementation: `compiler/cli.ts`
   - Shared root-package compiler version loader used by the CLI and MCP server so `package.json` stays the source of truth: `compiler/compilerVersion.ts`
   - CLI tests: `compiler/cli.test.ts`
