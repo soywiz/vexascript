@@ -1,7 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
 import { fileExists, isDirectory } from "./fs";
 import { runCommand } from "../../cli/io";
 

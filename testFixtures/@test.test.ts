@@ -1,6 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { describe, expect, it } from "../compiler/test/expect";
+import { describe, expect, it, join, readFile, resolve } from "../compiler/test/expect";
 import { Analysis } from "../compiler/analysis/Analysis";
 import { Parser } from "../compiler/parser/parser";
 import { tokenizeReader } from "../compiler/parser/tokenizer";

@@ -1,6 +1,4 @@
-import { assert, test } from "../../compiler/test/expect";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { assert, dirname, fileURLToPath, resolve, test } from "../../compiler/test/expect";
 import { loadSyntaxDocument, loadAgentsDocument, renderMarkdownDocument } from "./siteContent.ts";
 import { highlightVexaScriptHtml } from "./syntaxHighlight.ts";
 

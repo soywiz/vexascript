@@ -8,6 +8,16 @@ export { describe, it, test, beforeEach, afterEach };
 export { before as beforeAll, after as afterAll };
 export { assert };
 
+// ─── node re-exports ─────────────────────────────────────────────────────────
+
+export { dirname, join, relative, resolve } from "node:path";
+export { fileURLToPath, pathToFileURL } from "node:url";
+export { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+export { tmpdir } from "node:os";
+export { format } from "node:util";
+export { Script, createContext } from "node:vm";
+export { spawn } from "node:child_process";
+
 // ─── expect ──────────────────────────────────────────────────────────────────
 
 export function expect(actual: unknown, message?: string) {

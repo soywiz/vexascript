@@ -1,9 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it, vi } from "../compiler/test/expect";
+import { afterEach, describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, readFile, rm, spawn, tmpdir, vi, writeFile } from "../compiler/test/expect";
 import { ensureLspTransportArg, runCli } from "./cli";
 import { startServeSession } from "./cliServe";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";

@@ -1,7 +1,5 @@
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { parseSource } from "./pipeline/parse";
-import { describe, expect, it } from "./test/expect";
+import { describe, expect, it, join, readFile, readdir } from "./test/expect";
 
 async function collectTypeScriptFiles(rootDir: string): Promise<string[]> {
   const entries = await readdir(rootDir, { recursive: true, withFileTypes: true });

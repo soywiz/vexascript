@@ -1,8 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, readFile, tmpdir, writeFile } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
 import { parseFile } from "compiler/parser/parser";

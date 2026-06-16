@@ -1,7 +1,6 @@
-import { resolve } from "node:path";
 import type { ClassStatement } from "compiler/ast/ast";
 import { compileSource } from "compiler/pipeline/compile";
-import { describe, expect, it } from "compiler/test/expect";
+import { describe, expect, it, resolve } from "compiler/test/expect";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 
 function isClassStatement(statement: unknown): statement is ClassStatement {

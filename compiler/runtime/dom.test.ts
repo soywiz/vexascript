@@ -1,6 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, readFile } from "../test/expect";
 import { ensureDomProgram, getDomDeclarationFilePath } from "./domDeclarations";
 
 function readBundledDomRuntime(): Promise<string> {

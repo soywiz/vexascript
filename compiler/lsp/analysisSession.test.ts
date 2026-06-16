@@ -1,7 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, mkdtemp, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";

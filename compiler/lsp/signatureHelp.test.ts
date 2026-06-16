@@ -1,10 +1,6 @@
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 import dedent from "compiler/utils/dedent";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { createAnalysisSession } from "./analysisSession";
 import { createSignatureHelp } from "./signatureHelp";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
