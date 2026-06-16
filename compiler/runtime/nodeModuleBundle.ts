@@ -7,6 +7,12 @@ import type { Vfs } from "compiler/vfs";
 interface BundleNodeModulesOptions {
   vfs?: Vfs;
   virtualSources?: ReadonlyMap<string, string>;
+  externalDependencyStrategy?: "runtime-error" | "node-require";
+}
+
+export interface BundleNodeModulesResult {
+  code: string;
+  watchedFiles: string[];
 }
 
 interface BundledModuleRecord {
@@ -333,12 +339,14 @@ export async function bundleNodeModuleGraph(
   entrySource: string,
   sourcePath: string,
   options: BundleNodeModulesOptions = {}
-): Promise<string> {
+): Promise<BundleNodeModulesResult> {
   const vfs = options.vfs ?? localVfs;
   const virtualSources = options.virtualSources ?? new Map<string, string>();
+  const externalDependencyStrategy = options.externalDependencyStrategy ?? "runtime-error";
   const entryId = "__vexa_entry__";
   const moduleById = new Map<string, BundledModuleRecord>();
   const moduleIdByPath = new Map<string, string>();
+  const watchedFiles = new Set<string>([sourcePath]);
   let nextModuleIndex = 0;
 
   const visitResolvedFile = async (filePath: string): Promise<string> => {
@@ -354,6 +362,9 @@ export async function bundleNodeModuleGraph(
     const source = virtualSources.get(filePath) ?? await vfs.readFile(filePath);
     if (source === null) {
       throw new Error(`Unable to read bundled module '${filePath}'`);
+    }
+    if (!virtualSources.has(filePath)) {
+      watchedFiles.add(filePath);
     }
     const transpiledCode = extension === ".json"
       ? `module.exports = ${source.trim()};`
@@ -415,9 +426,14 @@ export async function bundleNodeModuleGraph(
     ? `export default __vexaEntry.default;`
     : "";
 
-  return [
-    `import { createRequire as __vexaCreateRequire } from "node:module";`,
-    `const __vexaExternalRequire = __vexaCreateRequire(import.meta.url);`,
+  return {
+    code: [
+    ...(externalDependencyStrategy === "node-require"
+      ? [
+          `import { createRequire as __vexaCreateRequire } from "node:module";`,
+          `const __vexaExternalRequire = __vexaCreateRequire(import.meta.url);`
+        ]
+      : []),
     `const __vexaDependencyMaps = {`,
     dependencyMapsLiteral,
     `};`,
@@ -425,12 +441,17 @@ export async function bundleNodeModuleGraph(
     moduleFactoriesLiteral,
     `};`,
     `const __vexaCache = Object.create(null);`,
+    `function __vexaMissingExternal(specifier) {`,
+    `  throw new Error(\`Unbundled external dependency '\${specifier}' is not available in browser-safe Vexa bundles.\`);`,
+    `}`,
     `function __vexaRequireFrom(importerId, specifier) {`,
     `  const mapped = __vexaDependencyMaps[importerId]?.[specifier] ?? null;`,
     `  if (mapped !== null) {`,
     `    return __vexaRequireModule(mapped);`,
     `  }`,
-    `  return __vexaExternalRequire(specifier);`,
+    externalDependencyStrategy === "node-require"
+      ? `  return __vexaExternalRequire(specifier);`
+      : `  return __vexaMissingExternal(specifier);`,
     `}`,
     `function __vexaRequireModule(moduleId) {`,
     `  const cached = __vexaCache[moduleId];`,
@@ -458,5 +479,7 @@ export async function bundleNodeModuleGraph(
     exportLines,
     namedExportClause.length > 0 ? `export { ${namedExportClause} };` : `export {};`,
     defaultExportLine
-  ].filter((line) => line.length > 0).join("\n");
+  ].filter((line) => line.length > 0).join("\n"),
+    watchedFiles: [...watchedFiles]
+  };
 }

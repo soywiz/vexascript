@@ -96,6 +96,8 @@ This section is the fast onboarding map for agents and contributors.
 - CLI:
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `compiler/cli-bin.ts`
   - CLI entrypoint and command implementation: `compiler/cli.ts`
+  - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `compiler/cliShared.ts`
+  - Node-only static dev server for the CLI `serve` command, including HTML bundle injection, SSE live reload, and dependency-aware rebundling watch: `compiler/cliServe.ts`
   - Shared root-package compiler version loader used by the CLI and MCP server so `package.json` stays the source of truth: `compiler/compilerVersion.ts`
   - CLI tests: `compiler/cli.test.ts`
   - `test` command delegates test-file discovery and helper injection to `compiler/runtime/testRunner.ts`, keeping CLI command parsing separate from test orchestration.

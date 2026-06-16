@@ -6,8 +6,8 @@ permalink: /cli.html
 <section class="section">
   <div class="section-heading">
     <p class="eyebrow">VexaScript CLI</p>
-    <h1>Compile, bundle, run, inspect, and format from the terminal</h1>
-    <p class="lead">The <code>vexa</code> CLI covers building, running, providing syntax definitions in different formats, formatting, testing, exploring the AST, LSP and MCP.</p>
+    <h1>Compile, bundle, run, serve, inspect, and format from the terminal</h1>
+    <p class="lead">The <code>vexa</code> CLI covers building, bundling, serving browser demos with live reload, running, providing syntax definitions in different formats, formatting, testing, exploring the AST, LSP and MCP.</p>
   </div>
   <div class="cli-layout">
     <article class="card cli-overview">
@@ -24,6 +24,10 @@ permalink: /cli.html
         <div>
           <code>run</code> <code class="command_switch">&lt;input&gt;</code>
           <p>Transpile and execute a VexaScript file with Node.js.</p>
+        </div>
+        <div>
+          <code>serve</code> <code class="command_switch">&lt;dir&gt;</code> <code class="command_switch">--bundle &lt;input.vx&gt;</code>
+          <p>Serve a static folder on port <code>8080</code> by default, inject the bundle into HTML, and live-reload the page whenever the bundled dependency graph changes.</p>
         </div>
         <div>
           <code>test</code> <code class="command_switch">[paths...]</code>
@@ -80,6 +84,7 @@ permalink: /cli.html
   </div>
 {% highlightVexaScript %}
 pnpm tsx compiler/cli.ts build src/main.vx --out dist/main.js --target optimized
+pnpm tsx compiler/cli.ts serve demo/ --bundle demo/main.vx
 pnpm tsx compiler/cli.ts syntax --monaco
 pnpm tsx compiler/cli.ts test samples/
 {% endhighlightVexaScript %}

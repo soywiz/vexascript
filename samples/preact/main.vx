@@ -9,7 +9,7 @@ import { sample } from "./sample.vx"
 function Page({ name : string }) { // destructuring with types
     return <html>
         <body>
-            <h1>Hello {name} {demo()} {sample()}</h1>
+            <h1>Hello WORLD! {name} {demo()} {sample()}</h1>
         </body>
     </html>
 }

@@ -809,6 +809,7 @@ export interface ModuleGraphSourcesResult {
   warnings: string[];
   errors: string[];
   diagnostics: TranspileResult["diagnostics"];
+  watchedFiles: string[];
 }
 
 export async function bundleModuleGraphAsModules(
@@ -825,6 +826,7 @@ export async function bundleModuleGraphAsModules(
   const sourceByPath = new Map<string, string>();
   const parsedByPath = new Map<string, ParseArtifacts | null>();
   const inProgress = new Set<string>();
+  const watchedFiles = new Set<string>([entryFilePath]);
   const errors: string[] = [];
   const warnings: string[] = [];
   const diagnostics: TranspileResult["diagnostics"] = [];
@@ -836,6 +838,7 @@ export async function bundleModuleGraphAsModules(
     const source = await vfs.readFile(filePath);
     if (source !== null) {
       sourceByPath.set(filePath, source);
+      watchedFiles.add(filePath);
     }
     return source;
   };
@@ -978,6 +981,7 @@ export async function bundleModuleGraphAsModules(
     moduleSources: emittedByPath,
     warnings,
     errors,
-    diagnostics
+    diagnostics,
+    watchedFiles: [...watchedFiles]
   };
 }

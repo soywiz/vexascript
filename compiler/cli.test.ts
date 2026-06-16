@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, it } from "node:test";
 import { expect, vi } from "./test/expect";
 import { ensureLspTransportArg, runCli } from "./cli";
+import { startServeSession } from "./cliServe";
 import { COMPILER_VERSION } from "./compilerVersion";
 
 async function spawnAndCapture(command: string, args: string[], cwd: string): Promise<{
@@ -84,6 +85,41 @@ async function buildBundledCli(): Promise<{
   );
 }
 
+async function readSseEvent(url: string, eventName: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: { Accept: "text/event-stream" }
+  });
+  if (!response.body) {
+    throw new Error("Missing SSE body");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      while (buffer.includes("\n\n")) {
+        const separator = buffer.indexOf("\n\n");
+        const rawEvent = buffer.slice(0, separator);
+        buffer = buffer.slice(separator + 2);
+        const eventType = rawEvent.match(/^event:\s*(.+)$/m)?.[1]?.trim();
+        const data = rawEvent.match(/^data:\s*(.+)$/m)?.[1]?.trim() ?? "";
+        if (eventType === eventName) {
+          return data;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+    response.body.cancel().catch(() => undefined);
+  }
+  throw new Error(`Event ${eventName} was not received`);
+}
+
 describe("CLI", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -144,7 +180,7 @@ describe("CLI", () => {
   it("build command creates an ESM bundle inlining VexaScript, JavaScript, and node_modules dependencies", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-"));
     const input = join(dir, "main.vx");
-    const output = join(dir, "bundle.mjs");
+    const output = join(dir, "bundle.js");
     await writeFile(join(dir, "package.json"), JSON.stringify({ type: "module" }), "utf8");
     await writeFile(join(dir, "math.vx"), "export fun double(value: number) => value * 2\n", "utf8");
     await writeFile(join(dir, "message.ts"), "import { suffix } from './suffix.js'; export const label: string = `answer${suffix}`;\n", "utf8");
@@ -174,6 +210,8 @@ describe("CLI", () => {
     expect(outputCode).not.toContain('from "./suffix.js"');
     expect(outputCode).not.toContain('from "tiny-lib"');
     expect(outputCode).not.toContain('from "tiny-cjs"');
+    expect(outputCode).not.toContain('node:module');
+    expect(outputCode).not.toContain('createRequire');
     expect(outputCode).not.toContain(dir);
     expect(outputCode).toContain("function double(value)");
     expect(outputCode).toContain('exports.label = "answer" + suffix_js_1.suffix + "";');
@@ -190,7 +228,8 @@ describe("CLI", () => {
   it("bundle command is a direct alias for build --bundle", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-command-"));
     const input = join(dir, "main.vx");
-    const output = join(dir, "direct-bundle.mjs");
+    const output = join(dir, "direct-bundle.js");
+    await writeFile(join(dir, "package.json"), JSON.stringify({ type: "module" }), "utf8");
     await writeFile(join(dir, "math.vx"), "export fun triple(value: number) => value * 3\n", "utf8");
     await writeFile(input, [
       'import { triple } from "./math"',
@@ -212,7 +251,8 @@ describe("CLI", () => {
   it("bundle keeps each local VexaScript file scoped as its own module", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-bundle-scope-"));
     const input = join(dir, "main.vx");
-    const output = join(dir, "scoped-bundle.mjs");
+    const output = join(dir, "scoped-bundle.js");
+    await writeFile(join(dir, "package.json"), JSON.stringify({ type: "module" }), "utf8");
     await writeFile(join(dir, "left.vx"), [
       "const hidden = 10",
       "export fun readLeft() => hidden"
@@ -240,10 +280,59 @@ describe("CLI", () => {
     expect(imported.bundled).toBe("10:20");
   });
 
+  it("serve injects the bundle into HTML and reloads when a dependency changes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-"));
+    await writeFile(
+      join(dir, "index.html"),
+      '<!doctype html><html><body><h1>hello</h1><script src="%VEXA_ENTRYPOINT%"></script></body></html>',
+      "utf8"
+    );
+    await writeFile(join(dir, "dep.vx"), "export fun readValue() => 'before'\n", "utf8");
+    await writeFile(join(dir, "main.vx"), [
+      'import { readValue } from "./dep"',
+      "console.log(readValue())"
+    ].join("\n"), "utf8");
+
+    const session = await startServeSession({
+      rootDir: dir,
+      bundleInput: join(dir, "main.vx"),
+      port: 0
+    });
+
+    try {
+      const html = await fetch(`http://localhost:${session.port}/`).then(async (response) => await response.text());
+      expect(html).toContain('<script src="/__vexa_bundle__.js"></script>');
+      expect(html).not.toContain('<script type="module" src="/__vexa_bundle__.js"></script>');
+      expect(html).toContain('new EventSource("/__vexa_live_reload")');
+
+      const bundleBefore = await fetch(`http://localhost:${session.port}/__vexa_bundle__.js`).then(async (response) => await response.text());
+      expect(bundleBefore).toContain("before");
+
+      const reloadPromise = readSseEvent(`http://localhost:${session.port}/__vexa_live_reload`, "reload");
+      await writeFile(join(dir, "dep.vx"), "export fun readValue() => 'after'\n", "utf8");
+      const reloadVersion = await reloadPromise;
+      expect(reloadVersion.length > 0).toBe(true);
+
+      const bundleAfter = await fetch(`http://localhost:${session.port}/__vexa_bundle__.js`).then(async (response) => await response.text());
+      expect(bundleAfter).toContain("after");
+    } finally {
+      await session.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("run command executes testFixtures/sample.vx", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await runCli(["node", "vexa", "run", "testFixtures/sample.vx"]);
+
+    expect(logSpy.mock.calls).toEqual([[42], [1], [2], [3], ['[a]'], ['[b]', { x: 4, y: 6 }]]);
+  });
+
+  it("accepts a repeated vexa binary name before the file path", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "dist/vexa.js", "vexa", "testFixtures/sample.vx"]);
 
     expect(logSpy.mock.calls).toEqual([[42], [1], [2], [3], ['[a]'], ['[b]', { x: 4, y: 6 }]]);
   });

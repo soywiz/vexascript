@@ -69,6 +69,8 @@ describe("website project", () => {
     expect(playgroundPage.includes("requestAnimationFrame")).toBe(false);
     expect(syntaxPage.includes('class="doc-shell"')).toBe(true);
     expect(cliPage.includes("<code>bundle</code>")).toBe(true);
+    expect(cliPage.includes("<code>serve</code>")).toBe(true);
+    expect(cliPage.includes("--bundle &lt;input.vx&gt;")).toBe(true);
     expect(notFoundPage.includes("permalink: 404.html")).toBe(true);
     expect(notFoundPage.includes("<h1>Page not found</h1>")).toBe(true);
   });

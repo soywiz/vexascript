@@ -2,12 +2,17 @@ import "./localVfs";
 import { Command } from "commander";
 import type { TranspileDiagnostic, TranspileTarget } from "./runtime/transpile";
 import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "./language";
-import { loadProject, type VexaProject } from "./project";
-import { ensureDependencies } from "./deps";
+import { loadProject } from "./project";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "./syntax";
 import { COMPILER_VERSION } from "./compilerVersion";
 import { basename, dirname, pathToFileURL, resolve } from "./utils/path";
 import { vfs } from "./vfs";
+import {
+  ambientDeclarationsForProject,
+  createBundledModuleArtifacts,
+  ensureCompilerRuntimePrograms,
+  ensureRuntimeDependencies
+} from "./cliShared";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
@@ -37,27 +42,6 @@ function printDiagnostic(diag: TranspileDiagnostic, useColor: boolean): void {
     console.error(`${c.yellow}${lineNum}${c.reset} ${diag.sourceLine}`);
     console.error(`${c.red}${underline}${c.reset}`);
   }
-}
-
-async function ambientDeclarationsForProject(project: VexaProject | null) {
-  const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
-  if (!requested.has("dom")) {
-    return [];
-  }
-
-  const { ensureDomProgram } = await import("./runtime/domDeclarations");
-  return (await ensureDomProgram()).body;
-}
-
-async function ensureCompilerRuntimePrograms(): Promise<void> {
-  const {
-    ensureEcmaScriptRuntimeProgram,
-    ensureVexaScriptRuntimeProgram
-  } = await import("./runtime/ecmascriptDeclarations");
-  await Promise.all([
-    ensureEcmaScriptRuntimeProgram(),
-    ensureVexaScriptRuntimeProgram()
-  ]);
 }
 
 function printDiagnostics(result: { errors: string[]; diagnostics?: TranspileDiagnostic[] }, file: string): void {
@@ -96,19 +80,6 @@ export function ensureLspTransportArg(argv: string[]): string[] {
     return argv;
   }
   return [...argv, "--stdio"];
-}
-
-async function ensureRuntimeDependencies(sourcePath: string, project: VexaProject | null): Promise<void> {
-  if (project && Object.keys(project.dependencies).length > 0) {
-    await ensureDependencies(project.projectDir, project.dependencies);
-    return;
-  }
-
-  const sourceDir = dirname(sourcePath);
-  const pkgDeps = await loadPackageJsonDeps(sourceDir);
-  if (pkgDeps && Object.keys(pkgDeps).length > 0) {
-    await ensureDependencies(sourceDir, pkgDeps);
-  }
 }
 
 async function buildFile(
@@ -168,8 +139,8 @@ async function bundleFile(
   await ensureRuntimeDependencies(sourcePath, project);
   await ensureCompilerRuntimePrograms();
 
-  const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".mjs"));
-  const result = await createBundledModuleCode(sourcePath, target, project, jsxOptions);
+  const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
+  const result = await createBundledModuleArtifacts(sourcePath, target, project, jsxOptions);
   if (result.errors.length > 0) {
     printDiagnostics(result, sourcePath);
     throw new Error(`Compilation failed for ${sourcePath}`);
@@ -184,49 +155,14 @@ async function bundleFile(
   }
 }
 
-async function createBundledModuleCode(
-  sourcePath: string,
-  target: TranspileTarget,
-  project: VexaProject | null,
-  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
-): Promise<{ code: string; warnings: string[]; errors: string[]; diagnostics: TranspileDiagnostic[] }> {
-  const ambientDeclarations = await ambientDeclarationsForProject(project);
-  const { bundleModuleGraphAsModules } = await import("./runtime/moduleGraph");
-  const result = await bundleModuleGraphAsModules(sourcePath, target, {
-    ambientDeclarations,
-    ...(project?.jsxFactory ? { jsxFactory: project.jsxFactory } : {}),
-    ...(project?.jsxFragmentFactory ? { jsxFragmentFactory: project.jsxFragmentFactory } : {}),
-    ...(jsxOptions.jsxFactory ? { jsxFactory: jsxOptions.jsxFactory } : {}),
-    ...(jsxOptions.jsxFragmentFactory ? { jsxFragmentFactory: jsxOptions.jsxFragmentFactory } : {})
-  });
-  if (result.errors.length > 0) {
-    return { code: "", warnings: result.warnings, errors: result.errors, diagnostics: result.diagnostics };
-  }
-
-  const { bundleNodeModuleGraph } = await import("./runtime/nodeModuleBundle");
-  const code = await bundleNodeModuleGraph(result.entrySource, sourcePath, {
-    virtualSources: result.moduleSources
-  });
-  return { code, warnings: result.warnings, errors: result.errors, diagnostics: result.diagnostics };
-}
-
-async function loadPackageJsonDeps(dir: string): Promise<Record<string, string> | null> {
-  const pkgPath = resolve(dir, "package.json");
-  try {
-    const raw = (await vfs().readFile(pkgPath))!;
-    const parsed = JSON.parse(raw) as { dependencies?: Record<string, string> };
-    return parsed.dependencies ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export async function runFile(input: string, target: TranspileTarget = "conservative"): Promise<void> {
   const sourcePath = resolve(process.cwd(), input);
   const project = await loadProject(sourcePath);
   await ensureRuntimeDependencies(sourcePath, project);
   await ensureCompilerRuntimePrograms();
-  const result = await createBundledModuleCode(sourcePath, target, project);
+  const result = await createBundledModuleArtifacts(sourcePath, target, project, {}, {
+    externalDependencyStrategy: "node-require"
+  });
   await executeCompiled({ code: result.code, warnings: result.warnings, errors: result.errors, diagnostics: result.diagnostics }, sourcePath);
 }
 
@@ -466,6 +402,31 @@ function createProgram(): Command {
     });
 
   program
+    .command("serve")
+    .description("Serve a static folder, inject the bundle into HTML, and live-reload on bundle changes")
+    .argument("<dir>", "Folder to serve")
+    .requiredOption("--bundle <input>", "Bundle entry VexaScript file")
+    .option("--port <number>", "HTTP port", "8080")
+    .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
+    .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
+    .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
+    .action(async (
+      dir: string,
+      opts: { bundle: string; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }
+    ) => {
+      const { target, jsxOptions } = resolveBuildOptions(opts);
+      const { startServeSession } = await import("./cliServe");
+      await startServeSession({
+        rootDir: dir,
+        bundleInput: opts.bundle,
+        port: Number.parseInt(opts.port ?? "8080", 10),
+        target,
+        ...jsxOptions,
+        onDiagnosticError: printDiagnostics
+      });
+    });
+
+  program
     .command("run")
     .description("Transpile and run a VexaScript file with Node.js")
     .argument("<input>", "Input file")
@@ -513,6 +474,11 @@ function createProgram(): Command {
 }
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
+  if (argv[2] === LANGUAGE_CLI_BIN) {
+    await runCli([argv[0]!, argv[1]!, ...argv.slice(3)]);
+    return;
+  }
+
   if (argv.includes("--language-server") || argv.includes("--lsp")) {
     const lspArgv = ensureLspTransportArg(argv);
     const originalArgv = process.argv;
@@ -525,7 +491,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(["build", "bundle", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
+  const knownCommands = new Set(["build", "bundle", "serve", "run", "test", "tokens", "ast", "format", "syntax", "lsp", "mcp"]);
   const firstArg = argv[2];
   if (firstArg !== undefined && !firstArg.startsWith("-") && !knownCommands.has(firstArg)) {
     const looksLikeFile = firstArg.includes("/") || firstArg.includes(".");
