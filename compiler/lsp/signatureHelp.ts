@@ -9,7 +9,6 @@ import type {
   FunctionStatement,
   Identifier,
   MemberExpression,
-  ImportStatement,
   NewExpression,
   Node,
   Program,
@@ -24,6 +23,7 @@ import {
   getVexaScriptRuntimeProgram
 } from "compiler/runtime/ecmascriptDeclarations";
 import {
+  formatParameterLabel,
   resolveCallableSignatures,
   resolveConstructorSignature,
   type ClassResolverOptions
@@ -35,7 +35,7 @@ import {
 import { findBestMatch } from "./nodeSearch";
 import { resolveCursorTarget, type CursorTarget } from "./navigation";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
-import { collectAmbientFunctionStatements, detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
+import { collectAmbientFunctionStatements, detectAmbientExportEqualsName, findAmbientModuleReceiverCandidates, findAmbientNamespaceBody } from "./crossFileContext";
 
 interface InvocationContext {
   callee: Expr;
@@ -214,15 +214,6 @@ function signatureInfosFromAnalysisType(
   return [];
 }
 
-function formatParameterLabel(parameter: {
-  name: string;
-  typeName: string;
-  optional?: boolean;
-  rest?: boolean;
-}): string {
-  return `${parameter.rest ? "..." : ""}${parameter.name}${parameter.optional === true && parameter.rest !== true ? "?" : ""}: ${parameter.typeName}`;
-}
-
 function signatureInfoFromResolved(resolved: { name: string; parameters: { name: string; typeName: string; optional?: boolean; rest?: boolean }[]; returnTypeName: string; documentation?: string }): SignatureInformation {
   const parameters = resolved.parameters.map((p) => ({ label: formatParameterLabel(p) }));
   const label = `${resolved.name}(${parameters.map((p) => p.label).join(", ")}): ${resolved.returnTypeName}`;
@@ -295,47 +286,33 @@ function ambientDefaultImportMemberSignatures(
 
   const receiverName = (callee.object as Identifier).name;
   const memberName = (callee.property as Identifier).name;
-  for (const statement of program.body) {
-    if (statement.kind !== "ImportStatement") {
+  const moduleCandidates = findAmbientModuleReceiverCandidates(program, receiverName);
+  if (!moduleCandidates) {
+    return [];
+  }
+
+  for (const moduleName of moduleCandidates) {
+    const declarations = ambientModuleDeclarations.get(moduleName);
+    if (!declarations || declarations.length === 0) {
       continue;
     }
-    const importStatement = statement as ImportStatement;
-    const defaultImport = importStatement.defaultImport;
-    const namespaceImport = importStatement.namespaceImport;
-    const matchesDefault = defaultImport?.kind === "Identifier" && defaultImport.name === receiverName;
-    const matchesNamespace = namespaceImport?.kind === "Identifier" && namespaceImport.name === receiverName;
-    if (!matchesDefault && !matchesNamespace) {
+
+    const directSignatures = collectAmbientFunctionOverloads(declarations, memberName);
+    if (directSignatures.length > 0) {
+      return directSignatures;
+    }
+
+    const exportEqualsName = detectAmbientExportEqualsName(declarations);
+    if (!exportEqualsName) {
       continue;
     }
-
-    const moduleCandidates = [importStatement.from.value];
-    if (importStatement.from.value.startsWith("node:")) {
-      moduleCandidates.push(importStatement.from.value.slice("node:".length));
+    const namespaceBody = findAmbientNamespaceBody(declarations, exportEqualsName);
+    if (!namespaceBody) {
+      continue;
     }
-
-    for (const moduleName of moduleCandidates) {
-      const declarations = ambientModuleDeclarations.get(moduleName);
-      if (!declarations || declarations.length === 0) {
-        continue;
-      }
-
-      const directSignatures = collectAmbientFunctionOverloads(declarations, memberName);
-      if (directSignatures.length > 0) {
-        return directSignatures;
-      }
-
-      const exportEqualsName = detectAmbientExportEqualsName(declarations);
-      if (!exportEqualsName) {
-        continue;
-      }
-      const namespaceBody = findAmbientNamespaceBody(declarations, exportEqualsName);
-      if (!namespaceBody) {
-        continue;
-      }
-      const namespaceSignatures = collectAmbientFunctionOverloads(namespaceBody, memberName);
-      if (namespaceSignatures.length > 0) {
-        return namespaceSignatures;
-      }
+    const namespaceSignatures = collectAmbientFunctionOverloads(namespaceBody, memberName);
+    if (namespaceSignatures.length > 0) {
+      return namespaceSignatures;
     }
   }
 

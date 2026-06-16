@@ -96,6 +96,38 @@ export interface ResolvedFunctionSignature {
   documentation?: string;
 }
 
+/**
+ * Renders a single parameter as `...name?: Type`, the shared display format used
+ * by hover, signature help, and completion wherever a function-like signature is
+ * shown as text. Reuse this instead of re-deriving the rest/optional prefix logic.
+ */
+export function formatParameterLabel(parameter: {
+  name: string;
+  typeName: string;
+  optional?: boolean;
+  rest?: boolean;
+}): string {
+  const restPrefix = parameter.rest === true ? "..." : "";
+  const optionalSuffix = parameter.optional === true && parameter.rest !== true ? "?" : "";
+  return `${restPrefix}${parameter.name}${optionalSuffix}: ${parameter.typeName}`;
+}
+
+/**
+ * Renders a full function-like signature as `<T>(params) => ReturnType`, reusing
+ * `formatParameterLabel` for each parameter. Shared by hover, signature help, and
+ * completion so the textual function-type display stays consistent everywhere.
+ */
+export function formatFunctionTypeLabel(
+  parameters: ReadonlyArray<{ name: string; typeName: string; optional?: boolean; rest?: boolean }>,
+  returnTypeName: string,
+  typeParameters?: readonly string[]
+): string {
+  const typeParameterPrefix = typeParameters && typeParameters.length > 0
+    ? `<${typeParameters.join(", ")}>`
+    : "";
+  return `${typeParameterPrefix}(${parameters.map((parameter) => formatParameterLabel(parameter)).join(", ")}) => ${returnTypeName}`;
+}
+
 export interface ResolvedClassMember {
   className: string;
   memberName: string;
@@ -521,7 +553,7 @@ function resolveClassOwnMember(
       className: classStatement.name.name,
       memberName,
       kind: "method",
-      typeName: `(${parameters.map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${returnTypeName}`,
+      typeName: formatFunctionTypeLabel(parameters, returnTypeName),
       signature,
       ...(documentation ? { documentation } : {})
     };
@@ -606,7 +638,7 @@ function resolveInterfaceOwnSignatures(
       className: interfaceStatement.name.name,
       memberName,
       kind: "method",
-      typeName: `(${parameters.map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${returnTypeName}`,
+      typeName: formatFunctionTypeLabel(parameters, returnTypeName),
       signature,
       ...(documentation ? { documentation } : {})
     };

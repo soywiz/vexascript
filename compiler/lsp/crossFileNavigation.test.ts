@@ -1806,6 +1806,56 @@ describe("cross-file navigation", () => {
     expect(location?.range.start.line).toBe(1);
   });
 
+  it("navigates namespace-imported ambient module members to their declaration", async () => {
+    const source = dedent`
+      import * as util from "node:util"
+      util.format("value")
+    `;
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:util", parseAmbientModule(`declare module "node:util" {
+        export function format(value: string): string;
+        export function inspect(value: unknown): string;
+      }`, "node:util")]
+    ]);
+    const ambientModuleLocations = new Map([
+      ["node:util", { filePath: "/virtual/@types/node/util.d.ts", line: 0, character: 0 }]
+    ]);
+    const baseSession = createAnalysisSession(
+      source,
+      [],
+      new Map(),
+      [],
+      ambientModuleDeclarations,
+      ambientModuleLocations
+    );
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      ambientModuleLocations,
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const location = await resolveDefinitionAcrossFiles({
+      uri: "file:///virtual/main.vx",
+      line: 1,
+      character: source.split("\n")[1]!.indexOf("format") + 2,
+      session,
+      sourceRoots: []
+    });
+
+    expect(location?.uri).toBe("file:///virtual/%40types/node/util.d.ts");
+    expect(location?.range.start.line).toBe(1);
+  });
+
   it("prefers the receiver's ambient declaration file when duplicate global interface names exist", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-console-pref-"));
     const nodeTypesDir = join(root, "node_modules", "@types", "node");

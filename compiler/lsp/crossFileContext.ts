@@ -117,6 +117,41 @@ export function findImportForSymbolNode(ast: Program, symbolNode: unknown): { fr
   return null;
 }
 
+/**
+ * Finds the import statement whose default or namespace binding matches
+ * `receiverName` (e.g. `import path from "node:path"` bound as `path` in
+ * `path.join(...)`), and returns the ambient module-name candidates to look
+ * up declarations under (the import path itself, plus the `node:`-stripped
+ * form for Node builtin modules). Shared by definition navigation and
+ * signature help when resolving a member/call on a default-imported module
+ * object.
+ */
+export function findAmbientModuleReceiverCandidates(
+  ast: Program,
+  receiverName: string
+): string[] | null {
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const defaultImport = importStatement.defaultImport as Identifier | undefined;
+    const namespaceImport = importStatement.namespaceImport as Identifier | undefined;
+    const matchesDefault = defaultImport?.kind === "Identifier" && defaultImport.name === receiverName;
+    const matchesNamespace = namespaceImport?.kind === "Identifier" && namespaceImport.name === receiverName;
+    if (!matchesDefault && !matchesNamespace) {
+      continue;
+    }
+
+    const moduleCandidates = [importStatement.from.value];
+    if (importStatement.from.value.startsWith("node:")) {
+      moduleCandidates.push(importStatement.from.value.slice("node:".length));
+    }
+    return moduleCandidates;
+  }
+  return null;
+}
+
 export function findTopLevelDeclarationByName(ast: Program, name: string): Statement | null {
   return findTopLevelDeclarationInProgram(
     ast,

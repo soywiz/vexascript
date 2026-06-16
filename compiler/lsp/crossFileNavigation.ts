@@ -44,6 +44,7 @@ import {
   collectAmbientFunctionStatements,
   declarationRangeForName,
   effectiveSourceRoots,
+  findAmbientModuleReceiverCandidates,
   findAmbientNamedExportRange,
   findImportForSymbolNode,
   findImportStringLiteralAtPosition,
@@ -183,55 +184,35 @@ async function resolveAmbientModuleObjectMemberDefinition(
   }
 
   const receiverName = (memberExpression.object as Identifier).name;
-  for (const statement of context.session.ast.body) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    const defaultImport = importStatement.defaultImport as Identifier | undefined;
-    const namespaceImport = importStatement.namespaceImport as Identifier | undefined;
-    const defaultImportMatches =
-      defaultImport?.kind === "Identifier"
-      && defaultImport.name === receiverName;
-    const namespaceImportMatches =
-      namespaceImport?.kind === "Identifier"
-      && namespaceImport.name === receiverName;
-    const bindsModuleObject =
-      defaultImportMatches || namespaceImportMatches;
-    if (!bindsModuleObject) {
+  const moduleCandidates = findAmbientModuleReceiverCandidates(context.session.ast, receiverName);
+  if (!moduleCandidates) {
+    return null;
+  }
+
+  for (const moduleName of moduleCandidates) {
+    const declarations = context.session.ambientModuleDeclarations?.get(moduleName);
+    const location = context.session.ambientModuleLocations?.get(moduleName);
+    if (!declarations || !location) {
       continue;
     }
 
-    const moduleCandidates = [importStatement.from.value];
-    if (importStatement.from.value.startsWith("node:")) {
-      moduleCandidates.push(importStatement.from.value.slice("node:".length));
-    }
-
-    for (const moduleName of moduleCandidates) {
-      const declarations = context.session.ambientModuleDeclarations?.get(moduleName);
-      const location = context.session.ambientModuleLocations?.get(moduleName);
-      if (!declarations || !location) {
-        continue;
-      }
-
-      const overloadRange = findAmbientImportedOverloadRange(context, declarations, memberName);
-      if (overloadRange) {
-        return {
-          uri: pathToUri(location.filePath),
-          range: overloadRange
-        };
-      }
-
-      const range = findAmbientNamedExportRange(declarations, memberName);
-      if (!range) {
-        continue;
-      }
-
+    const overloadRange = findAmbientImportedOverloadRange(context, declarations, memberName);
+    if (overloadRange) {
       return {
         uri: pathToUri(location.filePath),
-        range
+        range: overloadRange
       };
     }
+
+    const range = findAmbientNamedExportRange(declarations, memberName);
+    if (!range) {
+      continue;
+    }
+
+    return {
+      uri: pathToUri(location.filePath),
+      range
+    };
   }
 
   return null;

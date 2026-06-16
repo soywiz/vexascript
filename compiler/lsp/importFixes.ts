@@ -1,12 +1,9 @@
 import type {
   ExportStatement,
-  ExprStatement,
   FunctionStatement,
-  Identifier,
   ImportStatement,
   ClassStatement,
   InterfaceStatement,
-  NamespaceStatement,
   Program,
   Statement,
   TypeAliasStatement,
@@ -21,6 +18,7 @@ import {
   parseUndefinedVariableDiagnostic,
   parseUnknownTypeDiagnostic
 } from "./diagnosticCodes";
+import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
 
 export interface SymbolExport {
   name: string;
@@ -111,33 +109,6 @@ function collectDirectAmbientExports(
       }
     }
   }
-}
-
-function detectAmbientExportEqualsName(declarations: readonly Statement[]): string | null {
-  for (const statement of declarations) {
-    if (statement.kind !== "ExprStatement") {
-      continue;
-    }
-    const expression = (statement as ExprStatement).expression;
-    if (expression?.kind === "Identifier") {
-      return (expression as Identifier).name;
-    }
-  }
-  return null;
-}
-
-function findAmbientNamespaceBody(declarations: readonly Statement[], namespaceName: string): Statement[] | null {
-  for (const statement of declarations) {
-    const declaration = directAmbientDeclaration(statement);
-    if (declaration.kind !== "NamespaceStatement") {
-      continue;
-    }
-    const namespace = declaration as NamespaceStatement;
-    if (namespace.names?.[0]?.name === namespaceName) {
-      return namespace.body.body;
-    }
-  }
-  return null;
 }
 
 function findAmbientInterface(declarations: readonly Statement[], interfaceName: string): InterfaceStatement | null {

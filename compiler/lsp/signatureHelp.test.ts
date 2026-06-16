@@ -723,6 +723,52 @@ describe("signature help", () => {
     expect(help!.signatures[0]!.label).not.toContain("{ colors");
   });
 
+  it("provides signature help for namespace-imported ambient module members", async () => {
+    const source = 'import * as util from "node:util"\nutil.format("value")\n';
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:util", parseAmbientModule(
+        `declare module "node:util" {
+          export function format(value: string, inspectOptions?: { colors?: boolean }): string;
+        }`,
+        "node:util"
+      )]
+    ]);
+
+    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: "file:///virtual/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      ambientModuleDeclarations,
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 12, {
+      ambientModuleDeclarations
+    });
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "format(value: string, inspectOptions?: { colors?: boolean }): string",
+          parameters: [
+            { label: "value: string" },
+            { label: "inspectOptions?: { colors?: boolean }" }
+          ]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
   it("includes block documentation for default-imported ambient module members", async () => {
     const source = 'import util from "node:util"\nutil.format("value")\n';
     const ambientModuleDeclarations = new Map<string, Statement[]>([

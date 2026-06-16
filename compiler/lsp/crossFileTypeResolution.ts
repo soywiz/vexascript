@@ -5,7 +5,7 @@
  * declarations. Used by the definition/hover/references operations in
  * crossFileNavigation.ts.
  */
-import { classPropertyParameters } from "./classResolver";
+import { classPropertyParameters, formatFunctionTypeLabel } from "./classResolver";
 import {
   ambientDeclarationLocationForSymbol,
   effectiveSourceRoots,
@@ -216,14 +216,13 @@ export function functionTypeLabelFromParameters(
   parameters: FunctionParameter[],
   returnTypeName?: string
 ): string {
-  const parameterLabel = parameters
-    .map((parameter) => {
-      const typeName = parameter.typeAnnotation?.name ?? "unknown";
-      const optionalSuffix = parameter.optional ? "?" : "";
-      return `${bindingNameText(parameter.name)}${optionalSuffix}: ${typeName}`;
-    })
-    .join(", ");
-  return `(${parameterLabel}) => ${returnTypeName ?? "void"}`;
+  const resolvedParameters = parameters.map((parameter) => ({
+    name: bindingNameText(parameter.name),
+    typeName: parameter.typeAnnotation?.name ?? "unknown",
+    optional: parameter.optional === true,
+    rest: parameter.rest === true
+  }));
+  return formatFunctionTypeLabel(resolvedParameters, returnTypeName ?? "void");
 }
 
 export function classMemberInfoByName(

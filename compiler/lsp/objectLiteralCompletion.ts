@@ -17,6 +17,7 @@ import { Analysis } from "compiler/analysis/Analysis";
 import { walkAst } from "compiler/ast/traversal";
 import {
   createClassResolverCache,
+  formatFunctionTypeLabel,
   type ResolvedFunctionSignature,
   resolveCallableSignature,
   resolveClassMember,
@@ -51,14 +52,7 @@ interface ResolvedObjectLiteralShape {
 }
 
 function formatResolvedFunctionSignature(signature: ResolvedFunctionSignature): string {
-  const parameters = signature.parameters
-    .map((parameter) => {
-      const optionalSuffix = parameter.optional ? "?" : "";
-      const restPrefix = parameter.rest ? "..." : "";
-      return `${restPrefix}${parameter.name}${optionalSuffix}: ${parameter.typeName}`;
-    })
-    .join(", ");
-  return `(${parameters}) => ${signature.returnTypeName}`;
+  return formatFunctionTypeLabel(signature.parameters, signature.returnTypeName);
 }
 
 function staticObjectPropertyName(property: ObjectProperty): string | null {

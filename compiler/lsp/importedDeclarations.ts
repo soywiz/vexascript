@@ -1,7 +1,6 @@
 import type {
   ClassStatement,
   EnumStatement,
-  ExprStatement,
   FunctionStatement,
   Identifier,
   ImportStatement,
@@ -20,6 +19,8 @@ import { uriToFilePath } from "./importFixes";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
+import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
+import { formatFunctionTypeLabel } from "./classResolver";
 import type { AnalysisType, ArrayType } from "compiler/analysis/types";
 import {
   BUILTIN_TYPE_NAMES,
@@ -345,11 +346,11 @@ function resolveAmbientTypeReference(
       return local;
     }
 
-    const exportEqualsName = detectExportEqualsNameInDecls([...declarations]);
+    const exportEqualsName = detectAmbientExportEqualsName(declarations);
     if (!exportEqualsName) {
       continue;
     }
-    const namespaceBody = findNamespaceBodyInStmts([...declarations], exportEqualsName);
+    const namespaceBody = findAmbientNamespaceBody(declarations, exportEqualsName);
     if (!namespaceBody) {
       continue;
     }
@@ -600,28 +601,6 @@ function typeFromAmbientInterfaceMember(
   );
 }
 
-function detectExportEqualsNameInDecls(stmts: Statement[]): string | null {
-  for (const stmt of stmts) {
-    if (stmt.kind === "ExprStatement") {
-      const expr = (stmt as ExprStatement).expression;
-      if (expr?.kind === "Identifier") return (expr as Identifier).name;
-    }
-  }
-  return null;
-}
-
-function findNamespaceBodyInStmts(stmts: Statement[], namespaceName: string): Statement[] | null {
-  for (const stmt of stmts) {
-    if (stmt.kind === "NamespaceStatement") {
-      const ns = stmt as NamespaceStatement;
-      if (ns.names?.[0]?.name === namespaceName) {
-        return ns.body?.body ?? null;
-      }
-    }
-  }
-  return null;
-}
-
 function extractDirectTypeForName(stmts: Statement[], symbolName: string): AnalysisType | null {
   for (const stmt of stmts) {
     const decl =
@@ -727,7 +706,7 @@ function resolveAmbientDefaultImportType(
       continue;
     }
 
-    const exportEqualsName = detectExportEqualsNameInDecls([...decls]);
+    const exportEqualsName = detectAmbientExportEqualsName(decls);
 
     for (const statement of decls) {
       if (statement.kind !== "ExportStatement" || (statement as { default?: boolean }).default !== true) {
@@ -754,7 +733,7 @@ function resolveAmbientDefaultImportType(
       exportEqualsName !== null
       && directExportKeys.length === 1
       && directExportKeys[0] === exportEqualsName
-      && findNamespaceBodyInStmts([...decls], exportEqualsName) !== null;
+      && findAmbientNamespaceBody(decls, exportEqualsName) !== null;
     if (directExportKeys.length > 0 && !isExportEqualsNamespaceFacade) {
       return objectTypeWithProperties(directExports);
     }
@@ -764,7 +743,7 @@ function resolveAmbientDefaultImportType(
     }
 
     const callableExport = extractDirectTypeForName([...decls], exportEqualsName);
-    const namespaceBody = findNamespaceBodyInStmts([...decls], exportEqualsName);
+    const namespaceBody = findAmbientNamespaceBody(decls, exportEqualsName);
     if (namespaceBody) {
       const namespaceExports = collectAmbientNamespaceExportedProperties(
         namespaceBody,
@@ -882,11 +861,11 @@ export function resolveAmbientNamedImportType(
     }
 
     // 2. Follow export = X pattern
-    const exportEqualsName = detectExportEqualsNameInDecls(decls);
+    const exportEqualsName = detectAmbientExportEqualsName(decls);
     if (!exportEqualsName) continue;
 
     // 2a. Look directly inside namespace with the same name
-    const nsBody = findNamespaceBodyInStmts(decls, exportEqualsName);
+    const nsBody = findAmbientNamespaceBody(decls, exportEqualsName);
     if (nsBody) {
       const fromNs = extractDirectTypeForName(nsBody, symbolName);
       if (fromNs) return fromNs;
@@ -905,7 +884,7 @@ export function resolveAmbientNamedImportType(
       const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
       const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
 
-      const searchNsBody = nsName ? findNamespaceBodyInStmts(decls, nsName) : decls;
+      const searchNsBody = nsName ? findAmbientNamespaceBody(decls, nsName) : decls;
       if (!searchNsBody) continue;
 
       for (const s of searchNsBody) {
@@ -982,10 +961,10 @@ function resolveAmbientNamedImportDisplayType(
       }
     }
 
-    const exportEqualsName = detectExportEqualsNameInDecls(decls);
+    const exportEqualsName = detectAmbientExportEqualsName(decls);
     if (!exportEqualsName) continue;
 
-    const nsBody = findNamespaceBodyInStmts(decls, exportEqualsName);
+    const nsBody = findAmbientNamespaceBody(decls, exportEqualsName);
     if (nsBody) {
       for (const statement of nsBody) {
         const declaration =
@@ -1008,7 +987,7 @@ function resolveAmbientNamedImportDisplayType(
       const dotIdx = typeName.lastIndexOf(".");
       const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
       const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
-      const searchNsBody = nsName ? findNamespaceBodyInStmts(decls, nsName) : decls;
+      const searchNsBody = nsName ? findAmbientNamespaceBody(decls, nsName) : decls;
       if (!searchNsBody) continue;
 
       for (const s of searchNsBody) {
@@ -1076,12 +1055,12 @@ export function ambientModuleHasNamedExport(
       return true;
     }
 
-    const exportEqualsName = detectExportEqualsNameInDecls(decls);
+    const exportEqualsName = detectAmbientExportEqualsName(decls);
     if (!exportEqualsName) {
       continue;
     }
 
-    const nsBody = findNamespaceBodyInStmts(decls, exportEqualsName);
+    const nsBody = findAmbientNamespaceBody(decls, exportEqualsName);
     if (nsBody && extractDirectTypeForName(nsBody, symbolName)) {
       return true;
     }
@@ -1096,7 +1075,7 @@ export function ambientModuleHasNamedExport(
       const dotIdx = typeName.lastIndexOf(".");
       const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
       const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
-      const searchNsBody = nsName ? findNamespaceBodyInStmts(decls, nsName) : decls;
+      const searchNsBody = nsName ? findAmbientNamespaceBody(decls, nsName) : decls;
       if (!searchNsBody) continue;
 
       for (const statement of searchNsBody) {
@@ -1189,12 +1168,7 @@ function renderAmbientFunctionDisplayFromParts(
   returnTypeName: string,
   typeParameters?: string[]
 ): string {
-  const typeParameterPrefix = typeParameters && typeParameters.length > 0
-    ? `<${typeParameters.join(", ")}>`
-    : "";
-  return `${typeParameterPrefix}(${parameters
-    .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}${parameter.optional ? "?" : ""}: ${parameter.typeName}`)
-    .join(", ")}) => ${returnTypeName}`;
+  return formatFunctionTypeLabel(parameters, returnTypeName, typeParameters);
 }
 
 function renderAmbientFunctionDisplayFromStatement(fn: FunctionStatement): string {
