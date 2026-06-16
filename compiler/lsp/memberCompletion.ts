@@ -5,7 +5,7 @@
  * completion. Orchestrated by createCompletionItemsForPosition in
  * completion.ts.
  */
-import { createClassResolverCache, resolveClassMember, resolveClassMemberNames, resolveClassStatementAcrossFiles, resolveInterfaceMember, resolveInterfaceMemberNames, resolveInterfaceStatementAcrossFiles } from "./classResolver";
+import { classPropertyParameters, createClassResolverCache, resolveClassMember, resolveClassMemberNames, resolveClassStatementAcrossFiles, resolveInterfaceMember, resolveInterfaceMemberNames, resolveInterfaceStatementAcrossFiles } from "./classResolver";
 import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { COMPLETION_RECOVERY_MEMBER, CompletionItemKind, classResolverOptionsFromCompletionOptions } from "./completionModel";
 import type { CompletionRequestOptions, ExtensionMemberCompletionCandidate, InterfaceCompletionMember, MemberAccessTarget, TypeAliasCompletionMember } from "./completionModel";
@@ -28,17 +28,6 @@ import type { CompletionItem } from "vscode-languageserver/node.js";
 
 export function operatorSymbolFromMemberName(name: string): string | null {
   return name.startsWith("operator") ? name.slice("operator".length) || null : null;
-}
-
-export function constructorParameterProperties(classStatement: ClassStatement) {
-  return classStatement.members
-    .filter((member) => member.kind === "ClassMethodMember" && member.name.name === "constructor")
-    .flatMap((member) => member.kind === "ClassMethodMember" ? member.parameters : [])
-    .filter((parameter) => parameter.accessModifier !== undefined || parameter.readonly === true);
-}
-
-export function classPropertyParameters(classStatement: ClassStatement) {
-  return [...(classStatement.primaryConstructorParameters ?? []), ...constructorParameterProperties(classStatement)];
 }
 
 export function memberSortGroup(memberName: string, classStatement: ClassStatement, membersByName: Map<string, ClassMember>): string {
