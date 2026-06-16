@@ -481,6 +481,11 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     return;
   }
 
+  if (argv.length <= 2 || argv.includes("--help") || argv.includes("-h") || argv[2] === "help") {
+    createProgram().outputHelp();
+    return;
+  }
+
   if (argv.includes("--language-server") || argv.includes("--lsp")) {
     const lspArgv = ensureLspTransportArg(argv);
     const originalArgv = process.argv;

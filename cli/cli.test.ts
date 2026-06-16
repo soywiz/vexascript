@@ -314,6 +314,19 @@ describe("CLI", () => {
     expect(run.stderr).not.toContain("Detected unsettled top-level await");
   });
 
+  it("built CLI prints help without arguments and exits successfully", async () => {
+    const distPath = join(process.cwd(), "dist");
+    await rm(distPath, { recursive: true, force: true });
+
+    const build = await buildBundledCli();
+    expect(build.code).toBe(0);
+
+    const run = await spawnAndCapture(process.execPath, ["dist/vexa.js"], process.cwd());
+    expect(run.code).toBe(0);
+    expect(run.stdout).toContain("Usage: vexa [options] [command]");
+    expect(run.stderr).toBe("");
+  });
+
   it("built CLI runs sample programs and preserves stdout", async () => {
     const distPath = join(process.cwd(), "dist");
     await rm(distPath, { recursive: true, force: true });
