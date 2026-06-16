@@ -1,7 +1,7 @@
 fun demo() {
-    return 7
+    return 5
 }
 
 fun sample() {
-    return 6
+    return 4
 }
