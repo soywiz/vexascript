@@ -29,8 +29,7 @@ import {
 } from "compiler/analysis/types";
 import { loadAmbientTypesForProject, type AmbientTypesResult, resolveAmbientNamedImportType } from "compiler/ambientModules";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
-import { localVfs } from "compiler/localVfs";
-import type { Vfs } from "compiler/vfs";
+import { vfs, type Vfs } from "compiler/vfs";
 import { ensureEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import {
   findMatchingTypeDelimiter,
@@ -715,7 +714,7 @@ export async function bundleModuleGraph(
   target: TranspileTarget,
   options: { vfs?: Vfs; jsxFactory?: string; jsxFragmentFactory?: string; ambientDeclarations?: Statement[] } = {}
 ): Promise<TranspileResult> {
-  const vfs = options.vfs ?? localVfs;
+  const activeVfs = options.vfs ?? vfs();
   const ambientDeclarations = options.ambientDeclarations ?? [];
   await ensureEcmaScriptRuntimeProgram();
 
@@ -733,7 +732,7 @@ export async function bundleModuleGraph(
     if (sourceByPath.has(filePath)) {
       return sourceByPath.get(filePath) ?? null;
     }
-    const source = await vfs.readFile(filePath);
+    const source = await activeVfs.readFile(filePath);
     if (source !== null) {
       sourceByPath.set(filePath, source);
     }
@@ -773,8 +772,8 @@ export async function bundleModuleGraph(
     const importedSymbolTypes = new Map<string, AnalysisType>();
     const bundledSpecifiers = new Set<string>();
     if (ast) {
-      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, vfs);
-      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, vfs)) {
+      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, activeVfs);
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
         bundledSpecifiers.add(statement.from.value);
         const assetSource = await loadSource(targetPath);
         if (assetSource === null) {
@@ -791,7 +790,7 @@ export async function bundleModuleGraph(
           errors.push(`Unable to load asset module '${targetPath}': ${message}`);
         }
       }
-      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, vfs)) {
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs)) {
         bundledSpecifiers.add(statement.from.value);
         await visit(targetPath);
         const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
@@ -848,7 +847,7 @@ export async function bundleModuleGraph(
 
     const assetBindingChunks: string[] = [];
     if (ast) {
-      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, vfs)) {
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
         const assetSource = await loadSource(targetPath);
         if (assetSource === null) {
           continue;
@@ -900,7 +899,7 @@ export async function bundleModuleGraphAsModules(
   target: TranspileTarget,
   options: { vfs?: Vfs; jsxFactory?: string; jsxFragmentFactory?: string; ambientDeclarations?: Statement[] } = {}
 ): Promise<ModuleGraphSourcesResult> {
-  const vfs = options.vfs ?? localVfs;
+  const activeVfs = options.vfs ?? vfs();
   const ambientDeclarations = options.ambientDeclarations ?? [];
   await ensureEcmaScriptRuntimeProgram();
 
@@ -918,7 +917,7 @@ export async function bundleModuleGraphAsModules(
     if (sourceByPath.has(filePath)) {
       return sourceByPath.get(filePath) ?? null;
     }
-    const source = await vfs.readFile(filePath);
+    const source = await activeVfs.readFile(filePath);
     if (source !== null) {
       sourceByPath.set(filePath, source);
       watchedFiles.add(filePath);
@@ -959,8 +958,8 @@ export async function bundleModuleGraphAsModules(
     const importedSymbolTypes = new Map<string, AnalysisType>();
     const bundledAssetSpecifiers = new Set<string>();
     if (ast) {
-      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, vfs);
-      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, vfs)) {
+      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, activeVfs);
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
         bundledAssetSpecifiers.add(statement.from.value);
         const assetSource = await loadSource(targetPath);
         if (assetSource === null) {
@@ -977,7 +976,7 @@ export async function bundleModuleGraphAsModules(
           errors.push(`Unable to load asset module '${targetPath}': ${message}`);
         }
       }
-      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, vfs)) {
+      for (const { statement, targetPath } of await localImportSpecifiers(ast, filePath, activeVfs)) {
         await visit(targetPath);
         const dependencyAst = (await loadParsed(targetPath, parserOptionsForModulePath(targetPath)))?.ast ?? null;
         if (dependencyAst) {
@@ -1029,7 +1028,7 @@ export async function bundleModuleGraphAsModules(
 
     const assetBindingChunks: string[] = [];
     if (ast) {
-      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, vfs)) {
+      for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
         const assetSource = await loadSource(targetPath);
         if (assetSource === null) {
           continue;

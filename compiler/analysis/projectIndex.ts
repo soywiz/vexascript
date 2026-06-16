@@ -14,9 +14,8 @@ import type {
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { compileSource } from "compiler/pipeline/compile";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
-import { localVfs } from "compiler/localVfs";
 import { extname, resolve } from "compiler/utils/path";
-import type { Vfs } from "compiler/vfs";
+import { vfs, type Vfs } from "compiler/vfs";
 
 export interface ProjectSessionLike {
   ast: Program | null;
@@ -256,20 +255,22 @@ function vfsKey(vfs: Vfs): number {
   return key;
 }
 
-function rootsKey(sourceRoots: string[], vfs: Vfs = localVfs): string {
+function rootsKey(sourceRoots: string[], vfsValue: Vfs = vfs()): string {
   const roots = sourceRoots.length === 0
     ? "<empty>"
     : [...sourceRoots].map((root) => resolve(root)).sort().join("|");
-  return `${vfsKey(vfs)}:${roots}`;
+  return `${vfsKey(vfsValue)}:${roots}`;
 }
 
 export class ProjectIndex {
   private readonly sourceRoots: string[];
+  private readonly vfs: Vfs;
   private readonly diskSessions = new Map<string, CachedDiskSession>();
   private readonly openOverrides = new Map<string, OpenFileOverride>();
 
-  constructor(sourceRoots: string[], private readonly vfs: Vfs = localVfs) {
+  constructor(sourceRoots: string[], vfsValue: Vfs = vfs()) {
     this.sourceRoots = [...sourceRoots];
+    this.vfs = vfsValue;
   }
 
   setSourceRoots(sourceRoots: string[]): void {
@@ -456,20 +457,20 @@ export class ProjectIndex {
 
 const PROJECT_INDEXES = new Map<string, ProjectIndex>();
 
-export function getProjectIndex(sourceRoots: string[], vfs: Vfs = localVfs): ProjectIndex {
-  const key = rootsKey(sourceRoots, vfs);
+export function getProjectIndex(sourceRoots: string[], vfsValue: Vfs = vfs()): ProjectIndex {
+  const key = rootsKey(sourceRoots, vfsValue);
   const existing = PROJECT_INDEXES.get(key);
   if (existing) {
     existing.setSourceRoots(sourceRoots);
     return existing;
   }
-  const created = new ProjectIndex(sourceRoots, vfs);
+  const created = new ProjectIndex(sourceRoots, vfsValue);
   PROJECT_INDEXES.set(key, created);
   return created;
 }
 
-export async function scanProjectMyFiles(sourceRoots: string[], vfs: Vfs = localVfs): Promise<string[]> {
-  return getProjectIndex(sourceRoots, vfs).scanMyFiles();
+export async function scanProjectMyFiles(sourceRoots: string[], vfsValue: Vfs = vfs()): Promise<string[]> {
+  return getProjectIndex(sourceRoots, vfsValue).scanMyFiles();
 }
 
 export async function getProjectSessionForFilePath(

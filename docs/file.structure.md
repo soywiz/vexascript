@@ -24,7 +24,7 @@ This section is the fast onboarding map for agents and contributors.
   - Layering guard test that keeps core compiler layers (parser/ast/analysis/runtime/pipeline) free of LSP-layer imports: `compiler/layering.test.ts`
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface used across compiler, LSP, runtime bundling, and browser adapters: `compiler/vfs.ts`
-  - Node-only local disk implementation of that VFS contract for CLI/LSP/test flows: `compiler/localVfs.ts`
+  - Shared abstract VFS contract used by compiler/runtime code across browser and Node hosts: `compiler/vfs.ts`
   - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.vx` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
   - Project configuration loading from package.json dependencies and tsconfig.json JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
@@ -94,6 +94,7 @@ This section is the fast onboarding map for agents and contributors.
   - Compile phase: `compiler/pipeline/compile.ts`
   - Compile phase tests: `compiler/pipeline/compile.test.ts`
 - CLI (`cli/`):
+  - Node-only local disk implementation of the shared VFS contract for CLI/LSP/test flows: `cli/localVfs.ts`
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
   - CLI entrypoint and command implementation: `cli/cli.ts`
   - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `cli/cliShared.ts`

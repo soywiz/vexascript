@@ -1,7 +1,7 @@
 import type { ExprStatement, FunctionStatement, Identifier, InterfaceStatement, NamespaceStatement, Program, Statement } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
 import { resolveNodeModulesTypingsPath, type ModuleResolutionOptions } from "compiler/moduleResolution";
-import { localVfs } from "compiler/localVfs";
+import { vfs } from "compiler/vfs";
 import { nodeRange } from "./ranges";
 import type { Range } from "vscode-languageserver";
 
@@ -26,7 +26,7 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 
 async function parseTypingsProgram(typingsPath: string, options: ModuleResolutionOptions): Promise<Program | null> {
-  const source = await (options.vfs ?? localVfs).readFile(typingsPath);
+  const source = await (options.vfs ?? vfs()).readFile(typingsPath);
   if (source === null) return null;
   const parsed = parseSource(source, { language: "typescript" });
   return parsed.ast ?? null;
@@ -88,12 +88,12 @@ export async function getNodeModuleTypings(
   packageName: string,
   options: ModuleResolutionOptions = {}
 ): Promise<NodeModuleTypings | null> {
-  const vfs = options.vfs ?? localVfs;
-  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs });
+  const activeVfs = options.vfs ?? vfs();
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs: activeVfs });
   if (!typingsPath) {
     return null;
   }
-  const typingsStat = await vfs.stat(typingsPath);
+  const typingsStat = await activeVfs.stat(typingsPath);
   if (!typingsStat || typingsStat.isFile === false) {
     return null;
   }
@@ -104,7 +104,7 @@ export async function getNodeModuleTypings(
     return cached.result;
   }
 
-  const ast = await parseTypingsProgram(typingsPath, { vfs });
+  const ast = await parseTypingsProgram(typingsPath, { vfs: activeVfs });
   if (!ast) {
     return null;
   }
@@ -143,11 +143,11 @@ export async function findNodeModuleMemberLocation(
   memberName: string,
   options: ModuleResolutionOptions = {}
 ): Promise<NodeModuleMemberLocation | null> {
-  const vfs = options.vfs ?? localVfs;
-  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs });
+  const activeVfs = options.vfs ?? vfs();
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs: activeVfs });
   if (!typingsPath) return null;
 
-  const typings = await getNodeModuleTypings(importerFilePath, packageName, { vfs });
+  const typings = await getNodeModuleTypings(importerFilePath, packageName, { vfs: activeVfs });
   if (!typings) return null;
 
   const range = findMemberRangeInStatements(typings.declarations, typeName, memberName);

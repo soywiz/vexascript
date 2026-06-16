@@ -46,6 +46,6 @@ describe("TypeScript runtime declarations", () => {
   it("boots the Node VFS from the Node declaration host", async () => {
     const source = await readFile(join(process.cwd(), "compiler", "runtime", "nodeDeclarationHost.ts"), "utf8");
 
-    expect(source).toContain('import "compiler/localVfs";');
+    expect(source).toContain('import "cli/localVfs";');
   });
 });

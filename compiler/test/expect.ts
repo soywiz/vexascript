@@ -1,6 +1,6 @@
 // Local expect adapter: re-exports node:test and wraps node:assert as expect().
 // Tests import from "../../expect" which resolves here via the scripts/resolver.mjs hook.
-import "../localVfs";
+import "../../cli/localVfs";
 import { describe, it, test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 

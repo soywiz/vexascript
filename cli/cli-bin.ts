@@ -1,4 +1,4 @@
-import "../compiler/localVfs";
+import "./localVfs";
 import { spawn } from "node:child_process";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
 import { LANGUAGE_CLI_BIN } from "../compiler/language";

@@ -8,9 +8,8 @@ import type {
 } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
-import { localVfs } from "compiler/localVfs";
 import { dirname, resolve } from "compiler/utils/path";
-import type { Vfs } from "compiler/vfs";
+import { vfs, type Vfs } from "compiler/vfs";
 
 export interface AmbientModuleLocation {
   filePath: string;
@@ -204,7 +203,7 @@ export async function loadAmbientTypesForProject(
   types: string[],
   options: { vfs?: Vfs } = {}
 ): Promise<AmbientTypesResult> {
-  const vfs = options.vfs ?? localVfs;
+  const activeVfs = options.vfs ?? vfs();
   const globalDeclarations: Statement[] = [];
   const globalDeclarationLocations = new Map<Statement, AmbientModuleLocation>();
   const moduleDeclarations = new Map<string, Statement[]>();
@@ -215,17 +214,17 @@ export async function loadAmbientTypesForProject(
   }
 
   for (const typePkg of types) {
-    const entryPath = await resolveNodeModulesTypingsPath(importerFilePath, typePkg, { vfs });
+    const entryPath = await resolveNodeModulesTypingsPath(importerFilePath, typePkg, { vfs: activeVfs });
     if (!entryPath) {
       continue;
     }
 
-    const mtimeMs = (await vfs.stat(entryPath))?.mtimeMs ?? -1;
+    const mtimeMs = (await activeVfs.stat(entryPath))?.mtimeMs ?? -1;
     const cached = cache.get(entryPath);
     const result = cached && cached.mtimeMs === mtimeMs
       ? cached.result
       : await (async () => {
-          const r = await loadFromEntry(entryPath, vfs);
+          const r = await loadFromEntry(entryPath, activeVfs);
           cache.set(entryPath, { entryPath, mtimeMs, result: r });
           return r;
         })();

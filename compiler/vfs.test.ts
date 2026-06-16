@@ -11,8 +11,8 @@ describe("vfs layering", () => {
     expect(source.includes("LocalVfs")).toBe(false);
   });
 
-  it("keeps the Node-backed VFS implementation in compiler/localVfs.ts", async () => {
-    const source = await readFile(join(process.cwd(), "compiler", "localVfs.ts"), "utf8");
+  it("keeps the Node-backed VFS implementation in cli/localVfs.ts", async () => {
+    const source = await readFile(join(process.cwd(), "cli", "localVfs.ts"), "utf8");
 
     expect(source.includes('from "node:fs/promises"')).toBe(true);
     expect(source.includes("export class LocalVfs")).toBe(true);

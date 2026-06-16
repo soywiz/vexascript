@@ -1,8 +1,7 @@
 import { builtinModules } from "node:module";
 import * as ts from "typescript";
 import { basename, dirname, extname, relative, resolve } from "compiler/utils/path";
-import { localVfs } from "compiler/localVfs";
-import type { Vfs } from "compiler/vfs";
+import { vfs, type Vfs } from "compiler/vfs";
 
 interface BundleNodeModulesOptions {
   vfs?: Vfs;
@@ -345,7 +344,7 @@ export async function bundleNodeModuleGraph(
   sourcePath: string,
   options: BundleNodeModulesOptions = {}
 ): Promise<BundleNodeModulesResult> {
-  const vfs = options.vfs ?? localVfs;
+  const activeVfs = options.vfs ?? vfs();
   const virtualSources = options.virtualSources ?? new Map<string, string>();
   const externalDependencyStrategy = options.externalDependencyStrategy ?? "runtime-error";
   const entryId = "__vexa_entry__";
@@ -364,7 +363,7 @@ export async function bundleNodeModuleGraph(
     moduleIdByPath.set(filePath, moduleId);
 
     const extension = extname(filePath).toLowerCase();
-    const source = virtualSources.get(filePath) ?? await vfs.readFile(filePath);
+    const source = virtualSources.get(filePath) ?? await activeVfs.readFile(filePath);
     if (source === null) {
       throw new Error(`Unable to read bundled module '${filePath}'`);
     }
@@ -376,7 +375,7 @@ export async function bundleNodeModuleGraph(
       : transpileModuleSource(source, filePath);
     const dependencyMap: Record<string, string | null> = {};
     for (const specifier of detectStaticRequires(transpiledCode)) {
-      const resolved = await resolveDependency(filePath, specifier, vfs, virtualSources);
+      const resolved = await resolveDependency(filePath, specifier, activeVfs, virtualSources);
       if (resolved.kind === "bundled") {
         dependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
       } else {
@@ -396,7 +395,7 @@ export async function bundleNodeModuleGraph(
   const entryCode = transpileModuleSource(entrySource, sourcePath);
   const entryDependencyMap: Record<string, string | null> = {};
   for (const specifier of detectStaticRequires(entryCode)) {
-    const resolved = await resolveDependency(sourcePath, specifier, vfs, virtualSources);
+    const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources);
     if (resolved.kind === "bundled") {
       entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
     } else {

@@ -1,5 +1,5 @@
 import { readFile as nodeReadFile, readdir as nodeReadDir, stat as nodeStat, writeFile, unlink } from "node:fs/promises";
-import { setVfs, Vfs, VfsDirEntry, VfsStat } from "./vfs";
+import { setVfs, Vfs, VfsDirEntry, VfsStat } from "../compiler/vfs";
 
 export class LocalVfs extends Vfs {
   override async readFile(path: string): Promise<string> {
@@ -7,11 +7,11 @@ export class LocalVfs extends Vfs {
   }
 
   override async writeFile(path: string, content: string | ArrayBufferView) {
-    return await writeFile(path, content as any)
+    return await writeFile(path, content as string | NodeJS.ArrayBufferView);
   }
 
   override async unlink(path: string) {
-    return await unlink(path)
+    return await unlink(path);
   }
 
   override async stat(path: string): Promise<VfsStat> {
@@ -23,7 +23,7 @@ export class LocalVfs extends Vfs {
         isDirectory: stats.isDirectory()
       };
     } catch {
-      throw new Error(`File '${path}' doesn't exists`)
+      throw new Error(`File '${path}' doesn't exists`);
     }
   }
 
@@ -36,11 +36,11 @@ export class LocalVfs extends Vfs {
         isDirectory: entry.isDirectory()
       }));
     } catch {
-      throw new Error(`File '${path} doesn't exists`)
+      throw new Error(`File '${path} doesn't exists`);
     }
   }
 }
 
 export const localVfs: Vfs = new LocalVfs();
 
-setVfs(localVfs)
+setVfs(localVfs);

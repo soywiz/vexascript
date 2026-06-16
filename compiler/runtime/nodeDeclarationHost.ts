@@ -1,4 +1,4 @@
-import "compiler/localVfs";
+import "cli/localVfs";
 import { realpath } from "node:fs/promises";
 import { fileExists } from "compiler/utils/fs";
 import { dirname, fileURLToPath, resolve } from "compiler/utils/path";

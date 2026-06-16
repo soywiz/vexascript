@@ -1,4 +1,4 @@
-import "../compiler/localVfs";
+import "./localVfs";
 import { Command } from "commander";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "../compiler/language";
