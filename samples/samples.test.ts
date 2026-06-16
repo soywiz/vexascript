@@ -1,6 +1,4 @@
-import { readdir, readFile } from "node:fs/promises"
-import { format } from "node:util";
-import { describe, expect, it } from "../compiler/test/expect";
+import { describe, expect, format, it, readFile, readdir } from "../compiler/test/expect";
 import { runFile } from "../cli/cli";
 import { fileExists, isDirectory } from "../compiler/utils/fs";
 import { runCommand } from "../cli/io";

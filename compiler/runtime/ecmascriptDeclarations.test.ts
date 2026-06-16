@@ -1,6 +1,4 @@
-import { describe, expect, it } from "../test/expect";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { describe, expect, it, join, readFile } from "../test/expect";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
   getEcmaScriptRuntimeProgram,

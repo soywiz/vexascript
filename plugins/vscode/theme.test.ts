@@ -1,6 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { describe, expect, it } from "compiler/test/expect";
+import { describe, expect, it, readFile, resolve } from "compiler/test/expect";
 
 describe("VS Code color theme", () => {
   async function readTheme() {

@@ -1,14 +1,10 @@
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createInlayHints } from "./inlayHints";
 import { builtinType, functionType, namedType } from "compiler/analysis/types";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 
 describe("inlay hints", () => {
   it("provides inferred type hints and parameter name hints", async () => {

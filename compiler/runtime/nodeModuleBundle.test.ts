@@ -1,7 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
 import { bundleNodeModuleGraph } from "../../cli/nodeModuleBundle";
 
 async function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
