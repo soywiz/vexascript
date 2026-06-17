@@ -1,5 +1,8 @@
-import { describe, expect, it, join, readFile, readdir } from "./test/expect";
-import { fileExists } from "./utils/fs";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+import { expect } from "compiler/test/expect";
+import { fileExists } from "compiler/utils/fs";
 
 const ARCHITECTURE_MAP_FILE = "docs/file.structure.md";
 const architecturePathReferencePattern = /`([^`]+\.(?:ts|js|json|md|my|d\.ts))`/g;

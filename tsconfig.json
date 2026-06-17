@@ -20,5 +20,5 @@
     "types": ["node"],
     "baseUrl": "."
   },
-  "include": ["compiler", "cli"]
+  "include": ["compiler", "cli", "validation"]
 }

@@ -1,5 +1,8 @@
-import { describe, expect, it, readFile, resolve } from "./test/expect";
-import { fileExists } from "./utils/fs";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { describe, it } from "node:test";
+import { expect } from "compiler/test/expect";
+import { fileExists } from "compiler/utils/fs";
 
 type VscodeExtPackage = {
   icon?: string;

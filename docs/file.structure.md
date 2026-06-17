@@ -21,7 +21,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared editor-agnostic VexaScript diagnostic codes, message patterns, and message/issue-code classification used by both the runtime transpiler and the LSP layer: `compiler/diagnosticCodes.ts`
   - Shared diagnostic-code tests: `compiler/diagnosticCodes.test.ts`
   - LSP-facing diagnostic helpers (parsing `Diagnostic` payloads for quick fixes) that re-export the shared codes: `compiler/lsp/diagnosticCodes.ts`
-  - Layering guard test that keeps core compiler layers (parser/ast/analysis/runtime/pipeline) free of LSP-layer imports and prevents `compiler/` source files from importing sibling app folders such as `cli/`: `compiler/layering.test.ts`
+  - Layering guard test that keeps core compiler layers (parser/ast/analysis/runtime/pipeline) free of LSP-layer imports and prevents `compiler/` source files from importing sibling app folders such as `cli/`: `validation/layering.test.ts`
 - Module resolution and virtual file access:
   - Shared asynchronous virtual file-system interface used across compiler, LSP, runtime bundling, and browser adapters: `compiler/vfs.ts`
   - Shared abstract VFS contract used by compiler/runtime code across browser and Node hosts: `compiler/vfs.ts`
@@ -80,7 +80,7 @@ This section is the fast onboarding map for agents and contributors.
   - LSP formatting adapter: `compiler/lsp/formatting.ts`
 - Embedded syntax definitions:
   - Shared editor-syntax generators used by the CLI and editor integrations: `compiler/syntax.ts`
-  - Syntax generator consistency tests: `compiler/syntax.test.ts`
+  - Syntax generator consistency tests: `validation/syntax.test.ts`
 - Shared async file helpers live in `compiler/utils/fs.ts`, and CLI-only async process helpers live in `cli/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
 
 ### Tooling and Integration Pieces
@@ -163,7 +163,7 @@ This section is the fast onboarding map for agents and contributors.
   - Extension entrypoint (LSP client that launches `compiler/lsp/server.ts` over stdio): `plugins/vscode/extension.js`
   - TextMate grammar generated from the compiler's shared syntax source and checked in for packaging: `plugins/vscode/syntaxes/vexa.tmLanguage.json`
   - VS Code extension manifest/config and checked-in language configuration generated from the compiler's shared syntax source: `plugins/vscode/package.json`, `plugins/vscode/language-configuration.json`
-  - Syntax tests: `compiler/vscodeext-syntax.test.ts`
+  - Syntax tests: `validation/vscodeext-syntax.test.ts`
 - GitHub automation:
   - Continuous-integration workflow that installs dependencies and runs the repository `pnpm test` suite on pushes to `main`/`master` and on pull requests: `.github/workflows/tests.yml`
 
@@ -178,7 +178,11 @@ This section is the fast onboarding map for agents and contributors.
 - LSP canonical cursor-target model design for unifying navigation, hover, references, rename, and signature help: `docs/lsp.cursor-target-model.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
 - Transpilation design note: `docs/transpilation.design.md`
-- Architecture map consistency guard: `compiler/architectureMap.test.ts`
+- Architecture map consistency guard: `validation/architectureMap.test.ts`
+
+### Repository Validation
+
+- Root-level validation suite for repository structure, generated syntax assets, and documentation/file-layout guards: `validation/`
 
 ### Test Fixtures and Auxiliary Utilities
 
