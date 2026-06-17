@@ -49,6 +49,11 @@ Keep the unified behavior, but make the implementation easier to reason about:
   - Ranked visible-symbol completion items now live in `compiler/lsp/symbolCompletion.ts`, with direct helper coverage in `compiler/lsp/completion.test.ts`.
   - Annotation-context detection and declaration-name suppression now live in `compiler/lsp/completionContext.ts`, trimming `completion.ts` toward orchestration-only behavior.
   - Receiver-type recovery and normalization for member completion now live in `compiler/lsp/memberCompletionTypeNames.ts`, reducing non-item-building logic inside `memberCompletion.ts`.
+  - Extension-receiver matching and extension return-type inference now live in `compiler/lsp/memberCompletionExtensions.ts`, reducing repeated extension-specific branching inside `memberCompletion.ts`.
+  - Textual member-access parsing now lives in `compiler/lsp/memberCompletionParsing.ts`, keeping `memberCompletion.ts` focused more on completion assembly than cursor-string parsing details.
+  - Structural object/type-alias member parsing now lives in `compiler/lsp/memberCompletionObjectMembers.ts`, reducing type-shape parsing logic embedded in `memberCompletion.ts`.
+  - AST binding/type inference helpers for member completion now live in `compiler/lsp/memberCompletionBindingTypes.ts`, reducing AST-walk-based receiver inference logic embedded in `memberCompletion.ts`.
+  - Chained receiver-type resolution for paths like `foo.bar.baz` now lives in `compiler/lsp/memberCompletionPathTypes.ts`, reducing mixed AST/analysis/cross-file lookup logic embedded in `memberCompletion.ts`.
 * [~] Audit whether `classResolver.ts` is carrying both resolution and presentation concerns that should be separated.
   - Shared function-signature label formatting now lives in `compiler/lsp/functionTypeDisplay.ts`, reducing the presentation surface owned by `classResolver.ts`.
   - Shared type-name recovery helpers now live in `compiler/lsp/classResolverTypeNames.ts`, keeping `classResolver.ts` more focused on cross-file/member resolution itself.

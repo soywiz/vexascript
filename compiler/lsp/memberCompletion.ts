@@ -8,27 +8,36 @@
 import { classPropertyParameters, createClassResolverCache, resolveClassMember, resolveClassMemberNames, resolveClassStatementAcrossFiles, resolveInterfaceMember, resolveInterfaceMemberNames, resolveInterfaceStatementAcrossFiles } from "./classResolver";
 import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { COMPLETION_RECOVERY_MEMBER, CompletionItemKind, classResolverOptionsFromCompletionOptions } from "./completionModel";
-import type { CompletionRequestOptions, ExtensionMemberCompletionCandidate, InterfaceCompletionMember, MemberAccessTarget, TypeAliasCompletionMember } from "./completionModel";
+import type { CompletionRequestOptions, ExtensionMemberCompletionCandidate, InterfaceCompletionMember, TypeAliasCompletionMember } from "./completionModel";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { buildExtensionAutoImportSuggestions } from "./importFixes";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
-import { containsPosition, nodeRange, rangeSize } from "./ranges";
 import { Analysis } from "compiler/analysis/Analysis";
-import type { AnalysisSymbol } from "compiler/analysis/Analysis";
-import { baseTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
-import { typeToString } from "compiler/analysis/types";
-import type { CallExpression, ClassMember, ClassStatement, EnumStatement, ExportStatement, Expr, FunctionParameter, FunctionStatement, Identifier, ImportStatement, InterfaceStatement, NamespaceStatement, NewExpression, Program, Statement, TypeAliasStatement, TypeAnnotation, VarStatement } from "compiler/ast/ast";
+import { baseTypeName } from "compiler/analysis/typeNames";
+import type { ClassMember, ClassStatement, EnumStatement, ExportStatement, FunctionStatement, ImportStatement, InterfaceStatement, NamespaceStatement, Program, Statement, TypeAliasStatement, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
+import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { compileSource } from "compiler/pipeline/compile";
 import { fileURLToPath } from "compiler/utils/path";
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import {
+  extensionBindingNames,
+  extensionReceiverMatches,
+  inferExtensionReturnTypeName
+} from "./memberCompletionExtensions";
+import {
+  findMemberAccessDot,
+  parseMemberAccessTarget
+} from "./memberCompletionParsing";
+import {
+  parseObjectTypeTextMembers,
+  parseTypeAliasObjectMembers
+} from "./memberCompletionObjectMembers";
+import { resolveTypeNameFromPath } from "./memberCompletionPathTypes";
+import {
   arrayTypeNameToArrayAlias,
   boxedCompletionTypeName,
-  inferLiteralTypeName,
-  nonNullishTypeName,
   recoveredReceiverTypeName,
   receiverTypeNameEndingAt
 } from "./memberCompletionTypeNames";
@@ -46,128 +55,6 @@ export function memberSortGroup(memberName: string, classStatement: ClassStateme
     return "1";
   }
   return "2";
-}
-
-export function parseMemberAccessTarget(
-  text: string | undefined,
-  line: number,
-  character: number
-): MemberAccessTarget | null {
-  if (!text) {
-    return null;
-  }
-  const lines = text.split("\n");
-  const lineText = lines[line];
-  if (!lineText) {
-    return null;
-  }
-  const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
-  const uptoCursor = lineText.slice(0, clampedCharacter);
-  const match = /((?:[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?)(?:(?:\s*\?\.\s*|\s*!\.\s*|\s*\.\s*)[A-Za-z_][A-Za-z0-9_]*)*)(\?\.|!\.|\.)(?:\s*([A-Za-z_][A-Za-z0-9_]*))?$/.exec(uptoCursor);
-  if (!match || !match[1]) {
-    return null;
-  }
-  const objectPath = match[1];
-  const typedPrefix = match[3] ?? "";
-  const objectStartCharacter = match.index;
-  const operator = match[2] ?? ".";
-  const memberAccessStartCharacter = match.index + objectPath.length + operator.length - 1;
-  return {
-    objectPath: objectPath.replace(/\?\./g, ".").replace(/!\./g, ".").replace(/\s+/g, ""),
-    objectStartCharacter,
-    memberAccessStartCharacter,
-    prefix: typedPrefix
-  };
-}
-
-/**
- * Lenient member-access detection that, unlike {@link parseMemberAccessTarget},
- * does not require the receiver to be a plain identifier-dot chain. It only
- * locates the member-access dot and the partially typed member name, so the
- * receiver type can be resolved from the analyzed expression types instead of
- * from textual symbol lookups. This is what enables member completion after
- * complex receivers such as calls (e.g. `fetch(...).arrayBuffer`).
- */
-export function findMemberAccessDot(
-  text: string | undefined,
-  line: number,
-  character: number
-): { dotCharacter: number; receiverEndCharacter: number; prefix: string } | null {
-  if (!text) {
-    return null;
-  }
-  const lines = text.split("\n");
-  const lineText = lines[line];
-  if (lineText === undefined) {
-    return null;
-  }
-  const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
-  const uptoCursor = lineText.slice(0, clampedCharacter);
-  const match = /(\?\.|!\.|\.)(?:\s*([A-Za-z_][A-Za-z0-9_]*))?$/.exec(uptoCursor);
-  if (!match) {
-    return null;
-  }
-  const operator = match[1] ?? ".";
-  const dotCharacter = match.index + operator.length - 1;
-  // The receiver must end with a value-producing token so that we are looking at
-  // a member access rather than, for example, a decimal point in a number.
-  // A trailing-lambda call receiver ends at its closing brace (`xs.map { it }.`),
-  // so `}` must be accepted here too.
-  const beforeDot = uptoCursor.slice(0, match.index).replace(/\s+$/, "");
-  const lastChar = beforeDot[beforeDot.length - 1];
-  if (!lastChar || !/[A-Za-z0-9_)\]"'`}!]/.test(lastChar)) {
-    return null;
-  }
-  return { dotCharacter, receiverEndCharacter: beforeDot.length, prefix: match[2] ?? "" };
-}
-
-export function extensionReceiverMatches(receiverType: string, objectTypeName: string): boolean {
-  // Array-shaped types (`int[]`, `Array<int>`) resolve their extension members
-  // against the `Array` receiver, so `[].extensionMember` and `someArray.method()`
-  // surface generic `Array<T>` extensions.
-  const shape = parseTypeNameShape(objectTypeName);
-  if (shape.arrayDepth > 0 && receiverType === "Array") {
-    return true;
-  }
-  const normalized = shape.baseName;
-  return receiverType === normalized || (normalized === "int" && receiverType === "number");
-}
-
-export function inferExtensionReturnTypeName(
-  statement: Statement,
-  analysis: Analysis | null
-): string | null {
-  if (statement.kind === "VarStatement") {
-    const variable = statement as VarStatement;
-    if (variable.typeAnnotation?.name) {
-      return variable.typeAnnotation.name;
-    }
-    if (variable.initializer && analysis) {
-      const initializerType = analysis.getExpressionTypes().get(variable.initializer);
-      const typeName = initializerType ? typeToString(initializerType) : null;
-      if (typeName && typeName !== "unknown") {
-        return typeName;
-      }
-    }
-    const initializer = variable.initializer;
-    if (initializer?.kind === "CallExpression") {
-      const call = initializer as CallExpression;
-      if (call.callee.kind === "Identifier") {
-        return (call.callee as Identifier).name;
-      }
-    }
-    if (initializer?.kind === "NewExpression") {
-      const newExpression = initializer as NewExpression;
-      if (newExpression.callee.kind === "Identifier") {
-        return (newExpression.callee as Identifier).name;
-      }
-    }
-    return null;
-  }
-  if (statement.kind === "FunctionStatement") {
-    return (statement as FunctionStatement).returnType?.name ?? null;
-  }
-  return null;
 }
 
 export async function collectAvailableExtensionMembers(
@@ -196,14 +83,13 @@ export async function collectAvailableExtensionMembers(
       if (!receiverType || !extensionReceiverMatches(receiverType, objectTypeName)) {
         return;
       }
-      const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
-      for (const binding of bindings) {
-        if (seen.has(`property:${binding.name}`)) {
+      for (const bindingName of extensionBindingNames(variable)) {
+        if (seen.has(`property:${bindingName}`)) {
           continue;
         }
-        seen.add(`property:${binding.name}`);
+        seen.add(`property:${bindingName}`);
         candidates.push({
-          name: binding.name,
+          name: bindingName,
           receiverType,
           kind: "property",
           returnTypeName: inferExtensionReturnTypeName(variable, analysis)
@@ -276,14 +162,13 @@ export async function collectAvailableExtensionMembers(
         if (!receiverType || !extensionReceiverMatches(receiverType, objectTypeName)) {
           continue;
         }
-        const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
-        for (const binding of bindings) {
-          if (!importedNames.has(binding.name) || seen.has(`property:${binding.name}`)) {
+        for (const bindingName of extensionBindingNames(variable)) {
+          if (!importedNames.has(bindingName) || seen.has(`property:${bindingName}`)) {
             continue;
           }
-          seen.add(`property:${binding.name}`);
+          seen.add(`property:${bindingName}`);
           candidates.push({
-            name: binding.name,
+            name: bindingName,
             receiverType,
             kind: "property",
             returnTypeName: inferExtensionReturnTypeName(variable, importedAnalysis)
@@ -524,416 +409,6 @@ export function buildEnumMemberCompletionItems(
     });
   }
   return items;
-}
-
-export function typeAliasSubstitutions(
-  typeAlias: TypeAliasStatement,
-  objectTypeName: string
-): Map<string, string> {
-  const substitutions = new Map<string, string>();
-  const parsedObjectType = parseTypeNameShape(objectTypeName);
-  const declaredTypeParameters = typeAlias.typeParameters ?? [];
-  for (let i = 0; i < declaredTypeParameters.length; i += 1) {
-    const parameterName = declaredTypeParameters[i]?.name.name;
-    if (!parameterName) {
-      continue;
-    }
-    substitutions.set(parameterName, parsedObjectType.typeArguments[i] ?? parameterName);
-  }
-  return substitutions;
-}
-
-export function parseObjectTypeTextMembers(
-  objectTypeText: string,
-  substitutions: Map<string, string> = new Map()
-): TypeAliasCompletionMember[] {
-  const targetTypeText = objectTypeText.trim();
-  if (!targetTypeText.startsWith("{") || !targetTypeText.endsWith("}")) {
-    return [];
-  }
-
-  const body = targetTypeText.slice(1, -1).trim();
-  if (body.length === 0) {
-    return [];
-  }
-
-  const members: TypeAliasCompletionMember[] = [];
-
-  const isCallableTypeText = (typeText: string): boolean =>
-    splitTopLevelTypeText(typeText, "|").some((part) => {
-      const trimmedPart = stripEnclosingTypeParens(part.trim());
-      const parameterStart = findTopLevelTypeCharacter(trimmedPart, "(");
-      if (parameterStart !== 0) {
-        return false;
-      }
-      const parameterEnd = findMatchingTypeDelimiter(trimmedPart, parameterStart, "(", ")");
-      if (parameterEnd < 0) {
-        return false;
-      }
-      return trimmedPart.indexOf("=>", parameterEnd) >= 0;
-    });
-
-  for (const entry of splitTopLevelDelimitedTypeText(body, new Set([",", ";"]))) {
-    const trimmedEntry = entry.trim();
-    if (trimmedEntry.length === 0) {
-      continue;
-    }
-
-    const methodOpenParen = findTopLevelTypeCharacter(trimmedEntry, "(");
-    const propertyColon = findTopLevelTypeCharacter(trimmedEntry, ":");
-    if (methodOpenParen >= 0 && (propertyColon < 0 || methodOpenParen < propertyColon)) {
-      const closeParen = findMatchingTypeDelimiter(trimmedEntry, methodOpenParen, "(", ")");
-      const arrowIndex = closeParen >= 0 ? trimmedEntry.indexOf("=>", closeParen) : -1;
-      if (closeParen < 0 || arrowIndex < 0) {
-        continue;
-      }
-      const name = trimmedEntry.slice(0, methodOpenParen).trim().replace(/\?$/, "");
-      if (!name) {
-        continue;
-      }
-      members.push({
-        name,
-        kind: CompletionItemKind.Method,
-        detail: `Type alias method: ${substituteTypeNameText(trimmedEntry.slice(methodOpenParen).trim(), substitutions)}`
-      });
-      continue;
-    }
-
-    if (propertyColon < 0) {
-      continue;
-    }
-    const name = trimmedEntry.slice(0, propertyColon).trim().replace(/\?$/, "");
-    if (!name) {
-      continue;
-    }
-    const propertyTypeText = substituteTypeNameText(trimmedEntry.slice(propertyColon + 1).trim(), substitutions);
-    members.push({
-      name,
-      kind: isCallableTypeText(propertyTypeText) ? CompletionItemKind.Method : CompletionItemKind.Field,
-      detail: `${isCallableTypeText(propertyTypeText) ? "Type alias method" : "Type alias property"}: ${propertyTypeText}`
-    });
-  }
-
-  return members;
-}
-
-export function parseTypeAliasObjectMembers(
-  typeAlias: TypeAliasStatement,
-  objectTypeName: string
-): TypeAliasCompletionMember[] {
-  return parseObjectTypeTextMembers(
-    typeAlias.targetType.name,
-    typeAliasSubstitutions(typeAlias, objectTypeName)
-  );
-}
-
-export function findIdentifierAtPosition(
-  ast: Program,
-  line: number,
-  character: number
-): Identifier | null {
-  let best: { identifier: Identifier; size: number } | undefined;
-  walkAst(ast, (node) => {
-    if (node.kind !== "Identifier") {
-      return;
-    }
-    const identifier = node as Identifier;
-    const range = nodeRange(identifier);
-    if (!range || !containsPosition(range, { line, character })) {
-      return;
-    }
-    const size = rangeSize(range);
-    if (!best || size < best.size) {
-      best = { identifier, size };
-    }
-  });
-  return best ? best.identifier : null;
-}
-
-export function inferClassNameFromAstVariableInitializer(
-  ast: Program,
-  variableName: string,
-  line: number
-): string | null {
-  let bestLine = -1;
-  let bestClassName: string | null = null;
-
-  const maybeClassNameFromInitializer = (initializer: Expr | undefined): string | null => {
-    if (!initializer || initializer.kind !== "NewExpression") {
-      return null;
-    }
-    const newExpression = initializer as Expr & { kind: "NewExpression"; callee: Expr };
-    if (newExpression.callee.kind === "Identifier") {
-      return (newExpression.callee as Expr & { kind: "Identifier"; name: string }).name;
-    }
-    return null;
-  };
-
-  const considerDeclaration = (
-    name: string,
-    initializer: Expr | undefined,
-    declarationLine: number
-  ): void => {
-    if (name !== variableName || declarationLine > line) {
-      return;
-    }
-    const className = maybeClassNameFromInitializer(initializer);
-    if (!className) {
-      return;
-    }
-    if (declarationLine >= bestLine) {
-      bestLine = declarationLine;
-      bestClassName = className;
-    }
-  };
-
-  walkAst(ast, (node) => {
-    if (node.kind !== "VarStatement") {
-      return;
-    }
-    const varStatement = node as VarStatement;
-    if (varStatement.declarations && varStatement.declarations.length > 0) {
-      for (const declaration of varStatement.declarations) {
-        for (const identifier of bindingIdentifiers(declaration.name)) {
-          const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-          considerDeclaration(identifier.name, declaration.initializer, declarationLine);
-        }
-      }
-    } else {
-      for (const identifier of bindingIdentifiers(varStatement.name)) {
-        const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-        considerDeclaration(identifier.name, varStatement.initializer, declarationLine);
-      }
-    }
-  });
-
-  return bestClassName;
-}
-
-export function inferTypeNameFromAstBindingAnnotation(
-  ast: Program,
-  bindingName: string,
-  line: number
-): string | null {
-  let bestLine = -1;
-  let bestTypeName: string | null = null;
-
-  const typeNameFromAnnotation = (typeAnnotation: TypeAnnotation | undefined): string | null => {
-    if (!typeAnnotation) {
-      return null;
-    }
-    if (typeAnnotation.kind === "Identifier") {
-      return typeAnnotation.name;
-    }
-    if (typeAnnotation.kind === "TypeReference") {
-      return typeAnnotation.name.name;
-    }
-    return null;
-  };
-
-  const considerDeclaration = (
-    name: string,
-    typeAnnotation: TypeAnnotation | undefined,
-    declarationLine: number
-  ): void => {
-    if (name !== bindingName || declarationLine > line) {
-      return;
-    }
-    const typeName = typeNameFromAnnotation(typeAnnotation);
-    if (!typeName) {
-      return;
-    }
-    if (declarationLine >= bestLine) {
-      bestLine = declarationLine;
-      bestTypeName = typeName;
-    }
-  };
-
-  walkAst(ast, (node) => {
-    if (node.kind === "FunctionParameter") {
-      const parameter = node as FunctionParameter;
-      for (const identifier of bindingIdentifiers(parameter.name)) {
-        const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-        considerDeclaration(identifier.name, parameter.typeAnnotation, declarationLine);
-      }
-      return;
-    }
-    if (node.kind !== "VarStatement") {
-      return;
-    }
-    const varStatement = node as VarStatement;
-    if (varStatement.declarations && varStatement.declarations.length > 0) {
-      for (const declaration of varStatement.declarations) {
-        for (const identifier of bindingIdentifiers(declaration.name)) {
-          const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-          considerDeclaration(identifier.name, declaration.typeAnnotation, declarationLine);
-        }
-      }
-    } else {
-      for (const identifier of bindingIdentifiers(varStatement.name)) {
-        const declarationLine = identifier.firstToken?.range.start.line ?? -1;
-        considerDeclaration(identifier.name, varStatement.typeAnnotation, declarationLine);
-      }
-    }
-  });
-
-  return bestTypeName;
-}
-
-export async function resolveTypeNameFromPath(
-  ast: Program,
-  analysis: Analysis,
-  pathSegments: string[],
-  line: number,
-  objectStartCharacter: number,
-  resolverOptions: ClassResolverOptions,
-  resolverCache: ClassResolverCache
-): Promise<string | null> {
-  if (pathSegments.length === 0) {
-    return null;
-  }
-
-  const typeNameFromSymbol = (symbol: AnalysisSymbol): string | null => {
-    if (symbol.valueType && symbol.valueType !== "unknown") {
-      return symbol.valueType;
-    }
-    if (symbol.type) {
-      return typeToString(symbol.type);
-    }
-    return null;
-  };
-
-  const identifierAtCursor = pathSegments.length === 1
-    ? findIdentifierAtPosition(ast, line, objectStartCharacter)
-    : null;
-  if (identifierAtCursor) {
-    const expressionTypeName = analysis.getExpressionTypes().get(identifierAtCursor)
-      ? typeToString(analysis.getExpressionTypes().get(identifierAtCursor)!)
-      : null;
-    const narrowedExpressionTypeName = nonNullishTypeName(expressionTypeName);
-    if (narrowedExpressionTypeName && narrowedExpressionTypeName !== "unknown") {
-      return narrowedExpressionTypeName;
-    }
-    const annotatedTypeName = inferTypeNameFromAstBindingAnnotation(ast, identifierAtCursor.name, line);
-    if (annotatedTypeName) {
-      return annotatedTypeName;
-    }
-  }
-
-  const symbolMatch = analysis.getSymbolAt(line, Math.max(0, objectStartCharacter));
-  let currentTypeName: string | null = null;
-  const firstSegment = pathSegments[0];
-  if (!firstSegment) {
-    return null;
-  }
-  const literalTypeName = inferLiteralTypeName(firstSegment);
-  if (literalTypeName) {
-    currentTypeName = literalTypeName;
-  }
-  if (!currentTypeName) {
-    const resolvedSymbolMatch = symbolMatch;
-    if (resolvedSymbolMatch && resolvedSymbolMatch.symbol.name === firstSegment) {
-      currentTypeName = typeNameFromSymbol(resolvedSymbolMatch.symbol);
-    } else {
-      const visibleSymbols = analysis.getVisibleSymbolsAt(line, objectStartCharacter);
-      const symbol = visibleSymbols.find((candidate) => candidate.name === firstSegment);
-      if (!symbol) {
-        currentTypeName =
-          inferTypeNameFromAstBindingAnnotation(ast, firstSegment, line) ??
-          inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
-        if (!currentTypeName) {
-          return null;
-        }
-      } else {
-        currentTypeName = typeNameFromSymbol(symbol);
-      }
-    }
-  }
-
-  currentTypeName = nonNullishTypeName(currentTypeName);
-  if (!currentTypeName || currentTypeName === "unknown") {
-    currentTypeName =
-      inferTypeNameFromAstBindingAnnotation(ast, firstSegment, line) ??
-      inferClassNameFromAstVariableInitializer(ast, firstSegment, line);
-  }
-  for (let index = 1; index < pathSegments.length; index += 1) {
-    const memberName = pathSegments[index];
-    if (!memberName || !currentTypeName) {
-      return null;
-    }
-    currentTypeName = boxedCompletionTypeName(currentTypeName);
-    if (!currentTypeName) {
-      return null;
-    }
-    const classResolution = await resolveClassStatementAcrossFiles(
-      ast,
-      baseTypeName(currentTypeName),
-      resolverOptions,
-      resolverCache
-    );
-    if (!classResolution) {
-      const interfaceStatement = (await resolveInterfaceStatementAcrossFiles(
-        ast,
-        baseTypeName(currentTypeName),
-        resolverOptions,
-        resolverCache
-      ))?.interfaceStatement;
-      if (interfaceStatement) {
-        const member = await resolveInterfaceMember(interfaceStatement, memberName, currentTypeName, {
-          ast,
-          options: resolverOptions,
-          cache: resolverCache
-        });
-        if (member) {
-          currentTypeName = member.kind === "method"
-            ? member.signature?.returnTypeName ?? null
-            : member.typeName;
-          continue;
-        }
-      }
-      currentTypeName = await resolveExtensionMemberTypeName(
-        ast,
-        currentTypeName,
-        memberName,
-        {
-          ...resolverOptions
-        },
-        analysis
-      );
-      if (!currentTypeName) {
-        return null;
-      }
-      continue;
-    }
-    const member = await resolveClassMember(classResolution.classStatement, memberName, currentTypeName, {
-      ast,
-      options: resolverOptions,
-      analysis,
-      cache: resolverCache
-    });
-    if (!member) {
-      currentTypeName = await resolveExtensionMemberTypeName(
-        ast,
-        currentTypeName,
-        memberName,
-        {
-          ...resolverOptions
-        },
-        analysis
-      );
-      if (!currentTypeName) {
-        return null;
-      }
-      continue;
-    }
-    if (member.kind === "method") {
-      currentTypeName = member.signature?.returnTypeName ?? null;
-    } else {
-      currentTypeName = member.typeName;
-    }
-  }
-
-  return currentTypeName;
 }
 
 export async function findNodeModuleNamespaceForTypeName(
@@ -1178,7 +653,8 @@ export async function buildMemberAccessCompletions(
       line,
       target.objectStartCharacter,
       resolverOptions,
-      resolverCache
+      resolverCache,
+      resolveExtensionMemberTypeName
     );
     if (className) {
       const items = await buildMemberCompletionItemsForType(

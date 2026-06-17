@@ -14,7 +14,8 @@ import { buildAutoImportCompletionItems, resolveAutoImportSuggestions } from "./
 import { buildNamedArgumentCompletionItems, inferExpectedTypeForPosition } from "./argumentCompletion";
 import { KEYWORD_COMPLETIONS, withCallSnippet } from "./completionModel";
 import type { CompletionRequestOptions } from "./completionModel";
-import { buildExtensionMemberCompletionItems, buildMemberAccessCompletions, parseMemberAccessTarget } from "./memberCompletion";
+import { buildExtensionMemberCompletionItems, buildMemberAccessCompletions } from "./memberCompletion";
+import { parseMemberAccessTarget } from "./memberCompletionParsing";
 import { inferLiteralTypeName } from "./memberCompletionTypeNames";
 import { buildContextualObjectLiteralCompletionItems } from "./objectLiteralCompletion";
 import { buildVisibleSymbolCompletionItems } from "./symbolCompletion";
