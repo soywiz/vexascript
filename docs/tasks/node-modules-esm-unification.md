@@ -64,7 +64,9 @@ Any future refactor must preserve these rules:
 ## Suggested Implementation Plan
 
 * [ ] Audit the exact JavaScript ESM forms we still need to support from `node_modules`.
-* [ ] Reuse the existing parser/emitter path for `.js`, `.mjs`, and `.jsx` module-format conversion where possible.
+* [~] Reuse the existing parser/emitter path for `.js`, `.mjs`, and `.jsx` module-format conversion where possible.
+  - `cli/nodeModuleBundle.ts` now tries the shared parser/emitter path first for JavaScript ESM and only falls back to the lightweight transformer when parsing still fails.
 * [ ] Keep CommonJS passthrough behavior unchanged.
-* [ ] Add regression tests for minified imports, default export variants, re-exports, and mixed named/default imports.
+* [~] Add regression tests for minified imports, default export variants, re-exports, and mixed named/default imports.
+  - `compiler/runtime/nodeModuleBundle.test.ts` now covers mixed default+named JavaScript ESM imports and JavaScript ESM re-export chains from `node_modules`.
 * [ ] Remove the ad hoc ESM conversion helpers from `cli/nodeModuleBundle.ts` once the parser/emitter path fully covers them.

@@ -1,4 +1,4 @@
-import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
+import { bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Analysis } from "compiler/analysis/Analysis";
 import {
   baseTypeName,
@@ -8,7 +8,7 @@ import {
   stripEnclosingTypeParens,
   substituteTypeNameText
 } from "compiler/analysis/typeNames";
-import { type AnalysisType, typeToString } from "compiler/analysis/types";
+import { typeToString } from "compiler/analysis/types";
 import type {
   AsExpression,
   AssignmentExpression,
@@ -28,8 +28,6 @@ import type {
   NewExpression,
   NonNullExpression,
   Statement,
-  VarDeclarator,
-  VarStatement,
   UnaryExpression,
   UpdateExpression,
   Program,
@@ -48,9 +46,15 @@ import {
   isInterfaceStatement,
   resolveTopLevelDeclarationAcrossFiles
 } from "./declarationResolver";
-import { walkAst } from "compiler/ast/traversal";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
+import { formatFunctionTypeLabel } from "./functionTypeDisplay";
+import {
+  declaredInitializerTypeName,
+  explicitTypeNameFromNewExpression,
+  inferredTypeNameLosesGenericArguments,
+  typeNameFromAnalysisType
+} from "./classResolverTypeNames";
 import {
   type ProjectContext,
   type ProjectSessionLike
@@ -98,38 +102,6 @@ export interface ResolvedFunctionSignature {
   parameters: ResolvedParameter[];
   returnTypeName: string;
   documentation?: string;
-}
-
-/**
- * Renders a single parameter as `...name?: Type`, the shared display format used
- * by hover, signature help, and completion wherever a function-like signature is
- * shown as text. Reuse this instead of re-deriving the rest/optional prefix logic.
- */
-export function formatParameterLabel(parameter: {
-  name: string;
-  typeName: string;
-  optional?: boolean;
-  rest?: boolean;
-}): string {
-  const restPrefix = parameter.rest === true ? "..." : "";
-  const optionalSuffix = parameter.optional === true && parameter.rest !== true ? "?" : "";
-  return `${restPrefix}${parameter.name}${optionalSuffix}: ${parameter.typeName}`;
-}
-
-/**
- * Renders a full function-like signature as `<T>(params) => ReturnType`, reusing
- * `formatParameterLabel` for each parameter. Shared by hover, signature help, and
- * completion so the textual function-type display stays consistent everywhere.
- */
-export function formatFunctionTypeLabel(
-  parameters: ReadonlyArray<{ name: string; typeName: string; optional?: boolean; rest?: boolean }>,
-  returnTypeName: string,
-  typeParameters?: readonly string[]
-): string {
-  const typeParameterPrefix = typeParameters && typeParameters.length > 0
-    ? `<${typeParameters.join(", ")}>`
-    : "";
-  return `${typeParameterPrefix}(${parameters.map((parameter) => formatParameterLabel(parameter)).join(", ")}) => ${returnTypeName}`;
 }
 
 export interface ResolvedClassMember {
@@ -385,70 +357,6 @@ export async function resolveInterfaceStatementAcrossFiles(
     : null;
   cache.interfaceStatementByName.set(interfaceName, interfaceStatement);
   return interfaceStatement;
-}
-
-function typeNameFromAnalysisType(type: AnalysisType | undefined): string | null {
-  if (!type) {
-    return null;
-  }
-  if (type.kind === "builtin") {
-    return type.name;
-  }
-  if (type.kind === "named") {
-    return typeToString(type);
-  }
-  return typeToString(type);
-}
-
-function explicitTypeNameFromNewExpression(newExpression: NewExpression): string | null {
-  if (newExpression.callee.kind !== "Identifier") {
-    return null;
-  }
-  const baseName = (newExpression.callee as Identifier).name;
-  const typeArguments = (newExpression.typeArguments ?? []).map((typeArgument) => typeArgument.name);
-  if (typeArguments.length > 0) {
-    return `${baseName}<${typeArguments.join(", ")}>`;
-  }
-  return baseName;
-}
-
-function inferredTypeNameLosesGenericArguments(typeName: string | null): boolean {
-  if (!typeName) {
-    return true;
-  }
-  return /<\s*any(?:\s*,\s*any)*\s*>$/.test(typeName);
-}
-
-function declaredInitializerTypeName(
-  declarationNode: Identifier,
-  ast: Program
-): string | null {
-  let resolvedTypeName: string | null = null;
-  walkAst(ast, (node) => {
-    if (resolvedTypeName !== null || node.kind !== "VarStatement") {
-      return;
-    }
-    const varStatement = node as VarStatement;
-    const candidates = varStatement.declarations?.length
-      ? varStatement.declarations
-      : [varStatement];
-    for (const candidate of candidates) {
-      const bindingName = candidate.kind === "VarDeclarator"
-        ? (candidate as VarDeclarator).name
-        : (candidate as VarStatement).name;
-      const initializer = candidate.kind === "VarDeclarator"
-        ? (candidate as VarDeclarator).initializer
-        : (candidate as VarStatement).initializer;
-      if (!bindingIdentifiers(bindingName).some((identifier) => identifier === declarationNode)) {
-        continue;
-      }
-      resolvedTypeName = initializer?.kind === "NewExpression"
-        ? explicitTypeNameFromNewExpression(initializer as NewExpression)
-        : null;
-      break;
-    }
-  });
-  return resolvedTypeName;
 }
 
 export function constructorParameterProperties(classStatement: ClassStatement): FunctionParameter[] {

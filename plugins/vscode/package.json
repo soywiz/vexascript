@@ -94,8 +94,8 @@
     "bundle-extension": "pnpm run bundle-server && pnpm run stage-server-deps && pnpm run bundle-client",
     "package": "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexascript.vsix",
     "launch": "pnpm run bundle-extension && code --extensionDevelopmentPath=$(pwd)",
-    "install": "pnpm package && (code --uninstall-extension soywiz.vexascript-vscodeext || true) && code --install-extension vexascript.vsix --force",
-    "uninstall": "code --uninstall-extension soywiz.vexascript-vscodeext"
+    "install": "pnpm package && (NODE_OPTIONS=--disable-warning=DEP0169 code --uninstall-extension soywiz.vexascript-vscodeext || true) && NODE_OPTIONS=--disable-warning=DEP0169 code --install-extension vexascript.vsix --force",
+    "uninstall": "NODE_OPTIONS=--disable-warning=DEP0169 code --uninstall-extension soywiz.vexascript-vscodeext"
   },
   "devDependencies": {
     "vscode-languageclient": "^9.0.1"

@@ -36,7 +36,7 @@ describe("bundleNodeModuleGraph", () => {
         );
 
         expect(result.code).not.toContain('import { value as sharedValue } from "./shared.mjs";');
-        expect(result.code).toContain('const { value : sharedValue } = require("./shared.mjs");');
+        expect(result.code).toContain('const { value: sharedValue } = require("./shared.mjs");');
       }
     );
   });
@@ -91,6 +91,91 @@ describe("bundleNodeModuleGraph", () => {
         expect(result.code).toContain('const __vexa_import_0 = require("pkg/render");');
         expect(result.code).toContain("const render = __vexa_import_0 && __vexa_import_0.__esModule ? __vexa_import_0.default : __vexa_import_0;");
         expect(result.code).toContain("exports.default = impl;");
+        expect(result.code).toContain("exports.__esModule = true;");
+      }
+    );
+  });
+
+  it("parses JavaScript ESM default function exports through the shared emitter path before falling back", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'import render from "pkg/render"; export const value = render();\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./render": {
+              import: "./render.js"
+            }
+          }
+        }),
+        "node_modules/pkg/render.js": 'export default function render() {\n  return 7;\n}\n'
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import render from "pkg/render"; export const value = render();\n',
+          join(dir, "entry.js")
+        );
+
+        expect(result.code).toContain("function render() {");
+        expect(result.code).toContain("exports.default = render;");
+        expect(result.code).toContain("exports.__esModule = true;");
+      }
+    );
+  });
+
+  it("supports mixed default and named imports from bundled JavaScript ESM modules", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'import render, { version as pkgVersion } from "pkg/render"; export const value = render() + pkgVersion;\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./render": {
+              import: "./render.js"
+            }
+          }
+        }),
+        "node_modules/pkg/render.js": 'export const version = 3;\nexport default function render() {\n  return 7;\n}\n'
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import render, { version as pkgVersion } from "pkg/render"; export const value = render() + pkgVersion;\n',
+          join(dir, "entry.js")
+        );
+
+        expect(result.code).toContain('const __vexa_import_0 = require("pkg/render");');
+        expect(result.code).toContain("const render = __vexa_import_0 && __vexa_import_0.__esModule ? __vexa_import_0.default : __vexa_import_0;");
+        expect(result.code).toContain("const { version: pkgVersion } = __vexa_import_0;");
+        expect(result.code).toContain("exports.version = version;");
+        expect(result.code).toContain("exports.default = render;");
+      }
+    );
+  });
+
+  it("supports bundled JavaScript ESM re-exports through the shared emitter path", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'import render, { version } from "pkg/render"; export const value = render() + version;\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./render": {
+              import: "./render.js"
+            }
+          }
+        }),
+        "node_modules/pkg/render.js": 'export { version } from "./shared.js";\nexport { default } from "./shared.js";\n',
+        "node_modules/pkg/shared.js": 'export const version = 4;\nexport default function render() {\n  return 7;\n}\n'
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import render, { version } from "pkg/render"; export const value = render() + version;\n',
+          join(dir, "entry.js")
+        );
+
+        expect(result.code).toContain('const __vexa_export_0 = require("./shared.js");');
+        expect(result.code).toContain("exports.version = __vexa_export_0.version;");
+        expect(result.code).toContain("exports.default = __vexa_export_1.default;");
         expect(result.code).toContain("exports.__esModule = true;");
       }
     );

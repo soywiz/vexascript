@@ -1,0 +1,227 @@
+import type {
+  BinaryExpression,
+  FunctionParameter,
+  FunctionStatement,
+  Identifier,
+  Program,
+  Statement,
+  VarStatement
+} from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
+import { extname } from "compiler/utils/path";
+
+export interface ImplicitVexaExportPlan {
+  esmSpecifiers: string[];
+  commonJsLines: string[];
+}
+
+function sanitizeRuntimeManglePart(text: string): string {
+  const normalized = text.replace(/[^A-Za-z0-9]+/g, "$").replace(/^\$+|\$+$/g, "");
+  return normalized.length > 0 ? normalized : "unknown";
+}
+
+function parameterTypeNameForExport(parameter: FunctionParameter): string {
+  return parameter.typeAnnotation?.name ?? "unknown";
+}
+
+function overloadSuffixForExport(parameters: FunctionParameter[]): string {
+  const visibleParameters = parameters.filter((parameter) => parameter.thisParameter !== true);
+  return visibleParameters
+    .map((parameter) => sanitizeRuntimeManglePart(parameterTypeNameForExport(parameter)))
+    .join("$$") || "void";
+}
+
+function overloadedRuntimeName(name: string, parameters: FunctionParameter[]): string {
+  return `${name}$$${overloadSuffixForExport(parameters)}`;
+}
+
+function operatorBaseRuntimeName(operator: BinaryExpression["operator"]): string {
+  const map: Record<BinaryExpression["operator"], string> = {
+    "+": "operator$plus",
+    "-": "operator$minus",
+    "*": "operator$multiply",
+    "/": "operator$divide",
+    "%": "operator$mod",
+    "**": "operator$power",
+    "<<": "operator$shiftLeft",
+    ">>": "operator$shiftRight",
+    ">>>": "operator$unsignedShiftRight",
+    "<": "operator$lessThan",
+    ">": "operator$greaterThan",
+    "<=": "operator$lessThanOrEqual",
+    ">=": "operator$greaterThanOrEqual",
+    "in": "operator$in",
+    "is": "operator$is",
+    "instanceof": "operator$instanceof",
+    "==": "operator$equals",
+    "!=": "operator$notEquals",
+    "===": "operator$strictEquals",
+    "!==": "operator$strictNotEquals",
+    "&": "operator$bitAnd",
+    "|": "operator$bitOr",
+    "^": "operator$bitXor",
+    "||": "operator$or",
+    "&&": "operator$and",
+    "??": "operator$nullishCoalesce"
+  };
+  return map[operator] ?? `operator$${sanitizeRuntimeManglePart(operator)}`;
+}
+
+function extensionMethodRuntimeExportName(receiverType: string, baseName: string, parameters: FunctionParameter[]): string {
+  return `${sanitizeRuntimeManglePart(receiverType)}$$${overloadedRuntimeName(baseName, parameters)}`;
+}
+
+function extensionPropertyRuntimeExportName(receiverType: string, propertyName: string): string {
+  return `${sanitizeRuntimeManglePart(receiverType)}$$${sanitizeRuntimeManglePart(propertyName)}`;
+}
+
+function implicitRuntimeExportNames(statement: Statement): string[] {
+  switch (statement.kind) {
+    case "VarStatement": {
+      const variable = statement as VarStatement;
+      if (variable.declared) {
+        return [];
+      }
+      if (variable.receiverType && variable.name.kind === "Identifier") {
+        return [extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name)];
+      }
+      const names = new Set<string>();
+      for (const identifier of bindingIdentifiers(variable.name)) {
+        names.add(identifier.name);
+      }
+      for (const declarator of variable.declarations ?? []) {
+        for (const identifier of bindingIdentifiers(declarator.name)) {
+          names.add(identifier.name);
+        }
+      }
+      return [...names];
+    }
+    case "FunctionStatement": {
+      const fn = statement as FunctionStatement;
+      if (fn.declared || fn.missingBody) {
+        return [];
+      }
+      if (fn.receiverType) {
+        const baseName = fn.operator ? operatorBaseRuntimeName(fn.operator) : fn.name.name;
+        return [extensionMethodRuntimeExportName(fn.receiverType.name, baseName, fn.parameters)];
+      }
+      return [fn.name.name];
+    }
+    case "ClassStatement":
+    case "EnumStatement":
+    case "NamespaceStatement": {
+      if ((statement as { declared?: boolean }).declared) {
+        return [];
+      }
+      if (statement.kind === "NamespaceStatement") {
+        const names = (statement as { names?: Identifier[] }).names;
+        return names && names.length > 0 ? [names[0]!.name] : [];
+      }
+      return [((statement as { name?: Identifier }).name?.name ?? "")].filter((name) => name.length > 0);
+    }
+    default:
+      return [];
+  }
+}
+
+export function collectImplicitVexaExportPlan(ast: Program | null, filePath: string): ImplicitVexaExportPlan {
+  if (extname(filePath).toLowerCase() !== ".vx" || !ast) {
+    return { esmSpecifiers: [], commonJsLines: [] };
+  }
+
+  const overloadCounts = new Map<string, number>();
+  for (const statement of ast.body) {
+    if (statement.kind === "FunctionStatement" && !(statement as FunctionStatement).declared) {
+      const fn = statement as FunctionStatement;
+      overloadCounts.set(fn.name.name, (overloadCounts.get(fn.name.name) ?? 0) + 1);
+    }
+  }
+
+  const esmSpecifiers = new Set<string>();
+  const commonJsLines = new Set<string>();
+
+  for (const statement of ast.body) {
+    if (statement.kind === "ExportStatement") {
+      continue;
+    }
+    if (statement.kind === "VarStatement") {
+      const variable = statement as VarStatement;
+      if (variable.declared) {
+        continue;
+      }
+      if (variable.receiverType && variable.name.kind === "Identifier") {
+        const runtimeName = extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name);
+        esmSpecifiers.add(runtimeName);
+        commonJsLines.add(`exports.${runtimeName} = ${runtimeName};`);
+        continue;
+      }
+      const declarations = variable.declarations && variable.declarations.length > 0
+        ? variable.declarations
+        : [{ name: variable.name, delegate: variable.delegate }];
+      for (const declaration of declarations) {
+        if (declaration.name.kind !== "Identifier" || declaration.delegate) {
+          continue;
+        }
+        const sourceName = declaration.name.name;
+        const runtimeName = declarations.length === 1 ? (variable.jsName ?? sourceName) : sourceName;
+        esmSpecifiers.add(runtimeName === sourceName ? sourceName : `${runtimeName} as ${sourceName}`);
+        commonJsLines.add(`exports.${sourceName} = ${runtimeName};`);
+      }
+      continue;
+    }
+    if (statement.kind === "FunctionStatement") {
+      const fn = statement as FunctionStatement;
+      if (fn.declared || fn.missingBody) {
+        continue;
+      }
+      if (fn.receiverType) {
+        const baseName = fn.operator ? operatorBaseRuntimeName(fn.operator) : fn.name.name;
+        const runtimeName = extensionMethodRuntimeExportName(fn.receiverType.name, baseName, fn.parameters);
+        esmSpecifiers.add(runtimeName);
+        commonJsLines.add(`exports.${runtimeName} = ${runtimeName};`);
+        continue;
+      }
+      const runtimeName = fn.jsName
+        ?? ((overloadCounts.get(fn.name.name) ?? 0) > 1
+          ? overloadedRuntimeName(fn.name.name, fn.parameters)
+          : fn.name.name);
+      const exportName = fn.jsName ? fn.name.name : runtimeName;
+      esmSpecifiers.add(fn.jsName ? `${runtimeName} as ${fn.name.name}` : runtimeName);
+      commonJsLines.add(`exports.${exportName} = ${runtimeName};`);
+      continue;
+    }
+    if (statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+      if ((statement as { declared?: boolean }).declared) {
+        continue;
+      }
+      const sourceName = (statement as { name?: Identifier }).name?.name;
+      if (!sourceName) {
+        continue;
+      }
+      const runtimeName = (statement as { jsName?: string }).jsName ?? sourceName;
+      esmSpecifiers.add(runtimeName === sourceName ? sourceName : `${runtimeName} as ${sourceName}`);
+      commonJsLines.add(`exports.${sourceName} = ${runtimeName};`);
+      continue;
+    }
+    if (statement.kind === "NamespaceStatement") {
+      if ((statement as { declared?: boolean }).declared) {
+        continue;
+      }
+      const sourceName = (statement as { names?: Identifier[] }).names?.[0]?.name;
+      if (sourceName) {
+        esmSpecifiers.add(sourceName);
+        commonJsLines.add(`exports.${sourceName} = ${sourceName};`);
+      }
+      continue;
+    }
+    for (const name of implicitRuntimeExportNames(statement)) {
+      esmSpecifiers.add(name);
+      commonJsLines.add(`exports.${name} = ${name};`);
+    }
+  }
+
+  return {
+    esmSpecifiers: [...esmSpecifiers],
+    commonJsLines: [...commonJsLines]
+  };
+}

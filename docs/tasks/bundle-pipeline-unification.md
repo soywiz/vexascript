@@ -3,6 +3,7 @@
 ## Status
 
 * [ ] Technical debt
+* [~] In progress: implicit Vexa export planning for module-graph ESM and CommonJS-shaped outputs now shares one helper (`compiler/runtime/implicitExports.ts`) instead of keeping two parallel rule sets inside `moduleGraph.ts`.
 
 ## Context
 
@@ -55,9 +56,11 @@ The goal is not to force everything through one giant path. The goal is to make 
 
 ## Suggested Tasks
 
-* [ ] Document the exact phase boundaries between `moduleGraph.ts` and `nodeModuleBundle.ts`.
+* [x] Document the exact phase boundaries between `moduleGraph.ts` and `nodeModuleBundle.ts`.
+  - See `docs/bundle.pipeline.md` for the current ownership split between `compiler/runtime/moduleGraph.ts`, `cli/nodeModuleBundle.ts`, and `cli/cliShared.ts`.
 * [ ] Minimize bundling-specific logic inside otherwise generic compiler emission code.
-* [ ] Consolidate export-planning rules so implicit/runtime/public export behavior has one obvious source of truth.
+* [~] Consolidate export-planning rules so implicit/runtime/public export behavior has one obvious source of truth.
+  - `compiler/runtime/implicitExports.ts` now centralizes the implicit Vexa export plan used by both `appendImplicitVexaExports(...)` and `appendImplicitVexaCommonJsExports(...)` inside `moduleGraph.ts`.
 * [ ] Reduce the number of format-conversion strategies used during bundling where practical.
 * [ ] Add focused tests that pin each bundling phase independently, not only end-to-end bundle output.
 * [ ] Revisit whether some wrapper-generation logic should move to a dedicated bundling module instead of staying in mixed CLI/runtime files.

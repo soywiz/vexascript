@@ -53,6 +53,8 @@ This section is the fast onboarding map for agents and contributors.
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`
   - JavaScript emission: `compiler/runtime/emitter.ts`
+  - CommonJS-specific import/export emission helpers extracted from the generic emitter path: `compiler/runtime/commonJsEmitter.ts`, `compiler/runtime/commonJsEmitter.test.ts`
+  - Shared implicit Vexa export planning used by both module-graph ESM output and module-graph CommonJS-shaped output: `compiler/runtime/implicitExports.ts`, `compiler/runtime/implicitExports.test.ts`
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
   - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.vx` entry file together with its transitively imported local `.vx` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before the CLI hands the emitted JavaScript to the Node-side package bundler): `compiler/runtime/moduleGraph.ts`
@@ -121,14 +123,14 @@ This section is the fast onboarding map for agents and contributors.
   - Project-level analysis adapter: `compiler/lsp/projectAnalysis.ts`
   - Session cache: `compiler/lsp/analysisSession.ts`
   - Completion orchestrator that runs the completion strategies in priority order (annotations, member access, named call arguments, ranked in-scope symbols, auto-imports, keyword fallback): `compiler/lsp/completion.ts`
-  - Completion strategy modules: shared item kinds/request contracts/snippet helpers in `compiler/lsp/completionModel.ts`, member-access completion (receiver-type recovery plus class/interface/enum/type-alias/extension/namespace member items, including members resolved over imports through the shared module resolver) in `compiler/lsp/memberCompletion.ts`, call-argument completion (named arguments and expected-type inference) in `compiler/lsp/argumentCompletion.ts`, and auto-import completion in `compiler/lsp/importCompletion.ts`
+  - Completion strategy modules: shared item kinds/request contracts/snippet helpers in `compiler/lsp/completionModel.ts`, annotation/declaration-name context detection in `compiler/lsp/completionContext.ts`, receiver-type normalization/recovery for member completion in `compiler/lsp/memberCompletionTypeNames.ts`, member-access completion (class/interface/enum/type-alias/extension/namespace member items, including members resolved over imports through the shared module resolver) in `compiler/lsp/memberCompletion.ts`, call-argument completion (named arguments and expected-type inference) in `compiler/lsp/argumentCompletion.ts`, ranked in-scope symbol completion and ranking heuristics in `compiler/lsp/symbolCompletion.ts`, and auto-import completion in `compiler/lsp/importCompletion.ts`
   - Diagnostics: `compiler/lsp/diagnostics.ts`
   - Cross-file type diagnostics: `compiler/lsp/crossFileTypeDiagnostics.ts`
   - Member diagnostics: `compiler/lsp/memberDiagnostics.ts`
   - Diagnostic code mapping and shared semantic diagnostic parsing for quick fixes: `compiler/lsp/diagnosticCodes.ts`
   - Shared position/range helpers for LSP quick fixes and document features: `compiler/lsp/ranges.ts`
   - Shared AST node search helpers for LSP quick-fix target lookup, including generic size-ranked best-match searches used by the quick-fix modules: `compiler/lsp/nodeSearch.ts`
-  - Navigation/rename/references: `compiler/lsp/navigation.ts` (local single-file features including `resolveCursorTarget`, `createHover`, `createDefinitionLocation`), plus the unified cross-file operations in `compiler/lsp/crossFileNavigation.ts` (including `resolveHoverWithLocalFallback` and `resolveDefinitionWithLocalFallback` as the single unified entrypoints for hover and definition), built on the shared resolve-context/canonical-symbol plumbing in `compiler/lsp/crossFileContext.ts` (including the shared ambient helpers `detectAmbientExportEqualsName`, `findAmbientNamespaceBody`, `collectAmbientFunctionStatements`, and `findAmbientModuleReceiverCandidates` for matching a default/namespace import receiver to its ambient module-name candidates) and the member/type shape and declaration resolution helpers in `compiler/lsp/crossFileTypeResolution.ts`
+  - Navigation/rename/references: `compiler/lsp/navigation.ts` (local single-file features including `resolveCursorTarget`, `createHover`, `createDefinitionLocation`), plus the unified cross-file operations in `compiler/lsp/crossFileNavigation.ts` (including `resolveHoverWithLocalFallback` and `resolveDefinitionWithLocalFallback` as the single unified entrypoints for hover and definition), the import-string-literal hover/definition helpers in `compiler/lsp/importPathNavigation.ts`, the shared resolve-context/canonical-symbol plumbing in `compiler/lsp/crossFileContext.ts` (including the shared ambient helpers `detectAmbientExportEqualsName`, `findAmbientNamespaceBody`, `collectAmbientFunctionStatements`, and `findAmbientModuleReceiverCandidates` for matching a default/namespace import receiver to its ambient module-name candidates) and the member/type shape and declaration resolution helpers in `compiler/lsp/crossFileTypeResolution.ts`
   - Cross-feature LSP unification tests verifying hover/definition/references agree on the same canonical symbol: `compiler/lsp/lspUnification.test.ts`
   - Signature help: `compiler/lsp/signatureHelp.ts`
   - Document/workspace symbols: `compiler/lsp/symbols.ts`
@@ -144,7 +146,10 @@ This section is the fast onboarding map for agents and contributors.
   - Explicit return type quick fix (adds an inferred return type annotation after the parameter list of a function/method declaration that has no explicit return type, e.g. `function add(a, b) { ... }` to `function add(a, b): number { ... }`): `compiler/lsp/returnTypeFixes.ts`
   - Empty class body quick fix (removes the empty braces from a class that declares no members, e.g. `class TimeSpan(val ms: number) { }` to `class TimeSpan(val ms: number)`): `compiler/lsp/emptyClassBodyFixes.ts`
   - Shared cross-file top-level declaration resolution helpers: `compiler/lsp/declarationResolver.ts`
-  - Class/interface resolution helpers, including the shared `formatParameterLabel`/`formatFunctionTypeLabel` function-type display formatters reused by hover, signature help, completion, and ambient-declaration display: `compiler/lsp/classResolver.ts`, `compiler/lsp/classResolver.test.ts`
+  - Shared function-signature display helpers reused by hover, signature help, completion, and ambient-declaration display: `compiler/lsp/functionTypeDisplay.ts`, `compiler/lsp/classResolver.test.ts`
+  - Shared type-name inference helpers used by class/member resolution when analysis results need to be mapped back to displayable or recoverable type names: `compiler/lsp/classResolverTypeNames.ts`, `compiler/lsp/classResolverTypeNames.test.ts`
+  - Class/interface resolution helpers focused on cross-file/member/type lookup: `compiler/lsp/classResolver.ts`, `compiler/lsp/classResolver.test.ts`
+  - Shared ambient-declaration display helpers used by imported ambient-module resolution tests and LSP display surfaces to render function/property labels without mixing presentation back into declaration collection: `compiler/lsp/ambientDisplay.ts`, `compiler/lsp/ambientDisplay.test.ts`
   - Shared declaration-documentation extraction for `///` and block doc comments used by completion/signature/hover surfaces: `compiler/lsp/documentation.ts`
   - Imported type-declaration collection feeding cross-file extension-method/`this` resolution into the per-document analysis (via `Analysis` `externalDeclarations`); also resolves named import types from ambient modules (including `export =` / namespace / interface-member chains): `compiler/lsp/importedDeclarations.ts`, `compiler/lsp/importedDeclarations.test.ts`
   - LSP tests: `compiler/lsp/*.test.ts`
@@ -180,6 +185,7 @@ This section is the fast onboarding map for agents and contributors.
 - LSP canonical cursor-target model design for unifying navigation, hover, references, rename, and signature help: `docs/lsp.cursor-target-model.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
 - Transpilation design note: `docs/transpilation.design.md`
+- Bundle pipeline phase-boundary note for `compiler/runtime/moduleGraph.ts` / `cli/nodeModuleBundle.ts` / `cli/cliShared.ts`: `docs/bundle.pipeline.md`
 - Architecture map consistency guard: `validation/architectureMap.test.ts`
 
 ### Repository Validation

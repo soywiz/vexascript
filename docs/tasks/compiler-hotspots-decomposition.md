@@ -3,6 +3,7 @@
 ## Status
 
 * [ ] Technical debt
+* [~] In progress: CommonJS-specific import/export emission was extracted from `compiler/runtime/emitter.ts` into `compiler/runtime/commonJsEmitter.ts` with helper-level tests, reducing one module-format responsibility slice from the generic emitter path.
 
 ## Context
 

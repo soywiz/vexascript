@@ -65,10 +65,10 @@ describe("VS Code extension packaging", () => {
       "pnpm run bundle-extension && pnpm dlx @vscode/vsce package --no-dependencies --out vexascript.vsix"
     );
     expect(pkg.scripts?.["install"]).toBe(
-      "pnpm package && (code --uninstall-extension soywiz.vexascript-vscodeext || true) && code --install-extension vexascript.vsix --force"
+      "pnpm package && (NODE_OPTIONS=--disable-warning=DEP0169 code --uninstall-extension soywiz.vexascript-vscodeext || true) && NODE_OPTIONS=--disable-warning=DEP0169 code --install-extension vexascript.vsix --force"
     );
     expect(pkg.scripts?.["uninstall"]).toBe(
-      "code --uninstall-extension soywiz.vexascript-vscodeext"
+      "NODE_OPTIONS=--disable-warning=DEP0169 code --uninstall-extension soywiz.vexascript-vscodeext"
     );
   });
 

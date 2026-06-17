@@ -14,6 +14,7 @@ import {
   resolveReferencesAcrossFiles,
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
+import { resolveImportPathHover } from "./importPathNavigation";
 import { pathToUri } from "./importFixes";
 import {
   ensureEcmaScriptRuntimeProgram,
@@ -1412,7 +1413,6 @@ describe("cross-file navigation", () => {
     await writeFile(fileA, "class Foo\n", "utf8");
     await writeFile(fileB, `import { Foo } from "./a"\n`, "utf8");
 
-    const { resolveImportPathHover } = await import("./crossFileNavigation");
     const sessionB = createAnalysisSession(`import { Foo } from "./a"\n`);
     const hover = await resolveImportPathHover({
       uri: pathToFileURL(fileB).toString(),

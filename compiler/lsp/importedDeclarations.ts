@@ -20,7 +20,11 @@ import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { topLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
-import { formatFunctionTypeLabel } from "./classResolver";
+import {
+  renderAmbientFunctionDisplayFromStatement,
+  renderAmbientInterfaceMemberDisplay,
+  renderAmbientTypeAnnotationText
+} from "./ambientDisplay";
 import type { AnalysisType, ArrayType } from "compiler/analysis/types";
 import {
   BUILTIN_TYPE_NAMES,
@@ -1223,54 +1227,6 @@ export interface CollectedImportedDeclarations {
   importedSymbolTypes: Map<string, AnalysisType>;
   importedSymbolDisplayTypes: Map<string, string>;
   invalidImportedBindings: Set<string>;
-}
-
-function renderAmbientTypeAnnotationText(typeName: string | undefined): string {
-  return typeName?.trim() || "unknown";
-}
-
-function renderAmbientFunctionDisplayFromParts(
-  parameters: Array<{ name: string; typeName: string; optional: boolean; rest: boolean }>,
-  returnTypeName: string,
-  typeParameters?: string[]
-): string {
-  return formatFunctionTypeLabel(parameters, returnTypeName, typeParameters);
-}
-
-function renderAmbientFunctionDisplayFromStatement(fn: FunctionStatement): string {
-  return renderAmbientFunctionDisplayFromParts(
-    fn.parameters
-      .filter((parameter) => parameter.thisParameter !== true)
-      .map((parameter) => ({
-        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
-        typeName: renderAmbientTypeAnnotationText(parameter.typeAnnotation?.name),
-        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-        rest: parameter.rest === true
-      })),
-    renderAmbientTypeAnnotationText(fn.returnType?.name),
-    fn.typeParameters?.map((parameter) => parameter.name.name)
-  );
-}
-
-function renderAmbientFunctionDisplayFromInterfaceMember(member: InterfaceMethodMember): string {
-  return renderAmbientFunctionDisplayFromParts(
-    member.parameters
-      .filter((parameter) => parameter.thisParameter !== true)
-      .map((parameter) => ({
-        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
-        typeName: renderAmbientTypeAnnotationText(parameter.typeAnnotation?.name),
-        optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
-        rest: parameter.rest === true
-      })),
-    renderAmbientTypeAnnotationText(member.returnType?.name)
-  );
-}
-
-function renderAmbientInterfaceMemberDisplay(member: InterfaceMember): string {
-  if (member.kind === "InterfaceMethodMember") {
-    return renderAmbientFunctionDisplayFromInterfaceMember(member as InterfaceMethodMember);
-  }
-  return renderAmbientTypeAnnotationText(member.typeAnnotation?.name);
 }
 
 function ambientModuleDeclarationCandidates(

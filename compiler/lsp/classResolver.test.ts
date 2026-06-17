@@ -1,5 +1,5 @@
 import { describe, expect, it } from "compiler/test/expect";
-import { formatFunctionTypeLabel, formatParameterLabel } from "./classResolver";
+import { formatFunctionTypeLabel, formatParameterLabel } from "./functionTypeDisplay";
 
 describe("formatParameterLabel", () => {
   it("renders a plain required parameter", () => {

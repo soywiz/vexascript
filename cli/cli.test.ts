@@ -228,7 +228,7 @@ describe("CLI", () => {
     expect(outputCode).toContain("exports.label = label;");
     expect(outputCode).toContain("const __vexaModules = {");
     expect(outputCode).toContain("async function (module, exports, __requireFrom)");
-    expect(outputCode).toContain("const suffix = '-from-js';");
+    expect(outputCode).toContain('const suffix = "-from-js";');
     expect(outputCode).toContain("exports.suffix = suffix;");
 
     const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: string };

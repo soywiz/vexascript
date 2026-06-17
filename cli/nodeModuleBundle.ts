@@ -419,6 +419,11 @@ function transformJavaScriptModuleSource(source: string): string {
   return transformed;
 }
 
+function isJavaScriptLikeModulePath(filePath: string): boolean {
+  const extension = extname(filePath).toLowerCase();
+  return extension === ".js" || extension === ".mjs" || extension === ".cjs" || extension === ".jsx";
+}
+
 function transpileModuleSource(source: string, filePath: string): { code: string; exportNames: string[] | null } {
   if (shouldPreserveCommonJsSource(source, filePath)) {
     return {
@@ -427,17 +432,18 @@ function transpileModuleSource(source: string, filePath: string): { code: string
     };
   }
   const extension = extname(filePath).toLowerCase();
-  if (extension === ".js" || extension === ".mjs" || extension === ".cjs" || extension === ".jsx") {
-    return {
-      code: transformJavaScriptModuleSource(source),
-      exportNames: null
-    };
-  }
+  const javascriptLikeModule = isJavaScriptLikeModulePath(filePath);
   const parsed = parseSource(source, {
     language: "typescript",
     jsx: extension === ".tsx" || extension === ".jsx"
   });
   if (!parsed.ast) {
+    if (javascriptLikeModule) {
+      return {
+        code: transformJavaScriptModuleSource(source),
+        exportNames: null
+      };
+    }
     const detail = parsed.fatalError
       ?? parsed.tokenizeError?.message
       ?? parsed.parserIssues[0]?.message
@@ -445,6 +451,12 @@ function transpileModuleSource(source: string, filePath: string): { code: string
     throw new Error(`Unable to parse bundled module '${filePath}': ${detail}`);
   }
   if (parsed.parserIssues.length > 0) {
+    if (javascriptLikeModule) {
+      return {
+        code: transformJavaScriptModuleSource(source),
+        exportNames: null
+      };
+    }
     const issue = parsed.parserIssues[0]!;
     throw new Error(`Unable to parse bundled module '${filePath}': ${issue.message}`);
   }

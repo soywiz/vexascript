@@ -162,6 +162,37 @@ describe("LSP unification", () => {
       // Should return a hover (not null) - analysis hover for the imported binding
       expect(hover).not.toBeNull();
     });
+
+    it("import path hover and definition agree on the same resolved file", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-lsp-unification-"));
+      const fileA = join(root, "a.vx");
+      const fileB = join(root, "b.vx");
+
+      await writeFile(fileA, "export fun greet(name: string): string => \"Hello \" + name\n", "utf8");
+
+      const marked = sourceWithCursor(`import { greet } from "./^^^a"\nfun demo() { greet("world") }\n`);
+      await writeFile(fileB, marked.source, "utf8");
+
+      const sessionB = createAnalysisSession(marked.source);
+      const context = {
+        uri: pathToFileURL(fileB).toString(),
+        line: marked.line,
+        character: marked.character,
+        session: sessionB,
+        sourceRoots: [root]
+      };
+
+      const hover = await resolveHoverWithLocalFallback(context);
+      const definition = await resolveDefinitionWithLocalFallback(context);
+
+      expect(hover?.contents).toEqual(expect.objectContaining({ kind: "plaintext" }));
+      expect((hover?.contents as { value: string }).value).toContain("module:");
+      expect((hover?.contents as { value: string }).value).toContain(fileA);
+      expect(definition).toEqual({
+        uri: pathToFileURL(fileA).toString(),
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+      });
+    });
   });
 
   describe("imported symbol navigation at call site", () => {

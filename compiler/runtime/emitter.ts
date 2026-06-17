@@ -70,6 +70,11 @@ import type { AnalysisType } from "compiler/analysis/types";
 import { typeToString } from "compiler/analysis/types";
 import type { BindingElement, BindingName } from "compiler/ast/ast";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
+import {
+  emitCommonJsExportStatement,
+  emitCommonJsImportStatement,
+  type CommonJsRuntimeExportBinding
+} from "./commonJsEmitter";
 
 type Assoc = "left" | "right";
 
@@ -1741,7 +1746,25 @@ function defaultRequireBinding(target: string): string {
   return `${target} && ${target}.__esModule ? ${target}.default : ${target}`;
 }
 
-function commonJsRuntimeExportBindings(statement: Statement): Array<{ exportedName: string; valueExpression: string }> {
+function commonJsEmitterContext() {
+  return {
+    rewriteImportPath,
+    nextGeneratedSymbol,
+    emitExpression,
+    emitStatement,
+    commonJsRuntimeExportBindings,
+    resolveJsName,
+    importedOverloadRuntimeNames,
+    importedExtensionRuntimeNames,
+    getExtensionPropertyReceiverType: (localName: string) => activeState.extensionProperties.get(localName),
+    extensionPropertyRuntimeName,
+    isOperatorImportName,
+    defaultRequireBinding,
+    esmImportBindingToCommonJs
+  };
+}
+
+function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExportBinding[] {
   if (statement.kind === "VarStatement") {
     const variable = statement as VarStatement;
     if (variable.receiverType && variable.name.kind === "Identifier") {
@@ -1780,134 +1803,6 @@ function commonJsRuntimeExportBindings(statement: Statement): Array<{ exportedNa
     return rootName ? [{ exportedName: rootName, valueExpression: rootName }] : [];
   }
   return [];
-}
-
-function emitCommonJsExportStatement(exportStatement: ExportStatement): string {
-  if (exportStatement.typeOnly) {
-    return "";
-  }
-  if (exportStatement.namespaceExport) {
-    if (!exportStatement.from) {
-      return "";
-    }
-    const exportTemp = nextGeneratedSymbol("__vexa_export");
-    return [
-      `const ${exportTemp} = require(${JSON.stringify(rewriteImportPath(exportStatement.from.value))});`,
-      `exports.${exportStatement.namespaceExport.name} = ${exportTemp};`
-    ].join("\n");
-  }
-  if (exportStatement.exportAll) {
-    if (!exportStatement.from) {
-      return "";
-    }
-    const exportTemp = nextGeneratedSymbol("__vexa_export_all");
-    return [
-      `const ${exportTemp} = require(${JSON.stringify(rewriteImportPath(exportStatement.from.value))});`,
-      `for (const __vexa_export_key in ${exportTemp}) {`,
-      `  if (__vexa_export_key !== "default" && __vexa_export_key !== "__esModule") {`,
-      `    exports[__vexa_export_key] = ${exportTemp}[__vexa_export_key];`,
-      `  }`,
-      `}`
-    ].join("\n");
-  }
-  if (exportStatement.specifiers) {
-    const lines: string[] = [];
-    let exportSource: string | null = null;
-    if (exportStatement.from) {
-      exportSource = nextGeneratedSymbol("__vexa_export");
-      lines.push(`const ${exportSource} = require(${JSON.stringify(rewriteImportPath(exportStatement.from.value))});`);
-    }
-    for (const specifier of exportStatement.specifiers) {
-      if (specifier.typeOnly) {
-        continue;
-      }
-      const exportedName = specifier.exported.name;
-      const localName = exportStatement.from
-        ? (specifier.local ?? specifier.exported).name
-        : resolveJsName((specifier.local ?? specifier.exported).name);
-      lines.push(`exports.${exportedName} = ${exportSource ? `${exportSource}.${localName}` : localName};`);
-    }
-    return lines.join("\n");
-  }
-  if (!exportStatement.declaration) {
-    return "";
-  }
-  if (exportStatement.default && exportStatement.declaration.kind === "ExprStatement") {
-    return `exports.default = ${emitExpression((exportStatement.declaration as ExprStatement).expression)};\nexports.__esModule = true;`;
-  }
-  const emitted = emitStatement(exportStatement.declaration);
-  if (!emitted) {
-    return "";
-  }
-  const runtimeBindings = commonJsRuntimeExportBindings(exportStatement.declaration);
-  if (exportStatement.default) {
-    const defaultTarget = runtimeBindings[0]?.valueExpression;
-    return defaultTarget ? `${emitted}\nexports.default = ${defaultTarget};\nexports.__esModule = true;` : emitted;
-  }
-  if (runtimeBindings.length === 0) {
-    return emitted;
-  }
-  return [
-    emitted,
-    ...runtimeBindings.map(({ exportedName, valueExpression }) => `exports.${exportedName} = ${valueExpression};`)
-  ].join("\n");
-}
-
-function emitCommonJsImportStatement(importStatement: ImportStatement): string {
-  if (importStatement.typeOnly) {
-    return "";
-  }
-  const source = JSON.stringify(rewriteImportPath(importStatement.from.value));
-  if (importStatement.sideEffectOnly) {
-    return `require(${source});`;
-  }
-  const namedImports: string[] = [];
-  for (const specifier of importStatement.specifiers) {
-    const localName = specifier.local?.name ?? specifier.imported.name;
-    const overloadRuntimeNames = importedOverloadRuntimeNames(specifier.imported.name, localName);
-    if (overloadRuntimeNames.length > 0) {
-      namedImports.push(...overloadRuntimeNames);
-      continue;
-    }
-
-    const extensionRuntimeNames = importedExtensionRuntimeNames(specifier.imported.name);
-    if (extensionRuntimeNames.length > 0) {
-      namedImports.push(...extensionRuntimeNames);
-      continue;
-    }
-
-    const receiverType = activeState.extensionProperties.get(localName);
-    if (receiverType) {
-      const importedName = extensionPropertyRuntimeName(receiverType, specifier.imported.name);
-      namedImports.push(specifier.local ? `${importedName} as ${specifier.local.name}` : importedName);
-      continue;
-    }
-
-    if (!isOperatorImportName(specifier.imported.name)) {
-      namedImports.push(specifier.local ? `${specifier.imported.name} as ${specifier.local.name}` : specifier.imported.name);
-    }
-  }
-  const hadOperatorImport = importStatement.specifiers.some((specifier) => isOperatorImportName(specifier.imported.name));
-  const lines: string[] = [];
-  const requiresModuleObject = importStatement.defaultImport !== undefined || importStatement.namespaceImport !== undefined;
-  const moduleObject = requiresModuleObject ? nextGeneratedSymbol("__vexa_import") : null;
-  if (moduleObject) {
-    lines.push(`const ${moduleObject} = require(${source});`);
-  }
-  if (importStatement.defaultImport) {
-    lines.push(`const ${importStatement.defaultImport.name} = ${defaultRequireBinding(moduleObject!)};`);
-  }
-  if (importStatement.namespaceImport) {
-    lines.push(`const ${importStatement.namespaceImport.name} = ${moduleObject!};`);
-  }
-  if (namedImports.length > 0) {
-    const bindingTarget = moduleObject ?? `require(${source})`;
-    lines.push(`const { ${namedImports.map(esmImportBindingToCommonJs).join(", ")} } = ${bindingTarget};`);
-  }
-  if (lines.length === 0) {
-    return hadOperatorImport ? `require(${source});` : "";
-  }
-  return lines.join("\n");
 }
 
 function emitNamespaceStatement(statement: NamespaceStatement): string {
@@ -1958,7 +1853,7 @@ export function emitStatement(statement: Statement): string {
     case "ExportStatement": {
       const exportStatement = statement as ExportStatement;
       if (activeState.moduleFormat === "commonjs") {
-        return emitCommonJsExportStatement(exportStatement);
+        return emitCommonJsExportStatement(exportStatement, commonJsEmitterContext());
       }
       if (exportStatement.typeOnly || exportStatement.namespaceExport) {
         return "";
@@ -1993,7 +1888,7 @@ export function emitStatement(statement: Statement): string {
     case "ImportStatement": {
       const importStatement = statement as ImportStatement;
       if (activeState.moduleFormat === "commonjs") {
-        return emitCommonJsImportStatement(importStatement);
+        return emitCommonJsImportStatement(importStatement, commonJsEmitterContext());
       }
       if (importStatement.typeOnly) {
         return "";

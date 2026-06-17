@@ -17,7 +17,6 @@ import { Analysis } from "compiler/analysis/Analysis";
 import { walkAst } from "compiler/ast/traversal";
 import {
   createClassResolverCache,
-  formatFunctionTypeLabel,
   type ResolvedFunctionSignature,
   resolveCallableSignature,
   resolveClassMember,
@@ -31,6 +30,7 @@ import {
 import type { CompletionRequestOptions } from "./completionModel";
 import { CompletionItemKind, classResolverOptionsFromCompletionOptions } from "./completionModel";
 import { findArgumentCompletionContext } from "./argumentCompletion";
+import { formatFunctionTypeLabel } from "./functionTypeDisplay";
 import { containsPosition, nodeRange } from "./ranges";
 
 interface ObjectLiteralCompletionContext {

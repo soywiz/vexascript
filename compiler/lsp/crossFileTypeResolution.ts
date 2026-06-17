@@ -5,7 +5,7 @@
  * declarations. Used by the definition/hover/references operations in
  * crossFileNavigation.ts.
  */
-import { classPropertyParameters, formatFunctionTypeLabel } from "./classResolver";
+import { classPropertyParameters } from "./classResolver";
 import {
   ambientDeclarationLocationForSymbol,
   effectiveSourceRoots,
@@ -17,6 +17,7 @@ import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { uriToFilePath } from "./importFixes";
 import { findBestMatchAtPosition } from "./nodeSearch";
 import { containsPosition, nodeRange } from "./ranges";
+import { formatFunctionTypeLabel } from "./functionTypeDisplay";
 import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
 import type { ClassStatement, FunctionParameter, Identifier, InterfaceStatement, MemberExpression, Program, Statement, TypeAliasStatement } from "compiler/ast/ast";
 import { bindingNameText } from "compiler/ast/bindingPatterns";

@@ -13,6 +13,7 @@ import {
 import { resolveDefinitionAcrossFiles } from "./crossFileNavigation";
 import { collectAllImportedDeclarations, collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 import { getProjectIndex } from "./projectAnalysis";
+import { buildVisibleSymbolCompletionItems } from "./symbolCompletion";
 
 function parseAmbientModule(src: string, moduleName: string) {
   const result = parseSource(src, { language: "typescript" });
@@ -1743,6 +1744,40 @@ describe("createCompletionItemsForPosition", () => {
     expect(symbolLabels.indexOf("count")).toBeLessThan(symbolLabels.indexOf("text"));
   });
 
+  it("builds ranked visible-symbol completion items through the extracted helper", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      /// documented function docs
+      fun documented(): number {
+        return 2
+      }
+      let exact: number = 2
+      let count: int = 1
+      let text: string = "a"
+      ^^^exact
+    `);
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const items = buildVisibleSymbolCompletionItems({
+      ast: session.ast!,
+      analysis: session.analysis!,
+      line,
+      character,
+      expectedTypeName: "number",
+      options: { text: source },
+      seenLabels: new Set<string>()
+    });
+    const rankedSubset = items
+      .filter((item) => item.detail?.startsWith("In-scope "))
+      .map((item) => item.label)
+      .filter((label) => label === "exact" || label === "count" || label === "text");
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(rankedSubset).toEqual(["exact", "count", "text"]);
+    expect(byLabel.get("documented")?.documentation).toBe("documented function docs");
+  });
+
   it("offers members from a node_modules namespace when typing obj.^^^", async () => {
     const MINI_DTS = dedent`
       declare function pkg(x: string): pkg.Result;
@@ -2116,7 +2151,8 @@ describe("createCompletionItemsForPosition", () => {
       "compiler/lsp/completionModel.ts",
       "compiler/lsp/memberCompletion.ts",
       "compiler/lsp/argumentCompletion.ts",
-      "compiler/lsp/importCompletion.ts"
+      "compiler/lsp/importCompletion.ts",
+      "compiler/lsp/symbolCompletion.ts"
     ]) {
       const source = await readFile(strategyModule, "utf8");
       expect(source.includes('from "./completion"')).toBe(false);

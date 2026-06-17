@@ -23,7 +23,6 @@ import {
   getVexaScriptRuntimeProgram
 } from "compiler/runtime/ecmascriptDeclarations";
 import {
-  formatParameterLabel,
   resolveCallableSignatures,
   resolveConstructorSignature,
   type ClassResolverOptions
@@ -32,6 +31,7 @@ import {
   readDocumentationForSymbol,
   readDocumentationFromNamedNode
 } from "./documentation";
+import { formatParameterLabel } from "./functionTypeDisplay";
 import { findBestMatch } from "./nodeSearch";
 import { resolveCursorTarget, type CursorTarget } from "./navigation";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
