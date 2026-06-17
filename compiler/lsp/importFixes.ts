@@ -9,6 +9,7 @@ import type {
   TypeAliasStatement,
   VarStatement
 } from "compiler/ast/ast";
+import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { CodeAction, Diagnostic, Range, TextEdit } from "vscode-languageserver/node.js";
 import { getProjectIndex, type ProjectTopLevelDeclarationKind } from "./projectAnalysis";
 import { dirname, fileURLToPath, pathToFileURL, relative } from "compiler/utils/path";
@@ -19,12 +20,14 @@ import {
   parseUnknownTypeDiagnostic
 } from "./diagnosticCodes";
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
+import { getNodeModuleTypings } from "./nodeModulesTypings";
 
 export interface SymbolExport {
   name: string;
   filePath: string;
   kind: ProjectTopLevelDeclarationKind;
   importPath?: string;
+  typeOnly?: boolean;
   receiverType?: string;
   memberKind?: "property" | "method";
 }
@@ -304,6 +307,81 @@ function importPathForSymbolExport(symbolExport: SymbolExport, currentFilePath: 
   return symbolExport.importPath ?? toImportPath(currentFilePath, symbolExport.filePath);
 }
 
+function isTypeOnlySymbolExport(symbolExport: SymbolExport): boolean {
+  return symbolExport.typeOnly === true || symbolExport.kind === "type" || symbolExport.kind === "interface";
+}
+
+function isBareModuleSpecifier(specifier: string): boolean {
+  return !specifier.startsWith(".") && !specifier.startsWith("/");
+}
+
+async function collectNodeModuleExportsFromExistingImports(
+  ast: Program,
+  currentFilePath: string
+): Promise<SymbolExport[]> {
+  const imports = new Set<string>();
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importPath = (statement as ImportStatement).from.value;
+    if (isBareModuleSpecifier(importPath)) {
+      imports.add(importPath);
+    }
+  }
+
+  const exports: SymbolExport[] = [];
+  const seen = new Set<string>();
+  for (const importPath of imports) {
+    const typings = await getNodeModuleTypings(currentFilePath, importPath);
+    if (!typings) {
+      continue;
+    }
+    for (const statement of typings.declarations) {
+      const declaration = unwrapExportedDeclaration(statement);
+      if (!declaration) {
+        continue;
+      }
+      const typeOnly = statement.kind === "ExportStatement" && (statement as ExportStatement).typeOnly === true;
+      let name: string | null = null;
+      let kind: ProjectTopLevelDeclarationKind | null = null;
+      if (declaration.kind === "ClassStatement") {
+        name = (declaration as ClassStatement).name.name;
+        kind = "class";
+      } else if (declaration.kind === "InterfaceStatement") {
+        name = (declaration as InterfaceStatement).name.name;
+        kind = "interface";
+      } else if (declaration.kind === "TypeAliasStatement") {
+        name = (declaration as TypeAliasStatement).name.name;
+        kind = "type";
+      } else if (declaration.kind === "FunctionStatement") {
+        name = (declaration as FunctionStatement).name.name;
+        kind = "function";
+      } else if (declaration.kind === "VarStatement" && (declaration as VarStatement).name.kind === "Identifier") {
+        name = ((declaration as VarStatement).name as { name: string }).name;
+        kind = "variable";
+      }
+      if (!name || !kind) {
+        continue;
+      }
+      const key = `${importPath}::${name}::${kind}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      exports.push({
+        name,
+        kind,
+        filePath: `/node_modules/${importPath}`,
+        importPath,
+        ...(typeOnly || kind === "type" || kind === "interface" ? { typeOnly: true } : {})
+      });
+    }
+  }
+
+  return exports;
+}
+
 function findExistingImportFromPath(ast: Program, importPath: string): ImportStatement | null {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") break;
@@ -387,7 +465,9 @@ export async function createAutoImportCodeActions(params: {
     sourceRoots,
     ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {}),
   });
-  if (exportedSymbols.length === 0) {
+  const nodeModuleExports = await collectNodeModuleExportsFromExistingImports(ast, currentFilePath);
+  const availableSymbols = [...exportedSymbols, ...nodeModuleExports];
+  if (availableSymbols.length === 0) {
     return [];
   }
 
@@ -399,7 +479,7 @@ export async function createAutoImportCodeActions(params: {
       continue;
     }
 
-    const candidates = exportedSymbols.filter(
+    const candidates = availableSymbols.filter(
       (symbolExport) =>
         symbolExport.name === symbolName &&
         symbolExport.filePath !== currentFilePath
@@ -412,7 +492,7 @@ export async function createAutoImportCodeActions(params: {
       continue;
     }
 
-    const candidates = exportedSymbols.filter(
+    const candidates = availableSymbols.filter(
       (symbolExport) =>
         symbolExport.name === symbolName &&
         symbolExport.receiverType === receiverType &&
@@ -500,11 +580,15 @@ export function buildAutoImportTextEdits(
   suggestion: AutoImportSuggestion
 ): TextEdit[] {
   const existingImport = findExistingImportFromPath(ast, suggestion.importPath);
+  const typeOnly = isTypeOnlySymbolExport(suggestion.symbol);
   if (existingImport?.firstToken && existingImport?.lastToken) {
-    const existingNames = existingImport.specifiers.map((specifier) => specifier.imported.name);
-    const allNames = existingNames.includes(suggestion.symbol.name)
+    const existingNames = existingImport.specifiers.map((specifier) => ({
+      name: specifier.imported.name,
+      typeOnly: specifier.typeOnly === true
+    }));
+    const allNames = existingNames.some((specifier) => specifier.name === suggestion.symbol.name)
       ? existingNames
-      : [...existingNames, suggestion.symbol.name];
+      : [...existingNames, { name: suggestion.symbol.name, typeOnly }];
     const clauses: string[] = [];
     if (existingImport.defaultImport) {
       clauses.push(existingImport.defaultImport.name);
@@ -513,7 +597,7 @@ export function buildAutoImportTextEdits(
       clauses.push(`* as ${existingImport.namespaceImport.name}`);
     }
     if (allNames.length > 0) {
-      clauses.push(`{ ${allNames.join(", ")} }`);
+      clauses.push(`{ ${allNames.map((specifier) => specifier.typeOnly ? `type ${specifier.name}` : specifier.name).join(", ")} }`);
     }
     const start = existingImport.firstToken.range.start;
     const end = existingImport.lastToken.range.end;
@@ -522,13 +606,15 @@ export function buildAutoImportTextEdits(
         start: { line: start.line, character: start.column },
         end: { line: end.line, character: end.column }
       },
-      newText: `import ${clauses.join(", ")} from "${suggestion.importPath}"`
+      newText: `${existingImport.typeOnly ? "import type" : "import"} ${clauses.join(", ")} from "${suggestion.importPath}"`
     }];
   }
 
   return [{
     range: suggestion.range,
-    newText: `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
+    newText: typeOnly
+      ? `import type { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
+      : `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
   }];
 }
 
@@ -586,7 +672,9 @@ export async function buildAutoImportSuggestions(params: {
     sourceRoots,
     ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {}),
   });
-  if (exportedSymbols.length === 0) {
+  const nodeModuleExports = await collectNodeModuleExportsFromExistingImports(ast, currentFilePath);
+  const availableSymbols = [...exportedSymbols, ...nodeModuleExports];
+  if (availableSymbols.length === 0) {
     return [];
   }
 
@@ -599,7 +687,7 @@ export async function buildAutoImportSuggestions(params: {
   const seen = new Set<string>();
   const range = importInsertionRange(ast);
 
-  for (const symbolExport of exportedSymbols) {
+  for (const symbolExport of availableSymbols) {
     if (symbolExport.filePath === currentFilePath) {
       continue;
     }

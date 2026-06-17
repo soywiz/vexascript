@@ -165,6 +165,86 @@ function empty(): int {
     expect(missingArgument?.range.start).toEqual({ line: 1, character: 7 });
   });
 
+  it("anchors call argument mismatch diagnostics on the whole argument expression", () => {
+    const source = dedent`
+      fun accepts(value: string) {
+      }
+
+      fun produce(): int => 1
+
+      accepts(produce())
+      `;
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
+    const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
+    const diagnostic = diagnostics.find(
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.CALL_ARGUMENT_TYPE_MISMATCH
+    );
+
+    const startOffset = source.lastIndexOf("produce()");
+    const endOffset = startOffset + "produce()".length;
+    expect(diagnostic?.message).toBe(
+      "Argument 1 of type 'int' is not assignable to parameter 'value' of type 'string'"
+    );
+    expect(diagnostic?.range.start).toEqual(doc.positionAt(startOffset));
+    expect(diagnostic?.range.end).toEqual(doc.positionAt(endOffset));
+  });
+
+  it("assigns a semantic diagnostic code to missing parameter type annotations", () => {
+    const source = dedent`
+      fun demo(props) {
+        return props
+      }
+      `;
+
+    const diagnostics = diagnosticsFor(source);
+    const diagnostic = diagnostics.find(
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.MISSING_PARAMETER_TYPE
+    );
+
+    expect(diagnostic?.message).toBe("Parameter 'props' must declare an explicit type annotation");
+    expect(diagnostic?.range.start).toEqual({ line: 0, character: 9 });
+  });
+
+  it("anchors unknown nested generic types on the missing type name", () => {
+    const source = dedent`
+      import { type InputHTMLAttributes } from "preact"
+
+      interface InputProperties extends InputHTMLAttributes<HTMLInputElement2> {
+      }
+      `;
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
+    const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
+    const diagnostic = diagnostics.find(
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.UNKNOWN_TYPE
+    );
+
+    const startOffset = source.indexOf("HTMLInputElement2");
+    expect(diagnostic?.message).toBe(
+      "Unknown type 'HTMLInputElement2'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter"
+    );
+    expect(diagnostic?.range.start).toEqual(doc.positionAt(startOffset));
+    expect(diagnostic?.range.end).toEqual(doc.positionAt(startOffset + "HTMLInputElement2".length));
+  });
+
+  it("anchors unknown generic base types on the base name only", () => {
+    const source = dedent`
+      interface InputProperties extends InputHTMLAttributes2<string> {
+      }
+      `;
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
+    const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
+    const diagnostic = diagnostics.find(
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.UNKNOWN_TYPE
+    );
+
+    const startOffset = source.indexOf("InputHTMLAttributes2");
+    expect(diagnostic?.message).toBe(
+      "Unknown type 'InputHTMLAttributes2<string>'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter"
+    );
+    expect(diagnostic?.range.start).toEqual(doc.positionAt(startOffset));
+    expect(diagnostic?.range.end).toEqual(doc.positionAt(startOffset + "InputHTMLAttributes2".length));
+  });
+
   it("assigns a semantic diagnostic code when yield appears outside generator functions", () => {
     const diagnostics = diagnosticsFor(dedent`
       function bad() {

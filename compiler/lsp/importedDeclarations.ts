@@ -149,6 +149,43 @@ function callableTypeFromExternalFunction(declarations: readonly Statement[], na
   return overloads.length === 1 ? overloads[0]! : unionType(overloads);
 }
 
+function resolveNodeModuleNamedImportType(
+  declarations: readonly Statement[],
+  importedName: string
+): AnalysisType | null {
+  const callableType = callableTypeFromExternalFunction(declarations, importedName);
+  if (callableType) {
+    return callableType;
+  }
+
+  for (const statement of declarations) {
+    const declaration = unwrapExportedDeclaration(statement);
+    if (!declaration) {
+      continue;
+    }
+    if (declaration.kind === "ClassStatement" && (declaration as ClassStatement).name.name === importedName) {
+      return namedType(importedName);
+    }
+    if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === importedName) {
+      return namedType(importedName);
+    }
+    if (declaration.kind === "EnumStatement" && (declaration as EnumStatement).name.name === importedName) {
+      return namedType(importedName);
+    }
+    if (declaration.kind === "TypeAliasStatement" && (declaration as TypeAliasStatement).name.name === importedName) {
+      return namedType(importedName);
+    }
+    if (declaration.kind === "VarStatement") {
+      const varStatement = declaration as VarStatement;
+      if (varStatement.name.kind === "Identifier" && varStatement.name.name === importedName) {
+        return typeFromAnnotationText(varStatement.typeAnnotation?.name);
+      }
+    }
+  }
+
+  return null;
+}
+
 export function buildFunctionTypeFromStatement(fn: FunctionStatement): AnalysisType {
   return functionType(
     fn.parameters
@@ -1282,7 +1319,7 @@ export async function collectAllImportedDeclarations(
 
     if (!targetFilePath) {
       const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
-        if (nodeModuleTypings) {
+      if (nodeModuleTypings) {
         // For node_modules .d.ts files, include all top-level declarations so
         // member resolution works for named types like `moment.parseZone`.
         for (const targetStatement of nodeModuleTypings.declarations) {
@@ -1302,10 +1339,24 @@ export async function collectAllImportedDeclarations(
           }
           for (const specifier of importStatement.specifiers) {
             const localName = (specifier.local ?? specifier.imported).name;
-            importedSymbolTypes.set(
-              localName,
-              callableTypeFromExternalFunction(nodeModuleTypings.declarations, specifier.imported.name) ?? exportType
-            );
+            const importedType = resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, specifier.imported.name);
+            if (importedType) {
+              importedSymbolTypes.set(localName, importedType);
+            }
+          }
+        } else if (importStatement.defaultImport) {
+          invalidImportedBindings.add(importStatement.defaultImport.name);
+        }
+        for (const specifier of importStatement.specifiers) {
+          const localName = (specifier.local ?? specifier.imported).name;
+          if (importedSymbolTypes.has(localName)) {
+            continue;
+          }
+          const importedType = resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, specifier.imported.name);
+          if (importedType) {
+            importedSymbolTypes.set(localName, importedType);
+          } else {
+            invalidImportedBindings.add(localName);
           }
         }
       } else {
@@ -1390,12 +1441,16 @@ export async function collectAllImportedDeclarations(
     );
 
     const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
+    const exportedNames = new Set<string>();
 
     if (targetSession?.ast && wantedNames.size > 0) {
       for (const targetStatement of targetSession.ast.body) {
         const declaration = unwrapDeclaration(targetStatement);
         if (!declaration || seen.has(declaration)) {
           continue;
+        }
+        for (const name of topLevelDeclarationNames(targetStatement)) {
+          exportedNames.add(name);
         }
         const isHelperTypeDeclaration = TYPE_DECLARATION_KINDS.has(declaration.kind);
         if (!isHelperTypeDeclaration && !topLevelDeclarationNames(declaration).some((name) => wantedNames.has(name))) {
@@ -1413,6 +1468,17 @@ export async function collectAllImportedDeclarations(
         if (importedType) {
           importedSymbolTypes.set(localName, importedType);
         } else {
+          invalidImportedBindings.add(localName);
+        }
+      }
+    }
+    if (targetSession?.ast && wantedNames.size > 0) {
+      for (const specifier of importStatement.specifiers) {
+        const localName = (specifier.local ?? specifier.imported).name;
+        if (importedSymbolTypes.has(localName)) {
+          continue;
+        }
+        if (!exportedNames.has(specifier.imported.name)) {
           invalidImportedBindings.add(localName);
         }
       }

@@ -1,6 +1,6 @@
 # LSP Cursor Target Model
 
-This document defines the intended canonical cursor-target model for VexaScript LSP navigation features. It is the design baseline for the shared `resolveCursorTarget(...)` migration tracked in `docs/tasks/lsp.unifications.md`.
+This document defines the canonical cursor-target model for VexaScript LSP navigation features. It is the design baseline that guided the shared `resolveCursorTarget(...)` migration tracked historically in `docs/tasks/completed/lsp.unifications.md` and remains the reference for post-unification cleanup work.
 
 ## Goals
 

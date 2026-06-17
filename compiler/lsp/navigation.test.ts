@@ -132,6 +132,22 @@ describe("lsp navigation", () => {
       value: "expression: int"
     });
   });
+
+  it("reports member access on 'any' as expression type 'any'", () => {
+    const source = dedent`
+      fun demo(props: any) {
+        return props.style
+      }
+      `;
+    const analysis = analysisOf(source);
+
+    const hover = createHover(analysis, 1, 18);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "expression: any"
+    });
+  });
+
   it("normalizes cursor positions through the shared cursor target resolver", () => {
     const source = "let value = 1\n";
     const analysis = analysisOf(source);

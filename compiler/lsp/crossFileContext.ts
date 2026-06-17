@@ -8,6 +8,7 @@ import type { Location, Range, WorkspaceEdit } from "vscode-languageserver/node.
 import { findTopLevelDeclarationInProgram, topLevelDeclarationNames } from "./declarationResolver";
 import { uriToFilePath } from "./importFixes";
 import { getProjectIndex, getProjectSessionForFilePath } from "./projectAnalysis";
+import { findNodeModuleExportLocation } from "./nodeModulesTypings";
 import { containsPosition, nodeRange } from "./ranges";
 import { createReferences, createRenameWorkspaceEdit } from "./navigation";
 import type { Analysis } from "compiler/analysis/Analysis";
@@ -465,6 +466,19 @@ export async function resolveCanonicalSymbol(context: ResolveContext): Promise<C
 
   const targetFilePath = await resolveImportTargetInContext(currentFilePath, importBinding.from, context);
   if (!targetFilePath) {
+    const nodeModuleLocation = await findNodeModuleExportLocation(
+      currentFilePath,
+      importBinding.from,
+      importBinding.name,
+      { vfs: context.vfs }
+    );
+    if (nodeModuleLocation) {
+      return {
+        name: importBinding.name,
+        filePath: nodeModuleLocation.typingsPath,
+        range: nodeModuleLocation.range
+      };
+    }
     return {
       name: symbolAt.symbol.name,
       filePath: currentFilePath,

@@ -205,6 +205,7 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
   actions.push(
     ...await createTypeFixCodeActions({
       uri,
+      text,
       ast,
       analysis,
       diagnostics,

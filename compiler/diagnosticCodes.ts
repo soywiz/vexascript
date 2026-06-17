@@ -11,6 +11,7 @@ export const VEXA_DIAGNOSTIC_CODES = {
   MISSING_MEMBER: "MYL2004",
   IMPORT_MISSING_EXPORT: "MYL2020",
   IMPORT_MODULE_NOT_FOUND: "MYL2022",
+  MISSING_PARAMETER_TYPE: "MYL2023",
   CALL_TOO_FEW_ARGUMENTS: "MYL2005",
   CALL_TOO_MANY_ARGUMENTS: "MYL2006",
   CALL_UNEXPECTED_ARGUMENT: "MYL2007",
@@ -54,6 +55,7 @@ export const IMPLEMENTS_INCOMPATIBLE_MEMBER_PATTERN = /^Class '([^']+)' incorrec
 export const OPERATOR_NOT_DEFINED_PATTERN = /^Operator '(.+)' is not defined for types '(.+)' and '(.+)'$/;
 export const NULLABLE_MEMBER_ACCESS_PATTERN =
   /^Object is possibly 'null' or 'undefined'\. Use optional access '\?\.' or a non-null assertion '!'$/;
+export const MISSING_PARAMETER_TYPE_PATTERN = /^Parameter '(.+)' must declare an explicit type annotation$/;
 
 export function classifySemanticDiagnosticMessage(message: string): VexaScriptDiagnosticCode | null {
   if (UNDEFINED_VARIABLE_PATTERN.test(message)) {
@@ -95,6 +97,9 @@ export function classifySemanticDiagnosticMessage(message: string): VexaScriptDi
   if (NULLABLE_MEMBER_ACCESS_PATTERN.test(message)) {
     return VEXA_DIAGNOSTIC_CODES.NULLABLE_MEMBER_ACCESS;
   }
+  if (MISSING_PARAMETER_TYPE_PATTERN.test(message)) {
+    return VEXA_DIAGNOSTIC_CODES.MISSING_PARAMETER_TYPE;
+  }
   return null;
 }
 
@@ -123,6 +128,8 @@ export function mapAnalysisIssueCodeToDiagnosticCode(
       return VEXA_DIAGNOSTIC_CODES.YIELD_OUTSIDE_GENERATOR;
     case ANALYSIS_ISSUE_CODES.OPERATOR_NOT_APPLICABLE:
       return VEXA_DIAGNOSTIC_CODES.OPERATOR_NOT_APPLICABLE;
+    case ANALYSIS_ISSUE_CODES.MISSING_PARAMETER_TYPE:
+      return VEXA_DIAGNOSTIC_CODES.MISSING_PARAMETER_TYPE;
     default:
       return null;
   }

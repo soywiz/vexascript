@@ -1426,10 +1426,14 @@ let after = bind`));
       "Invalid assignment target: left side must be an identifier or member access"
     );
 
-    const optionalSource = "let a = 1\na?.b?.c = 20\n";
+    const optionalSource = dedent`
+      let a: { b?: { c: int } } = { b: { c: 1 } }
+      a?.b?.c = 20
+      let updated: int? = a?.b?.c = 30
+    `;
     const optionalAst = parseFile(tokenizeReader(optionalSource));
     const optionalMessages = new Analysis(optionalAst).getIssues().map((issue) => issue.message);
-    expect(optionalMessages).toContain(
+    expect(optionalMessages).not.toContain(
       "Invalid assignment target: left side must be an identifier or member access"
     );
   });

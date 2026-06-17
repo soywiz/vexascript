@@ -326,6 +326,26 @@ let promise = go fetchValue()
       .toBe("");
   });
 
+  it("can lower imports and exports to CommonJS while still erasing types", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      import React, { useState as useLocalState } from "react"
+      export const value: number = 1
+      export { useLocalState as localState }
+      export default React
+    `));
+
+    expect(emitProgram(program, undefined, undefined, undefined, { moduleFormat: "commonjs" })).toBe([
+      'const __vexa_import_0 = require("react");',
+      "const React = __vexa_import_0 && __vexa_import_0.__esModule ? __vexa_import_0.default : __vexa_import_0;",
+      "const { useState: useLocalState } = __vexa_import_0;",
+      "const value = 1;",
+      "exports.value = value;",
+      "exports.localState = useLocalState;",
+      "exports.default = React;",
+      "exports.__esModule = true;"
+    ].join("\n"));
+  });
+
   it("drops operator-overload import bindings while keeping the module load", () => {
     // Operator-only import becomes a side-effecting import so the prototype patch runs.
     expect(emitProgram(parseFile(tokenizeReader("import { operator+ } from \"./other\""))))
@@ -403,6 +423,29 @@ let promise = go fetchValue()
     expect(emitted.includes("interface Readable")).toBe(false);
   });
 
+  it("preserves extends when a runtime base class name is also declared as an interface", () => {
+    const program = parseFile(
+      tokenizeReader(dedent`
+        interface Component {
+          render(): string
+        }
+
+        class Component {}
+
+        class Clock extends Component {
+          constructor() {
+            super()
+          }
+        }
+      `)
+    );
+
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("class Clock extends Component {");
+    expect(emitted).toContain("super();");
+  });
+
   it("emits TypeScript-style lambda and function expressions", () => {
     const program = parseFile(
       tokenizeReader(dedent`
@@ -450,6 +493,14 @@ let promise = go fetchValue()
     expect(emitted).toContain("function collect(...values) {");
     expect(emitted).toContain("let result = fn?.(...values);");
     expect(emitted).toContain("let item = result?.[0];");
+  });
+
+  it("rewrites optional-chain assignments into a guarded expression", () => {
+    const program = parseFile(tokenizeReader("result?.style?.background = 'grey'"));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("let $$temp_0;");
+    expect(emitted).toContain("($$temp_0 = result?.style, $$temp_0 != null ? $$temp_0.background = \"grey\" : undefined);");
   });
 
   it("emits object and array destructuring declarations", () => {

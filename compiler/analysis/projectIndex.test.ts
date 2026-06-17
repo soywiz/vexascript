@@ -1,5 +1,6 @@
 import { describe, expect, it, join, mkdtemp, tmpdir, writeFile } from "../test/expect";
 import { getProjectIndex } from "./projectIndex";
+import { globalVfs } from "../vfs";
 
 describe("ProjectIndex", () => {
   it("indexes top-level declarations and importer bindings across project files", async () => {
@@ -42,5 +43,21 @@ describe("ProjectIndex", () => {
 
     index.clearOpenDocument(file);
     expect(await index.findTopLevelDeclaration(file, "Point")).toBeTruthy();
+  });
+
+  it("can create a project index before the global VFS is configured", () => {
+    const previousVfs = globalVfs.ref;
+
+    delete (globalVfs as { ref?: typeof previousVfs }).ref;
+
+    try {
+      const first = getProjectIndex([]);
+      const second = getProjectIndex([]);
+
+      expect(first).toBeTruthy();
+      expect(second).toBe(first);
+    } finally {
+      globalVfs.ref = previousVfs;
+    }
   });
 });

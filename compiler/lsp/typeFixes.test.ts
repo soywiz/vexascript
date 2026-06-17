@@ -30,6 +30,7 @@ describe("type quick fixes", () => {
   it("returns no actions when parsing or analysis artifacts are unavailable", async () => {
     const actionsWithoutAst = await createTypeFixCodeActions({
       uri: "file:///tmp/main.vx",
+      text: "const value = 1\n",
       ast: null,
       analysis: createAnalysisSession("const value = 1\n").analysis,
       diagnostics: [],
@@ -37,6 +38,7 @@ describe("type quick fixes", () => {
     });
     const actionsWithoutAnalysis = await createTypeFixCodeActions({
       uri: "file:///tmp/main.vx",
+      text: "const value = 1\n",
       ast: createAnalysisSession("const value = 1\n").ast,
       analysis: null,
       diagnostics: [],
@@ -61,6 +63,7 @@ fun demo() {
 
     const actions = await createTypeFixCodeActions({
       uri: "file:///tmp/main.vx",
+      text: source,
       ast: session.ast,
       analysis: session.analysis,
       diagnostics,
@@ -86,6 +89,7 @@ takesInt("test")
 
     const actions = await createTypeFixCodeActions({
       uri: "file:///tmp/main.vx",
+      text: source,
       ast: session.ast,
       analysis: session.analysis,
       diagnostics,
@@ -109,6 +113,7 @@ fun demo() {
 
     const actions = await createTypeFixCodeActions({
       uri: "file:///tmp/main.vx",
+      text: source,
       ast: session.ast,
       analysis: session.analysis,
       diagnostics: [...diagnostics, ...diagnostics],
@@ -116,6 +121,33 @@ fun demo() {
     });
 
     expect(actions.length).toBe(1);
+  });
+
+  it("adds ': any' for parameters missing an explicit type annotation", async () => {
+    const source = `fun demo(props) {
+  return props
+}
+`;
+    const session = createAnalysisSession(source);
+    const diagnostics = collectSameFileDiagnostics(source, session);
+
+    const actions = await createTypeFixCodeActions({
+      uri: "file:///tmp/main.vx",
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics,
+      sourceRoots: ["/tmp"]
+    });
+
+    const action = actions.find((candidate) => candidate.title === "Add explicit parameter type ': any'");
+    const edit = action?.edit?.changes?.["file:///tmp/main.vx"]?.[0];
+
+    expect(edit?.newText).toBe(": any");
+    expect(edit?.range).toEqual({
+      start: { line: 0, character: 14 },
+      end: { line: 0, character: 14 }
+    });
   });
 
   it("ignores computed member writes and unknown-source mismatches", async () => {
@@ -130,6 +162,7 @@ fun demo() {
     const computedSession = createAnalysisSession(computedSource);
     const computedActions = await createTypeFixCodeActions({
       uri: "file:///tmp/main.vx",
+      text: computedSource,
       ast: computedSession.ast,
       analysis: computedSession.analysis,
       diagnostics: [
@@ -153,6 +186,7 @@ fun demo() {
     const unknownSession = createAnalysisSession(unknownSource);
     const unknownActions = await createTypeFixCodeActions({
       uri: "file:///tmp/main.vx",
+      text: unknownSource,
       ast: unknownSession.ast,
       analysis: unknownSession.analysis,
       diagnostics: [
@@ -198,6 +232,7 @@ fun demo() {
 
     const actions = await createTypeFixCodeActions({
       uri: pathToFileURL(helloFile).toString(),
+      text: helloSource,
       ast: session.ast,
       analysis: session.analysis,
       diagnostics,
@@ -247,6 +282,7 @@ fun demo() {
 
     const actions = await createTypeFixCodeActions({
       uri: pathToFileURL(helloFile).toString(),
+      text: helloSource,
       ast: session.ast,
       analysis: session.analysis,
       diagnostics,

@@ -59,6 +59,9 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 ## Documentation policy
 
 - Supported language syntax documentation lives in `docs/syntax.md`. Every time new language syntax support is added it must be updated in the same change.
+- Technical/reference documentation lives in `docs/`.
+- Active task documents live in `docs/tasks/`.
+- Completed task documents live in `docs/tasks/completed/`.
 
 <!-- CODEGRAPH_START -->
 ## CodeGraph

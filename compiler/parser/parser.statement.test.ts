@@ -1442,6 +1442,53 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses optional static class method signatures in TypeScript ambient classes", () => {
+        expect(
+            parseStatement(
+                tokenizeReader(dedent`
+                    export abstract class Component<P, S> {
+                      static getDerivedStateFromProps?(props: Readonly<P>, state: Readonly<S>): Partial<S> | null;
+                    }
+                `.trim()),
+                { language: "typescript" }
+            )
+        ).toEqual({
+            kind: "ExportStatement",
+            declaration: {
+                kind: "ClassStatement",
+                abstract: true,
+                name: { kind: "Identifier", name: "Component" },
+                typeParameters: [
+                    { kind: "TypeParameter", name: { kind: "Identifier", name: "P" } },
+                    { kind: "TypeParameter", name: { kind: "Identifier", name: "S" } }
+                ],
+                members: [
+                    {
+                        kind: "ClassMethodMember",
+                        name: { kind: "Identifier", name: "getDerivedStateFromProps" },
+                        static: true,
+                        optional: true,
+                        missingBody: true,
+                        parameters: [
+                            {
+                                kind: "FunctionParameter",
+                                name: { kind: "Identifier", name: "props" },
+                                typeAnnotation: { kind: "Identifier", name: "Readonly<P>" }
+                            },
+                            {
+                                kind: "FunctionParameter",
+                                name: { kind: "Identifier", name: "state" },
+                                typeAnnotation: { kind: "Identifier", name: "Readonly<S>" }
+                            }
+                        ],
+                        returnType: { kind: "Identifier", name: "Partial<S> | null" },
+                        body: { kind: "BlockStatement", body: [] }
+                    }
+                ]
+            }
+        });
+    });
+
     it("parses class statement with primary constructor parameters", () => {
         expect(parseStatement(tokenizeReader("class Point(val x: number, val y: number) {\n}"))).toEqual({
             kind: "ClassStatement",
@@ -1637,6 +1684,14 @@ describe("parseStatement", () => {
         expect(parseStatement(tokenizeReader("let value: string | number | null"))).toMatchObject({
             kind: "VarStatement",
             typeAnnotation: { kind: "Identifier", name: "string | number | null" }
+        });
+        expect(parseStatement(tokenizeReader("let maybe: any?"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "any?" }
+        });
+        expect(parseStatement(tokenizeReader("let callback: (() => void)?"))).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: "(() => void)?" }
         });
         expect(parseStatement(tokenizeReader("let value: A & B"))).toMatchObject({
             kind: "VarStatement",

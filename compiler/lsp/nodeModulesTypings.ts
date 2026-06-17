@@ -1,13 +1,30 @@
-import type { ExprStatement, FunctionStatement, Identifier, InterfaceStatement, NamespaceStatement, Program, Statement } from "compiler/ast/ast";
+import type {
+  ClassStatement,
+  EnumStatement,
+  ExprStatement,
+  ExportStatement,
+  FunctionStatement,
+  Identifier,
+  InterfaceStatement,
+  NamespaceStatement,
+  Program,
+  Statement,
+  TypeAliasStatement,
+  VarStatement
+} from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { parseSource } from "compiler/pipeline/parse";
 import { resolveNodeModulesTypingsPath, type ModuleResolutionOptions } from "compiler/moduleResolution";
 import { vfs } from "compiler/vfs";
+import { dirname, extname, resolve } from "compiler/utils/path";
 import { nodeRange } from "./ranges";
 import type { Range } from "vscode-languageserver";
 
 export interface NodeModuleTypings {
   /** All top-level declarations from the .d.ts (for externalDeclarations). */
   declarations: Statement[];
+  /** Source file for each collected declaration, preserving reexport origins. */
+  declarationEntries: NodeModuleDeclarationEntry[];
   /**
    * The name that the module's default/namespace export resolves to, i.e. the
    * right-hand side of `export = X` or the name of the sole top-level
@@ -15,6 +32,11 @@ export interface NodeModuleTypings {
    * imports so members resolve in hover/completion.
    */
   defaultExportName: string | null;
+}
+
+interface NodeModuleDeclarationEntry {
+  statement: Statement;
+  typingsPath: string;
 }
 
 interface CacheEntry {
@@ -30,6 +52,111 @@ async function parseTypingsProgram(typingsPath: string, options: ModuleResolutio
   if (source === null) return null;
   const parsed = parseSource(source, { language: "typescript" });
   return parsed.ast ?? null;
+}
+
+async function resolveRelativeTypingsPath(
+  importerTypingsPath: string,
+  specifier: string,
+  options: ModuleResolutionOptions
+): Promise<string | null> {
+  if (!specifier.startsWith(".")) {
+    return null;
+  }
+  const activeVfs = options.vfs ?? vfs();
+  const basePath = resolve(dirname(importerTypingsPath), specifier);
+  const candidates = [
+    basePath,
+    extname(basePath) === "" ? `${basePath}.d.ts` : "",
+    extname(basePath) === "" ? `${basePath}.ts` : "",
+    resolve(basePath, "index.d.ts"),
+    resolve(basePath, "index.ts")
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (await activeVfs.fileExists(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function collectTypingsDeclarations(
+  typingsPath: string,
+  options: ModuleResolutionOptions,
+  visited: Set<string>
+): Promise<NodeModuleDeclarationEntry[]> {
+  if (visited.has(typingsPath)) {
+    return [];
+  }
+  visited.add(typingsPath);
+
+  const ast = await parseTypingsProgram(typingsPath, options);
+  if (!ast) {
+    return [];
+  }
+
+  const declarations: NodeModuleDeclarationEntry[] = ast.body.map((statement) => ({
+    statement,
+    typingsPath
+  }));
+  for (const statement of ast.body) {
+    if (statement.kind !== "ExportStatement") {
+      continue;
+    }
+    const exportStatement = statement as ExportStatement;
+    if (!exportStatement.from?.value || (!exportStatement.exportAll && (!exportStatement.specifiers || exportStatement.specifiers.length === 0))) {
+      continue;
+    }
+    const targetTypingsPath = await resolveRelativeTypingsPath(typingsPath, exportStatement.from.value, options);
+    if (!targetTypingsPath) {
+      continue;
+    }
+    const reexportedDeclarations = await collectTypingsDeclarations(targetTypingsPath, options, visited);
+    if (exportStatement.exportAll) {
+      declarations.push(...reexportedDeclarations);
+      continue;
+    }
+    const exportedNames = new Set(exportStatement.specifiers?.map((specifier) => specifier.local?.name ?? specifier.exported.name) ?? []);
+    for (const declaration of reexportedDeclarations) {
+      const name = declarationMemberName(declaration.statement);
+      if (name && exportedNames.has(name)) {
+        declarations.push(declaration);
+      }
+    }
+  }
+
+  return declarations;
+}
+
+function declarationMemberName(statement: Statement): string | null {
+  const declaration =
+    statement.kind === "ExportStatement"
+      ? (statement as { declaration?: Statement }).declaration ?? statement
+      : statement;
+
+  if (declaration.kind === "FunctionStatement") {
+    return (declaration as FunctionStatement).name?.name ?? null;
+  }
+  if (declaration.kind === "InterfaceStatement") {
+    return (declaration as InterfaceStatement).name.name;
+  }
+  if (declaration.kind === "ClassStatement") {
+    return (declaration as ClassStatement).name.name;
+  }
+  if (declaration.kind === "EnumStatement") {
+    return (declaration as EnumStatement).name.name;
+  }
+  if (declaration.kind === "TypeAliasStatement") {
+    return (declaration as TypeAliasStatement).name.name;
+  }
+  if (declaration.kind === "VarStatement") {
+    const identifiers = bindingIdentifiers((declaration as VarStatement).name);
+    return identifiers[0]?.name ?? null;
+  }
+  if (declaration.kind === "NamespaceStatement") {
+    return (declaration as NamespaceStatement).names?.[0]?.name ?? null;
+  }
+  return null;
 }
 
 /**
@@ -108,6 +235,8 @@ export async function getNodeModuleTypings(
   if (!ast) {
     return null;
   }
+  const declarationEntries = await collectTypingsDeclarations(typingsPath, { vfs: activeVfs }, new Set<string>());
+  const declarations = declarationEntries.map((entry) => entry.statement);
 
   const defaultExportName =
     detectExportEqualsName(ast) ??
@@ -115,7 +244,8 @@ export async function getNodeModuleTypings(
     packageName;
 
   const result: NodeModuleTypings = {
-    declarations: ast.body,
+    declarations,
+    declarationEntries,
     defaultExportName,
   };
 
@@ -235,5 +365,70 @@ function findMemberInNamespaceBody(
       }
     }
   }
+  return null;
+}
+
+function namedExportRangeFromStatement(statement: Statement, exportName: string): Range | null {
+  const declaration =
+    statement.kind === "ExportStatement"
+      ? (statement as { declaration?: Statement }).declaration ?? statement
+      : statement;
+
+  switch (declaration.kind) {
+    case "FunctionStatement":
+    case "InterfaceStatement":
+    case "ClassStatement":
+    case "EnumStatement":
+    case "TypeAliasStatement": {
+      const namedDeclaration = declaration as
+        | FunctionStatement
+        | InterfaceStatement
+        | ClassStatement
+        | EnumStatement
+        | TypeAliasStatement;
+      return namedDeclaration.name.name === exportName ? nodeRange(namedDeclaration.name) : null;
+    }
+    case "NamespaceStatement": {
+      const namespace = declaration as NamespaceStatement;
+      const nameNode = namespace.names?.[0];
+      return nameNode?.name === exportName ? nodeRange(nameNode as Parameters<typeof nodeRange>[0]) : null;
+    }
+    case "VarStatement": {
+      const variable = declaration as VarStatement;
+      const identifier = [
+        ...bindingIdentifiers(variable.name),
+        ...(variable.declarations ?? []).flatMap((item) => bindingIdentifiers(item.name))
+      ].find((candidate) => candidate.name === exportName);
+      return identifier ? nodeRange(identifier) : null;
+    }
+    default:
+      return null;
+  }
+}
+
+export async function findNodeModuleExportLocation(
+  importerFilePath: string,
+  packageName: string,
+  exportName: string,
+  options: ModuleResolutionOptions = {}
+): Promise<NodeModuleMemberLocation | null> {
+  const activeVfs = options.vfs ?? vfs();
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs: activeVfs });
+  if (!typingsPath) {
+    return null;
+  }
+
+  const typings = await getNodeModuleTypings(importerFilePath, packageName, { vfs: activeVfs });
+  if (!typings) {
+    return null;
+  }
+
+  for (const entry of typings.declarationEntries) {
+    const range = namedExportRangeFromStatement(entry.statement, exportName);
+    if (range) {
+      return { typingsPath: entry.typingsPath, range };
+    }
+  }
+
   return null;
 }

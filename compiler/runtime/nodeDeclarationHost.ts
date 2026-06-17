@@ -1,4 +1,3 @@
-import { fileExists } from "compiler/utils/fs";
 import { dirname, fileURLToPath, resolve } from "compiler/utils/path";
 import {
   TYPESCRIPT_DOM_DECLARATION_FILE_NAME,
@@ -53,6 +52,18 @@ async function currentDirectory(fsPromises: NodeFsPromisesLike): Promise<string>
   }
 }
 
+async function fileExistsWithNodeFs(
+  fsPromises: NodeFsPromisesLike,
+  path: string
+): Promise<boolean> {
+  try {
+    await fsPromises.stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDeclarationSource> {
   const fsPromises = getNodeFsPromises();
   const declarationBaseDir = await currentDirectory(fsPromises);
@@ -63,7 +74,7 @@ async function readBundledDeclarationSource(fileName: string): Promise<RuntimeDe
   ];
 
   for (const candidatePath of candidatePaths) {
-    if (await fileExists(candidatePath)) {
+    if (await fileExistsWithNodeFs(fsPromises, candidatePath)) {
       return {
         filePath: candidatePath,
         source: await fsPromises.readFile(candidatePath, "utf8")

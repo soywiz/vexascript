@@ -1,4 +1,4 @@
-import { describe, expect, it, join, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
@@ -283,6 +283,32 @@ describe("import quick fixes", () => {
     expect(suggestions[0]?.importPath).toBe("my-lib");
   });
 
+  it("builds type auto-import suggestions from named exports of an already imported node_modules module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const packageDir = join(root, "node_modules", "preact");
+    const packageJson = join(packageDir, "package.json");
+    const typings = join(packageDir, "index.d.ts");
+    const consumerFile = join(root, "consumer.vx");
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(packageJson, JSON.stringify({ name: "preact", types: "index.d.ts" }), "utf8");
+    await writeFile(typings, 'export function h(): void;\nexport type ComponentChildren = string | number;\n', "utf8");
+    await writeFile(consumerFile, 'import { h } from "preact"\nfun demo() {\n  return Comp\n}\n', "utf8");
+
+    const session = createAnalysisSession('import { h } from "preact"\nfun demo() {\n  return Comp\n}\n');
+    const suggestions = await buildAutoImportSuggestions({
+      uri: pathToFileURL(consumerFile).toString(),
+      ast: session.ast,
+      sourceRoots: [root],
+      prefix: "Comp",
+      excludeSymbols: new Set()
+    });
+
+    expect(suggestions.map((suggestion) => suggestion.symbol.name)).toContain("ComponentChildren");
+    expect(suggestions.find((suggestion) => suggestion.symbol.name === "ComponentChildren")?.symbol.typeOnly).toBe(true);
+    expect(suggestions.find((suggestion) => suggestion.symbol.name === "ComponentChildren")?.importPath).toBe("preact");
+  });
+
   it("creates auto-import code actions for ambient module exports using the module specifier", async () => {
     const source = "fun demo() {\n  greet()\n}\n";
     const session = createAnalysisSession(source);
@@ -300,6 +326,33 @@ describe("import quick fixes", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0]?.title).toBe("Import 'greet' from 'my-lib'");
     expect(actions[0]?.edit?.changes?.[uri]?.[0]?.newText).toBe('import { greet } from "my-lib"\n');
+  });
+
+  it("creates type-only auto-import code actions for named exports of an already imported node_modules module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-import-fix-"));
+    const packageDir = join(root, "node_modules", "preact");
+    const packageJson = join(packageDir, "package.json");
+    const typings = join(packageDir, "index.d.ts");
+    const consumerFile = join(root, "consumer.vx");
+    const source = 'import { h } from "preact"\nfun demo(props: { children: ComponentChildren }) {\n  return h()\n}\n';
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(packageJson, JSON.stringify({ name: "preact", types: "index.d.ts" }), "utf8");
+    await writeFile(typings, 'export function h(): void;\nexport type ComponentChildren = string | number;\n', "utf8");
+    await writeFile(consumerFile, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const uri = pathToFileURL(consumerFile).toString();
+    const actions = await createAutoImportCodeActions({
+      uri,
+      ast: session.ast,
+      diagnostics: [unknownTypeDiagnostic("ComponentChildren")],
+      sourceRoots: [root]
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Import 'ComponentChildren' from 'preact'");
+    expect(actions[0]?.edit?.changes?.[uri]?.[0]?.newText).toBe('import { h, type ComponentChildren } from "preact"');
   });
 
   it("creates one auto-import code action per matching module when names collide", async () => {

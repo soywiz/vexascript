@@ -1,4 +1,4 @@
-import { describe, expect, it } from "../test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import { createAnalysisSession } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
@@ -204,8 +204,8 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
 
     const rendered = typeToString(importedSymbolTypes.get("readFile")!);
     expect(rendered).toContain("{ encoding: string");
-    expect(rendered).toContain("flag: string | undefined");
-    expect(rendered).toContain("{ signal: object | undefined }");
+    expect(rendered).toContain("flag: string?");
+    expect(rendered).toContain("{ signal: object? }");
     expect(rendered).toContain("{ encoding: null | undefined");
   });
 
@@ -396,5 +396,29 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     });
 
     expect(typeToString(importedSymbolTypes.get("path")!)).toBe("{ join: (...paths: string) => string, dirname: (path: string) => string }");
+  });
+
+  it("marks missing named imports from node_modules typings as invalid bindings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-imported-decls-"));
+    const packageDir = join(root, "node_modules", "preact");
+    const consumerFile = join(root, "consumer.vx");
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: "preact", types: "index.d.ts" }), "utf8");
+    await writeFile(
+      join(packageDir, "index.d.ts"),
+      "export function h(): void;\nexport type ComponentChildren = string | number;\n",
+      "utf8"
+    );
+
+    const source = 'import { h, UNEXISTANT_SYMBOL } from "preact"\n';
+    const ast = parseSource(source, {}).ast!;
+    const imported = await collectAllImportedDeclarations(ast, {
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root]
+    });
+
+    expect(imported.importedSymbolTypes.has("h")).toBe(true);
+    expect(imported.invalidImportedBindings.has("UNEXISTANT_SYMBOL")).toBe(true);
   });
 });

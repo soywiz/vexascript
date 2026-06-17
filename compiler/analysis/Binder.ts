@@ -37,7 +37,7 @@ import {
   unionType,
   BUILTIN_TYPE_NAMES
 } from "./types";
-import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText } from "./typeNames";
+import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText } from "./typeNames";
 import type { AnalysisType, BuiltinTypeName } from "./types";
 import type { AnalysisSymbol, BoundAnalysis, Scope } from "./model";
 import type { AnalysisIssue } from "./model";
@@ -1070,6 +1070,14 @@ export class Binder {
       return functionAnnotation;
     }
 
+    const optionalSuffix = splitOptionalTypeSuffix(typeName);
+    if (optionalSuffix.optional) {
+      return unionType([
+        this.typeFromTypeNameLoose(optionalSuffix.typeName),
+        builtinType("undefined")
+      ]);
+    }
+
     const parsed = parseTypeNameShape(typeName);
     if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       return builtinType(parsed.baseName as BuiltinTypeName);
@@ -1101,6 +1109,13 @@ export class Binder {
     const functionAnnotation = this.functionTypeFromAnnotationText(typeName);
     if (functionAnnotation) {
       return functionAnnotation;
+    }
+    const optionalSuffix = splitOptionalTypeSuffix(typeName);
+    if (optionalSuffix.optional) {
+      return unionType([
+        this.typeFromTypeNameLoose(optionalSuffix.typeName),
+        builtinType("undefined")
+      ]);
     }
     const parsed = parseTypeNameShape(typeName);
     if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {

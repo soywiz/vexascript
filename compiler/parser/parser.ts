@@ -1477,6 +1477,17 @@ export class Parser {
             }
             suffix += `[${indexType}]`;
         }
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+            const nextToken = this.peekToken(1);
+            const canEndOptionalType =
+                !nextToken ||
+                nextToken.type === "eof" ||
+                (nextToken.type === "symbol" && ["|", "&", ")", "]", "}", ",", ";", "="].includes(nextToken.value));
+            if (canEndOptionalType) {
+                this.tokens.skip();
+                suffix += "?";
+            }
+        }
         return suffix;
     }
 
@@ -2382,12 +2393,19 @@ export class Parser {
     }
 
     private parseTailLambdaArgument(): ArrowFunctionExpression {
+        return this.parseBraceLambdaExpression();
+    }
+
+    private parseBraceLambdaExpression(implicitParameterName: string | null = "it"): ArrowFunctionExpression {
         const openBrace = this.tokens.peek();
         if (!(openBrace?.type === "symbol" && openBrace.value === "{")) {
             this.fail("Expected '{' to start tail lambda", this.tokenAt(openBrace));
         }
         this.tokens.skip();
+        return this.parseBraceLambdaExpressionFromConsumedOpen(openBrace, implicitParameterName);
+    }
 
+    private parseBraceLambdaExpressionFromConsumedOpen(openBrace: Token, implicitParameterName: string | null = "it"): ArrowFunctionExpression {
         const explicitParametersStart = this.tokens.offset;
         const explicitParameters: FunctionParameter[] = [];
         let hasExplicitParameterArrow = false;
@@ -2485,12 +2503,13 @@ export class Parser {
         );
         const parameters = hasExplicitParameterArrow
             ? explicitParameters
-            : [
+            : implicitParameterName
+                ? [
                   this.attachNodeBounds(
                       {
                           kind: "FunctionParameter",
                           name: this.attachNodeBounds(
-                              { kind: "Identifier", name: "it" } as Identifier,
+                              { kind: "Identifier", name: implicitParameterName } as Identifier,
                               openBrace,
                               openBrace
                           )
@@ -2498,7 +2517,8 @@ export class Parser {
                       openBrace,
                       openBrace
                   )
-              ];
+              ]
+                : [];
         if (block.body.length === 1 && block.body[0]?.kind === "ExprStatement") {
             const expressionBody = (block.body[0] as ExprStatement).expression;
             return this.attachNodeBounds(
@@ -2773,7 +2793,11 @@ export class Parser {
     }
 
     private parsePostfix(): Expr {
-        let expr = this.parsePrimary();
+        return this.parsePostfixFrom(this.parsePrimary());
+    }
+
+    private parsePostfixFrom(initialExpr: Expr): Expr {
+        let expr = initialExpr;
         let pendingTypeArguments: Identifier[] | undefined;
 
         while (this.tokens.hasMore) {
@@ -2965,6 +2989,109 @@ export class Parser {
         return expr;
     }
 
+    private parseNewTarget(): {
+        callee: Expr;
+        arguments?: Expr[];
+        typeArguments?: Identifier[];
+        lastToken?: Token;
+    } {
+        let expr = this.parsePrimary();
+        let pendingTypeArguments: Identifier[] | undefined;
+
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+
+            if (token?.type === "symbol" && token.value === "<") {
+                const parsedTypeArguments = this.tryParseInvocationTypeArguments();
+                if (parsedTypeArguments) {
+                    pendingTypeArguments = parsedTypeArguments;
+                    continue;
+                }
+            }
+
+            if (token?.type === "symbol" && token.value === "?." && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "[") {
+                this.tokens.skip();
+                this.tokens.skip();
+                const property = this.parseExpressionOrThrow();
+                const close = this.tokens.read();
+                if (close?.type !== "symbol" || close.value !== "]") {
+                    this.fail("Expected ']' after optional computed member access", this.tokenAt(close));
+                }
+
+                expr = {
+                    kind: "MemberExpression",
+                    object: expr,
+                    property,
+                    computed: true,
+                    optional: true
+                } as MemberExpression;
+                this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
+                continue;
+            }
+
+            if (token?.type === "symbol" && (token.value === "." || token.value === "?." || token.value === "!.")) {
+                this.tokens.skip();
+                const property = this.tryParsePrivateIdentifierToken() ?? this.tokens.read();
+                if (property?.type !== "identifier") {
+                    this.fail(
+                        `Expected identifier after '${token.value}'`,
+                        this.tokenAt(property?.type === "eof" ? token : property ?? token)
+                    );
+                }
+
+                expr = {
+                    kind: "MemberExpression",
+                    object: expr,
+                    property: this.buildIdentifierFromToken(property),
+                    computed: false,
+                    optional: token.value === "?." ? true : undefined,
+                    nonNullAsserted: token.value === "!." ? true : undefined
+                } as MemberExpression;
+                this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, property);
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "[") {
+                if (this.hasLineBreakBetween(expr.lastToken, token)) {
+                    break;
+                }
+                this.tokens.skip();
+                const property = this.parseExpressionOrThrow();
+                const close = this.tokens.read();
+                if (close?.type !== "symbol" || close.value !== "]") {
+                    this.fail("Expected ']' after computed member access", this.tokenAt(close));
+                }
+
+                expr = {
+                    kind: "MemberExpression",
+                    object: expr,
+                    property,
+                    computed: true
+                } as MemberExpression;
+                this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "(") {
+                const { args, close } = this.parseCallArgumentList();
+                return {
+                    callee: expr,
+                    arguments: args,
+                    ...(pendingTypeArguments ? { typeArguments: pendingTypeArguments } : {}),
+                    ...(close ? { lastToken: close } : {})
+                };
+            }
+
+            break;
+        }
+
+        return {
+            callee: expr,
+            ...(pendingTypeArguments ? { typeArguments: pendingTypeArguments } : {}),
+            ...(expr.lastToken ? { lastToken: expr.lastToken } : {})
+        };
+    }
+
 
 
     private parseCallLambdaArgument(): ArrowFunctionExpression {
@@ -3105,23 +3232,26 @@ export class Parser {
         const token = this.tokens.peek();
         if (token?.type === "identifier" && token.value === "new") {
             const newKeyword = this.tokens.read();
-            const constructorTarget = this.parsePostfix();
+            const constructorTarget = this.parseNewTarget();
 
             const statement: NewExpression = {
                 kind: "NewExpression",
-                callee: constructorTarget
+                callee: constructorTarget.callee
             };
 
-            if (constructorTarget.kind === "CallExpression") {
-                const callTarget = constructorTarget as CallExpression;
-                statement.callee = callTarget.callee;
-                statement.arguments = callTarget.arguments;
-                if (callTarget.typeArguments) {
-                    statement.typeArguments = callTarget.typeArguments;
-                }
+            if (constructorTarget.arguments) {
+                statement.arguments = constructorTarget.arguments;
+            }
+            if (constructorTarget.typeArguments) {
+                statement.typeArguments = constructorTarget.typeArguments;
             }
 
-            return this.attachNodeBounds(statement, newKeyword, constructorTarget.lastToken ?? this.getLastReadToken() ?? newKeyword);
+            const newExpression = this.attachNodeBounds(
+                statement,
+                newKeyword,
+                constructorTarget.lastToken ?? this.getLastReadToken() ?? newKeyword
+            );
+            return this.parsePostfixFrom(newExpression);
         }
         if (token?.type === "symbol" && (token.value === "++" || token.value === "--")) {
             this.tokens.skip();
@@ -3395,16 +3525,35 @@ export class Parser {
 
     private parseJsxExpressionContainer(): JsxExpressionContainer {
         const open = this.tokens.read(); // '{'
-        const expression = this.parseAssignment();
-        const close = this.tokens.read();
-        if (!(close?.type === "symbol" && close.value === "}")) {
-            this.fail("Expected '}' to close JSX expression", this.tokenAt(close));
+        const checkpoint = this.beginTokenCheckpoint();
+        try {
+            const expression = this.parseAssignment();
+            const close = this.tokens.read();
+            if (!(close?.type === "symbol" && close.value === "}")) {
+                this.fail("Expected '}' to close JSX expression", this.tokenAt(close));
+            }
+            this.commitTokenCheckpoint(checkpoint);
+            return this.attachNodeBounds(
+                { kind: "JsxExpressionContainer", expression } as JsxExpressionContainer,
+                open,
+                close
+            );
+        } catch (error) {
+            this.restoreTokenCheckpoint(checkpoint);
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "{") {
+                const expression = this.parseBraceLambdaExpression(null);
+                const close = this.tokens.read();
+                if (!(close?.type === "symbol" && close.value === "}")) {
+                    this.fail("Expected '}' to close JSX expression", this.tokenAt(close));
+                }
+                return this.attachNodeBounds(
+                    { kind: "JsxExpressionContainer", expression } as JsxExpressionContainer,
+                    open,
+                    close
+                );
+            }
+            throw error;
         }
-        return this.attachNodeBounds(
-            { kind: "JsxExpressionContainer", expression } as JsxExpressionContainer,
-            open,
-            close
-        );
     }
 
     private parseJsxChildren(): JsxChild[] {
@@ -5099,8 +5248,21 @@ export class Parser {
             ? this.buildComputedMemberIdentifier(computedMemberKey, memberStartToken ?? firstToken, computedMemberCloseBracket!)
             : this.buildIdentifierFromToken(resolvedMemberNameToken!);
 
+        let optional = false;
+        let definiteAssignment = false;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
+            this.tokens.skip();
+            optional = true;
+        } else if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "!") {
+            this.tokens.skip();
+            definiteAssignment = true;
+        }
+
         const methodTypeParameters = this.parseTypeParameterList();
         if ((methodTypeParameters.length > 0) || (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(")) {
+            if (definiteAssignment) {
+                this.fail("Definite assignment assertions are only allowed on class fields", this.tokenAt(this.getLastReadToken()));
+            }
             if (!(this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(")) {
                 this.fail("Expected '(' after method type parameters", this.tokenAt(this.tokens.peek()));
             }
@@ -5168,6 +5330,9 @@ export class Parser {
                 if (readonlyToken) {
                     this.attachNonEnumerableToken(signatureOnlyMethod, "readonlyToken", readonlyToken);
                 }
+                if (optional) {
+                    signatureOnlyMethod.optional = true;
+                }
                 if (!allowSignatureOnly && !isAbstractMember) {
                     signatureOnlyMethod.missingBody = true;
                 }
@@ -5224,6 +5389,9 @@ export class Parser {
             if (readonlyToken) {
                 this.attachNonEnumerableToken(methodMember, "readonlyToken", readonlyToken);
             }
+            if (optional) {
+                methodMember.optional = true;
+            }
             if (methodTypeParameters.length > 0) {
                 methodMember.typeParameters = methodTypeParameters;
             }
@@ -5241,16 +5409,6 @@ export class Parser {
 
         if (accessorKind) {
             this.fail("Expected '(' after accessor name", this.tokenAt(this.tokens.peek()));
-        }
-
-        let optional = false;
-        let definiteAssignment = false;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
-            this.tokens.skip();
-            optional = true;
-        } else if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "!") {
-            this.tokens.skip();
-            definiteAssignment = true;
         }
 
         let typeAnnotation: Identifier | undefined;
@@ -5916,6 +6074,9 @@ export class Parser {
                 }
                 if (accessorKind) {
                     member.accessorKind = accessorKind;
+                }
+                if (optionalMember) {
+                    member.optional = true;
                 }
                 if (methodTypeParameters.length > 0) {
                     member.typeParameters = methodTypeParameters;

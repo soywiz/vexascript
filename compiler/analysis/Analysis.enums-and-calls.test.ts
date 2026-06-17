@@ -5,6 +5,7 @@ import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
 import { namedType } from "./types";
 import dedent from "compiler/utils/dedent";
+import { parseSource } from "../pipeline/parse";
 
 function symbolsOfVisibleSymbolsAt(source: string, line: number, character: number): Map<string, AnalysisSymbol> {
   const ast = parseFile(tokenizeReader(source));
@@ -61,7 +62,7 @@ describe("enum semantic analysis", () => {
 
     expect(analysis.getIssues()).toEqual([]);
     expect(visible.get("byName")?.valueType).toBe("Direction");
-    expect(visible.get("byNumericLiteral")?.valueType).toBe("Direction | undefined");
+    expect(visible.get("byNumericLiteral")?.valueType).toBe("Direction?");
     expect(visible.get("byEnumValue")?.valueType).toBe("int");
     expect(visible.get("stringByName")?.valueType).toBe("Label");
     expect(visible.get("stringByValue")?.valueType).toBe("Label");
@@ -424,6 +425,18 @@ describe("named call argument analysis", () => {
       expect(messages).toContain("Missing required argument for parameter 'lol'");
     });
 
+    it("treats JSX children as satisfying the children prop", () => {
+      const source = dedent`
+        fun MyButton({ children: unknown }) {
+          return <button>{children}</button>
+        }
+
+        const html = <MyButton>hello</MyButton>
+      `;
+      const messages = new Analysis(parseFile(tokenizeReader(source, { jsx: true }))).getIssues().map((i) => i.message);
+      expect(messages).not.toContain("Missing required argument for parameter 'children'");
+    });
+
     it("resolves variables visible inside JSX expression containers for autocomplete", () => {
       const source = dedent`
         fun demo() {
@@ -436,6 +449,52 @@ describe("named call argument analysis", () => {
       // Position inside the JSX expression container on line 3 (0-based: 2)
       const names = analysis.getVisibleSymbolsAt(2, 22).map((s) => s.name);
       expect(names).toContain("myVar");
+    });
+
+    it("accepts JSX props inherited through imported generic interfaces", () => {
+      const source = dedent`
+        import { InputHTMLAttributes } from "preact"
+
+        interface HTMLInputElement {
+        }
+
+        interface InputProperties extends InputHTMLAttributes<HTMLInputElement> {
+          mySpecialProp: any
+        }
+
+        const Input = (props: InputProperties) => <input {...props} />
+        const html = <Input mySpecialProp="" style="" />
+      `;
+      const externalSource = dedent`
+        export interface HTMLAttributes<T> {
+          style?: string
+        }
+
+        export interface InputHTMLAttributes<T> extends HTMLAttributes<T> {
+        }
+      `;
+
+      const ast = parseFile(tokenizeReader(source, { jsx: true }));
+      const externalDeclarations = parseSource(externalSource, { language: "typescript" }).ast!.body;
+      const analysis = new Analysis(ast, { externalDeclarations });
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages).not.toContain("No parameter named 'style'");
+    });
+
+    it("treats double-brace JSX callback props as zero-argument lambdas", () => {
+      const source = dedent`
+        fun MyButton({ onClick: () => void }) {
+          return <button onClick={onClick}></button>
+        }
+
+        fun App() {
+          let count = 0
+          return <MyButton onClick={{ count-- }} />
+        }
+      `;
+      const analysis = new Analysis(parseFile(tokenizeReader(source, { jsx: true })));
+      expect(analysis.getIssues()).toEqual([]);
     });
   });
 });

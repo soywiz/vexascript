@@ -75,10 +75,12 @@ describe("VS Code extension packaging", () => {
   it("launches the packaged extension server from the extension dist directory", async () => {
     const extensionPath = resolve(process.cwd(), "plugins", "vscode", "extension.js");
     const extensionSource = await readFile(extensionPath, "utf8");
+    const serverSource = await readFile(resolve(process.cwd(), "compiler", "lsp", "server.ts"), "utf8");
 
     expect(extensionSource).toContain("context.extensionPath");
     expect(extensionSource).toContain('"dist"');
     expect(extensionSource).toContain('"vexa.mjs"');
     expect(extensionSource).not.toContain('".."');
+    expect(serverSource).toContain("setVfs(new NodeServerVfs());");
   });
 });

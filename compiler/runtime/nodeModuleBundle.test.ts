@@ -36,7 +36,62 @@ describe("bundleNodeModuleGraph", () => {
         );
 
         expect(result.code).not.toContain('import { value as sharedValue } from "./shared.mjs";');
-        expect(result.code).toContain('const shared_mjs_1 = require("./shared.mjs");');
+        expect(result.code).toContain('const { value : sharedValue } = require("./shared.mjs");');
+      }
+    );
+  });
+
+  it("parses and emits bundled TypeScript modules with the built-in emitter", async () => {
+    await withTempProject(
+      {
+        "entry.ts": 'import { value } from "pkg/hooks"; export const doubled: number = value * 2;\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./hooks": {
+              import: "./hooks.ts"
+            }
+          }
+        }),
+        "node_modules/pkg/hooks.ts": "export const value: number = 7;\n"
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import { value } from "pkg/hooks"; export const doubled: number = value * 2;\n',
+          join(dir, "entry.ts")
+        );
+
+        expect(result.code).toContain('const { value } = require("pkg/hooks");');
+        expect(result.code).toContain("const doubled = value * 2;");
+        expect(result.code).not.toContain(": number");
+      }
+    );
+  });
+
+  it("supports minified ESM default imports from bundled JavaScript modules", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'import render from "pkg/render"; export const value = render();\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./render": {
+              import: "./render.mjs"
+            }
+          }
+        }),
+        "node_modules/pkg/render.mjs": 'const impl=()=>7;export{impl as default};\n'
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import render from "pkg/render"; export const value = render();\n',
+          join(dir, "entry.js")
+        );
+
+        expect(result.code).toContain('const __vexa_import_0 = require("pkg/render");');
+        expect(result.code).toContain("const render = __vexa_import_0 && __vexa_import_0.__esModule ? __vexa_import_0.default : __vexa_import_0;");
+        expect(result.code).toContain("exports.default = impl;");
+        expect(result.code).toContain("exports.__esModule = true;");
       }
     );
   });

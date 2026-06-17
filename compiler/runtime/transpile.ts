@@ -125,6 +125,8 @@ export interface TranspileOptions {
    * `React.Fragment`.
    */
   jsxFragmentFactory?: string;
+  /** Top-level module emission format. Defaults to ESM. */
+  moduleFormat?: EmitOptions["moduleFormat"];
   /**
    * When true, rewrite source-language extensions (.vx, .ts, .tsx) in
    * import/export paths to .js in the emitted output. Set for single-file
@@ -396,6 +398,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     {
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
+      ...(options.moduleFormat ? { moduleFormat: options.moduleFormat } : {}),
       ...(options.rewriteImportExtensions ? { rewriteImportExtensions: true } : {})
     },
     staticImplicitReceiverIdentifiers,

@@ -247,8 +247,15 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
           .join(", ")} }`;
       case "range":
         return `range<${typeToStringInternal(type.elementType, seen)}>`;
-      case "union":
-        return type.types.map((member) => typeToStringInternal(member, seen)).join(" | ");
+      case "union": {
+        const members = dedupeUnionDisplayMembers(flattenUnionDisplayMembers(type));
+        const optionalMember = optionalTypeMember(members);
+        if (optionalMember) {
+          const rendered = typeToStringInternal(optionalMember, seen);
+          return needsParensForOptionalType(optionalMember) ? `(${rendered})?` : `${rendered}?`;
+        }
+        return members.map((member) => typeToStringInternal(member, seen)).join(" | ");
+      }
       case "intersection":
         return type.types.map((member) => typeToStringInternal(member, seen)).join(" & ");
       case "literal":
@@ -263,6 +270,46 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
       seen.delete(trackedObject);
     }
   }
+}
+
+function flattenUnionDisplayMembers(type: AnalysisType): AnalysisType[] {
+  if (type.kind !== "union") {
+    return [type];
+  }
+  return type.types.flatMap((member) => flattenUnionDisplayMembers(member));
+}
+
+function dedupeUnionDisplayMembers(members: AnalysisType[]): AnalysisType[] {
+  const deduped: AnalysisType[] = [];
+  for (const member of members) {
+    if (deduped.some((existing) => isSameType(existing, member))) {
+      continue;
+    }
+    deduped.push(member);
+  }
+  return deduped;
+}
+
+function optionalTypeMember(members: AnalysisType[]): AnalysisType | null {
+  if (members.length !== 2) {
+    return null;
+  }
+  const nonUndefinedMembers = members.filter((member) => !(member.kind === "builtin" && member.name === "undefined"));
+  if (nonUndefinedMembers.length !== 1) {
+    return null;
+  }
+  const optionalMember = nonUndefinedMembers[0]!;
+  if (optionalMember.kind === "union") {
+    return null;
+  }
+  if (optionalMember.kind === "builtin" && optionalMember.name === "null") {
+    return null;
+  }
+  return optionalMember;
+}
+
+function needsParensForOptionalType(type: AnalysisType): boolean {
+  return type.kind === "function" || type.kind === "intersection" || type.kind === "union";
 }
 
 export function isUnknownType(type: AnalysisType): boolean {

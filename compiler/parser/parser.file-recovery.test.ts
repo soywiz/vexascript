@@ -760,6 +760,27 @@ describe("JavaScript implementation annotations", () => {
             expect(parser.errors.length).toBeGreaterThan(0);
         });
 
+        it("parses double-brace JSX attribute values as zero-argument lambdas when object literals do not parse", () => {
+            expect(jsxExpression("<button onClick={{ count-- }} />")).toMatchObject({
+                kind: "JsxElement",
+                tagName: "button",
+                attributes: [
+                    {
+                        kind: "JsxAttribute",
+                        name: "onClick",
+                        value: {
+                            kind: "JsxExpressionContainer",
+                            expression: {
+                                kind: "ArrowFunctionExpression",
+                                parameters: [],
+                                body: { kind: "UpdateExpression" }
+                            }
+                        }
+                    }
+                ]
+            });
+        });
+
         it("reports an error when a JSX attribute opens a brace without spread dots", () => {
             const reader = tokenizeReader("<div {props} />", { jsx: true });
             const parser = new Parser(reader, { language: "vexa" });

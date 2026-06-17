@@ -24,6 +24,80 @@ import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
 import { startLspServer } from "./serverCore";
 import { resolve as resolvePath } from "compiler/utils/path";
+import { setVfs, Vfs, type VfsDirEntry, type VfsStat } from "compiler/vfs";
+
+interface NodeDirentLike {
+  name: string;
+  isFile(): boolean;
+  isDirectory(): boolean;
+}
+
+interface NodeFsPromisesLike {
+  readFile(path: string, encoding: "utf8"): Promise<string>;
+  readdir(path: string, options: { withFileTypes: true }): Promise<NodeDirentLike[]>;
+  stat(path: string): Promise<{ mtimeMs: number; isFile(): boolean; isDirectory(): boolean }>;
+  writeFile(path: string, content: string | NodeJS.ArrayBufferView): Promise<void>;
+  unlink(path: string): Promise<void>;
+}
+
+class NodeServerVfs extends Vfs {
+  private readonly fsPromises: NodeFsPromisesLike;
+
+  constructor() {
+    super();
+    const builtinLoader = process.getBuiltinModule;
+    if (typeof builtinLoader !== "function") {
+      throw new Error("Node builtins are unavailable in this runtime");
+    }
+
+    const builtin = builtinLoader("node:fs/promises");
+    if (!builtin || typeof builtin !== "object") {
+      throw new Error("node:fs/promises is unavailable in this runtime");
+    }
+
+    this.fsPromises = builtin as NodeFsPromisesLike;
+  }
+
+  override async readFile(path: string): Promise<string> {
+    return await this.fsPromises.readFile(path, "utf8");
+  }
+
+  override async writeFile(path: string, content: string | ArrayBufferView): Promise<void> {
+    await this.fsPromises.writeFile(path, content as string | NodeJS.ArrayBufferView);
+  }
+
+  override async unlink(path: string): Promise<void> {
+    await this.fsPromises.unlink(path);
+  }
+
+  override async stat(path: string): Promise<VfsStat> {
+    try {
+      const stats = await this.fsPromises.stat(path);
+      return {
+        mtimeMs: stats.mtimeMs,
+        isFile: stats.isFile(),
+        isDirectory: stats.isDirectory()
+      };
+    } catch {
+      throw new Error(`File '${path}' doesn't exists`);
+    }
+  }
+
+  override async readDir(path: string): Promise<VfsDirEntry[]> {
+    try {
+      const entries = await this.fsPromises.readdir(path, { withFileTypes: true });
+      return entries.map((entry) => ({
+        name: entry.name,
+        isFile: entry.isFile(),
+        isDirectory: entry.isDirectory()
+      }));
+    } catch {
+      throw new Error(`File '${path} doesn't exists`);
+    }
+  }
+}
+
+setVfs(new NodeServerVfs());
 
 const connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
 const documents = new TextDocuments(LspTextDocument);

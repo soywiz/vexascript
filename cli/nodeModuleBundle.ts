@@ -1,5 +1,7 @@
 import { builtinModules } from "node:module";
-import * as ts from "typescript";
+import type { Program, Statement, VarStatement, FunctionStatement, ClassStatement, EnumStatement, ExportStatement } from "../compiler/ast/ast";
+import { parseSource } from "../compiler/pipeline/parse";
+import { emitProgram } from "../compiler/runtime/emitter";
 import { basename, dirname, extname, relative, resolve } from "../compiler/utils/path";
 import { vfs, type Vfs } from "../compiler/vfs";
 
@@ -256,24 +258,200 @@ function detectStaticRequires(source: string): string[] {
   return [...specifiers];
 }
 
-function transpileModuleSource(source: string, filePath: string): string {
-  const transpileFilePath = filePath.endsWith(".mjs")
-    ? `${filePath.slice(0, -4)}.js`
-    : filePath.endsWith(".cjs")
-      ? `${filePath.slice(0, -4)}.js`
-      : filePath;
-  const transpiled = ts.transpileModule(source, {
-    fileName: transpileFilePath,
-    compilerOptions: {
-      allowJs: true,
-      esModuleInterop: true,
-      jsx: ts.JsxEmit.React,
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2020
-    },
-    reportDiagnostics: false
+function collectExportedDeclarationNames(statement: Statement): string[] {
+  if (statement.kind === "VarStatement") {
+    const variable = statement as VarStatement;
+    const declarations = variable.declarations ?? [{ name: variable.name }];
+    const names: string[] = [];
+    for (const declaration of declarations) {
+      if (declaration.name.kind === "Identifier") {
+        names.push(declaration.name.name);
+      }
+    }
+    return names;
+  }
+  if (statement.kind === "FunctionStatement" || statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+    return [(statement as FunctionStatement | ClassStatement | EnumStatement).name.name];
+  }
+  return [];
+}
+
+function collectExplicitExportNames(program: Program): string[] {
+  const exportNames = new Set<string>();
+  for (const statement of program.body) {
+    if (statement.kind !== "ExportStatement") {
+      continue;
+    }
+    const exportStatement = statement as ExportStatement;
+    if (exportStatement.typeOnly) {
+      continue;
+    }
+    if (exportStatement.default) {
+      exportNames.add("default");
+    }
+    if (exportStatement.namespaceExport) {
+      exportNames.add(exportStatement.namespaceExport.name);
+    }
+    for (const specifier of exportStatement.specifiers ?? []) {
+      if (!specifier.typeOnly) {
+        exportNames.add(specifier.exported.name);
+      }
+    }
+    if (exportStatement.declaration) {
+      for (const name of collectExportedDeclarationNames(exportStatement.declaration)) {
+        exportNames.add(name);
+      }
+    }
+  }
+  return [...exportNames];
+}
+
+function shouldPreserveCommonJsSource(source: string, filePath: string): boolean {
+  const extension = extname(filePath).toLowerCase();
+  if (extension !== ".js" && extension !== ".cjs") {
+    return false;
+  }
+  const hasCommonJsMarkers = /\bmodule\.exports\b|\bexports\.[A-Za-z_$]|\brequire\s*\(/.test(source);
+  const hasEsmMarkers = /^\s*import\b|^\s*export\b/m.test(source);
+  return hasCommonJsMarkers && !hasEsmMarkers;
+}
+
+function transformImportClauseToCommonJs(clause: string, specifier: string, tempName: string): string {
+  const trimmed = clause.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    const bindings = trimmed.slice(1, -1).trim();
+    const commonJsBindings = bindings.replace(/\bas\b/g, ":");
+    return `const { ${commonJsBindings} } = require(${JSON.stringify(specifier)});`;
+  }
+  if (trimmed.startsWith("* as ")) {
+    return `const ${trimmed.slice(5).trim()} = require(${JSON.stringify(specifier)});`;
+  }
+  const commaIndex = trimmed.indexOf(",");
+  if (commaIndex >= 0) {
+    const defaultImport = trimmed.slice(0, commaIndex).trim();
+    const rest = trimmed.slice(commaIndex + 1).trim();
+    const lines = [
+      `const ${tempName} = require(${JSON.stringify(specifier)});`,
+      `const ${defaultImport} = ${tempName} && ${tempName}.__esModule ? ${tempName}.default : ${tempName};`
+    ];
+    if (rest.startsWith("{") && rest.endsWith("}")) {
+      const bindings = rest.slice(1, -1).trim().replace(/\bas\b/g, ":");
+      lines.push(`const { ${bindings} } = ${tempName};`);
+    } else if (rest.startsWith("* as ")) {
+      lines.push(`const ${rest.slice(5).trim()} = ${tempName};`);
+    }
+    return lines.join("\n");
+  }
+  return [
+    `const ${tempName} = require(${JSON.stringify(specifier)});`,
+    `const ${trimmed} = ${tempName} && ${tempName}.__esModule ? ${tempName}.default : ${tempName};`
+  ].join("\n");
+}
+
+function transformJavaScriptModuleSource(source: string): string {
+  let tempIndex = 0;
+  let usesEsmExports = false;
+  const appendedExports: string[] = [];
+  let transformed = source;
+
+  transformed = transformed.replace(/(^|[\n;])\s*import\s+(['"])([^"'`]+)\2\s*;?/g, (_match, prefix, _quote, specifier) => {
+    return `${prefix}require(${JSON.stringify(specifier)});`;
   });
-  return transpiled.outputText;
+
+  transformed = transformed.replace(/(^|[\n;])\s*import\s*([^;'"]+?)\s*from\s*(['"])([^"'`]+)\3\s*;?/g, (_match, prefix, clause, _quote, specifier) => {
+    const tempName = `__vexa_import_${tempIndex++}`;
+    return `${prefix}${transformImportClauseToCommonJs(clause, specifier, tempName)}`;
+  });
+
+  transformed = transformed.replace(/export\s+default\s+([^;]+);?/g, (_match, expression) => {
+    usesEsmExports = true;
+    return `exports.default = ${expression};`;
+  });
+
+  transformed = transformed.replace(/export\s*\{([^}]+)\}(?:\s+from\s+(['"])([^"'`]+)\2)?\s*;?/g, (_match, specifiersText, _quote, fromSpecifier) => {
+    usesEsmExports = true;
+    const specifiers = specifiersText
+      .split(",")
+      .map((part: string) => part.trim())
+      .filter((part: string) => part.length > 0);
+    if (fromSpecifier) {
+      const tempName = `__vexa_export_${tempIndex++}`;
+      const lines = [`const ${tempName} = require(${JSON.stringify(fromSpecifier)});`];
+      for (const specifier of specifiers) {
+        const aliasParts = specifier.split(/\s+as\s+/);
+        const localName = aliasParts[0]!.trim();
+        const exportedName = (aliasParts[1] ?? aliasParts[0])!.trim();
+        lines.push(`exports.${exportedName} = ${tempName}.${localName};`);
+      }
+      return lines.join("\n");
+    }
+    return specifiers.map((specifier: string) => {
+      const aliasParts = specifier.split(/\s+as\s+/);
+      const localName = aliasParts[0]!.trim();
+      const exportedName = (aliasParts[1] ?? aliasParts[0])!.trim();
+      return `exports.${exportedName} = ${localName};`;
+    }).join("\n");
+  });
+
+  transformed = transformed.replace(/export\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([^;]+);?/g, (_match, kind, name, initializer) => {
+    usesEsmExports = true;
+    return `${kind} ${name} = ${initializer};\nexports.${name} = ${name};`;
+  });
+
+  transformed = transformed.replace(/export\s+((?:async\s+)?function(?:\s*\*)?)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g, (_match, prefix, name) => {
+    usesEsmExports = true;
+    appendedExports.push(`exports.${name} = ${name};`);
+    return `${prefix} ${name}(`;
+  });
+
+  transformed = transformed.replace(/export\s+class\s+([A-Za-z_$][A-Za-z0-9_$]*)/g, (_match, name) => {
+    usesEsmExports = true;
+    appendedExports.push(`exports.${name} = ${name};`);
+    return `class ${name}`;
+  });
+
+  if (appendedExports.length > 0) {
+    transformed = `${transformed}\n${appendedExports.join("\n")}`;
+  }
+  if (usesEsmExports) {
+    transformed = `${transformed}\nexports.__esModule = true;`;
+  }
+  return transformed;
+}
+
+function transpileModuleSource(source: string, filePath: string): { code: string; exportNames: string[] | null } {
+  if (shouldPreserveCommonJsSource(source, filePath)) {
+    return {
+      code: source,
+      exportNames: null
+    };
+  }
+  const extension = extname(filePath).toLowerCase();
+  if (extension === ".js" || extension === ".mjs" || extension === ".cjs" || extension === ".jsx") {
+    return {
+      code: transformJavaScriptModuleSource(source),
+      exportNames: null
+    };
+  }
+  const parsed = parseSource(source, {
+    language: "typescript",
+    jsx: extension === ".tsx" || extension === ".jsx"
+  });
+  if (!parsed.ast) {
+    const detail = parsed.fatalError
+      ?? parsed.tokenizeError?.message
+      ?? parsed.parserIssues[0]?.message
+      ?? "unknown parse error";
+    throw new Error(`Unable to parse bundled module '${filePath}': ${detail}`);
+  }
+  if (parsed.parserIssues.length > 0) {
+    const issue = parsed.parserIssues[0]!;
+    throw new Error(`Unable to parse bundled module '${filePath}': ${issue.message}`);
+  }
+  return {
+    code: emitProgram(parsed.ast, undefined, undefined, undefined, { moduleFormat: "commonjs" }),
+    exportNames: collectExplicitExportNames(parsed.ast)
+  };
 }
 
 function commonAncestorDirectory(paths: readonly string[]): string {
@@ -312,6 +490,9 @@ function collectCommonJsExports(code: string): string[] {
     if (exportName && exportName !== "__esModule") {
       exports.add(exportName);
     }
+  }
+  if (/\bexports\.default\s*=/.test(code)) {
+    exports.add("default");
   }
   if (/\bmodule\.exports\s*=/.test(code)) {
     exports.add("default");
@@ -370,9 +551,14 @@ export async function bundleNodeModuleGraph(
     if (!virtualSources.has(filePath)) {
       watchedFiles.add(filePath);
     }
-    const transpiledCode = extension === ".json"
-      ? `module.exports = ${source.trim()};`
-      : transpileModuleSource(source, filePath);
+    const transpiled = extension === ".json"
+      ? { code: `module.exports = ${source.trim()};`, exportNames: ["default"] }
+      : extension === ".txt"
+        ? { code: `module.exports = ${JSON.stringify(source)};`, exportNames: ["default"] }
+      : virtualSources.has(filePath)
+        ? { code: source, exportNames: null }
+        : transpileModuleSource(source, filePath);
+    const transpiledCode = transpiled.code;
     const dependencyMap: Record<string, string | null> = {};
     for (const specifier of detectStaticRequires(transpiledCode)) {
       const resolved = await resolveDependency(filePath, specifier, activeVfs, virtualSources);
@@ -392,7 +578,10 @@ export async function bundleNodeModuleGraph(
     return moduleId;
   };
 
-  const entryCode = transpileModuleSource(entrySource, sourcePath);
+  const entryTranspiled = virtualSources.has(sourcePath)
+    ? { code: entrySource, exportNames: null }
+    : transpileModuleSource(entrySource, sourcePath);
+  const entryCode = entryTranspiled.code;
   const entryDependencyMap: Record<string, string | null> = {};
   for (const specifier of detectStaticRequires(entryCode)) {
     const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources);
@@ -410,7 +599,7 @@ export async function bundleNodeModuleGraph(
   });
 
   const bundleRootDir = commonAncestorDirectory([...moduleById.values()].map((record) => record.filePath));
-  const entryExports = collectCommonJsExports(entryCode);
+  const entryExports = entryTranspiled.exportNames ?? collectCommonJsExports(entryCode);
   const dependencyMapsLiteral = [...moduleById.values()]
     .map((record) => `${JSON.stringify(record.id)}: ${JSON.stringify(record.dependencyMap)}`)
     .join(",\n");

@@ -1,5 +1,5 @@
 import { assert, dirname, fileURLToPath, resolve, test } from "../../compiler/test/expect";
-import { loadSyntaxDocument, loadAgentsDocument, renderMarkdownDocument } from "./siteContent.ts";
+import { loadSyntaxDocument, loadSyntaxAiDocument, renderMarkdownDocument } from "./siteContent.ts";
 import { highlightVexaScriptHtml } from "./syntaxHighlight.ts";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
@@ -12,8 +12,8 @@ test("loadSyntaxDocument reads the canonical syntax reference", async () => {
   assert.match(content, /## Variables/m);
 });
 
-test("loadAgentsDocument reads the VexaScript AI agent reference", async () => {
-  const content = await loadAgentsDocument(projectRoot);
+test("loadSyntaxAiDocument reads the VexaScript AI syntax reference", async () => {
+  const content = await loadSyntaxAiDocument(projectRoot);
 
   assert.match(content, /^# VexaScript for AI Agents/m);
   assert.match(content, /## Functions/m);

@@ -27,6 +27,25 @@ function fallbackRange() {
   };
 }
 
+function nodeDiagnosticRange(node: {
+  firstToken?: { range: { start: { line: number; column: number } } };
+  lastToken?: { range: { end: { line: number; column: number } } };
+}) {
+  if (!node.firstToken || !node.lastToken) {
+    return null;
+  }
+  return {
+    start: {
+      line: node.firstToken.range.start.line,
+      character: node.firstToken.range.start.column
+    },
+    end: {
+      line: node.lastToken.range.end.line,
+      character: node.lastToken.range.end.column
+    }
+  };
+}
+
 function diagnosticKey(diagnostic: Diagnostic): string {
   return [
     diagnostic.source ?? "",
@@ -109,8 +128,8 @@ export function collectDiagnosticsFromSession(
 
   if (session.semanticIssues.length > 0) {
     for (const issue of session.semanticIssues) {
-      const token = issue.node.firstToken;
-      if (!token && !issue.range) {
+      const range = issue.range ?? nodeDiagnosticRange(issue.node);
+      if (!range) {
         continue;
       }
       pushDiagnostic({
@@ -119,16 +138,7 @@ export function collectDiagnosticsFromSession(
           classifySemanticDiagnosticMessage(issue.message) ??
           VEXA_DIAGNOSTIC_CODES.SEMANTIC_ERROR,
         severity: DiagnosticSeverity.Error,
-        range: issue.range ?? {
-          start: {
-            line: token!.range.start.line,
-            character: token!.range.start.column
-          },
-          end: {
-            line: token!.range.end.line,
-            character: token!.range.end.column
-          }
-        },
+        range,
         message: issue.message,
         source: "vexa-sema",
         ...(issue.data ? { data: issue.data } : {})

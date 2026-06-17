@@ -4,6 +4,11 @@ export interface TypeNameShape {
   arrayDepth: number;
 }
 
+export interface OptionalTypeNameSuffix {
+  typeName: string;
+  optional: boolean;
+}
+
 interface TypeTextDepths {
   angle: number;
   paren: number;
@@ -118,6 +123,30 @@ export function findMatchingTypeDelimiter(
 
 export function splitTypeArgumentText(argumentBody: string): string[] {
   return splitTopLevelDelimitedTypeText(argumentBody);
+}
+
+export function splitOptionalTypeSuffix(typeName: string): OptionalTypeNameSuffix {
+  const trimmed = typeName.trim();
+  if (!trimmed.endsWith("?")) {
+    return { typeName: trimmed, optional: false };
+  }
+
+  let trailingQuestionAtTopLevel = false;
+  scanTypeText(trimmed, (character, index, isTopLevel) => {
+    if (isTopLevel && index === trimmed.length - 1 && character === "?") {
+      trailingQuestionAtTopLevel = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (!trailingQuestionAtTopLevel) {
+    return { typeName: trimmed, optional: false };
+  }
+  return {
+    typeName: trimmed.slice(0, -1).trimEnd(),
+    optional: true
+  };
 }
 
 export function parseTypeNameShape(typeName: string): TypeNameShape {

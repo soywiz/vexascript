@@ -17,11 +17,11 @@ export async function loadSyntaxDocument(projectRoot) {
 }
 
 export async function loadDifferencesDocument(projectRoot) {
-  return await readFile(resolve(projectRoot, "docs/vexa_syntax_differences.md"), "utf8");
+  return await readFile(resolve(projectRoot, "docs/syntax.differences.md"), "utf8");
 }
 
-export async function loadAgentsDocument(projectRoot) {
-  return await readFile(resolve(projectRoot, "docs/agents-vexascript.md"), "utf8");
+export async function loadSyntaxAiDocument(projectRoot) {
+  return await readFile(resolve(projectRoot, "docs/syntax.ai.md"), "utf8");
 }
 
 export function renderMarkdownDocument(content) {

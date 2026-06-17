@@ -13,11 +13,11 @@ permalink: /syntax/ai.html
       </div>
       <button class="button secondary agents-copy-btn" id="agentsCopyBtn">Copy to clipboard</button>
     </div>
-    {{ agentsDocumentHtml | safe }}
+    {{ syntaxAiDocumentHtml | safe }}
   </article>
 
   <script>
-    var _agentsMd = {{ agentsDocumentRaw | jsonEncode | safe }};
+    var _agentsMd = {{ syntaxAiDocumentRaw | jsonEncode | safe }};
     document.getElementById('agentsCopyBtn').addEventListener('click', function() {
       var btn = this;
       navigator.clipboard.writeText(_agentsMd).then(function() {

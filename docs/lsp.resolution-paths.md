@@ -1,6 +1,6 @@
 # LSP Resolution Paths
 
-This document maps the resolution paths that existed before the shared cursor-target model work. It is intended as the baseline for the LSP unification plan in `docs/tasks/lsp.unifications.md`.
+This document maps the resolution paths that existed before the shared cursor-target model work. It remains the historical baseline for the completed LSP unification effort recorded in `docs/tasks/completed/lsp.unifications.md` and for later cleanup work.
 
 ## Request dispatch
 

@@ -151,7 +151,7 @@ This section is the fast onboarding map for agents and contributors.
 - Website and embeddable learning playground (project root: `website/`):
   - 11ty configuration and static-site build surface: `website/eleventy.config.mjs`, `website/src/index.njk`, `website/src/quickstart.njk`, `website/src/samples.njk`, `website/src/syntax.njk`, `website/src/syntax_ai.njk`, `website/src/differences.njk`, `website/src/cli.njk`, `website/src/embed.njk`, `website/src/playground.njk`, `website/src/blog/index.njk`, `website/src/blog/article1.njk`, `website/src/404.njk`, `website/src/_includes/layout.njk`, `website/src/assets/site.css`
   - Website build orchestrator, which ensures the compiler CLI bundle exists, regenerates the website-safe JS syntax module from the compiler's canonical syntax source, then runs the esbuild embed bundler and 11ty: `website/scripts/build.ts`
-  - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md`, the `/differences/` page sourced from `docs/vexa_syntax_differences.md`, and the AGENTS.md template for AI agents sourced from `docs/agents-vexascript.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
+  - Shared website content loaders/renderers, including the `/syntax/` page sourced from `docs/syntax.md`, the `/differences/` page sourced from `docs/syntax.differences.md`, and the `/syntax/ai` page sourced from `docs/syntax.ai.md`: `website/src/siteContent.ts`, `website/src/siteContent.mjs`
   - Website-only syntax highlighter sources used by Eleventy without importing TypeScript sources during `--watch`: `website/src/syntaxHighlight.ts`, `website/src/syntaxHighlight.mjs`
   - Website content-loader tests: `website/src/siteContent.test.ts`
   - Esbuild-powered embeddable Monaco helper sources for single-file, tabbed, workspace, and full workbench tutorial editors, plus the preview-iframe document builder that captures compile/runtime errors inside the embedded console: `website/scripts/buildEmbed.ts`, `website/src/assets/vexa-embed.ts`, `website/src/assets/previewDocument.ts`
@@ -170,10 +170,12 @@ This section is the fast onboarding map for agents and contributors.
 ### Docs and Specs
 
 - Supported syntax: `docs/syntax.md`
-- VexaScript vs TypeScript syntax differences: `docs/vexa_syntax_differences.md`
-- Compact VexaScript reference for AI agents (AGENTS.md template for repos): `docs/agents-vexascript.md`
+- VexaScript vs TypeScript syntax differences: `docs/syntax.differences.md`
+- VexaScript AI syntax reference for the website `/syntax/ai` page: `docs/syntax.ai.md`
+- Compact VexaScript reference for AI agents, including the AGENTS.md-friendly version used by the website `/syntax/ai` page: `docs/syntax.ai.md`
 - LSP services status: `docs/lsp.services.md`
-- LSP unification task list: `docs/tasks/lsp.unifications.md`
+- Completed LSP unification task list: `docs/tasks/completed/lsp.unifications.md`
+- LSP post-unification cleanup tasks: `docs/tasks/lsp-post-unification-cleanup.md`
 - LSP current resolution-path baseline for unification work: `docs/lsp.resolution-paths.md`
 - LSP canonical cursor-target model design for unifying navigation, hover, references, rename, and signature help: `docs/lsp.cursor-target-model.md`
 - Semantic analysis spec: `docs/semantic.spec.md`

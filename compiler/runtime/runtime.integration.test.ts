@@ -90,6 +90,18 @@ console.log(values.length)
     expect(logs).toEqual([[true], [false], [3]]);
   });
 
+  it("executes optional-chain assignments anywhere an expression is allowed", () => {
+    const source = `let target: { current?: { style?: { background: string } } } = { current: { style: { background: "white" } } }
+console.log(target.current?.style?.background = "grey")
+target.current = undefined
+console.log(target.current?.style?.background = "black")
+`;
+
+    const logs = executeTranspiled(source, "optimized");
+
+    expect(logs).toEqual([["grey"], [undefined]]);
+  });
+
   it("preserves behavior between conservative and optimized transpile targets", () => {
     const source = `let total = 0
 for (n of 0 ..< 5) {

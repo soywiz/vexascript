@@ -192,9 +192,12 @@ interface ActiveEmitState {
    */
   autoAwaitExpressions: ReadonlySet<Node>;
   asyncForStatements: ReadonlySet<Node>;
+  moduleFormat: "esm" | "commonjs";
   rewriteImportExtensions: boolean;
   jsxFactory: string;
   jsxFragmentFactory: string;
+  generatedSymbolCounter: number;
+  optionalAssignmentTempScopes: string[][];
 }
 
 function createEmptyEmitState(): ActiveEmitState {
@@ -219,9 +222,12 @@ function createEmptyEmitState(): ActiveEmitState {
     expressionTypes: undefined,
     autoAwaitExpressions: new Set(),
     asyncForStatements: new Set(),
+    moduleFormat: "esm",
     rewriteImportExtensions: false,
     jsxFactory: DEFAULT_JSX_FACTORY,
-    jsxFragmentFactory: DEFAULT_JSX_FRAGMENT_FACTORY
+    jsxFragmentFactory: DEFAULT_JSX_FRAGMENT_FACTORY,
+    generatedSymbolCounter: 0,
+    optionalAssignmentTempScopes: []
   };
 }
 
@@ -251,6 +257,8 @@ export interface EmitOptions {
   jsxFactory?: string;
   /** Expression used for fragments, e.g. `React.Fragment` (default) or `Fragment`. */
   jsxFragmentFactory?: string;
+  /** Module output format for top-level import/export statements. */
+  moduleFormat?: "esm" | "commonjs";
   /**
    * When true, rewrite source-language extensions in import/export paths to .js
    * so the emitted file can be run directly (e.g. vexa build single-file output).
@@ -777,6 +785,37 @@ function emitVariableDelegateAssignment(assignment: AssignmentExpression): strin
   return emitVariableDelegateWrite(delegate, valueText);
 }
 
+function hasOptionalAssignmentTarget(expression: Expr): boolean {
+  if (expression.kind !== "MemberExpression") {
+    return false;
+  }
+  const member = expression as MemberExpression;
+  return member.optional === true || hasOptionalAssignmentTarget(member.object);
+}
+
+function emitOptionalAssignmentTarget(assignment: AssignmentExpression): string | null {
+  if (assignment.left.kind !== "MemberExpression" || !hasOptionalAssignmentTarget(assignment.left)) {
+    return null;
+  }
+
+  const target = assignment.left as MemberExpression;
+  const tempName = reserveOptionalAssignmentTemp();
+  const receiverText = emitExpression(target.object, PREC_ASSIGNMENT, "left");
+  const normalizedTarget: MemberExpression = {
+    ...target,
+    object: { kind: "Identifier", name: tempName ?? nextGeneratedSymbol("$$temp") } as Expr,
+    optional: false,
+    nonNullAsserted: false
+  };
+  const targetText = emitExpression(normalizedTarget, PREC_ASSIGNMENT, "left");
+  const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
+  if (tempName) {
+    return `(${tempName} = ${receiverText}, ${tempName} != null ? ${targetText} ${assignment.operator} ${rightText} : undefined)`;
+  }
+  const fallbackTempName = ((normalizedTarget.object as Expr) as Identifier).name;
+  return `(() => { const ${fallbackTempName} = ${receiverText}; return ${fallbackTempName} != null ? ${targetText} ${assignment.operator} ${rightText} : undefined; })()`;
+}
+
 function emitVariableDelegateUpdate(update: UpdateExpression): string | null {
   const delegate = variableDelegateForTarget(update.argument);
   if (!delegate) {
@@ -1033,6 +1072,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (delegateAssignment) {
           return delegateAssignment;
         }
+        const optionalAssignment = emitOptionalAssignmentTarget(assignment);
+        if (optionalAssignment) {
+          return optionalAssignment;
+        }
         const leftText = emitExpression(assignment.left, PREC_ASSIGNMENT, "left");
         const rightText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
         return `${leftText} ${assignment.operator} ${rightText}`;
@@ -1189,7 +1232,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
               const fn = objectProperty.value as FunctionExpression;
               return withVariableDelegateShadows(
                 functionParameterBindingNames(fn.parameters),
-                () => `${key}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`
+                () => `${key}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
               );
             }
             return `${key}: ${emitListElement(objectProperty.value)}`;
@@ -1204,10 +1247,13 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const parameters = `(${emitFunctionParameters(arrow.parameters)})`;
         return withVariableDelegateShadows(functionParameterBindingNames(arrow.parameters), () => {
           if (arrow.body.kind === "BlockStatement") {
-            return `${asyncEmitPrefix(arrow)}${parameters} => ${emitBlock(arrow.body as BlockStatement)}`;
+            return `${asyncEmitPrefix(arrow)}${parameters} => ${emitScopedBlock(arrow.body as BlockStatement)}`;
           }
           const bodyExpression = arrow.body as Expr;
-          const bodyText = emitExpression(bodyExpression);
+          const { result: bodyText, temps } = withOptionalAssignmentTempScope(() => emitExpression(bodyExpression));
+          if (temps.length > 0) {
+            return `${asyncEmitPrefix(arrow)}${parameters} => {\n${emitOptionalAssignmentTempDeclaration(temps)}\nreturn ${bodyText};\n}`;
+          }
           if (bodyExpression.kind === "ObjectLiteral") {
             return `${asyncEmitPrefix(arrow)}${parameters} => (${bodyText})`;
           }
@@ -1219,7 +1265,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const name = fn.name ? ` ${fn.name.name}` : "";
         return withVariableDelegateShadows(
           functionParameterBindingNames(fn.parameters),
-          () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`
+          () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
         );
       }
       case "JsxElement":
@@ -1354,6 +1400,21 @@ ${statement.body.map((child) => emitStatement(child)).join("\n")}
 }`;
 }
 
+function emitScopedBlock(statement: BlockStatement): string {
+  const { result: emittedStatements, temps } = withOptionalAssignmentTempScope(() =>
+    statement.body.map((child) => emitStatement(child))
+  );
+  const lines = temps.length > 0
+    ? [emitOptionalAssignmentTempDeclaration(temps), ...emittedStatements]
+    : emittedStatements;
+  if (lines.length === 0) {
+    return "{}";
+  }
+  return `{
+${lines.join("\n")}
+}`;
+}
+
 function emitForIteratorHeader(iterator: ForStatement["iterator"]): string {
   if (!iterator) {
     return "";
@@ -1470,11 +1531,9 @@ function emitConstructorBlock(method: ClassMethodMember): string {
   const assignments = method.parameters
     .filter(isParameterProperty)
     .map((parameter) => `this.${(parameter.name as Identifier).name} = ${(parameter.name as Identifier).name};`);
-  if (assignments.length === 0) {
-    return emitBlock(method.body);
-  }
-
-  const emittedStatements = method.body.body.map((statement) => emitStatement(statement));
+  const { result: emittedStatements, temps } = withOptionalAssignmentTempScope(() =>
+    method.body.body.map((statement) => emitStatement(statement))
+  );
   const firstStatement = method.body.body[0];
   const insertAt = firstStatement?.kind === "ExprStatement" &&
     (firstStatement as ExprStatement).expression.kind === "CallExpression" &&
@@ -1482,6 +1541,12 @@ function emitConstructorBlock(method: ClassMethodMember): string {
     (((firstStatement as ExprStatement).expression as CallExpression).callee as Identifier).name === "super"
       ? 1
       : 0;
+  if (temps.length > 0) {
+    emittedStatements.splice(insertAt, 0, emitOptionalAssignmentTempDeclaration(temps));
+  }
+  if (assignments.length === 0 && temps.length === 0) {
+    return emitBlock(method.body);
+  }
   emittedStatements.splice(insertAt, 0, ...assignments);
   return `{
 ${emittedStatements.join("\n")}
@@ -1508,7 +1573,7 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
       ? operatorMethodName(method.operator, method.parameters)
       : method.name.name;
   return withVariableDelegateShadows(functionParameterBindingNames(method.parameters), () => {
-    const body = methodName === "constructor" ? emitConstructorBlock(method) : emitBlock(method.body);
+    const body = methodName === "constructor" ? emitConstructorBlock(method) : emitScopedBlock(method.body);
     return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;
   });
 }
@@ -1632,6 +1697,219 @@ function indentEmitted(text: string): string {
   return text.split("\n").map((line) => `  ${line}`).join("\n");
 }
 
+function nextGeneratedSymbol(prefix: string): string {
+  const symbol = `${prefix}_${activeState.generatedSymbolCounter}`;
+  activeState.generatedSymbolCounter += 1;
+  return symbol;
+}
+
+function withOptionalAssignmentTempScope<T>(emit: () => T): { result: T; temps: string[] } {
+  activeState.optionalAssignmentTempScopes.push([]);
+  try {
+    return {
+      result: emit(),
+      temps: activeState.optionalAssignmentTempScopes[activeState.optionalAssignmentTempScopes.length - 1] ?? []
+    };
+  } finally {
+    activeState.optionalAssignmentTempScopes.pop();
+  }
+}
+
+function reserveOptionalAssignmentTemp(): string | null {
+  const scope = activeState.optionalAssignmentTempScopes[activeState.optionalAssignmentTempScopes.length - 1];
+  if (!scope) {
+    return null;
+  }
+  const symbol = nextGeneratedSymbol("$$temp");
+  scope.push(symbol);
+  return symbol;
+}
+
+function emitOptionalAssignmentTempDeclaration(temps: string[]): string {
+  return `let ${temps.join(", ")};`;
+}
+
+function esmImportBindingToCommonJs(binding: string): string {
+  const aliasIndex = binding.indexOf(" as ");
+  if (aliasIndex < 0) {
+    return binding;
+  }
+  return `${binding.slice(0, aliasIndex)}: ${binding.slice(aliasIndex + 4)}`;
+}
+
+function defaultRequireBinding(target: string): string {
+  return `${target} && ${target}.__esModule ? ${target}.default : ${target}`;
+}
+
+function commonJsRuntimeExportBindings(statement: Statement): Array<{ exportedName: string; valueExpression: string }> {
+  if (statement.kind === "VarStatement") {
+    const variable = statement as VarStatement;
+    if (variable.receiverType && variable.name.kind === "Identifier") {
+      const runtimeName = extensionPropertyRuntimeName(variable.receiverType.name, variable.name.name);
+      return [{ exportedName: runtimeName, valueExpression: runtimeName }];
+    }
+    const declarations = variable.declarations && variable.declarations.length > 0
+      ? variable.declarations
+      : [{ name: variable.name, delegate: variable.delegate }];
+    return declarations.flatMap((declaration) => {
+      if (declaration.name.kind !== "Identifier" || declaration.delegate) {
+        return [];
+      }
+      const name = resolveJsName(declaration.name.name);
+      return [{ exportedName: name, valueExpression: name }];
+    });
+  }
+  if (statement.kind === "FunctionStatement") {
+    const fn = statement as FunctionStatement;
+    if (fn.receiverType) {
+      const baseName = fn.operator ? operatorBaseName(fn.operator) : fn.name.name;
+      const runtimeName = extensionMethodRuntimeName(fn.receiverType.name, baseName, fn.parameters);
+      return [{ exportedName: runtimeName, valueExpression: runtimeName }];
+    }
+    const overloads = activeState.programOverloads.get(fn.name.name);
+    const runtimeName = activeState.jsNames.get(fn.name.name)
+      ?? (overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name);
+    return [{ exportedName: runtimeName, valueExpression: runtimeName }];
+  }
+  if (statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+    const name = resolveJsName((statement as ClassStatement | EnumStatement).name.name);
+    return [{ exportedName: name, valueExpression: name }];
+  }
+  if (statement.kind === "NamespaceStatement") {
+    const rootName = (statement as NamespaceStatement).names?.[0]?.name;
+    return rootName ? [{ exportedName: rootName, valueExpression: rootName }] : [];
+  }
+  return [];
+}
+
+function emitCommonJsExportStatement(exportStatement: ExportStatement): string {
+  if (exportStatement.typeOnly) {
+    return "";
+  }
+  if (exportStatement.namespaceExport) {
+    if (!exportStatement.from) {
+      return "";
+    }
+    const exportTemp = nextGeneratedSymbol("__vexa_export");
+    return [
+      `const ${exportTemp} = require(${JSON.stringify(rewriteImportPath(exportStatement.from.value))});`,
+      `exports.${exportStatement.namespaceExport.name} = ${exportTemp};`
+    ].join("\n");
+  }
+  if (exportStatement.exportAll) {
+    if (!exportStatement.from) {
+      return "";
+    }
+    const exportTemp = nextGeneratedSymbol("__vexa_export_all");
+    return [
+      `const ${exportTemp} = require(${JSON.stringify(rewriteImportPath(exportStatement.from.value))});`,
+      `for (const __vexa_export_key in ${exportTemp}) {`,
+      `  if (__vexa_export_key !== "default" && __vexa_export_key !== "__esModule") {`,
+      `    exports[__vexa_export_key] = ${exportTemp}[__vexa_export_key];`,
+      `  }`,
+      `}`
+    ].join("\n");
+  }
+  if (exportStatement.specifiers) {
+    const lines: string[] = [];
+    let exportSource: string | null = null;
+    if (exportStatement.from) {
+      exportSource = nextGeneratedSymbol("__vexa_export");
+      lines.push(`const ${exportSource} = require(${JSON.stringify(rewriteImportPath(exportStatement.from.value))});`);
+    }
+    for (const specifier of exportStatement.specifiers) {
+      if (specifier.typeOnly) {
+        continue;
+      }
+      const exportedName = specifier.exported.name;
+      const localName = exportStatement.from
+        ? (specifier.local ?? specifier.exported).name
+        : resolveJsName((specifier.local ?? specifier.exported).name);
+      lines.push(`exports.${exportedName} = ${exportSource ? `${exportSource}.${localName}` : localName};`);
+    }
+    return lines.join("\n");
+  }
+  if (!exportStatement.declaration) {
+    return "";
+  }
+  if (exportStatement.default && exportStatement.declaration.kind === "ExprStatement") {
+    return `exports.default = ${emitExpression((exportStatement.declaration as ExprStatement).expression)};\nexports.__esModule = true;`;
+  }
+  const emitted = emitStatement(exportStatement.declaration);
+  if (!emitted) {
+    return "";
+  }
+  const runtimeBindings = commonJsRuntimeExportBindings(exportStatement.declaration);
+  if (exportStatement.default) {
+    const defaultTarget = runtimeBindings[0]?.valueExpression;
+    return defaultTarget ? `${emitted}\nexports.default = ${defaultTarget};\nexports.__esModule = true;` : emitted;
+  }
+  if (runtimeBindings.length === 0) {
+    return emitted;
+  }
+  return [
+    emitted,
+    ...runtimeBindings.map(({ exportedName, valueExpression }) => `exports.${exportedName} = ${valueExpression};`)
+  ].join("\n");
+}
+
+function emitCommonJsImportStatement(importStatement: ImportStatement): string {
+  if (importStatement.typeOnly) {
+    return "";
+  }
+  const source = JSON.stringify(rewriteImportPath(importStatement.from.value));
+  if (importStatement.sideEffectOnly) {
+    return `require(${source});`;
+  }
+  const namedImports: string[] = [];
+  for (const specifier of importStatement.specifiers) {
+    const localName = specifier.local?.name ?? specifier.imported.name;
+    const overloadRuntimeNames = importedOverloadRuntimeNames(specifier.imported.name, localName);
+    if (overloadRuntimeNames.length > 0) {
+      namedImports.push(...overloadRuntimeNames);
+      continue;
+    }
+
+    const extensionRuntimeNames = importedExtensionRuntimeNames(specifier.imported.name);
+    if (extensionRuntimeNames.length > 0) {
+      namedImports.push(...extensionRuntimeNames);
+      continue;
+    }
+
+    const receiverType = activeState.extensionProperties.get(localName);
+    if (receiverType) {
+      const importedName = extensionPropertyRuntimeName(receiverType, specifier.imported.name);
+      namedImports.push(specifier.local ? `${importedName} as ${specifier.local.name}` : importedName);
+      continue;
+    }
+
+    if (!isOperatorImportName(specifier.imported.name)) {
+      namedImports.push(specifier.local ? `${specifier.imported.name} as ${specifier.local.name}` : specifier.imported.name);
+    }
+  }
+  const hadOperatorImport = importStatement.specifiers.some((specifier) => isOperatorImportName(specifier.imported.name));
+  const lines: string[] = [];
+  const requiresModuleObject = importStatement.defaultImport !== undefined || importStatement.namespaceImport !== undefined;
+  const moduleObject = requiresModuleObject ? nextGeneratedSymbol("__vexa_import") : null;
+  if (moduleObject) {
+    lines.push(`const ${moduleObject} = require(${source});`);
+  }
+  if (importStatement.defaultImport) {
+    lines.push(`const ${importStatement.defaultImport.name} = ${defaultRequireBinding(moduleObject!)};`);
+  }
+  if (importStatement.namespaceImport) {
+    lines.push(`const ${importStatement.namespaceImport.name} = ${moduleObject!};`);
+  }
+  if (namedImports.length > 0) {
+    const bindingTarget = moduleObject ?? `require(${source})`;
+    lines.push(`const { ${namedImports.map(esmImportBindingToCommonJs).join(", ")} } = ${bindingTarget};`);
+  }
+  if (lines.length === 0) {
+    return hadOperatorImport ? `require(${source});` : "";
+  }
+  return lines.join("\n");
+}
+
 function emitNamespaceStatement(statement: NamespaceStatement): string {
   if (statement.declared || !statement.names || statement.names.length === 0) {
     return "";
@@ -1679,6 +1957,9 @@ export function emitStatement(statement: Statement): string {
   switch (statement.kind) {
     case "ExportStatement": {
       const exportStatement = statement as ExportStatement;
+      if (activeState.moduleFormat === "commonjs") {
+        return emitCommonJsExportStatement(exportStatement);
+      }
       if (exportStatement.typeOnly || exportStatement.namespaceExport) {
         return "";
       }
@@ -1711,6 +1992,9 @@ export function emitStatement(statement: Statement): string {
     }
     case "ImportStatement": {
       const importStatement = statement as ImportStatement;
+      if (activeState.moduleFormat === "commonjs") {
+        return emitCommonJsImportStatement(importStatement);
+      }
       if (importStatement.typeOnly) {
         return "";
       }
@@ -1799,7 +2083,7 @@ export function emitStatement(statement: Statement): string {
         try {
           return withVariableDelegateShadows(
             functionParameterBindingNames(fn.parameters),
-            () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${parameterList}) ${emitBlock(fn.body)}`
+            () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${parameterList}) ${emitScopedBlock(fn.body)}`
           );
         } finally {
           activeExtensionThis = previousExtensionThis;
@@ -1811,7 +2095,7 @@ export function emitStatement(statement: Statement): string {
         ?? (overloads && overloads.length > 1 ? overloadedFunctionName(fn.name.name, fn.parameters) : fn.name.name);
       return withVariableDelegateShadows(
         functionParameterBindingNames(fn.parameters),
-        () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitBlock(fn.body)}`
+        () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""} ${emittedName}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
       );
     }
     case "ClassStatement": {
@@ -1826,7 +2110,8 @@ export function emitStatement(statement: Statement): string {
         ...members.map((member) => emitClassMember(member)),
         ...emitClassDelegateMembers(classStatement, members)
       ];
-      const extendsClause = classStatement.extendsType && !activeState.interfaceNames.has(classStatement.extendsType.name)
+      const extendsClause = classStatement.extendsType &&
+        (!activeState.interfaceNames.has(classStatement.extendsType.name) || activeState.classNames.has(classStatement.extendsType.name))
         ? ` extends ${eraseTypeArguments(classStatement.extendsType.name)}`
         : "";
       return `class ${resolveJsName(classStatement.name.name)}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
@@ -1955,6 +2240,7 @@ interface EmitProgramRuntimeContext {
   jsNames: Map<string, string>;
   variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
   enumInfos: Map<string, RuntimeEnumInfo>;
+  moduleFormat: "esm" | "commonjs";
   rewriteImportExtensions: boolean;
   jsxFactory: string;
   jsxFragmentFactory: string;
@@ -2375,6 +2661,7 @@ function collectEmitProgramRuntimeContext(
     jsNames,
     variableDelegates,
     enumInfos,
+    moduleFormat: options.moduleFormat ?? "esm",
     rewriteImportExtensions: options.rewriteImportExtensions ?? false,
     jsxFactory: options.jsxFactory ?? DEFAULT_JSX_FACTORY,
     jsxFragmentFactory: options.jsxFragmentFactory ?? DEFAULT_JSX_FRAGMENT_FACTORY
@@ -2453,15 +2740,37 @@ export function emitProgramStatementPairs(
     expressionTypes,
     autoAwaitExpressions,
     asyncForStatements,
+    moduleFormat: runtimeContext.moduleFormat,
     rewriteImportExtensions: runtimeContext.rewriteImportExtensions,
     jsxFactory: runtimeContext.jsxFactory,
-    jsxFragmentFactory: runtimeContext.jsxFragmentFactory
+    jsxFragmentFactory: runtimeContext.jsxFragmentFactory,
+    generatedSymbolCounter: 0,
+    optionalAssignmentTempScopes: []
   };
   try {
-    return program.body.map((statement) => ({
+    const { result: emittedStatements, temps } = withOptionalAssignmentTempScope(() => program.body.map((statement) => ({
       statement,
       emitted: emitStatement(statement)
-    }));
+    })));
+    if (temps.length === 0) {
+      return emittedStatements;
+    }
+    const declarationStatement: VarStatement = {
+      kind: "VarStatement",
+      declarationKind: "let",
+      name: { kind: "Identifier", name: temps[0] ?? "$$temp_0" },
+      declarations: temps.map((name) => ({
+        kind: "VarDeclarator",
+        name: { kind: "Identifier", name }
+      }))
+    };
+    return [
+      {
+        statement: declarationStatement,
+        emitted: emitOptionalAssignmentTempDeclaration(temps)
+      },
+      ...emittedStatements
+    ];
   } finally {
     activeState = saved;
   }

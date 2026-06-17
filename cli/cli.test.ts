@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, readFile, rm, spawn, tmpdir, vi, writeFile } from "../compiler/test/expect";
+import { afterEach, describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, readFile, readdir, rm, spawn, tmpdir, vi, writeFile } from "../compiler/test/expect";
+import { createServer as createNetServer } from "node:net";
 import { ensureLspTransportArg, runCli } from "./cli";
 import { startServeSession } from "./cliServe";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
@@ -35,7 +36,7 @@ async function buildBundledCli(): Promise<{
   stdout: string;
   stderr: string;
 }> {
-  const bootstrapBuild = await spawnAndCapture(
+  return await spawnAndCapture(
     process.execPath,
     [
       "node_modules/esbuild/bin/esbuild",
@@ -55,33 +56,16 @@ async function buildBundledCli(): Promise<{
     ],
     process.cwd()
   );
-  if (bootstrapBuild.code !== 0) {
-    return bootstrapBuild;
-  }
-  return await spawnAndCapture(
-    process.execPath,
-    [
-      "node_modules/esbuild/bin/esbuild",
-      "cli/cli.ts",
-      "--bundle",
-      "--platform=node",
-      "--format=esm",
-      "--target=node20",
-      "--outfile=dist/cli.js",
-      "--external:commander",
-      "--external:vscode-languageserver",
-      "--external:vscode-languageserver-textdocument",
-      "--external:source-map",
-      "--external:esbuild",
-      "--log-level=error",
-    ],
-    process.cwd()
-  );
 }
 
 async function readSseEvent(url: string, eventName: string): Promise<string> {
+  const controller = new AbortController();
   const response = await fetch(url, {
-    headers: { Accept: "text/event-stream" }
+    headers: {
+      Accept: "text/event-stream",
+      Connection: "close"
+    },
+    signal: controller.signal
   });
   if (!response.body) {
     throw new Error("Missing SSE body");
@@ -103,15 +87,47 @@ async function readSseEvent(url: string, eventName: string): Promise<string> {
         const eventType = rawEvent.match(/^event:\s*(.+)$/m)?.[1]?.trim();
         const data = rawEvent.match(/^data:\s*(.+)$/m)?.[1]?.trim() ?? "";
         if (eventType === eventName) {
+          controller.abort();
           return data;
         }
       }
     }
   } finally {
     reader.releaseLock();
-    response.body.cancel().catch(() => undefined);
+    await response.body.cancel().catch(() => undefined);
   }
   throw new Error(`Event ${eventName} was not received`);
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: { Connection: "close" }
+  });
+  return await response.text();
+}
+
+async function listenNetServer(port: number): Promise<import("node:net").Server> {
+  const server = createNetServer();
+  await new Promise<void>((resolvePromise, reject) => {
+    server.once("error", reject);
+    server.listen(port, () => {
+      server.off("error", reject);
+      resolvePromise();
+    });
+  });
+  return server;
+}
+
+async function closeNetServer(server: import("node:net").Server): Promise<void> {
+  await new Promise<void>((resolvePromise, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolvePromise();
+    });
+  });
 }
 
 describe("CLI", () => {
@@ -207,10 +223,13 @@ describe("CLI", () => {
     expect(outputCode).not.toContain('createRequire');
     expect(outputCode).not.toContain(dir);
     expect(outputCode).toContain("function double(value)");
-    expect(outputCode).toContain('exports.label = "answer" + suffix_js_1.suffix + "";');
+    expect(outputCode).toContain('const { suffix } = require("./suffix.js");');
+    expect(outputCode).toContain('const label = "answer" + suffix + "";');
+    expect(outputCode).toContain("exports.label = label;");
     expect(outputCode).toContain("const __vexaModules = {");
     expect(outputCode).toContain("async function (module, exports, __requireFrom)");
-    expect(outputCode).toContain("exports.suffix = '-from-js';");
+    expect(outputCode).toContain("const suffix = '-from-js';");
+    expect(outputCode).toContain("exports.suffix = suffix;");
 
     const imported = await import(`${pathToFileURL(output).href}?${Date.now()}`) as { bundled: string };
     expect(imported.bundled).toBe("answer-from-js:43");
@@ -252,23 +271,49 @@ describe("CLI", () => {
     });
     try {
       const baseUrl = `http://127.0.0.1:${session.port}`;
-      const htmlResponse = await fetch(baseUrl);
-      const htmlText = await htmlResponse.text();
+      const htmlText = await fetchText(baseUrl);
       expect(htmlText).toContain("/__vexa_bundle__.js");
       expect(htmlText).toContain("/__vexa_live_reload");
 
-      const bundleResponse = await fetch(`${baseUrl}/__vexa_bundle__.js`);
-      const initialBundle = await bundleResponse.text();
+      const initialBundle = await fetchText(`${baseUrl}/__vexa_bundle__.js`);
       expect(initialBundle).toContain('console.log("hello");');
 
       const reloadPromise = readSseEvent(`${baseUrl}/__vexa_live_reload`, "reload");
       await writeFile(entry, 'console.log("updated")\n', "utf8");
       expect(await reloadPromise).toBeTruthy();
 
-      const updatedBundle = await (await fetch(`${baseUrl}/__vexa_bundle__.js`)).text();
+      const updatedBundle = await fetchText(`${baseUrl}/__vexa_bundle__.js`);
       expect(updatedBundle).toContain('console.log("updated");');
     } finally {
       await session.close();
+    }
+  });
+
+  it("serve command falls back to the next available port when the requested port is already in use", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-port-fallback-"));
+    const entry = join(dir, "main.vx");
+    const html = join(dir, "index.html");
+    await writeFile(entry, 'console.log("hello")\n', "utf8");
+    await writeFile(html, "<!doctype html><html><body><script type=\"module\" src=\"%VEXA_ENTRYPOINT%\"></script></body></html>", "utf8");
+
+    const blocker = await listenNetServer(0);
+    const blockedPort = Number((blocker.address() as { port: number } | null)?.port ?? 0);
+    let session: Awaited<ReturnType<typeof startServeSession>> | null = null;
+    try {
+      session = await startServeSession({
+        rootDir: dir,
+        bundleInput: entry,
+        port: blockedPort
+      });
+      expect(session.port).toBeGreaterThan(blockedPort);
+
+      const htmlText = await fetchText(`http://127.0.0.1:${session.port}`);
+      expect(htmlText).toContain("/__vexa_bundle__.js");
+    } finally {
+      if (session) {
+        await session.close();
+      }
+      await closeNetServer(blocker);
     }
   });
 
@@ -306,6 +351,18 @@ describe("CLI", () => {
     expect(run.code).toBe(0);
     expect(run.stdout).toContain(COMPILER_VERSION);
     expect(run.stderr).not.toContain("Detected unsettled top-level await");
+  });
+
+  it("built CLI emits a single executable bundle file", async () => {
+    const distPath = join(process.cwd(), "dist");
+    await rm(distPath, { recursive: true, force: true });
+
+    const build = await buildBundledCli();
+    expect(build.code).toBe(0);
+
+    const distEntries = await readdir(distPath);
+    expect(distEntries).toContain("vexa.js");
+    expect(distEntries).not.toContain("cli.js");
   });
 
   it("built CLI prints help without arguments and exits successfully", async () => {

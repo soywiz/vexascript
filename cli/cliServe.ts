@@ -79,6 +79,35 @@ async function resolveServePath(rootDir: string, requestPath: string): Promise<s
   return absolutePath;
 }
 
+async function listenOnAvailablePort(server: ReturnType<typeof createServer>, requestedPort: number): Promise<number> {
+  let port = requestedPort;
+  while (true) {
+    try {
+      await new Promise<void>((resolvePromise, reject) => {
+        const onError = (error: Error): void => {
+          server.off("listening", onListening);
+          reject(error);
+        };
+        const onListening = (): void => {
+          server.off("error", onError);
+          resolvePromise();
+        };
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen(port);
+      });
+      const address = server.address();
+      return typeof address === "object" && address ? (address as AddressInfo).port : port;
+    } catch (error) {
+      const errorCode = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (errorCode !== "EADDRINUSE" || port === 0) {
+        throw error;
+      }
+      port += 1;
+    }
+  }
+}
+
 export async function startServeSession(options: ServeOptions): Promise<RunningServeSession> {
   const rootDir = resolve(process.cwd(), options.rootDir);
   const bundleInput = resolve(process.cwd(), options.bundleInput);
@@ -220,15 +249,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
     }
   });
 
-  await new Promise<void>((resolvePromise, reject) => {
-    server.once("error", reject);
-    server.listen(requestedPort, () => {
-      server.off("error", reject);
-      resolvePromise();
-    });
-  });
-  const address = server.address();
-  const port = typeof address === "object" && address ? (address as AddressInfo).port : requestedPort;
+  const port = await listenOnAvailablePort(server, requestedPort);
   console.log(`Serving ${rootDir} at http://localhost:${port} with bundle ${bundleInput}`);
 
   return {

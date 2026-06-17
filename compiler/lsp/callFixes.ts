@@ -1,12 +1,20 @@
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
+import { splitOptionalTypeSuffix, splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import { findNode } from "compiler/ast/traversal";
 import type { Analysis } from "compiler/analysis/Analysis";
 import { type AnalysisType } from "compiler/analysis/types";
 import type {
+  ArrowFunctionExpression,
   CallExpression,
-  FunctionParameter,
+  FunctionExpression,
   FunctionStatement,
   Identifier,
+  InterfaceMethodMember,
+  InterfacePropertyMember,
+  InterfaceStatement,
+  JsxAttribute,
+  JsxElement,
+  ObjectBindingPattern,
   Program
 } from "compiler/ast/ast";
 import { tokenize } from "compiler/parser/tokenizer";
@@ -14,6 +22,7 @@ import { type CodeAction, type Diagnostic, type Range } from "vscode-languageser
 import { CodeActionKind } from "./codeActionKinds";
 import { getCallDiagnosticKind } from "./diagnosticCodes";
 import { findBestMatchAtPosition, type PositionMatchCandidate } from "./nodeSearch";
+import { buildParameterTypeEdit, typeInsertionOffsetForParameter } from "./parameterTypeEdits";
 import { nodeRange, offsetToPosition, type Position } from "./ranges";
 
 interface CallArgumentMatch {
@@ -26,6 +35,13 @@ interface CallFixContext {
   argumentIndex: number;
   functionDeclaration: FunctionStatement;
 }
+
+interface RequiredPropSpec {
+  name: string;
+  typeName: string | undefined;
+}
+
+const MISSING_REQUIRED_ARGUMENT_PATTERN = /^Missing required argument for parameter '(.+)'$/;
 
 function findCallArgumentAtPosition(program: Program, position: Position): CallArgumentMatch | null {
   return findBestMatchAtPosition(program, position, (node) => {
@@ -57,8 +73,269 @@ function findFunctionDeclarationByNameNode(
   );
 }
 
+function findJsxElementByReferencePosition(program: Program, position: Position): JsxElement | null {
+  return findBestMatchAtPosition(program, position, (node) => {
+    if (node.kind !== "JsxElement") {
+      return null;
+    }
+    const jsxElement = node as JsxElement;
+    const referenceRange = jsxElement.reference ? nodeRange(jsxElement.reference) : null;
+    if (!referenceRange) {
+      return null;
+    }
+    return { range: referenceRange, build: () => jsxElement };
+  });
+}
+
+function resolveVariableFunctionInitializer(
+  program: Program,
+  nameNode: Identifier
+): ArrowFunctionExpression | FunctionExpression | null {
+  const fromStatement = findNode(program, (node): node is import("compiler/ast/ast").VarStatement => {
+    if (node.kind !== "VarStatement") {
+      return false;
+    }
+    const statement = node as import("compiler/ast/ast").VarStatement;
+    if (bindingIdentifiers(statement.name).some((identifier) => identifier === nameNode)) {
+      return statement.initializer?.kind === "ArrowFunctionExpression" || statement.initializer?.kind === "FunctionExpression";
+    }
+    return !!statement.declarations?.some((declaration) =>
+      bindingIdentifiers(declaration.name).some((identifier) => identifier === nameNode) &&
+      (declaration.initializer?.kind === "ArrowFunctionExpression" || declaration.initializer?.kind === "FunctionExpression")
+    );
+  });
+  if (!fromStatement) {
+    return null;
+  }
+  if (bindingIdentifiers(fromStatement.name).some((identifier) => identifier === nameNode)) {
+    return (fromStatement.initializer as ArrowFunctionExpression | FunctionExpression | undefined) ?? null;
+  }
+  const declaration = fromStatement.declarations?.find((candidate) =>
+    bindingIdentifiers(candidate.name).some((identifier) => identifier === nameNode)
+  );
+  return (declaration?.initializer as ArrowFunctionExpression | FunctionExpression | undefined) ?? null;
+}
+
+function resolveJsxComponentPropsParameter(
+  program: Program,
+  analysis: Analysis,
+  jsxElement: JsxElement
+): import("compiler/ast/ast").FunctionParameter | null {
+  if (!jsxElement.reference?.firstToken) {
+    return null;
+  }
+  const token = jsxElement.reference.firstToken;
+  const symbolMatch = analysis.getSymbolAt(token.range.start.line, token.range.start.column);
+  if (!symbolMatch || symbolMatch.symbol.node.kind !== "Identifier") {
+    return null;
+  }
+  const nameNode = symbolMatch.symbol.node as Identifier;
+  if (symbolMatch.symbol.kind === "function") {
+    return findFunctionDeclarationByNameNode(program, nameNode)?.parameters[0] ?? null;
+  }
+  if (symbolMatch.symbol.kind === "variable") {
+    return resolveVariableFunctionInitializer(program, nameNode)?.parameters[0] ?? null;
+  }
+  return null;
+}
+
+function findInterfaceStatementByName(program: Program, name: string): InterfaceStatement | null {
+  return findNode(
+    program,
+    (node): node is InterfaceStatement => node.kind === "InterfaceStatement" && (node as InterfaceStatement).name.name === name
+  );
+}
+
+function renderInterfaceMethodType(member: InterfaceMethodMember): string {
+  const parameters = member.parameters
+    .filter((parameter) => parameter.thisParameter !== true)
+    .map((parameter) => {
+      const paramName = bindingIdentifiers(parameter.name)[0]?.name ?? "arg";
+      const suffix = parameter.optional ? "?" : "";
+      return `${paramName}${suffix}: ${parameter.typeAnnotation?.name ?? "unknown"}`;
+    })
+    .join(", ");
+  return `(${parameters}) => ${member.returnType?.name ?? "void"}`;
+}
+
+function typeNameIsOptional(typeName: string | undefined): boolean {
+  const normalized = typeName?.trim();
+  if (!normalized) {
+    return false;
+  }
+  if (splitOptionalTypeSuffix(normalized).optional) {
+    return true;
+  }
+  return splitTopLevelTypeText(normalized, "|").some((part) => part.trim() === "undefined");
+}
+
+function requiredPropsFromObjectBinding(binding: ObjectBindingPattern): RequiredPropSpec[] {
+  const props: RequiredPropSpec[] = [];
+  for (const element of binding.elements) {
+    if (element.rest === true || element.initializer) {
+      continue;
+    }
+    const name = element.propertyName?.name ?? bindingIdentifiers(element.name)[0]?.name;
+    if (!name || name === "children") {
+      continue;
+    }
+    if (typeNameIsOptional(element.typeAnnotation?.name)) {
+      continue;
+    }
+    props.push({ name, typeName: element.typeAnnotation?.name });
+  }
+  return props;
+}
+
+function requiredPropsFromInterface(program: Program, typeName: string): RequiredPropSpec[] {
+  const interfaceStatement = findInterfaceStatementByName(program, typeName);
+  if (!interfaceStatement) {
+    return [];
+  }
+  const props: RequiredPropSpec[] = [];
+  for (const member of interfaceStatement.members) {
+    if (member.name.name === "children") {
+      continue;
+    }
+    if (member.kind === "InterfacePropertyMember") {
+      const property = member as InterfacePropertyMember;
+      if (property.optional || typeNameIsOptional(property.typeAnnotation?.name)) {
+        continue;
+      }
+      props.push({ name: property.name.name, typeName: property.typeAnnotation?.name });
+      continue;
+    }
+    const method = member as InterfaceMethodMember;
+    if ((method as InterfaceMethodMember & { optional?: boolean }).optional) {
+      continue;
+    }
+    props.push({ name: method.name.name, typeName: renderInterfaceMethodType(method) });
+  }
+  return props;
+}
+
+function requiredPropsForParameter(
+  program: Program,
+  parameter: import("compiler/ast/ast").FunctionParameter | null
+): RequiredPropSpec[] {
+  if (!parameter || parameter.thisParameter === true || parameter.rest === true) {
+    return [];
+  }
+  if (parameter.name.kind === "ObjectBindingPattern") {
+    return requiredPropsFromObjectBinding(parameter.name as ObjectBindingPattern);
+  }
+  if (parameter.typeAnnotation) {
+    return requiredPropsFromInterface(program, parameter.typeAnnotation.name);
+  }
+  return [];
+}
+
+function jsxAttributeValueText(typeName: string | undefined): string {
+  const normalized = typeName?.trim();
+  if (!normalized || normalized === "any" || normalized === "unknown") {
+    return "={undefined}";
+  }
+  if (normalized === "string") {
+    return '=""';
+  }
+  if (normalized === "boolean") {
+    return "={false}";
+  }
+  if (normalized === "int" || normalized === "number" || normalized === "numeric") {
+    return "={0}";
+  }
+  if (normalized === "bigint" || normalized === "long") {
+    return "={0}";
+  }
+  if (normalized.includes("=>")) {
+    return "={() => {}}";
+  }
+  if (normalized.startsWith("{")) {
+    return "={{}}";
+  }
+  return "={undefined}";
+}
+
+function missingJsxPropsQuickFix(params: {
+  uri: string;
+  text: string;
+  ast: Program;
+  analysis: Analysis;
+  diagnostics: Diagnostic[];
+}): CodeAction[] {
+  const { uri, text, ast, analysis, diagnostics } = params;
+  const actions: CodeAction[] = [];
+  const seen = new Set<string>();
+
+  for (const diagnostic of diagnostics) {
+    const missingMatch = MISSING_REQUIRED_ARGUMENT_PATTERN.exec(diagnostic.message);
+    if (!missingMatch) {
+      continue;
+    }
+    const position = diagnostic.range.start;
+    const jsxElement = findJsxElementByReferencePosition(ast, position);
+    if (!jsxElement) {
+      continue;
+    }
+    const jsxKey = String(jsxElement.firstToken?.range.start.offset ?? `${position.line}:${position.character}`);
+    if (seen.has(jsxKey)) {
+      continue;
+    }
+    seen.add(jsxKey);
+
+    const parameter = resolveJsxComponentPropsParameter(ast, analysis, jsxElement);
+    const requiredProps = requiredPropsForParameter(ast, parameter);
+    if (requiredProps.length === 0) {
+      continue;
+    }
+    const provided = new Set<string>();
+    for (const attribute of jsxElement.attributes) {
+      if (attribute.kind !== "JsxAttribute") {
+        continue;
+      }
+      provided.add((attribute as JsxAttribute).name);
+    }
+    if (jsxElement.children.length > 0) {
+      provided.add("children");
+    }
+
+    const missingProps = requiredProps.filter((prop) => !provided.has(prop.name));
+    if (missingProps.length === 0) {
+      continue;
+    }
+
+    const anchor = jsxElement.attributes.length > 0
+      ? jsxElement.attributes[jsxElement.attributes.length - 1]?.lastToken?.range.end.offset
+      : jsxElement.reference?.lastToken?.range.end.offset ?? jsxElement.firstToken?.range.end.offset;
+    if (anchor === undefined) {
+      continue;
+    }
+
+    const newText = missingProps
+      .map((prop) => ` ${prop.name}${jsxAttributeValueText(prop.typeName)}`)
+      .join("");
+
+    actions.push({
+      title: `Add missing props to '${jsxElement.tagName}'`,
+      kind: CodeActionKind.QuickFix,
+      edit: {
+        changes: {
+          [uri]: [
+            {
+              range: rangeAtOffset(text, anchor),
+              newText
+            },
+          ]
+        }
+      }
+    });
+  }
+
+  return actions;
+}
+
 function isFunctionCallDiagnostic(diagnostic: Diagnostic): boolean {
-  return getCallDiagnosticKind(diagnostic) !== null;
+  return getCallDiagnosticKind(diagnostic) !== null || MISSING_REQUIRED_ARGUMENT_PATTERN.test(diagnostic.message);
 }
 
 function resolveCallFixContext(
@@ -270,28 +547,9 @@ function mismatchArgumentQuickFix(params: {
     return null;
   }
 
-  let editRange: Range;
-  let newText: string;
-
-  if (parameter.typeAnnotation?.firstToken && parameter.typeAnnotation.lastToken) {
-    editRange = {
-      start: {
-        line: parameter.typeAnnotation.firstToken.range.start.line,
-        character: parameter.typeAnnotation.firstToken.range.start.column
-      },
-      end: {
-        line: parameter.typeAnnotation.lastToken.range.end.line,
-        character: parameter.typeAnnotation.lastToken.range.end.column
-      }
-    };
-    newText = annotation;
-  } else {
-    const insertionOffset = parameter.name.lastToken?.range.end.offset;
-    if (insertionOffset === undefined) {
-      return null;
-    }
-    editRange = rangeAtOffset(text, insertionOffset);
-    newText = `: ${annotation}`;
+  const edit = buildParameterTypeEdit(parameter, text, annotation);
+  if (!edit) {
+    return null;
   }
 
   return {
@@ -301,24 +559,13 @@ function mismatchArgumentQuickFix(params: {
       changes: {
         [uri]: [
           {
-            range: editRange,
-            newText
+            range: edit.range,
+            newText: edit.newText
           }
         ]
       }
     }
   };
-}
-
-function typeInsertionOffsetForParameter(parameter: FunctionParameter, text: string): number | null {
-  const nameEnd = parameter.name.lastToken?.range.end.offset;
-  if (nameEnd === undefined) {
-    return null;
-  }
-  if (parameter.optional && text[nameEnd] === "?") {
-    return nameEnd + 1;
-  }
-  return nameEnd;
 }
 
 function changeSignatureQuickFix(params: {
@@ -482,6 +729,13 @@ export function createCallFixCodeActions(params: {
   }
 
   const actions: CodeAction[] = [];
+  actions.push(...missingJsxPropsQuickFix({
+    uri,
+    text,
+    ast,
+    analysis,
+    diagnostics
+  }));
   const producedChangeSignatureKeys = new Set<string>();
   for (const diagnostic of diagnostics) {
     if (!shouldConsiderDiagnostic(diagnostic)) {

@@ -17,7 +17,7 @@ import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { uriToFilePath } from "./importFixes";
 import { findBestMatchAtPosition } from "./nodeSearch";
 import { containsPosition, nodeRange } from "./ranges";
-import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, splitTopLevelDelimitedTypeText } from "compiler/analysis/typeNames";
+import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
 import type { ClassStatement, FunctionParameter, Identifier, InterfaceStatement, MemberExpression, Program, Statement, TypeAliasStatement } from "compiler/ast/ast";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
@@ -505,6 +505,184 @@ export function isAstNode(value: unknown): value is { kind: string } {
   return typeof value === "object" && value !== null && typeof (value as { kind?: unknown }).kind === "string";
 }
 
+function typeTextOffsetAtPosition(
+  text: string,
+  range: { start: { line: number; character: number }; end: { line: number; character: number } },
+  line: number,
+  character: number
+): number | null {
+  if (!containsPosition(range, { line, character })) {
+    return null;
+  }
+  if (range.start.line === range.end.line) {
+    return Math.max(0, Math.min(text.length, character - range.start.character));
+  }
+  let offset = 0;
+  let currentLine = range.start.line;
+  let currentCharacter = range.start.character;
+  while (offset < text.length) {
+    if (currentLine === line && currentCharacter === character) {
+      return offset;
+    }
+    if (text[offset] === "\n") {
+      currentLine += 1;
+      currentCharacter = 0;
+    } else {
+      currentCharacter += 1;
+    }
+    offset += 1;
+  }
+  if (currentLine === line && currentCharacter === character) {
+    return offset;
+  }
+  return null;
+}
+
+function positionAtTypeTextOffset(
+  text: string,
+  range: { start: { line: number; character: number } },
+  offset: number
+): { line: number; character: number } {
+  let line = range.start.line;
+  let character = range.start.character;
+  const clampedOffset = Math.max(0, Math.min(offset, text.length));
+  for (let index = 0; index < clampedOffset; index += 1) {
+    if (text[index] === "\n") {
+      line += 1;
+      character = 0;
+    } else {
+      character += 1;
+    }
+  }
+  return { line, character };
+}
+
+function makeSyntheticTypeIdentifier(
+  source: Identifier,
+  name: string,
+  startOffset: number,
+  endOffset: number
+): Identifier {
+  const sourceRange = nodeRange(source)!;
+  const start = positionAtTypeTextOffset(source.name, sourceRange, startOffset);
+  const end = positionAtTypeTextOffset(source.name, sourceRange, endOffset);
+  const baseOffset = source.firstToken?.range.start.offset ?? 0;
+  const token: NonNullable<Identifier["firstToken"]> = {
+    type: "identifier",
+    value: name,
+    index: source.firstToken?.index ?? 0,
+    range: {
+      start: { line: start.line, column: start.character, offset: baseOffset + startOffset },
+      end: { line: end.line, column: end.character, offset: baseOffset + endOffset }
+    }
+  };
+  return {
+    ...source,
+    name,
+    firstToken: token,
+    lastToken: token
+  };
+}
+
+function nestedTypeIdentifierAtOffset(
+  identifier: Identifier,
+  offset: number
+): Identifier | null {
+  const text = identifier.name;
+  const sourceRange = nodeRange(identifier);
+  if (!sourceRange) {
+    return null;
+  }
+  const clampedOffset = Math.max(0, Math.min(offset, Math.max(0, text.length - 1)));
+
+  const visit = (typeText: string, baseOffset: number): Identifier | null => {
+    const optional = splitOptionalTypeSuffix(typeText);
+    const normalized = stripEnclosingTypeParens(optional.typeName);
+    const localOffset = clampedOffset - baseOffset;
+    if (localOffset < 0 || localOffset > normalized.length) {
+      return null;
+    }
+
+    const unionParts = splitTopLevelTypeText(normalized, "|");
+    if (unionParts.length > 1) {
+      let cursor = 0;
+      for (const part of unionParts) {
+        const partStart = normalized.indexOf(part, cursor);
+        if (partStart < 0) {
+          continue;
+        }
+        const nested = visit(part, baseOffset + partStart);
+        if (nested) {
+          return nested;
+        }
+        cursor = partStart + part.length;
+      }
+    }
+
+    const intersectionParts = splitTopLevelTypeText(normalized, "&");
+    if (intersectionParts.length > 1) {
+      let cursor = 0;
+      for (const part of intersectionParts) {
+        const partStart = normalized.indexOf(part, cursor);
+        if (partStart < 0) {
+          continue;
+        }
+        const nested = visit(part, baseOffset + partStart);
+        if (nested) {
+          return nested;
+        }
+        cursor = partStart + part.length;
+      }
+    }
+
+    const genericStart = findTopLevelTypeCharacter(normalized, "<");
+    if (genericStart >= 0) {
+      const genericEnd = findMatchingTypeDelimiter(normalized, genericStart, "<", ">");
+      if (genericEnd > genericStart) {
+        if (localOffset < genericStart) {
+          const baseName = normalized.slice(0, genericStart).trim();
+          const trailingWhitespace = normalized.slice(0, genericStart).match(/\s*$/)?.[0].length ?? 0;
+          const baseEnd = genericStart - trailingWhitespace;
+          return makeSyntheticTypeIdentifier(identifier, baseName, baseOffset, baseOffset + baseEnd);
+        }
+        if (localOffset > genericStart && localOffset < genericEnd) {
+          const argumentBody = normalized.slice(genericStart + 1, genericEnd);
+          const argumentsList = splitTopLevelDelimitedTypeText(argumentBody);
+          let cursor = 0;
+          for (const argument of argumentsList) {
+            const argumentStart = argumentBody.indexOf(argument, cursor);
+            if (argumentStart < 0) {
+              continue;
+            }
+            const nested = visit(argument, baseOffset + genericStart + 1 + argumentStart);
+            if (nested) {
+              return nested;
+            }
+            cursor = argumentStart + argument.length;
+          }
+        }
+      }
+    }
+
+    let start = localOffset;
+    let end = localOffset;
+    const isIdentifierCharacter = (value: string | undefined) => !!value && /[A-Za-z0-9_.$]/.test(value);
+    while (start > 0 && isIdentifierCharacter(normalized[start - 1])) {
+      start -= 1;
+    }
+    while (end < normalized.length && isIdentifierCharacter(normalized[end])) {
+      end += 1;
+    }
+    const name = normalized.slice(start, end).trim();
+    if (!name) {
+      return null;
+    }
+    return makeSyntheticTypeIdentifier(identifier, name, baseOffset + start, baseOffset + end);
+  };
+
+  return visit(text, 0);
+}
+
 export function findTypeIdentifierAtPosition(
   value: unknown,
   line: number,
@@ -518,9 +696,20 @@ export function findTypeIdentifierAtPosition(
     if (!range || !containsPosition(range, { line, character })) {
       return;
     }
+    const textOffset = typeTextOffsetAtPosition(identifier.name, range, line, character);
+    const nestedIdentifier = textOffset !== null
+      ? nestedTypeIdentifierAtOffset(identifier, textOffset)
+      : null;
+    if (nestedIdentifier) {
+      identifier = nestedIdentifier;
+    }
+    const candidateRange = nodeRange(identifier);
+    if (!candidateRange) {
+      return;
+    }
     const size =
-      (range.end.line - range.start.line) * 100_000 +
-      (range.end.character - range.start.character);
+      (candidateRange.end.line - candidateRange.start.line) * 100_000 +
+      (candidateRange.end.character - candidateRange.start.character);
     if (size <= bestSize) {
       best = identifier;
       bestSize = size;

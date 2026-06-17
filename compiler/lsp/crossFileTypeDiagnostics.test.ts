@@ -200,6 +200,46 @@ describe("cross-file type diagnostics", () => {
     ).toEqual({ line: 0, character: 19 });
   });
 
+  it("reports importing a missing symbol from node_modules typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const packageDir = join(root, "node_modules", "preact");
+    const helloFile = join(root, "hello.vx");
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: "preact", types: "index.d.ts" }), "utf8");
+    await writeFile(
+      join(packageDir, "index.d.ts"),
+      "export function h(): void;\nexport type ComponentChildren = string | number;\n",
+      "utf8"
+    );
+    await writeFile(
+      helloFile,
+      dedent`
+      import { h, UNEXISTANT_SYMBOL } from "preact"
+      fun demo() {
+        h()
+      }
+      `,
+      "utf8"
+    );
+
+    const session = createAnalysisSession(dedent`
+      import { h, UNEXISTANT_SYMBOL } from "preact"
+      fun demo() {
+        h()
+      }
+    `);
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      "Module 'preact' has no exported symbol 'UNEXISTANT_SYMBOL'"
+    );
+  });
+
   it("anchors member-call arity diagnostics on the member name", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
     const worldFile = join(root, "world.vx");
@@ -345,6 +385,74 @@ describe("cross-file type diagnostics", () => {
 
     expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
       "Argument 1 of type 'string' is not assignable to parameter 'path' of type 'PathLike | FileHandle'"
+    );
+  });
+
+  it("does not report missing exports for node_modules imports that already resolved symbol types", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const pkgDir = join(root, "node_modules", "preact");
+    const hooksDir = join(pkgDir, "hooks");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { render } from "preact"
+      import { useState } from "preact/hooks"
+
+      const [count, setCount] = useState(0)
+      setCount(count + 1)
+      render(count, count)
+    `;
+
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await mkdir(join(hooksDir, "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "preact",
+        types: "src/index.d.ts",
+        exports: {
+          ".": { types: "./src/index.d.ts" },
+          "./hooks": { types: "./hooks/src/index.d.ts" }
+        }
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "src", "index.d.ts"), "export function render(vnode: unknown, parent: unknown): void;\n", "utf8");
+    await writeFile(
+      join(hooksDir, "src", "index.d.ts"),
+      dedent`
+        export type Dispatch<A> = (value: A) => void;
+        export type StateUpdater<S> = S | ((prevState: S) => S);
+        export function useState<S>(initialState: S | (() => S)): [S, Dispatch<StateUpdater<S>>];
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Module 'preact/hooks' has no exported symbol 'useState'"
     );
   });
 

@@ -129,4 +129,59 @@ fun demo() {
       actions.some((action) => action.title === "Add missing parameters to 'test2'")
     ).toBe(true);
   });
+
+  it("adds missing required JSX props for component calls", () => {
+    const source = `interface InputProperties {
+  mySpecialProp: any
+  style?: string
+}
+
+const Input = (props: InputProperties) => <input {...props} />
+
+function App() {
+  return <Input style="test" />
+}
+`;
+
+    const { session, diagnostics } = diagnosticsFor(source);
+    const actions = createCallFixCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics
+    });
+
+    const action = actions.find((candidate) => candidate.title === "Add missing props to 'Input'");
+    expect(action).toBeDefined();
+    expect(action?.edit?.changes?.[URI]?.[0]?.newText).toBe(" mySpecialProp={undefined}");
+  });
+
+  it("does not offer missing JSX prop fixes for optional props", () => {
+    const source = `function MyButton({
+  style: any?,
+  onClick: (() => void)?,
+  children: ComponentChildren?
+}) {
+  return <button style={style} onClick={onClick}>
+    {children}
+  </button>
+}
+
+function App() {
+  return <MyButton></MyButton>
+}
+`;
+
+    const { session, diagnostics } = diagnosticsFor(source);
+    const actions = createCallFixCodeActions({
+      uri: URI,
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      diagnostics
+    });
+
+    expect(actions.some((candidate) => candidate.title === "Add missing props to 'MyButton'")).toBe(false);
+  });
 });

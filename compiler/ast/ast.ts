@@ -415,6 +415,7 @@ export interface ClassMethodMember extends Node, ClassMemberModifiers {
     name: Identifier
     operator?: BinaryExpression["operator"]
     override?: boolean
+    optional?: boolean
     missingBody?: boolean
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
@@ -468,6 +469,7 @@ export interface InterfaceMethodMember extends Node {
     name: Identifier
     accessorKind?: "get" | "set"
     declarationKeywordToken?: Token
+    optional?: boolean
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     returnType?: Identifier

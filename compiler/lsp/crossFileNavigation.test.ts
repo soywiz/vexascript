@@ -2397,6 +2397,268 @@ describe("cross-file navigation", () => {
       expect(callLocation?.range.start.line).toBe(0);
     });
 
+    it("navigates node_modules named imports at call sites to the typings declaration", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
+      const pkgDir = join(root, "node_modules", "preact");
+      const hooksDir = join(pkgDir, "hooks");
+      const mainPath = join(root, "main.vx");
+      const { source, line, character } = sourceWithCursor(dedent`
+        import { useState } from "preact/hooks"
+        const [count, setCount] = useSt^^^ate(0)
+        setCount(count + 1)
+      `);
+
+      await mkdir(join(pkgDir, "src"), { recursive: true });
+      await mkdir(join(hooksDir, "src"), { recursive: true });
+      await writeFile(
+        join(pkgDir, "package.json"),
+        JSON.stringify({
+          name: "preact",
+          types: "src/index.d.ts",
+          exports: {
+            ".": { types: "./src/index.d.ts" },
+            "./hooks": { types: "./hooks/src/index.d.ts" }
+          }
+        }),
+        "utf8"
+      );
+      await writeFile(join(pkgDir, "src", "index.d.ts"), "export function render(vnode: unknown, parent: unknown): void;\n", "utf8");
+      await writeFile(
+        join(hooksDir, "src", "index.d.ts"),
+        dedent`
+          export type Dispatch<A> = (value: A) => void;
+          export type StateUpdater<S> = S | ((prevState: S) => S);
+          export function useState<S>(initialState: S | (() => S)): [S, Dispatch<StateUpdater<S>>];
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, source, "utf8");
+
+      const baseSession = createAnalysisSession(source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const session = createAnalysisSession(
+        source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        new Map(),
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line,
+        character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect(location).not.toBeNull();
+      expect(location?.uri.endsWith("/node_modules/preact/hooks/src/index.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBe(2);
+    });
+
+    it("navigates type names and generic arguments inside extends clauses", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
+      const pkgDir = join(root, "node_modules", "preact");
+      const mainPath = join(root, "main.vx");
+      const baseMarked = sourceWithCursor(dedent`
+        import { InputHTMLAttributes } from "preact"
+
+        interface HTMLInputElement {
+        }
+
+        interface InputProperties extends InputHTMLAttr^^^ibutes<HTMLInputElement> {
+          mySpecialProp: any
+        }
+      `);
+      const genericMarked = sourceWithCursor(dedent`
+        import { InputHTMLAttributes } from "preact"
+
+        interface HTMLInputElement {
+        }
+
+        interface InputProperties extends InputHTMLAttributes<HTMLInputEleme^^^nt> {
+          mySpecialProp: any
+        }
+      `);
+
+      await mkdir(join(pkgDir, "src"), { recursive: true });
+      await writeFile(
+        join(pkgDir, "package.json"),
+        JSON.stringify({
+          name: "preact",
+          types: "src/index.d.ts"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "src", "index.d.ts"),
+        'export * from "./dom";\n',
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "src", "dom.d.ts"),
+        dedent`
+          export interface HTMLAttributes<T> {
+            style?: string;
+          }
+
+          export interface InputHTMLAttributes<T> extends HTMLAttributes<T> {
+            value?: string;
+          }
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, baseMarked.source, "utf8");
+
+      const baseSession = createAnalysisSession(baseMarked.source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const session = createAnalysisSession(
+        baseMarked.source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        new Map(),
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const baseLocation = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: baseMarked.line,
+        character: baseMarked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect(baseLocation).not.toBeNull();
+      expect(baseLocation?.uri.endsWith("/node_modules/preact/src/dom.d.ts")).toBe(true);
+      expect(baseLocation?.range.start.line).toBe(4);
+
+      const genericLocation = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: genericMarked.line,
+        character: genericMarked.character,
+        session: createAnalysisSession(
+          genericMarked.source,
+          collected.externalDeclarations,
+          collected.importedSymbolTypes,
+          [],
+          new Map(),
+          new Map(),
+          collected.importedSymbolDisplayTypes,
+          collected.invalidImportedBindings
+        ),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect(genericLocation).toEqual({
+        uri: pathToFileURL(mainPath).toString(),
+        range: {
+          start: { line: 2, character: 10 },
+          end: { line: 2, character: 26 }
+        }
+      });
+    });
+
+    it("navigates and hovers imported class names inside extends clauses for merged preact-style declarations", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
+      const pkgDir = join(root, "node_modules", "preact");
+      const mainPath = join(root, "main.vx");
+      const marked = sourceWithCursor(dedent`
+        import { Component } from "preact"
+
+        class Clock extends Compo^^^nent<{ label: string }, { time: number }> {
+          state: { time: number }
+
+          constructor() {
+            super()
+            this.state = { time: Date.now() }
+          }
+        }
+      `);
+
+      await mkdir(join(pkgDir, "src"), { recursive: true });
+      await writeFile(
+        join(pkgDir, "package.json"),
+        JSON.stringify({
+          name: "preact",
+          types: "src/index.d.ts"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "src", "index.d.ts"),
+        dedent`
+          export interface Component<P = {}, S = {}> {
+            state: Readonly<S>;
+          }
+
+          export abstract class Component<P, S> {
+            constructor(props?: P, context?: any);
+            state: Readonly<S>;
+            static getDerivedStateFromProps?(props: Readonly<P>, state: Readonly<S>): Partial<S> | null;
+            setState<K extends keyof S>(state: Pick<S, K> | Partial<S> | null, callback?: () => void): void;
+          }
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, marked.source, "utf8");
+
+      const baseSession = createAnalysisSession(marked.source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const session = createAnalysisSession(
+        marked.source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        new Map(),
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const hover = await resolveHoverWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect(location).not.toBeNull();
+      expect(location?.uri.endsWith("/node_modules/preact/src/index.d.ts")).toBe(true);
+      expect((hover?.contents as { value?: string } | undefined)?.value).toContain("Component");
+    });
+
     it("falls back to local definition when no cross-file resolution matches", async () => {
       const source = dedent`
         fun localFn(): int { return 42 }

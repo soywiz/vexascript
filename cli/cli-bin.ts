@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
 import { LANGUAGE_CLI_BIN } from "../compiler/language";
 import { fileExists } from "../compiler/utils/fs";
-import { pathToFileURL, resolve } from "../compiler/utils/path";
+import { resolve } from "../compiler/utils/path";
 
 const CLI_HELP_TEXT = [
   `Usage: ${LANGUAGE_CLI_BIN} [options] [command]`,
@@ -75,12 +75,7 @@ async function main(argv: string[] = process.argv): Promise<void> {
   }
 
   (globalThis as { __vexaCliBootstrappedEntry?: boolean }).__vexaCliBootstrappedEntry = true;
-  const builtCliModuleHref = process.argv[1]?.endsWith("dist/vexa.js")
-    ? pathToFileURL(process.argv[1].replace(/vexa\.js$/, "cli.js")).href
-    : null;
-  const { runCli, DiagnosticError } = builtCliModuleHref
-    ? await import(builtCliModuleHref)
-    : await import("./cli");
+  const { runCli, DiagnosticError } = await import("./cli");
   try {
     await runCli(argv);
   } catch (error) {

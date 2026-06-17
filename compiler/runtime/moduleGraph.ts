@@ -585,6 +585,135 @@ function stripBundledModuleSyntax(
     .join("\n");
 }
 
+function stripBundledCommonJsImports(code: string, bundledSpecifiers: ReadonlySet<string>): string {
+  if (bundledSpecifiers.size === 0) {
+    return code;
+  }
+  const lines = code.split("\n");
+  const stripped: string[] = [];
+  const tempBindingsToSkip = new Set<string>();
+  for (const line of lines) {
+    let skipped = false;
+    for (const tempBinding of [...tempBindingsToSkip]) {
+      const tempReferencePattern = new RegExp(`^\\s*const\\s+[^=]+?=\\s*${tempBinding}(?:\\b|\\s|[.\\[])`);
+      if (tempReferencePattern.test(line)) {
+        skipped = true;
+        continue;
+      }
+      tempBindingsToSkip.delete(tempBinding);
+    }
+    if (skipped) {
+      continue;
+    }
+    const tempRequireMatch = /^\s*const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*require\((['"])([^"'`]+)\2\);\s*$/.exec(line);
+    if (tempRequireMatch && bundledSpecifiers.has(tempRequireMatch[3] ?? "")) {
+      tempBindingsToSkip.add(tempRequireMatch[1]!);
+      continue;
+    }
+    const directRequireMatch = /^\s*(?:const\s+[^=]+=\s*)?require\((['"])([^"'`]+)\1\);\s*$/.exec(line);
+    if (directRequireMatch && bundledSpecifiers.has(directRequireMatch[2] ?? "")) {
+      continue;
+    }
+    stripped.push(line);
+  }
+  return stripped.join("\n");
+}
+
+function appendImplicitVexaCommonJsExports(code: string, ast: Program | null, filePath: string): string {
+  if (extname(filePath).toLowerCase() !== ".vx" || !ast) {
+    return code;
+  }
+  const overloadCounts = new Map<string, number>();
+  for (const statement of ast.body) {
+    if (statement.kind === "FunctionStatement" && !(statement as FunctionStatement).declared) {
+      const fn = statement as FunctionStatement;
+      overloadCounts.set(fn.name.name, (overloadCounts.get(fn.name.name) ?? 0) + 1);
+    }
+  }
+
+  const exportLines: string[] = [];
+  for (const statement of ast.body) {
+    if (statement.kind === "ExportStatement") {
+      continue;
+    }
+    if (statement.kind === "VarStatement") {
+      const variable = statement as VarStatement;
+      if (variable.declared) {
+        continue;
+      }
+      if (variable.receiverType && variable.name.kind === "Identifier") {
+        const runtimeName = extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name);
+        exportLines.push(`exports.${runtimeName} = ${runtimeName};`);
+        continue;
+      }
+      const declarations = variable.declarations && variable.declarations.length > 0
+        ? variable.declarations
+        : [{ name: variable.name, delegate: variable.delegate }];
+      for (const declaration of declarations) {
+        if (declaration.name.kind !== "Identifier") {
+          continue;
+        }
+        if (declaration.delegate) {
+          continue;
+        }
+        const sourceName = declaration.name.name;
+        const runtimeName = declarations.length === 1 ? (variable.jsName ?? sourceName) : sourceName;
+        exportLines.push(`exports.${sourceName} = ${runtimeName};`);
+      }
+      continue;
+    }
+    if (statement.kind === "FunctionStatement") {
+      const fn = statement as FunctionStatement;
+      if (fn.declared || fn.missingBody) {
+        continue;
+      }
+      if (fn.receiverType) {
+        const baseName = fn.operator ? operatorBaseRuntimeName(fn.operator) : fn.name.name;
+        const runtimeName = extensionMethodRuntimeExportName(fn.receiverType.name, baseName, fn.parameters);
+        exportLines.push(`exports.${runtimeName} = ${runtimeName};`);
+        continue;
+      }
+      const runtimeName = fn.jsName
+        ?? ((overloadCounts.get(fn.name.name) ?? 0) > 1
+          ? overloadedRuntimeName(fn.name.name, fn.parameters)
+          : fn.name.name);
+      const exportName = fn.jsName ? fn.name.name : runtimeName;
+      exportLines.push(`exports.${exportName} = ${runtimeName};`);
+      continue;
+    }
+    if (statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+      if ((statement as { declared?: boolean }).declared) {
+        continue;
+      }
+      const sourceName = (statement as { name?: Identifier }).name?.name;
+      if (!sourceName) {
+        continue;
+      }
+      const runtimeName = (statement as { jsName?: string }).jsName ?? sourceName;
+      exportLines.push(`exports.${sourceName} = ${runtimeName};`);
+      continue;
+    }
+    if (statement.kind === "NamespaceStatement") {
+      if ((statement as { declared?: boolean }).declared) {
+        continue;
+      }
+      const sourceName = (statement as { names?: Identifier[] }).names?.[0]?.name;
+      if (sourceName) {
+        exportLines.push(`exports.${sourceName} = ${sourceName};`);
+      }
+      continue;
+    }
+    for (const name of implicitRuntimeExportNames(statement)) {
+      exportLines.push(`exports.${name} = ${name};`);
+    }
+  }
+  if (exportLines.length === 0) {
+    return code;
+  }
+  const uniqueLines = [...new Set(exportLines)];
+  return code.trim().length > 0 ? `${code}\n${uniqueLines.join("\n")}` : uniqueLines.join("\n");
+}
+
 function sanitizeRuntimeManglePart(text: string): string {
   const normalized = text.replace(/[^A-Za-z0-9]+/g, "$").replace(/^\$+|\$+$/g, "");
   return normalized.length > 0 ? normalized : "unknown";
@@ -679,10 +808,15 @@ function implicitRuntimeExportNames(statement: Statement): string[] {
     }
     case "ClassStatement":
     case "EnumStatement":
-      return [((statement as { name?: Identifier }).name?.name ?? "")].filter((name) => name.length > 0);
     case "NamespaceStatement": {
-      const names = (statement as { names?: Identifier[] }).names;
-      return names && names.length > 0 ? [names[0]!.name] : [];
+      if ((statement as { declared?: boolean }).declared) {
+        return [];
+      }
+      if (statement.kind === "NamespaceStatement") {
+        const names = (statement as { names?: Identifier[] }).names;
+        return names && names.length > 0 ? [names[0]!.name] : [];
+      }
+      return [((statement as { name?: Identifier }).name?.name ?? "")].filter((name) => name.length > 0);
     }
     default:
       return [];
@@ -693,19 +827,89 @@ function appendImplicitVexaExports(code: string, ast: Program | null, filePath: 
   if (extname(filePath).toLowerCase() !== ".vx" || !ast) {
     return code;
   }
-  const exportNames = new Set<string>();
+  const overloadCounts = new Map<string, number>();
+  for (const statement of ast.body) {
+    if (statement.kind === "FunctionStatement" && !(statement as FunctionStatement).declared) {
+      const fn = statement as FunctionStatement;
+      overloadCounts.set(fn.name.name, (overloadCounts.get(fn.name.name) ?? 0) + 1);
+    }
+  }
+
+  const exportSpecifiers = new Set<string>();
   for (const statement of ast.body) {
     if (statement.kind === "ExportStatement") {
       continue;
     }
+    if (statement.kind === "VarStatement") {
+      const variable = statement as VarStatement;
+      if (variable.declared) {
+        continue;
+      }
+      if (variable.receiverType && variable.name.kind === "Identifier") {
+        const runtimeName = extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name);
+        exportSpecifiers.add(runtimeName);
+        continue;
+      }
+      const declarations = variable.declarations && variable.declarations.length > 0
+        ? variable.declarations
+        : [{ name: variable.name, delegate: variable.delegate }];
+      for (const declaration of declarations) {
+        if (declaration.name.kind !== "Identifier" || declaration.delegate) {
+          continue;
+        }
+        const sourceName = declaration.name.name;
+        const runtimeName = declarations.length === 1 ? (variable.jsName ?? sourceName) : sourceName;
+        exportSpecifiers.add(runtimeName === sourceName ? sourceName : `${runtimeName} as ${sourceName}`);
+      }
+      continue;
+    }
+    if (statement.kind === "FunctionStatement") {
+      const fn = statement as FunctionStatement;
+      if (fn.declared || fn.missingBody) {
+        continue;
+      }
+      if (fn.receiverType) {
+        const baseName = fn.operator ? operatorBaseRuntimeName(fn.operator) : fn.name.name;
+        exportSpecifiers.add(extensionMethodRuntimeExportName(fn.receiverType.name, baseName, fn.parameters));
+        continue;
+      }
+      const runtimeName = fn.jsName
+        ?? ((overloadCounts.get(fn.name.name) ?? 0) > 1
+          ? overloadedRuntimeName(fn.name.name, fn.parameters)
+          : fn.name.name);
+      exportSpecifiers.add(fn.jsName ? `${runtimeName} as ${fn.name.name}` : runtimeName);
+      continue;
+    }
+    if (statement.kind === "ClassStatement" || statement.kind === "EnumStatement") {
+      if ((statement as { declared?: boolean }).declared) {
+        continue;
+      }
+      const sourceName = (statement as { name?: Identifier }).name?.name;
+      if (!sourceName) {
+        continue;
+      }
+      const runtimeName = (statement as { jsName?: string }).jsName ?? sourceName;
+      exportSpecifiers.add(runtimeName === sourceName ? sourceName : `${runtimeName} as ${sourceName}`);
+      continue;
+    }
+    if (statement.kind === "NamespaceStatement") {
+      if ((statement as { declared?: boolean }).declared) {
+        continue;
+      }
+      const sourceName = (statement as { names?: Identifier[] }).names?.[0]?.name;
+      if (sourceName) {
+        exportSpecifiers.add(sourceName);
+      }
+      continue;
+    }
     for (const name of implicitRuntimeExportNames(statement)) {
-      exportNames.add(name);
+      exportSpecifiers.add(name);
     }
   }
-  if (exportNames.size === 0) {
+  if (exportSpecifiers.size === 0) {
     return code;
   }
-  const exportClause = `export { ${[...exportNames].join(", ")} };`;
+  const exportClause = `export { ${[...exportSpecifiers].join(", ")} };`;
   return code.trim().length > 0 ? `${code}\n${exportClause}` : exportClause;
 }
 
@@ -897,10 +1101,17 @@ export interface ModuleGraphSourcesResult {
 export async function bundleModuleGraphAsModules(
   entryFilePath: string,
   target: TranspileTarget,
-  options: { vfs?: Vfs; jsxFactory?: string; jsxFragmentFactory?: string; ambientDeclarations?: Statement[] } = {}
+  options: {
+    vfs?: Vfs;
+    jsxFactory?: string;
+    jsxFragmentFactory?: string;
+    ambientDeclarations?: Statement[];
+    moduleFormat?: "esm" | "commonjs";
+  } = {}
 ): Promise<ModuleGraphSourcesResult> {
   const activeVfs = options.vfs ?? vfs();
   const ambientDeclarations = options.ambientDeclarations ?? [];
+  const moduleFormat = options.moduleFormat ?? "esm";
   await ensureEcmaScriptRuntimeProgram();
 
   const emittedByPath = new Map<string, string>();
@@ -1015,6 +1226,7 @@ export async function bundleModuleGraphAsModules(
       sourceFilePath: filePath,
       target,
       emitSourceMap: false,
+      moduleFormat,
       parserOptions,
       externalDeclarations,
       importedSymbolTypes,
@@ -1044,10 +1256,14 @@ export async function bundleModuleGraphAsModules(
       }
     }
 
-    const emittedCode = stripBundledModuleSyntax(result.code, bundledAssetSpecifiers, {
-      preserveExports: true
-    });
-    const emittedWithImplicitExports = appendImplicitVexaExports(emittedCode, ast, filePath);
+    const emittedCode = moduleFormat === "commonjs"
+      ? stripBundledCommonJsImports(result.code, bundledAssetSpecifiers)
+      : stripBundledModuleSyntax(result.code, bundledAssetSpecifiers, {
+          preserveExports: true
+        });
+    const emittedWithImplicitExports = moduleFormat === "commonjs"
+      ? appendImplicitVexaCommonJsExports(emittedCode, ast, filePath)
+      : appendImplicitVexaExports(emittedCode, ast, filePath);
     emittedByPath.set(
       filePath,
       [...assetBindingChunks, emittedWithImplicitExports].filter((chunk) => chunk.trim().length > 0).join("\n")

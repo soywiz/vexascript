@@ -10,6 +10,10 @@ export interface VfsStat {
   isDirectory?: boolean;
 }
 
+function unconfiguredVfsError(): Error {
+  return new Error("VFS has not been initialized. Call setVfs(...) before using compiler filesystem APIs.");
+}
+
 export class Vfs {
   async readFile(path: string): Promise<string> {
     throw new Error(`readFile: ${path}`)
@@ -38,8 +42,36 @@ export class Vfs {
 
 export var globalVfs = {} as { ref: Vfs }
 
+class UnconfiguredVfs extends Vfs {
+  override async readFile(_path: string): Promise<string> {
+    throw unconfiguredVfsError();
+  }
+
+  override async writeFile(_file: string, _data: string | ArrayBufferView): Promise<void> {
+    throw unconfiguredVfsError();
+  }
+
+  override async fileExists(_path: string): Promise<boolean> {
+    throw unconfiguredVfsError();
+  }
+
+  override async unlink(_file: string): Promise<void> {
+    throw unconfiguredVfsError();
+  }
+
+  override async stat(_path: string): Promise<VfsStat> {
+    throw unconfiguredVfsError();
+  }
+
+  override async readDir(_path: string): Promise<VfsDirEntry[]> {
+    throw unconfiguredVfsError();
+  }
+}
+
+const unconfiguredVfs = new UnconfiguredVfs()
+
 export function vfs() {
-  return globalVfs.ref
+  return globalVfs.ref ?? unconfiguredVfs
 }
 
 export function setVfs(value: Vfs) {

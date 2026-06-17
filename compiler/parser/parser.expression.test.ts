@@ -1205,6 +1205,21 @@ describe("parseExpression", () => {
                 { kind: "Identifier", name: "string" }
             ]
         });
+
+        expect(parseExpression(tokenizeReader("new Date(value).toLocaleTimeString()"))).toEqual({
+            kind: "CallExpression",
+            callee: {
+                kind: "MemberExpression",
+                object: {
+                    kind: "NewExpression",
+                    callee: { kind: "Identifier", name: "Date" },
+                    arguments: [{ kind: "Identifier", name: "value" }]
+                },
+                property: { kind: "Identifier", name: "toLocaleTimeString" },
+                computed: false
+            },
+            arguments: []
+        });
     });
 
     it("builds an AST for multiplication with parenthesized addition", () => {

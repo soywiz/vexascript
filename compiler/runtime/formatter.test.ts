@@ -233,6 +233,11 @@ describe("formatSource", () => {
       .toBe("if (a < b > c)return value");
   });
 
+  it("formats optional type suffix annotations", () => {
+    expect(formatSource("let value:any?=input\nlet callback:(()=>void)?=handler"))
+      .toBe("let value: any? = input\nlet callback: (() => void)? = handler");
+  });
+
   it("formats switch with case and default", () => {
     expect(formatSource("switch(x){case 1:let y=x;break;default:return 0}"))
       .toBe(dedent`

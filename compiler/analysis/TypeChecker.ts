@@ -1801,7 +1801,7 @@ export class TypeChecker {
       }
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;
-        if (!this.isLValueExpression(assignment.left)) {
+        if (!this.isAssignmentTargetExpression(assignment.left)) {
           this.issues.push({
             message: "Invalid assignment target: left side must be an identifier or member access",
             node: assignment.left
@@ -1827,7 +1827,9 @@ export class TypeChecker {
           const identifier = assignment.left as Node & { kind: "Identifier"; name: string };
           this.updateResolvedSymbolType(scope, identifier, rightType);
         }
-        result = rightType;
+        result = this.hasOptionalAssignmentTarget(assignment.left)
+          ? unionType([rightType, builtinType("undefined")])
+          : rightType;
         break;
       }
       case "AsExpression": {
@@ -6720,6 +6722,24 @@ export class TypeChecker {
       return false;
     }
     return this.isLValueExpression(member.object);
+  }
+
+  private isAssignmentTargetExpression(expression: Expr): boolean {
+    if (expression.kind === "Identifier") {
+      return true;
+    }
+    if (expression.kind !== "MemberExpression") {
+      return false;
+    }
+    return this.isAssignmentTargetExpression((expression as MemberExpression).object);
+  }
+
+  private hasOptionalAssignmentTarget(expression: Expr): boolean {
+    if (expression.kind !== "MemberExpression") {
+      return false;
+    }
+    const member = expression as MemberExpression;
+    return member.optional === true || this.hasOptionalAssignmentTarget(member.object);
   }
 
   private validateReadonlyAssignmentTarget(expression: Expr, scope: Scope): void {

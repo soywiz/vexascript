@@ -18,8 +18,11 @@ import {
   resolveExpressionTypeName
 } from "./classResolver";
 import { pathToUri } from "./importFixes";
-import { parseTypeMismatchDiagnostic } from "./diagnosticCodes";
+import { diagnosticHasCode, parseTypeMismatchDiagnostic, VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
+import { findNodeContainingRange } from "./nodeSearch";
+import { buildParameterTypeEdit } from "./parameterTypeEdits";
 import { nodeRange, rangeContains, rangeSize } from "./ranges";
+import type { FunctionParameter } from "compiler/ast/ast";
 
 function findAssignmentForDiagnosticRange(ast: Program, diagnosticRange: Range): AssignmentExpression | null {
   return findBestMatch(ast, (node) => {
@@ -106,8 +109,21 @@ function buildMemberTypeEdit(
   return null;
 }
 
+function findMissingTypeParameter(ast: Program, diagnosticRange: Range): FunctionParameter | null {
+  return findNodeContainingRange(
+    ast,
+    diagnosticRange,
+    (node): node is FunctionParameter =>
+      node.kind === "FunctionParameter" &&
+      (node as FunctionParameter).thisParameter !== true &&
+      (node as FunctionParameter).name.kind === "Identifier" &&
+      !(node as FunctionParameter).typeAnnotation
+  );
+}
+
 export async function createTypeFixCodeActions(params: {
   uri: string;
+  text: string;
   ast: Program | null;
   analysis: Analysis | null;
   diagnostics: Diagnostic[];
@@ -131,6 +147,38 @@ export async function createTypeFixCodeActions(params: {
   const resolverCache = createClassResolverCache();
 
   for (const diagnostic of params.diagnostics) {
+    if (diagnosticHasCode(diagnostic, VEXA_DIAGNOSTIC_CODES.MISSING_PARAMETER_TYPE)) {
+      const parameter = findMissingTypeParameter(params.ast, diagnostic.range);
+      if (!parameter) {
+        continue;
+      }
+      const edit = buildParameterTypeEdit(parameter, params.text, "any");
+      if (!edit) {
+        continue;
+      }
+      const key = `${params.uri}:parameter-any:${edit.range.start.line}:${edit.range.start.character}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+
+      actions.push({
+        title: `Add explicit parameter type '${edit.newText}'`,
+        kind: CodeActionKind.QuickFix,
+        edit: {
+          changes: {
+            [params.uri]: [
+              {
+                range: edit.range,
+                newText: edit.newText
+              }
+            ]
+          }
+        }
+      });
+      continue;
+    }
+
     const mismatch = parseTypeMismatchDiagnostic(diagnostic);
     if (!mismatch || mismatch.sourceType === "unknown") {
       continue;

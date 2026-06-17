@@ -379,6 +379,46 @@ describe("createCompletionItemsForPosition", () => {
     expect(readdir?.additionalTextEdits?.[0]?.range.start).toEqual({ line: 0, character: 0 });
   });
 
+  it("offers type-only auto-import completions from named exports of an already imported node_modules module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-"));
+    const packageDir = join(root, "node_modules", "preact");
+    const packageJson = join(packageDir, "package.json");
+    const typings = join(packageDir, "index.d.ts");
+    const consumerFile = join(root, "consumer.vx");
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { h } from "preact"
+      fun demo(props: { children: Compon^^^ }) {
+        return h()
+      }
+    `);
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(packageJson, JSON.stringify({ name: "preact", types: "index.d.ts" }), "utf8");
+    await writeFile(typings, 'export function h(): void;\nexport type ComponentChildren = string | number;\n', "utf8");
+    await writeFile(consumerFile, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: pathToFileURL(consumerFile).toString(),
+        sourceRoots: [root]
+      }
+    );
+    const componentChildren = items.find((item) => item.label === "ComponentChildren");
+
+    expect(componentChildren).toBeDefined();
+    expect(componentChildren?.detail).toBe("Auto import from preact");
+    expect(componentChildren?.additionalTextEdits?.[0]?.newText).toBe(
+      'import { h, type ComponentChildren } from "preact"'
+    );
+  });
+
   it("shows all auto-import completion candidates when multiple modules export the same name", async () => {
     const { source, line, character } = sourceWithCursor("fun demo() {\n  return gre^^^\n}\n");
     const ast = parseFile(tokenizeReader(source));

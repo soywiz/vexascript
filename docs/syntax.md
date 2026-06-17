@@ -866,6 +866,7 @@ VexaScript supports type aliases for naming another supported type annotation fo
 type Text = string
 type Boxed<T> = Box<T>
 type Status = "ready" | "done"
+type MaybeName = string?
 type Pair = [string, int]
 type EventPath = [EventTarget?]
 type UserKey = keyof User
@@ -887,6 +888,7 @@ Supported type annotation forms in declarations/members:
 - primitive/builtin type names (`int`, `number`, `string`, `boolean`, `bigint`, `long`, `void`, `null`, `undefined`, `any`, `unknown`, `never`, `object`, `symbol`)
 - generic type references (`Map<K, V>`)
 - array suffixes (`K[]`, `Map<K, V>[]`)
+- optional type suffixes (`User?`, `(() => void)?`), equivalent to `User | undefined`
 - union types (`string | number`)
 - intersection types (`Named & Serializable`)
 - function types (`(value: int) => string`, including optional and rest parameters)
@@ -1082,6 +1084,8 @@ Supported member access forms:
 - optional computed access: `obj?.[index]`
 
 Optional member and computed access include `undefined` in their inferred result type. Non-null asserted access removes `null` and `undefined` from the receiver type before resolving the member and is erased to normal dot access during JavaScript emission.
+
+Assignments may also target optional member chains such as `countRef.current?.style?.background = "grey"`. These are emitted as guarded JavaScript expressions that first capture the nullable receiver into a temporary and only perform the final write when that receiver is non-nullish.
 
 ### Array literals
 

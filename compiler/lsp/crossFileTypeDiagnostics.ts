@@ -201,6 +201,23 @@ export async function collectCrossFileTypeDiagnostics(
         continue;
       }
       for (const specifier of importStatement.specifiers) {
+        const localName = (specifier.local ?? specifier.imported).name;
+        if (
+          session.importedSymbolTypes.has(localName)
+          || session.importedSymbolDisplayTypes.has(localName)
+        ) {
+          continue;
+        }
+        if (session.invalidImportedBindings.has(localName)) {
+          pushDiagnostic(
+            diagnosticForNode(
+              specifier.imported,
+              `Module '${importPath}' has no exported symbol '${specifier.imported.name}'`,
+              VEXA_DIAGNOSTIC_CODES.IMPORT_MISSING_EXPORT
+            )
+          );
+          continue;
+        }
         if (ambientModuleHasNamedExport(importPath, specifier.imported.name, session.ambientModuleDeclarations)) {
           continue;
         }
@@ -217,6 +234,24 @@ export async function collectCrossFileTypeDiagnostics(
     if (importStatement.specifiers.length === 0) {
       continue;
     }
+    for (const specifier of importStatement.specifiers) {
+      const localName = (specifier.local ?? specifier.imported).name;
+      if (
+        session.importedSymbolTypes.has(localName)
+        || session.importedSymbolDisplayTypes.has(localName)
+      ) {
+        continue;
+      }
+      if (session.invalidImportedBindings.has(localName)) {
+        pushDiagnostic(
+          diagnosticForNode(
+            specifier.imported,
+            `Module '${importPath}' has no exported symbol '${specifier.imported.name}'`,
+            VEXA_DIAGNOSTIC_CODES.IMPORT_MISSING_EXPORT
+          )
+        );
+      }
+    }
     const targetSession = await getProjectSessionForFilePath(targetFilePath, options);
     if (!targetSession?.ast) {
       continue;
@@ -228,6 +263,13 @@ export async function collectCrossFileTypeDiagnostics(
       }
     }
     for (const specifier of importStatement.specifiers) {
+      const localName = (specifier.local ?? specifier.imported).name;
+      if (
+        session.importedSymbolTypes.has(localName)
+        || session.importedSymbolDisplayTypes.has(localName)
+      ) {
+        continue;
+      }
       if (exportedNames.has(specifier.imported.name)) {
         continue;
       }
