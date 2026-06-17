@@ -100,7 +100,7 @@ connect("localhost", port: 8080)          // mixed positional + named
 
 TypeScript has no named-argument syntax.
 
-### Tail lambdas
+### Tail lambdas and brace lambdas
 
 A lambda can be written after the closing parenthesis of a call (or omitting the parens entirely), following the Kotlin/Swift convention.
 
@@ -110,7 +110,20 @@ A lambda can be written after the closing parenthesis of a call (or omitting the
 [1, 2, 3].map { n: number -> n * 2 }
 ```
 
-Inside an argument list, `{ name }` is context-sensitive: a one-parameter lambda (implicit `it`) when the parameter type is a function, and a shorthand object literal otherwise. The explicit `{ arg -> body }` form is always a lambda.
+Brace lambdas are also valid anywhere an expression is accepted:
+
+```vexa
+useEffect({
+  val timeout = setTimeout({
+    refresh()
+  }, 1000)
+  return { clearTimeout(timeout) }
+}, [count])
+```
+
+When a brace lambda appears as a trailing lambda or as a brace-lambda argument, the shorthand `{ body }` form gets the implicit `it` parameter. In ordinary expression positions, the same shorthand is a zero-argument lambda unless an explicit parameter list is written with `->`.
+
+Inside an argument list, `{ name }` remains context-sensitive: it can be interpreted semantically as a one-parameter lambda (implicit `it`) when the expected parameter type is a function, and as a shorthand object literal otherwise. The explicit `{ arg -> body }` form is always a lambda.
 
 TypeScript uses inline arrow functions: `[1,2,3].map(it => it * 2)`.
 

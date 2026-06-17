@@ -16,7 +16,7 @@ class Clock extends Component {
 	// Lifecycle: Called whenever our component is created
 	fun componentDidMount() {
 		// update time every second
-		timer = setInterval(() => {
+		timer = setInterval({
 			this.setState({ time: Date.now() });
 		}, 1000)
 	}
@@ -45,14 +45,14 @@ fun App() {
 	var count by useState(0)
 	val countRef = useRef<HTMLSpanElement>();
 
-	useEffect(() => {
-		val timeout = setTimeout(() => {
+	useEffect({
+		val timeout = setTimeout({
 			//console.log(countRef.current)
 			
 			countRef.current?.style?.background = 'grey'
 			count++
 		}, 1000)
-		return () => { clearTimeout(timeout) }
+		return { clearTimeout(timeout) }
 	}, [count])
 
 	return (

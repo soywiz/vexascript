@@ -102,6 +102,31 @@ console.log(target.current?.style?.background = "black")
     expect(logs).toEqual([["grey"], [undefined]]);
   });
 
+  it("executes brace lambdas in ordinary expression positions", () => {
+    const source = `fun schedule(task: () => int, delay: int): int { task(); return delay }
+fun clearTimer(timeout: int) {}
+fun useEffect(effect: () => (() => void), inputs: int[]) {
+  let cleanup = effect()
+  cleanup()
+}
+let count = 0
+let countRef: { current?: { style?: { background: string } } } = { current: { style: { background: "white" } } }
+useEffect({
+  val timeout = schedule({
+    countRef.current?.style?.background = "grey"
+    count++
+  }, 1000)
+  return { clearTimer(timeout) }
+}, [count])
+console.log(countRef.current?.style?.background)
+console.log(count)
+`;
+
+    const logs = executeTranspiled(source, "optimized");
+
+    expect(logs).toEqual([["grey"], [1]]);
+  });
+
   it("preserves behavior between conservative and optimized transpile targets", () => {
     const source = `let total = 0
 for (n of 0 ..< 5) {

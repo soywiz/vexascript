@@ -42,7 +42,15 @@ In `.vx` files, public top-level runtime declarations are exported implicitly un
 ```vexa
 list.map { it * 2 }               // implicit `it` parameter
 list.map { n: number -> n * 2 }   // explicit parameter
+useEffect({
+  val timeout = setTimeout({
+    count++
+  }, 1000)
+  return { clearTimeout(timeout) }
+}, [count])                       // brace lambdas also work in expression position
 ```
+
+Trailing lambdas and brace-lambda call arguments use implicit `it` for `{ expr }`. In ordinary expression positions, `{ ... }` is a zero-argument brace lambda unless it is resolved contextually as an object literal or has an explicit `->` parameter list.
 
 ## Classes
 

@@ -2097,6 +2097,13 @@ export class Parser {
 
     private parseObjectLiteral(): ObjectLiteral {
         const startToken = this.getLastReadToken();
+        if (!(startToken?.type === "symbol" && startToken.value === "{")) {
+            this.fail("Expected '{' to start object literal", this.tokenAt(startToken));
+        }
+        return this.parseObjectLiteralFromConsumedOpen(startToken);
+    }
+
+    private parseObjectLiteralFromConsumedOpen(startToken: Token): ObjectLiteral {
         const properties: ObjectLiteralProperty[] = [];
 
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
@@ -2542,6 +2549,94 @@ export class Parser {
         );
     }
 
+    private attachContextualObjectLiteralToBraceLambda(lambda: ArrowFunctionExpression): ArrowFunctionExpression {
+        if (lambda.contextualObjectLiteral) {
+            return lambda;
+        }
+        if (
+            lambda.body.kind !== "Identifier"
+        ) {
+            return lambda;
+        }
+        if (
+            lambda.parameters.length > 1 ||
+            (lambda.parameters.length === 1 && (
+                lambda.parameters[0]?.name.kind !== "Identifier" ||
+                lambda.parameters[0].name.name !== "it"
+            ))
+        ) {
+            return lambda;
+        }
+        const identifier = lambda.body as Identifier;
+        lambda.contextualObjectLiteral = {
+            kind: "ObjectLiteral",
+            properties: [{
+                kind: "ObjectProperty",
+                key: identifier,
+                value: identifier,
+                shorthand: true
+            } as ObjectProperty]
+        } as ObjectLiteral;
+        return lambda;
+    }
+
+    private shouldTryObjectLiteralBeforeBraceLambda(): boolean {
+        const first = this.tokens.peek();
+        if (!first) {
+            return false;
+        }
+        if (first.type === "symbol") {
+            return first.value === "}" || first.value === "..." || first.value === "[";
+        }
+        if (first.type !== "identifier" && first.type !== "string" && first.type !== "number") {
+            return false;
+        }
+        if (
+            first.type === "identifier" &&
+            (first.value === "get" || first.value === "set" || first.value === "async" || first.value === "sync")
+        ) {
+            const second = this.peekToken(1);
+            if (
+                second?.type === "identifier" ||
+                second?.type === "string" ||
+                second?.type === "number" ||
+                (second?.type === "symbol" && second.value === "[")
+            ) {
+                return true;
+            }
+        }
+        const second = this.peekToken(1);
+        return second?.type === "symbol" && [":", ",", "(", "<", "}"].includes(second.value);
+    }
+
+    private parseBraceExpressionFromConsumedOpen(openBrace: Token): Expr {
+        if (this.shouldTryObjectLiteralBeforeBraceLambda()) {
+            const checkpoint = this.beginTokenCheckpoint();
+            try {
+                const objectLiteral = this.parseObjectLiteralFromConsumedOpen(openBrace);
+                if (
+                    objectLiteral.properties.length === 1 &&
+                    objectLiteral.properties[0]?.kind === "ObjectProperty" &&
+                    (objectLiteral.properties[0] as ObjectProperty).shorthand &&
+                    (objectLiteral.properties[0] as ObjectProperty).key.kind === "Identifier"
+                ) {
+                    this.restoreTokenCheckpoint(checkpoint);
+                    const lambda = this.parseBraceLambdaExpressionFromConsumedOpen(openBrace, null);
+                    lambda.contextualObjectLiteral = objectLiteral;
+                    return lambda;
+                }
+                this.commitTokenCheckpoint(checkpoint);
+                return objectLiteral;
+            } catch (error) {
+                this.restoreTokenCheckpoint(checkpoint);
+                if (!(error instanceof ParseError)) {
+                    throw error;
+                }
+            }
+        }
+        return this.attachContextualObjectLiteralToBraceLambda(this.parseBraceLambdaExpressionFromConsumedOpen(openBrace, null));
+    }
+
 
     private applyImplicitTailLambdaReturn(statements: Statement[]): Statement[] {
         if (statements.length <= 1) {
@@ -2687,7 +2782,7 @@ export class Parser {
         }
 
         if (token?.type === "symbol" && token.value === "{") {
-            return this.parseObjectLiteral();
+            return this.parseBraceExpressionFromConsumedOpen(token);
         }
 
         if (token?.type === "number") {
@@ -3095,20 +3190,7 @@ export class Parser {
 
 
     private parseCallLambdaArgument(): ArrowFunctionExpression {
-        const lambda = this.parseTailLambdaArgument();
-        if (lambda.parameters.length === 1 && lambda.parameters[0]?.name.kind === "Identifier" && lambda.parameters[0].name.name === "it" && lambda.body.kind === "Identifier") {
-            const identifier = lambda.body as Identifier;
-            lambda.contextualObjectLiteral = {
-                kind: "ObjectLiteral",
-                properties: [{
-                    kind: "ObjectProperty",
-                    key: identifier,
-                    value: identifier,
-                    shorthand: true
-                } as ObjectProperty]
-            } as ObjectLiteral;
-        }
-        return lambda;
+        return this.attachContextualObjectLiteralToBraceLambda(this.parseTailLambdaArgument());
     }
 
     private looksLikeCallLambdaArgument(): boolean {

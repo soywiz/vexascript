@@ -463,7 +463,7 @@ Examples:
 
 ### Tail lambdas
 
-VexaScript also supports Kotlin/Swift-style tail lambdas after call expressions and brace lambdas inside call argument lists. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The explicit `{ arg1, arg2 -> ... }` form is always a lambda.
+VexaScript supports Kotlin/Swift-style tail lambdas after call expressions, brace lambdas inside call argument lists, and brace lambdas anywhere an expression is accepted. Inside an argument list, `{ name }` is context-sensitive: it is a one-parameter lambda with the implicit `it` parameter when the corresponding parameter type is a function, and a shorthand object literal when the parameter is not a function. The same contextual shorthand is preserved in other expression positions when the surrounding type expects an object. The explicit `{ arg1, arg2 -> ... }` form is always a lambda.
 
 The body after `->` may be a single expression or a sequence of statements. When it contains more than one statement, the lambda has a block body, and a final expression statement is emitted as an implicit `return`:
 
@@ -477,6 +477,13 @@ new Promise({ resolve, reject ->
   setTimeout(resolve, time.ms)
   setTimeout(reject, 1000)
 })
+
+useEffect({
+  val timeout = schedule({
+    count++
+  }, 1000)
+  return { clearTimer(timeout) }
+}, [count])
 ```
 
 Examples:

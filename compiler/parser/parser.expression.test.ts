@@ -1158,6 +1158,19 @@ describe("parseExpression", () => {
             "ReturnStatement"
         ]);
         expect(implicitItLambda.body.body[1].expression.kind).toBe("BinaryExpression");
+
+        const braceLambdaInExpressionPosition = parseExpression(
+            tokenizeReader("useEffect({ val timeout = schedule({ count++ }, 1000)\nreturn { clearTimeout(timeout) }\n}, [count])")
+        ) as any;
+        const effectLambda = braceLambdaInExpressionPosition.arguments[0];
+        expect(effectLambda.kind).toBe("ArrowFunctionExpression");
+        expect(effectLambda.body.kind).toBe("BlockStatement");
+        expect(effectLambda.body.body.map((statement: any) => statement.kind)).toEqual([
+            "VarStatement",
+            "ReturnStatement"
+        ]);
+        expect(effectLambda.body.body[0].initializer.arguments[0].kind).toBe("ArrowFunctionExpression");
+        expect(effectLambda.body.body[1].expression.kind).toBe("ArrowFunctionExpression");
     });
 
     it("builds an AST for new expression variants", () => {

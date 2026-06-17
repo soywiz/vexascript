@@ -242,6 +242,23 @@ describe("enum semantic analysis", () => {
     expect(analysis.getIssues()).toEqual([]);
   });
 
+  it("accepts brace lambdas in ordinary expression positions", () => {
+    const source = dedent`
+      declare function schedule(task: () => int, delay: int): int
+      declare function clearTimeout(timeout: int): void
+      declare function useEffect(effect: () => (() => void), inputs: int[]): void
+      let count = 0
+      useEffect({
+        val timeout = schedule({
+          count++
+        }, 1000)
+        return { clearTimeout(timeout) }
+      }, [count])
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
   it("smart-casts identifiers in if and else branches for type and range checks", () => {
     const source = dedent`
       class Cat { meow(): int { return 1 } }
