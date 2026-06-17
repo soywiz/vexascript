@@ -172,6 +172,30 @@ describe("Analysis", () => {
     );
   });
 
+  it("prefers DOM getter types when a property has both getter and setter accessors", () => {
+    const source = dedent`
+      declare interface CSSStyleDeclaration {
+        background: string
+      }
+      declare interface ElementCSSInlineStyle {
+        get style(): CSSStyleDeclaration
+        set style(cssText: string)
+      }
+      declare interface HTMLElement extends ElementCSSInlineStyle {}
+      declare interface HTMLSpanElement extends HTMLElement {}
+      declare function createSpan(): HTMLSpanElement
+
+      const span = createSpan()
+      span.style.background = "red"
+    `;
+    const ast = parseFile(tokenizeReader(source), { language: "typescript" });
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).not.toContain(
+      "Property 'background' does not exist on type 'string'"
+    );
+  });
+
   it("enforces inferred generic DOM constraints on method calls", async () => {
     const source = "document.body.appendChild(10)\n";
     const ast = parseFile(tokenizeReader(source));
@@ -282,6 +306,19 @@ let after = bind`));
 
     expect(symbols.get("bind")?.valueType).toBe("(id: string) => string");
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("reports parameters that omit an explicit type annotation", () => {
+    const source = dedent`
+      fun demo(props) {
+        return props
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Parameter 'props' must declare an explicit type annotation");
   });
 
   it("accepts 'this' return types in VexaScript classes and extension methods", () => {
@@ -754,7 +791,7 @@ let after = bind`));
   it("reports semantic errors for unresolved variables in scope", () => {
     const source = dedent`
       let top = 1
-      fun demo(a) {
+      fun demo(a: int) {
         return a + missing + obj.prop + obj[dynamic]
       }
       
@@ -1388,6 +1425,13 @@ let after = bind`));
     expect(validMessages).not.toContain(
       "Invalid assignment target: left side must be an identifier or member access"
     );
+
+    const optionalSource = "let a = 1\na?.b?.c = 20\n";
+    const optionalAst = parseFile(tokenizeReader(optionalSource));
+    const optionalMessages = new Analysis(optionalAst).getIssues().map((issue) => issue.message);
+    expect(optionalMessages).toContain(
+      "Invalid assignment target: left side must be an identifier or member access"
+    );
   });
 
   it("validates increment/decrement operator targets as l-values", () => {
@@ -1404,6 +1448,10 @@ let after = bind`));
       const messages = new Analysis(ast).getIssues().map((issue) => issue.message);
       expect(messages, `expected no error for: ${valid}`).not.toContain(ERROR_MSG);
     }
+
+    const optionalAst = parseFile(tokenizeReader("let obj = { x: 1 }\n++obj?.x"));
+    const optionalMessages = new Analysis(optionalAst).getIssues().map((issue) => issue.message);
+    expect(optionalMessages).toContain(ERROR_MSG);
   });
 
   it("requires const and val declarations to have an initializer", () => {
@@ -1716,9 +1764,59 @@ let after = bind`));
     const symbols = new Map(analysis.getVisibleSymbolsAt(3, 5).map((symbol) => [symbol.name, symbol]));
 
     expect(symbols.get("mapper")?.valueType).toBe("(value: int) => string");
-    expect(symbols.get("point")?.valueType).toBe("{ x: int, label: string | undefined }");
+    expect(symbols.get("point")?.valueType).toBe("{ x: int, label: string? }");
     expect(messages).toContain("Type 'int' is not assignable to return type 'string'");
     expect(messages).toContain("Type '{ x: int, label: int }' is not assignable to type '{ x: int, label: string }'");
+  });
+
+  it("supports optional type suffix annotations as sugar for '| undefined'", () => {
+    const source = dedent`
+      let maybe: string? = "ok"
+      maybe = undefined
+      maybe = 1
+      let callback: (() => void)? = undefined
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const symbols = new Map(analysis.getVisibleSymbolsAt(3, 5).map((symbol) => [symbol.name, symbol]));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(symbols.get("maybe")?.valueType).toBe("string?");
+    expect(symbols.get("callback")?.valueType).toBe("(() => void)?");
+    expect(messages).toContain("Type 'int' is not assignable to type 'string?'");
+  });
+
+  it("accepts required object properties where the target property type is optional", () => {
+    const source = dedent`
+      let point: { x: int, label: string? } = { x: 1, label: "ok" }
+      let clock: { time: number? } = { time: Date.now() }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("accepts assigning defined values to optional class fields through this", () => {
+    const source = dedent`
+      declare class Component {}
+
+      class Clock extends Component {
+        var timer: number? = 10
+
+        constructor() {
+          super()
+          this.timer = 10
+          this.timer = undefined
+          timer = 10
+        }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
   it("reports reassignment of const/val variables", () => {
@@ -2224,6 +2322,49 @@ let after = bind`));
     const messages = analysis.getIssues().map((issue) => issue.message);
 
     expect(messages).toContain("Property 'id' does not exist on type 'unknown'");
+  });
+
+  it("propagates 'any' through member access expressions", () => {
+    const source = dedent`
+      fun demo(props: any) {
+        const direct = props.style
+        const computed = props["style"]
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const demo = ast.body[0] as import("../ast/ast.js").FunctionStatement;
+    const directType = analysis.getExpressionTypes().get(
+      (demo.body.body[0] as import("../ast/ast.js").VarStatement).initializer!
+    );
+    const computedType = analysis.getExpressionTypes().get(
+      (demo.body.body[1] as import("../ast/ast.js").VarStatement).initializer!
+    );
+
+    expect(messages.some((message) => message.includes("does not exist on type 'any'"))).toBe(false);
+    expect(directType?.kind === "builtin" && directType.name).toBe("any");
+    expect(computedType?.kind === "builtin" && computedType.name).toBe("any");
+  });
+
+  it("allows calling members reached through 'any'", () => {
+    const source = dedent`
+      fun demo(props: any) {
+        return props.render()
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+    const callType = analysis.getExpressionTypes().get(
+      ((ast.body[0] as import("../ast/ast.js").FunctionStatement).body.body[0] as import("../ast/ast.js").ReturnStatement)
+        .expression!
+    );
+
+    expect(messages.some((message) => message.includes("not callable"))).toBe(false);
+    expect(callType?.kind === "builtin" && callType.name).toBe("any");
   });
 
   it("reports call argument type and arity mismatches, with int->number and long->bigint assignability", () => {

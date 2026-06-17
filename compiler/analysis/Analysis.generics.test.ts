@@ -325,6 +325,29 @@ describe("Analysis", () => {
     expect(messages).toContain("Argument 1 of type 'string' is not assignable to parameter 'value' of type 'number'");
   });
 
+  it("rejects explicit type arguments on non-generic calls and when too many are supplied", () => {
+    const source = dedent`
+      fun App() {
+      }
+      fun useState<S>(initialState: S): S {
+        return initialState
+      }
+      fun useRef<T>() {
+      }
+      App<int>()
+      useState<number, int>(0)
+      useRef<string, number, number>()
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Expected at most 0 type argument(s), but got 1");
+    expect(messages).toContain("Expected at most 1 type argument(s), but got 2");
+    expect(messages).toContain("Expected at most 1 type argument(s), but got 3");
+  });
+
   it("resolves generic type aliases in annotations and member access", () => {
     const source = dedent`
       class Box<T> {
@@ -875,6 +898,7 @@ describe("Analysis", () => {
         console.log(Date.parse("2024-01-01"))
         let d = new Date()
         console.log(d.getTime())
+        console.log(new Date(Date.now()).toLocaleTimeString())
       }
     `;
 
@@ -1203,10 +1227,10 @@ describe("Analysis", () => {
     const symbols = symbolsOfVisibleSymbolsAt(source, 12, 3);
 
     expect(symbols.get("moreNumbers")?.valueType).toBe("int[]");
-    expect(symbols.get("optionalCall")?.valueType).toBe("int | undefined");
-    expect(symbols.get("optionalElement")?.valueType).toBe("int | undefined");
+    expect(symbols.get("optionalCall")?.valueType).toBe("int?");
+    expect(symbols.get("optionalElement")?.valueType).toBe("int?");
     expect(messages).toContain("Argument 2 of type 'string' is not assignable to parameter 'values' of type 'int'");
-    expect(messages).toContain("Type 'int | undefined' is not assignable to type 'int'");
+    expect(messages).toContain("Type 'int?' is not assignable to type 'int'");
   });
 
   it("reports member access on nullable receivers unless ?. or ! is used", () => {
