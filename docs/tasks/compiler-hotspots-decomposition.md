@@ -2,8 +2,7 @@
 
 ## Status
 
-* [ ] Technical debt
-* [~] In progress: CommonJS-specific import/export emission was extracted from `compiler/runtime/emitter.ts` into `compiler/runtime/commonJsEmitter.ts` with helper-level tests, reducing one module-format responsibility slice from the generic emitter path.
+* [~] Ongoing technical debt reduction. Six batches of pure-helper extraction from TypeChecker.ts complete (50+ standalone functions moved to 7 new modules). Parser token helpers extracted. Bundling stripping extracted. All tasks with clear seams are done; remaining items require larger structural changes beyond pure extraction.
 
 ## Context
 
