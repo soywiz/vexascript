@@ -173,7 +173,7 @@ describe("collectCodeActions aggregator", () => {
     expect(actions.map((action) => action.title)).toContain("Remove unused import 'utimes'");
   });
 
-  it("offers the assign-to-variable quick fix for bare expression statements", async () => {
+  it("does not expose the assign-to-variable quick fix from the shared aggregator", async () => {
     const source = dedent`
       join("hello", "world")
       `;
@@ -189,8 +189,7 @@ describe("collectCodeActions aggregator", () => {
     });
 
     const action = actions.find((candidate) => candidate.title === "Assign to variable");
-    expect(action).toBeTruthy();
-    expect(action?.edit?.changes?.[URI]?.[0]?.newText).toBe('val variable = join("hello", "world")');
+    expect(action).toBeUndefined();
   });
 
   it("keeps both LSP transports on the shared code-action aggregator", async () => {
