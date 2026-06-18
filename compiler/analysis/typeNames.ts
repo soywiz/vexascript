@@ -410,3 +410,70 @@ export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotatio
 export function looksLikeFunctionTypeAnnotation(typeName: string): boolean {
   return typeName.includes("=>");
 }
+
+/**
+ * Strips trailing `[]` suffixes from a type name text, returning the inner
+ * element type name and the array nesting depth. Returns null when the text
+ * does not end with `[]`.
+ */
+export function splitArraySuffixTypeName(typeName: string): { elementTypeName: string; arrayDepth: number } | null {
+  let remaining = typeName.trim();
+  let arrayDepth = 0;
+  while (remaining.endsWith("[]")) {
+    remaining = remaining.slice(0, -2).trim();
+    arrayDepth += 1;
+  }
+  if (arrayDepth === 0 || remaining.length === 0) {
+    return null;
+  }
+  return { elementTypeName: remaining, arrayDepth };
+}
+
+/**
+ * Parses a `T[K]` indexed-access type name, returning the object and index
+ * type name texts. Ignores inner brackets at deeper nesting. Returns null when
+ * the text does not look like an indexed-access type.
+ */
+export function splitIndexedAccessTypeName(typeName: string): { objectTypeName: string; indexTypeName: string } | null {
+  const trimmed = typeName.trim();
+  if (!trimmed.endsWith("]")) {
+    return null;
+  }
+
+  let quote: string | null = null;
+  let angleDepth = 0;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let bracketDepth = 0;
+  for (let index = trimmed.length - 1; index >= 0; index -= 1) {
+    const ch = trimmed[index]!;
+    const previous = index > 0 ? trimmed[index - 1] : "";
+    if (quote) {
+      if (ch === quote && previous !== "\\") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === ">") angleDepth += 1;
+    else if (ch === "<") angleDepth = Math.max(0, angleDepth - 1);
+    else if (ch === ")") parenDepth += 1;
+    else if (ch === "(") parenDepth = Math.max(0, parenDepth - 1);
+    else if (ch === "}") braceDepth += 1;
+    else if (ch === "{") braceDepth = Math.max(0, braceDepth - 1);
+    else if (ch === "]") bracketDepth += 1;
+    else if (ch === "[") {
+      bracketDepth -= 1;
+      if (bracketDepth === 0 && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+        const objectTypeName = trimmed.slice(0, index).trim();
+        const indexTypeName = trimmed.slice(index + 1, -1).trim();
+        if (objectTypeName.length === 0 || indexTypeName.length === 0) {
+          return null;
+        }
+        return { objectTypeName, indexTypeName };
+      }
+    }
+  }
+  return null;
+}

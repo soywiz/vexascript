@@ -106,6 +106,8 @@ import {
   parseObjectTypeAnnotation,
   parseFunctionTypeAnnotation,
   parseTypeNameShape,
+  splitArraySuffixTypeName,
+  splitIndexedAccessTypeName,
   splitOptionalTypeSuffix,
   splitTopLevelDelimitedTypeText,
   splitTopLevelTypeText,
@@ -117,10 +119,11 @@ import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarat
 import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations";
 import { declarationIndexForStatements } from "./declarationIndex";
 import { walkAst } from "compiler/ast/traversal";
-import { isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
+import { boxedInterfaceNameForBuiltin, expressionSnippet, isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
 import { isDynamicPropertyName, normalizePropertyName, propertyEntries, propertyNamesMatch, propertyTypeAllowsUndefined, propertyTypeFrom, propertyTypeWithoutUndefined } from "./propertyNames";
 import { isBigIntType, isIntType, isLongType, isNullishType, isNumberType, isNumericFamilyType, isNumericType, isPrimitiveLikeOperatorType, isStringLikeType } from "./typeClassifiers";
 import { isAsyncLike, statementAllowsLabeledContinue, statementListAlwaysExits, statementListPreventsSwitchFallthrough } from "./controlFlow";
+import { combineTypes, elementTypeFromIterable, hasNullishUnionMember, isAsyncIteratorType, removeNullishFromType, resolveLiteralTypeName, spreadArgumentElementType, unwrapPromiseType } from "./typeOperations";
 
 type EnumResolvedValue =
   | { kind: "constant-int"; value: number }
@@ -1648,10 +1651,10 @@ export class TypeChecker {
       }
 
       const iterableType = this.visitExpression(statement.iterable, loopScope);
-      if (this.isAsyncIteratorType(iterableType)) {
+      if (isAsyncIteratorType(iterableType)) {
         this.asyncForStatements.add(statement);
       }
-      const iteratorType = this.elementTypeFromIterable(iterableType);
+      const iteratorType = elementTypeFromIterable(iterableType);
       this.propagateIteratorType(statement.iterator, iteratorType, loopScope);
       this.visitStatement(statement.body, loopScope, loopFlow);
       return;
@@ -1912,7 +1915,7 @@ export class TypeChecker {
       }
       case "NonNullExpression": {
         const nonNull = expression as NonNullExpression;
-        result = this.removeNullishFromType(this.visitExpression(nonNull.expression, scope));
+        result = removeNullishFromType(this.visitExpression(nonNull.expression, scope));
         break;
       }
       case "NamedArgument": {
@@ -1947,7 +1950,7 @@ export class TypeChecker {
           this.isPromiseMethodName((member.property as Identifier).name);
         const rawObjectType = this.visitExpression(member.object, scope, undefined, suppressObjectAutoAwait);
         this.validateNullableMemberAccess(member, rawObjectType);
-        const objectType = member.nonNullAsserted === true ? this.removeNullishFromType(rawObjectType) : rawObjectType;
+        const objectType = member.nonNullAsserted === true ? removeNullishFromType(rawObjectType) : rawObjectType;
         if (member.computed) {
           if (
             objectType.kind === "named" &&
@@ -2099,7 +2102,7 @@ export class TypeChecker {
           this.evolveArrayElementTypeFromMutation(call, scope, contextualArgumentTypes);
           result = this.resolveOptionalAccessType(
             instantiatedCalleeType.returnType,
-            call.optional === true || this.hasNullishUnionMember(calleeType)
+            call.optional === true || hasNullishUnionMember(calleeType)
           );
           break;
         }
@@ -2338,7 +2341,7 @@ export class TypeChecker {
             result = UNKNOWN_TYPE;
             break;
           }
-          result = this.unwrapPromiseType(argumentType) ?? argumentType;
+          result = unwrapPromiseType(argumentType) ?? argumentType;
           break;
         }
         if (unary.operator === "go") {
@@ -2613,7 +2616,7 @@ export class TypeChecker {
       result.name === "Promise"
     ) {
       this.autoAwaitExpressions.add(expression);
-      result = this.unwrapPromiseType(result) ?? result;
+      result = unwrapPromiseType(result) ?? result;
     }
 
     this.expressionTypes.set(expression, result);
@@ -3545,7 +3548,7 @@ export class TypeChecker {
       ) ?? UNKNOWN_TYPE;
       return this.keyofType(targetType);
     }
-    const indexedAccess = this.splitIndexedAccessTypeName(normalizedTypeName);
+    const indexedAccess = splitIndexedAccessTypeName(normalizedTypeName);
     if (indexedAccess) {
       if (localTypeParameterNames.has(indexedAccess.indexTypeName.trim())) {
         return namedType(normalizedTypeName);
@@ -4564,20 +4567,7 @@ export class TypeChecker {
     return false;
   }
 
-  private hasNullishUnionMember(type: AnalysisType): boolean {
-    return type.kind === "union" && type.types.some((member) => isNullishType(member));
-  }
 
-  private removeNullishFromType(type: AnalysisType): AnalysisType {
-    if (type.kind !== "union") {
-      return type;
-    }
-    const nonNullishTypes = type.types.filter((member) => !isNullishType(member));
-    if (nonNullishTypes.length === 0) {
-      return UNKNOWN_TYPE;
-    }
-    return nonNullishTypes.length === 1 ? nonNullishTypes[0]! : unionType(nonNullishTypes);
-  }
 
   private validateJsxComponentAttributes(
     jsxElement: JsxElement,
@@ -4814,7 +4804,7 @@ export class TypeChecker {
         ? this.restParameterExpectedTypeAt(restParameter.type, index - fixedParameters.length)
         : parameter.type;
       const rawComparableArgumentType = argumentExpression?.kind === "SpreadExpression"
-        ? this.spreadArgumentElementType(argumentType)
+        ? spreadArgumentElementType(argumentType)
         : argumentType;
       const comparableArgumentType = this.effectiveArgumentTypeForValidation(
         argumentExpression,
@@ -4929,7 +4919,7 @@ export class TypeChecker {
       }
       const valueNode = argument.kind === "NamedArgument" ? (argument as NamedArgument).value : argument;
       const comparableArgumentType = valueNode.kind === "SpreadExpression"
-        ? this.spreadArgumentElementType(argumentType)
+        ? spreadArgumentElementType(argumentType)
         : argumentType;
       const expectedType = parameter.type;
       const effectiveArgumentType = this.effectiveArgumentTypeForValidation(
@@ -5281,7 +5271,7 @@ export class TypeChecker {
     if (resolvedTypes.length === 0) {
       return;
     }
-    substitutions.set("T", this.combineTypes(resolvedTypes));
+    substitutions.set("T", combineTypes(resolvedTypes));
   }
 
   private collectCallArgumentTypes(expression: Expr, calleeName: string, collected: AnalysisType[]): void {
@@ -5375,19 +5365,6 @@ export class TypeChecker {
     return restParameterType;
   }
 
-  private spreadArgumentElementType(argumentType: AnalysisType): AnalysisType {
-    if (argumentType.kind === "array") {
-      return argumentType.elementType;
-    }
-    if (argumentType.kind === "tuple") {
-      return argumentType.elements.length === 1 ? argumentType.elements[0]! : unionType(argumentType.elements);
-    }
-    if (argumentType.kind === "named" && argumentType.name === "Array" && argumentType.typeArguments?.[0]) {
-      return argumentType.typeArguments[0];
-    }
-    return UNKNOWN_TYPE;
-  }
-
   private reportReturnTypeMismatch(
     sourceType: AnalysisType,
     targetType: AnalysisType,
@@ -5444,7 +5421,7 @@ export class TypeChecker {
   private inferYieldTypeFromBlock(body: BlockStatement): AnalysisType {
     const yieldTypes = this.collectYieldTypesFromStatements(body.body);
     if (yieldTypes.length === 0) return UNKNOWN_TYPE;
-    return this.combineTypes(yieldTypes);
+    return combineTypes(yieldTypes);
   }
 
   private collectYieldTypesFromStatements(statements: Statement[]): AnalysisType[] {
@@ -5582,7 +5559,7 @@ export class TypeChecker {
     if (returnExpressionTypes.length === 0) {
       return builtinType("void");
     }
-    return this.combineTypes(returnExpressionTypes);
+    return combineTypes(returnExpressionTypes);
   }
 
   private collectReturnExpressionTypes(statements: Statement[]): AnalysisType[] {
@@ -5608,7 +5585,7 @@ export class TypeChecker {
       }
       const elementType = this.expressionTypes.get(element) ?? UNKNOWN_TYPE;
       if (element.kind === "SpreadExpression") {
-        const spreadElementType = this.spreadArgumentElementType(elementType);
+        const spreadElementType = spreadArgumentElementType(elementType);
         return spreadElementType;
       }
       return elementType;
@@ -5674,31 +5651,8 @@ export class TypeChecker {
     }
   }
 
-  private combineTypes(types: AnalysisType[]): AnalysisType {
-    const uniqueTypes: AnalysisType[] = [];
-    for (const type of types) {
-      if (!uniqueTypes.some((existing) => isSameType(existing, type))) {
-        uniqueTypes.push(type);
-      }
-    }
-    if (uniqueTypes.length === 0) {
-      return builtinType("void");
-    }
-    if (uniqueTypes.length === 1) {
-      return uniqueTypes[0]!;
-    }
-    return unionType(uniqueTypes);
-  }
-
-  private unwrapPromiseType(type: AnalysisType): AnalysisType | null {
-    if (type.kind !== "named" || type.name !== "Promise") {
-      return null;
-    }
-    return type.typeArguments?.[0] ?? UNKNOWN_TYPE;
-  }
-
   private getAsyncReturnValueType(returnType: AnalysisType): AnalysisType | null {
-    return this.unwrapPromiseType(returnType);
+    return unwrapPromiseType(returnType);
   }
 
   private returnExpressionIsAssignable(
@@ -5712,7 +5666,7 @@ export class TypeChecker {
         this.isTypeAssignable(actualReturnType, expectedReturnType);
     }
     if (inAsync) {
-      const unwrappedActual = this.unwrapPromiseType(actualReturnType);
+      const unwrappedActual = unwrapPromiseType(actualReturnType);
       if (unwrappedActual !== null) {
         return this.isTypeAssignable(unwrappedActual, expectedReturnType);
       }
@@ -5769,7 +5723,7 @@ export class TypeChecker {
     targetType: AnalysisType,
     expression: Expr
   ): void {
-    const snippet = this.expressionSnippet(expression);
+    const snippet = expressionSnippet(expression);
     if (!snippet) {
       return;
     }
@@ -5777,24 +5731,6 @@ export class TypeChecker {
       message: `Nested type mismatch: expression '${snippet}' is '${typeToString(sourceType)}' but expected '${typeToString(targetType)}'`,
       node: expression
     });
-  }
-
-  private expressionSnippet(expression: Expr): string | null {
-    if (expression.kind === "Identifier") {
-      return null;
-    }
-    const first = expression.firstToken?.value;
-    const last = expression.lastToken?.value;
-    if (!first && !last) {
-      return expression.kind;
-    }
-    if (first && last && first !== last) {
-      return `${first} ... ${last}`;
-    }
-    if (first) {
-      return first;
-    }
-    return last ?? expression.kind;
   }
 
   private resolveTypeAnnotation(
@@ -5864,7 +5800,7 @@ export class TypeChecker {
       return tupleType(elements);
     }
 
-    const arraySuffix = this.splitArraySuffixTypeName(normalizedTypeName);
+    const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
     if (arraySuffix) {
       let elementType = this.resolveTypeNameText(arraySuffix.elementTypeName, node, scope, false);
       for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
@@ -5888,7 +5824,7 @@ export class TypeChecker {
       return indexedAccessType;
     }
 
-    const literal = this.resolveLiteralTypeName(normalizedTypeName);
+    const literal = resolveLiteralTypeName(normalizedTypeName);
     if (literal) {
       return literal;
     }
@@ -6065,7 +6001,7 @@ export class TypeChecker {
   }
 
   private resolveIndexedAccessTypeName(typeName: string, node: Node, scope: Scope): AnalysisType | null {
-    const indexedAccess = this.splitIndexedAccessTypeName(typeName);
+    const indexedAccess = splitIndexedAccessTypeName(typeName);
     if (!indexedAccess) {
       return null;
     }
@@ -6074,23 +6010,6 @@ export class TypeChecker {
     const indexType = this.resolveTypeNameText(indexedAccess.indexTypeName, node, scope, false);
     return this.indexedAccessType(objectType, indexType, node);
   }
-
-  private resolveLiteralTypeName(typeName: string): AnalysisType | null {
-    if ((typeName.startsWith("\"") && typeName.endsWith("\"")) || (typeName.startsWith("'") && typeName.endsWith("'"))) {
-      return literalType("string", typeName.slice(1, -1));
-    }
-    if (typeName === "true") {
-      return literalType("boolean", true);
-    }
-    if (typeName === "false") {
-      return literalType("boolean", false);
-    }
-    if (/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(typeName)) {
-      return literalType("number", Number(typeName));
-    }
-    return null;
-  }
-
 
   private typeFromComputedTypeNameLoose(typeName: string): AnalysisType | null {
     const normalizedTypeName = stripEnclosingTypeParens(typeName);
@@ -6117,7 +6036,7 @@ export class TypeChecker {
       return tupleType(elements);
     }
 
-    const arraySuffix = this.splitArraySuffixTypeName(normalizedTypeName);
+    const arraySuffix = splitArraySuffixTypeName(normalizedTypeName);
     if (arraySuffix) {
       let elementType = this.typeFromTypeNameLoose(arraySuffix.elementTypeName);
       for (let i = 0; i < arraySuffix.arrayDepth; i += 1) {
@@ -6126,7 +6045,7 @@ export class TypeChecker {
       return elementType;
     }
 
-    const literal = this.resolveLiteralTypeName(normalizedTypeName);
+    const literal = resolveLiteralTypeName(normalizedTypeName);
     if (literal) {
       return literal;
     }
@@ -6139,7 +6058,7 @@ export class TypeChecker {
       return UNKNOWN_TYPE;
     }
 
-    const indexedAccess = this.splitIndexedAccessTypeName(normalizedTypeName);
+    const indexedAccess = splitIndexedAccessTypeName(normalizedTypeName);
     if (indexedAccess) {
       return this.indexedAccessType(
         this.typeFromTypeNameLoose(indexedAccess.objectTypeName),
@@ -6156,63 +6075,6 @@ export class TypeChecker {
       /^\{ (?:[+-]?readonly )?\[/.test(typeName) ||
       /(?:^| )extends .+ \? /.test(typeName)
     );
-  }
-
-  private splitArraySuffixTypeName(typeName: string): { elementTypeName: string; arrayDepth: number } | null {
-    let remaining = typeName.trim();
-    let arrayDepth = 0;
-    while (remaining.endsWith("[]")) {
-      remaining = remaining.slice(0, -2).trim();
-      arrayDepth += 1;
-    }
-    if (arrayDepth === 0 || remaining.length === 0) {
-      return null;
-    }
-    return { elementTypeName: remaining, arrayDepth };
-  }
-
-  private splitIndexedAccessTypeName(typeName: string): { objectTypeName: string; indexTypeName: string } | null {
-    const trimmed = typeName.trim();
-    if (!trimmed.endsWith("]")) {
-      return null;
-    }
-
-    let quote: string | null = null;
-    let angleDepth = 0;
-    let parenDepth = 0;
-    let braceDepth = 0;
-    let bracketDepth = 0;
-    for (let index = trimmed.length - 1; index >= 0; index -= 1) {
-      const ch = trimmed[index]!;
-      const previous = index > 0 ? trimmed[index - 1] : "";
-      if (quote) {
-        if (ch === quote && previous !== "\\") quote = null;
-        continue;
-      }
-      if (ch === '"' || ch === "'") {
-        quote = ch;
-        continue;
-      }
-      if (ch === ">") angleDepth += 1;
-      else if (ch === "<") angleDepth = Math.max(0, angleDepth - 1);
-      else if (ch === ")") parenDepth += 1;
-      else if (ch === "(") parenDepth = Math.max(0, parenDepth - 1);
-      else if (ch === "}") braceDepth += 1;
-      else if (ch === "{") braceDepth = Math.max(0, braceDepth - 1);
-      else if (ch === "]") bracketDepth += 1;
-      else if (ch === "[") {
-        bracketDepth -= 1;
-        if (bracketDepth === 0 && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
-          const objectTypeName = trimmed.slice(0, index).trim();
-          const indexTypeName = trimmed.slice(index + 1, -1).trim();
-          if (objectTypeName.length === 0 || indexTypeName.length === 0) {
-            return null;
-          }
-          return { objectTypeName, indexTypeName };
-        }
-      }
-    }
-    return null;
   }
 
   private keyofType(targetType: AnalysisType): AnalysisType {
@@ -6301,13 +6163,13 @@ export class TypeChecker {
       return type.elements[Number(propertyName)] ?? null;
     }
     if (type.kind === "builtin") {
-      const boxedName = this.boxedInterfaceNameForBuiltin(type.name);
+      const boxedName = boxedInterfaceNameForBuiltin(type.name);
       if (boxedName) {
         return this.resolveNamedTypeMembers(namedType(boxedName))?.get(propertyName) ?? null;
       }
     }
     if (type.kind === "literal") {
-      const boxedName = this.boxedInterfaceNameForBuiltin(type.base);
+      const boxedName = boxedInterfaceNameForBuiltin(type.base);
       if (boxedName) {
         return this.resolveNamedTypeMembers(namedType(boxedName))?.get(propertyName) ?? null;
       }
@@ -6328,14 +6190,6 @@ export class TypeChecker {
       properties[memberName] = memberType;
     }
     return objectTypeWithProperties(properties);
-  }
-
-  private boxedInterfaceNameForBuiltin(name: string): string | null {
-    if (name === "int" || name === "number" || name === "numeric") return "Number";
-    if (name === "string") return "String";
-    if (name === "boolean") return "Boolean";
-    if (name === "bigint" || name === "long") return "BigInt";
-    return null;
   }
 
   private validateNamedTypeArgumentConstraints(
@@ -7032,7 +6886,7 @@ export class TypeChecker {
         ? builtinType("undefined")
         : this.visitExpression(element, scope, expectedElementType);
       const currentType = element.kind === "SpreadExpression"
-        ? this.spreadArgumentElementType(visitedType)
+        ? spreadArgumentElementType(visitedType)
         : visitedType;
       if (expectedElementType && this.isTypeAssignable(currentType, expectedElementType)) {
         inferredElementType = expectedElementType;
@@ -7353,28 +7207,6 @@ export class TypeChecker {
       const trimmed = propertyName.trim();
       return trimmed.startsWith("[") || trimmed.startsWith("readonly [");
     });
-  }
-
-  private static readonly ITERATOR_TYPE_NAMES = new Set([
-    "AsyncGenerator", "AsyncIterator", "AsyncIteratorObject",
-    "Generator", "Iterator", "IteratorObject", "IterableIterator", "Iterable"
-  ]);
-
-  private elementTypeFromIterable(type: AnalysisType): AnalysisType {
-    if (type.kind === "array") {
-      return type.elementType;
-    }
-    if (type.kind === "range") {
-      return type.elementType;
-    }
-    if (type.kind === "named" && TypeChecker.ITERATOR_TYPE_NAMES.has(type.name) && (type.typeArguments?.length ?? 0) >= 1) {
-      return type.typeArguments![0]!;
-    }
-    return UNKNOWN_TYPE;
-  }
-
-  private isAsyncIteratorType(type: AnalysisType): boolean {
-    return type.kind === "named" && (type.name === "AsyncGenerator" || type.name === "AsyncIterator" || type.name === "AsyncIteratorObject");
   }
 
   private propagateIteratorType(
@@ -7822,7 +7654,7 @@ export class TypeChecker {
   }
 
   private validateNullableMemberAccess(member: MemberExpression, objectType: AnalysisType): void {
-    if (member.optional === true || member.nonNullAsserted === true || !this.hasNullishUnionMember(objectType)) {
+    if (member.optional === true || member.nonNullAsserted === true || !hasNullishUnionMember(objectType)) {
       return;
     }
     const objectLastToken = member.object.lastToken;
@@ -8121,7 +7953,7 @@ export class TypeChecker {
       return arrayMembers.get(memberName) ?? null;
     }
     if (resolvedObjectType.kind === "builtin") {
-      const boxedName = this.boxedInterfaceNameForBuiltin(resolvedObjectType.name);
+      const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.name);
       if (!boxedName) {
         return null;
       }
@@ -8129,7 +7961,7 @@ export class TypeChecker {
       return boxedMembers?.get(memberName) ?? null;
     }
     if (resolvedObjectType.kind === "literal") {
-      const boxedName = this.boxedInterfaceNameForBuiltin(resolvedObjectType.base);
+      const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.base);
       if (!boxedName) {
         return null;
       }
@@ -8201,11 +8033,11 @@ export class TypeChecker {
 
     if (resolvedObjectType.kind !== "named") {
       if (resolvedObjectType.kind === "builtin") {
-        const boxedName = this.boxedInterfaceNameForBuiltin(resolvedObjectType.name);
+        const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.name);
         return boxedName ? this.findNamedTypeMemberSymbol(boxedName, memberName) : null;
       }
       if (resolvedObjectType.kind === "literal") {
-        const boxedName = this.boxedInterfaceNameForBuiltin(resolvedObjectType.base);
+        const boxedName = boxedInterfaceNameForBuiltin(resolvedObjectType.base);
         return boxedName ? this.findNamedTypeMemberSymbol(boxedName, memberName) : null;
       }
       return null;
@@ -8642,7 +8474,7 @@ export class TypeChecker {
       return this.resolveNamedTypeMembers(type);
     }
     if (type.kind === "builtin" && type.name !== "any" && type.name !== "unknown") {
-      const boxedName = this.boxedInterfaceNameForBuiltin(type.name);
+      const boxedName = boxedInterfaceNameForBuiltin(type.name);
       if (boxedName) {
         return this.resolveNamedTypeMembers(namedType(boxedName)) ?? new Map();
       }
@@ -9486,7 +9318,7 @@ export class TypeChecker {
     }
 
     const normalizedListType = stripEnclosingTypeParens(systemListTypeAnnotation.trim());
-    const arraySuffix = this.splitArraySuffixTypeName(normalizedListType);
+    const arraySuffix = splitArraySuffixTypeName(normalizedListType);
     const unionSource = stripEnclosingTypeParens(arraySuffix?.elementTypeName ?? normalizedListType);
     const systemTypeQueries = splitTopLevelTypeText(unionSource, "|").map((part) => stripEnclosingTypeParens(part.trim()));
 

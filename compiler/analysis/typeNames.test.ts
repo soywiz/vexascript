@@ -5,6 +5,8 @@ import {
   looksLikeFunctionTypeAnnotation,
   parseObjectTypeAnnotation,
   parseFunctionTypeAnnotation,
+  splitArraySuffixTypeName,
+  splitIndexedAccessTypeName,
   splitOptionalTypeSuffix,
   splitTopLevelDelimitedTypeText,
   splitTopLevelTypeText,
@@ -123,5 +125,55 @@ describe("looksLikeFunctionTypeAnnotation", () => {
   it("returns false when the text has no =>", () => {
     expect(looksLikeFunctionTypeAnnotation("string")).toBe(false);
     expect(looksLikeFunctionTypeAnnotation("{ x: number }")).toBe(false);
+  });
+});
+
+describe("splitArraySuffixTypeName", () => {
+  it("strips a single [] suffix", () => {
+    expect(splitArraySuffixTypeName("string[]")).toEqual({ elementTypeName: "string", arrayDepth: 1 });
+  });
+
+  it("strips multiple [] suffixes", () => {
+    expect(splitArraySuffixTypeName("number[][]")).toEqual({ elementTypeName: "number", arrayDepth: 2 });
+  });
+
+  it("returns null when there is no [] suffix", () => {
+    expect(splitArraySuffixTypeName("string")).toBeNull();
+  });
+
+  it("returns null for an empty element name", () => {
+    expect(splitArraySuffixTypeName("[]")).toBeNull();
+  });
+
+  it("handles generic types with array suffix", () => {
+    expect(splitArraySuffixTypeName("Array<string>[]")).toEqual({ elementTypeName: "Array<string>", arrayDepth: 1 });
+  });
+});
+
+describe("splitIndexedAccessTypeName", () => {
+  it("splits a simple T[K] form", () => {
+    expect(splitIndexedAccessTypeName("Record[string]")).toEqual({
+      objectTypeName: "Record",
+      indexTypeName: "string",
+    });
+  });
+
+  it("handles generics in the object type", () => {
+    expect(splitIndexedAccessTypeName("Map<string, int>[string]")).toEqual({
+      objectTypeName: "Map<string, int>",
+      indexTypeName: "string",
+    });
+  });
+
+  it("returns null when there is no ] at the end", () => {
+    expect(splitIndexedAccessTypeName("string")).toBeNull();
+  });
+
+  it("returns null for array types (empty object part)", () => {
+    expect(splitIndexedAccessTypeName("[]")).toBeNull();
+  });
+
+  it("returns null when the index part is empty", () => {
+    expect(splitIndexedAccessTypeName("T[]")).toBeNull();
   });
 });

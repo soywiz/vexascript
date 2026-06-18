@@ -1,5 +1,6 @@
 import type { AnalysisType } from "./types";
 import { typeToString } from "./types";
+import type { Expr } from "compiler/ast/ast";
 
 export function isNumberLikeType(type: AnalysisType): boolean {
   return (
@@ -13,6 +14,42 @@ export function isNumberLikeType(type: AnalysisType): boolean {
  * Unlike typeToString, this renders function types in the `(p: T) => R` form
  * instead of a compact single-word representation.
  */
+/**
+ * Maps a VexaScript built-in primitive type name to the corresponding boxed
+ * interface name (`Number`, `String`, `Boolean`, `BigInt`). Returns null for
+ * names that have no boxed equivalent.
+ */
+export function boxedInterfaceNameForBuiltin(name: string): string | null {
+  if (name === "int" || name === "number" || name === "numeric") return "Number";
+  if (name === "string") return "String";
+  if (name === "boolean") return "Boolean";
+  if (name === "bigint" || name === "long") return "BigInt";
+  return null;
+}
+
+/**
+ * Produces a short snippet label for an expression node, suitable for
+ * inline diagnostic context. Returns null for simple identifiers (already
+ * visible in the surrounding message).
+ */
+export function expressionSnippet(expression: Expr): string | null {
+  if (expression.kind === "Identifier") {
+    return null;
+  }
+  const first = expression.firstToken?.value;
+  const last = expression.lastToken?.value;
+  if (!first && !last) {
+    return expression.kind;
+  }
+  if (first && last && first !== last) {
+    return `${first} ... ${last}`;
+  }
+  if (first) {
+    return first;
+  }
+  return last ?? expression.kind;
+}
+
 export function typeToDiagnosticLabel(type: AnalysisType): string {
   if (type.kind !== "function") {
     return typeToString(type);
