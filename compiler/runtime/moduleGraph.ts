@@ -1,5 +1,6 @@
 import type { ParserOptions } from "compiler/parser/parser";
 import type {
+  ExportStatement,
   FunctionStatement,
   Identifier,
   ImportStatement,
@@ -36,7 +37,7 @@ import {
   splitTopLevelTypeText,
   stripEnclosingTypeParens
 } from "compiler/analysis/typeNames";
-import { extname } from "compiler/utils/path";
+import { dirname, extname, resolve } from "compiler/utils/path";
 import { collectImplicitVexaExportPlan } from "./implicitExports";
 import { transpile, type TranspileResult, type TranspileTarget } from "./transpile";
 
@@ -48,6 +49,142 @@ interface CachedTypingsData {
 }
 
 const typingsCacheByPath = new Map<string, CachedTypingsData>();
+
+async function parseTypingsProgram(typingsPath: string, vfs: Vfs): Promise<Program | null> {
+  const source = await vfs.readFile(typingsPath);
+  if (source === null) {
+    return null;
+  }
+  const parsed = parseSource(source, { language: "typescript" });
+  return parsed.ast ?? null;
+}
+
+async function readTypingsSource(typingsPath: string, vfs: Vfs): Promise<string | null> {
+  return await vfs.readFile(typingsPath);
+}
+
+async function resolveRelativeTypingsPath(importerTypingsPath: string, specifier: string, vfs: Vfs): Promise<string | null> {
+  if (!specifier.startsWith(".")) {
+    return null;
+  }
+  const basePath = resolve(dirname(importerTypingsPath), specifier);
+  const candidates = [
+    basePath,
+    extname(basePath) === "" ? `${basePath}.d.ts` : "",
+    extname(basePath) === "" ? `${basePath}.ts` : "",
+    resolve(basePath, "index.d.ts"),
+    resolve(basePath, "index.ts")
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const stat = await vfs.stat(candidate).catch(() => null);
+    if (stat?.isDirectory) {
+      continue;
+    }
+    if (stat?.isFile || await vfs.fileExists(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function resolveReexportedTypingsPath(importerTypingsPath: string, specifier: string, vfs: Vfs): Promise<string | null> {
+  if (specifier.startsWith(".")) {
+    return resolveRelativeTypingsPath(importerTypingsPath, specifier, vfs);
+  }
+  return resolveNodeModulesTypingsPath(importerTypingsPath, specifier, { vfs });
+}
+
+function extractReferencedTypingsSpecifiers(source: string): string[] {
+  const specifiers = new Set<string>();
+  const referencePathPattern = /^\s*\/\/\/\s*<reference\s+path=["']([^"']+)["'][^>]*\/>\s*$/gm;
+
+  for (const match of source.matchAll(referencePathPattern)) {
+    const specifier = match[1]?.trim();
+    if (specifier) {
+      specifiers.add(specifier);
+    }
+  }
+
+  return [...specifiers];
+}
+
+function extractImportedTypingsSpecifiers(ast: Program): string[] {
+  const specifiers = new Set<string>();
+
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const specifier = importStatement.from?.value?.trim();
+    if (specifier) {
+      specifiers.add(specifier);
+    }
+  }
+
+  return [...specifiers];
+}
+
+async function collectTypingsDeclarations(
+  typingsPath: string,
+  vfs: Vfs,
+  visited: Set<string>
+): Promise<Statement[]> {
+  if (visited.has(typingsPath)) {
+    return [];
+  }
+  visited.add(typingsPath);
+
+  const ast = await parseTypingsProgram(typingsPath, vfs);
+  if (!ast) {
+    return [];
+  }
+  const source = await readTypingsSource(typingsPath, vfs);
+
+  const declarations: Statement[] = [...ast.body];
+  const supportSpecifiers = new Set<string>([
+    ...(source ? extractReferencedTypingsSpecifiers(source) : []),
+    ...extractImportedTypingsSpecifiers(ast)
+  ]);
+  for (const specifier of supportSpecifiers) {
+    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, specifier, vfs);
+    if (!targetTypingsPath) {
+      continue;
+    }
+    declarations.push(...await collectTypingsDeclarations(targetTypingsPath, vfs, visited));
+  }
+  for (const statement of ast.body) {
+    if (statement.kind !== "ExportStatement") {
+      continue;
+    }
+    const exportStatement = statement as Statement & ExportStatement;
+    if (!exportStatement.from?.value || (!exportStatement.exportAll && (!exportStatement.specifiers || exportStatement.specifiers.length === 0))) {
+      continue;
+    }
+    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, exportStatement.from.value, vfs);
+    if (!targetTypingsPath) {
+      continue;
+    }
+    const reexportedDeclarations = await collectTypingsDeclarations(targetTypingsPath, vfs, visited);
+    if (exportStatement.exportAll) {
+      declarations.push(...reexportedDeclarations);
+      continue;
+    }
+    const exportedNames = new Set(exportStatement.specifiers?.map((specifier) => {
+      const exportSpecifier = specifier as { local?: { name: string }; exported: { name: string } };
+      return exportSpecifier.local?.name ?? exportSpecifier.exported.name;
+    }) ?? []);
+    for (const declaration of reexportedDeclarations) {
+      const name = declarationName(declaration);
+      if (name && exportedNames.has(name)) {
+        declarations.push(declaration);
+      }
+    }
+  }
+
+  return declarations;
+}
 
 function ambientTypePackageNameFromTypingsPath(typingsPath: string): string | null {
   const match = typingsPath.match(/[\\/]+@types[\\/]+([^\\/]+)/);
@@ -243,6 +380,42 @@ function callableTypeFromNamedExportedFunction(declarations: readonly Statement[
   return overloads.length === 1 ? overloads[0]! : unionType(overloads);
 }
 
+function externalNamedImportType(declarations: readonly Statement[], importedName: string): AnalysisType | null {
+  const callableType = callableTypeFromNamedExportedFunction(declarations, importedName);
+  if (callableType) {
+    return callableType;
+  }
+
+  for (const statement of declarations) {
+    const declaration = unwrapExportedDeclaration(statement);
+    if (!declaration) {
+      continue;
+    }
+    const namedDeclaration = declaration as { name?: { name?: string } };
+    const declarationName = namedDeclaration.name?.name;
+    if (declaration.kind === "ClassStatement" && declarationName === importedName) {
+      return namedType(importedName);
+    }
+    if (declaration.kind === "InterfaceStatement" && declarationName === importedName) {
+      return namedType(importedName);
+    }
+    if (declaration.kind === "EnumStatement" && declarationName === importedName) {
+      return namedType(importedName);
+    }
+    if (declaration.kind === "TypeAliasStatement" && declarationName === importedName) {
+      return namedType(importedName);
+    }
+    if (declaration.kind === "VarStatement") {
+      const identifiers = bindingIdentifiers((declaration as VarStatement).name);
+      if (identifiers[0]?.name === importedName) {
+        return externalTypeFromAnnotationText((declaration as VarStatement).typeAnnotation?.name);
+      }
+    }
+  }
+
+  return null;
+}
+
 function jsonValueType(value: unknown): AnalysisType {
   if (typeof value === "string") {
     return builtinType("string");
@@ -420,9 +593,10 @@ async function collectNodeModulesTypings(
       return null;
     }
 
+    const declarations = await collectTypingsDeclarations(typingsPath, vfs, new Set<string>());
     const defaultExportName = detectDtsDefaultExportName(parsed.ast) ?? "";
     const loaded: CachedTypingsData = {
-      declarations: [...parsed.ast.body],
+      declarations,
       analysis: compileParsedSource(parsed, {}).analysis,
       defaultExportName,
       hasFunctionNamespaceDualExport: defaultExportName.length > 0
@@ -492,7 +666,7 @@ async function collectNodeModulesTypings(
     }
     for (const s of importStatement.specifiers) {
       const localName = (s.local ?? s.imported).name;
-      const declaredType = declarationAnalysis?.getTopLevelSymbolType(s.imported.name);
+      const declaredType = externalNamedImportType(typings.declarations, s.imported.name) ?? declarationAnalysis?.getTopLevelSymbolType(s.imported.name);
       const exportedFunctionType = callableTypeFromNamedExportedFunction(typings.declarations, s.imported.name) ?? declaredType;
       const ambientType = ambientTypes
         ? resolveAmbientNamedImportType(

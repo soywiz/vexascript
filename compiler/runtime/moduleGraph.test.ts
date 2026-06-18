@@ -1,6 +1,6 @@
 import { Script, createContext, describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
-import { bundleModuleGraph } from "./moduleGraph";
+import { bundleModuleGraph, bundleModuleGraphAsModules } from "./moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
 
 async function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
@@ -83,6 +83,41 @@ describe("bundleModuleGraph", () => {
         expect(result.code).toContain(
           "const sum = Point$$operator$plus$$Point(new Point(1, 2), new Point(3, 4));"
         );
+      }
+    );
+  });
+
+  it("emits imported extension-property setters in CommonJS module bundles", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "position.vx": dedent`
+          class Vec2(val x: number, val y: number)
+          class View(var x: number, var y: number)
+          var View.point: Vec2 {
+            get { return Vec2(x, y) }
+            set { x = newValue.x; y = newValue.y }
+          }
+        `,
+        "main.vx": dedent`
+          import { View, Vec2, point } from "./position"
+          val view = View(0, 0)
+          view.point = Vec2(3, 4)
+          console.log(view.point.x, view.point.y)
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative", {
+          moduleFormat: "commonjs"
+        });
+
+        expect(result.errors).toEqual([]);
+        const dependencySource = result.moduleSources.get(join(dir, "position.vx")) ?? "";
+        expect(dependencySource).toContain("exports.View$$point = View$$point;");
+        expect(dependencySource).toContain("exports.View$$point$set = View$$point$set;");
+        expect(result.entrySource).toContain("const { View, Vec2, View$$point, View$$point$set } = require(\"./position\");");
+        expect(result.entrySource).toContain("View$$point$set(view, new Vec2(3, 4));");
+        expect(result.entrySource).toContain("console.log(View$$point(view).x, View$$point(view).y);");
       }
     );
   });
@@ -244,6 +279,90 @@ describe("bundleModuleGraph", () => {
           import { useState } from "preact/hooks"
           const [count, setCount] = useState(0)
           setCount(count + 1)
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
+
+  it("resolves named imports from packages that reexport declarations through bare export-star typings", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "node_modules/pixi.js/package.json": JSON.stringify({
+          name: "pixi.js",
+          types: "./lib/index.d.ts"
+        }),
+        "node_modules/pixi.js/lib/index.d.ts": 'export * from "@pixi/text";\nexport * from "@pixi/app";\n',
+        "node_modules/@pixi/text/package.json": JSON.stringify({
+          name: "@pixi/text",
+          types: "./lib/index.d.ts"
+        }),
+        "node_modules/@pixi/text/lib/index.d.ts": "export declare class TextStyle {}\nexport declare class Text { anchor: { set(value: number): void } }\n",
+        "node_modules/@pixi/app/package.json": JSON.stringify({
+          name: "@pixi/app",
+          types: "./lib/index.d.ts"
+        }),
+        "node_modules/@pixi/app/lib/index.d.ts": "export declare class Application { view: unknown }\n",
+        "main.vx": dedent`
+          import { Application, Text, TextStyle } from "pixi.js"
+          const app = new Application()
+          const label = new Text()
+          label.anchor.set(0.5)
+          console.log(app.view, TextStyle)
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "conservative");
+        expect(result.errors).toEqual([]);
+      }
+    );
+  });
+
+  it("follows triple-slash references and support imports inside package typings", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "node_modules/pixi-like/package.json": JSON.stringify({
+          name: "pixi-like",
+          types: "./lib/index.d.ts"
+        }),
+        "node_modules/pixi-like/global.d.ts": dedent`
+          declare namespace GlobalMixins {
+            interface Application {
+              ticker: {
+                add(callback: () => void): void;
+              };
+            }
+          }
+        `,
+        "node_modules/pixi-like/lib/plugin.d.ts": dedent`
+          declare namespace GlobalMixins {
+            interface Application {
+              pluginReady: boolean;
+            }
+          }
+        `,
+        "node_modules/pixi-like/lib/Application.d.ts": dedent`
+          export interface Application extends GlobalMixins.Application {
+          }
+
+          export declare class Application {
+          }
+        `,
+        "node_modules/pixi-like/lib/index.d.ts": dedent`
+          /// <reference path="../global.d.ts" />
+          import "./plugin";
+          export * from "./Application";
+        `,
+        "main.vx": dedent`
+          import { Application } from "pixi-like"
+          const app = new Application()
+          app.ticker.add(() => {})
+          console.log(app.pluginReady)
         `
       },
       async (dir) => {

@@ -75,6 +75,10 @@ function extensionPropertyRuntimeExportName(receiverType: string, propertyName: 
   return `${sanitizeRuntimeManglePart(receiverType)}$$${sanitizeRuntimeManglePart(propertyName)}`;
 }
 
+function extensionPropertySetterRuntimeExportName(receiverType: string, propertyName: string): string {
+  return `${extensionPropertyRuntimeExportName(receiverType, propertyName)}$set`;
+}
+
 function implicitRuntimeExportNames(statement: Statement): string[] {
   switch (statement.kind) {
     case "VarStatement": {
@@ -83,7 +87,11 @@ function implicitRuntimeExportNames(statement: Statement): string[] {
         return [];
       }
       if (variable.receiverType && variable.name.kind === "Identifier") {
-        return [extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name)];
+        const names = [extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name)];
+        if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
+          names.push(extensionPropertySetterRuntimeExportName(variable.receiverType.name, variable.name.name));
+        }
+        return names;
       }
       const names = new Set<string>();
       for (const identifier of bindingIdentifiers(variable.name)) {
@@ -153,6 +161,11 @@ export function collectImplicitVexaExportPlan(ast: Program | null, filePath: str
         const runtimeName = extensionPropertyRuntimeExportName(variable.receiverType.name, variable.name.name);
         esmSpecifiers.add(runtimeName);
         commonJsLines.add(`exports.${runtimeName} = ${runtimeName};`);
+        if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
+          const setterRuntimeName = extensionPropertySetterRuntimeExportName(variable.receiverType.name, variable.name.name);
+          esmSpecifiers.add(setterRuntimeName);
+          commonJsLines.add(`exports.${setterRuntimeName} = ${setterRuntimeName};`);
+        }
         continue;
       }
       const declarations = variable.declarations && variable.declarations.length > 0

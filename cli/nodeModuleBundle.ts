@@ -23,6 +23,12 @@ interface BundledModuleRecord {
   dependencyMap: Record<string, string | null>;
 }
 
+interface CachedBundledModuleArtifact {
+  mtimeMs: number;
+  code: string;
+  resolvedDependencies: Record<string, string | null>;
+}
+
 type ResolvedDependency =
   | { kind: "bundled"; filePath: string }
   | { kind: "external" };
@@ -33,6 +39,8 @@ const NODE_BUILTIN_SET = new Set([
 ]);
 
 const STATIC_REQUIRE_PATTERN = /\brequire\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
+const STATIC_DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
+const bundledModuleArtifactCache = new Map<string, CachedBundledModuleArtifact>();
 
 function isBuiltinSpecifier(specifier: string): boolean {
   return NODE_BUILTIN_SET.has(specifier) || NODE_BUILTIN_SET.has(`node:${specifier}`);
@@ -83,6 +91,14 @@ async function isDirectoryInVfs(path: string, vfs: Vfs): Promise<boolean> {
     return stat?.isDirectory === true;
   } catch {
     return false;
+  }
+}
+
+async function fileMtimeInVfs(path: string, vfs: Vfs): Promise<number | null> {
+  try {
+    return (await vfs.stat(path)).mtimeMs;
+  } catch {
+    return null;
   }
 }
 
@@ -178,6 +194,54 @@ async function resolveAsModulePath(
   return null;
 }
 
+async function resolveBareSpecifierInPnpmVirtualStore(
+  nodeModulesDir: string,
+  specifier: string,
+  vfs: Vfs,
+  virtualSources: ReadonlyMap<string, string>
+): Promise<string | null> {
+  const storeDir = resolve(nodeModulesDir, ".pnpm");
+  let entries;
+  try {
+    entries = await vfs.readDir(storeDir);
+  } catch {
+    return null;
+  }
+
+  const { packageName, subpath } = splitPackageSpecifier(specifier);
+  for (const entry of entries) {
+    if (!entry.isDirectory) {
+      continue;
+    }
+    const packageDir = resolve(storeDir, entry.name, "node_modules", packageName);
+    if (!(await isDirectoryInVfs(packageDir, vfs))) {
+      continue;
+    }
+
+    const packageJson = await readPackageJson(packageDir, vfs);
+    const exportsValue = packageJson?.["exports"];
+    if (subpath && exportsValue && typeof exportsValue === "object" && !Array.isArray(exportsValue)) {
+      const exportsField = exportsValue as Record<string, unknown>;
+      const exportKey = `./${subpath}`;
+      const exportTarget = packageExportTarget(exportsField[exportKey]);
+      if (exportTarget) {
+        const resolvedExport = await resolveAsModulePath(resolve(packageDir, exportTarget), vfs, virtualSources);
+        if (resolvedExport) {
+          return resolvedExport;
+        }
+      }
+    }
+
+    const rootTarget = subpath ? resolve(packageDir, subpath) : packageDir;
+    const resolved = await resolveAsModulePath(rootTarget, vfs, virtualSources);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return null;
+}
+
 async function resolveBareSpecifier(
   importerFilePath: string,
   specifier: string,
@@ -209,6 +273,13 @@ async function resolveBareSpecifier(
         return resolved;
       }
     }
+
+    const nodeModulesDir = resolve(currentDir, "node_modules");
+    const resolvedFromPnpmStore = await resolveBareSpecifierInPnpmVirtualStore(nodeModulesDir, specifier, vfs, virtualSources);
+    if (resolvedFromPnpmStore) {
+      return resolvedFromPnpmStore;
+    }
+
     const parentDir = dirname(currentDir);
     if (parentDir === currentDir) {
       break;
@@ -256,6 +327,24 @@ export function detectStaticRequires(source: string): string[] {
     }
   }
   return [...specifiers];
+}
+
+export function detectStaticDynamicImports(source: string): string[] {
+  const specifiers = new Set<string>();
+  for (const match of source.matchAll(STATIC_DYNAMIC_IMPORT_PATTERN)) {
+    const specifier = match[2];
+    if (specifier) {
+      specifiers.add(specifier);
+    }
+  }
+  return [...specifiers];
+}
+
+export function rewriteStaticDynamicImports(source: string): string {
+  return source.replace(
+    STATIC_DYNAMIC_IMPORT_PATTERN,
+    (_match, _quote, specifier) => `__vexaImport(${JSON.stringify(specifier)})`
+  );
 }
 
 function collectExportedDeclarationNames(statement: Statement): string[] {
@@ -521,6 +610,7 @@ function createModuleFactoryCode(
   return [
     `${JSON.stringify(moduleId)}: async function (module, exports, __requireFrom) {`,
     `  const require = (specifier) => __requireFrom(${JSON.stringify(moduleId)}, specifier);`,
+    `  const __vexaImport = (specifier) => __vexaImportFrom(${JSON.stringify(moduleId)}, specifier);`,
     `  require.resolve = (specifier) => specifier;`,
     `  const __filename = ${JSON.stringify(displayFilePath)};`,
     `  const __dirname = ${JSON.stringify(moduleDir)};`,
@@ -530,6 +620,54 @@ function createModuleFactoryCode(
       .join("\n"),
     `}`
   ].join("\n");
+}
+
+async function createCachedBundledModuleArtifact(
+  filePath: string,
+  vfs: Vfs,
+  virtualSources: ReadonlyMap<string, string>
+): Promise<CachedBundledModuleArtifact> {
+  const extension = extname(filePath).toLowerCase();
+  const source = virtualSources.get(filePath) ?? await vfs.readFile(filePath);
+  if (source === null) {
+    throw new Error(`Unable to read bundled module '${filePath}'`);
+  }
+  const transpiled = extension === ".json"
+    ? { code: `module.exports = ${source.trim()};`, exportNames: ["default"] }
+    : extension === ".txt"
+      ? { code: `module.exports = ${JSON.stringify(source)};`, exportNames: ["default"] }
+      : transpileModuleSource(source, filePath);
+  const transpiledCode = rewriteStaticDynamicImports(transpiled.code);
+  const resolvedDependencies: Record<string, string | null> = {};
+  for (const specifier of [...detectStaticRequires(transpiledCode), ...detectStaticDynamicImports(transpiled.code)]) {
+    const resolved = await resolveDependency(filePath, specifier, vfs, virtualSources);
+    resolvedDependencies[specifier] = resolved.kind === "bundled" ? resolved.filePath : null;
+  }
+  return {
+    mtimeMs: await fileMtimeInVfs(filePath, vfs) ?? -1,
+    code: transpiledCode,
+    resolvedDependencies
+  };
+}
+
+async function loadBundledModuleArtifact(
+  filePath: string,
+  vfs: Vfs,
+  virtualSources: ReadonlyMap<string, string>
+): Promise<CachedBundledModuleArtifact> {
+  if (virtualSources.has(filePath)) {
+    return createCachedBundledModuleArtifact(filePath, vfs, virtualSources);
+  }
+
+  const mtimeMs = await fileMtimeInVfs(filePath, vfs);
+  const cached = mtimeMs === null ? undefined : bundledModuleArtifactCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return cached;
+  }
+
+  const artifact = await createCachedBundledModuleArtifact(filePath, vfs, virtualSources);
+  bundledModuleArtifactCache.set(filePath, artifact);
+  return artifact;
 }
 
 export async function bundleNodeModuleGraph(
@@ -555,27 +693,14 @@ export async function bundleNodeModuleGraph(
     const moduleId = `__vexa_module_${nextModuleIndex++}`;
     moduleIdByPath.set(filePath, moduleId);
 
-    const extension = extname(filePath).toLowerCase();
-    const source = virtualSources.get(filePath) ?? await activeVfs.readFile(filePath);
-    if (source === null) {
-      throw new Error(`Unable to read bundled module '${filePath}'`);
-    }
     if (!virtualSources.has(filePath)) {
       watchedFiles.add(filePath);
     }
-    const transpiled = extension === ".json"
-      ? { code: `module.exports = ${source.trim()};`, exportNames: ["default"] }
-      : extension === ".txt"
-        ? { code: `module.exports = ${JSON.stringify(source)};`, exportNames: ["default"] }
-      : virtualSources.has(filePath)
-        ? { code: source, exportNames: null }
-        : transpileModuleSource(source, filePath);
-    const transpiledCode = transpiled.code;
+    const artifact = await loadBundledModuleArtifact(filePath, activeVfs, virtualSources);
     const dependencyMap: Record<string, string | null> = {};
-    for (const specifier of detectStaticRequires(transpiledCode)) {
-      const resolved = await resolveDependency(filePath, specifier, activeVfs, virtualSources);
-      if (resolved.kind === "bundled") {
-        dependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
+    for (const [specifier, resolvedFilePath] of Object.entries(artifact.resolvedDependencies)) {
+      if (resolvedFilePath !== null) {
+        dependencyMap[specifier] = await visitResolvedFile(resolvedFilePath);
       } else {
         dependencyMap[specifier] = null;
       }
@@ -584,7 +709,7 @@ export async function bundleNodeModuleGraph(
     moduleById.set(moduleId, {
       id: moduleId,
       filePath,
-      code: transpiledCode,
+      code: artifact.code,
       dependencyMap
     });
     return moduleId;
@@ -593,9 +718,9 @@ export async function bundleNodeModuleGraph(
   const entryTranspiled = virtualSources.has(sourcePath)
     ? { code: entrySource, exportNames: null }
     : transpileModuleSource(entrySource, sourcePath);
-  const entryCode = entryTranspiled.code;
+  const entryCode = rewriteStaticDynamicImports(entryTranspiled.code);
   const entryDependencyMap: Record<string, string | null> = {};
-  for (const specifier of detectStaticRequires(entryCode)) {
+  for (const specifier of [...detectStaticRequires(entryCode), ...detectStaticDynamicImports(entryTranspiled.code)]) {
     const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources);
     if (resolved.kind === "bundled") {
       entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
@@ -653,6 +778,15 @@ export async function bundleNodeModuleGraph(
     `  const mapped = __vexaDependencyMaps[importerId]?.[specifier] ?? null;`,
     `  if (mapped !== null) {`,
     `    return __vexaRequireModule(mapped);`,
+    `  }`,
+    externalDependencyStrategy === "node-require"
+      ? `  return __vexaExternalRequire(specifier);`
+      : `  return __vexaMissingExternal(specifier);`,
+    `}`,
+    `async function __vexaImportFrom(importerId, specifier) {`,
+    `  const mapped = __vexaDependencyMaps[importerId]?.[specifier] ?? null;`,
+    `  if (mapped !== null) {`,
+    `    return await __vexaAwaitModule(mapped);`,
     `  }`,
     externalDependencyStrategy === "node-require"
       ? `  return __vexaExternalRequire(specifier);`

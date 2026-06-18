@@ -2,7 +2,9 @@ import { describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } fro
 import {
   bundleNodeModuleGraph,
   collectCommonJsExports,
+  detectStaticDynamicImports,
   detectStaticRequires,
+  rewriteStaticDynamicImports,
   shouldPreserveCommonJsSource,
   transpileModuleSource
 } from "../../cli/nodeModuleBundle";
@@ -71,6 +73,22 @@ describe("detectStaticRequires", () => {
   });
 });
 
+describe("detectStaticDynamicImports", () => {
+  it("extracts single dynamic import specifier", () => {
+    expect(detectStaticDynamicImports('const x = import("foo");')).toEqual(["foo"]);
+  });
+
+  it("ignores non-literal dynamic imports", () => {
+    expect(detectStaticDynamicImports("const x = import(name);")).toEqual([]);
+  });
+});
+
+describe("rewriteStaticDynamicImports", () => {
+  it("rewrites literal dynamic imports to the bundle helper", () => {
+    expect(rewriteStaticDynamicImports('await import("./foo.mjs");')).toBe('await __vexaImport("./foo.mjs");');
+  });
+});
+
 describe("collectCommonJsExports", () => {
   it("collects named exports from exports.x = assignments", () => {
     const names = collectCommonJsExports('exports.foo = 1;\nexports.bar = 2;');
@@ -134,6 +152,14 @@ describe("transpileModuleSource", () => {
     expect(result.code).toContain("exports.default");
     expect(result.exportNames).toContain("version");
     expect(result.exportNames).toContain("default");
+  });
+
+  it("handles namespace re-exports via the emitter path", () => {
+    const esm = 'export * as widgets from "./shared.js";\n';
+    const result = transpileModuleSource(esm, "/lib/render.js");
+    expect(result.code).toContain('const __vexa_export_0 = require("./shared.js");');
+    expect(result.code).toContain("exports.widgets = __vexa_export_0;");
+    expect(result.exportNames).toContain("widgets");
   });
 });
 
@@ -276,6 +302,35 @@ describe("bundleNodeModuleGraph", () => {
     );
   });
 
+  it("rewrites bundled dynamic imports to bundle-managed module loading", async () => {
+    await withTempProject(
+      {
+        "entry.mjs": 'export async function loadRenderer() { const mod = await import("pkg/auto"); return mod.value; }\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./auto": {
+              import: "./auto.mjs"
+            }
+          }
+        }),
+        "node_modules/pkg/auto.mjs": 'export async function loadInner() { return import("./inner.mjs"); }\nexport const value = 7;\n',
+        "node_modules/pkg/inner.mjs": "export const inner = 9;\n"
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'export async function loadRenderer() { const mod = await import("pkg/auto"); return mod.value; }\n',
+          join(dir, "entry.mjs")
+        );
+
+        expect(result.code).toContain('__vexaImport("pkg/auto")');
+        expect(result.code).toContain('__vexaImport("./inner.mjs")');
+        expect(result.code).not.toContain('import("./inner.mjs")');
+        expect(result.code).toContain("async function __vexaImportFrom(importerId, specifier)");
+      }
+    );
+  });
+
   it("supports bundled JavaScript ESM re-exports through the shared emitter path", async () => {
     await withTempProject(
       {
@@ -301,6 +356,97 @@ describe("bundleNodeModuleGraph", () => {
         expect(result.code).toContain("exports.version = __vexa_export_0.version;");
         expect(result.code).toContain("exports.default = __vexa_export_1.default;");
         expect(result.code).toContain("exports.__esModule = true;");
+      }
+    );
+  });
+
+  it("supports bundled JavaScript ESM namespace re-exports through the shared emitter path", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'import { widgets } from "pkg/render"; export const value = widgets.answer;\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./render": {
+              import: "./render.js"
+            }
+          }
+        }),
+        "node_modules/pkg/render.js": 'export * as widgets from "./shared.js";\n',
+        "node_modules/pkg/shared.js": "export const answer = 7;\n"
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import { widgets } from "pkg/render"; export const value = widgets.answer;\n',
+          join(dir, "entry.js")
+        );
+
+        expect(result.code).toContain('const __vexa_export_0 = require("./shared.js");');
+        expect(result.code).toContain("exports.widgets = __vexa_export_0;");
+        expect(result.code).toContain('const { widgets } = require("pkg/render");');
+      }
+    );
+  });
+
+  it("invalidates cached bundled module artifacts when a node_modules file changes", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'const value = require("pkg/value"); module.exports.value = value.value;\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            ".": "./value.js",
+            "./value": "./value.js"
+          }
+        }),
+        "node_modules/pkg/value.js": "exports.value = 1;\n"
+      },
+      async (dir) => {
+        const entryPath = join(dir, "entry.js");
+        const valuePath = join(dir, "node_modules/pkg/value.js");
+        const first = await bundleNodeModuleGraph(
+          'const value = require("pkg/value"); module.exports.value = value.value;\n',
+          entryPath
+        );
+        expect(first.code).toContain("exports.value = 1;");
+
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+        await writeFile(valuePath, "exports.value = 2;\n", "utf8");
+
+        const second = await bundleNodeModuleGraph(
+          'const value = require("pkg/value"); module.exports.value = value.value;\n',
+          entryPath
+        );
+        expect(second.code).toContain("exports.value = 2;");
+      }
+    );
+  });
+
+  it("resolves transitive pnpm virtual-store dependencies for bundled packages", async () => {
+    await withTempProject(
+      {
+        "entry.js": 'import { value } from "pkg"; export const doubled = value * 2;\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          module: "./index.mjs"
+        }),
+        "node_modules/pkg/index.mjs": 'export { value } from "@scope/dep";\n',
+        "node_modules/.pnpm/@scope+dep@1.0.0/node_modules/@scope/dep/package.json": JSON.stringify({
+          name: "@scope/dep",
+          module: "./index.mjs"
+        }),
+        "node_modules/.pnpm/@scope+dep@1.0.0/node_modules/@scope/dep/index.mjs": "export const value = 7;\n"
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import { value } from "pkg"; export const doubled = value * 2;\n',
+          join(dir, "entry.js")
+        );
+
+        expect(result.code).toContain('"@scope/dep":"__vexa_module_1"');
+        expect(result.code).toContain("const value = 7;");
+        expect(result.code).toContain("exports.value = value;");
+        expect(result.code).not.toContain('Unbundled external dependency "@scope/dep"');
       }
     );
   });

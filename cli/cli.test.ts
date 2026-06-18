@@ -264,12 +264,18 @@ describe("CLI", () => {
     await writeFile(entry, 'console.log("hello")\n', "utf8");
     await writeFile(html, "<!doctype html><html><body><script type=\"module\" src=\"%VEXA_ENTRYPOINT%\"></script></body></html>", "utf8");
 
-    const session = await startServeSession({
-      rootDir: dir,
-      bundleInput: entry,
-      port: 0
-    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let session: Awaited<ReturnType<typeof startServeSession>> | null = null;
     try {
+      session = await startServeSession({
+        rootDir: dir,
+        bundleInput: entry,
+        port: 0
+      });
+      expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain(`Serving at http://localhost:${session.port} -- `);
+      expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain(dir);
+      expect(/^Bundled in \d+ms$/.test(String(logSpy.mock.calls[1]?.[0] ?? ""))).toBe(true);
+
       const baseUrl = `http://127.0.0.1:${session.port}`;
       const htmlText = await fetchText(baseUrl);
       expect(htmlText).toContain("/__vexa_bundle__.js");
@@ -281,11 +287,15 @@ describe("CLI", () => {
       const reloadPromise = readSseEvent(`${baseUrl}/__vexa_live_reload`, "reload");
       await writeFile(entry, 'console.log("updated")\n', "utf8");
       expect(await reloadPromise).toBeTruthy();
+      expect(/^Bundled in \d+ms$/.test(String(logSpy.mock.calls.at(-1)?.[0] ?? ""))).toBe(true);
 
       const updatedBundle = await fetchText(`${baseUrl}/__vexa_bundle__.js`);
       expect(updatedBundle).toContain('console.log("updated");');
     } finally {
-      await session.close();
+      logSpy.mockRestore();
+      if (session) {
+        await session.close();
+      }
     }
   });
 

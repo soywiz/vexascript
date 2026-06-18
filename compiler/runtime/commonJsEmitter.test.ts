@@ -20,7 +20,9 @@ function createContext(overrides: Partial<CommonJsEmitterContext> = {}): CommonJ
     importedOverloadRuntimeNames: () => [],
     importedExtensionRuntimeNames: () => [],
     getExtensionPropertyReceiverType: () => undefined,
+    getExtensionPropertySetterReceiverType: () => undefined,
     extensionPropertyRuntimeName: (receiverType, propertyName) => `${receiverType}$${propertyName}`,
+    extensionPropertySetterRuntimeName: (receiverType, propertyName) => `${receiverType}$${propertyName}$set`,
     isOperatorImportName: () => false,
     defaultRequireBinding: (target) => `${target}.default`,
     esmImportBindingToCommonJs: (binding) => binding.replace(" as ", ": "),
@@ -39,6 +41,16 @@ describe("commonJsEmitter helpers", () => {
     ].join("\n"));
   });
 
+  it("emits namespace re-exports for export * as name from", () => {
+    const program = parseFile(tokenizeReader('export * as widgets from "./pkg"'));
+    const exportStatement = program.body[0] as ExportStatement;
+
+    expect(emitCommonJsExportStatement(exportStatement, createContext())).toBe([
+      'const __vexa_export_0 = require("./pkg");',
+      "exports.widgets = __vexa_export_0;"
+    ].join("\n"));
+  });
+
   it("emits CommonJS imports for default, named, and extension-property bindings", () => {
     const program = parseFile(tokenizeReader("import React, { useState as useLocalState, background } from \"react\""));
     const importStatement = program.body[0] as ImportStatement;
@@ -50,6 +62,16 @@ describe("commonJsEmitter helpers", () => {
       "const React = __vexa_import_0.default;",
       "const { useState: useLocalState, Style$background } = __vexa_import_0;"
     ].join("\n"));
+  });
+
+  it("emits CommonJS imports for extension-property setter bindings", () => {
+    const program = parseFile(tokenizeReader('import { point } from "./position"'));
+    const importStatement = program.body[0] as ImportStatement;
+
+    expect(emitCommonJsImportStatement(importStatement, createContext({
+      getExtensionPropertyReceiverType: (localName) => localName === "point" ? "View" : undefined,
+      getExtensionPropertySetterReceiverType: (localName) => localName === "point" ? "View" : undefined
+    }))).toBe('const { View$point, View$point$set } = require("./position");');
   });
 
   it("keeps operator-only imports as module loads so side effects still run", () => {

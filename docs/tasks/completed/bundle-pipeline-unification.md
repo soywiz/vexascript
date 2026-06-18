@@ -36,7 +36,7 @@ This is acceptable in the short term, but it leaves the bundler harder to evolve
 
 See also:
 
-* `docs/tasks/node-modules-esm-unification.md`
+* `docs/tasks/completed/node-modules-esm-unification.md`
 
 That task is narrower and focuses specifically on JavaScript ESM from `node_modules`.
 
@@ -62,7 +62,7 @@ The goal is not to force everything through one giant path. The goal is to make 
 * [x] Consolidate export-planning rules so implicit/runtime/public export behavior has one obvious source of truth.
   - `compiler/runtime/implicitExports.ts` now centralizes the implicit Vexa export plan used by both `appendImplicitVexaExports(...)` and `appendImplicitVexaCommonJsExports(...)` inside `moduleGraph.ts`.
 * [x] Reduce the number of format-conversion strategies used during bundling where practical.
-  - Audited all JavaScript ESM forms. The emitter path already handles all common forms (named imports, default imports, mixed imports, named exports, default exports, re-exports, `export { name as default }`). The `transformJavaScriptModuleSource` fallback is now only triggered for unparseable input (rare) and `export * as ns` syntax (ES2020 namespace re-export, also not handled by the fallback). The fallback serves as a safety net for malformed or unusual JavaScript.
+  - JavaScript ESM from `node_modules` now goes through the shared parser/emitter path for more cases, including `export * as ns from "..."` namespace re-exports. The CLI fallback remains intentionally available as a safety net for still-unhandled third-party JavaScript edge cases, but the main path is more unified than before.
 * [x] Add focused tests that pin each bundling phase independently, not only end-to-end bundle output.
   - Exported `shouldPreserveCommonJsSource`, `detectStaticRequires`, `collectCommonJsExports`, and `transpileModuleSource` from `cli/nodeModuleBundle.ts`. Added 22 unit tests covering each helper directly in `compiler/runtime/nodeModuleBundle.test.ts`.
 * [x] Revisit whether some wrapper-generation logic should move to a dedicated bundling module instead of staying in mixed CLI/runtime files.

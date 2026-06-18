@@ -15,7 +15,9 @@ export interface CommonJsEmitterContext {
   importedOverloadRuntimeNames(importedName: string, localName: string): string[];
   importedExtensionRuntimeNames(importedName: string): string[];
   getExtensionPropertyReceiverType(localName: string): string | undefined;
+  getExtensionPropertySetterReceiverType(localName: string): string | undefined;
   extensionPropertyRuntimeName(receiverType: string, propertyName: string): string;
+  extensionPropertySetterRuntimeName(receiverType: string, propertyName: string): string;
   isOperatorImportName(name: string): boolean;
   defaultRequireBinding(target: string): string;
   esmImportBindingToCommonJs(binding: string): string;
@@ -126,6 +128,10 @@ export function emitCommonJsImportStatement(importStatement: ImportStatement, co
     if (extensionPropertyReceiverType) {
       const importedName = context.extensionPropertyRuntimeName(extensionPropertyReceiverType, specifier.imported.name);
       namedImports.push(specifier.local ? `${importedName} as ${specifier.local.name}` : importedName);
+      const setterReceiverType = context.getExtensionPropertySetterReceiverType(localName);
+      if (setterReceiverType) {
+        namedImports.push(context.extensionPropertySetterRuntimeName(setterReceiverType, specifier.imported.name));
+      }
       continue;
     }
 

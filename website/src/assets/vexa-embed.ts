@@ -36,6 +36,7 @@ import {
 import { createSemanticTokens, VEXA_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
 import { createSignatureHelp } from "compiler/lsp/signatureHelp";
 import { createDocumentSymbols } from "compiler/lsp/symbols";
+import { setVfs } from "compiler/vfs";
 import {
   createPortableLanguageConfiguration,
   createPortableMonarchLanguage,
@@ -1802,6 +1803,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
     getEntries: () => entries,
     readWorkspaceFile: (uri) => getWorkspaceFileSource(uri),
   });
+  setVfs(workspaceVfs);
 
   const getWorkspaceSessionForFilePath = async (filePath: string): Promise<ReturnType<typeof createAnalysisSession> | null> => {
     const uri = pathToUri(filePath);
@@ -2044,7 +2046,7 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
       if (result.errors.length > 0) {
         const seenMessages = new Set<string>();
         for (const diagnostic of result.diagnostics) {
-          const message = `${diagnostic.message} at ${diagnostic.line}:${diagnostic.column}`;
+          const message = `${diagnostic.file}:${diagnostic.line}:${diagnostic.column} ${diagnostic.message}`;
           if (seenMessages.has(message)) {
             continue;
           }

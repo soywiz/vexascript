@@ -124,6 +124,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   let closed = false;
   let bundleCode = "";
   let bundleVersion = 0;
+  let pendingInitialBundleDurationMs: number | null = null;
 
   const closeWatchers = (): void => {
     for (const controller of watcherAbortControllers.values()) {
@@ -185,9 +186,11 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
         }
       })();
     }
-    if (reason !== "initial") {
-      const elapsedMs = Date.now() - startedAt;
-      console.log(`Rebundled: ${bundleInput} (${reason}, ${elapsedMs}ms)`);
+    const elapsedMs = Date.now() - startedAt;
+    if (reason === "initial") {
+      pendingInitialBundleDurationMs = elapsedMs;
+    } else {
+      console.log(`Bundled in ${elapsedMs}ms`);
       broadcastReload();
     }
   };
@@ -250,7 +253,11 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   });
 
   const port = await listenOnAvailablePort(server, requestedPort);
-  console.log(`Serving ${rootDir} at http://localhost:${port} with bundle ${bundleInput}`);
+  console.log(`Serving at http://localhost:${port} -- ${rootDir}`);
+  if (pendingInitialBundleDurationMs !== null) {
+    console.log(`Bundled in ${pendingInitialBundleDurationMs}ms`);
+    pendingInitialBundleDurationMs = null;
+  }
 
   return {
     port,

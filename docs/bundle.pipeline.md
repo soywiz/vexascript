@@ -68,9 +68,9 @@ The current pipeline still has intentional differences:
 - local source files go through the full VexaScript parser/compiler/emitter path first
 - already-emitted local modules are not reparsed later
 - true CommonJS `node_modules` sources are preserved when no conversion is needed
-- some JavaScript ESM from `node_modules` still uses CLI-side conversion logic instead of the main emitter path
+- JavaScript ESM from `node_modules` prefers the shared parser/emitter path, with a CLI-side fallback retained as a safety net for still-unhandled third-party JavaScript edge cases
 
-Those differences are acceptable today, but they should remain explicit so future unification work can target the remaining conversion split without disturbing the local-module graph contract.
+Those differences are acceptable today, but they should remain explicit so future bundling work can evolve the pipeline without disturbing the local-module graph contract.
 
 ## Refactor Direction
 

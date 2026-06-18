@@ -1,18 +1,8 @@
-import { h } from "preact";
-
-import render from "preact-render-to-string";
 import { demo } from "./demo.vx"
 import { sample } from "./sample.vx"
 
-//function Page({ name :: displayName : string }) { // destructuring with rename + types
-//function Page({ name :: displayName }) { // destructuring with rename
-function Page({ name : string }) { // destructuring with types
-    return <html>
-        <body>
-            <h1>Hello {name} {demo()} {sample()}</h1>
-        </body>
-    </html>
+fun renderPage(name: string) {
+    return `<!doctype html><html><body><h1>Hello ${name} ${demo()} ${sample()}</h1></body></html>`
 }
 
-const html = `<!doctype html>${render(<Page name="Carlos" />)}`;
-console.log(html)
+console.log(renderPage("Carlos"))

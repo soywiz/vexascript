@@ -12,7 +12,10 @@ describe("collectImplicitVexaExportPlan", () => {
       fun render(value: string) => value
       @JsName("countImpl")
       fun count() => 1
-      val string.background => this
+      var string.background: string {
+        get { return this }
+        set { console.log(newValue) }
+      }
       val plain = 1
     `));
 
@@ -24,6 +27,7 @@ describe("collectImplicitVexaExportPlan", () => {
       "render$$string",
       "countImpl as count",
       "string$$background",
+      "string$$background$set",
       "plain"
     ]);
     expect(plan.commonJsLines).toEqual([
@@ -32,6 +36,7 @@ describe("collectImplicitVexaExportPlan", () => {
       "exports.render$$string = render$$string;",
       "exports.count = countImpl;",
       "exports.string$$background = string$$background;",
+      "exports.string$$background$set = string$$background$set;",
       "exports.plain = plain;"
     ]);
   });

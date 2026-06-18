@@ -1,5 +1,6 @@
 import { describe, expect, it } from "../../../../compiler/test/expect";
 import {
+  createFileEntry,
   createFileInWorkspace,
   createFolderInWorkspace,
   deleteWorkspaceEntry,
@@ -16,6 +17,8 @@ import {
   WORKSPACE_STORAGE_KEY,
   type StorageLike,
 } from "./workspace";
+import { loadProject } from "../../../../compiler/project";
+import { globalVfs, setVfs, Vfs } from "../../../../compiler/vfs";
 import { WorkspaceVfs } from "./workspaceVfs";
 
 class MemoryStorage implements StorageLike {
@@ -183,5 +186,50 @@ describe("monaco workspace VFS", () => {
     await expect(vfs.readFile("missing.vx")).rejects.toThrow(/doesn't exists/);
     await expect(vfs.stat("missing.vx")).rejects.toThrow(/doesn't exists/);
     await expect(vfs.readDir("missing")).rejects.toThrow(/doesn't exists/);
+  });
+
+  it("supports shared compiler project loading when installed as the active VFS", async () => {
+    const entries = [
+      ...resolveWorkspaceEntries("default", "runtime", new MemoryStorage()),
+      createFileEntry("/package.json", JSON.stringify({
+        dependencies: {
+          preact: "^10.0.0",
+        },
+      })),
+      createFileEntry("/tsconfig.json", JSON.stringify({
+        compilerOptions: {
+          lib: ["DOM", "ES2025"],
+          jsxImportSource: "preact",
+        },
+      })),
+    ];
+    const vfs = new WorkspaceVfs({
+      getEntries: () => entries,
+      readWorkspaceFile: (uri) => {
+        const entry = entries.find((candidate) => candidate.kind === "file" && candidate.uri === uri);
+        return entry?.kind === "file" ? entry.content : null;
+      },
+    });
+    const previousVfs = globalVfs.ref as Vfs | undefined;
+
+    try {
+      setVfs(vfs);
+      expect(await loadProject("/main.vx")).toEqual({
+        projectDir: "/",
+        dependencies: {
+          preact: "^10.0.0",
+        },
+        libs: ["DOM", "ES2025"],
+        types: [],
+        jsxFactory: "h",
+        jsxFragmentFactory: "Fragment",
+      });
+    } finally {
+      if (previousVfs) {
+        setVfs(previousVfs);
+      } else {
+        delete globalVfs.ref;
+      }
+    }
   });
 });
