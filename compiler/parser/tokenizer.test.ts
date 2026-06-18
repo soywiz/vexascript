@@ -32,6 +32,16 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes leading-dot decimal and scientific numbers", () => {
+        expect(simplifyTokens(".5 + .01 + .5e-2")).toStrictEqual([
+            { type: "number", value: ".5" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: ".01" },
+            { type: "symbol", value: "+" },
+            { type: "number", value: ".5e-2" }
+        ])
+    })
+
     it("tokenizes bigint and long suffix literals", () => {
         expect(simplifyTokens("10n + 20L")).toStrictEqual([
             { type: "number", value: "10n" },
@@ -79,6 +89,27 @@ describe("tokenizer", () => {
             { type: "number", value: "0" },
             { type: "symbol", value: "..<" },
             { type: "number", value: "10" }
+        ])
+    })
+
+    it("keeps dot-based operators and member access distinct from leading-dot numbers", () => {
+        expect(simplifyTokens("value.method() 0...10 0..<10 value..chain()")).toStrictEqual([
+            { type: "identifier", value: "value" },
+            { type: "symbol", value: "." },
+            { type: "identifier", value: "method" },
+            { type: "symbol", value: "(" },
+            { type: "symbol", value: ")" },
+            { type: "number", value: "0" },
+            { type: "symbol", value: "..." },
+            { type: "number", value: "10" },
+            { type: "number", value: "0" },
+            { type: "symbol", value: "..<" },
+            { type: "number", value: "10" },
+            { type: "identifier", value: "value" },
+            { type: "symbol", value: ".." },
+            { type: "identifier", value: "chain" },
+            { type: "symbol", value: "(" },
+            { type: "symbol", value: ")" }
         ])
     })
 

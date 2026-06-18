@@ -353,7 +353,9 @@ function readNumber(reader: StrReader): string {
   const startOffset = reader.offset;
   const first = advanceCode(reader);
 
-  if (first === CODE_ZERO && reader.hasMore) {
+  if (first === CODE_DOT) {
+    readDigitRun(reader, startPosition, isDigitCode, "Invalid number literal", true);
+  } else if (first === CODE_ZERO && reader.hasMore) {
     const baseMarker = reader.peekCode();
     if (baseMarker === CODE_X_LOWER || baseMarker === CODE_X_UPPER) {
       advanceCode(reader);
@@ -732,7 +734,10 @@ function readTemplateAsConcatenation(reader: StrReader, start: SourcePosition): 
         } else if (isIdentifierStartCode(interpolationCode)) {
           type = "identifier";
           value = readIdentifier(reader);
-        } else if (isDigitCode(interpolationCode)) {
+        } else if (
+          isDigitCode(interpolationCode) ||
+          (interpolationCode === CODE_DOT && isDigitCode(peekNextCode(reader)))
+        ) {
           type = "number";
           value = readNumber(reader);
         } else {
@@ -1238,7 +1243,7 @@ export function tokenize(input: string, options: TokenizeOptions = {}): Token[] 
     } else if (isIdentifierStartCode(code)) {
       type = "identifier";
       value = readIdentifier(reader);
-    } else if (isDigitCode(code)) {
+    } else if (isDigitCode(code) || (code === CODE_DOT && isDigitCode(peekNextCode(reader)))) {
       type = "number";
       value = readNumber(reader);
     } else {

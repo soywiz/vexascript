@@ -919,7 +919,7 @@ Supported type annotation forms in declarations/members:
 Supported literals:
 
 - integer literals (`10`)
-- decimal/scientific number literals (`10.573`, `10e-3`)
+- decimal/scientific number literals (`10.573`, `10e-3`, `.5`, `.01`)
 - numeric separators (`1_000`, `10.5_25`, `1e1_0`)
 - non-decimal integer literals (`0xff`, `0b1010`, `0o755`)
 - bigint literals (`10n`, `0xfn`)
@@ -1492,7 +1492,7 @@ try {
 ### Expression typing
 
 - Integer literals have type `int`.
-- Decimal/scientific numeric literals have type `number`.
+- Decimal/scientific numeric literals, including leading-dot forms such as `.5`, have type `number`.
 - BigInt literals have type `bigint`.
 - Long literals have type `long`.
 - String literals have type `string`.

@@ -10,8 +10,8 @@ document.body.setAttribute(
 )
 
 val shell = document.createElement("div")
-shell.setAttribute("style", "display:grid;gap:12px;justify-items:center;padding:24px;")
-document.body.appendChild(shell)
+  ..setAttribute("style", "display:grid;gap:12px;justify-items:center;padding:24px;")
+  ..addTo(document.body)
 
 val title = document.createElement("h1")
   ..textContent = "THREE.js + VexaScript"
@@ -23,13 +23,14 @@ val subtitle = document.createElement("p")
   ..setAttribute("style", "margin:0;max-width:720px;text-align:center;font-size:14px;")
   ..addTo(shell)
 
-val renderer = THREE.WebGLRenderer({ antialias: true })
+val renderer = THREE.WebGLRenderer({ antialias: true, alpha: true })
   ..setSize(320, 320)
   ..setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  ..setClearColor(THREE.Color("#f7fbff"))
+  //..setClearColor(THREE.Color("#f7fbff"))
+
 val canvas = renderer.domElement
   ..setAttribute("style", "border-radius:24px;box-shadow:0 24px 80px rgba(23,50,77,0.18);")
-shell.appendChild(canvas)
+  ..addTo(shell)
 
 val scene = THREE.Scene()
   ..background = THREE.Color("#f7fbff")
@@ -74,9 +75,9 @@ var accentRotationZ: number = 0
 
 renderer.render(scene, camera)
 setInterval({
-  cubeRotationX += .01
-  cubeRotationY += .015
-  accentRotationZ += .01
+  cubeRotationX += 0.01
+  cubeRotationY += 0.015
+  accentRotationZ += 0.01
   cube.rotation.set(cubeRotationX, cubeRotationY, 0)
   accent.rotation.set(0, Math.PI / 4, accentRotationZ)
   renderer.render(scene, camera)
