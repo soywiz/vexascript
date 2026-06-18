@@ -33,6 +33,8 @@ This section is the fast onboarding map for agents and contributors.
   - Scope/symbol binding: `compiler/analysis/Binder.ts`
   - Type checking and semantic diagnostics: `compiler/analysis/TypeChecker.ts`
   - Shared cached one-pass top-level declaration indexing for runtime/ambient/program statement arrays reused by binder/type-checker: `compiler/analysis/declarationIndex.ts`
+  - Pure type display helpers (typeToDiagnosticLabel, isNumberLikeType) extracted from TypeChecker for independent reuse and testing: `compiler/analysis/typeDisplay.ts`, tests: `compiler/analysis/typeDisplay.test.ts`
+  - Pure property-name normalization and matching helpers (normalizePropertyName, isDynamicPropertyName, propertyNamesMatch) extracted from TypeChecker: `compiler/analysis/propertyNames.ts`, tests: `compiler/analysis/propertyNames.test.ts`
   - Shared structural type-text parsing/splitting and substitution helpers: `compiler/analysis/typeNames.ts`
   - Type-name helper tests: `compiler/analysis/typeNames.test.ts`
   - Declaration-index tests: `compiler/analysis/declarationIndex.test.ts`

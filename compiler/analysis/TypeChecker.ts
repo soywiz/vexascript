@@ -115,6 +115,8 @@ import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarat
 import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarations";
 import { declarationIndexForStatements } from "./declarationIndex";
 import { walkAst } from "compiler/ast/traversal";
+import { isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
+import { isDynamicPropertyName, normalizePropertyName, propertyNamesMatch } from "./propertyNames";
 
 type EnumResolvedValue =
   | { kind: "constant-int"; value: number }
@@ -1468,7 +1470,7 @@ export class TypeChecker {
         const expressionType = this.classDelegateExpressionType(classDelegate.expression, classScope, expectedDelegateType);
         if (expectedDelegateType && !isUnknownType(expressionType) && !this.isTypeAssignable(expressionType, expectedDelegateType)) {
           this.issues.push({
-            message: `Class delegate for '${classDelegate.typeAnnotation.name}' has type '${this.typeToDiagnosticLabel(expressionType)}' but expected '${this.typeToDiagnosticLabel(expectedDelegateType)}'`,
+            message: `Class delegate for '${classDelegate.typeAnnotation.name}' has type '${typeToDiagnosticLabel(expressionType)}' but expected '${typeToDiagnosticLabel(expectedDelegateType)}'`,
             node: classDelegate.expression
           });
         }
@@ -1887,7 +1889,7 @@ export class TypeChecker {
           result = this.inferBinaryType(binary.operator, leftType, rightType);
           if (this.shouldReportUndefinedOperator(binary.operator, leftType, rightType, result)) {
             this.issues.push({
-              message: `Operator '${binary.operator}' is not defined for types '${this.typeToDiagnosticLabel(leftType)}' and '${this.typeToDiagnosticLabel(rightType)}'`,
+              message: `Operator '${binary.operator}' is not defined for types '${typeToDiagnosticLabel(leftType)}' and '${typeToDiagnosticLabel(rightType)}'`,
               node: this.operatorDiagnosticNode(binary),
               code: ANALYSIS_ISSUE_CODES.OPERATOR_NOT_DEFINED
             });
@@ -1958,7 +1960,7 @@ export class TypeChecker {
           !this.isTypeAssignable(assertedType, expressionType)
         ) {
           this.issues.push({
-            message: `Type assertion from '${this.typeToDiagnosticLabel(expressionType)}' to '${this.typeToDiagnosticLabel(assertedType)}' may be unsafe because neither type is assignable to the other`,
+            message: `Type assertion from '${typeToDiagnosticLabel(expressionType)}' to '${typeToDiagnosticLabel(assertedType)}' may be unsafe because neither type is assignable to the other`,
             node: assertion.typeAnnotation
           });
         }
@@ -2230,7 +2232,7 @@ export class TypeChecker {
         }
         if (!isUnknownType(calleeType) || this.shouldReportUnknownCallable(call.callee, scope)) {
           this.issues.push({
-            message: `Type '${this.typeToDiagnosticLabel(calleeType)}' is not callable`,
+            message: `Type '${typeToDiagnosticLabel(calleeType)}' is not callable`,
             node: call.callee,
             code: ANALYSIS_ISSUE_CODES.TYPE_NOT_CALLABLE
           });
@@ -2336,7 +2338,7 @@ export class TypeChecker {
             break;
           }
           this.issues.push({
-            message: `Type '${this.typeToDiagnosticLabel(calleeType)}' is not constructable`,
+            message: `Type '${typeToDiagnosticLabel(calleeType)}' is not constructable`,
             node: newExpression.callee,
             code: ANALYSIS_ISSUE_CODES.TYPE_NOT_CONSTRUCTABLE
           });
@@ -2437,7 +2439,7 @@ export class TypeChecker {
           }
           if (argumentType.kind === "named") {
             this.issues.push({
-              message: `Unary operator '${unary.operator}' is not defined for type '${this.typeToDiagnosticLabel(argumentType)}'`,
+              message: `Unary operator '${unary.operator}' is not defined for type '${typeToDiagnosticLabel(argumentType)}'`,
               node: unary,
               code: ANALYSIS_ISSUE_CODES.OPERATOR_NOT_DEFINED
             });
@@ -2998,7 +3000,7 @@ export class TypeChecker {
       if (this.isNumberType(leftType) && this.isNumberType(rightType)) {
         return builtinType("number");
       }
-      if (this.isNumberLikeType(leftType) || this.isNumberLikeType(rightType)) {
+      if (isNumberLikeType(leftType) || isNumberLikeType(rightType)) {
         return builtinType("number");
       }
       if (this.isBigIntType(leftType) && this.isBigIntType(rightType)) {
@@ -3036,13 +3038,6 @@ export class TypeChecker {
     }
 
     return UNKNOWN_TYPE;
-  }
-
-  private isNumberLikeType(type: AnalysisType): boolean {
-    return (
-      (type.kind === "builtin" && type.name === "number") ||
-      (type.kind === "literal" && type.base === "number")
-    );
   }
 
   private isTypeAssignable(sourceType: AnalysisType, targetType: AnalysisType): boolean {
@@ -3442,10 +3437,10 @@ export class TypeChecker {
     targetProperties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>
   ): boolean {
     const targetEntries = this.propertyEntries(targetProperties);
-    const explicitTargetEntries = targetEntries.filter(([propertyName]) => !this.isDynamicPropertyName(propertyName));
+    const explicitTargetEntries = targetEntries.filter(([propertyName]) => !isDynamicPropertyName(propertyName));
     const explicitTargetPropertyNames = explicitTargetEntries.map(([propertyName]) => propertyName);
     const dynamicTargetPropertyTypes = targetEntries
-      .filter(([propertyName]) => this.isDynamicPropertyName(propertyName))
+      .filter(([propertyName]) => isDynamicPropertyName(propertyName))
       .map(([, propertyType]) => propertyType);
 
     for (const [propertyName, targetPropertyType] of explicitTargetEntries) {
@@ -3473,7 +3468,7 @@ export class TypeChecker {
     }
 
     for (const [sourcePropertyName, sourcePropertyType] of this.propertyEntries(sourceProperties)) {
-      if (explicitTargetPropertyNames.some((targetPropertyName) => this.propertyNamesMatch(targetPropertyName, sourcePropertyName))) {
+      if (explicitTargetPropertyNames.some((targetPropertyName) => propertyNamesMatch(targetPropertyName, sourcePropertyName))) {
         continue;
       }
       if (!dynamicTargetPropertyTypes.some((dynamicTargetPropertyType) =>
@@ -3501,20 +3496,11 @@ export class TypeChecker {
       : Object.entries(properties);
   }
 
-  private isDynamicPropertyName(propertyName: string): boolean {
-    const trimmed = propertyName.trim();
-    return trimmed.startsWith("[") || trimmed.startsWith("readonly [");
-  }
-
-  private propertyNamesMatch(expectedPropertyName: string, actualPropertyName: string): boolean {
-    return this.normalizePropertyName(expectedPropertyName) === this.normalizePropertyName(actualPropertyName);
-  }
-
   private propertyTypeFrom(
     properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
     propertyName: string
   ): AnalysisType | undefined {
-    const normalizedPropertyName = this.normalizePropertyName(propertyName);
+    const normalizedPropertyName = normalizePropertyName(propertyName);
     if (typeof (properties as ReadonlyMap<string, AnalysisType>).get === "function") {
       const propertyMap = properties as ReadonlyMap<string, AnalysisType>;
       const direct = propertyMap.get(propertyName);
@@ -3526,7 +3512,7 @@ export class TypeChecker {
         return normalized;
       }
       for (const [candidateName, candidateType] of propertyMap.entries()) {
-        if (this.normalizePropertyName(candidateName) === normalizedPropertyName) {
+        if (normalizePropertyName(candidateName) === normalizedPropertyName) {
           return candidateType;
         }
       }
@@ -3542,7 +3528,7 @@ export class TypeChecker {
       return normalized;
     }
     for (const [candidateName, candidateType] of Object.entries(propertyRecord)) {
-      if (this.normalizePropertyName(candidateName) === normalizedPropertyName) {
+      if (normalizePropertyName(candidateName) === normalizedPropertyName) {
         return candidateType;
       }
     }
@@ -6503,14 +6489,14 @@ export class TypeChecker {
 
   private propertyNamesForType(type: AnalysisType): string[] {
     if (type.kind === "object") {
-      return Object.keys(type.properties).map((key) => this.normalizePropertyName(key)).sort();
+      return Object.keys(type.properties).map((key) => normalizePropertyName(key)).sort();
     }
     if (type.kind === "named") {
       const expanded = this.expandTypeAliases(type);
       if (expanded !== type) {
         return this.propertyNamesForType(expanded);
       }
-      return Array.from(this.resolveNamedTypeMembers(type)?.keys() ?? []).map((key) => this.normalizePropertyName(key)).sort();
+      return Array.from(this.resolveNamedTypeMembers(type)?.keys() ?? []).map((key) => normalizePropertyName(key)).sort();
     }
     if (type.kind === "tuple") {
       return type.elements.map((_, index) => String(index));
@@ -6519,7 +6505,7 @@ export class TypeChecker {
   }
 
   private memberTypeFromObjectType(type: AnalysisType, propertyName: string): AnalysisType | null {
-    propertyName = this.normalizePropertyName(propertyName);
+    propertyName = normalizePropertyName(propertyName);
     if (type.kind === "object") {
       return type.properties[propertyName] ?? null;
     }
@@ -6737,10 +6723,10 @@ export class TypeChecker {
       return null;
     }
 
-    const selectedKeySet = new Set(selectedKeys.map((key) => this.normalizePropertyName(key)));
+    const selectedKeySet = new Set(selectedKeys.map((key) => normalizePropertyName(key)));
     const properties: Record<string, AnalysisType> = {};
     for (const [propertyName, propertyType] of sourceEntries) {
-      if (!selectedKeySet.has(this.normalizePropertyName(propertyName))) {
+      if (!selectedKeySet.has(normalizePropertyName(propertyName))) {
         continue;
       }
       const mappedPropertyType = this.resolveMappedUtilityPropertyType(
@@ -9029,7 +9015,7 @@ export class TypeChecker {
     memberName: string,
     memberType: AnalysisType
   ): void {
-    memberName = this.normalizePropertyName(memberName);
+    memberName = normalizePropertyName(memberName);
     const existing = members.get(memberName);
     if (!existing) {
       members.set(memberName, memberType);
@@ -9048,37 +9034,6 @@ export class TypeChecker {
       return;
     }
     members.set(memberName, memberType);
-  }
-
-  private normalizePropertyName(name: string): string {
-    const trimmed = name.trim();
-    const normalizedIndexSignature = this.normalizeIndexSignaturePropertyName(trimmed);
-    if (normalizedIndexSignature) {
-      return normalizedIndexSignature;
-    }
-    if (
-      (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
-      (trimmed.startsWith("'") && trimmed.endsWith("'"))
-    ) {
-      try {
-        return JSON.parse(trimmed);
-      } catch {
-        return trimmed.slice(1, -1);
-      }
-    }
-    return trimmed;
-  }
-
-  private normalizeIndexSignaturePropertyName(name: string): string | null {
-    const match = /^(?:readonly\s+)?\[\s*[^:]+\s*:\s*(.+)\]$/.exec(name);
-    if (!match) {
-      return null;
-    }
-    const indexType = match[1]?.trim().replace(/\s+/g, " ");
-    if (!indexType) {
-      return null;
-    }
-    return `[${indexType}]`;
   }
 
   private collectInterfaceMembersInto(
@@ -9493,8 +9448,8 @@ export class TypeChecker {
         }
 
         const memberNode = this.findOwnClassMemberNameNode(classStatement, memberName);
-        const actualType = this.typeToDiagnosticLabel(classMemberType);
-        const expected = this.typeToDiagnosticLabel(expectedType);
+        const actualType = typeToDiagnosticLabel(classMemberType);
+        const expected = typeToDiagnosticLabel(expectedType);
         this.issues.push({
           message: `Class '${classStatement.name.name}' incorrectly implements interface '${resolvedImplementedType.name}'. Property '${memberName}' is of type '${actualType}' but expected '${expected}'`,
           node: memberNode ?? classStatement.name,
@@ -9622,23 +9577,10 @@ export class TypeChecker {
         continue;
       }
       this.issues.push({
-        message: `Member '${member.name.name}' override type '${this.typeToDiagnosticLabel(ownType)}' does not match base type '${this.typeToDiagnosticLabel(baseType)}'`,
+        message: `Member '${member.name.name}' override type '${typeToDiagnosticLabel(ownType)}' does not match base type '${typeToDiagnosticLabel(baseType)}'`,
         node: member.name
       });
     }
-  }
-
-  private typeToDiagnosticLabel(type: AnalysisType): string {
-    if (type.kind !== "function") {
-      return typeToString(type);
-    }
-
-    const parameters = type.parameters
-      .map((parameter) =>
-        `${parameter.name}${parameter.optional === true ? "?" : ""}: ${this.typeToDiagnosticLabel(parameter.type)}`
-      )
-      .join(", ");
-    return `(${parameters}) => ${this.typeToDiagnosticLabel(type.returnType)}`;
   }
 
   private typeFromAnnotationLoose(
