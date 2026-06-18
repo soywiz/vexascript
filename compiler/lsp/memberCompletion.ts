@@ -106,7 +106,7 @@ export async function buildMemberAccessCompletions(
   allowRecovery = true
 ): Promise<CompletionItem[] | null> {
   const resolverOptions = classResolverOptionsFromCompletionOptions(options);
-  const resolverCache = createClassResolverCache();
+  const resolverCache = options.classResolverCache ?? createClassResolverCache();
 
   const target = parseMemberAccessTarget(options.text, line, character);
   if (target) {

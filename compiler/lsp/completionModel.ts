@@ -3,7 +3,7 @@
  * keyword fallback list, request-option contracts shared by every completion
  * strategy, and small item helpers such as call-snippet decoration.
  */
-import type { ClassResolverOptions } from "./classResolver";
+import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import type { SymbolExportProvider } from "./importFixes";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { AnalysisSymbol } from "compiler/analysis/Analysis";
@@ -111,6 +111,7 @@ export interface CompletionRequestOptions {
   getSessionForFilePath?: (filePath: string) => CompletionSessionLike | null | Promise<CompletionSessionLike | null>;
   getExportedSymbols?: SymbolExportProvider;
   recoverAnalysisSession?: (source: string) => CompletionSessionLike | Promise<CompletionSessionLike>;
+  classResolverCache?: ClassResolverCache;
 }
 
 export interface MemberAccessTarget {

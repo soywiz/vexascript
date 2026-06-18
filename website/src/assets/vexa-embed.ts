@@ -20,7 +20,8 @@ import {
   createOnTypeFormattingEdits,
   createSelectionRanges,
 } from "compiler/lsp/documentFeatures";
-import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "compiler/lsp/importedDeclarations";
+import { collectAllImportedDeclarations } from "compiler/lsp/importedDeclarations";
+import { createClassResolverCache, type ClassResolverCache } from "compiler/lsp/classResolver";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "compiler/lsp/formatting";
 import { createInlayHints } from "compiler/lsp/inlayHints";
 import {
@@ -162,6 +163,7 @@ const modelSessionCache = new Map<string, {
   versionId: number;
   workspaceRevision: number;
   session: Promise<ReturnType<typeof createAnalysisSession>>;
+  classResolverCache: ClassResolverCache;
 }>();
 const DEFAULT_WORKBENCH_STORAGE_KEY = "vexa.embed.workbench.v1";
 const DEFAULT_WORKBENCH_SESSION_STORAGE_KEY = "vexa.embed.workbench.session.v1";
@@ -413,9 +415,13 @@ async function getSessionForModel(model: monaco.editor.ITextModel): Promise<Retu
   }
   const session = (async () => {
     const ambientDeclarations = await getDomAmbientDeclarations();
-    const baseSession = createAnalysisSession(model.getValue(), [], new Map(), ambientDeclarations);
-    if (!baseSession.ast || !workspaceContext) {
-      return baseSession;
+    const source = model.getValue();
+    if (!workspaceContext) {
+      return createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    }
+    const { ast } = parseSource(source);
+    if (!ast) {
+      return createAnalysisSession(source, [], new Map(), ambientDeclarations);
     }
     const resolverContext = {
       uri: model.uri.toString(),
@@ -424,19 +430,25 @@ async function getSessionForModel(model: monaco.editor.ITextModel): Promise<Retu
       getSessionForFilePath: workspaceContext.getSessionForFilePath,
       getExportedSymbols: workspaceContext.getExportedSymbols,
     };
-    const [externalDeclarations, importedSymbolTypes] = await Promise.all([
-      collectImportedTypeDeclarations(baseSession.ast, resolverContext),
-      collectImportedSymbolTypes(baseSession.ast, resolverContext),
-    ]);
-    if (externalDeclarations.length === 0 && importedSymbolTypes.size === 0) {
-      return baseSession;
-    }
-    return createAnalysisSession(model.getValue(), externalDeclarations, importedSymbolTypes, ambientDeclarations);
+    const { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes, invalidImportedBindings } =
+      await collectAllImportedDeclarations(ast, resolverContext);
+    return createAnalysisSession(
+      source,
+      externalDeclarations,
+      importedSymbolTypes,
+      ambientDeclarations,
+      new Map(),
+      new Map(),
+      importedSymbolDisplayTypes,
+      invalidImportedBindings
+    );
   })();
+  const classResolverCache = createClassResolverCache();
   modelSessionCache.set(model.uri.toString(), {
     versionId: model.getVersionId(),
     workspaceRevision,
     session,
+    classResolverCache,
   });
   session.catch(() => {
     const current = modelSessionCache.get(model.uri.toString());
@@ -615,6 +627,7 @@ function registerCompletionProvider(): void {
         };
       }
       const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+      const cachedEntry = modelSessionCache.get(model.uri.toString());
       const items = await createCompletionItemsForPosition(
         session.ast,
         position.lineNumber - 1,
@@ -631,6 +644,7 @@ function registerCompletionProvider(): void {
             session.importedSymbolTypes,
             session.ambientDeclarations
           ),
+          classResolverCache: cachedEntry?.classResolverCache,
         }
       );
       return {
@@ -1401,7 +1415,10 @@ function wireDiagnostics(
       refreshDiagnosticsAndGlyphs(editor, model, "content-change");
     }, 100);
   };
-  const changeDisposable = model.onDidChangeContent(refresh);
+  const changeDisposable = model.onDidChangeContent(() => {
+    void getSessionForModel(model);
+    refresh();
+  });
   refresh();
   schedulePostLayoutDiagnosticsRefresh(editor, model, "wire-init-post-layout");
   return () => {

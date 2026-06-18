@@ -2,7 +2,7 @@
 
 ## Status
 
-* [ ] Technical debt
+* [x] Done
 
 ## Context
 
@@ -76,10 +76,14 @@ That does not require every language feature to become fully incremental immedia
 
 ## Suggested Plan
 
-* [ ] Replace separate imported-declaration and imported-symbol collection in the playground session path with `collectAllImportedDeclarations(...)`.
-* [ ] Avoid building a full base `AnalysisSession` when only a parsed AST is needed to inspect imports before the final analyzed session is created.
-* [ ] Reuse more completion-time resolver state across requests for the same model and workspace revision instead of recreating caches per request.
-* [ ] Introduce a warmer per-model analysis lifecycle that can reuse the previous completed session for adjacent edits such as typing `.`.
+* [x] Replace separate imported-declaration and imported-symbol collection in the playground session path with `collectAllImportedDeclarations(...)`.
+  - `getSessionForModel` now uses `collectAllImportedDeclarations` (single pass) instead of `Promise.all([collectImportedTypeDeclarations, collectImportedSymbolTypes])`.
+* [x] Avoid building a full base `AnalysisSession` when only a parsed AST is needed to inspect imports before the final analyzed session is created.
+  - `getSessionForModel` now uses `parseSource` (parse only, no type-check) to obtain the AST for import discovery, then builds exactly one `createAnalysisSession` with all resolved externals. Previously it ran `compileSource` twice when imports were found.
+* [x] Reuse more completion-time resolver state across requests for the same model and workspace revision instead of recreating caches per request.
+  - `modelSessionCache` now stores a `ClassResolverCache` per session. The completion provider retrieves it and passes it via `CompletionRequestOptions.classResolverCache`. `buildMemberAccessCompletions` uses the provided cache instead of always calling `createClassResolverCache()`.
+* [x] Introduce a warmer per-model analysis lifecycle that can reuse the previous completed session for adjacent edits such as typing `.`.
+  - `wireDiagnostics` now calls `getSessionForModel(model)` immediately on each content-change event, pre-warming the session in the background so the completion provider can return the already-started (or completed) Promise from cache.
 * [ ] Measure completion latency before and after each step so the real hotspot reductions are visible.
 
 ## Notes
