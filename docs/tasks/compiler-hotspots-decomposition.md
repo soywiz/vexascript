@@ -82,6 +82,7 @@ Examples of likely seams:
   - Extracted into two new focused modules: `compiler/analysis/typeDisplay.ts` (type formatting + numeric predicate) and `compiler/analysis/propertyNames.ts` (property name normalization and matching). Both have full unit-test coverage.
   - TypeChecker.ts now imports these as standalone functions; 26 call sites updated.
   - Second batch: extracted 5 more pure helpers — `isAsyncLike`, `statementAllowsLabeledContinue`, `statementListPreventsSwitchFallthrough`, `statementPreventsSwitchFallthrough` into `compiler/analysis/controlFlow.ts`, and `tupleElementTypeText` added to `compiler/analysis/typeNames.ts`. All covered by `compiler/analysis/controlFlow.test.ts` (28 tests).
+  - Third batch: extracted 9 type predicate functions into `compiler/analysis/typeClassifiers.ts` (64 tests including new property helpers). Expanded `compiler/analysis/propertyNames.ts` with 4 property type access helpers (`propertyEntries`, `propertyTypeFrom`, `propertyTypeAllowsUndefined`, `propertyTypeWithoutUndefined`). TypeChecker.ts now imports 40+ standalone functions.
 * [ ] Separate statement-family checking from shared type/call resolution helpers.
 * [ ] Split parser logic by syntax families where it reduces branching without duplicating token flow.
 * [x] Reduce the amount of bundling-specific logic living inside generic emission paths.

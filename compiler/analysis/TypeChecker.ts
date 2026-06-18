@@ -117,7 +117,8 @@ import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarat
 import { declarationIndexForStatements } from "./declarationIndex";
 import { walkAst } from "compiler/ast/traversal";
 import { isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
-import { isDynamicPropertyName, normalizePropertyName, propertyNamesMatch } from "./propertyNames";
+import { isDynamicPropertyName, normalizePropertyName, propertyEntries, propertyNamesMatch, propertyTypeAllowsUndefined, propertyTypeFrom, propertyTypeWithoutUndefined } from "./propertyNames";
+import { isBigIntType, isIntType, isLongType, isNullishType, isNumberType, isNumericFamilyType, isNumericType, isPrimitiveLikeOperatorType, isStringLikeType } from "./typeClassifiers";
 import { isAsyncLike, statementAllowsLabeledContinue, statementListPreventsSwitchFallthrough } from "./controlFlow";
 
 type EnumResolvedValue =
@@ -1872,7 +1873,7 @@ export class TypeChecker {
           !isUnknownType(rightType) &&
           !this.isTypeAssignable(rightType, leftType)
         ) {
-          const definedLeftType = this.propertyTypeWithoutUndefined(leftType);
+          const definedLeftType = propertyTypeWithoutUndefined(leftType);
           if (!definedLeftType || !this.isTypeAssignable(rightType, definedLeftType)) {
             this.reportTypeMismatch(rightType, leftType, assignment.right, assignment.right);
           }
@@ -2368,7 +2369,7 @@ export class TypeChecker {
           result = argumentType;
           break;
         }
-        if ((unary.operator === "+" || unary.operator === "-") && this.isIntType(argumentType)) {
+        if ((unary.operator === "+" || unary.operator === "-") && isIntType(argumentType)) {
           result = builtinType("int");
           break;
         }
@@ -2404,7 +2405,7 @@ export class TypeChecker {
         }
         this.validateReadonlyAssignmentTarget(updateExpr.argument, scope);
         const updateOperandType = this.visitExpression(updateExpr.argument, scope);
-        if (!isUnknownType(updateOperandType) && !this.isNumericFamilyType(updateOperandType)) {
+        if (!isUnknownType(updateOperandType) && !isNumericFamilyType(updateOperandType)) {
           this.issues.push({
             message: `Operator '${updateExpr.operator}' cannot be applied to type '${typeToString(updateOperandType)}'`,
             node: updateExpr.argument,
@@ -2728,10 +2729,10 @@ export class TypeChecker {
     if (inferredType.kind !== "unknown") {
       return false;
     }
-    if (leftType.kind === "unknown" && this.isPrimitiveLikeOperatorType(rightType)) {
+    if (leftType.kind === "unknown" && isPrimitiveLikeOperatorType(rightType)) {
       return false;
     }
-    if (rightType.kind === "unknown" && this.isPrimitiveLikeOperatorType(leftType)) {
+    if (rightType.kind === "unknown" && isPrimitiveLikeOperatorType(leftType)) {
       return false;
     }
     return operator === "+" ||
@@ -2746,27 +2747,6 @@ export class TypeChecker {
       operator === "&" ||
       operator === "|" ||
       operator === "^";
-  }
-
-  private isPrimitiveLikeOperatorType(type: AnalysisType): boolean {
-    if (type.kind === "builtin") {
-      return (
-        type.name === "int" ||
-        type.name === "number" ||
-        type.name === "string" ||
-        type.name === "boolean" ||
-        type.name === "bigint" ||
-        type.name === "long" ||
-        type.name === "any" ||
-        type.name === "void" ||
-        type.name === "null" ||
-        type.name === "undefined"
-      );
-    }
-    if (type.kind === "literal") {
-      return true;
-    }
-    return false;
   }
 
   private operatorDiagnosticNode(binary: BinaryExpression): Node {
@@ -2913,7 +2893,7 @@ export class TypeChecker {
   ): AnalysisType {
     if (
       operator === "+" &&
-      (this.isStringLikeType(leftType) || this.isStringLikeType(rightType))
+      (isStringLikeType(leftType) || isStringLikeType(rightType))
     ) {
       return builtinType("string");
     }
@@ -2935,19 +2915,19 @@ export class TypeChecker {
       if (this.isIntEnumLikeType(leftType) && this.isIntEnumLikeType(rightType)) {
         return builtinType("int");
       }
-      if (this.isIntType(leftType) && this.isIntType(rightType)) {
+      if (isIntType(leftType) && isIntType(rightType)) {
         return builtinType("int");
       }
-      if (this.isNumberType(leftType) && this.isNumberType(rightType)) {
+      if (isNumberType(leftType) && isNumberType(rightType)) {
         return builtinType("number");
       }
       if (isNumberLikeType(leftType) || isNumberLikeType(rightType)) {
         return builtinType("number");
       }
-      if (this.isBigIntType(leftType) && this.isBigIntType(rightType)) {
+      if (isBigIntType(leftType) && isBigIntType(rightType)) {
         return builtinType("bigint");
       }
-      if (this.isLongType(leftType) && this.isLongType(rightType)) {
+      if (isLongType(leftType) && isLongType(rightType)) {
         return builtinType("long");
       }
       return UNKNOWN_TYPE;
@@ -3200,17 +3180,17 @@ export class TypeChecker {
       return this.isNamedTypeStructurallyAssignable(sourceType, targetType);
     }
 
-    if (this.isIntType(sourceType) && this.isNumberType(targetType)) {
+    if (isIntType(sourceType) && isNumberType(targetType)) {
       return true;
     }
 
-    if (this.isLongType(sourceType) && this.isBigIntType(targetType)) {
+    if (isLongType(sourceType) && isBigIntType(targetType)) {
       return true;
     }
 
     // `numeric` is the common supertype of the integer (`int`/`number`) and
     // big-integer (`long`/`bigint`) numeric families.
-    if (this.isNumericType(targetType) && this.isNumericFamilyType(sourceType)) {
+    if (isNumericType(targetType) && isNumericFamilyType(sourceType)) {
       return true;
     }
 
@@ -3377,7 +3357,7 @@ export class TypeChecker {
     sourceProperties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
     targetProperties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>
   ): boolean {
-    const targetEntries = this.propertyEntries(targetProperties);
+    const targetEntries = propertyEntries(targetProperties);
     const explicitTargetEntries = targetEntries.filter(([propertyName]) => !isDynamicPropertyName(propertyName));
     const explicitTargetPropertyNames = explicitTargetEntries.map(([propertyName]) => propertyName);
     const dynamicTargetPropertyTypes = targetEntries
@@ -3385,9 +3365,9 @@ export class TypeChecker {
       .map(([, propertyType]) => propertyType);
 
     for (const [propertyName, targetPropertyType] of explicitTargetEntries) {
-      const sourcePropertyType = this.propertyTypeFrom(sourceProperties, propertyName);
+      const sourcePropertyType = propertyTypeFrom(sourceProperties, propertyName);
       if (!sourcePropertyType) {
-        if (this.propertyTypeAllowsUndefined(targetPropertyType)) {
+        if (propertyTypeAllowsUndefined(targetPropertyType)) {
           continue;
         }
         return false;
@@ -3395,7 +3375,7 @@ export class TypeChecker {
       if (this.isTypeAssignable(sourcePropertyType, targetPropertyType)) {
         continue;
       }
-      const definedTargetPropertyType = this.propertyTypeWithoutUndefined(targetPropertyType);
+      const definedTargetPropertyType = propertyTypeWithoutUndefined(targetPropertyType);
       if (definedTargetPropertyType && this.isTypeAssignable(sourcePropertyType, definedTargetPropertyType)) {
         continue;
       }
@@ -3408,7 +3388,7 @@ export class TypeChecker {
       return true;
     }
 
-    for (const [sourcePropertyName, sourcePropertyType] of this.propertyEntries(sourceProperties)) {
+    for (const [sourcePropertyName, sourcePropertyType] of propertyEntries(sourceProperties)) {
       if (explicitTargetPropertyNames.some((targetPropertyName) => propertyNamesMatch(targetPropertyName, sourcePropertyName))) {
         continue;
       }
@@ -3425,76 +3405,8 @@ export class TypeChecker {
     if (this.isTypeAssignable(sourceType, targetType)) {
       return true;
     }
-    const definedTargetType = this.propertyTypeWithoutUndefined(targetType);
+    const definedTargetType = propertyTypeWithoutUndefined(targetType);
     return definedTargetType ? this.isTypeAssignable(sourceType, definedTargetType) : false;
-  }
-
-  private propertyEntries(
-    properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>
-  ): Array<[string, AnalysisType]> {
-    return properties instanceof Map
-      ? Array.from(properties.entries())
-      : Object.entries(properties);
-  }
-
-  private propertyTypeFrom(
-    properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
-    propertyName: string
-  ): AnalysisType | undefined {
-    const normalizedPropertyName = normalizePropertyName(propertyName);
-    if (typeof (properties as ReadonlyMap<string, AnalysisType>).get === "function") {
-      const propertyMap = properties as ReadonlyMap<string, AnalysisType>;
-      const direct = propertyMap.get(propertyName);
-      if (direct !== undefined) {
-        return direct;
-      }
-      const normalized = propertyMap.get(normalizedPropertyName);
-      if (normalized !== undefined) {
-        return normalized;
-      }
-      for (const [candidateName, candidateType] of propertyMap.entries()) {
-        if (normalizePropertyName(candidateName) === normalizedPropertyName) {
-          return candidateType;
-        }
-      }
-      return undefined;
-    }
-    const propertyRecord = properties as Record<string, AnalysisType>;
-    const direct = propertyRecord[propertyName];
-    if (direct !== undefined) {
-      return direct;
-    }
-    const normalized = propertyRecord[normalizedPropertyName];
-    if (normalized !== undefined) {
-      return normalized;
-    }
-    for (const [candidateName, candidateType] of Object.entries(propertyRecord)) {
-      if (normalizePropertyName(candidateName) === normalizedPropertyName) {
-        return candidateType;
-      }
-    }
-    return undefined;
-  }
-
-  private propertyTypeAllowsUndefined(type: AnalysisType): boolean {
-    if (type.kind === "builtin") {
-      return type.name === "undefined" || type.name === "any" || type.name === "unknown";
-    }
-    if (type.kind === "union") {
-      return type.types.some((member) => this.propertyTypeAllowsUndefined(member));
-    }
-    return false;
-  }
-
-  private propertyTypeWithoutUndefined(type: AnalysisType): AnalysisType | null {
-    if (type.kind !== "union") {
-      return null;
-    }
-    const definedMembers = type.types.filter((member) => !(member.kind === "builtin" && member.name === "undefined"));
-    if (definedMembers.length === 0 || definedMembers.length === type.types.length) {
-      return null;
-    }
-    return definedMembers.length === 1 ? definedMembers[0]! : unionType(definedMembers);
   }
 
   private buildFunctionType(
@@ -4652,14 +4564,14 @@ export class TypeChecker {
   }
 
   private hasNullishUnionMember(type: AnalysisType): boolean {
-    return type.kind === "union" && type.types.some((member) => this.isNullishType(member));
+    return type.kind === "union" && type.types.some((member) => isNullishType(member));
   }
 
   private removeNullishFromType(type: AnalysisType): AnalysisType {
     if (type.kind !== "union") {
       return type;
     }
-    const nonNullishTypes = type.types.filter((member) => !this.isNullishType(member));
+    const nonNullishTypes = type.types.filter((member) => !isNullishType(member));
     if (nonNullishTypes.length === 0) {
       return UNKNOWN_TYPE;
     }
@@ -7115,50 +7027,11 @@ export class TypeChecker {
     return false;
   }
 
-  private isIntType(type: AnalysisType): boolean {
-    return (type.kind === "builtin" && type.name === "int") ||
-      (type.kind === "literal" && type.base === "number" && Number.isInteger(type.value));
-  }
-
   private isIntEnumLikeType(type: AnalysisType): boolean {
-    if (this.isIntType(type)) {
+    if (isIntType(type)) {
       return true;
     }
     return type.kind === "named" && this.enumUnderlyingValueTypeName(type.name) === "int";
-  }
-
-  private isStringLikeType(type: AnalysisType): boolean {
-    return (type.kind === "builtin" && type.name === "string") ||
-      (type.kind === "literal" && type.base === "string");
-  }
-
-  private isBigIntType(type: AnalysisType): boolean {
-    return type.kind === "builtin" && type.name === "bigint";
-  }
-
-  private isLongType(type: AnalysisType): boolean {
-    return type.kind === "builtin" && type.name === "long";
-  }
-
-  private isNumberType(type: AnalysisType): boolean {
-    return (type.kind === "builtin" && (type.name === "int" || type.name === "number")) ||
-      (type.kind === "literal" && type.base === "number");
-  }
-
-  private isNumericType(type: AnalysisType): boolean {
-    return type.kind === "builtin" && type.name === "numeric";
-  }
-
-  /**
-   * Whether a type belongs to the numeric tower rooted at `numeric`:
-   * `numeric` itself, the integer family (`int`/`number` and numeric literals)
-   * and the big-integer family (`long`/`bigint`).
-   */
-  private isNumericFamilyType(type: AnalysisType): boolean {
-    return this.isNumericType(type) ||
-      this.isNumberType(type) ||
-      this.isLongType(type) ||
-      this.isBigIntType(type);
   }
 
   /**
@@ -7176,7 +7049,7 @@ export class TypeChecker {
     if (this.isTypeAssignable(b, a)) {
       return a;
     }
-    if (this.isNumericFamilyType(a) && this.isNumericFamilyType(b)) {
+    if (isNumericFamilyType(a) && isNumericFamilyType(b)) {
       return builtinType("numeric");
     }
     return builtinType("any");
@@ -8280,7 +8153,7 @@ export class TypeChecker {
         return builtinType("any");
       }
       const memberTypes = resolvedObjectType.types
-        .filter((type) => !this.isNullishType(type))
+        .filter((type) => !isNullishType(type))
         .map((type) => this.resolveKnownMemberType(member, type))
         .filter((type): type is AnalysisType => type !== null);
       if (memberTypes.length === 0) {
@@ -8365,7 +8238,7 @@ export class TypeChecker {
 
     if (resolvedObjectType.kind === "union") {
       for (const type of resolvedObjectType.types) {
-        if (this.isNullishType(type)) {
+        if (isNullishType(type)) {
           continue;
         }
         const symbol = this.resolveKnownMemberSymbol(member, type);
@@ -8513,7 +8386,7 @@ export class TypeChecker {
         return builtinType("any");
       }
       const memberTypes = objectType.types
-        .filter((type) => !this.isNullishType(type))
+        .filter((type) => !isNullishType(type))
         .map((type) => this.resolveComputedMemberType(type, propertyType))
         .filter((type) => !isUnknownType(type));
       if (memberTypes.length === 0) {
@@ -8521,10 +8394,10 @@ export class TypeChecker {
       }
       return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
     }
-    if (objectType.kind === "array" && this.isIntType(propertyType)) {
+    if (objectType.kind === "array" && isIntType(propertyType)) {
       return objectType.elementType;
     }
-    if (objectType.kind === "range" && this.isIntType(propertyType)) {
+    if (objectType.kind === "range" && isIntType(propertyType)) {
       return objectType.elementType;
     }
     if (objectType.kind === "named") {
@@ -8557,10 +8430,10 @@ export class TypeChecker {
     if (propertyType.kind === "named" && propertyType.name === enumStatement.name.name) {
       return this.enumUnderlyingValueType(enumStatement);
     }
-    if (this.isIntType(propertyType)) {
+    if (isIntType(propertyType)) {
       return unionType([namedType(enumStatement.name.name), builtinType("undefined")]);
     }
-    if (this.isStringLikeType(propertyType)) {
+    if (isStringLikeType(propertyType)) {
       return enumStatement.members.some((member) => this.enumMemberStringValue(member) !== null)
         ? namedType(enumStatement.name.name)
         : builtinType("undefined");
@@ -8591,10 +8464,10 @@ export class TypeChecker {
       return "unknown";
     }
     const underlying = this.enumUnderlyingValueType(enumStatement);
-    if (this.isIntType(underlying)) {
+    if (isIntType(underlying)) {
       return "int";
     }
-    if (this.isStringLikeType(underlying)) {
+    if (isStringLikeType(underlying)) {
       return "string";
     }
     return underlying.kind === "union" ? "mixed" : "unknown";
@@ -8765,10 +8638,10 @@ export class TypeChecker {
 
   private enumComputedValueFromExpression(expression: Expr): EnumResolvedValue {
     const initializerType = this.expressionTypes.get(expression) ?? UNKNOWN_TYPE;
-    if (this.isIntType(initializerType)) {
+    if (isIntType(initializerType)) {
       return { kind: "computed-int" };
     }
-    if (this.isStringLikeType(initializerType)) {
+    if (isStringLikeType(initializerType)) {
       return { kind: "computed-string" };
     }
     return { kind: "invalid" };
@@ -8792,14 +8665,10 @@ export class TypeChecker {
     return memberMap.get(name);
   }
 
-  private isNullishType(type: AnalysisType): boolean {
-    return type.kind === "builtin" && (type.name === "null" || type.name === "undefined");
-  }
-
   private membersForType(type: AnalysisType): Map<string, AnalysisType> | null {
     if (type.kind === "union") {
       const merged = new Map<string, AnalysisType>();
-      for (const memberType of type.types.filter((member) => !this.isNullishType(member))) {
+      for (const memberType of type.types.filter((member) => !isNullishType(member))) {
         const members = this.membersForType(memberType);
         if (!members) {
           return null;

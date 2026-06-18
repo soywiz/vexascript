@@ -34,7 +34,8 @@ This section is the fast onboarding map for agents and contributors.
   - Type checking and semantic diagnostics: `compiler/analysis/TypeChecker.ts`
   - Shared cached one-pass top-level declaration indexing for runtime/ambient/program statement arrays reused by binder/type-checker: `compiler/analysis/declarationIndex.ts`
   - Pure type display helpers (typeToDiagnosticLabel, isNumberLikeType) extracted from TypeChecker for independent reuse and testing: `compiler/analysis/typeDisplay.ts`, tests: `compiler/analysis/typeDisplay.test.ts`
-  - Pure property-name normalization and matching helpers (normalizePropertyName, isDynamicPropertyName, propertyNamesMatch) extracted from TypeChecker: `compiler/analysis/propertyNames.ts`, tests: `compiler/analysis/propertyNames.test.ts`
+  - Pure property-name normalization, matching, and property type lookup helpers (normalizePropertyName, isDynamicPropertyName, propertyNamesMatch, propertyTypeFrom, propertyTypeAllowsUndefined, propertyTypeWithoutUndefined) extracted from TypeChecker: `compiler/analysis/propertyNames.ts`, tests: `compiler/analysis/propertyNames.test.ts`
+  - Pure type-predicate classifiers (isIntType, isStringLikeType, isBigIntType, isLongType, isNumberType, isNumericType, isNumericFamilyType, isNullishType, isPrimitiveLikeOperatorType) extracted from TypeChecker: `compiler/analysis/typeClassifiers.ts`, tests: `compiler/analysis/typeClassifiers.test.ts`
   - Pure control-flow predicates (isAsyncLike, statementAllowsLabeledContinue, statementPreventsSwitchFallthrough) extracted from TypeChecker for stateless reuse: `compiler/analysis/controlFlow.ts`, tests: `compiler/analysis/controlFlow.test.ts`
   - Shared structural type-text parsing/splitting and substitution helpers (includes tupleElementTypeText extracted from TypeChecker): `compiler/analysis/typeNames.ts`
   - Type-name helper tests: `compiler/analysis/typeNames.test.ts`
