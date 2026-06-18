@@ -155,6 +155,34 @@ describe("signature help", () => {
     });
   });
 
+  it("provides constructor signature help for class calls without new", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Demo2 {
+        constructor(x: number, y: number) {
+        }
+      }
+      fun demo() {
+        Demo2(^^^)
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "Demo2(x: number, y: number): Demo2",
+          parameters: [{ label: "x: number" }, { label: "y: number" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
   it("provides signature help for static members on ambient runtime constructors", async () => {
     const source = dedent`
       fun script() {
@@ -936,6 +964,34 @@ describe("signature help", () => {
         {
           label: "new Rectangle(width: int, height: int)",
           parameters: [{ label: "width: int" }, { label: "height: int" }]
+        }
+      ],
+      activeSignature: 0,
+      activeParameter: 0
+    });
+  });
+
+  it("provides explicit constructor signature help with new", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Demo2 {
+        constructor(x: number, y: number) {
+        }
+      }
+      fun demo() {
+        return new Demo2(^^^10, 20)
+      }
+    `);
+
+    const session = createAnalysisSession(source);
+    expect(session.ast).toBeTruthy();
+    expect(session.analysis).toBeTruthy();
+
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
+    expect(help).toEqual({
+      signatures: [
+        {
+          label: "new Demo2(x: number, y: number)",
+          parameters: [{ label: "x: number" }, { label: "y: number" }]
         }
       ],
       activeSignature: 0,

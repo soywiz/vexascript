@@ -445,6 +445,71 @@ export function findAmbientTypeDeclaration(
   return fallbackMatch;
 }
 
+export function findAmbientTypeDeclarationOfKind(
+  declarations: Statement[],
+  typeName: string,
+  kind: TypeLikeDeclaration["kind"],
+  declarationLocations?: ReadonlyMap<Statement, { filePath: string }>,
+  preferredFilePath?: string
+): TypeLikeDeclaration | null {
+  let fallbackMatch: TypeLikeDeclaration | null = null;
+  let bestPreferredMatch: { declaration: TypeLikeDeclaration; score: number } | null = null;
+  for (const statement of declarations) {
+    const unwrapped = unwrapExportedDeclaration(statement) ?? statement;
+    if (unwrapped.kind !== kind) {
+      continue;
+    }
+    const declaration = unwrapped as TypeLikeDeclaration;
+    if (declaration.name.name !== typeName) {
+      continue;
+    }
+    if (preferredFilePath) {
+      const location = declarationLocations?.get(statement) ?? declarationLocations?.get(unwrapped);
+      const score = location?.filePath
+        ? preferredAmbientDeclarationScore(location.filePath, preferredFilePath)
+        : Number.POSITIVE_INFINITY;
+      if (!bestPreferredMatch || score < bestPreferredMatch.score) {
+        bestPreferredMatch = { declaration, score };
+      }
+    }
+    fallbackMatch ??= declaration;
+  }
+  if (bestPreferredMatch && bestPreferredMatch.score !== Number.POSITIVE_INFINITY) {
+    return bestPreferredMatch.declaration;
+  }
+  return fallbackMatch;
+}
+
+export async function resolveAmbientTypeDefinitionOfKind(
+  context: ResolveContext,
+  typeName: string,
+  kind: TypeLikeDeclaration["kind"],
+  preferredFilePath?: string
+): Promise<{ declaration: TypeLikeDeclaration; filePath: string } | null> {
+  const ambientDeclaration = findAmbientTypeDeclarationOfKind(
+    context.session.ambientDeclarations ?? [],
+    typeName,
+    kind,
+    context.session.ambientDeclarationLocations,
+    preferredFilePath
+  );
+  if (!ambientDeclaration) {
+    return null;
+  }
+  const ambientLocation = ambientDeclarationLocationForSymbol(
+    context.session,
+    ambientDeclaration.name,
+    typeName
+  );
+  return {
+    declaration: ambientDeclaration,
+    filePath: await preferVirtualRuntimeDeclarationFilePath(
+      ambientLocation?.filePath ?? getDomDeclarationFilePath(),
+      context
+    )
+  };
+}
+
 function preferredAmbientDeclarationScore(candidateFilePath: string, preferredFilePath: string): number {
   if (candidateFilePath === preferredFilePath) {
     return 0;

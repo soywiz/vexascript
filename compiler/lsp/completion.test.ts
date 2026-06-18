@@ -10,10 +10,14 @@ import {
   createCompletionItemsForPosition,
   createKeywordOnlyCompletionItems
 } from "./completion";
+import { createClassResolverCache, resolveClassMemberNames, resolveClassStatementAcrossFiles } from "./classResolver";
 import { resolveDefinitionAcrossFiles } from "./crossFileNavigation";
 import { collectAllImportedDeclarations, collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
 import { getProjectIndex } from "./projectAnalysis";
 import { buildVisibleSymbolCompletionItems } from "./symbolCompletion";
+import { Vfs } from "compiler/vfs";
+import { resolveTypeNameFromPath } from "./memberCompletionPathTypes";
+import { resolveExtensionMemberTypeName } from "./memberCompletionExtensionMembers";
 
 function parseAmbientModule(src: string, moduleName: string) {
   const result = parseSource(src, { language: "typescript" });
@@ -833,6 +837,235 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("sum");
     expect(labels).not.toContain("demo");
     expect(labels).not.toContain("point");
+  });
+
+  it("matches camelCase member completions with lowercase typed prefixes", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Stage {
+        addChild() {
+        }
+        addChildAt(index: int) {
+        }
+      }
+      fun demo() {
+        const stage = new Stage()
+        stage.addc^^^
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("addChild");
+    expect(labels).toContain("addChildAt");
+    expect(labels).not.toContain("demo");
+    expect(labels).not.toContain("stage");
+  });
+
+  it("resolves imported class member completions through the configured VFS", async () => {
+    const mainPath = "/workspace/main.vx";
+    const stagePath = "/workspace/stage.vx";
+    const source = dedent`
+      import { Stage } from "./stage"
+
+      fun demo() {
+        val stage = Stage()
+        stage.addc
+      }
+    `;
+    const cursorCharacter = source.lastIndexOf("addc") + "addc".length;
+    const cursorLine = source.split("\n").findIndex((line) => line.includes("stage.addc"));
+    const stageSource = dedent`
+      export class Stage {
+        addChild() {}
+        addChildAt(index: int) {}
+      }
+    `;
+
+    class TestVfs extends Vfs {
+      override async readFile(filePath: string): Promise<string> {
+        if (filePath === mainPath) {
+          return source;
+        }
+        if (filePath === stagePath) {
+          return stageSource;
+        }
+        throw new Error(`Unexpected file read: ${filePath}`);
+      }
+
+      override async stat(filePath: string) {
+        if (filePath === mainPath || filePath === stagePath) {
+          return { mtimeMs: 0, isFile: true, isDirectory: false };
+        }
+        throw new Error(`Unexpected stat: ${filePath}`);
+      }
+    }
+
+    const vfs = new TestVfs();
+    const mainUri = "file:///workspace/main.vx";
+    const stageSession = createAnalysisSession(stageSource);
+    const baseSession = createAnalysisSession(source);
+    const getSessionForFilePath = async (filePath: string) => {
+      if (filePath === stagePath) {
+        return stageSession;
+      }
+      if (filePath === mainPath) {
+        return baseSession;
+      }
+      return null;
+    };
+    const resolverContext = {
+      uri: mainUri,
+      vfs,
+      getSessionForFilePath
+    };
+    const [externalDeclarations, importedSymbolTypes] = await Promise.all([
+      collectImportedTypeDeclarations(baseSession.ast!, resolverContext),
+      collectImportedSymbolTypes(baseSession.ast!, resolverContext)
+    ]);
+    const session = createAnalysisSession(source, externalDeclarations, importedSymbolTypes);
+
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      cursorLine,
+      cursorCharacter,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: mainUri,
+        vfs,
+        getSessionForFilePath,
+        recoverAnalysisSession: (recoveredSource) =>
+          createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes)
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("addChild");
+    expect(labels).toContain("addChildAt");
+    expect(labels).not.toContain("demo");
+    expect(labels).not.toContain("stage");
+  });
+
+  it("includes members from merged interfaces on imported classes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-merged-interface-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    const mainPath = join(root, "main.vx");
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { Container } from "pixi-like"
+
+      fun demo() {
+        val stage = Container()
+        stage.addc^^^
+      }
+    `);
+    const pkgSource = dedent`
+      export interface ChildrenHelperMixin {
+        addChild(): void;
+        addChildAt(index: number): void;
+      }
+
+      declare global {
+        namespace PixiMixins {
+          interface Container extends ChildrenHelperMixin {}
+        }
+      }
+
+      export interface Container extends PixiMixins.Container {}
+
+      export declare class Container {
+      }
+
+      export { };
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi-like",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), pkgSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+    const resolverOptions = {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    };
+    const resolverCache = createClassResolverCache();
+    const resolvedTypeName = await resolveTypeNameFromPath(
+      session.ast!,
+      session.analysis!,
+      ["stage"],
+      line,
+      4,
+      resolverOptions,
+      resolverCache,
+      resolveExtensionMemberTypeName
+    );
+    const classResolution = await resolveClassStatementAcrossFiles(
+      session.ast!,
+      "Container",
+      resolverOptions,
+      resolverCache
+    );
+    const resolvedMemberNames = classResolution
+      ? await resolveClassMemberNames(classResolution.classStatement, "Container", {
+          ast: session.ast!,
+          options: resolverOptions,
+          analysis: session.analysis!,
+          cache: resolverCache
+        })
+      : [];
+
+    expect(resolvedTypeName).toBe("Container");
+    expect(resolvedMemberNames).toContain("addChild");
+    expect(resolvedMemberNames).toContain("addChildAt");
+
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        ...resolverOptions
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("addChild");
+    expect(labels).toContain("addChildAt");
   });
 
   it("offers Array<T> members for array-typed variable member access", async () => {

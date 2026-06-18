@@ -17,7 +17,7 @@ import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
-import { topLevelDeclarationNames } from "./declarationResolver";
+import { importableTopLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
 import {
@@ -1194,7 +1194,7 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
   }
   if (statement.kind === "FunctionStatement") {
     const functionStatement = statement as FunctionStatement;
-    if (functionStatement.receiverType && functionStatement.operator) {
+    if (functionStatement.receiverType) {
       return functionStatement;
     }
   }
@@ -1211,11 +1211,12 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
       return varStatement;
     }
   }
-  // Extension operator overloads (e.g. `fun Point.operator+`) can be imported by
-  // their synthesized name (`operator+`) so the operator resolves cross-file.
+  // Extension members can be imported from .vx modules without an explicit
+  // export so their runtime side effects and type information are available
+  // cross-file.
   if (candidate.kind === "FunctionStatement") {
     const functionStatement = candidate as FunctionStatement;
-    if (functionStatement.receiverType && functionStatement.operator) {
+    if (functionStatement.receiverType) {
       return functionStatement;
     }
   }
@@ -1405,11 +1406,11 @@ export async function collectAllImportedDeclarations(
         if (!declaration || seen.has(declaration)) {
           continue;
         }
-        for (const name of topLevelDeclarationNames(targetStatement)) {
+        for (const name of importableTopLevelDeclarationNames(targetStatement, targetFilePath)) {
           exportedNames.add(name);
         }
         const isHelperTypeDeclaration = TYPE_DECLARATION_KINDS.has(declaration.kind);
-        if (!isHelperTypeDeclaration && !topLevelDeclarationNames(declaration).some((name) => wantedNames.has(name))) {
+        if (!isHelperTypeDeclaration && !importableTopLevelDeclarationNames(targetStatement, targetFilePath).some((name) => wantedNames.has(name))) {
           continue;
         }
         seen.add(declaration);
@@ -1423,7 +1424,7 @@ export async function collectAllImportedDeclarations(
         const importedType = targetSession.analysis.getTopLevelSymbolType(specifier.imported.name);
         if (importedType) {
           importedSymbolTypes.set(localName, importedType);
-        } else {
+        } else if (!exportedNames.has(specifier.imported.name)) {
           invalidImportedBindings.add(localName);
         }
       }
@@ -1506,7 +1507,7 @@ export async function collectImportedTypeDeclarations(
       if (!declaration || seen.has(declaration)) {
         continue;
       }
-      if (!topLevelDeclarationNames(declaration).some((name) => wantedNames.has(name))) {
+      if (!importableTopLevelDeclarationNames(targetStatement, targetFilePath).some((name) => wantedNames.has(name))) {
         continue;
       }
       seen.add(declaration);
@@ -1556,9 +1557,10 @@ export async function collectImportedSymbolTypes(
         }
         for (const specifier of importStatement.specifiers) {
           const localName = (specifier.local ?? specifier.imported).name;
+          const importedTypeName = specifier.imported.name;
           result.set(
             localName,
-            callableTypeFromExternalFunction(nodeModuleTypings.declarations, specifier.imported.name) ?? exportType
+            callableTypeFromExternalFunction(nodeModuleTypings.declarations, importedTypeName) ?? namedType(importedTypeName)
           );
         }
       } else {

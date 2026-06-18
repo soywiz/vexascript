@@ -9,6 +9,7 @@ import type {
   BinaryExpression,
   BlockStatement,
   CallExpression,
+  ChainExpression,
   ClassStatement,
   ConditionalExpression,
   CommaExpression,
@@ -175,6 +176,16 @@ async function resolveVariableInlayTypeName(
         return analysis.getAutoAwaitExpressions().has(expression)
           ? unwrapPromiseTypeNameForDisplay(returnTypeName)
           : returnTypeName;
+      }
+    }
+    const analyzedExpressionType = analysis.getExpressionTypes().get(expression);
+    if (analyzedExpressionType) {
+      const displayType = analysis.getAutoAwaitExpressions().has(expression)
+        ? unwrapPromiseTypeForDisplay(analyzedExpressionType)
+        : analyzedExpressionType;
+      const displayTypeName = typeToString(displayType);
+      if (displayTypeName !== "unknown") {
+        return displayTypeName;
       }
     }
     const signature = await resolveCallableSignature(callExpression.callee, analysis, ast, options);
@@ -582,6 +593,12 @@ export async function createInlayHints(
       case "RangeExpression":
         await visitExpression((expression as RangeExpression).start);
         await visitExpression((expression as RangeExpression).end);
+        return;
+      case "ChainExpression":
+        await visitExpression((expression as ChainExpression).receiver);
+        for (const operation of (expression as ChainExpression).operations) {
+          await visitExpression(operation);
+        }
         return;
       case "AssignmentExpression":
         await visitExpression((expression as AssignmentExpression).left);

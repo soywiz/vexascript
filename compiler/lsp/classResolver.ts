@@ -59,6 +59,7 @@ import {
   type ProjectContext,
   type ProjectSessionLike
 } from "./projectAnalysis";
+import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 
 const BUILTIN_TYPE_NAMES = new Set([
   "int",
@@ -172,22 +173,26 @@ export function createClassResolverCache(): ClassResolverCache {
 }
 
 function typeParameterSubstitutions(
-  typeParameters: Array<{ name: Identifier }> | undefined,
+  typeParameters: Array<{ name: Identifier; defaultType?: Identifier }> | undefined,
   objectTypeName: string | undefined
 ): Map<string, string> {
   const substitutions = new Map<string, string>();
   if (!objectTypeName) {
+    for (const parameter of typeParameters ?? []) {
+      substitutions.set(parameter.name.name, parameter.defaultType?.name ?? parameter.name.name);
+    }
     return substitutions;
   }
 
   const parsedObjectType = parseTypeNameShape(objectTypeName);
   const declaredTypeParameters = typeParameters ?? [];
   for (let i = 0; i < declaredTypeParameters.length; i += 1) {
-    const parameterName = declaredTypeParameters[i]?.name.name;
+    const typeParameter = declaredTypeParameters[i];
+    const parameterName = typeParameter?.name.name;
     if (!parameterName) {
       continue;
     }
-    substitutions.set(parameterName, parsedObjectType.typeArguments[i] ?? parameterName);
+    substitutions.set(parameterName, parsedObjectType.typeArguments[i] ?? typeParameter?.defaultType?.name ?? parameterName);
   }
 
   return substitutions;
@@ -255,6 +260,126 @@ function findMergedInterfaceStatementInProgram(ast: Program, interfaceName: stri
   return mergeInterfaceStatements(matches);
 }
 
+function findMergedQualifiedInterfaceStatementInStatements(
+  statements: readonly Statement[],
+  path: string[]
+): InterfaceStatement | null {
+  const interfaceName = path.at(-1);
+  if (!interfaceName) {
+    return null;
+  }
+  if (path.length === 1) {
+    return mergeInterfaceStatements(
+      statements.flatMap((statement) => {
+        const declaration = statement.kind === "ExportStatement"
+          ? (statement as ExportStatement).declaration
+          : statement;
+        if (!declaration || declaration.kind !== "InterfaceStatement") {
+          return [];
+        }
+        const interfaceStatement = declaration as InterfaceStatement;
+        return interfaceStatement.name.name === interfaceName ? [interfaceStatement] : [];
+      })
+    );
+  }
+
+  const [namespaceName, ...rest] = path;
+  const nestedMatches = statements.flatMap((statement) => {
+    const declaration = statement.kind === "ExportStatement"
+      ? (statement as ExportStatement).declaration
+      : statement;
+    if (!declaration || declaration.kind !== "NamespaceStatement") {
+      return [];
+    }
+    const namespaceStatement = declaration as NamespaceStatement;
+    if (namespaceStatement.names?.[0]?.name === namespaceName) {
+      const resolved = findMergedQualifiedInterfaceStatementInStatements(namespaceStatement.body.body, rest);
+      return resolved ? [resolved] : [];
+    }
+    const nestedResolved = findMergedQualifiedInterfaceStatementInStatements(namespaceStatement.body.body, path);
+    return nestedResolved ? [nestedResolved] : [];
+  });
+
+  return mergeInterfaceStatements(nestedMatches);
+}
+
+function findMergedQualifiedInterfaceStatementInProgram(ast: Program, interfaceName: string): InterfaceStatement | null {
+  return findMergedQualifiedInterfaceStatementInStatements(ast.body, interfaceName.split("."));
+}
+
+async function resolveNodeModuleImportedClassStatement(
+  ast: Program,
+  className: string,
+  options: ClassResolverOptions
+): Promise<ResolvedClassStatement | null> {
+  const importerFilePath = options.uri ? uriToFilePath(options.uri) : null;
+  if (!importerFilePath) {
+    return null;
+  }
+
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    if (importStatement.from.value.startsWith(".")) {
+      continue;
+    }
+    const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, importStatement.from.value, { vfs: options.vfs });
+    const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value, { vfs: options.vfs });
+    if (!typings || !typingsPath) {
+      continue;
+    }
+    const declaration = findClassStatementInProgram({ kind: "Program", body: typings.declarations }, className);
+    if (declaration) {
+      return {
+        classStatement: declaration,
+        filePath: typingsPath
+      };
+    }
+  }
+
+  return null;
+}
+
+async function resolveNodeModuleImportedInterfaceStatement(
+  ast: Program,
+  interfaceName: string,
+  options: ClassResolverOptions
+): Promise<ResolvedInterfaceStatement | null> {
+  const importerFilePath = options.uri ? uriToFilePath(options.uri) : null;
+  if (!importerFilePath) {
+    return null;
+  }
+
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    if (importStatement.from.value.startsWith(".")) {
+      continue;
+    }
+    const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, importStatement.from.value, { vfs: options.vfs });
+    const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value, { vfs: options.vfs });
+    if (!typings || !typingsPath) {
+      continue;
+    }
+    const syntheticProgram: Program = { kind: "Program", body: typings.declarations };
+    const declaration = interfaceName.includes(".")
+      ? findMergedQualifiedInterfaceStatementInProgram(syntheticProgram, interfaceName)
+      : findMergedInterfaceStatementInProgram(syntheticProgram, interfaceName);
+    if (declaration) {
+      return {
+        interfaceStatement: declaration,
+        filePath: typingsPath
+      };
+    }
+  }
+
+  return null;
+}
+
 export async function resolveClassStatementAcrossFiles(
   ast: Program,
   className: string,
@@ -284,7 +409,7 @@ export async function resolveClassStatementAcrossFiles(
         classStatement: resolved.declaration,
         filePath: resolved.filePath
       }
-    : null;
+    : await resolveNodeModuleImportedClassStatement(ast, className, options);
   resolverCache.classStatementByName.set(className, classStatement);
   return classStatement;
 }
@@ -298,6 +423,18 @@ export async function resolveInterfaceStatementAcrossFiles(
   const cached = cache.interfaceStatementByName.get(interfaceName);
   if (cached !== undefined) {
     return cached;
+  }
+
+  if (interfaceName.includes(".")) {
+    const localQualifiedInterface = findMergedQualifiedInterfaceStatementInProgram(ast, interfaceName);
+    const qualifiedResolution = localQualifiedInterface
+      ? {
+          interfaceStatement: localQualifiedInterface,
+          filePath: options.uri ? (uriToFilePath(options.uri) ?? "") : ""
+        }
+      : await resolveNodeModuleImportedInterfaceStatement(ast, interfaceName, options);
+    cache.interfaceStatementByName.set(interfaceName, qualifiedResolution);
+    return qualifiedResolution;
   }
 
   const resolved = await resolveTopLevelDeclarationAcrossFiles({
@@ -354,7 +491,7 @@ export async function resolveInterfaceStatementAcrossFiles(
         interfaceStatement: mergedInterfaceStatement ?? resolved!.declaration,
         filePath: resolvedFilePath ?? ""
       }
-    : null;
+    : await resolveNodeModuleImportedInterfaceStatement(ast, interfaceName, options);
   cache.interfaceStatementByName.set(interfaceName, interfaceStatement);
   return interfaceStatement;
 }
@@ -368,6 +505,22 @@ export function constructorParameterProperties(classStatement: ClassStatement): 
 
 export function classPropertyParameters(classStatement: ClassStatement) {
   return [...(classStatement.primaryConstructorParameters ?? []), ...constructorParameterProperties(classStatement)];
+}
+
+function resolvedConstructorParameters(classStatement: ClassStatement): ResolvedParameter[] {
+  const constructorMember = classStatement.members.find(
+    (member): member is ClassStatement["members"][number] =>
+      member.kind === "ClassMethodMember" && member.name.name === "constructor"
+  );
+  const parameters = constructorMember?.kind === "ClassMethodMember"
+    ? constructorMember.parameters
+    : (classStatement.primaryConstructorParameters ?? []);
+  return parameters.map((parameter) => ({
+    name: bindingNameText(parameter.name),
+    typeName: parameter.typeAnnotation?.name ?? "unknown",
+    optional: ("optional" in parameter && parameter.optional === true) || parameter.defaultValue !== undefined || ("rest" in parameter && parameter.rest === true),
+    rest: "rest" in parameter && parameter.rest === true
+  }));
 }
 
 async function resolveInterfaceMemberRecursive(
@@ -462,6 +615,18 @@ async function resolveClassMemberRecursive(
     return local;
   }
 
+  const mergedInterfaceMember = await resolveMergedClassInterfaceMember(
+    classStatement,
+    memberName,
+    objectTypeName,
+    context,
+    visitedInterfaces
+  );
+  if (mergedInterfaceMember) {
+    context.cache.classMemberByRequest.set(cacheKey, mergedInterfaceMember);
+    return mergedInterfaceMember;
+  }
+
   if (classStatement.extendsType) {
     const specializedParentType = substituteTypeNameText(classStatement.extendsType.name, substitutions);
     const parentResolution = await resolveClassStatementAcrossFiles(
@@ -538,6 +703,31 @@ export async function resolveClassMember(
   );
 }
 
+async function resolveMergedClassInterfaceMember(
+  classStatement: ClassStatement,
+  memberName: string,
+  objectTypeName: string | undefined,
+  context: ResolutionContext,
+  visitedInterfaces: Set<string>
+): Promise<ResolvedClassMember | null> {
+  const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
+    context.ast,
+    classStatement.name.name,
+    context.options,
+    context.cache
+  );
+  if (!interfaceResolution) {
+    return null;
+  }
+  return resolveInterfaceMemberRecursive(
+    interfaceResolution.interfaceStatement,
+    memberName,
+    objectTypeName,
+    context,
+    visitedInterfaces
+  );
+}
+
 export async function resolveInterfaceMember(
   interfaceStatement: InterfaceStatement,
   memberName: string,
@@ -583,6 +773,30 @@ async function resolveClassMemberDeclarationRecursive(
       memberName,
       kind: ownMemberKind
     };
+  }
+
+  const mergedInterfaceResolution = await resolveInterfaceStatementAcrossFiles(
+    context.ast,
+    classStatement.name.name,
+    context.options,
+    context.cache
+  );
+  if (mergedInterfaceResolution) {
+    const mergedDeclaration = await resolveInterfaceMemberDeclarationRecursive(
+      mergedInterfaceResolution,
+      memberName,
+      objectTypeName,
+      context,
+      new Set<string>()
+    );
+    if (mergedDeclaration) {
+      return {
+        classStatement,
+        filePath: mergedDeclaration.filePath,
+        memberName,
+        kind: mergedDeclaration.kind
+      };
+    }
   }
 
   const substitutions = typeParameterSubstitutions(classStatement.typeParameters ?? [], objectTypeName);
@@ -696,6 +910,23 @@ async function collectClassMemberNamesRecursive(
   }
   for (const member of classStatement.members) {
     addUniqueMemberName(names, seenNames, member.name.name);
+  }
+
+  const mergedInterfaceResolution = await resolveInterfaceStatementAcrossFiles(
+    context.ast,
+    classStatement.name.name,
+    context.options,
+    context.cache
+  );
+  if (mergedInterfaceResolution) {
+    await collectInterfaceMemberNamesRecursive(
+      mergedInterfaceResolution.interfaceStatement,
+      objectTypeName,
+      context,
+      visitedInterfaces,
+      names,
+      seenNames
+    );
   }
 
   const substitutions = typeParameterSubstitutions(classStatement.typeParameters ?? [], objectTypeName);
@@ -1168,7 +1399,7 @@ export async function resolveCallableSignature(
       const documentation =
         symbol.node.kind === "Identifier"
           ? readDocumentationForSymbol(ast, symbol.node as Identifier, {
-              ambientModuleDeclarations: options.ambientModuleDeclarations
+            ambientModuleDeclarations: options.ambientModuleDeclarations
             })
           : undefined;
       return {
@@ -1181,6 +1412,19 @@ export async function resolveCallableSignature(
         })),
         returnTypeName: typeToString(symbol.type.returnType),
         ...(documentation ? { documentation } : {})
+      };
+    }
+    const classResolution = await resolveClassStatementAcrossFiles(
+      ast,
+      identifier.name,
+      options,
+      createClassResolverCache()
+    );
+    if (classResolution) {
+      return {
+        name: identifier.name,
+        parameters: resolvedConstructorParameters(classResolution.classStatement),
+        returnTypeName: classResolution.classStatement.name.name
       };
     }
     return null;
@@ -1313,6 +1557,19 @@ export async function resolveCallableSignatures(
       }
       if (sigs.length > 0) return sigs;
     }
+    const classResolution = await resolveClassStatementAcrossFiles(
+      ast,
+      identifier.name,
+      options,
+      createClassResolverCache()
+    );
+    if (classResolution) {
+      return [{
+        name: identifier.name,
+        parameters: resolvedConstructorParameters(classResolution.classStatement),
+        returnTypeName: classResolution.classStatement.name.name
+      }];
+    }
     return [];
   }
 
@@ -1390,11 +1647,7 @@ export async function resolveConstructorSignature(
   if (classResolution) {
     return {
       className: classResolution.classStatement.name.name,
-      parameters: (classResolution.classStatement.primaryConstructorParameters ?? []).map((parameter) => ({
-        name: bindingNameText(parameter.name),
-        typeName: parameter.typeAnnotation?.name ?? "unknown",
-        optional: parameter.defaultValue !== undefined
-      }))
+      parameters: resolvedConstructorParameters(classResolution.classStatement)
     };
   }
 
@@ -1425,14 +1678,6 @@ export async function resolveConstructorSignature(
 
   return {
     className,
-    parameters: (resolvedClass.classStatement.primaryConstructorParameters ?? []).map((parameter: {
-      name: Identifier;
-      typeAnnotation?: Identifier;
-      defaultValue?: Expr;
-    }) => ({
-      name: bindingNameText(parameter.name),
-      typeName: parameter.typeAnnotation?.name ?? "unknown",
-      optional: parameter.defaultValue !== undefined
-    }))
+    parameters: resolvedConstructorParameters(resolvedClass.classStatement)
   };
 }

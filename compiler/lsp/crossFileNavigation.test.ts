@@ -134,6 +134,194 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves merged node_modules class members from class declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-merged-members-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Widget } from "pkg"
+
+      fun demo() {
+        val widget = new Widget()
+        widget.drawRoundedRect(0, 0, 10, 20, 5)
+        widget.x = 1
+      }
+    `;
+    const pkgSource = dedent`
+      export interface Base {
+      }
+
+      export declare class Base {
+        x: number;
+      }
+
+      export interface Widget extends Base {
+      }
+
+      export declare class Widget extends Base {
+        drawRoundedRect(x: number, y: number, width: number, height: number, radius: number): this;
+      }
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pkg",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), pkgSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const lines = source.split("\n");
+    const pkgLines = pkgSource.split("\n");
+    const methodLine = lines.findIndex((line) => line.includes("widget.drawRoundedRect"));
+    const propertyLine = lines.findIndex((line) => line.includes("widget.x = 1"));
+    const methodCharacter = lines[methodLine]!.indexOf("drawRoundedRect") + 2;
+    const propertyCharacter = lines[propertyLine]!.indexOf(".x") + 2;
+    const methodDefinitionLine = pkgLines.findIndex((line) => line.includes("drawRoundedRect"));
+    const propertyDefinitionLine = pkgLines.findIndex((line) => line.includes("x: number"));
+
+    const methodHover = await resolveHoverWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: methodLine,
+      character: methodCharacter,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const methodDefinition = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: methodLine,
+      character: methodCharacter,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const propertyHover = await resolveHoverWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: propertyLine,
+      character: propertyCharacter,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const propertyDefinition = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: propertyLine,
+      character: propertyCharacter,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect((methodHover?.contents as { value?: string } | undefined)?.value).toContain("drawRoundedRect");
+    expect((methodHover?.contents as { value?: string } | undefined)?.value).toContain("radius: number");
+    expect(methodDefinition?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(methodDefinition?.range.start.line).toBe(methodDefinitionLine);
+
+    expect((propertyHover?.contents as { value?: string } | undefined)?.value).toContain("x: number");
+    expect(propertyDefinition?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(propertyDefinition?.range.start.line).toBe(propertyDefinitionLine);
+  });
+
+  it("navigates node_modules members inherited through qualified namespace mixins", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-mixin-members-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Container } from "pixi-like"
+
+      fun demo(stage: Container) {
+        stage.addChildAt(0)
+      }
+    `;
+    const pkgSource = dedent`
+      export interface ChildrenHelperMixin {
+        addChildAt(index: number): void;
+      }
+
+      declare global {
+        namespace PixiMixins {
+          interface Container extends ChildrenHelperMixin {}
+        }
+      }
+
+      export interface Container extends PixiMixins.Container {}
+
+      export declare class Container {
+      }
+
+      export { };
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi-like",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), pkgSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const lines = source.split("\n");
+    const pkgLines = pkgSource.split("\n");
+    const memberLine = lines.findIndex((line) => line.includes("stage.addChildAt"));
+    const memberCharacter = lines[memberLine]!.indexOf("addChildAt") + 2;
+    const definitionLine = pkgLines.findIndex((line) => line.includes("addChildAt"));
+
+    const definition = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: memberLine,
+      character: memberCharacter,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect(definition?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(definition?.range.start.line).toBe(definitionLine);
+  });
+
   it("resolves go-to-definition from member access to class member declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
     const fileA = join(root, "world.vx");
@@ -284,6 +472,72 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves inherited imported receiver extension properties and hovers them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const lib = join(root, "lib.vx");
+    const main = join(root, "main.vx");
+
+    const libSource = dedent`
+      export class View(var x: number, var y: number)
+      export class Graphics extends View
+    `;
+    const marked = sourceWithCursor(dedent`
+      import { View, Graphics } from "./lib"
+
+      class Vec2(val x: number, val y: number)
+
+      /// World-space point.
+      var View.point: Vec2 {
+        get => Vec2(x, y)
+      }
+
+      val badge = Graphics(1, 2)
+      badge.^^^point
+    `);
+
+    await writeFile(lib, libSource, "utf8");
+    await writeFile(main, marked.source, "utf8");
+
+    const uri = pathToFileURL(main).toString();
+    const baseSession = createAnalysisSession(marked.source);
+    const resolved = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri,
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(
+      marked.source,
+      resolved.externalDeclarations,
+      resolved.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      resolved.importedSymbolDisplayTypes,
+      resolved.invalidImportedBindings
+    );
+
+    const location = await resolveDefinitionWithLocalFallback({
+      uri,
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root]
+    });
+    const hover = await resolveHoverWithLocalFallback({
+      uri,
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(uri);
+    expect(location?.range.start.line).toBe(5);
+    expect(location?.range.start.character).toBe(9);
+    expect((hover?.contents as { value?: string } | undefined)?.value).toContain("point: Vec2");
+    expect((hover?.contents as { value?: string } | undefined)?.value).toContain("World-space point.");
+  });
+
   it("resolves go-to-definition from a cross-file extension method usage to the imported declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
     const other = join(root, "other.vx");
@@ -324,6 +578,95 @@ describe("cross-file navigation", () => {
         end: { line: 1, character: 19 }
       }
     });
+  });
+
+  it("resolves go-to-definition from a chain extension method usage to the imported declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-"));
+    const other = join(root, "utils.vx");
+    const main = join(root, "main.vx");
+
+    const otherSource = dedent`
+      class View {}
+      class Graphics extends View {}
+      class Container<T> {}
+      var View.point: number {
+        get { return 0 }
+        set { }
+      }
+      fun View.addTo(container: Container<any>) {}
+      `;
+    const mainSource =
+      'import { Graphics, Container, point, addTo } from "./utils"\n' +
+      "const stage = Container<any>()\n" +
+      "const view = Graphics()\n" +
+      "  ..point = 1\n" +
+      "  ..addTo(stage)\n";
+
+    await writeFile(other, otherSource, "utf8");
+    await writeFile(main, mainSource, "utf8");
+
+    const uri = pathToFileURL(main).toString();
+    const baseSession = createAnalysisSession(mainSource);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === other ? createAnalysisSession(otherSource) : null
+    });
+    const session = createAnalysisSession(
+      mainSource,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const lines = mainSource.split("\n");
+    const pointLine = lines[3]!;
+    const addToLine = lines[4]!;
+    const pointLocation = await resolveDefinitionAcrossFiles({
+      uri,
+      line: 3,
+      character: pointLine.indexOf("point") + "point".length,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === other ? createAnalysisSession(otherSource) : null
+    });
+    const location = await resolveDefinitionAcrossFiles({
+      uri,
+      line: 4,
+      character: addToLine.indexOf("addTo") + 1,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === other ? createAnalysisSession(otherSource) : null
+    });
+    const locationAtTokenEnd = await resolveDefinitionAcrossFiles({
+      uri,
+      line: 4,
+      character: addToLine.indexOf("addTo") + "addTo".length,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: (filePath) => filePath === other ? createAnalysisSession(otherSource) : null
+    });
+
+    const expectedLocation = {
+      uri: pathToFileURL(other).toString(),
+      range: {
+        start: { line: 7, character: 9 },
+        end: { line: 7, character: 14 }
+      }
+    };
+    expect(pointLocation).toEqual({
+      uri: pathToFileURL(other).toString(),
+      range: {
+        start: { line: 3, character: 9 },
+        end: { line: 3, character: 14 }
+      }
+    });
+    expect(location).toEqual(expectedLocation);
+    expect(locationAtTokenEnd).toEqual(expectedLocation);
   });
 
   it("provides hover info for primary constructor members", async () => {
@@ -2397,7 +2740,7 @@ describe("cross-file navigation", () => {
       expect(callLocation?.range.start.line).toBe(0);
     });
 
-    it("navigates node_modules named imports at call sites to the typings declaration", async () => {
+  it("navigates node_modules named imports at call sites to the typings declaration", async () => {
       const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
       const pkgDir = join(root, "node_modules", "preact");
       const hooksDir = join(pkgDir, "hooks");
@@ -2461,8 +2804,152 @@ describe("cross-file navigation", () => {
       });
 
       expect(location).not.toBeNull();
-      expect(location?.uri.endsWith("/node_modules/preact/hooks/src/index.d.ts")).toBe(true);
-      expect(location?.range.start.line).toBe(2);
+    expect(location?.uri.endsWith("/node_modules/preact/hooks/src/index.d.ts")).toBe(true);
+    expect(location?.range.start.line).toBe(2);
+  });
+
+    it("navigates node_modules member access through export-star barrels to the original declaration file", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
+      const pkgDir = join(root, "node_modules", "preact");
+      const mainPath = join(root, "main.vx");
+      const { source, line, character } = sourceWithCursor(dedent`
+        import { Widget } from "preact"
+
+        fun demo() {
+          val widget = new Widget()
+          widget.drawRoundedRe^^^ct(0, 0, 10, 20, 5)
+        }
+      `);
+
+      await mkdir(join(pkgDir, "src"), { recursive: true });
+      await writeFile(
+        join(pkgDir, "package.json"),
+        JSON.stringify({
+          name: "preact",
+          types: "./src/index.d.ts"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "src", "index.d.ts"),
+        'export * from "./dom";\n',
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "src", "dom.d.ts"),
+        dedent`
+          export declare class Widget {
+            drawRoundedRect(x: number, y: number, width: number, height: number, radius: number): this;
+          }
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, source, "utf8");
+
+      const baseSession = createAnalysisSession(source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const session = createAnalysisSession(
+        source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        new Map(),
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line,
+        character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect(location).not.toBeNull();
+      expect(location?.uri.endsWith("/node_modules/preact/src/dom.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBe(1);
+    });
+
+    it("navigates members of imported generic classes that rely on default type arguments", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
+      const pkgDir = join(root, "node_modules", "pkg");
+      const mainPath = join(root, "main.vx");
+      const marked = sourceWithCursor(dedent`
+        import { Application } from "pkg"
+
+        val app = Application()
+        app.renderer.resi^^^ze(100, 200)
+      `);
+
+      await mkdir(join(pkgDir, "src"), { recursive: true });
+      await writeFile(
+        join(pkgDir, "package.json"),
+        JSON.stringify({
+          name: "pkg",
+          types: "./src/index.d.ts"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "src", "index.d.ts"),
+        dedent`
+          export interface Renderer {
+            resize(width: number, height: number): void;
+          }
+
+          export declare class Application<R = Renderer> {
+            renderer: R;
+            constructor();
+          }
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, marked.source, "utf8");
+
+      const baseSession = createAnalysisSession(marked.source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const session = createAnalysisSession(
+        marked.source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        new Map(),
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const hover = await resolveHoverWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect((hover?.contents as { value?: string } | undefined)?.value).toContain("resize: (width: number, height: number) => void");
+      expect(location?.uri.endsWith("/node_modules/pkg/src/index.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBe(1);
     });
 
     it("navigates type names and generic arguments inside extends clauses", async () => {
@@ -2679,6 +3166,31 @@ describe("cross-file navigation", () => {
       expect(location).not.toBeNull();
       expect(location?.uri).toBe(uri);
       expect(location?.range.start.line).toBe(0);
+    });
+
+    it("resolves the extension-property receiver type name to its local class definition", async () => {
+      const marked = sourceWithCursor(dedent`
+        class View(var x: number, var y: number)
+        var Vie^^^w.point: Vec2 {
+          get => Vec2(x, y)
+        }
+        class Vec2(val x: number, val y: number)
+      `);
+      const uri = "file:///virtual/test.vx";
+      const session = createAnalysisSession(marked.source);
+
+      const location = await resolveDefinitionWithLocalFallback({
+        uri,
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [],
+      });
+
+      expect(location).not.toBeNull();
+      expect(location?.uri).toBe(uri);
+      expect(location?.range.start.line).toBe(0);
+      expect(location?.range.start.character).toBe(6);
     });
   });
 

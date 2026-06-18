@@ -1,5 +1,7 @@
 import { describe, expect, it, join, mkdtemp, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
+import { parseFile } from "compiler/parser/parser";
+import { tokenizeReader } from "compiler/parser/tokenizer";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import {
@@ -176,6 +178,48 @@ describe("lsp analysis session", () => {
     expect(messages.some((message) =>
       message.includes("Object literal property 'a' does not exist in type 'InspectOptions'")
     )).toBe(true);
+  });
+
+  it("resolves extracted renderer option aliases from ambient system lists", () => {
+    const ambientSource = dedent`
+      declare interface System {
+        extension: { name: string }
+        defaultOptions?: any
+      }
+
+      declare interface ViewSystemOptions {
+        width?: number
+        height?: number
+        antialias?: boolean
+        resolution?: number
+      }
+
+      declare class ViewSystem {
+        static extension: { name: "view" }
+        static defaultOptions: ViewSystemOptions
+      }
+
+      declare interface TickerOptions {
+        autoStart?: boolean
+      }
+
+      declare class TickerSystem {
+        static extension: { name: "ticker" }
+        static defaultOptions: TickerOptions
+      }
+
+      declare const SharedSystems: (typeof ViewSystem | typeof TickerSystem)[]
+
+      type ExtractRendererOptions<T extends System[]> = UnionToIntersection<OptionsUnion<T>>
+
+      declare interface SharedRendererOptions extends ExtractRendererOptions<typeof SharedSystems> {}
+      declare function init(options?: Partial<SharedRendererOptions>): void
+    `;
+    const source = "init({ width: 480, height: 320, antialias: true, autoStart: true })\n";
+    const ambientDeclarations = parseFile(tokenizeReader(ambientSource), { language: "typescript" }).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
   it("includes DOM ambient declarations from tsconfig lib entries", async () => {

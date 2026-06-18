@@ -13,6 +13,7 @@ import type {
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { extname } from "compiler/utils/path";
 import {
   getEcmaScriptRuntimeProgram,
   getVexaScriptRuntimeDeclarationFilePath,
@@ -59,9 +60,15 @@ export function isInterfaceStatement(statement: Statement): statement is Interfa
 }
 
 export function topLevelDeclarationNames(statement: Statement): string[] {
+  if (statement.kind === "VarStatement") {
+    const varStatement = statement as VarStatement;
+    if (varStatement.receiverType) {
+      return bindingIdentifiers(varStatement.name).map((identifier) => identifier.name);
+    }
+  }
   if (statement.kind === "FunctionStatement") {
     const functionStatement = statement as FunctionStatement;
-    if (functionStatement.receiverType && functionStatement.operator) {
+    if (functionStatement.receiverType) {
       return [functionStatement.name.name];
     }
   }
@@ -90,20 +97,73 @@ export function topLevelDeclarationNames(statement: Statement): string[] {
   }
 }
 
+function directTopLevelDeclarationNames(statement: Statement): string[] {
+  if ((statement as { declared?: boolean }).declared) {
+    return [];
+  }
+  switch (statement.kind) {
+    case "ClassStatement":
+    case "AnnotationStatement":
+    case "InterfaceStatement":
+    case "EnumStatement":
+    case "TypeAliasStatement":
+    case "FunctionStatement":
+      return [(statement as NamedTopLevelDeclaration).name.name];
+    case "VarStatement": {
+      const variableStatement = statement as VarStatement;
+      return [
+        ...bindingIdentifiers(variableStatement.name),
+        ...(variableStatement.declarations ?? []).flatMap((item) => bindingIdentifiers(item.name))
+      ].map((identifier) => identifier.name);
+    }
+    default:
+      return [];
+  }
+}
+
+export function importableTopLevelDeclarationNames(statement: Statement, filePath: string): string[] {
+  const explicitNames = topLevelDeclarationNames(statement);
+  if (explicitNames.length > 0 || extname(filePath).toLowerCase() !== ".vx") {
+    return explicitNames;
+  }
+  return directTopLevelDeclarationNames(statement);
+}
+
 export function findTopLevelDeclarationInProgram<T extends Statement>(
   ast: Program,
   name: string,
   predicate: TopLevelDeclarationPredicate<T>
 ): T | null {
   for (const statement of ast.body) {
+    const directExtensionProperty = statement.kind === "VarStatement"
+      ? statement as VarStatement
+      : null;
+    if (directExtensionProperty?.receiverType && predicate(directExtensionProperty) && topLevelDeclarationNames(directExtensionProperty).includes(name)) {
+      return directExtensionProperty;
+    }
     const directMatch = statement.kind === "FunctionStatement"
       ? statement as FunctionStatement
       : null;
-    if (directMatch?.receiverType && directMatch.operator && predicate(directMatch) && topLevelDeclarationNames(directMatch).includes(name)) {
+    if (directMatch?.receiverType && predicate(directMatch) && topLevelDeclarationNames(directMatch).includes(name)) {
       return directMatch;
     }
     const declaration = unwrapExportedDeclaration(statement);
     if (declaration && predicate(declaration) && topLevelDeclarationNames(declaration).includes(name)) {
+      return declaration;
+    }
+  }
+  return null;
+}
+
+function findImportableTopLevelDeclarationInProgram<T extends Statement>(
+  ast: Program,
+  name: string,
+  filePath: string,
+  predicate: TopLevelDeclarationPredicate<T>
+): T | null {
+  for (const statement of ast.body) {
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
+    if (predicate(declaration) && importableTopLevelDeclarationNames(statement, filePath).includes(name)) {
       return declaration;
     }
   }
@@ -187,9 +247,10 @@ export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>
       if (!targetSession?.ast) {
         continue;
       }
-      const targetDeclaration = findTopLevelDeclarationInProgram(
+      const targetDeclaration = findImportableTopLevelDeclarationInProgram(
         targetSession.ast,
         importedName,
+        targetFilePath,
         options.predicate
       );
       if (targetDeclaration) {

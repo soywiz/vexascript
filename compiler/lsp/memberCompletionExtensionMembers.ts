@@ -14,6 +14,7 @@ import { fileURLToPath } from "compiler/utils/path";
 import type { CompletionItem } from "vscode-languageserver/node.js";
 import {
   CompletionItemKind,
+  matchesCompletionPrefix,
   type CompletionRequestOptions,
   type ExtensionMemberCompletionCandidate
 } from "./completionModel";
@@ -189,7 +190,7 @@ export async function buildExtensionMemberCompletionItems(
   const seen = new Set<string>();
 
   const pushItem = (item: CompletionItem): void => {
-    if (normalizedPrefix.length > 0 && !item.label.startsWith(normalizedPrefix)) {
+    if (!matchesCompletionPrefix(item.label, normalizedPrefix)) {
       return;
     }
     if (seen.has(item.label)) {

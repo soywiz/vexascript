@@ -167,8 +167,20 @@ export function classResolverOptionsFromCompletionOptions(options: CompletionReq
   return {
     ...(options.uri ? { uri: options.uri } : {}),
     ...(options.sourceRoots ? { sourceRoots: options.sourceRoots } : {}),
+    ...(options.vfs ? { vfs: options.vfs } : {}),
+    ...(options.ambientModuleDeclarations
+      ? { ambientModuleDeclarations: options.ambientModuleDeclarations }
+      : {}),
     ...(options.getSessionForFilePath
       ? { getSessionForFilePath: options.getSessionForFilePath }
       : {})
   };
+}
+
+export function matchesCompletionPrefix(label: string, prefix: string): boolean {
+  const normalizedPrefix = prefix.trim();
+  if (normalizedPrefix.length === 0) {
+    return true;
+  }
+  return label.toLocaleLowerCase().startsWith(normalizedPrefix.toLocaleLowerCase());
 }

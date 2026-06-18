@@ -25,7 +25,8 @@ import {
 } from "./crossFileTypeResolution";
 import { resolveDeclaredMemberDefinitionAcrossFiles } from "./crossFileDeclaredMemberDefinition";
 import {
-  resolveExtensionMemberDefinitionAcrossFiles,
+  resolveExtensionMemberDeclarationAcrossFiles,
+  resolveImportedExtensionMemberDeclarationAcrossFiles,
   resolveNodeModulesMemberDefinition
 } from "./crossFileMemberDefinitionSources";
 import {
@@ -98,34 +99,56 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
     return declaredMemberDefinition;
   }
 
-  const receiverTypeNames =
-    objectType.kind === "array"
-      ? ["Array"]
-      : (objectType.kind === "named" || objectType.kind === "builtin") && objectType.name === "int"
-        ? ["int", "number"]
-        : objectType.kind === "named" || objectType.kind === "builtin"
-          ? [objectType.name]
-          : [];
-
   // Otherwise the member may be an extension property/method (e.g.
   // `val number.seconds` or `fun Point.foo()`) declared at the top level of this
   // or an imported file. These are not class members, so resolve them by
   // matching the receiver type.
-  for (const receiverTypeName of receiverTypeNames) {
-    const extension = await resolveExtensionMemberDefinitionAcrossFiles(context, receiverTypeName, memberName);
-    if (extension) {
-      return extension;
+  const extensionDeclaration = await resolveExtensionMemberDeclarationAcrossFiles(
+    context,
+    objectType,
+    memberName
+  );
+  if (extensionDeclaration) {
+    const range = nodeRange(extensionDeclaration.declaration.name);
+    if (range) {
+      return {
+        uri: pathToUri(extensionDeclaration.filePath),
+        range
+      };
+    }
+  }
+
+  const importedExtensionDeclaration = await resolveImportedExtensionMemberDeclarationAcrossFiles(
+    context,
+    memberName
+  );
+  if (importedExtensionDeclaration) {
+    const range = nodeRange(importedExtensionDeclaration.declaration.name);
+    if (range) {
+      return {
+        uri: pathToUri(importedExtensionDeclaration.filePath),
+        range
+      };
     }
   }
 
   // Fallback: look for the member in node_modules .d.ts declarations. This
   // handles types whose namespace/interface is declared in a package's type
   // definitions rather than a local .vx file.
-  const nodeModulesDefinition = await resolveNodeModulesMemberDefinition(
-    context,
-    receiverTypeNames[0]!,
-    memberName
-  );
+  const nodeModulesReceiverTypeName = objectType.kind === "array"
+    ? "Array"
+    : (objectType.kind === "named" || objectType.kind === "builtin") && objectType.name === "int"
+      ? "int"
+      : objectType.kind === "named" || objectType.kind === "builtin"
+        ? objectType.name
+        : null;
+  const nodeModulesDefinition = nodeModulesReceiverTypeName
+    ? await resolveNodeModulesMemberDefinition(
+      context,
+      nodeModulesReceiverTypeName,
+      memberName
+    )
+    : null;
   if (nodeModulesDefinition) {
     return nodeModulesDefinition;
   }
@@ -144,9 +167,11 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
     return importSpecifierDefinition;
   }
 
-  const memberDefinition = await resolveMemberDefinitionAcrossFiles(context);
-  if (memberDefinition) {
-    return memberDefinition;
+  for (const character of candidateCharacters(context.character)) {
+    const memberDefinition = await resolveMemberDefinitionAcrossFiles({ ...context, character });
+    if (memberDefinition) {
+      return memberDefinition;
+    }
   }
 
   const implicitReceiverDefinition = await resolveImplicitReceiverMemberDefinition(context);

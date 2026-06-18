@@ -6,6 +6,100 @@ import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
 
 describe("cross-file type diagnostics", () => {
+  it("accepts implicit VexaScript exports for imported extension properties", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const utilsFile = join(root, "utils.vx");
+    const htmlFile = join(root, "html.vx");
+
+    await writeFile(utilsFile, dedent`
+      class Vec2(val x: number, val y: number)
+      class View(var x: number, var y: number)
+      var View.point: Vec2 {
+        get { return Vec2(x, y) }
+        set { x = newValue.x; y = newValue.y }
+      }
+    `, "utf8");
+    const source = dedent`
+      import { View, Vec2, point } from "./utils"
+      val view = View(0, 0)
+      view.point = Vec2(1, 2)
+      val x = view.point.x
+    `;
+    await writeFile(htmlFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(htmlFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(htmlFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(collected.invalidImportedBindings.has("point")).toBe(false);
+    expect(session.analysis?.getUnusedImportIdentifiers().map((identifier) => identifier.name)).toEqual([]);
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+  });
+
+  it("accepts implicit VexaScript exports for imported extension methods", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const utilsFile = join(root, "utils.vx");
+    const htmlFile = join(root, "html.vx");
+
+    await writeFile(utilsFile, dedent`
+      class View {}
+      class Container<T> {}
+      fun View.addTo(container: Container<any>) {
+      }
+    `, "utf8");
+    const source = dedent`
+      import { View, Container, addTo } from "./utils"
+      val stage = Container<any>()
+      val view = View()
+        ..addTo(stage)
+    `;
+    await writeFile(htmlFile, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(htmlFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(htmlFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(collected.invalidImportedBindings.has("addTo")).toBe(false);
+    expect(session.analysis?.getUnusedImportIdentifiers().map((identifier) => identifier.name)).toEqual([]);
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+  });
+
   it("reports argument count and type errors for imported class methods", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
     const worldFile = join(root, "world.vx");
@@ -454,6 +548,93 @@ describe("cross-file type diagnostics", () => {
     expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
       "Module 'preact/hooks' has no exported symbol 'useState'"
     );
+  });
+
+  it("does not type-check member calls resolved from node_modules declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const pkgDir = join(root, "node_modules", "pixi.js");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Application, Graphics, View } from "pixi.js"
+
+      val app = Application()
+      await app.init({
+        width: 480,
+        height: 320,
+        resolution: 1,
+        antialias: true,
+      })
+
+      val stage = app.stage
+      val badge = Graphics()
+      badge.beginFill(0xff6b35)
+      badge.drawRoundedRect(-110, -64, 220, 128, 28)
+      stage.addChild(badge)
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pixi.js", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export type ColorSource = string | number;
+        export interface ApplicationOptions {
+          width?: number;
+          height?: number;
+          resolution?: number;
+          antialias?: boolean;
+        }
+        export class View {
+          x: number;
+          y: number;
+        }
+        export class Container<C extends View = View> extends View {
+          addChild<U extends View[]>(...children: U): unknown;
+        }
+        export class Graphics extends Container {
+          beginFill(color: ColorSource): this;
+          drawRoundedRect(...args: Parameters<GraphicsContext["roundRect"]>): this;
+        }
+        export interface GraphicsContext {
+          roundRect(x: number, y: number, width: number, height: number, radius: number): void;
+        }
+        export class Application {
+          stage: Container;
+          init(options: Partial<ApplicationOptions>): Promise<void>;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
   });
 
   it("accepts ambient imported overloads selected by an options object argument", async () => {

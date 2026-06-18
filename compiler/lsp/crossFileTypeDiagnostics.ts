@@ -23,7 +23,7 @@ import {
   type ClassResolverSessionLike
 } from "./classResolver";
 import { getProjectSessionForFilePath } from "./projectAnalysis";
-import { topLevelDeclarationNames } from "./declarationResolver";
+import { importableTopLevelDeclarationNames } from "./declarationResolver";
 import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { uriToFilePath } from "./importFixes";
 import { ambientModuleHasNamedExport } from "./importedDeclarations";
@@ -47,6 +47,10 @@ function hasAmbientModuleForImportPath(
 ): boolean {
   return ambientModuleDeclarations.has(importPath)
     || (importPath.startsWith("node:") && ambientModuleDeclarations.has(importPath.slice("node:".length)));
+}
+
+function isExternalDeclarationFilePath(filePath: string): boolean {
+  return filePath.endsWith(".d.ts") || /(^|[/\\])node_modules([/\\]|$)/.test(filePath);
 }
 
 export async function collectModuleNotFoundDiagnostics(
@@ -258,7 +262,7 @@ export async function collectCrossFileTypeDiagnostics(
     }
     const exportedNames = new Set<string>();
     for (const statement of targetSession.ast.body) {
-      for (const name of topLevelDeclarationNames(statement)) {
+      for (const name of importableTopLevelDeclarationNames(statement, targetFilePath)) {
         exportedNames.add(name);
       }
     }
@@ -343,6 +347,9 @@ export async function collectCrossFileTypeDiagnostics(
       resolverCache
     );
     if (!classResolution) {
+      continue;
+    }
+    if (isExternalDeclarationFilePath(classResolution.filePath)) {
       continue;
     }
 
@@ -490,6 +497,9 @@ export async function collectCrossFileTypeDiagnostics(
       resolverCache
     );
     if (!classResolution) {
+      continue;
+    }
+    if (isExternalDeclarationFilePath(classResolution.filePath)) {
       continue;
     }
 

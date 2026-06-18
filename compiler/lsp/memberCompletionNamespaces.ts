@@ -1,7 +1,7 @@
 import type { ClassStatement, ExportStatement, FunctionStatement, ImportStatement, NamespaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
-import { CompletionItemKind, type CompletionRequestOptions } from "./completionModel";
+import { CompletionItemKind, matchesCompletionPrefix, type CompletionRequestOptions } from "./completionModel";
 import type { CompletionItem } from "vscode-languageserver/node.js";
 
 export async function findNodeModuleNamespaceForTypeName(
@@ -54,7 +54,7 @@ export function buildNamespaceMemberCompletionItems(namespaceStatement: Namespac
   const items: CompletionItem[] = [];
   const seen = new Set<string>();
   const push = (label: string, kind: CompletionItemKind, detail: string): void => {
-    if (!label.startsWith(prefix) || seen.has(label)) return;
+    if (!matchesCompletionPrefix(label, prefix) || seen.has(label)) return;
     seen.add(label);
     items.push({ label, kind, detail });
   };

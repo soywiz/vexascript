@@ -29,6 +29,7 @@ import { vfs } from "compiler/vfs";
 export interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
+  externalDeclarations?: Statement[];
   ambientDeclarations?: Statement[];
   ambientDeclarationLocations?: ReadonlyMap<Statement, { filePath: string; line: number; character: number }>;
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;

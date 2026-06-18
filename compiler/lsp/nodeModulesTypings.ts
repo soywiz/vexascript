@@ -5,6 +5,7 @@ import type {
   ExportStatement,
   FunctionStatement,
   Identifier,
+  ImportStatement,
   InterfaceStatement,
   NamespaceStatement,
   Program,
@@ -54,6 +55,10 @@ async function parseTypingsProgram(typingsPath: string, options: ModuleResolutio
   return parsed.ast ?? null;
 }
 
+async function readTypingsSource(typingsPath: string, options: ModuleResolutionOptions): Promise<string | null> {
+  return await (options.vfs ?? vfs()).readFile(typingsPath);
+}
+
 async function resolveRelativeTypingsPath(
   importerTypingsPath: string,
   specifier: string,
@@ -73,11 +78,57 @@ async function resolveRelativeTypingsPath(
   ].filter(Boolean);
 
   for (const candidate of candidates) {
-    if (await activeVfs.fileExists(candidate)) {
+    const stat = await activeVfs.stat(candidate).catch(() => null);
+    if (stat?.isDirectory) {
+      continue;
+    }
+    if (stat?.isFile || await activeVfs.fileExists(candidate)) {
       return candidate;
     }
   }
   return null;
+}
+
+async function resolveReexportedTypingsPath(
+  importerTypingsPath: string,
+  specifier: string,
+  options: ModuleResolutionOptions
+): Promise<string | null> {
+  if (specifier.startsWith(".")) {
+    return resolveRelativeTypingsPath(importerTypingsPath, specifier, options);
+  }
+  return resolveNodeModulesTypingsPath(importerTypingsPath, specifier, options);
+}
+
+function extractReferencedTypingsSpecifiers(source: string): string[] {
+  const specifiers = new Set<string>();
+  const referencePathPattern = /^\s*\/\/\/\s*<reference\s+path=["']([^"']+)["'][^>]*\/>\s*$/gm;
+
+  for (const match of source.matchAll(referencePathPattern)) {
+    const specifier = match[1]?.trim();
+    if (specifier) {
+      specifiers.add(specifier);
+    }
+  }
+
+  return [...specifiers];
+}
+
+function extractImportedTypingsSpecifiers(ast: Program): string[] {
+  const specifiers = new Set<string>();
+
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const specifier = importStatement.from?.value?.trim();
+    if (specifier) {
+      specifiers.add(specifier);
+    }
+  }
+
+  return [...specifiers];
 }
 
 async function collectTypingsDeclarations(
@@ -94,11 +145,23 @@ async function collectTypingsDeclarations(
   if (!ast) {
     return [];
   }
+  const source = await readTypingsSource(typingsPath, options);
 
   const declarations: NodeModuleDeclarationEntry[] = ast.body.map((statement) => ({
     statement,
     typingsPath
   }));
+  const supportSpecifiers = new Set<string>([
+    ...(source ? extractReferencedTypingsSpecifiers(source) : []),
+    ...extractImportedTypingsSpecifiers(ast)
+  ]);
+  for (const specifier of supportSpecifiers) {
+    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, specifier, options);
+    if (!targetTypingsPath) {
+      continue;
+    }
+    declarations.push(...await collectTypingsDeclarations(targetTypingsPath, options, visited));
+  }
   for (const statement of ast.body) {
     if (statement.kind !== "ExportStatement") {
       continue;
@@ -107,7 +170,7 @@ async function collectTypingsDeclarations(
     if (!exportStatement.from?.value || (!exportStatement.exportAll && (!exportStatement.specifiers || exportStatement.specifiers.length === 0))) {
       continue;
     }
-    const targetTypingsPath = await resolveRelativeTypingsPath(typingsPath, exportStatement.from.value, options);
+    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, exportStatement.from.value, options);
     if (!targetTypingsPath) {
       continue;
     }
@@ -280,10 +343,249 @@ export async function findNodeModuleMemberLocation(
   const typings = await getNodeModuleTypings(importerFilePath, packageName, { vfs: activeVfs });
   if (!typings) return null;
 
+  const location = findMemberLocationInDeclarationEntries(typings.declarationEntries, typeName, memberName);
+  if (location) {
+    return location;
+  }
+
   const range = findMemberRangeInStatements(typings.declarations, typeName, memberName);
   if (!range) return null;
 
   return { typingsPath, range };
+}
+
+function findQualifiedMemberLocationInDeclarationEntries(
+  declarationEntries: readonly NodeModuleDeclarationEntry[],
+  qualifiedTypeName: string,
+  memberName: string,
+  visitedQualifiedTypeNames = new Set<string>()
+): NodeModuleMemberLocation | null {
+  if (visitedQualifiedTypeNames.has(qualifiedTypeName)) {
+    return null;
+  }
+  visitedQualifiedTypeNames.add(qualifiedTypeName);
+  const parts = qualifiedTypeName.split(".").filter(Boolean);
+  if (parts.length <= 1) {
+    return null;
+  }
+
+  const search = (
+    entries: readonly NodeModuleDeclarationEntry[],
+    index: number
+  ): NodeModuleMemberLocation | null => {
+    const targetPart = parts[index];
+    if (!targetPart) {
+      return null;
+    }
+
+    for (const entry of entries) {
+      const candidate =
+        entry.statement.kind === "ExportStatement"
+          ? (entry.statement as { declaration?: Statement }).declaration ?? entry.statement
+          : entry.statement;
+
+      if (candidate.kind === "NamespaceStatement") {
+        const namespace = candidate as NamespaceStatement;
+        const name = namespace.names?.[0]?.name;
+        const childEntries = namespace.body.body.map((statement) => ({ statement, typingsPath: entry.typingsPath }));
+
+        if (!name) {
+          const nested = search(childEntries, index);
+          if (nested) {
+            return nested;
+          }
+          continue;
+        }
+
+        if (name === targetPart) {
+          const nested = search(childEntries, Math.min(index + 1, parts.length - 1));
+          if (nested) {
+            return nested;
+          }
+        }
+
+        const nested = search(childEntries, index);
+        if (nested) {
+          return nested;
+        }
+        continue;
+      }
+
+      if (index !== parts.length - 1) {
+        continue;
+      }
+
+      if (candidate.kind === "InterfaceStatement") {
+        const iface = candidate as InterfaceStatement;
+        if (iface.name.name !== targetPart) {
+          continue;
+        }
+        for (const member of iface.members) {
+          if (member.name.name === memberName) {
+            const range = nodeRange(member.name);
+            if (range) {
+              return { typingsPath: entry.typingsPath, range };
+            }
+          }
+        }
+        for (const parentType of iface.extendsTypes ?? []) {
+          const inheritedTypeName = baseTypeName(parentType.name);
+          const inherited = inheritedTypeName.includes(".")
+            ? findQualifiedMemberLocationInDeclarationEntries(
+              declarationEntries,
+              inheritedTypeName,
+              memberName,
+              new Set(visitedQualifiedTypeNames)
+            )
+            : findMemberLocationInDeclarationEntries(declarationEntries, inheritedTypeName, memberName);
+          if (inherited) {
+            return inherited;
+          }
+        }
+      }
+
+      if (candidate.kind === "ClassStatement") {
+        const klass = candidate as ClassStatement;
+        if (klass.name.name !== targetPart) {
+          continue;
+        }
+        for (const member of klass.members) {
+          if (member.name.name === memberName) {
+            const range = nodeRange(member.name);
+            if (range) {
+              return { typingsPath: entry.typingsPath, range };
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  };
+
+  return search(declarationEntries, 0);
+}
+
+function findMemberLocationInDeclarationEntries(
+  declarationEntries: readonly NodeModuleDeclarationEntry[],
+  typeName: string,
+  memberName: string,
+  visitedTypeNames = new Set<string>()
+): NodeModuleMemberLocation | null {
+  if (typeName.includes(".")) {
+    const qualified = findQualifiedMemberLocationInDeclarationEntries(
+      declarationEntries,
+      typeName,
+      memberName
+    );
+    if (qualified) {
+      return qualified;
+    }
+  }
+
+  for (const candidateTypeName of candidateTypeNames(typeName)) {
+    for (const entry of declarationEntries) {
+      const candidate =
+        entry.statement.kind === "ExportStatement"
+          ? (entry.statement as { declaration?: Statement }).declaration ?? entry.statement
+          : entry.statement;
+
+      if (candidate.kind === "NamespaceStatement") {
+        const namespace = candidate as NamespaceStatement;
+        const name = namespace.names?.[0]?.name;
+        if (name === candidateTypeName) {
+          const memberRange = findMemberInNamespaceBody(namespace.body.body, memberName);
+          if (memberRange) {
+            return { typingsPath: entry.typingsPath, range: memberRange };
+          }
+        }
+        const nestedTypeName = name ? nestedTypeNameForNamespace(candidateTypeName, name) : candidateTypeName;
+        const nested = findMemberLocationInDeclarationEntries(
+          namespace.body.body.map((statement) => ({ statement, typingsPath: entry.typingsPath })),
+          nestedTypeName,
+          memberName,
+          visitedTypeNames
+        );
+        if (nested) {
+          return nested;
+        }
+      }
+
+      if (candidate.kind === "InterfaceStatement") {
+        const iface = candidate as InterfaceStatement;
+        if (iface.name.name === candidateTypeName) {
+          if (visitedTypeNames.has(candidateTypeName)) {
+            continue;
+          }
+          const nextVisitedTypeNames = new Set(visitedTypeNames);
+          nextVisitedTypeNames.add(candidateTypeName);
+          for (const member of iface.members) {
+            if (member.name.name === memberName) {
+              const range = nodeRange(member.name);
+              if (range) {
+                return { typingsPath: entry.typingsPath, range };
+              }
+            }
+          }
+          for (const parentType of iface.extendsTypes ?? []) {
+            const inherited = findMemberLocationInDeclarationEntries(
+              declarationEntries,
+              baseTypeName(parentType.name),
+              memberName,
+              nextVisitedTypeNames
+            );
+            if (inherited) {
+              return inherited;
+            }
+          }
+        }
+      }
+
+      if (candidate.kind === "ClassStatement") {
+        const klass = candidate as ClassStatement;
+        if (klass.name.name === candidateTypeName) {
+          if (visitedTypeNames.has(candidateTypeName)) {
+            continue;
+          }
+          const nextVisitedTypeNames = new Set(visitedTypeNames);
+          nextVisitedTypeNames.add(candidateTypeName);
+          for (const member of klass.members) {
+            if (member.name.name !== memberName) {
+              continue;
+            }
+            const range = nodeRange(member.name);
+            if (range) {
+              return { typingsPath: entry.typingsPath, range };
+            }
+          }
+          if (klass.extendsType) {
+            const inherited = findMemberLocationInDeclarationEntries(
+              declarationEntries,
+              baseTypeName(klass.extendsType.name),
+              memberName,
+              nextVisitedTypeNames
+            );
+            if (inherited) {
+              return inherited;
+            }
+          }
+          for (const implementedType of klass.implementsTypes ?? []) {
+            const inherited = findMemberLocationInDeclarationEntries(
+              declarationEntries,
+              baseTypeName(implementedType.name),
+              memberName,
+              nextVisitedTypeNames
+            );
+            if (inherited) {
+              return inherited;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -291,44 +593,248 @@ export async function findNodeModuleMemberLocation(
  * `typeName`, then looks for `memberName` within it. Returns the range of the
  * member declaration, or null if not found.
  */
-function findMemberRangeInStatements(
+function findQualifiedMemberRangeInStatements(
   statements: Statement[],
-  typeName: string,
-  memberName: string
+  qualifiedTypeName: string,
+  memberName: string,
+  visitedQualifiedTypeNames = new Set<string>()
 ): Range | null {
-  for (const stmt of statements) {
-    const candidate =
-      stmt.kind === "ExportStatement"
-        ? (stmt as { declaration?: Statement }).declaration ?? stmt
-        : stmt;
+  if (visitedQualifiedTypeNames.has(qualifiedTypeName)) {
+    return null;
+  }
+  visitedQualifiedTypeNames.add(qualifiedTypeName);
+  const parts = qualifiedTypeName.split(".").filter(Boolean);
+  if (parts.length <= 1) {
+    return null;
+  }
 
-    // Namespace: if name matches, look for member inside it
-    if (candidate.kind === "NamespaceStatement") {
-      const ns = candidate as NamespaceStatement;
-      const name = ns.names?.[0]?.name;
-      if (name === typeName) {
-        const memberRange = findMemberInNamespaceBody(ns.body.body, memberName);
-        if (memberRange) return memberRange;
-      }
-      // Recurse into nested namespaces regardless of name match
-      const nested = findMemberRangeInStatements(ns.body.body, typeName, memberName);
-      if (nested) return nested;
+  const search = (entries: Statement[], index: number): Range | null => {
+    const targetPart = parts[index];
+    if (!targetPart) {
+      return null;
     }
 
-    // Interface: if name matches, look for member inside it
-    if (candidate.kind === "InterfaceStatement") {
-      const iface = candidate as InterfaceStatement;
-      if (iface.name.name === typeName) {
+    for (const statement of entries) {
+      const candidate =
+        statement.kind === "ExportStatement"
+          ? (statement as { declaration?: Statement }).declaration ?? statement
+          : statement;
+
+      if (candidate.kind === "NamespaceStatement") {
+        const namespace = candidate as NamespaceStatement;
+        const name = namespace.names?.[0]?.name;
+
+        if (!name) {
+          const nested = search(namespace.body.body, index);
+          if (nested) {
+            return nested;
+          }
+          continue;
+        }
+
+        if (name === targetPart) {
+          const nested = search(namespace.body.body, Math.min(index + 1, parts.length - 1));
+          if (nested) {
+            return nested;
+          }
+        }
+
+        const nested = search(namespace.body.body, index);
+        if (nested) {
+          return nested;
+        }
+        continue;
+      }
+
+      if (index !== parts.length - 1) {
+        continue;
+      }
+
+      if (candidate.kind === "InterfaceStatement") {
+        const iface = candidate as InterfaceStatement;
+        if (iface.name.name !== targetPart) {
+          continue;
+        }
         for (const member of iface.members) {
           if (member.name.name === memberName) {
             const range = nodeRange(member.name);
-            if (range) return range;
+            if (range) {
+              return range;
+            }
+          }
+        }
+        for (const parentType of iface.extendsTypes ?? []) {
+          const inheritedTypeName = baseTypeName(parentType.name);
+          const inherited = inheritedTypeName.includes(".")
+            ? findQualifiedMemberRangeInStatements(
+              statements,
+              inheritedTypeName,
+              memberName,
+              new Set(visitedQualifiedTypeNames)
+            )
+            : findMemberRangeInStatements(statements, inheritedTypeName, memberName);
+          if (inherited) {
+            return inherited;
+          }
+        }
+      }
+
+      if (candidate.kind === "ClassStatement") {
+        const klass = candidate as ClassStatement;
+        if (klass.name.name !== targetPart) {
+          continue;
+        }
+        for (const member of klass.members) {
+          if (member.name.name === memberName) {
+            const range = nodeRange(member.name);
+            if (range) {
+              return range;
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  };
+
+  return search(statements, 0);
+}
+
+function findMemberRangeInStatements(
+  statements: Statement[],
+  typeName: string,
+  memberName: string,
+  visitedTypeNames = new Set<string>()
+): Range | null {
+  if (typeName.includes(".")) {
+    const qualified = findQualifiedMemberRangeInStatements(statements, typeName, memberName);
+    if (qualified) {
+      return qualified;
+    }
+  }
+
+  for (const candidateTypeName of candidateTypeNames(typeName)) {
+    for (const stmt of statements) {
+      const candidate =
+        stmt.kind === "ExportStatement"
+          ? (stmt as { declaration?: Statement }).declaration ?? stmt
+          : stmt;
+
+      if (candidate.kind === "NamespaceStatement") {
+        const ns = candidate as NamespaceStatement;
+        const name = ns.names?.[0]?.name;
+        if (name === candidateTypeName) {
+          const memberRange = findMemberInNamespaceBody(ns.body.body, memberName);
+          if (memberRange) {
+            return memberRange;
+          }
+        }
+        const nestedTypeName = name ? nestedTypeNameForNamespace(candidateTypeName, name) : candidateTypeName;
+        const nested = findMemberRangeInStatements(
+          ns.body.body,
+          nestedTypeName,
+          memberName,
+          visitedTypeNames
+        );
+        if (nested) {
+          return nested;
+        }
+      }
+
+      if (candidate.kind === "InterfaceStatement") {
+        const iface = candidate as InterfaceStatement;
+        if (iface.name.name === candidateTypeName) {
+          if (visitedTypeNames.has(candidateTypeName)) {
+            continue;
+          }
+          const nextVisitedTypeNames = new Set(visitedTypeNames);
+          nextVisitedTypeNames.add(candidateTypeName);
+          for (const member of iface.members) {
+            if (member.name.name === memberName) {
+              const range = nodeRange(member.name);
+              if (range) {
+                return range;
+              }
+            }
+          }
+          for (const parentType of iface.extendsTypes ?? []) {
+            const inherited = findMemberRangeInStatements(
+              statements,
+              baseTypeName(parentType.name),
+              memberName,
+              nextVisitedTypeNames
+            );
+            if (inherited) {
+              return inherited;
+            }
+          }
+        }
+      }
+
+      if (candidate.kind === "ClassStatement") {
+        const klass = candidate as ClassStatement;
+        if (klass.name.name === candidateTypeName) {
+          if (visitedTypeNames.has(candidateTypeName)) {
+            continue;
+          }
+          const nextVisitedTypeNames = new Set(visitedTypeNames);
+          nextVisitedTypeNames.add(candidateTypeName);
+          for (const member of klass.members) {
+            if (member.name.name !== memberName) {
+              continue;
+            }
+            const range = nodeRange(member.name);
+            if (range) {
+              return range;
+            }
+          }
+          if (klass.extendsType) {
+            const inherited = findMemberRangeInStatements(
+              statements,
+              baseTypeName(klass.extendsType.name),
+              memberName,
+              nextVisitedTypeNames
+            );
+            if (inherited) {
+              return inherited;
+            }
+          }
+          for (const implementedType of klass.implementsTypes ?? []) {
+            const inherited = findMemberRangeInStatements(
+              statements,
+              baseTypeName(implementedType.name),
+              memberName,
+              nextVisitedTypeNames
+            );
+            if (inherited) {
+              return inherited;
+            }
           }
         }
       }
     }
   }
   return null;
+}
+
+function baseTypeName(typeName: string): string {
+  return typeName.split("<")[0]?.trim() ?? typeName;
+}
+
+function candidateTypeNames(typeName: string): string[] {
+  const names = [typeName];
+  const lastQualifierIndex = typeName.lastIndexOf(".");
+  if (lastQualifierIndex >= 0) {
+    names.push(typeName.slice(lastQualifierIndex + 1));
+  }
+  return names;
+}
+
+function nestedTypeNameForNamespace(typeName: string, namespaceName: string): string {
+  return typeName.startsWith(`${namespaceName}.`)
+    ? typeName.slice(namespaceName.length + 1)
+    : typeName;
 }
 
 function findMemberInNamespaceBody(

@@ -3,7 +3,7 @@ import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import { Analysis } from "compiler/analysis/Analysis";
 import type { ClassMember, ClassStatement, EnumStatement, Program } from "compiler/ast/ast";
 import type { CompletionItem } from "vscode-languageserver/node.js";
-import { CompletionItemKind } from "./completionModel";
+import { CompletionItemKind, matchesCompletionPrefix } from "./completionModel";
 import type { InterfaceCompletionMember, TypeAliasCompletionMember } from "./completionModel";
 
 export function operatorSymbolFromMemberName(name: string): string | null {
@@ -45,7 +45,7 @@ export async function buildClassMemberCompletionItems(
   const membersByName = new Map(classStatement.members.map((member) => [member.name.name, member]));
 
   const pushItem = (item: CompletionItem): void => {
-    if (normalizedPrefix.length > 0 && !item.label.startsWith(normalizedPrefix)) {
+    if (!matchesCompletionPrefix(item.label, normalizedPrefix)) {
       return;
     }
     if (seen.has(item.label)) {
@@ -123,7 +123,7 @@ export function buildInterfaceMemberCompletionItems(
   const seen = new Set<string>();
   const normalizedPrefix = prefix.trim();
   for (const member of resolvedMembers) {
-    if (normalizedPrefix.length > 0 && !member.name.startsWith(normalizedPrefix)) {
+    if (!matchesCompletionPrefix(member.name, normalizedPrefix)) {
       continue;
     }
     if (seen.has(member.name)) {
@@ -148,7 +148,7 @@ export function buildEnumMemberCompletionItems(
   const normalizedPrefix = prefix.trim();
   for (const member of enumStatement.members) {
     const label = member.name.name;
-    if (normalizedPrefix.length > 0 && !label.startsWith(normalizedPrefix)) {
+    if (!matchesCompletionPrefix(label, normalizedPrefix)) {
       continue;
     }
     items.push({

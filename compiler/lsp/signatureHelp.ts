@@ -416,6 +416,15 @@ async function buildSignaturesFromSymbol(
   program: Program,
   options: ClassResolverOptions
 ): Promise<SignatureInformation[]> {
+  if (context.isNewExpression) {
+    const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
+    if (constructorSignature) {
+      const parameters = constructorSignature.parameters.map((p) => ({ label: formatParameterLabel(p) }));
+      const label = `new ${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
+      return [{ label, parameters }];
+    }
+  }
+
   // Resolve the callee through the shared cursor-target pipeline so all
   // features use the same symbol identity instead of private analysis calls.
   const target = resolveCalleeTarget(analysis, program, context.callee);
@@ -472,16 +481,13 @@ async function buildSignaturesFromSymbol(
         }
       }
     }
-    if (context.isNewExpression) {
-      const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
-      if (!constructorSignature) {
-        return [];
-      }
-      const parameters = constructorSignature.parameters.map((p) => ({ label: formatParameterLabel(p) }));
-      const label = `new ${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
-      return [{ label, parameters }];
+    const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
+    if (!constructorSignature) {
+      return [];
     }
-    return [];
+    const parameters = constructorSignature.parameters.map((p) => ({ label: formatParameterLabel(p) }));
+    const label = `new ${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
+    return [{ label, parameters }];
   }
 
   const documentation =
@@ -521,17 +527,13 @@ async function buildSignaturesFromSymbol(
     }
   }
 
-  if (context.isNewExpression) {
-    const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
-    if (!constructorSignature) {
-      return [];
-    }
-    const parameters = constructorSignature.parameters.map((p) => ({ label: formatParameterLabel(p) }));
-    const label = `new ${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
-    return [{ label, parameters }];
+  const constructorSignature = await resolveConstructorSignature(context.callee, analysis, program, options);
+  if (!constructorSignature) {
+    return [];
   }
-
-  return [];
+  const parameters = constructorSignature.parameters.map((p) => ({ label: formatParameterLabel(p) }));
+  const label = `new ${constructorSignature.className}(${parameters.map((p) => p.label).join(", ")})`;
+  return [{ label, parameters }];
 }
 
 function findAnnotationDeclaration(program: Program, name: string): AnnotationStatement | null {

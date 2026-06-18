@@ -377,6 +377,115 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getUnusedImportIdentifiers().map((identifier) => identifier.name)).toEqual([]);
   });
 
+  it("follows bare export-star reexports when collecting node_modules typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pixi.js");
+    const depDir = join(root, "node_modules", "@pixi", "text");
+    await mkdir(join(pkgDir, "lib"), { recursive: true });
+    await mkdir(join(depDir, "lib"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pixi.js", types: "./lib/index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "lib", "index.d.ts"), 'export * from "@pixi/text";\n', "utf8");
+    await writeFile(
+      join(depDir, "package.json"),
+      JSON.stringify({ name: "@pixi/text", types: "./lib/index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(depDir, "lib", "index.d.ts"), "export declare class TextStyle {}\n", "utf8");
+
+    const typings = await getNodeModuleTypings(join(root, "main.vx"), "pixi.js");
+
+    expect(typings?.declarations.some((statement) =>
+      statement.kind === "ExportStatement"
+      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "ClassStatement"
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "TextStyle"
+    )).toBe(true);
+  });
+
+  it("follows triple-slash references and support imports when collecting node_modules typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    await mkdir(join(pkgDir, "lib"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pixi-like", types: "./lib/index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "global.d.ts"),
+      dedent`
+        declare namespace GlobalMixins {
+          interface Application {
+            ticker: {
+              add(callback: () => void): void;
+            };
+          }
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "lib", "plugin.d.ts"),
+      dedent`
+        declare namespace GlobalMixins {
+          interface Application {
+            pluginReady: boolean;
+          }
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "lib", "Application.d.ts"),
+      dedent`
+        export interface Application extends GlobalMixins.Application {
+        }
+
+        export declare class Application {
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "lib", "index.d.ts"),
+      dedent`
+        /// <reference path="../global.d.ts" />
+        import "./plugin";
+        export * from "./Application";
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Application } from "pixi-like"
+
+      const app = new Application()
+      app.ticker.add(() => {})
+      console.log(app.pluginReady)
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
+  });
+
   it("preserves node_modules type aliases that depend on sibling aliases", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");
@@ -444,6 +553,86 @@ describe("node_modules typings resolution", () => {
     const importerPath = join(root, "main.vx");
     const result = await findNodeModuleMemberLocation(importerPath, "pkg", "pkg", "nonExistent");
     expect(result).toBeNull();
+  });
+
+  it("findNodeModuleMemberLocation follows export-star reexports to the original declaration file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "preact");
+
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "preact",
+        types: "./src/index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "src", "index.d.ts"),
+      'export * from "./dom";\n',
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "src", "dom.d.ts"),
+      dedent`
+        export declare class Widget {
+          drawRoundedRect(x: number, y: number, width: number, height: number, radius: number): this;
+        }
+      `,
+      "utf8"
+    );
+
+    const importerPath = join(root, "main.vx");
+    const location = await findNodeModuleMemberLocation(importerPath, "preact", "Widget", "drawRoundedRect");
+
+    expect(location).not.toBeNull();
+    expect(location?.typingsPath).toContain("src/dom.d.ts");
+    expect(location?.range.start.line).toBe(1);
+  });
+
+  it("findNodeModuleMemberLocation follows qualified namespace mixin inheritance", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi-like",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export interface ChildrenHelperMixin {
+          addChildAt(index: number): void;
+        }
+
+        declare global {
+          namespace PixiMixins {
+            interface Container extends ChildrenHelperMixin {}
+          }
+        }
+
+        export interface Container extends PixiMixins.Container {}
+
+        export declare class Container {
+        }
+
+        export { };
+      `,
+      "utf8"
+    );
+
+    const importerPath = join(root, "main.vx");
+    const location = await findNodeModuleMemberLocation(importerPath, "pixi-like", "Container", "addChildAt");
+
+    expect(location).not.toBeNull();
+    expect(location?.typingsPath).toContain("index.d.ts");
+    expect(location?.range.start.line).toBe(1);
   });
 
   it("findNodeModuleExportLocation finds a named export inside package exports subpath typings", async () => {
