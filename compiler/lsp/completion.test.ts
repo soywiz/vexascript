@@ -2409,6 +2409,45 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("label");
     expect(labels).not.toContain("Lowercase");
   });
+  it("accepts a classResolverCache option and reuses it across calls", async () => {
+    const source = dedent`
+      class Counter {
+        val count: int
+        fun increment(): Counter => Counter(count + 1)
+      }
+      val c = Counter(0)
+      c.^^^
+    `;
+    const { source: src, line, character } = sourceWithCursor(source);
+    const session = createAnalysisSession(src);
+    const sharedCache = createClassResolverCache();
+
+    const items1 = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: src, classResolverCache: sharedCache }
+    );
+    const labels1 = items1.map((i) => i.label);
+    expect(labels1).toContain("count");
+    expect(labels1).toContain("increment");
+
+    // Second call reusing the same cache — results must be identical
+    const items2 = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: src, classResolverCache: sharedCache }
+    );
+    const labels2 = items2.map((i) => i.label);
+    expect(labels2).toContain("count");
+    expect(labels2).toContain("increment");
+  });
+
   it("keeps the completion strategy modules layered under the orchestrator", async () => {
     // completion.ts orchestrates the strategy modules; the strategies must
     // never import back from it, so each one stays testable in isolation.
