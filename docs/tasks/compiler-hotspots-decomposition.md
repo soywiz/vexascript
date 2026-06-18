@@ -84,6 +84,7 @@ Examples of likely seams:
   - Second batch: extracted 5 more pure helpers — `isAsyncLike`, `statementAllowsLabeledContinue`, `statementListPreventsSwitchFallthrough`, `statementPreventsSwitchFallthrough` into `compiler/analysis/controlFlow.ts`, and `tupleElementTypeText` added to `compiler/analysis/typeNames.ts`. All covered by `compiler/analysis/controlFlow.test.ts` (28 tests).
   - Third batch: extracted 9 type predicate functions into `compiler/analysis/typeClassifiers.ts` (64 tests including new property helpers). Expanded `compiler/analysis/propertyNames.ts` with 4 property type access helpers (`propertyEntries`, `propertyTypeFrom`, `propertyTypeAllowsUndefined`, `propertyTypeWithoutUndefined`). TypeChecker.ts now imports 40+ standalone functions.
   - Fourth batch: extracted pure type annotation text parsers (`parseFunctionTypeAnnotation`, `parseObjectTypeAnnotation`, `looksLikeFunctionTypeAnnotation`) from TypeChecker.ts into `compiler/analysis/typeNames.ts`. 14 new tests added to `compiler/analysis/typeNames.test.ts`.
+  - Fifth batch: extracted `statementAlwaysExits` and `statementListAlwaysExits` from TypeChecker.ts into `compiler/analysis/controlFlow.ts`. 23 new tests added to `compiler/analysis/controlFlow.test.ts` (now 51 tests total).
 * [ ] Separate statement-family checking from shared type/call resolution helpers.
 * [ ] Split parser logic by syntax families where it reduces branching without duplicating token flow.
 * [x] Reduce the amount of bundling-specific logic living inside generic emission paths.

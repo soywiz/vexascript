@@ -4,6 +4,8 @@ import type { Statement } from "compiler/ast/ast";
 import {
   isAsyncLike,
   statementAllowsLabeledContinue,
+  statementAlwaysExits,
+  statementListAlwaysExits,
   statementListPreventsSwitchFallthrough,
   statementPreventsSwitchFallthrough,
 } from "./controlFlow";
@@ -150,6 +152,156 @@ describe("statementPreventsSwitchFallthrough", () => {
   it("delegates through LabeledStatement", () => {
     const labeled = stmt("LabeledStatement", { body: stmt("BreakStatement") });
     assert.equal(statementPreventsSwitchFallthrough(labeled), true);
+  });
+});
+
+describe("statementAlwaysExits", () => {
+  it("returns true for ReturnStatement", () => {
+    assert.equal(statementAlwaysExits(stmt("ReturnStatement")), true);
+  });
+
+  it("returns true for ThrowStatement", () => {
+    assert.equal(statementAlwaysExits(stmt("ThrowStatement")), true);
+  });
+
+  it("returns false for ExpressionStatement", () => {
+    assert.equal(statementAlwaysExits(stmt("ExpressionStatement")), false);
+  });
+
+  it("returns false for DeferStatement", () => {
+    assert.equal(statementAlwaysExits(stmt("DeferStatement")), false);
+  });
+
+  it("returns true for BlockStatement containing a return", () => {
+    const block = stmt("BlockStatement", { body: [stmt("ReturnStatement")] });
+    assert.equal(statementAlwaysExits(block), true);
+  });
+
+  it("returns false for empty BlockStatement", () => {
+    const block = stmt("BlockStatement", { body: [] });
+    assert.equal(statementAlwaysExits(block), false);
+  });
+
+  it("returns true for IfStatement where both branches always exit", () => {
+    const ifStmt = stmt("IfStatement", {
+      thenBranch: stmt("ReturnStatement"),
+      elseBranch: stmt("ThrowStatement"),
+    });
+    assert.equal(statementAlwaysExits(ifStmt), true);
+  });
+
+  it("returns false for IfStatement without else branch", () => {
+    const ifStmt = stmt("IfStatement", {
+      thenBranch: stmt("ReturnStatement"),
+      elseBranch: undefined,
+    });
+    assert.equal(statementAlwaysExits(ifStmt), false);
+  });
+
+  it("returns false for IfStatement where only then branch exits", () => {
+    const ifStmt = stmt("IfStatement", {
+      thenBranch: stmt("ReturnStatement"),
+      elseBranch: stmt("ExpressionStatement"),
+    });
+    assert.equal(statementAlwaysExits(ifStmt), false);
+  });
+
+  it("returns true for DoWhileStatement whose body always exits", () => {
+    const doWhile = stmt("DoWhileStatement", { body: stmt("ReturnStatement") });
+    assert.equal(statementAlwaysExits(doWhile), true);
+  });
+
+  it("returns false for DoWhileStatement whose body does not exit", () => {
+    const doWhile = stmt("DoWhileStatement", { body: stmt("ExpressionStatement") });
+    assert.equal(statementAlwaysExits(doWhile), false);
+  });
+
+  it("returns false for SwitchStatement with no default case", () => {
+    const switchStmt = stmt("SwitchStatement", {
+      cases: [{ test: stmt("ExpressionStatement"), consequent: [stmt("ReturnStatement")] }],
+    });
+    assert.equal(statementAlwaysExits(switchStmt), false);
+  });
+
+  it("returns true for SwitchStatement with default case where all paths exit", () => {
+    const switchStmt = stmt("SwitchStatement", {
+      cases: [
+        { test: stmt("ExpressionStatement"), consequent: [stmt("ReturnStatement")] },
+        { test: undefined, consequent: [stmt("ThrowStatement")] },
+      ],
+    });
+    assert.equal(statementAlwaysExits(switchStmt), true);
+  });
+
+  it("returns true for TryStatement where finally always exits", () => {
+    const tryStmt = stmt("TryStatement", {
+      tryBlock: stmt("ExpressionStatement"),
+      catchClause: undefined,
+      finallyBlock: stmt("ReturnStatement"),
+    });
+    assert.equal(statementAlwaysExits(tryStmt), true);
+  });
+
+  it("returns true for TryStatement where try and catch both exit", () => {
+    const tryStmt = stmt("TryStatement", {
+      tryBlock: stmt("ReturnStatement"),
+      catchClause: { body: stmt("ThrowStatement") },
+      finallyBlock: undefined,
+    });
+    assert.equal(statementAlwaysExits(tryStmt), true);
+  });
+
+  it("returns false for TryStatement where catch does not exit", () => {
+    const tryStmt = stmt("TryStatement", {
+      tryBlock: stmt("ReturnStatement"),
+      catchClause: { body: stmt("ExpressionStatement") },
+      finallyBlock: undefined,
+    });
+    assert.equal(statementAlwaysExits(tryStmt), false);
+  });
+
+  it("delegates through WithStatement", () => {
+    const withStmt = stmt("WithStatement", { body: stmt("ReturnStatement") });
+    assert.equal(statementAlwaysExits(withStmt), true);
+  });
+
+  it("delegates through LabeledStatement", () => {
+    const labeled = stmt("LabeledStatement", { body: stmt("ReturnStatement") });
+    assert.equal(statementAlwaysExits(labeled), true);
+  });
+});
+
+describe("statementListAlwaysExits", () => {
+  it("returns false for an empty list", () => {
+    assert.equal(statementListAlwaysExits([]), false);
+  });
+
+  it("returns true when an earlier statement always exits", () => {
+    assert.equal(
+      statementListAlwaysExits([stmt("ReturnStatement"), stmt("ExpressionStatement")]),
+      true
+    );
+  });
+
+  it("returns false when no statement exits", () => {
+    assert.equal(
+      statementListAlwaysExits([stmt("ExpressionStatement"), stmt("ExpressionStatement")]),
+      false
+    );
+  });
+
+  it("stops scanning after BreakStatement", () => {
+    assert.equal(
+      statementListAlwaysExits([stmt("BreakStatement"), stmt("ReturnStatement")]),
+      false
+    );
+  });
+
+  it("stops scanning after ContinueStatement", () => {
+    assert.equal(
+      statementListAlwaysExits([stmt("ContinueStatement"), stmt("ReturnStatement")]),
+      false
+    );
   });
 });
 

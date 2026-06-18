@@ -120,7 +120,7 @@ import { walkAst } from "compiler/ast/traversal";
 import { isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
 import { isDynamicPropertyName, normalizePropertyName, propertyEntries, propertyNamesMatch, propertyTypeAllowsUndefined, propertyTypeFrom, propertyTypeWithoutUndefined } from "./propertyNames";
 import { isBigIntType, isIntType, isLongType, isNullishType, isNumberType, isNumericFamilyType, isNumericType, isPrimitiveLikeOperatorType, isStringLikeType } from "./typeClassifiers";
-import { isAsyncLike, statementAllowsLabeledContinue, statementListPreventsSwitchFallthrough } from "./controlFlow";
+import { isAsyncLike, statementAllowsLabeledContinue, statementListAlwaysExits, statementListPreventsSwitchFallthrough } from "./controlFlow";
 
 type EnumResolvedValue =
   | { kind: "constant-int"; value: number }
@@ -5737,7 +5737,7 @@ export class TypeChecker {
       (inAsync
         ? this.asyncReturnValueIsOptional(returnType, asyncReturnValueType)
         : this.returnValueIsOptional(returnType)) ||
-      this.statementListAlwaysExits(body.body)
+      statementListAlwaysExits(body.body)
     ) {
       return;
     }
@@ -5746,67 +5746,6 @@ export class TypeChecker {
       node,
       code: ANALYSIS_ISSUE_CODES.NOT_ALL_CODE_PATHS_RETURN
     });
-  }
-
-  private statementListAlwaysExits(statements: Statement[]): boolean {
-    for (const statement of statements) {
-      if (this.statementAlwaysExits(statement)) {
-        return true;
-      }
-      if (statement.kind === "BreakStatement" || statement.kind === "ContinueStatement") {
-        return false;
-      }
-    }
-    return false;
-  }
-
-  private statementAlwaysExits(statement: Statement): boolean {
-    switch (statement.kind) {
-      case "ReturnStatement":
-      case "ThrowStatement":
-        return true;
-      case "BlockStatement":
-        return this.statementListAlwaysExits((statement as BlockStatement).body);
-      case "IfStatement": {
-        const conditional = statement as IfStatement;
-        return (
-          conditional.elseBranch !== undefined &&
-          this.statementAlwaysExits(conditional.thenBranch) &&
-          this.statementAlwaysExits(conditional.elseBranch)
-        );
-      }
-      case "DoWhileStatement":
-        return this.statementAlwaysExits((statement as DoWhileStatement).body);
-      case "SwitchStatement": {
-        const switchStatement = statement as SwitchStatement;
-        if (!switchStatement.cases.some((switchCase) => switchCase.test === undefined)) {
-          return false;
-        }
-        return switchStatement.cases.every((_, index) =>
-          this.statementListAlwaysExits(
-            switchStatement.cases.slice(index).flatMap((switchCase) => switchCase.consequent)
-          )
-        );
-      }
-      case "TryStatement": {
-        const tryStatement = statement as TryStatement;
-        if (tryStatement.finallyBlock && this.statementAlwaysExits(tryStatement.finallyBlock)) {
-          return true;
-        }
-        return (
-          this.statementAlwaysExits(tryStatement.tryBlock) &&
-          (tryStatement.catchClause === undefined || this.statementAlwaysExits(tryStatement.catchClause.body))
-        );
-      }
-      case "DeferStatement":
-        return false;
-      case "WithStatement":
-        return this.statementAlwaysExits((statement as WithStatement).body);
-      case "LabeledStatement":
-        return this.statementAlwaysExits((statement as LabeledStatement).body);
-      default:
-        return false;
-    }
   }
 
   private reportTypeMismatch(
