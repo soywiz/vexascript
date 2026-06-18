@@ -5,7 +5,7 @@ describe("VS Code color theme", () => {
     const themePath = resolve(process.cwd(), "plugins", "vscode", "themes", "vexa-dark-color-theme.json");
     return JSON.parse(await readFile(themePath, "utf8")) as {
       semanticHighlighting?: boolean;
-      semanticTokenColors?: Record<string, string>;
+      semanticTokenColors?: Record<string, string | { fontStyle?: string }>;
       tokenColors: Array<{ scope: string | string[]; settings: { foreground?: string } }>;
     };
   }
@@ -46,7 +46,7 @@ describe("VS Code color theme", () => {
     expect(findRule("keyword.declaration.vexa")?.settings.foreground).toBe("#569CD6");
   });
 
-  it("defines separate semantic colors for modifier, function, type, and control keywords", async () => {
+  it("defines separate semantic colors for keywords, symbols, and literals", async () => {
     const theme = await readTheme();
 
     expect(theme.semanticHighlighting).toBe(true);
@@ -54,6 +54,19 @@ describe("VS Code color theme", () => {
     expect(theme.semanticTokenColors?.["keywordFunction"]).toBe("#DCDCAA");
     expect(theme.semanticTokenColors?.["keywordType"]).toBe("#4EC9B0");
     expect(theme.semanticTokenColors?.["keywordControl"]).toBe("#C586C0");
+    expect(theme.semanticTokenColors?.["variable"]).toBe("#D4D4D4");
+    expect(theme.semanticTokenColors?.["parameter"]).toBe("#9CDCFE");
+    expect(theme.semanticTokenColors?.["function"]).toBe("#DCDCAA");
+    expect(theme.semanticTokenColors?.["method"]).toBe("#DCDCAA");
+    expect(theme.semanticTokenColors?.["class"]).toBe("#4EC9B0");
+    expect(theme.semanticTokenColors?.["enumMember"]).toBe("#4FC1FF");
+    expect(theme.semanticTokenColors?.["property"]).toBe("#9CDCFE");
+    expect(theme.semanticTokenColors?.["namespace"]).toBe("#4EC9B0");
+    expect(theme.semanticTokenColors?.["type"]).toBe("#4EC9B0");
+    expect(theme.semanticTokenColors?.["number"]).toBe("#B5CEA8");
+    expect(theme.semanticTokenColors?.["string"]).toBe("#CE9178");
+    expect(theme.semanticTokenColors?.["operator"]).toBe("#D4D4D4");
+    expect(theme.semanticTokenColors?.["*.deprecated"]).toEqual({ fontStyle: "strikethrough" });
   });
 
   it("recolors template interpolations like regular expressions instead of plain strings", async () => {

@@ -4,13 +4,19 @@ import { tokenizeReader } from "compiler/parser/tokenizer";
 import { describe, expect, it } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
-import { createSemanticTokens, VEXA_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
+import {
+  createSemanticTokens,
+  DEPRECATED_TOKEN_MODIFIER,
+  semanticTokenRangeKey,
+  VEXA_SEMANTIC_TOKENS_LEGEND
+} from "./semanticTokens";
 
 interface DecodedToken {
   line: number;
   character: number;
   length: number;
   tokenType: string;
+  tokenModifiers: string[];
   lexeme: string;
 }
 
@@ -31,6 +37,10 @@ function decodeTokens(source: string, data: number[]): DecodedToken[] {
     const length = data[i + 2]!;
     const tokenTypeIndex = data[i + 3]!;
     const tokenType = VEXA_SEMANTIC_TOKENS_LEGEND.tokenTypes[tokenTypeIndex] ?? "unknown";
+    const tokenModifierBits = data[i + 4]!;
+    const tokenModifiers = VEXA_SEMANTIC_TOKENS_LEGEND.tokenModifiers.filter((_, index) =>
+      (tokenModifierBits & (1 << index)) !== 0
+    );
     const lineText = lines[line] ?? "";
     const lexeme = lineText.slice(character, character + length);
     decoded.push({
@@ -38,6 +48,7 @@ function decodeTokens(source: string, data: number[]): DecodedToken[] {
       character,
       length,
       tokenType,
+      tokenModifiers,
       lexeme
     });
   }
@@ -173,6 +184,28 @@ describe("semantic tokens", () => {
     );
   });
 
+  it("highlights chain expression members like ordinary member accesses", () => {
+    const source = dedent`
+      class View {
+        addTo(stage: any) {}
+      }
+      val view = View()
+        ..addTo(stage)
+        ..point = 1
+      `;
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === ".." && token.tokenType === "operator")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "addTo" && token.tokenType === "method")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "point" && token.tokenType === "property")).toBe(true);
+  });
+
   it("highlights object methods and their parameters", () => {
     const source = "let obj = { add(a: number): number { return a } }\n";
     const session = createAnalysisSession(source);
@@ -204,6 +237,55 @@ describe("semantic tokens", () => {
     expect(decoded.some((token) => token.lexeme === "useState" && token.tokenType === "variable")).toBe(true);
     expect(decoded.some((token) => token.lexeme === "useLocalState" && token.tokenType === "variable")).toBe(true);
     expect(decoded.some((token) => token.lexeme === "fs" && token.tokenType === "namespace")).toBe(true);
+  });
+
+  it("highlights constructor calls, methods, properties, and type-only imports distinctly", () => {
+    const source = dedent`
+      import { Application, Graphics, type Point } from "pixi.js"
+
+      val app = Application()
+      await app.init({ width: 480 })
+      app.renderer.resize(width, height)
+      val badge = new Graphics()
+      badge.position = app.stage
+      stage.addChild(badge)
+      `;
+    const session = createAnalysisSession(source);
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis
+    });
+    const decoded = decodeTokens(source, semantic.data);
+
+    expect(decoded.some((token) => token.lexeme === "Application" && token.tokenType === "class")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "Graphics" && token.tokenType === "class")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "Point" && token.tokenType === "type")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "init" && token.tokenType === "method")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "renderer" && token.tokenType === "property")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "resize" && token.tokenType === "method")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "position" && token.tokenType === "property")).toBe(true);
+    expect(decoded.some((token) => token.lexeme === "addChild" && token.tokenType === "method")).toBe(true);
+  });
+
+  it("emits deprecated token modifiers for matching token ranges", () => {
+    const source = "value.oldMethod()\n";
+    const session = createAnalysisSession(source);
+    const deprecatedRangeKey = semanticTokenRangeKey({
+      start: { offset: "value.".length, line: 0, column: "value.".length },
+      end: { offset: "value.oldMethod".length, line: 0, column: "value.oldMethod".length }
+    });
+    const semantic = createSemanticTokens({
+      text: source,
+      ast: session.ast,
+      analysis: session.analysis,
+      tokenModifiersByRangeKey: new Map([[deprecatedRangeKey, DEPRECATED_TOKEN_MODIFIER]])
+    });
+    const decoded = decodeTokens(source, semantic.data);
+    const token = decoded.find((item) => item.lexeme === "oldMethod");
+
+    expect(VEXA_SEMANTIC_TOKENS_LEGEND.tokenModifiers).toEqual(["deprecated"]);
+    expect(token?.tokenModifiers).toContain("deprecated");
   });
 
   it("highlights ambient namespace paths and parsed body declarations", () => {

@@ -23,12 +23,14 @@ import type {
 } from "vscode-languageserver/node.js";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { ProjectSessionLike } from "compiler/analysis/projectIndex";
+import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import type { AnalysisSession } from "./analysisSession";
 import { collectCodeActions } from "./codeActionsAggregate";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
+import { collectDeprecatedDiagnostics } from "./deprecatedDiagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
 import { buildAmbientModuleSymbolExports, buildAutoImportSuggestions, buildSymbolExports, uriToFilePath } from "./importFixes";
@@ -56,6 +58,7 @@ import {
   createSemanticTokens,
   VEXA_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
+import { collectDeprecatedSemanticTokenModifiers } from "./deprecatedSemanticTokens";
 import {
   createDocumentHighlights,
   createFoldingRanges,
@@ -147,11 +150,12 @@ export function startLspServer(options: LspServerOptions): void {
   }
 
   async function collectWorkspaceDiagnosticsForDocument(doc: TextDocument): Promise<Diagnostic[]> {
-    const session = analysisSessions.getForDocument(doc);
+    const session = await analysisSessions.getForDocumentAsync(doc);
     const context = { ...featureContext(doc.uri), session };
-    const [crossFileDiagnostics, crossFileTypeDiagnostics] = await Promise.all([
+    const [crossFileDiagnostics, crossFileTypeDiagnostics, deprecatedDiagnostics] = await Promise.all([
       collectCrossFileMemberDiagnostics(context),
-      collectCrossFileTypeDiagnostics(context)
+      collectCrossFileTypeDiagnostics(context),
+      collectDeprecatedDiagnostics(context)
     ]);
     const sameFileKeys = new Set(
       session.semanticIssues.map((issue) => {
@@ -162,7 +166,7 @@ export function startLspServer(options: LspServerOptions): void {
         return `${token.range.start.line}:${token.range.start.column}:${issue.message}`;
       })
     );
-    return [...crossFileDiagnostics, ...crossFileTypeDiagnostics].filter((diagnostic) => {
+    return [...crossFileDiagnostics, ...crossFileTypeDiagnostics, ...deprecatedDiagnostics].filter((diagnostic) => {
       const key = `${diagnostic.range.start.line}:${diagnostic.range.start.character}:${diagnostic.message}`;
       return !sameFileKeys.has(key);
     });
@@ -174,6 +178,10 @@ export function startLspServer(options: LspServerOptions): void {
     inlayHintsParameters = params.initializationOptions?.enableInlayHintsParameters !== false;
     inlayHintsTypes = params.initializationOptions?.enableInlayHintsTypes !== false;
     return {
+      serverInfo: {
+        name: "VexaScript",
+        version: COMPILER_VERSION
+      },
       capabilities: {
         textDocumentSync: TextDocumentSyncKind.Incremental,
         completionProvider: {
@@ -225,6 +233,10 @@ export function startLspServer(options: LspServerOptions): void {
         }
       }
     };
+  });
+
+  connection.onInitialized(() => {
+    connection.console.info(`VexaScript compiler version: ${COMPILER_VERSION}`);
   });
 
   documents.onDidOpen((event) => {
@@ -297,7 +309,7 @@ export function startLspServer(options: LspServerOptions): void {
       return [];
     }
 
-    const session = analysisSessions.getForDocument(doc);
+    const session = await analysisSessions.getForDocumentAsync(doc);
     if (!session.ast) {
       return [];
     }
@@ -364,10 +376,10 @@ export function startLspServer(options: LspServerOptions): void {
   connection.onTypeDefinition((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
   connection.onImplementation((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
 
-  connection.onDocumentHighlight((params) => {
+  connection.onDocumentHighlight(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
-    const session = analysisSessions.getForDocument(doc);
+    const session = await analysisSessions.getForDocumentAsync(doc);
     return session.analysis
       ? createDocumentHighlights(session.analysis, params.position.line, params.position.character, session.ast ?? undefined)
       : [];
@@ -417,7 +429,7 @@ export function startLspServer(options: LspServerOptions): void {
       return null;
     }
 
-    const session = analysisSessions.getForDocument(doc);
+    const session = await analysisSessions.getForDocumentAsync(doc);
     if (!session.analysis || !session.ast) {
       return null;
     }
@@ -448,20 +460,21 @@ export function startLspServer(options: LspServerOptions): void {
       };
     }
 
-    const session = analysisSessions.getForDocument(doc);
+    const session = await analysisSessions.getForDocumentAsync(doc);
     const context = { ...featureContext(doc.uri), session };
-    const [moduleNotFoundDiagnostics, crossFileTypeDiagnostics] = await Promise.all([
+    const [moduleNotFoundDiagnostics, crossFileTypeDiagnostics, deprecatedDiagnostics] = await Promise.all([
       collectModuleNotFoundDiagnostics({
         uri: doc.uri,
         session,
         getSessionForFilePath: environment.getSessionForFilePath
       }),
-      collectCrossFileTypeDiagnostics(context)
+      collectCrossFileTypeDiagnostics(context),
+      collectDeprecatedDiagnostics(context)
     ]);
     const syncDiagnostics = collectDiagnosticsFromSession(session, doc.getText(), (offset) => doc.positionAt(offset));
     return {
       kind: DocumentDiagnosticReportKind.Full,
-      items: [...syncDiagnostics, ...moduleNotFoundDiagnostics, ...crossFileTypeDiagnostics],
+      items: [...syncDiagnostics, ...moduleNotFoundDiagnostics, ...crossFileTypeDiagnostics, ...deprecatedDiagnostics],
       resultId: String(doc.version)
     };
   });
@@ -668,32 +681,42 @@ export function startLspServer(options: LspServerOptions): void {
     return ast ? createOutgoingCalls(ast, doc.uri, params.item) : [];
   });
 
-  connection.languages.semanticTokens.on((params) => {
+  connection.languages.semanticTokens.on(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return { data: [] };
     }
 
-    const session = analysisSessions.getForDocument(doc);
-    return createSemanticTokens({
-      text: doc.getText(),
-      ast: session.ast,
-      analysis: session.analysis
+    const session = await analysisSessions.getForDocumentAsync(doc);
+    const tokenModifiersByRangeKey = await collectDeprecatedSemanticTokenModifiers({
+      ...featureContext(doc.uri),
+      session
     });
-  });
-
-  connection.languages.semanticTokens.onRange((params) => {
-    const doc = documents.get(params.textDocument.uri);
-    if (!doc) {
-      return { data: [] };
-    }
-
-    const session = analysisSessions.getForDocument(doc);
     return createSemanticTokens({
       text: doc.getText(),
       ast: session.ast,
       analysis: session.analysis,
-      range: params.range
+      tokenModifiersByRangeKey
+    });
+  });
+
+  connection.languages.semanticTokens.onRange(async (params) => {
+    const doc = documents.get(params.textDocument.uri);
+    if (!doc) {
+      return { data: [] };
+    }
+
+    const session = await analysisSessions.getForDocumentAsync(doc);
+    const tokenModifiersByRangeKey = await collectDeprecatedSemanticTokenModifiers({
+      ...featureContext(doc.uri),
+      session
+    });
+    return createSemanticTokens({
+      text: doc.getText(),
+      ast: session.ast,
+      analysis: session.analysis,
+      range: params.range,
+      tokenModifiersByRangeKey
     });
   });
 

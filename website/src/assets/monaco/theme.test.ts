@@ -62,4 +62,22 @@ describe("monaco theme", () => {
       foreground: "C586C0",
     });
   });
+
+  it("styles semantic symbols and literals independently", () => {
+    const theme = createVexaScriptMonacoTheme();
+    const ruleByToken = new Map(theme.rules.map((rule) => [rule.token, rule]));
+
+    expect(ruleByToken.get("variable")?.foreground).toBe("D4D4D4");
+    expect(ruleByToken.get("parameter")?.foreground).toBe("9CDCFE");
+    expect(ruleByToken.get("function")?.foreground).toBe("DCDCAA");
+    expect(ruleByToken.get("method")?.foreground).toBe("DCDCAA");
+    expect(ruleByToken.get("class")?.foreground).toBe("4EC9B0");
+    expect(ruleByToken.get("enumMember")?.foreground).toBe("4FC1FF");
+    expect(ruleByToken.get("property")?.foreground).toBe("9CDCFE");
+    expect(ruleByToken.get("namespace")?.foreground).toBe("4EC9B0");
+    expect(ruleByToken.get("type")?.foreground).toBe("4EC9B0");
+    expect(ruleByToken.get("number")?.foreground).toBe("B5CEA8");
+    expect(ruleByToken.get("string")?.foreground).toBe("CE9178");
+    expect(ruleByToken.get("operator")?.foreground).toBe("D4D4D4");
+  });
 });

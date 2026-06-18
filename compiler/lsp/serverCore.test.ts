@@ -1,7 +1,8 @@
 import { assert, describe, it } from "../test/expect";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import type { Connection, TextDocuments } from "vscode-languageserver/node.js";
-import { AnalysisSessionCache } from "./analysisSession";
+import { COMPILER_VERSION } from "compiler/compilerVersion";
+import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import { sourceWithCursor } from "compiler/test/sourceWithCursor";
 import {
   candidateCharacters,
@@ -18,6 +19,7 @@ interface FakeConnection {
   diagnosticsRefreshes: () => number;
   inlayHintRefreshes: () => number;
   sentRequests: string[];
+  infoMessages: string[];
   listened: () => boolean;
   setConfiguration: (value: unknown) => void;
 }
@@ -25,6 +27,7 @@ interface FakeConnection {
 function createFakeConnection(): FakeConnection {
   const handlers = new Map<string, Handler>();
   const sentRequests: string[] = [];
+  const infoMessages: string[] = [];
   let diagnosticsRefreshes = 0;
   let inlayHintRefreshes = 0;
   let listened = false;
@@ -36,6 +39,7 @@ function createFakeConnection(): FakeConnection {
 
   const connection = {
     onInitialize: register("initialize"),
+    onInitialized: register("initialized"),
     onCompletion: register("completion"),
     onCodeAction: register("codeAction"),
     onCodeActionResolve: register("codeActionResolve"),
@@ -69,6 +73,16 @@ function createFakeConnection(): FakeConnection {
     },
     workspace: {
       getConfiguration: () => Promise.resolve(configuration)
+    },
+    console: {
+      info: (message: string) => {
+        infoMessages.push(message);
+      },
+      log: (message: string) => {
+        infoMessages.push(message);
+      },
+      warn: () => undefined,
+      error: () => undefined
     },
     languages: {
       diagnostics: {
@@ -108,6 +122,7 @@ function createFakeConnection(): FakeConnection {
     diagnosticsRefreshes: () => diagnosticsRefreshes,
     inlayHintRefreshes: () => inlayHintRefreshes,
     sentRequests,
+    infoMessages,
     listened: () => listened,
     setConfiguration: (value) => {
       configuration = value;
@@ -246,9 +261,11 @@ describe("LSP server core", () => {
 
     const nodeResult = node.fakeConnection.handlers.get("initialize")!(initializeParams) as {
       capabilities: Record<string, unknown>;
+      serverInfo: { name: string; version: string };
     };
     const browserResult = browser.fakeConnection.handlers.get("initialize")!(initializeParams) as {
       capabilities: Record<string, unknown>;
+      serverInfo: { name: string; version: string };
     };
 
     assert.deepEqual(nodeResult.capabilities["executeCommandProvider"], { commands: ["vexa.refreshDiagnostics"] });
@@ -264,6 +281,8 @@ describe("LSP server core", () => {
       interFileDependencies: false,
       workspaceDiagnostics: false
     });
+    assert.deepEqual(nodeResult.serverInfo, { name: "VexaScript", version: COMPILER_VERSION });
+    assert.deepEqual(browserResult.serverInfo, { name: "VexaScript", version: COMPILER_VERSION });
 
     assert.deepEqual(nodeResult.capabilities["codeLensProvider"], { resolveProvider: false });
     assert.deepEqual(nodeResult.capabilities["completionProvider"], {
@@ -316,6 +335,84 @@ describe("LSP server core", () => {
 
     assert.equal(report.kind, "full");
     assert.equal(report.items.length > 0, true);
+  });
+
+  it("reports deprecated member diagnostics through pull diagnostics", async () => {
+    const server = startServer(false);
+    const document = openedDocument(server, [
+      "declare class Graphics {",
+      "  /** @deprecated since 8.0.0 Use fill instead */",
+      "  beginFill(color: number): Graphics",
+      "  fill(color: number): Graphics",
+      "}",
+      "val badge = Graphics()",
+      "badge.beginFill(1)",
+      ""
+    ].join("\n"));
+
+    const report = await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    }) as { kind: string; items: Array<{ code?: string; tags?: number[]; range: { start: { line: number; character: number }; end: { line: number; character: number } } }> };
+
+    const deprecated = report.items.find((item) => item.code === "MYL3003");
+    assert.equal(report.kind, "full");
+    assert.deepEqual(deprecated?.tags, [2]);
+    assert.deepEqual(deprecated?.range, {
+      start: { line: 6, character: 6 },
+      end: { line: 6, character: 15 }
+    });
+  });
+
+  it("logs the compiler version when the LSP client finishes initialization", () => {
+    const server = startServer(false);
+
+    server.fakeConnection.handlers.get("initialized")!({});
+
+    assert.equal(
+      server.fakeConnection.infoMessages.some((message) => message.includes(COMPILER_VERSION)),
+      true
+    );
+  });
+
+  it("awaits async analysis-session resolution before returning pull diagnostics", async () => {
+    const fakeConnection = createFakeConnection();
+    const fakeDocuments = createFakeDocuments();
+    const badSession = createAnalysisSession("val broken: number = \"text\"\n");
+    const goodSession = createAnalysisSession("val fixed: number = 10\n");
+    const analysisSessions = {
+      getForDocument: () => badSession,
+      getForDocumentAsync: async () => goodSession,
+      delete: () => undefined,
+      clear: () => undefined
+    } as unknown as AnalysisSessionCache;
+    const environment: LspServerEnvironment = {
+      getSourceRoots: () => [],
+      getSessionForFilePath: () => null
+    };
+
+    startLspServer({
+      connection: fakeConnection.connection,
+      documents: fakeDocuments.documents,
+      analysisSessions,
+      environment
+    });
+
+    const document = TextDocument.create(
+      "file:///workspace/main.vx",
+      "vexa",
+      1,
+      "val fixed: number = 10\n"
+    );
+    fakeDocuments.open(document);
+
+    const diagnosticsPromise = fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    }) as Promise<{ kind: string; items: Array<{ message: string }> }>;
+
+    const report = await diagnosticsPromise;
+
+    assert.equal(report.kind, "full");
+    assert.deepEqual(report.items, []);
   });
 
   it("notifies the environment about document lifecycle changes", () => {

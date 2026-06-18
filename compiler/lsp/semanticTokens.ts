@@ -8,6 +8,7 @@ import type {
   BlockStatement,
   CallExpression,
   CatchClause,
+  ChainExpression,
   ClassFieldMember,
   ClassMethodMember,
   ClassStatement,
@@ -101,7 +102,22 @@ const TOKEN_TYPES = [
   "operator"
 ] as const;
 
+const TOKEN_MODIFIERS = [
+  "deprecated"
+] as const;
+
 type TokenTypeName = (typeof TOKEN_TYPES)[number];
+type TokenModifierName = (typeof TOKEN_MODIFIERS)[number];
+
+const TOKEN_MODIFIER_INDEX: Record<TokenModifierName, number> = TOKEN_MODIFIERS.reduce(
+  (indexByType, tokenModifier, index) => {
+    indexByType[tokenModifier] = index;
+    return indexByType;
+  },
+  {} as Record<TokenModifierName, number>
+);
+
+export const DEPRECATED_TOKEN_MODIFIER = 1 << TOKEN_MODIFIER_INDEX.deprecated;
 
 const TOKEN_TYPE_INDEX: Record<TokenTypeName, number> = TOKEN_TYPES.reduce(
   (indexByType, tokenType, index) => {
@@ -113,7 +129,7 @@ const TOKEN_TYPE_INDEX: Record<TokenTypeName, number> = TOKEN_TYPES.reduce(
 
 export const VEXA_SEMANTIC_TOKENS_LEGEND: SemanticTokensLegend = {
   tokenTypes: [...TOKEN_TYPES],
-  tokenModifiers: []
+  tokenModifiers: [...TOKEN_MODIFIERS]
 };
 
 const CONTROL_KEYWORDS = new Set([
@@ -239,7 +255,9 @@ const OPERATOR_SYMBOLS = new Set([
   "--",
   "?",
   ":",
-  "..."
+  "...",
+  "..<",
+  ".."
 ]);
 
 interface DocumentRange {
@@ -252,9 +270,10 @@ interface SemanticTokenParams {
   ast?: Program | null;
   analysis?: Analysis | null;
   range?: DocumentRange;
+  tokenModifiersByRangeKey?: ReadonlyMap<string, number>;
 }
 
-function rangeKey(range: SourceRange): string {
+export function semanticTokenRangeKey(range: SourceRange): string {
   return `${range.start.offset}:${range.end.offset}`;
 }
 
@@ -285,6 +304,10 @@ function markTypeAnnotation(kinds: Map<string, TokenTypeName>, typeAnnotation?: 
     return;
   }
   markIdentifier(kinds, typeAnnotation, "type");
+}
+
+function isPascalCaseIdentifier(identifier: Identifier | undefined): boolean {
+  return identifier !== undefined && /^[A-Z]/.test(identifier.name);
 }
 
 function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeName> {
@@ -380,9 +403,14 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
           markIdentifier(kinds, importStatement.namespaceImport, "namespace");
         }
         for (const specifier of importStatement.specifiers) {
-          markIdentifier(kinds, specifier.imported, "variable");
+          const importedType: TokenTypeName = specifier.typeOnly || importStatement.typeOnly
+            ? "type"
+            : isPascalCaseIdentifier(specifier.imported)
+              ? "class"
+              : "variable";
+          markIdentifier(kinds, specifier.imported, importedType);
           if (specifier.local) {
-            markIdentifier(kinds, specifier.local, "variable");
+            markIdentifier(kinds, specifier.local, importedType);
           }
         }
         return;
@@ -580,6 +608,27 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
     visitExpression(property.value);
   };
 
+  const visitCallCallee = (callee: Expr, identifierType: TokenTypeName): void => {
+    if (callee.kind === "Identifier") {
+      const identifier = callee as Identifier;
+      markIdentifier(kinds, identifier, isPascalCaseIdentifier(identifier) ? "class" : identifierType);
+      return;
+    }
+    if (callee.kind === "MemberExpression") {
+      const member = callee as MemberExpression;
+      visitExpression(member.object);
+      if (member.computed) {
+        visitExpression(member.property);
+      } else if (member.property.kind === "Identifier") {
+        markIdentifier(kinds, member.property as Identifier, "method");
+      } else {
+        visitExpression(member.property);
+      }
+      return;
+    }
+    visitExpression(callee);
+  };
+
   const visitExpression = (expression: Expr): void => {
     switch (expression.kind) {
       case "Identifier":
@@ -615,6 +664,14 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         visitExpression(range.end);
         return;
       }
+      case "ChainExpression": {
+        const chain = expression as ChainExpression;
+        visitExpression(chain.receiver);
+        for (const operation of chain.operations) {
+          visitExpression(operation);
+        }
+        return;
+      }
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;
         visitExpression(assignment.left);
@@ -642,7 +699,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
       }
       case "CallExpression": {
         const call = expression as CallExpression;
-        visitExpression(call.callee);
+        visitCallCallee(call.callee, "function");
         for (const argument of call.arguments) {
           visitExpression(argument);
         }
@@ -650,7 +707,7 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
       }
       case "NewExpression": {
         const newExpression = expression as NewExpression;
-        visitExpression(newExpression.callee);
+        visitCallCallee(newExpression.callee, "class");
         for (const argument of newExpression.arguments ?? []) {
           visitExpression(argument);
         }
@@ -818,7 +875,7 @@ function classifyToken(
     return "keyword";
   }
 
-  const astKind = identifierKinds.get(rangeKey(token.range));
+  const astKind = identifierKinds.get(semanticTokenRangeKey(token.range));
   if (astKind) {
     return astKind;
   }
@@ -863,7 +920,8 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
       continue;
     }
 
-    builder.push(line, character, length, TOKEN_TYPE_INDEX[tokenType], 0);
+    const tokenModifiers = params.tokenModifiersByRangeKey?.get(semanticTokenRangeKey(token.range)) ?? 0;
+    builder.push(line, character, length, TOKEN_TYPE_INDEX[tokenType], tokenModifiers);
   }
 
   return builder.build();

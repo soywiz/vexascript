@@ -7,7 +7,22 @@
     "keywordFunction": "#DCDCAA",
     "keywordType": "#4EC9B0",
     "keywordControl": "#C586C0",
-    "keyword": "#569CD6"
+    "keyword": "#569CD6",
+    "variable": "#D4D4D4",
+    "parameter": "#9CDCFE",
+    "function": "#DCDCAA",
+    "method": "#DCDCAA",
+    "class": "#4EC9B0",
+    "enumMember": "#4FC1FF",
+    "property": "#9CDCFE",
+    "namespace": "#4EC9B0",
+    "type": "#4EC9B0",
+    "number": "#B5CEA8",
+    "string": "#CE9178",
+    "operator": "#D4D4D4",
+    "*.deprecated": {
+      "fontStyle": "strikethrough"
+    }
   },
   "tokenColors": [
     {
