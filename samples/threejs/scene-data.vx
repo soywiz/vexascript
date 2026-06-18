@@ -1,0 +1,35 @@
+export class SceneMetrics(
+  val centerX: number,
+  val centerY: number,
+  val centerZ: number,
+  val sizeX: number,
+  val sizeY: number,
+  val sizeZ: number,
+  val orbitX: number,
+  val orbitY: number,
+  val orbitZ: number,
+  val tintHex: string
+)
+
+fun fixed(value: number): string {
+  return value.toFixed(1)
+}
+
+export fun buildSceneMetrics(): SceneMetrics {
+  return SceneMetrics(
+    0.25,
+    1,
+    1.5,
+    4.5,
+    4,
+    5,
+    0,
+    0,
+    -1,
+    "#44bce9"
+  )
+}
+
+export fun formatSceneMetrics(metrics: SceneMetrics): string {
+  return `center:${fixed(metrics.centerX)},${fixed(metrics.centerY)},${fixed(metrics.centerZ)}|size:${fixed(metrics.sizeX)},${fixed(metrics.sizeY)},${fixed(metrics.sizeZ)}|orbit:${fixed(metrics.orbitX)},${fixed(metrics.orbitY)},${fixed(metrics.orbitZ)}|tint:${metrics.tintHex.slice(1)}`
+}

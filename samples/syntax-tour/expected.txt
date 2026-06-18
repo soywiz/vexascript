@@ -5,6 +5,7 @@ functions:syntax-done:TOUR:loud:renamed:int:4:string:x:local-int:3:local-string:
 default:[value]:nums:1|2|3:id
 class:thing:Ada:thing:Ada:(2,3):(6,4):(8,7):(16,14):false:true:12
 counter:3:3|4:counter:ready
+chain:3:configured
 delegates:6
 destructure:first:actual:Ada|thing:Ada|tag|a|c|d:spread
 expressions:3:true:true:safe:Ada:true

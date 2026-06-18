@@ -54,6 +54,22 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toContain('const counts = new Map([["one", 1]]);');
   });
 
+  it("emits namespace-imported class member calls as constructor invocations", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      import * as THREE from "three"
+      let renderer = THREE.WebGLRenderer()
+    `));
+    const contextProgram = parseFile(tokenizeReader(dedent`
+      import * as THREE from "three"
+      declare class WebGLRenderer {}
+      let renderer = THREE.WebGLRenderer()
+    `), { language: "typescript" });
+
+    expect(emitProgramStatements(program, undefined, contextProgram).join("\n")).toContain(
+      "let renderer = new THREE.WebGLRenderer();"
+    );
+  });
+
   it("emits extension property accessor blocks as getter and setter functions", () => {
     const program = parseFile(tokenizeReader(dedent`
       class Vec2(val x: number, val y: number)

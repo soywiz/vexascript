@@ -69,8 +69,16 @@ async function resolveRelativeTypingsPath(
   }
   const activeVfs = options.vfs ?? vfs();
   const basePath = resolve(dirname(importerTypingsPath), specifier);
+  const baseExt = extname(basePath);
+  const declarationSiblingCandidates = [".js", ".mjs", ".cjs", ".jsx"].includes(baseExt)
+    ? [
+        `${basePath.slice(0, -baseExt.length)}.d.ts`,
+        `${basePath.slice(0, -baseExt.length)}.ts`
+      ]
+    : [];
   const candidates = [
     basePath,
+    ...declarationSiblingCandidates,
     extname(basePath) === "" ? `${basePath}.d.ts` : "",
     extname(basePath) === "" ? `${basePath}.ts` : "",
     resolve(basePath, "index.d.ts"),

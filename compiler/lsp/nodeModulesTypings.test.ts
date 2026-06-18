@@ -534,6 +534,65 @@ describe("node_modules typings resolution", () => {
     );
   });
 
+  it("follows export-star reexports that point at .js specifiers to declaration siblings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "three-like");
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "three-like", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      'export * from "./src/ThreeLike.js";\n',
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "src", "ThreeLike.d.ts"),
+      dedent`
+        export class Vector3 {
+          set(x: number, y: number, z: number): this;
+        }
+
+        export class Object3D {
+          readonly position: Vector3;
+          lookAt(target: Vector3): void;
+        }
+
+        export class PerspectiveCamera extends Object3D {
+        }
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import * as THREE from "three-like"
+
+      val camera = new THREE.PerspectiveCamera()
+      camera.position.set(1, 2, 3)
+      camera.lookAt(new THREE.Vector3())
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
+  });
+
   it("findNodeModuleMemberLocation finds a member inside a namespace", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);

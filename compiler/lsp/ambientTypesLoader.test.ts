@@ -32,6 +32,58 @@ describe("loadAmbientTypesForProject", () => {
     expect(result.globalDeclarations).toHaveLength(0);
   });
 
+  it("loads declarations from a runtime package that publishes its own types", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
+    const pkgDir = join(root, "node_modules", "pixi.js");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      `declare module "pixi.js" {\n  export function hello(): void;\n}\n`,
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "package.json"), JSON.stringify({ name: "pixi.js", types: "index.d.ts" }), "utf8");
+
+    const result = await loadAmbientTypesForProject(join(root, "main.vx"), ["pixi.js"]);
+
+    expect(result.moduleDeclarations.has("pixi.js")).toBe(true);
+    expect(result.moduleDeclarations.get("pixi.js")?.length).toBeGreaterThan(0);
+  });
+
+  it("loads declarations from a direct .d.ts path listed in compilerOptions.types", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
+    const typesDir = join(root, "types");
+    await mkdir(typesDir, { recursive: true });
+    await writeFile(
+      join(typesDir, "pixi-global.d.ts"),
+      `declare var PIXI: { version: string };\n`,
+      "utf8"
+    );
+
+    const result = await loadAmbientTypesForProject(join(root, "main.vx"), ["types/pixi-global.d.ts"]);
+
+    expect(result.globalDeclarations.length).toBeGreaterThan(0);
+  });
+
+  it("falls back to @types when the runtime package has no declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
+    const runtimePkgDir = join(root, "node_modules", "mylib");
+    const typesPkgDir = join(root, "node_modules", "@types", "mylib");
+    await mkdir(runtimePkgDir, { recursive: true });
+    await mkdir(typesPkgDir, { recursive: true });
+    await writeFile(join(runtimePkgDir, "package.json"), JSON.stringify({ name: "mylib", main: "index.js" }), "utf8");
+    await writeFile(
+      join(typesPkgDir, "index.d.ts"),
+      `declare module "mylib" {\n  export const version: string;\n}\n`,
+      "utf8"
+    );
+    await writeFile(join(typesPkgDir, "package.json"), JSON.stringify({ name: "@types/mylib", types: "index.d.ts" }), "utf8");
+
+    const result = await loadAmbientTypesForProject(join(root, "main.vx"), ["mylib"]);
+
+    expect(result.moduleDeclarations.has("mylib")).toBe(true);
+    expect(result.moduleDeclarations.get("mylib")?.length).toBeGreaterThan(0);
+  });
+
   it("loads global ambient declarations (not inside declare module) into globalDeclarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
     const pkgDir = join(root, "node_modules", "@types", "myenv");

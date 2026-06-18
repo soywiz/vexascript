@@ -119,6 +119,26 @@ export function findImportForSymbolNode(ast: Program, symbolNode: unknown): { fr
   return null;
 }
 
+export function findModuleReceiverImport(
+  ast: Program,
+  receiverName: string
+): { from: string } | null {
+  for (const statement of ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const defaultImport = importStatement.defaultImport as Identifier | undefined;
+    const namespaceImport = importStatement.namespaceImport as Identifier | undefined;
+    const matchesDefault = defaultImport?.kind === "Identifier" && defaultImport.name === receiverName;
+    const matchesNamespace = namespaceImport?.kind === "Identifier" && namespaceImport.name === receiverName;
+    if (matchesDefault || matchesNamespace) {
+      return { from: importStatement.from.value };
+    }
+  }
+  return null;
+}
+
 /**
  * Finds the import statement whose default or namespace binding matches
  * `receiverName` (e.g. `import path from "node:path"` bound as `path` in
@@ -132,22 +152,11 @@ export function findAmbientModuleReceiverCandidates(
   ast: Program,
   receiverName: string
 ): string[] | null {
-  for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    const defaultImport = importStatement.defaultImport as Identifier | undefined;
-    const namespaceImport = importStatement.namespaceImport as Identifier | undefined;
-    const matchesDefault = defaultImport?.kind === "Identifier" && defaultImport.name === receiverName;
-    const matchesNamespace = namespaceImport?.kind === "Identifier" && namespaceImport.name === receiverName;
-    if (!matchesDefault && !matchesNamespace) {
-      continue;
-    }
-
-    const moduleCandidates = [importStatement.from.value];
-    if (importStatement.from.value.startsWith("node:")) {
-      moduleCandidates.push(importStatement.from.value.slice("node:".length));
+  const receiverImport = findModuleReceiverImport(ast, receiverName);
+  if (receiverImport) {
+    const moduleCandidates = [receiverImport.from];
+    if (receiverImport.from.startsWith("node:")) {
+      moduleCandidates.push(receiverImport.from.slice("node:".length));
     }
     return moduleCandidates;
   }

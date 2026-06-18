@@ -4,6 +4,7 @@ import { createAnalysisSession } from "./analysisSession";
 import { collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveExtensionMemberDefinitionAcrossFiles,
+  resolveNodeModulesModuleObjectMemberDefinition,
   resolveNodeModulesMemberDefinition
 } from "./crossFileMemberDefinitionSources";
 
@@ -82,5 +83,39 @@ describe("crossFileMemberDefinitionSources", () => {
 
     expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "src", "index.d.ts")).toString());
     expect(location?.range.start.line).toBe(1);
+  });
+
+  it("resolves node_modules module-object member definitions from namespace imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-def-node-module-object-"));
+    const pkgDir = join(root, "node_modules", "three-like");
+    const main = join(root, "main.vx");
+    const source = 'import * as THREE from "three-like"\nval camera = new THREE.PerspectiveCamera()\n';
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "three-like", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export class PerspectiveCamera {
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(main, source, "utf8");
+
+    const location = await resolveNodeModulesModuleObjectMemberDefinition({
+      uri: pathToFileURL(main).toString(),
+      line: 1,
+      character: source.split("\n")[1]!.indexOf("PerspectiveCamera") + 2,
+      session: createAnalysisSession(source),
+      sourceRoots: [root]
+    }, "THREE", "PerspectiveCamera");
+
+    expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(location?.range.start.line).toBe(0);
   });
 });

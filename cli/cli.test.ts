@@ -110,7 +110,7 @@ async function listenNetServer(port: number): Promise<import("node:net").Server>
   const server = createNetServer();
   await new Promise<void>((resolvePromise, reject) => {
     server.once("error", reject);
-    server.listen(port, () => {
+    server.listen(port, "127.0.0.1", () => {
       server.off("error", reject);
       resolvePromise();
     });
@@ -174,11 +174,11 @@ describe("CLI", () => {
     );
   });
 
-  it("build command uses JSX factories from tsconfig.json", async () => {
+  it("build command uses JSX factories from vexascript.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-"));
     const input = join(dir, "input-jsx.vx");
     const output = join(dir, "output-jsx.js");
-    await writeFile(join(dir, "tsconfig.json"), JSON.stringify({ compilerOptions: { jsxFactory: "h", jsxFragmentFactory: "Fragment" } }), "utf8");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({ compilerOptions: { jsxFactory: "h", jsxFragmentFactory: "Fragment" } }), "utf8");
     await writeFile(input, "const view = <><span>hi</span></>", "utf8");
 
     await runCli(["node", "vexa", "build", input, "--out", output]);
@@ -324,6 +324,45 @@ describe("CLI", () => {
         await session.close();
       }
       await closeNetServer(blocker);
+    }
+  });
+
+  it("serve command exposes mapped files and directories from vexascript.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-mappings-"));
+    const entry = join(dir, "main.vx");
+    const html = join(dir, "index.html");
+    await mkdir(join(dir, "node_modules", "pkg", "dist"), { recursive: true });
+    await mkdir(join(dir, "public", "assets"), { recursive: true });
+    await writeFile(entry, 'console.log("mapped")\n', "utf8");
+    await writeFile(html, "<!doctype html><html><body><script src=\"mapped/pkg.js\"></script><img src=\"assets/logo.svg\" /><script type=\"module\" src=\"%VEXA_ENTRYPOINT%\"></script></body></html>", "utf8");
+    await writeFile(join(dir, "node_modules", "pkg", "dist", "pkg.js"), "window.pkgLoaded = true;\n", "utf8");
+    await writeFile(join(dir, "public", "assets", "logo.svg"), "<svg>mapped</svg>\n", "utf8");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({
+      entrypoint: "main.vx",
+      serveMappings: {
+        "node_modules/pkg/dist/pkg.js": "mapped/pkg.js",
+        "public/assets": "assets"
+      }
+    }), "utf8");
+
+    let session: Awaited<ReturnType<typeof startServeSession>> | null = null;
+    try {
+      session = await startServeSession({
+        rootDir: dir,
+        bundleInput: entry,
+        port: 0
+      });
+
+      const baseUrl = `http://127.0.0.1:${session.port}`;
+      expect(await fetchText(`${baseUrl}/mapped/pkg.js`)).toContain("window.pkgLoaded = true;");
+      expect(await fetchText(`${baseUrl}/assets/logo.svg`)).toContain("<svg>mapped</svg>");
+      const htmlText = await fetchText(baseUrl);
+      expect(htmlText).toContain('<script src="mapped/pkg.js"></script>');
+      expect(htmlText).toContain('<img src="assets/logo.svg" />');
+    } finally {
+      if (session) {
+        await session.close();
+      }
     }
   });
 

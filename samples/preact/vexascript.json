@@ -1,3 +1,11 @@
 {
-    "entrypoint": "html.vx"
+    "entrypoint": "html.vx",
+    "compilerOptions": {
+        "jsxImportSource": "preact",
+        "lib": [
+            "es2025",
+            "dom"
+        ],
+        "types": []
+    }
 }

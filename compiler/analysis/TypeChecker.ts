@@ -6506,6 +6506,10 @@ export class TypeChecker {
       return Object.keys(type.properties).map((key) => this.normalizePropertyName(key)).sort();
     }
     if (type.kind === "named") {
+      const expanded = this.expandTypeAliases(type);
+      if (expanded !== type) {
+        return this.propertyNamesForType(expanded);
+      }
       return Array.from(this.resolveNamedTypeMembers(type)?.keys() ?? []).map((key) => this.normalizePropertyName(key)).sort();
     }
     if (type.kind === "tuple") {
@@ -6520,6 +6524,10 @@ export class TypeChecker {
       return type.properties[propertyName] ?? null;
     }
     if (type.kind === "named") {
+      const expanded = this.expandTypeAliases(type);
+      if (expanded !== type) {
+        return this.memberTypeFromObjectType(expanded, propertyName);
+      }
       return this.resolveNamedTypeMembers(type)?.get(propertyName) ?? null;
     }
     if (type.kind === "tuple" && /^\d+$/.test(propertyName)) {
@@ -6700,14 +6708,9 @@ export class TypeChecker {
       return null;
     }
 
-    const valueMatch = /^([A-Za-z_$][\w$]*)\s*\[\s*([A-Za-z_$][\w$]*)\s*\]$/.exec(valueTypeText.trim());
-    if (!valueMatch) {
-      return null;
-    }
-
-    const sourceTypeParameterName = valueMatch[1];
-    const valueKeyParameterName = valueMatch[2];
-    if (!sourceTypeParameterName || !valueKeyParameterName || valueKeyParameterName !== keyParameterName) {
+    const sourceTypeParameterMatch = /^([A-Za-z_$][\w$]*)\s*\[/.exec(valueTypeText.trim());
+    const sourceTypeParameterName = sourceTypeParameterMatch?.[1];
+    if (!sourceTypeParameterName) {
       return null;
     }
 
@@ -6737,11 +6740,78 @@ export class TypeChecker {
       if (!selectedKeySet.has(this.normalizePropertyName(propertyName))) {
         continue;
       }
+      const mappedPropertyType = this.resolveMappedUtilityPropertyType(
+        valueTypeText.trim(),
+        sourceTypeParameterName,
+        keyParameterName,
+        propertyType,
+        substitutions
+      );
       properties[propertyName] = optionalMarker
-        ? unionType([propertyType, builtinType("undefined")])
-        : propertyType;
+        ? unionType([mappedPropertyType, builtinType("undefined")])
+        : mappedPropertyType;
     }
     return objectTypeWithProperties(properties);
+  }
+
+  private resolveMappedUtilityPropertyType(
+    valueTypeText: string,
+    sourceTypeParameterName: string,
+    keyParameterName: string,
+    propertyType: AnalysisType,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType {
+    const directValuePattern = new RegExp(
+      `^${sourceTypeParameterName}\\s*\\[\\s*${keyParameterName}\\s*\\]$`
+    );
+    if (directValuePattern.test(valueTypeText)) {
+      return propertyType;
+    }
+
+    const conditionalMatch = new RegExp(
+      `^${sourceTypeParameterName}\\s*\\[\\s*${keyParameterName}\\s*\\]\\s+extends\\s+(.+?)\\s+\\?\\s+(.+?)\\s*:\\s*(.+)$`
+    ).exec(valueTypeText);
+    if (conditionalMatch) {
+      const conditionText = conditionalMatch[1]?.trim();
+      const trueBranchText = conditionalMatch[2]?.trim();
+      const falseBranchText = conditionalMatch[3]?.trim();
+      if (!conditionText || !trueBranchText || !falseBranchText) {
+        return UNKNOWN_TYPE;
+      }
+      const conditionType = this.typeFromTypeNameLoose(
+        this.substituteTypeParametersInComputedName(conditionText, substitutions)
+      );
+      const selectedBranch = this.isTypeAssignable(propertyType, conditionType)
+        ? trueBranchText
+        : falseBranchText;
+      return this.resolveMappedUtilityBranchType(
+        selectedBranch,
+        sourceTypeParameterName,
+        keyParameterName,
+        propertyType,
+        substitutions
+      );
+    }
+
+    return UNKNOWN_TYPE;
+  }
+
+  private resolveMappedUtilityBranchType(
+    branchText: string,
+    sourceTypeParameterName: string,
+    keyParameterName: string,
+    propertyType: AnalysisType,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType {
+    const indexedPropertyPattern = new RegExp(
+      `${sourceTypeParameterName}\\s*\\[\\s*${keyParameterName}\\s*\\]`,
+      "g"
+    );
+    const substitutedBranchText = this.substituteTypeParametersInComputedName(
+      branchText.replace(indexedPropertyPattern, typeToString(propertyType)),
+      substitutions
+    );
+    return this.typeFromTypeNameLoose(substitutedBranchText);
   }
 
   private objectLikePropertyEntries(type: AnalysisType): Array<[string, AnalysisType]> | null {
@@ -6749,6 +6819,10 @@ export class TypeChecker {
       return Object.entries(type.properties);
     }
     if (type.kind === "named") {
+      const expanded = this.expandTypeAliases(type);
+      if (expanded !== type) {
+        return this.objectLikePropertyEntries(expanded);
+      }
       return Array.from(this.resolveNamedTypeMembers(type)?.entries() ?? []);
     }
     return null;

@@ -4,10 +4,10 @@ import type { ClassStatement, FunctionStatement, ImportStatement, InterfaceState
 import type { Location } from "vscode-languageserver/node.js";
 import { resolveTypeDefinitionAcrossFiles } from "./crossFileTypeResolution";
 import type { ResolveContext } from "./crossFileContext";
-import { effectiveSourceRoots } from "./crossFileContext";
+import { effectiveSourceRoots, findModuleReceiverImport } from "./crossFileContext";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { pathToUri, uriToFilePath } from "./importFixes";
-import { findNodeModuleMemberLocation } from "./nodeModulesTypings";
+import { findNodeModuleExportLocation, findNodeModuleMemberLocation } from "./nodeModulesTypings";
 import { nodeRange } from "./ranges";
 
 export async function resolveNodeModulesMemberDefinition(
@@ -33,6 +33,37 @@ export async function resolveNodeModulesMemberDefinition(
     }
   }
   return null;
+}
+
+export async function resolveNodeModulesModuleObjectMemberDefinition(
+  context: ResolveContext,
+  receiverName: string,
+  memberName: string
+): Promise<Location | null> {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath || !context.session.ast) {
+    return null;
+  }
+
+  const receiverImport = findModuleReceiverImport(context.session.ast, receiverName);
+  if (!receiverImport) {
+    return null;
+  }
+
+  const from = receiverImport.from;
+  if (from.startsWith(".") || from.startsWith("/")) {
+    return null;
+  }
+
+  const location = await findNodeModuleExportLocation(currentFilePath, from, memberName, { vfs: context.vfs });
+  if (!location) {
+    return null;
+  }
+
+  return {
+    uri: pathToUri(location.typingsPath),
+    range: location.range
+  };
 }
 
 export interface ResolvedExtensionMemberDeclaration {

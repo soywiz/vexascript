@@ -1,3 +1,10 @@
 {
-    "entrypoint": "html.vx"
+    "entrypoint": "html.vx",
+    "compilerOptions": {
+        "lib": [
+            "es2025",
+            "dom"
+        ],
+        "types": []
+    }
 }

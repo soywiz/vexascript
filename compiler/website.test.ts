@@ -4,7 +4,7 @@ import { fileExists } from "./utils/fs";
 
 describe("website project", () => {
   it("documents and exposes the current embed and playground entrypoints", async () => {
-    const [embedSource, landingPage, layoutSource, syntaxPage, cliPage, embedPage, playgroundPage, notFoundPage] = await Promise.all([
+    const [embedSource, landingPage, layoutSource, syntaxPage, cliPage, embedPage, playgroundPage, samplesPage, notFoundPage] = await Promise.all([
       readFile("website/src/assets/vexa-embed.ts", "utf8"),
       readFile("website/src/index.njk", "utf8"),
       readFile("website/src/_includes/layout.njk", "utf8"),
@@ -12,6 +12,7 @@ describe("website project", () => {
       readFile("website/src/cli.njk", "utf8"),
       readFile("website/src/embed.njk", "utf8"),
       readFile("website/src/playground.njk", "utf8"),
+      readFile("website/src/samples.njk", "utf8"),
       readFile("website/src/404.njk", "utf8"),
     ]);
 
@@ -57,13 +58,16 @@ describe("website project", () => {
     expect(playgroundPage.includes('id="playground-workbench"')).toBe(true);
     expect(playgroundPage.includes("embeds.createWorkbenchEditor")).toBe(true);
     expect(playgroundPage.includes('window.addEventListener("vexa-embeds-ready"')).toBe(true);
-    expect(playgroundPage.includes('c2d.drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")')).toBe(true);
+    expect(playgroundPage.includes('..drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")')).toBe(true);
+    expect(playgroundPage.includes("..width = 320")).toBe(true);
     expect(playgroundPage.includes('import { increment, LoggedProperty } from "./counter.vx"')).toBe(true);
     expect(playgroundPage.includes('import { drawCard, drawDot } from "./c2d.vx"')).toBe(true);
     expect(playgroundPage.includes('path: "/src/c2d.vx"')).toBe(true);
     expect(playgroundPage.includes('return ${BACKTICK}(\\${point.x}, \\${point.y})${BACKTICK}')).toBe(true);
     expect(playgroundPage.includes("delay(pulseDelay / 100)")).toBe(true);
     expect(playgroundPage.includes("requestAnimationFrame")).toBe(false);
+    expect(samplesPage.includes("<h3>Chain operator</h3>")).toBe(true);
+    expect(samplesPage.includes("..drawRoundedRect(-110, -64, 220, 128, 28)")).toBe(true);
     expect(syntaxPage.includes('class="doc-shell"')).toBe(true);
     expect(cliPage.includes("<code>bundle</code>")).toBe(true);
     expect(cliPage.includes("<code>serve</code>")).toBe(true);

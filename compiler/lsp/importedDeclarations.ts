@@ -765,6 +765,55 @@ function collectAmbientNamespaceExportedProperties(
   return properties;
 }
 
+function collectNodeModuleNamespaceExportedProperties(
+  statements: readonly Statement[]
+): Record<string, AnalysisType> {
+  const properties: Record<string, AnalysisType> = {};
+  for (const statement of statements) {
+    const declaration =
+      statement.kind === "ExportStatement"
+        ? (statement as { declaration?: Statement }).declaration ?? statement
+        : statement;
+
+    if (declaration.kind === "FunctionStatement") {
+      const fn = declaration as FunctionStatement;
+      properties[fn.name.name] = buildFunctionTypeFromStatement(fn);
+      continue;
+    }
+    if (declaration.kind === "VarStatement") {
+      const variable = declaration as VarStatement;
+      const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
+      for (const binding of bindings) {
+        properties[binding.name] = typeFromAnnotationText(variable.typeAnnotation?.name);
+      }
+      continue;
+    }
+    if (declaration.kind === "ClassStatement") {
+      properties[(declaration as ClassStatement).name.name] = namedType((declaration as ClassStatement).name.name);
+      continue;
+    }
+    if (declaration.kind === "InterfaceStatement") {
+      properties[(declaration as InterfaceStatement).name.name] = namedType((declaration as InterfaceStatement).name.name);
+      continue;
+    }
+    if (declaration.kind === "EnumStatement") {
+      properties[(declaration as EnumStatement).name.name] = namedType((declaration as EnumStatement).name.name);
+      continue;
+    }
+    if (declaration.kind === "TypeAliasStatement") {
+      properties[(declaration as TypeAliasStatement).name.name] = namedType((declaration as TypeAliasStatement).name.name);
+      continue;
+    }
+    if (declaration.kind === "NamespaceStatement") {
+      const namespaceName = (declaration as NamespaceStatement).names?.[0]?.name;
+      if (namespaceName) {
+        properties[namespaceName] = namedType(namespaceName);
+      }
+    }
+  }
+  return properties;
+}
+
 function resolveAmbientDefaultImportType(
   importName: string,
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
@@ -1285,6 +1334,10 @@ export async function collectAllImportedDeclarations(
             externalDeclarations.push(targetStatement);
           }
         }
+        const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
+        const namespaceImportType = Object.keys(namespaceExportProperties).length > 0
+          ? objectTypeWithProperties(namespaceExportProperties)
+          : null;
         if (nodeModuleTypings.defaultExportName) {
           const exportType = namedType(nodeModuleTypings.defaultExportName);
           const defaultImportType = callableTypeFromExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName) ?? exportType;
@@ -1292,7 +1345,7 @@ export async function collectAllImportedDeclarations(
             importedSymbolTypes.set(importStatement.defaultImport.name, defaultImportType);
           }
           if (importStatement.namespaceImport) {
-            importedSymbolTypes.set(importStatement.namespaceImport.name, exportType);
+            importedSymbolTypes.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType);
           }
           for (const specifier of importStatement.specifiers) {
             const localName = (specifier.local ?? specifier.imported).name;
@@ -1549,11 +1602,15 @@ export async function collectImportedSymbolTypes(
       if (nodeModuleTypings?.defaultExportName) {
         const exportType = namedType(nodeModuleTypings.defaultExportName);
         const defaultImportType = callableTypeFromExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName) ?? exportType;
+        const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
+        const namespaceImportType = Object.keys(namespaceExportProperties).length > 0
+          ? objectTypeWithProperties(namespaceExportProperties)
+          : null;
         if (importStatement.defaultImport) {
           result.set(importStatement.defaultImport.name, defaultImportType);
         }
         if (importStatement.namespaceImport) {
-          result.set(importStatement.namespaceImport.name, exportType);
+          result.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType);
         }
         for (const specifier of importStatement.specifiers) {
           const localName = (specifier.local ?? specifier.imported).name;

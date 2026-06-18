@@ -1,0 +1,3 @@
+import { buildSceneMetrics, formatSceneMetrics } from "./scene-data.vx"
+
+console.log(formatSceneMetrics(buildSceneMetrics()))

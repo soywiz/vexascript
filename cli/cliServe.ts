@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile, watch } from "node:fs/promises";
+import { readFile, stat, watch } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import type { VexaServeMapping } from "../compiler/project";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { basename, extname, resolve } from "../compiler/utils/path";
 import {
@@ -27,6 +28,7 @@ export interface RunningServeSession {
 
 const LIVE_RELOAD_PATH = "/__vexa_live_reload";
 const BUNDLE_PATH = "/__vexa_bundle__.js";
+const LOOPBACK_HOST = "127.0.0.1";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -79,6 +81,33 @@ async function resolveServePath(rootDir: string, requestPath: string): Promise<s
   return absolutePath;
 }
 
+async function resolveMappedServePath(mappings: readonly VexaServeMapping[], requestPath: string): Promise<string | null> {
+  const decoded = decodeURIComponent(requestPath.split("?")[0] ?? "/");
+  const normalized = resolve("/", decoded === "/" ? "/index.html" : `.${decoded}`).slice(1);
+  for (const mapping of mappings) {
+    const targetPath = mapping.to;
+    if (normalized !== targetPath && !normalized.startsWith(`${targetPath}/`)) {
+      continue;
+    }
+
+    const sourceInfo = await stat(mapping.from).catch(() => null);
+    if (!sourceInfo) {
+      continue;
+    }
+    if (sourceInfo.isFile()) {
+      return normalized === targetPath ? mapping.from : null;
+    }
+
+    const suffix = normalized === targetPath ? "" : normalized.slice(targetPath.length + 1);
+    const sourcePath = resolve(mapping.from, suffix);
+    if (!isWithinRoot(mapping.from, sourcePath)) {
+      return null;
+    }
+    return sourcePath;
+  }
+  return null;
+}
+
 async function listenOnAvailablePort(server: ReturnType<typeof createServer>, requestedPort: number): Promise<number> {
   let port = requestedPort;
   while (true) {
@@ -94,7 +123,7 @@ async function listenOnAvailablePort(server: ReturnType<typeof createServer>, re
         };
         server.once("error", onError);
         server.once("listening", onListening);
-        server.listen(port);
+        server.listen(port, LOOPBACK_HOST);
       });
       const address = server.address();
       return typeof address === "object" && address ? (address as AddressInfo).port : port;
@@ -125,6 +154,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   let bundleCode = "";
   let bundleVersion = 0;
   let pendingInitialBundleDurationMs: number | null = null;
+  let serveMappings: VexaServeMapping[] = [];
 
   const closeWatchers = (): void => {
     for (const controller of watcherAbortControllers.values()) {
@@ -158,6 +188,7 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
   const rebuildBundle = async (reason: string): Promise<void> => {
     const startedAt = Date.now();
     const project = await resolveProjectForSource(bundleInput);
+    serveMappings = project?.serveMappings ?? [];
     await ensureRuntimeDependencies(bundleInput, project);
     await ensureCompilerRuntimePrograms();
     const result = await createBundledModuleArtifacts(bundleInput, target, project, jsxOptions);
@@ -219,7 +250,8 @@ export async function startServeSession(options: ServeOptions): Promise<RunningS
       return;
     }
 
-    const filePath = await resolveServePath(rootDir, requestUrl);
+    const mappedPath = await resolveMappedServePath(serveMappings, requestUrl);
+    const filePath = mappedPath ?? await resolveServePath(rootDir, requestUrl);
     if (!filePath) {
       respond(response, 403, "Forbidden", "text/plain; charset=utf-8");
       return;

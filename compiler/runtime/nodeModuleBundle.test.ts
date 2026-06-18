@@ -161,6 +161,12 @@ describe("transpileModuleSource", () => {
     expect(result.code).toContain("exports.widgets = __vexa_export_0;");
     expect(result.exportNames).toContain("widgets");
   });
+
+  it("wraps destructuring assignment expression statements from bundled JavaScript modules", () => {
+    const source = '({ sizeLods: this._sizeLods, lodPlanes: this._lodPlanes } = createPlanes());\n';
+    const result = transpileModuleSource(source, "/lib/render.js");
+    expect(result.code).toContain('({sizeLods: this._sizeLods, lodPlanes: this._lodPlanes} = createPlanes());');
+  });
 });
 
 describe("bundleNodeModuleGraph", () => {

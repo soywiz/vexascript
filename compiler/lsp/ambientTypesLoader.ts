@@ -188,10 +188,33 @@ async function loadFromEntry(entryPath: string, vfs: Vfs): Promise<AmbientTypesR
   return { globalDeclarations, globalDeclarationLocations, moduleDeclarations, moduleDeclarationLocations };
 }
 
+async function resolveAmbientTypeEntryPath(
+  importerFilePath: string,
+  typeEntry: string,
+  activeVfs: Vfs
+): Promise<string | null> {
+  if (
+    typeEntry.startsWith("/")
+    || typeEntry.startsWith(".")
+    || typeEntry.includes("/")
+    || typeEntry.includes("\\")
+    || typeEntry.endsWith(".d.ts")
+  ) {
+    const directPath = typeEntry.startsWith("/")
+      ? typeEntry
+      : resolve(dirname(importerFilePath), typeEntry);
+    return await activeVfs.fileExists(directPath) ? directPath : null;
+  }
+
+  return await resolveNodeModulesTypingsPath(importerFilePath, typeEntry, { vfs: activeVfs });
+}
+
 /**
- * Loads ambient type declarations for the packages listed in tsconfig.json
+ * Loads ambient type declarations for the packages listed in project config
  * `compilerOptions.types` (e.g. `["node"]`). For each entry:
- *  - Resolves the corresponding @types package from node_modules up the tree.
+ *  - Resolves the runtime package's own declaration entry from node_modules when
+ *    the package publishes `types`/`typings`.
+ *  - Falls back to the corresponding @types package from node_modules up the tree.
  *  - Recursively follows `/// <reference path>` directives.
  *  - Splits statements into global declarations and per-module declarations
  *    (from `declare module "name" { ... }` blocks).
@@ -214,7 +237,7 @@ export async function loadAmbientTypesForProject(
   }
 
   for (const typePkg of types) {
-    const entryPath = await resolveNodeModulesTypingsPath(importerFilePath, typePkg, { vfs: activeVfs });
+    const entryPath = await resolveAmbientTypeEntryPath(importerFilePath, typePkg, activeVfs);
     if (!entryPath) {
       continue;
     }

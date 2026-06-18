@@ -10,6 +10,12 @@ export interface VexaProject {
   libs: string[];
   types: string[];
   bundleEntrypoint?: string;
+  serveMappings: VexaServeMapping[];
+}
+
+export interface VexaServeMapping {
+  from: string;
+  to: string;
 }
 
 interface PackageJsonConfig {
@@ -30,8 +36,20 @@ interface TsConfigJson {
   };
 }
 
-interface VexaScriptConfigJson {
+interface CompilerOptionsConfig {
+  compilerOptions?: {
+    jsx?: unknown;
+    jsxFactory?: unknown;
+    jsxFragmentFactory?: unknown;
+    jsxImportSource?: unknown;
+    lib?: unknown;
+    types?: unknown;
+  };
+}
+
+interface VexaScriptConfigJson extends CompilerOptionsConfig {
   entrypoint?: unknown;
+  serveMappings?: unknown;
 }
 
 interface CachedJsonFile<T> {
@@ -85,8 +103,8 @@ function mergeDependencies(pkg: PackageJsonConfig | null): Record<string, string
   };
 }
 
-function libsFromTsConfig(tsconfig: TsConfigJson | null): string[] {
-  const lib = tsconfig?.compilerOptions?.lib;
+function libsFromConfig(config: CompilerOptionsConfig | null): string[] {
+  const lib = config?.compilerOptions?.lib;
   if (!Array.isArray(lib)) {
     return [];
   }
@@ -94,8 +112,8 @@ function libsFromTsConfig(tsconfig: TsConfigJson | null): string[] {
   return lib.filter((entry): entry is string => typeof entry === "string");
 }
 
-function typesFromTsConfig(tsconfig: TsConfigJson | null): string[] {
-  const types = tsconfig?.compilerOptions?.types;
+function typesFromConfig(config: CompilerOptionsConfig | null): string[] {
+  const types = config?.compilerOptions?.types;
   if (!Array.isArray(types)) {
     return [];
   }
@@ -103,8 +121,8 @@ function typesFromTsConfig(tsconfig: TsConfigJson | null): string[] {
   return types.filter((entry): entry is string => typeof entry === "string");
 }
 
-function jsxOptionsFromTsConfig(tsconfig: TsConfigJson | null): { jsxFactory?: string; jsxFragmentFactory?: string } {
-  const compilerOptions = tsconfig?.compilerOptions;
+function jsxOptionsFromConfig(config: CompilerOptionsConfig | null): { jsxFactory?: string; jsxFragmentFactory?: string } {
+  const compilerOptions = config?.compilerOptions;
   if (!compilerOptions) {
     return {};
   }
@@ -131,6 +149,65 @@ function jsxOptionsFromTsConfig(tsconfig: TsConfigJson | null): { jsxFactory?: s
   }
 
   return {};
+}
+
+function mergeCompilerOptionsConfigs(
+  tsconfig: TsConfigJson | null,
+  vexaConfig: VexaScriptConfigJson | null
+): CompilerOptionsConfig | null {
+  const compilerOptions = {
+    ...(tsconfig?.compilerOptions ?? {}),
+    ...(vexaConfig?.compilerOptions ?? {})
+  };
+  return Object.keys(compilerOptions).length > 0 ? { compilerOptions } : null;
+}
+
+function normalizeServeMappingTarget(target: string): string | null {
+  const normalized = resolve("/", target).slice(1);
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeServeMapping(configDir: string, fromValue: unknown, toValue: unknown): VexaServeMapping | null {
+  const from = typeof fromValue === "string"
+    ? resolve(configDir, fromValue)
+    : null;
+  const to = typeof toValue === "string"
+    ? normalizeServeMappingTarget(toValue)
+    : null;
+  return from && to ? { from, to } : null;
+}
+
+function serveMappingsFromConfig(configDir: string, config: VexaScriptConfigJson | null): VexaServeMapping[] {
+  const mappings: VexaServeMapping[] = [];
+  const serveMappings = config?.serveMappings;
+  if (Array.isArray(serveMappings)) {
+    for (const entry of serveMappings) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+      const mapping = normalizeServeMapping(
+        configDir,
+        (entry as { from?: unknown }).from,
+        (entry as { to?: unknown }).to
+      );
+      if (mapping) {
+        mappings.push(mapping);
+      }
+    }
+    return mappings;
+  }
+
+  if (!serveMappings || typeof serveMappings !== "object") {
+    return mappings;
+  }
+
+  for (const [fromValue, toValue] of Object.entries(serveMappings as Record<string, unknown>)) {
+    const mapping = normalizeServeMapping(configDir, fromValue, toValue);
+    if (mapping) {
+      mappings.push(mapping);
+    }
+  }
+  return mappings;
 }
 
 export async function loadProject(startPath: string): Promise<VexaProject | null> {
@@ -179,14 +256,18 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
     return null;
   }
 
-  const bundleEntrypoint = typeof vexaConfig?.entrypoint === "string" ? resolve(vexaConfigDir ?? startDir, vexaConfig.entrypoint) : undefined;
+  const config = mergeCompilerOptionsConfigs(tsconfig, vexaConfig);
+  const configDir = resolve(vexaConfigDir ?? startDir);
+  const bundleEntrypoint = typeof vexaConfig?.entrypoint === "string" ? resolve(configDir, vexaConfig.entrypoint) : undefined;
+  const serveMappings = serveMappingsFromConfig(configDir, vexaConfig);
 
   return {
     projectDir: packageDir ?? resolve(startDir),
     dependencies,
-    libs: libsFromTsConfig(tsconfig),
-    types: typesFromTsConfig(tsconfig),
+    libs: libsFromConfig(config),
+    types: typesFromConfig(config),
+    serveMappings,
     ...(bundleEntrypoint ? { bundleEntrypoint } : {}),
-    ...jsxOptionsFromTsConfig(tsconfig)
+    ...jsxOptionsFromConfig(config)
   };
 }

@@ -25,6 +25,7 @@ import {
 } from "./crossFileTypeResolution";
 import { resolveDeclaredMemberDefinitionAcrossFiles } from "./crossFileDeclaredMemberDefinition";
 import {
+  resolveNodeModulesModuleObjectMemberDefinition,
   resolveExtensionMemberDeclarationAcrossFiles,
   resolveImportedExtensionMemberDeclarationAcrossFiles,
   resolveNodeModulesMemberDefinition
@@ -78,6 +79,17 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   );
   if (ambientModuleObjectDefinition) {
     return ambientModuleObjectDefinition;
+  }
+  const nodeModulesModuleObjectDefinition =
+    memberExpression.object.kind === "Identifier"
+      ? await resolveNodeModulesModuleObjectMemberDefinition(
+        context,
+        (memberExpression.object as Identifier).name,
+        memberName
+      )
+      : null;
+  if (nodeModulesModuleObjectDefinition) {
+    return nodeModulesModuleObjectDefinition;
   }
   const receiverSymbol =
     memberExpression.object.kind === "Identifier"

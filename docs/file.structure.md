@@ -26,7 +26,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared asynchronous virtual file-system interface used across compiler, LSP, runtime bundling, and browser adapters: `compiler/vfs.ts`
   - Shared abstract VFS contract used by compiler/runtime code across browser and Node hosts: `compiler/vfs.ts`
   - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.vx` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
-  - Project configuration loading from package.json dependencies and tsconfig.json JSX factory defaults used by CLI build/run/test flows: `compiler/project.ts`
+  - Project configuration loading from package.json dependencies plus VexaScript/TypeScript project-config compiler-option defaults and `serveMappings` asset aliases used by CLI build/run/test/serve flows: `compiler/project.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
   - Public analysis API: `compiler/analysis/Analysis.ts`
@@ -65,9 +65,10 @@ This section is the fast onboarding map for agents and contributors.
 - Runnable samples and sample-test harness: `samples/`, `samples/samples.test.ts`
   - Each sample directory is discovered when it contains expected.txt; the harness runs main.vx with runFile and compares captured console.log output to expected.txt.
   - Sample-local package.json files are installed with pnpm install before execution when node_modules is missing, so samples can demonstrate npm package declarations and runtime dependencies.
-  - Sample-local tsconfig.json files are loaded by `compiler/project.ts`; they can set JSX factories/import sources, `compilerOptions.lib` entries such as `dom` for DOM ambient declarations, and `compilerOptions.types` entries such as `node` for loading @types packages as ambient declarations.
-  - Browser canvas sample: `samples/pixi/` mirrors the `samples/preact/` browser shape with `samples/pixi/html.vx`, `samples/pixi/index.html`, `samples/pixi/vexascript.json`, and DOM libs, while keeping `samples/pixi/main.vx` deterministic for the Node-based sample harness.
-  - DOM-emulation sample: `samples/virtual-dom/` uses a lightweight local DOM shim plus `tsconfig.json` with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types without a heavy third-party runtime.
+  - Sample-local VexaScript config files are loaded by `compiler/project.ts`; they can set JSX factories/import sources, `compilerOptions.lib` entries such as `dom` for DOM ambient declarations, `compilerOptions.types` entries such as `node` for loading ambient declarations from runtime packages or `@types` packages, and `serveMappings` aliases that expose files or directories under different served paths. TypeScript config files remain a fallback for compatibility.
+  - Browser canvas sample: `samples/pixi/` mirrors the `samples/preact/` browser shape with `samples/pixi/html.vx`, `samples/pixi/index.html`, and `samples/pixi/vexascript.json`, validating normal module imports from the PIXI npm package directly inside VexaScript browser code.
+  - THREE.js browser sample: `samples/threejs/` pairs deterministic Node-safe math output in `samples/threejs/main.vx` with a served `samples/threejs/html.vx` scene and `samples/threejs/vexascript.json`, validating normal module imports from the Three npm package directly inside VexaScript browser code.
+  - DOM-emulation sample: `samples/virtual-dom/` uses a lightweight local DOM shim plus `samples/virtual-dom/vexascript.json` with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types without a heavy third-party runtime.
   - DefinitelyTyped sample: `samples/minimist/` uses the runtime-only `minimist` package together with `@types/minimist` to validate fallback resolution for npm packages that keep declarations in `node_modules/@types`.
   - Delegated-state sample: `samples/delegated-state/` validates end-to-end execution of Kotlin-style delegated variables backed by function and object delegates.
   - Proxy theme-hooks sample: `samples/proxy-theme-hooks/` validates VexaScript construction of ECMAScript `Proxy` instances and runtime `get`, `set`, and `has` traps over theme objects.
@@ -101,7 +102,7 @@ This section is the fast onboarding map for agents and contributors.
   - Node-only child-process helper used by CLI dependency installation and sample test setup: `cli/io.ts`
   - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `cli/cliShared.ts`
   - Node-side JavaScript/package bundler used by the CLI `build --bundle` / `bundle` commands; transpiles remaining JS/CJS/ESM modules to per-module CommonJS wrappers, resolves local files plus `node_modules`, and emits one final ESM bundle without relying on esbuild: `cli/nodeModuleBundle.ts`
-  - Node-only static dev server for the CLI `serve` command, including HTML bundle injection, SSE live reload, and dependency-aware rebundling watch: `cli/cliServe.ts`
+  - Node-only static dev server for the CLI `serve` command, including HTML bundle injection, project-config `serveMappings` file/directory aliases, SSE live reload, and dependency-aware rebundling watch: `cli/cliServe.ts`
   - VexaScript test-file discovery/orchestration and inline test helpers used by the CLI test command: `cli/testRunner.ts`
   - Shared root-package compiler version loader used by the CLI and MCP server so `package.json` stays the source of truth: `compiler/compilerVersion.ts`
   - MCP codebase navigation server and tests exposing symbols, hover/definition/references/signature help, rename operations, and package-version metadata to MCP clients: `cli/mcpServer.ts`, `compiler/mcpServer.test.ts`

@@ -388,6 +388,35 @@ describe("Analysis", () => {
     expect(messages).toEqual([]);
   });
 
+  it("expands mapped aliases whose property values use conditional branches", () => {
+    const source = dedent`
+      interface Color {
+        red: number
+      }
+      type ColorRepresentation = Color | string | number
+      type MapColorProperties<T> = {
+        [P in keyof T]: T[P] extends Color ? ColorRepresentation : T[P]
+      }
+      interface MaterialProperties {
+        color: Color
+        roughness: number
+        metalness: number
+      }
+      interface MaterialParameters extends Partial<MapColorProperties<MaterialProperties>> {}
+      let ok: MaterialParameters = {
+        color: "#44bce9",
+        roughness: 0.28,
+        metalness: 0.12
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = dedent`
       interface PairStore<K, V> {

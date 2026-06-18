@@ -36,7 +36,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - If a new architectural piece/module is added (new compiler phase, new service, new plugin integration, new docs surface, etc.), this Architecture Map in `docs/file.structure.md` must be updated in the same change so future agents can understand the repository quickly.
 - The Monaco editor support for the website embeds lives in `website/src/assets/monaco/` (browser-only virtual workspace in `workspace.ts`, Monaco/LSP conversions in `providerConversions.ts`, theme in `theme.ts`); the embed shell itself is `website/src/assets/vexa-embed.ts`.
 - Shared async file helpers live in `compiler/utils/fs.ts`, and CLI-only async process helpers live in `cli/io.ts`. Reuse them instead of duplicating `fileExists`, directory probes, or child-process wrappers.
-- Repository samples live under `samples/<name>/`. The sample test harness runs directories that contain expected.txt, installs package.json dependencies with pnpm install when node_modules is absent, and lets each sample provide its own tsconfig.json for compiler options such as JSX factories or DOM libraries.
+- Repository samples live under `samples/<name>/`. The sample test harness runs directories that contain expected.txt, installs package.json dependencies with pnpm install when node_modules is absent, and lets each sample provide its own VexaScript config file for compiler options such as JSX factories or DOM libraries.
 
 ## Testing policy
 

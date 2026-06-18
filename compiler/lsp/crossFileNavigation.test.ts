@@ -2194,6 +2194,83 @@ describe("cross-file navigation", () => {
     expect(location?.range.start.line).toBe(1);
   });
 
+  it("navigates namespace-imported node_modules exports to their declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-namespace-nav-"));
+    const pkgDir = join(root, "node_modules", "three-like");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import * as THREE from "three-like"
+
+      val camera = new THREE.PerspectiveCamera()
+      camera.lookAt(new THREE.Vector3())
+    `;
+    const pkgSource = dedent`
+      export class Vector3 {
+      }
+
+      export class PerspectiveCamera {
+        lookAt(target: Vector3): void;
+      }
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "three-like",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), pkgSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+    const pkgLines = pkgSource.split("\n");
+    const sourceLines = source.split("\n");
+    const perspectiveLine = sourceLines.findIndex((line) => line.includes("PerspectiveCamera"));
+    const vectorLine = sourceLines.findIndex((line) => line.includes("Vector3"));
+    const perspectiveDefinitionLine = pkgLines.findIndex((line) => line.includes("export class PerspectiveCamera"));
+    const vectorDefinitionLine = pkgLines.findIndex((line) => line.includes("export class Vector3"));
+
+    const perspectiveLocation = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: perspectiveLine,
+      character: sourceLines[perspectiveLine]!.indexOf("PerspectiveCamera") + 2,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const vectorLocation = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: vectorLine,
+      character: sourceLines[vectorLine]!.indexOf("Vector3") + 2,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect(perspectiveLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(perspectiveLocation?.range.start.line).toBe(perspectiveDefinitionLine);
+    expect(vectorLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(vectorLocation?.range.start.line).toBe(vectorDefinitionLine);
+  });
+
   it("prefers the receiver's ambient declaration file when duplicate global interface names exist", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-nav-console-pref-"));
     const nodeTypesDir = join(root, "node_modules", "@types", "node");

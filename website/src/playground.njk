@@ -48,8 +48,8 @@ permalink: /playground.html
         activePath: "/src/main.vx",
         height: mobileViewport ? "auto" : "100vh",
         inlayHints: true,
-        storageKey: "vexa.playground.workbench.v6",
-        sessionStorageKey: "vexa.playground.workbench.session.v6",
+        storageKey: "vexa.playground.workbench.v7",
+        sessionStorageKey: "vexa.playground.workbench.session.v7",
         files: [
           {
             path: "/src/main.vx",
@@ -74,16 +74,18 @@ permalink: /playground.html
                 console.log(describe(pulseCenter))
 
                 val app = document.querySelector("#app")
-                val canvas = document.createElement("canvas") // as HTMLCanvasElement
-                canvas.width = 320
-                canvas.height = 180
+                val canvas = document.createElement("canvas") as HTMLCanvasElement
+                canvas
+                  ..width = 320
+                  ..height = 180
                 app?.append(canvas)
 
-                const c2d = canvas.getContext("2d")! // as CanvasRenderingContext2D
-                c2d.fillStyle = "#f4f8fc"
-                c2d.fillRect(0, 0, canvas.width, canvas.height)
-                c2d.drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")
-                c2d.drawDot(pulseCenter, 12, "#17324d")
+                const c2d = canvas.getContext("2d")! as CanvasRenderingContext2D
+                c2d
+                  ..fillStyle = "#f4f8fc"
+                  ..fillRect(0, 0, canvas.width, canvas.height)
+                  ..drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")
+                  ..drawDot(pulseCenter, 12, "#17324d")
 
                 let prop by LoggedProperty(10)
                 prop++

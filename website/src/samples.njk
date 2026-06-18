@@ -164,6 +164,17 @@ for (n of 1 ... 5) {
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
+      <h3>Chain operator</h3>
+      <p><code>..</code> keeps applying member operations to the same receiver and then returns that receiver, which is handy for configuration-style code.</p>
+{% highlightVexaScript %}
+val badge = new Graphics()
+  ..point = Vec2(centerX, centerY - 16)
+  ..beginFill(0xff6b35)
+  ..drawRoundedRect(-110, -64, 220, 128, 28)
+  ..endFill()
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
       <h3>Smart casts</h3>
       <p>Inside <code>if</code> branches, <code>is</code> and <code>in</code> narrow the type of a stable identifier automatically.</p>
 {% highlightVexaScript %}

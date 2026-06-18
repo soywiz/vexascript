@@ -221,6 +221,7 @@ describe("monaco workspace VFS", () => {
         },
         libs: ["DOM", "ES2025"],
         types: [],
+        serveMappings: [],
         jsxFactory: "h",
         jsxFragmentFactory: "Fragment",
       });

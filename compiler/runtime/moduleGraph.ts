@@ -4,6 +4,7 @@ import type {
   FunctionStatement,
   Identifier,
   ImportStatement,
+  NamespaceStatement,
   Program,
   Statement,
   VarStatement,
@@ -48,6 +49,13 @@ interface CachedTypingsData {
   hasFunctionNamespaceDualExport: boolean;
 }
 
+const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
+  "ClassStatement",
+  "InterfaceStatement",
+  "EnumStatement",
+  "TypeAliasStatement"
+]);
+
 const typingsCacheByPath = new Map<string, CachedTypingsData>();
 
 async function parseTypingsProgram(typingsPath: string, vfs: Vfs): Promise<Program | null> {
@@ -68,8 +76,16 @@ async function resolveRelativeTypingsPath(importerTypingsPath: string, specifier
     return null;
   }
   const basePath = resolve(dirname(importerTypingsPath), specifier);
+  const baseExt = extname(basePath);
+  const declarationSiblingCandidates = [".js", ".mjs", ".cjs", ".jsx"].includes(baseExt)
+    ? [
+        `${basePath.slice(0, -baseExt.length)}.d.ts`,
+        `${basePath.slice(0, -baseExt.length)}.ts`
+      ]
+    : [];
   const candidates = [
     basePath,
+    ...declarationSiblingCandidates,
     extname(basePath) === "" ? `${basePath}.d.ts` : "",
     extname(basePath) === "" ? `${basePath}.ts` : "",
     resolve(basePath, "index.d.ts"),
@@ -416,6 +432,47 @@ function externalNamedImportType(declarations: readonly Statement[], importedNam
   return null;
 }
 
+function collectNodeModuleNamespaceExportedProperties(
+  declarations: readonly Statement[]
+): Record<string, AnalysisType> {
+  const properties: Record<string, AnalysisType> = {};
+  for (const statement of declarations) {
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
+    const namedDeclaration = declaration as { name?: { name?: string } };
+    const declarationName = namedDeclaration.name?.name;
+
+    if (declaration.kind === "FunctionStatement" && declarationName) {
+      properties[declarationName] =
+        callableTypeFromNamedExportedFunction([statement], declarationName) ?? UNKNOWN_TYPE;
+      continue;
+    }
+    if (declaration.kind === "VarStatement") {
+      const identifiers = bindingIdentifiers((declaration as VarStatement).name);
+      for (const identifier of identifiers) {
+        properties[identifier.name] = externalTypeFromAnnotationText((declaration as VarStatement).typeAnnotation?.name);
+      }
+      continue;
+    }
+    if (
+      (declaration.kind === "ClassStatement"
+      || declaration.kind === "InterfaceStatement"
+      || declaration.kind === "EnumStatement"
+      || declaration.kind === "TypeAliasStatement")
+      && declarationName
+    ) {
+      properties[declarationName] = namedType(declarationName);
+      continue;
+    }
+    if (declaration.kind === "NamespaceStatement") {
+      const namespaceName = (declaration as NamespaceStatement).names?.[0]?.name;
+      if (namespaceName) {
+        properties[namespaceName] = namedType(namespaceName);
+      }
+    }
+  }
+  return properties;
+}
+
 function jsonValueType(value: unknown): AnalysisType {
   if (typeof value === "string") {
     return builtinType("string");
@@ -489,11 +546,12 @@ function emitAssetImportBindings(
 function collectImportedDeclarations(dependencyAst: Program, importedNames: Set<string>): Statement[] {
   const result: Statement[] = [];
   for (const statement of dependencyAst.body) {
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
+    const isHelperTypeDeclaration = TYPE_DECLARATION_KINDS.has(declaration.kind);
     const name = declarationName(statement);
-    if (!name || !importedNames.has(name)) {
+    if (!isHelperTypeDeclaration && (!name || !importedNames.has(name))) {
       continue;
     }
-    const declaration = unwrapExportedDeclaration(statement);
     if (declaration) {
       result.push(declaration);
     }
@@ -645,6 +703,10 @@ async function collectNodeModulesTypings(
     const declarationAnalysis = typings.analysis;
     const defaultExportName = typings.defaultExportName || specifier;
     const exportType = namedType(defaultExportName);
+    const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(typings.declarations);
+    const namespaceImportType = Object.keys(namespaceExportProperties).length > 0
+      ? objectTypeWithProperties(namespaceExportProperties)
+      : null;
     const ambientTypePackage = ambientTypePackageNameFromTypingsPath(typingsPath);
     const ambientTypes = ambientTypePackage
       ? await loadAmbientTypePackage(ambientTypePackage)
@@ -662,7 +724,7 @@ async function collectNodeModulesTypings(
       );
     }
     if (importStatement.namespaceImport) {
-      importedSymbolTypes.set(importStatement.namespaceImport.name, exportType);
+      importedSymbolTypes.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType);
     }
     for (const s of importStatement.specifiers) {
       const localName = (s.local ?? s.imported).name;

@@ -174,6 +174,7 @@ interface ActiveEmitState {
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
   constructableOnlyNames: Set<string>;
+  moduleObjectNames: Set<string>;
   /**
    * Parameter names (in declaration order) keyed by callable name (top-level
    * functions and class constructors), used to reorder named call arguments
@@ -218,6 +219,7 @@ function createEmptyEmitState(): ActiveEmitState {
     interfaceNames: new Set(),
     interfaceMembers: new Map(),
     constructableOnlyNames: new Set(),
+    moduleObjectNames: new Set(),
     parameterNames: new Map(),
     javaScriptImplementations: new Map(),
     jsNames: new Map(),
@@ -857,6 +859,32 @@ function emitExtensionPropertyAssignment(assignment: AssignmentExpression): stri
   return `${extensionPropertySetterRuntimeName(receiverType, propertyName)}(${receiverText}, ${valueText})`;
 }
 
+function isConstructableCallee(expression: Expr): boolean {
+  if (expression.kind === "Identifier") {
+    const name = (expression as Identifier).name;
+    return activeState.classNames.has(name) || activeState.constructableOnlyNames.has(name);
+  }
+
+  if (expression.kind !== "MemberExpression") {
+    return false;
+  }
+
+  const member = expression as MemberExpression;
+  if (
+    member.computed ||
+    member.optional === true ||
+    member.object.kind !== "Identifier" ||
+    member.property.kind !== "Identifier"
+  ) {
+    return false;
+  }
+
+  const receiverName = (member.object as Identifier).name;
+  const memberName = (member.property as Identifier).name;
+  return activeState.moduleObjectNames.has(receiverName)
+    && (activeState.classNames.has(memberName) || activeState.constructableOnlyNames.has(memberName));
+}
+
 function hasOptionalAssignmentTarget(expression: Expr): boolean {
   if (expression.kind !== "MemberExpression") {
     return false;
@@ -1312,9 +1340,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const argumentsText = emitCallArgumentTexts(call.callee, call.arguments).join(", ");
         const isClassCall =
           call.optional !== true &&
-          call.callee.kind === "Identifier" &&
-          (activeState.classNames.has((call.callee as Identifier).name) ||
-            activeState.constructableOnlyNames.has((call.callee as Identifier).name));
+          isConstructableCallee(call.callee);
         return isClassCall
           ? `new ${calleeText}(${argumentsText})`
           : `${calleeText}${call.optional ? "?." : ""}(${argumentsText})`;
@@ -1552,6 +1578,14 @@ function emitBlock(statement: BlockStatement): string {
   return `{
 ${statement.body.map((child) => emitStatement(child)).join("\n")}
 }`;
+}
+
+function shouldWrapExpressionStatement(expression: Expr): boolean {
+  if (expression.kind !== "AssignmentExpression") {
+    return false;
+  }
+  const left = (expression as AssignmentExpression).left;
+  return left.kind === "ObjectLiteral" || left.kind === "ArrayLiteral";
 }
 
 function emitScopedBlock(statement: BlockStatement): string {
@@ -2203,8 +2237,11 @@ export function emitStatement(statement: Statement): string {
     case "InterfaceStatement":
     case "TypeAliasStatement":
       return "";
-    case "ExprStatement":
-      return `${emitExpression((statement as ExprStatement).expression)};`;
+    case "ExprStatement": {
+      const expression = (statement as ExprStatement).expression;
+      const emitted = emitExpression(expression);
+      return shouldWrapExpressionStatement(expression) ? `(${emitted});` : `${emitted};`;
+    }
     case "EmptyStatement":
       return ";";
     case "DebuggerStatement":
@@ -2318,6 +2355,7 @@ interface EmitProgramRuntimeContext {
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
   constructableOnlyNames: Set<string>;
+  moduleObjectNames: Set<string>;
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
@@ -2341,6 +2379,7 @@ interface EmitProgramRuntimeSeed {
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
   interfaceMethodNames: Map<string, Set<string>>;
   constructableCandidates: Array<{ variableName: string; typeName: string }>;
+  moduleObjectNames: Set<string>;
   parameterNames: Map<string, string[]>;
   javaScriptImplementations: Map<string, JavaScriptImplementationInfo>;
   jsNames: Map<string, string>;
@@ -2388,6 +2427,7 @@ function cloneRuntimeSeed(seed: EmitProgramRuntimeSeed): EmitProgramRuntimeSeed 
     interfaceMembers: new Map(seed.interfaceMembers),
     interfaceMethodNames: cloneSetMapValues(seed.interfaceMethodNames),
     constructableCandidates: [...seed.constructableCandidates],
+    moduleObjectNames: new Set(seed.moduleObjectNames),
     parameterNames: cloneMapArrayValues(seed.parameterNames),
     javaScriptImplementations: new Map(seed.javaScriptImplementations),
     jsNames: new Map(seed.jsNames),
@@ -2407,6 +2447,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
   const interfaceMembers = new Map<string, InterfaceStatement["members"]>();
   const interfaceMethodNames = new Map<string, Set<string>>();
   const constructableCandidates: Array<{ variableName: string; typeName: string }> = [];
+  const moduleObjectNames = new Set<string>();
   const parameterNames = new Map<string, string[]>();
   const javaScriptImplementations = new Map<string, JavaScriptImplementationInfo>();
   const jsNames = new Map<string, string>();
@@ -2578,6 +2619,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
     interfaceMembers,
     interfaceMethodNames,
     constructableCandidates,
+    moduleObjectNames,
     parameterNames,
     javaScriptImplementations,
     jsNames,
@@ -2604,6 +2646,7 @@ function collectEmitProgramRuntimeContext(
   const interfaceMethodNames = seed.interfaceMethodNames;
   const enumInfos = seed.enumInfos;
   const constructableOnlyNames = new Set<string>();
+  const moduleObjectNames = new Set<string>(seed.moduleObjectNames);
   const constructableCandidates = seed.constructableCandidates;
   const parameterNames = seed.parameterNames;
   const javaScriptImplementations = seed.javaScriptImplementations;
@@ -2613,7 +2656,14 @@ function collectEmitProgramRuntimeContext(
 
   for (const statement of contextProgram.body) {
     if (statement.kind === "ImportStatement") {
-      for (const specifier of (statement as ImportStatement).specifiers) {
+      const importStatement = statement as ImportStatement;
+      if (importStatement.defaultImport?.kind === "Identifier") {
+        moduleObjectNames.add(importStatement.defaultImport.name);
+      }
+      if (importStatement.namespaceImport?.kind === "Identifier") {
+        moduleObjectNames.add(importStatement.namespaceImport.name);
+      }
+      for (const specifier of importStatement.specifiers) {
         const localName = (specifier.local ?? specifier.imported).name;
         importedNames.add(localName);
         importedOverloadAliases.push({ importedName: specifier.imported.name, localName });
@@ -2774,6 +2824,7 @@ function collectEmitProgramRuntimeContext(
     interfaceNames,
     interfaceMembers,
     constructableOnlyNames,
+    moduleObjectNames,
     parameterNames,
     javaScriptImplementations,
     jsNames,
@@ -2847,6 +2898,7 @@ export function emitProgramStatementPairs(
     interfaceNames: runtimeContext.interfaceNames,
     interfaceMembers: runtimeContext.interfaceMembers,
     constructableOnlyNames: runtimeContext.constructableOnlyNames,
+    moduleObjectNames: runtimeContext.moduleObjectNames,
     parameterNames: runtimeContext.parameterNames,
     javaScriptImplementations: runtimeContext.javaScriptImplementations,
     jsNames: runtimeContext.jsNames,
