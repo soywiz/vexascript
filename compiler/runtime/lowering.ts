@@ -55,6 +55,15 @@ function copyNodeBounds<T extends object>(target: T, source: Node): T {
 function cloneVarStatement(statement: VarStatement): VarStatement {
   return copyNodeBounds({
     ...statement,
+    ...(statement.accessors
+      ? {
+          accessors: statement.accessors.map((accessor) => ({
+            ...accessor,
+            parameters: accessor.parameters.map((parameter) => ({ ...parameter })),
+            body: accessor.body
+          }))
+        }
+      : {}),
     ...(statement.declarations
       ? {
           declarations: statement.declarations.map((declaration) => ({ ...declaration }))

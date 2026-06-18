@@ -149,6 +149,9 @@ export class Binder {
     if (existing?.node === symbol.node) {
       return;
     }
+    if (existing?.implicitReceiver === true && symbol.implicitReceiver === true) {
+      return;
+    }
     const declaredOffset = declaredOffsetOverride ?? symbolOffset(symbol.node);
     if (
       existing &&
@@ -474,13 +477,25 @@ export class Binder {
     if (statement.receiverType) {
       const extensionScope = this.createScope(scope, statement);
       this.declareReceiverMembers(extensionScope, statement.receiverType.name);
+      const receiverType = this.typeFromAnnotationLoose(statement.receiverType) ?? namedType(statement.receiverType.name);
       this.declare(extensionScope, {
         name: "this",
         kind: "variable",
         node: statement.receiverType,
-        type: namedType(statement.receiverType.name),
-        valueType: statement.receiverType.name
+        type: receiverType,
+        valueType: typeToString(receiverType)
       }, -1);
+      for (const accessor of statement.accessors ?? []) {
+        const accessorScope = this.createScope(extensionScope, accessor);
+        for (const parameter of accessor.parameters) {
+          if (parameter.thisParameter === true) {
+            continue;
+          }
+          const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
+          this.declareParameterBinding(accessorScope, parameter.name, parameterType);
+        }
+        this.bindStatements(accessor.body.body, accessorScope);
+      }
       return;
     }
     if (statement.declarations && statement.declarations.length > 0) {
@@ -546,12 +561,13 @@ export class Binder {
     const functionScope = this.createScope(scope, statement);
     if (statement.receiverType) {
       this.declareReceiverMembers(functionScope, statement.receiverType.name);
+      const receiverType = this.typeFromAnnotationLoose(statement.receiverType) ?? namedType(statement.receiverType.name);
       this.declare(functionScope, {
         name: "this",
         kind: "variable",
         node: statement.receiverType,
-        type: namedType(statement.receiverType.name),
-        valueType: statement.receiverType.name
+        type: receiverType,
+        valueType: typeToString(receiverType)
       }, -1);
     }
     for (const parameter of statement.parameters) {
@@ -690,9 +706,80 @@ export class Binder {
         for (const interfaceStatement of interfaceStatements) {
           this.declareInterfaceMembers(scope, interfaceStatement, visited);
         }
+        this.declareInterfaceImplementorMembers(scope, receiverName);
       }
     }
     this.declareExtensionReceiverMembers(scope, receiverName);
+  }
+
+  private declareInterfaceImplementorMembers(scope: Scope, receiverName: string): void {
+    for (const classStatement of this.classStatementsByName.values()) {
+      if (!this.classMatchesInterfaceReceiver(classStatement, receiverName, new Set<string>())) {
+        continue;
+      }
+      this.declareClassMembers(scope, classStatement);
+    }
+  }
+
+  private classMatchesInterfaceReceiver(
+    classStatement: ClassStatement,
+    receiverName: string,
+    visitedClasses: Set<string>
+  ): boolean {
+    if (visitedClasses.has(classStatement.name.name)) {
+      return false;
+    }
+    visitedClasses.add(classStatement.name.name);
+
+    for (const implementedType of classStatement.implementsTypes ?? []) {
+      if (this.interfaceMatchesReceiver(implementedType.name, receiverName, new Set<string>())) {
+        return true;
+      }
+    }
+
+    if (!classStatement.extendsType) {
+      return false;
+    }
+
+    if (this.interfaceMatchesReceiver(classStatement.extendsType.name, receiverName, new Set<string>())) {
+      return true;
+    }
+
+    const baseClass = this.classStatementsByName.get(classStatement.extendsType.name);
+    if (!baseClass) {
+      return false;
+    }
+
+    return this.classMatchesInterfaceReceiver(baseClass, receiverName, visitedClasses);
+  }
+
+  private interfaceMatchesReceiver(
+    interfaceName: string,
+    receiverName: string,
+    visitedInterfaces: Set<string>
+  ): boolean {
+    if (interfaceName === receiverName) {
+      return true;
+    }
+    if (visitedInterfaces.has(interfaceName)) {
+      return false;
+    }
+    visitedInterfaces.add(interfaceName);
+
+    const interfaceStatements = this.interfaceStatementsByName.get(interfaceName);
+    if (!interfaceStatements) {
+      return false;
+    }
+
+    for (const interfaceStatement of interfaceStatements) {
+      for (const parentType of interfaceStatement.extendsTypes ?? []) {
+        if (this.interfaceMatchesReceiver(parentType.name, receiverName, visitedInterfaces)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   private declareExtensionReceiverMembers(scope: Scope, receiverName: string): void {
@@ -840,7 +927,20 @@ export class Binder {
     }
   }
 
-  private declareClassMembers(scope: Scope, statement: ClassStatement): void {
+  private declareClassMembers(scope: Scope, statement: ClassStatement, visited = new Set<string>()): void {
+    if (visited.has(statement.name.name)) {
+      return;
+    }
+    visited.add(statement.name.name);
+
+    const baseClassName = statement.extendsType?.name;
+    if (baseClassName) {
+      const baseClass = this.classStatementsByName.get(baseClassName);
+      if (baseClass) {
+        this.declareClassMembers(scope, baseClass, visited);
+      }
+    }
+
     for (const parameter of statement.primaryConstructorParameters ?? []) {
       const parameterType = this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE;
       this.declare(scope, {

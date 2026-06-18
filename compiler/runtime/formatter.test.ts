@@ -31,6 +31,12 @@ describe("formatSource", () => {
     expect(formatSource(source)).toBe(source);
   });
 
+  it("formats namespace re-exports", () => {
+    expect(formatSource('export * as widgets from "./pkg"')).toBe(
+      'export * as widgets from "./pkg"'
+    );
+  });
+
   it("groups consecutive imports and collapses blank lines between them", () => {
     expect(
       formatSource('import { a } from "a"\n\n\nimport { b } from "b"')

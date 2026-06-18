@@ -539,7 +539,7 @@ An `operator+` binding is not a real runtime export: it is installed on the rece
 
 ## Exports
 
-VexaScript supports ES module exports for declarations, named export lists, re-exports, default exports, and type-only export lists:
+VexaScript supports ES module exports for declarations, named export lists, re-exports, namespace re-exports, default exports, and type-only export lists:
 
 ```vexa
 export const answer: number = 42
@@ -557,6 +557,7 @@ export default Point
 export { Point as RenamedPoint }
 export { Shape } from "./shape"
 export * from "./math"
+export * as MathHelpers from "./math"
 export type Name = string
 export type { Shape } from "./types"
 export as namespace MyLib
@@ -580,7 +581,7 @@ import { greet } from "./helpers"
 
 The explicit `export` keyword is still supported and remains useful for re-exports, default exports, type-only exports, and codebases that prefer the extra clarity at the declaration site.
 
-Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output. `export as namespace` is supported for TypeScript-style global UMD declarations; it participates in parsing and editor highlighting and is omitted from JavaScript output.
+Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output. `export as namespace` is supported for TypeScript-style global UMD declarations; it participates in parsing and editor highlighting and is omitted from JavaScript output. Namespace re-exports such as `export * as MathHelpers from "./math"` emit as standard JavaScript namespace re-exports in ESM mode and as CommonJS namespace assignments in CommonJS mode.
 
 ## Classes
 
@@ -973,6 +974,20 @@ Supported assignment operators:
 - `&=`, `|=`
 - `&&=`, `||=`
 - `??=`
+
+### Chain operator
+
+The chain operator `..` evaluates a receiver once, applies each following member operation to that same receiver, and returns the receiver. It is useful for constructing and configuring objects without repeating the variable name.
+
+```vexa
+val badge = Graphics()
+  ..point = Vec2(centerX, centerY - 16)
+  ..beginFill(0xff6b35)
+  ..drawRoundedRect(-110, -64, 220, 128, 28)
+  ..endFill()
+```
+
+This is equivalent to creating the `Graphics()` value, assigning `point`, calling the listed methods on that value, and using the configured value as the initializer for `badge`. Chain operations currently support member assignments and member calls.
 
 ### Conditional and comma operators
 

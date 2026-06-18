@@ -16,6 +16,7 @@ import {
     BreakStatement,
     CallExpression,
     CatchClause,
+    ChainExpression,
     ClassDelegate,
     ClassFieldMember,
     ClassMember,
@@ -75,8 +76,8 @@ import {
     NamedArgument,
     Program,
     RangeExpression,
-    RegExpLiteral,
     ReturnStatement,
+    RegExpLiteral,
     Statement,
     StringLiteral,
     SpreadExpression,
@@ -1960,6 +1961,14 @@ export class Parser {
             return;
         }
 
+        if (
+            previousToken?.type === "symbol" &&
+            previousToken.value === "}" &&
+            this.isLikelyStatementStart(next)
+        ) {
+            return;
+        }
+
         const suffix = context === "block" ? "or '}'" : "or end of file";
         this.fail(`Expected ';', newline, ${suffix} between statements`, next, "statement");
     }
@@ -2105,13 +2114,15 @@ export class Parser {
 
     private parseObjectLiteralFromConsumedOpen(startToken: Token): ObjectLiteral {
         const properties: ObjectLiteralProperty[] = [];
+        let trailingComma = false;
 
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}") {
             this.tokens.skip();
             return this.withNodeBounds(startToken, () => {
                 return {
                     kind: "ObjectLiteral",
-                    properties
+                    properties,
+                    ...(trailingComma ? { trailingComma: true } : {})
                 } as ObjectLiteral;
             });
         }
@@ -2123,7 +2134,8 @@ export class Parser {
                 return this.withNodeBounds(startToken, () => {
                     return {
                         kind: "ObjectLiteral",
-                        properties
+                        properties,
+                        ...(trailingComma ? { trailingComma: true } : {})
                     } as ObjectLiteral;
                 });
             }
@@ -2272,6 +2284,7 @@ export class Parser {
             const separator = this.tokens.peek();
             if (separator?.type === "symbol" && separator.value === ",") {
                 this.tokens.skip();
+                trailingComma = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "}";
                 continue;
             }
 
@@ -2280,7 +2293,8 @@ export class Parser {
                 return this.withNodeBounds(startToken, () => {
                     return {
                         kind: "ObjectLiteral",
-                        properties
+                        properties,
+                        ...(trailingComma ? { trailingComma: true } : {})
                     } as ObjectLiteral;
                 });
             }
@@ -2615,6 +2629,7 @@ export class Parser {
             try {
                 const objectLiteral = this.parseObjectLiteralFromConsumedOpen(openBrace);
                 if (
+                    !objectLiteral.trailingComma &&
                     objectLiteral.properties.length === 1 &&
                     objectLiteral.properties[0]?.kind === "ObjectProperty" &&
                     (objectLiteral.properties[0] as ObjectProperty).shorthand &&
@@ -3038,6 +3053,20 @@ export class Parser {
                     break;
                 }
                 const tailLambda = this.parseTailLambdaArgument();
+                if (expr.kind === "NewExpression") {
+                    const newExpression = expr as NewExpression;
+                    expr = this.attachNodeBounds(
+                        {
+                            kind: "NewExpression",
+                            callee: newExpression.callee,
+                            arguments: [...(newExpression.arguments ?? []), tailLambda],
+                            ...(newExpression.typeArguments ? { typeArguments: newExpression.typeArguments } : {})
+                        } as NewExpression,
+                        newExpression.firstToken,
+                        tailLambda.lastToken ?? this.getLastReadToken()
+                    );
+                    continue;
+                }
                 if (expr.kind === "CallExpression") {
                     const call = expr as CallExpression;
                     const newCall = this.attachNodeBounds(
@@ -3832,7 +3861,7 @@ export class Parser {
         } as CommaExpression, first.firstToken, expressions[expressions.length - 1]?.lastToken ?? this.getLastReadToken());
     }
 
-    private parseAssignment(): Expr {
+    private parseAssignment(allowChain: boolean = true): Expr {
         const arrowFunction = this.tryParseArrowFunctionExpression();
         if (arrowFunction) {
             return arrowFunction;
@@ -3840,6 +3869,10 @@ export class Parser {
 
         const left = this.parseConditional();
         const token = this.tokens.peek();
+
+        if (allowChain && token?.type === "symbol" && token.value === "..") {
+            return this.parseChainExpression(left);
+        }
 
         if (token?.type === "symbol" && ASSIGNMENT_OPERATORS.includes(token.value as AssignmentOperator)) {
             this.tokens.skip();
@@ -3855,9 +3888,47 @@ export class Parser {
         return left;
     }
 
+    private parseChainExpression(receiver: Expr): ChainExpression {
+        const operations: Expr[] = [];
+        while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "..") {
+            const chainToken = this.tokens.read()!;
+            const property = this.tryParsePrivateIdentifierToken() ?? this.tokens.read();
+            if (property?.type !== "identifier") {
+                this.fail("Expected identifier after '..'", this.tokenAt(property ?? chainToken));
+            }
+            const member = this.attachNodeBounds({
+                kind: "MemberExpression",
+                object: receiver,
+                property: this.buildIdentifierFromToken(property),
+                computed: false
+            } as MemberExpression, chainToken, property);
+            let operation = this.parsePostfixFrom(member);
+            const assignmentToken = this.tokens.peek();
+            if (
+                assignmentToken?.type === "symbol" &&
+                ASSIGNMENT_OPERATORS.includes(assignmentToken.value as AssignmentOperator)
+            ) {
+                this.tokens.skip();
+                const right = this.parseAssignment(false);
+                operation = this.attachNodeBounds({
+                    kind: "AssignmentExpression",
+                    operator: assignmentToken.value as AssignmentOperator,
+                    left: operation,
+                    right
+                } as AssignmentExpression, chainToken, right.lastToken ?? this.getLastReadToken());
+            }
+            operations.push(operation);
+        }
+        return this.attachNodeBounds({
+            kind: "ChainExpression",
+            receiver,
+            operations
+        } as ChainExpression, receiver.firstToken, operations[operations.length - 1]?.lastToken ?? receiver.lastToken);
+    }
+
     /**
      * Attempts to parse the head of an extension property declaration:
-     * `<Receiver>[<TypeArgs>].<name>[: Type] =>`. Returns `null` (restoring the
+     * `<Receiver>[<TypeArgs>].<name>[: Type]`. Returns `null` (restoring the
      * token position) when the upcoming tokens are a regular variable
      * declaration. Any leading type parameters (`val <T> ...`) must be consumed
      * by the caller before invoking this method.
@@ -3914,12 +3985,6 @@ export class Parser {
             }
         }
 
-        const arrow = this.tokens.peek();
-        if (!(arrow?.type === "symbol" && arrow.value === "=>")) {
-            return restore();
-        }
-        this.tokens.skip();
-
         this.commitTokenCheckpoint(checkpoint);
         return {
             receiverType: this.buildIdentifierFromToken(receiverToken),
@@ -3927,6 +3992,119 @@ export class Parser {
             name: this.buildIdentifierFromToken(nameToken),
             ...(typeAnnotation ? { typeAnnotation } : {})
         };
+    }
+
+    private parseExtensionPropertyAccessorBlock(
+        propertyName: Identifier,
+        typeAnnotation: Identifier | undefined
+    ): ClassMethodMember[] {
+        const openBrace = this.tokens.read();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            this.fail("Expected '{' to start extension property accessor block", this.tokenAt(openBrace));
+        }
+
+        const accessors: ClassMethodMember[] = [];
+        while (this.tokens.hasMore) {
+            const peekToken = this.tokens.peek();
+            if (peekToken?.type === "symbol" && peekToken.value === "}") {
+                break;
+            }
+            if (peekToken?.type === "symbol" && peekToken.value === ";") {
+                this.tokens.skip();
+                continue;
+            }
+
+            const accessorKeyword = this.tokens.read();
+            if (
+                accessorKeyword?.type !== "identifier" ||
+                (accessorKeyword.value !== "get" && accessorKeyword.value !== "set")
+            ) {
+                this.fail("Expected 'get' or 'set' inside extension property accessor block", this.tokenAt(accessorKeyword));
+            }
+
+            if (accessorKeyword.value === "get") {
+                const getterBody = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=>"
+                    ? this.parseExpressionBodyAsBlock()
+                    : this.parseBlockStatement();
+                const getter: ClassMethodMember = {
+                    kind: "ClassMethodMember",
+                    name: propertyName,
+                    parameters: [],
+                    body: getterBody,
+                    accessorKind: "get"
+                };
+                if (typeAnnotation) {
+                    getter.returnType = typeAnnotation;
+                }
+                this.attachNonEnumerableToken(getter, "accessorToken", accessorKeyword);
+                accessors.push(this.attachNodeBounds(getter, accessorKeyword, this.getLastReadToken() ?? accessorKeyword));
+            } else {
+                let setterParameter: FunctionParameter;
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+                    this.tokens.skip();
+                    const parameterToken = this.tokens.read();
+                    if (parameterToken?.type !== "identifier") {
+                        this.fail("Expected setter parameter name", this.tokenAt(parameterToken));
+                    }
+                    let parameterType: Identifier | undefined = typeAnnotation;
+                    if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+                        this.tokens.skip();
+                        parameterType = this.parseTypeAnnotationNode();
+                    }
+                    const closeParen = this.tokens.read();
+                    if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                        this.fail("Expected ')' after setter parameter", this.tokenAt(closeParen));
+                    }
+                    const parameterName = this.buildIdentifierFromToken(parameterToken);
+                    setterParameter = this.attachNodeBounds(
+                        { kind: "FunctionParameter", name: parameterName } as FunctionParameter,
+                        parameterToken,
+                        this.getLastReadToken() ?? parameterToken
+                    );
+                    if (parameterType) {
+                        setterParameter.typeAnnotation = parameterType;
+                    }
+                } else {
+                    const newValueIdentifier = this.attachNodeBounds(
+                        { kind: "Identifier", name: "newValue" } as Identifier,
+                        accessorKeyword,
+                        accessorKeyword
+                    );
+                    setterParameter = this.attachNodeBounds(
+                        { kind: "FunctionParameter", name: newValueIdentifier } as FunctionParameter,
+                        accessorKeyword,
+                        accessorKeyword
+                    );
+                    if (typeAnnotation) {
+                        setterParameter.typeAnnotation = typeAnnotation;
+                    }
+                }
+
+                const setterBody = this.parseBlockStatement();
+                const setter: ClassMethodMember = {
+                    kind: "ClassMethodMember",
+                    name: propertyName,
+                    parameters: [setterParameter],
+                    body: setterBody,
+                    accessorKind: "set"
+                };
+                this.attachNonEnumerableToken(setter, "accessorToken", accessorKeyword);
+                accessors.push(this.attachNodeBounds(setter, accessorKeyword, this.getLastReadToken() ?? accessorKeyword));
+            }
+
+            this.consumeStatementSeparator("block", this.getLastReadToken());
+        }
+
+        const closeBrace = this.tokens.read();
+        if (closeBrace?.type !== "symbol" || closeBrace.value !== "}") {
+            this.fail("Expected '}' to close extension property accessor block", this.tokenAt(this.tokens.peek()));
+        }
+
+        if (accessors.length === 0) {
+            this.fail("Accessor block must contain at least one 'get' or 'set'", this.tokenAt(closeBrace));
+        }
+
+        return accessors;
     }
 
     private parseVarStatement(): VarStatement {
@@ -3945,13 +4123,11 @@ export class Parser {
         const leadingTypeParameters = this.parseTypeParameterList();
         const extensionHead = this.tryParseExtensionPropertyHead();
         if (extensionHead) {
-            const initializer = this.parseAssignment();
             const statement: VarStatement = {
                 kind: "VarStatement",
                 declarationKind: declarationKeyword.value as VariableDeclarationKind,
                 receiverType: extensionHead.receiverType,
-                name: extensionHead.name,
-                initializer
+                name: extensionHead.name
             };
             if (extensionHead.receiverTypeArguments && extensionHead.receiverTypeArguments.length > 0) {
                 statement.receiverTypeArguments = extensionHead.receiverTypeArguments;
@@ -3962,7 +4138,29 @@ export class Parser {
             if (extensionHead.typeAnnotation) {
                 statement.typeAnnotation = extensionHead.typeAnnotation;
             }
-            return this.attachNodeBounds(statement, declarationKeyword, initializer.lastToken ?? this.getLastReadToken() ?? declarationKeyword);
+
+            const nextToken = this.tokens.peek();
+            if (nextToken?.type === "symbol" && nextToken.value === "=>") {
+                const initializer = this.parseExpressionBodyAsBlock().body[0] as ReturnStatement | undefined;
+                if (initializer?.kind !== "ReturnStatement" || !initializer.expression) {
+                    this.fail("Expected expression body after '=>'", this.tokenAt(nextToken));
+                }
+                statement.initializer = initializer.expression;
+                return this.attachNodeBounds(
+                    statement,
+                    declarationKeyword,
+                    statement.initializer?.lastToken ?? this.getLastReadToken() ?? declarationKeyword
+                );
+            }
+            if (nextToken?.type === "symbol" && nextToken.value === "{") {
+                statement.accessors = this.parseExtensionPropertyAccessorBlock(extensionHead.name, extensionHead.typeAnnotation);
+                return this.attachNodeBounds(
+                    statement,
+                    declarationKeyword,
+                    this.getLastReadToken() ?? declarationKeyword
+                );
+            }
+            this.fail("Expected '=>' or '{' after extension property declaration", this.tokenAt(nextToken));
         }
         if (leadingTypeParameters.length > 0) {
             this.fail("Expected an extension property declaration after type parameters", this.tokenAt());
@@ -4185,6 +4383,15 @@ export class Parser {
         const next = this.tokens.peek();
         if (next?.type === "symbol" && next.value === "*") {
             this.tokens.skip();
+            let namespaceExport: Identifier | undefined;
+            if (!typeOnly && this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+                this.tokens.skip();
+                const nameToken = this.tokens.read();
+                if (nameToken?.type !== "identifier") {
+                    this.fail("Expected namespace export name after 'export * as'", this.tokenAt(nameToken));
+                }
+                namespaceExport = this.buildIdentifierFromToken(nameToken);
+            }
             const fromKeyword = this.tokens.read();
             if (fromKeyword?.type !== "identifier" || fromKeyword.value !== "from") {
                 this.fail("Expected 'from' after export '*'", this.tokenAt(fromKeyword));
@@ -4195,6 +4402,9 @@ export class Parser {
             }
             const from = this.attachNodeBounds({ kind: "StringLiteral", value: sourceToken.value } as StringLiteral, sourceToken, sourceToken);
             const statement: ExportStatement = { kind: "ExportStatement", exportAll: true, from };
+            if (namespaceExport) {
+                statement.namespaceExport = namespaceExport;
+            }
             if (typeOnly) {
                 statement.typeOnly = true;
             }
@@ -6436,7 +6646,6 @@ export class Parser {
             ) {
                 initializer = this.parseVarStatement();
             } else if (
-                this.language === "vexa" &&
                 initialToken?.type === "identifier" &&
                 secondToken?.type === "identifier" &&
                 (secondToken.value === "in" || secondToken.value === "of")
@@ -6447,7 +6656,7 @@ export class Parser {
                 }
                 initializer = this.buildIdentifierFromToken(identifierToken);
             } else {
-                initializer = this.parseAssignment();
+                initializer = this.parseExpressionOrThrow();
             }
         }
 
@@ -6472,13 +6681,7 @@ export class Parser {
                     this.fail("for-in/of iterator declaration cannot have an initializer", iteratorDeclaration.firstToken);
                 }
             } else {
-                if (this.language !== "vexa") {
-                    this.fail(
-                        "for-in/of without declaration keyword is only available in VexaScript mode",
-                        initializer.firstToken
-                    );
-                }
-                if (initializer.kind !== "Identifier") {
+                if (this.language === "vexa" && initializer.kind !== "Identifier") {
                     this.fail("Expected identifier iterator in VexaScript for-in/of statement", initializer.firstToken);
                 }
             }

@@ -82,6 +82,16 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes chain operator", () => {
+        expect(simplifyTokens("value ..method()")).toStrictEqual([
+            { type: "identifier", value: "value" },
+            { type: "symbol", value: ".." },
+            { type: "identifier", value: "method" },
+            { type: "symbol", value: "(" },
+            { type: "symbol", value: ")" }
+        ])
+    })
+
     it("tokenizes double-colon rename operator", () => {
         expect(simplifyTokens("name :: displayName")).toStrictEqual([
             { type: "identifier", value: "name" },

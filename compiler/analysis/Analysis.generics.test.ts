@@ -1332,6 +1332,26 @@ describe("Analysis", () => {
     expect(messages).toEqual([]);
   });
 
+  it("infers generic rest tuple arguments for variadic container helpers", () => {
+    const source = dedent`
+      class Container {}
+      class Graphics extends Container {}
+      class Stage {
+        addChild<U extends Container[]>(...children: U): void {}
+      }
+
+      let stage = Stage()
+      let badge = Graphics()
+      stage.addChild(badge)
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toEqual([]);
+  });
+
   it("requires rest parameters to use array types", () => {
     const source = dedent`
       declare class Console {

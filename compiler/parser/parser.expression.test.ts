@@ -376,6 +376,36 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for chain expressions", () => {
+        expect(parseExpression(tokenizeReader("badge ..point = target ..beginFill(1)"))).toEqual({
+            kind: "ChainExpression",
+            receiver: { kind: "Identifier", name: "badge" },
+            operations: [
+                {
+                    kind: "AssignmentExpression",
+                    operator: "=",
+                    left: {
+                        kind: "MemberExpression",
+                        object: { kind: "Identifier", name: "badge" },
+                        property: { kind: "Identifier", name: "point" },
+                        computed: false
+                    },
+                    right: { kind: "Identifier", name: "target" }
+                },
+                {
+                    kind: "CallExpression",
+                    callee: {
+                        kind: "MemberExpression",
+                        object: { kind: "Identifier", name: "badge" },
+                        property: { kind: "Identifier", name: "beginFill" },
+                        computed: false
+                    },
+                    arguments: [{ kind: "IntLiteral", value: 1 }]
+                }
+            ]
+        });
+    });
+
     it("builds an AST for TypeScript as assertions", () => {
         expect(parseExpression(tokenizeReader("value as string"))).toEqual({
             kind: "AsExpression",
@@ -637,6 +667,7 @@ describe("parseExpression", () => {
     it("builds an AST for shorthand, spread, computed, and trailing-comma object literals", () => {
         expect(parseExpression(tokenizeReader('{a, ...base, [key]: value, "display name": name, 1: one,}'))).toEqual({
             kind: "ObjectLiteral",
+            trailingComma: true,
             properties: [
                 {
                     kind: "ObjectProperty",
@@ -1232,6 +1263,52 @@ describe("parseExpression", () => {
                 computed: false
             },
             arguments: []
+        });
+
+        expect(parseExpression(tokenizeReader("new Promise { resolve, reject -> resolve(123) }"))).toEqual({
+            kind: "NewExpression",
+            callee: { kind: "Identifier", name: "Promise" },
+            arguments: [
+                {
+                    kind: "ArrowFunctionExpression",
+                    parameters: [
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "resolve" }
+                        },
+                        {
+                            kind: "FunctionParameter",
+                            name: { kind: "Identifier", name: "reject" }
+                        }
+                    ],
+                    body: {
+                        kind: "CallExpression",
+                        callee: { kind: "Identifier", name: "resolve" },
+                        arguments: [{ kind: "IntLiteral", value: 123 }]
+                    }
+                }
+            ]
+        });
+    });
+
+    it("treats a trailing comma after shorthand object members as an object literal, not a brace lambda", () => {
+        expect(parseExpression(tokenizeReader("new Text({ width, })"))).toEqual({
+            kind: "NewExpression",
+            callee: { kind: "Identifier", name: "Text" },
+            arguments: [
+                {
+                    kind: "ObjectLiteral",
+                    trailingComma: true,
+                    properties: [
+                        {
+                            kind: "ObjectProperty",
+                            key: { kind: "Identifier", name: "width" },
+                            value: { kind: "Identifier", name: "width" },
+                            shorthand: true
+                        }
+                    ]
+                }
+            ]
         });
     });
 

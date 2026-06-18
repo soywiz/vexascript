@@ -12,6 +12,7 @@ import type {
   ClassMethodMember,
   ClassPrimaryConstructorParameter,
   ClassStatement,
+  ChainExpression,
   ConditionalExpression,
   CommaExpression,
   DoWhileStatement,
@@ -168,6 +169,7 @@ interface ActiveEmitState {
   operators: Map<string, RuntimeOperatorInfo[]>;
   extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
   extensionProperties: Map<string, string>;
+  extensionPropertySetters: Map<string, string>;
   classNames: Set<string>;
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
@@ -211,6 +213,7 @@ function createEmptyEmitState(): ActiveEmitState {
     operators: new Map(),
     extensionMethods: new Map(),
     extensionProperties: new Map(),
+    extensionPropertySetters: new Map(),
     classNames: new Set(),
     interfaceNames: new Set(),
     interfaceMembers: new Map(),
@@ -342,6 +345,8 @@ function expressionPrecedence(expression: Expr): number {
   switch (expression.kind) {
     case "CommaExpression":
       return PREC_COMMA;
+    case "ChainExpression":
+      return PREC_ASSIGNMENT;
     case "AssignmentExpression":
       return PREC_ASSIGNMENT;
     case "AsExpression":
@@ -524,11 +529,51 @@ function resolveExtensionMethodCall(call: CallExpression): string | null {
   const methodName = (member.property as Identifier).name;
   const methods = activeState.extensionMethods.get(receiverType)?.filter((candidate) => candidate.name === methodName);
   if (!methods || methods.length === 0) {
-    return null;
+    const argumentTypes = call.arguments.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
+    return resolveImportedExtensionMethodName(methodName, argumentTypes);
   }
   const argumentTypes = call.arguments.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
   return methods.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))?.emittedName
     ?? methods.find((candidate) => candidate.hasBody)?.emittedName
+    ?? resolveImportedExtensionMethodName(methodName, argumentTypes)
+    ?? null;
+}
+
+function importedExtensionMethodParameterTypes(methodName: string, emittedName: string): string[] | null {
+  const parts = emittedName.split("$$");
+  const methodIndex = parts.indexOf(methodName);
+  if (methodIndex < 0) {
+    return null;
+  }
+  const parameterTypes = parts.slice(methodIndex + 1);
+  return parameterTypes.length === 1 && parameterTypes[0] === "void" ? [] : parameterTypes;
+}
+
+function isImportedExtensionMethodMatch(
+  methodName: string,
+  emittedName: string,
+  argumentTypes: Array<string | null>
+): boolean {
+  const parameterTypes = importedExtensionMethodParameterTypes(methodName, emittedName);
+  if (!parameterTypes || parameterTypes.length !== argumentTypes.length) {
+    return false;
+  }
+  return parameterTypes.every((parameterType, index) => {
+    const argumentType = argumentTypes[index];
+    return !argumentType || parameterType === sanitizeManglePart(argumentType) || parameterType === "number" && argumentType === "int";
+  });
+}
+
+function resolveImportedExtensionMethodName(methodName: string, argumentTypes: Array<string | null>): string | null {
+  const methods = activeState.importedExtensionRuntimeNames.get(methodName);
+  if (!methods || methods.length === 0) {
+    return null;
+  }
+  return methods.find((candidate) => isImportedExtensionMethodMatch(methodName, candidate, argumentTypes))
+    ?? methods.find((candidate) =>
+      importedExtensionMethodParameterTypes(methodName, candidate)?.length === argumentTypes.length
+    )
+    ?? methods[0]
     ?? null;
 }
 
@@ -603,6 +648,10 @@ function resolveJsName(name: string): string {
 
 function extensionPropertyRuntimeName(receiverType: string, propertyName: string): string {
   return `${sanitizeManglePart(receiverType)}$$${sanitizeManglePart(propertyName)}`;
+}
+
+function extensionPropertySetterRuntimeName(receiverType: string, propertyName: string): string {
+  return `${extensionPropertyRuntimeName(receiverType, propertyName)}$set`;
 }
 
 function importedExtensionRuntimeNames(importedName: string): string[] {
@@ -790,6 +839,24 @@ function emitVariableDelegateAssignment(assignment: AssignmentExpression): strin
   return emitVariableDelegateWrite(delegate, valueText);
 }
 
+function emitExtensionPropertyAssignment(assignment: AssignmentExpression): string | null {
+  if (assignment.operator !== "=" || assignment.left.kind !== "MemberExpression") {
+    return null;
+  }
+  const member = assignment.left as MemberExpression;
+  if (member.computed || member.property.kind !== "Identifier") {
+    return null;
+  }
+  const propertyName = (member.property as Identifier).name;
+  const receiverType = activeState.extensionPropertySetters.get(propertyName);
+  if (!receiverType) {
+    return null;
+  }
+  const receiverText = emitExpression(member.object, PREC_MEMBER, "left");
+  const valueText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
+  return `${extensionPropertySetterRuntimeName(receiverType, propertyName)}(${receiverText}, ${valueText})`;
+}
+
 function hasOptionalAssignmentTarget(expression: Expr): boolean {
   if (expression.kind !== "MemberExpression") {
     return false;
@@ -859,6 +926,82 @@ function emitListElement(expression: Expr): string {
   }
   const text = emitExpression(expression);
   return expression.kind === "CommaExpression" ? `(${text})` : text;
+}
+
+function replaceChainReceiver(expression: Expr, receiver: Expr, replacement: Identifier): Expr {
+  if (expression === receiver) {
+    return replacement as Expr;
+  }
+  switch (expression.kind) {
+    case "MemberExpression": {
+      const member = expression as MemberExpression;
+      return {
+        ...member,
+        object: replaceChainReceiver(member.object, receiver, replacement),
+        property: replaceChainReceiver(member.property, receiver, replacement)
+      } as MemberExpression;
+    }
+    case "CallExpression": {
+      const call = expression as CallExpression;
+      return {
+        ...call,
+        callee: replaceChainReceiver(call.callee, receiver, replacement),
+        arguments: call.arguments.map((argument) => replaceChainReceiver(argument, receiver, replacement))
+      } as CallExpression;
+    }
+    case "AssignmentExpression": {
+      const assignment = expression as AssignmentExpression;
+      return {
+        ...assignment,
+        left: replaceChainReceiver(assignment.left, receiver, replacement),
+        right: replaceChainReceiver(assignment.right, receiver, replacement)
+      } as AssignmentExpression;
+    }
+    default:
+      return expression;
+  }
+}
+
+function emitChainOperation(operation: Expr, receiver: Expr, replacement: Identifier): string {
+  if (operation.kind === "CallExpression") {
+    const call = operation as CallExpression;
+    if (call.callee.kind === "MemberExpression") {
+      const member = call.callee as MemberExpression;
+      if (member.object === receiver) {
+        const extensionMethodName = resolveExtensionMethodCall(call);
+        if (extensionMethodName) {
+          const callArguments = [
+            emitExpression(replacement as Expr, PREC_MEMBER, "left"),
+            ...emitCallArgumentTexts(call.callee, call.arguments)
+          ];
+          return `${extensionMethodName}(${callArguments.join(", ")})`;
+        }
+      }
+    }
+  }
+  return emitExpression(replaceChainReceiver(operation, receiver, replacement));
+}
+
+function emitChainExpression(chain: ChainExpression): string {
+  const tempName = nextGeneratedSymbol("$$chain");
+  const tempIdentifier = { kind: "Identifier", name: tempName } as Identifier;
+  const receiverText = emitExpression(chain.receiver, PREC_ASSIGNMENT, "right");
+  const previousState = activeState;
+  const receiverType = activeState.expressionTypes?.get(chain.receiver as unknown as Node);
+  if (activeState.expressionTypes && receiverType) {
+    activeState = {
+      ...activeState,
+      expressionTypes: new Map(activeState.expressionTypes).set(tempIdentifier as unknown as Node, receiverType)
+    };
+  }
+  try {
+    const operations = chain.operations
+      .map((operation) => `${emitChainOperation(operation, chain.receiver, tempIdentifier)};`)
+      .join(" ");
+    return `((${tempName}) => { ${operations} return ${tempName}; })(${receiverText})`;
+  } finally {
+    activeState = previousState;
+  }
 }
 
 function isPlainIdentifierName(name: string): boolean {
@@ -1071,11 +1214,17 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         const cmp = range.exclusive ? "<" : "<=";
         return `(function*(s, e) { for (let n = s; n ${cmp} e; n++) yield n })(${emitExpression(range.start)}, ${emitExpression(range.end)})`;
       }
+      case "ChainExpression":
+        return emitChainExpression(expression as ChainExpression);
       case "AssignmentExpression": {
         const assignment = expression as AssignmentExpression;
         const delegateAssignment = emitVariableDelegateAssignment(assignment);
         if (delegateAssignment) {
           return delegateAssignment;
+        }
+        const extensionPropertyAssignment = emitExtensionPropertyAssignment(assignment);
+        if (extensionPropertyAssignment) {
+          return extensionPropertyAssignment;
         }
         const optionalAssignment = emitOptionalAssignmentTarget(assignment);
         if (optionalAssignment) {
@@ -1237,7 +1386,7 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
               const fn = objectProperty.value as FunctionExpression;
               return withVariableDelegateShadows(
                 functionParameterBindingNames(fn.parameters),
-                () => `${key}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
+                () => `${asyncEmitPrefix(fn)}${key}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
               );
             }
             return `${key}: ${emitListElement(objectProperty.value)}`;
@@ -1757,7 +1906,9 @@ function commonJsEmitterContext() {
     importedOverloadRuntimeNames,
     importedExtensionRuntimeNames,
     getExtensionPropertyReceiverType: (localName: string) => activeState.extensionProperties.get(localName),
+    getExtensionPropertySetterReceiverType: (localName: string) => activeState.extensionPropertySetters.get(localName),
     extensionPropertyRuntimeName,
+    extensionPropertySetterRuntimeName,
     isOperatorImportName,
     defaultRequireBinding,
     esmImportBindingToCommonJs
@@ -1769,7 +1920,12 @@ function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExp
     const variable = statement as VarStatement;
     if (variable.receiverType && variable.name.kind === "Identifier") {
       const runtimeName = extensionPropertyRuntimeName(variable.receiverType.name, variable.name.name);
-      return [{ exportedName: runtimeName, valueExpression: runtimeName }];
+      const bindings = [{ exportedName: runtimeName, valueExpression: runtimeName }];
+      if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
+        const setterRuntimeName = extensionPropertySetterRuntimeName(variable.receiverType.name, variable.name.name);
+        bindings.push({ exportedName: setterRuntimeName, valueExpression: setterRuntimeName });
+      }
+      return bindings;
     }
     const declarations = variable.declarations && variable.declarations.length > 0
       ? variable.declarations
@@ -1855,11 +2011,18 @@ export function emitStatement(statement: Statement): string {
       if (activeState.moduleFormat === "commonjs") {
         return emitCommonJsExportStatement(exportStatement, commonJsEmitterContext());
       }
-      if (exportStatement.typeOnly || exportStatement.namespaceExport) {
+      if (exportStatement.typeOnly) {
         return "";
       }
       if (exportStatement.exportAll) {
-        return exportStatement.from ? `export * from ${JSON.stringify(rewriteImportPath(exportStatement.from.value))};` : "";
+        if (!exportStatement.from) {
+          return "";
+        }
+        const namespaceClause = exportStatement.namespaceExport ? ` as ${exportStatement.namespaceExport.name}` : "";
+        return `export *${namespaceClause} from ${JSON.stringify(rewriteImportPath(exportStatement.from.value))};`;
+      }
+      if (exportStatement.namespaceExport) {
+        return "";
       }
       if (exportStatement.specifiers) {
         const names = exportStatement.specifiers
@@ -1920,6 +2083,10 @@ export function emitStatement(statement: Statement): string {
         if (receiverType) {
           const importedName = extensionPropertyRuntimeName(receiverType, specifier.imported.name);
           namedImports.push(specifier.local ? `${importedName} as ${specifier.local.name}` : importedName);
+          const setterReceiverType = activeState.extensionPropertySetters.get(localName);
+          if (setterReceiverType) {
+            namedImports.push(extensionPropertySetterRuntimeName(setterReceiverType, specifier.imported.name));
+          }
           continue;
         }
 
@@ -1948,6 +2115,26 @@ export function emitStatement(statement: Statement): string {
         activeExtensionThis = true;
         activeExtensionReceiverTypeName = property.receiverType.name;
         try {
+          if (property.accessors && property.accessors.length > 0) {
+            const propertyName = (property.name as Identifier).name;
+            const getter = property.accessors.find((accessor) => accessor.accessorKind === "get");
+            const setter = property.accessors.find((accessor) => accessor.accessorKind === "set");
+            const emittedStatements: string[] = [];
+            if (getter) {
+              emittedStatements.push(
+                `const ${extensionPropertyRuntimeName(property.receiverType.name, propertyName)} = ($this) => ${emitScopedBlock(getter.body)};`
+              );
+            }
+            if (setter) {
+              const setterParameter = setter.parameters[0]
+                ? emitFunctionParameters(setter.parameters)
+                : "newValue";
+              emittedStatements.push(
+                `const ${extensionPropertySetterRuntimeName(property.receiverType.name, propertyName)} = ($this, ${setterParameter}) => ${emitScopedBlock(setter.body)};`
+              );
+            }
+            return emittedStatements.join("\n");
+          }
           return `const ${extensionPropertyRuntimeName(property.receiverType.name, (property.name as Identifier).name)} = ($this) => ${property.initializer ? emitExpression(property.initializer) : "undefined"};`;
         } finally {
           activeExtensionThis = previousExtensionThis;
@@ -2126,6 +2313,7 @@ interface EmitProgramRuntimeContext {
   extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
   importedExtensionRuntimeNames: Map<string, string[]>;
   extensionProperties: Map<string, string>;
+  extensionPropertySetters: Map<string, string>;
   classNames: Set<string>;
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
@@ -2147,6 +2335,7 @@ interface EmitProgramRuntimeSeed {
   extensionMethods: Map<string, RuntimeExtensionMethodInfo[]>;
   importedExtensionRuntimeNames: Map<string, string[]>;
   extensionProperties: Map<string, string>;
+  extensionPropertySetters: Map<string, string>;
   classNames: Set<string>;
   interfaceNames: Set<string>;
   interfaceMembers: Map<string, InterfaceStatement["members"]>;
@@ -2193,6 +2382,7 @@ function cloneRuntimeSeed(seed: EmitProgramRuntimeSeed): EmitProgramRuntimeSeed 
     extensionMethods: cloneMapArrayValues(seed.extensionMethods),
     importedExtensionRuntimeNames: cloneMapArrayValues(seed.importedExtensionRuntimeNames),
     extensionProperties: new Map(seed.extensionProperties),
+    extensionPropertySetters: new Map(seed.extensionPropertySetters),
     classNames: new Set(seed.classNames),
     interfaceNames: new Set(seed.interfaceNames),
     interfaceMembers: new Map(seed.interfaceMembers),
@@ -2211,6 +2401,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
   const extensionMethods = new Map<string, RuntimeExtensionMethodInfo[]>();
   const importedExtensionRuntimeNames = new Map<string, string[]>();
   const extensionProperties = new Map<string, string>();
+  const extensionPropertySetters = new Map<string, string>();
   const classNames = new Set<string>();
   const interfaceNames = new Set<string>();
   const interfaceMembers = new Map<string, InterfaceStatement["members"]>();
@@ -2362,6 +2553,9 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
       const variable = candidate as VarStatement;
       if (variable.receiverType && variable.name.kind === "Identifier") {
         extensionProperties.set((variable.name as Identifier).name, variable.receiverType.name);
+        if (variable.accessors?.some((accessor) => accessor.accessorKind === "set")) {
+          extensionPropertySetters.set((variable.name as Identifier).name, variable.receiverType.name);
+        }
       }
       if (variable.name.kind === "Identifier") {
         const typeName = variable.typeAnnotation?.name;
@@ -2378,6 +2572,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
     extensionMethods,
     importedExtensionRuntimeNames,
     extensionProperties,
+    extensionPropertySetters,
     classNames,
     interfaceNames,
     interfaceMembers,
@@ -2402,6 +2597,7 @@ function collectEmitProgramRuntimeContext(
   const extensionMethods = seed.extensionMethods;
   const importedExtensionRuntimeNames = seed.importedExtensionRuntimeNames;
   const extensionProperties = seed.extensionProperties;
+  const extensionPropertySetters = seed.extensionPropertySetters;
   const classNames = seed.classNames;
   const interfaceNames = seed.interfaceNames;
   const interfaceMembers = seed.interfaceMembers;
@@ -2450,6 +2646,9 @@ function collectEmitProgramRuntimeContext(
     }
     for (const [key, value] of statementSeed.extensionProperties) {
       extensionProperties.set(key, value);
+    }
+    for (const [key, value] of statementSeed.extensionPropertySetters) {
+      extensionPropertySetters.set(key, value);
     }
     for (const value of statementSeed.classNames) {
       classNames.add(value);
@@ -2524,7 +2723,11 @@ function collectEmitProgramRuntimeContext(
         const member = node as MemberExpression;
         if (!member.computed && member.property.kind === "Identifier") {
           const name = (member.property as Identifier).name;
-          if (!extensionProperties.has(name) && importedNames.has(name)) {
+          if (
+            !extensionProperties.has(name) &&
+            importedNames.has(name) &&
+            !importedExtensionRuntimeNames.has(name)
+          ) {
             const objectType = expressionTypes?.get(member.object);
             if (objectType?.kind === "builtin") {
               extensionProperties.set(name, objectType.name === "int" ? "number" : objectType.name);
@@ -2532,6 +2735,25 @@ function collectEmitProgramRuntimeContext(
               extensionProperties.set(name, objectType.name);
             } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
               extensionProperties.set(name, "Array");
+            }
+          }
+        }
+      } else if (node.kind === "AssignmentExpression") {
+        const assignment = node as AssignmentExpression;
+        if (assignment.operator !== "=" || assignment.left.kind !== "MemberExpression") {
+          return;
+        }
+        const member = assignment.left as MemberExpression;
+        if (!member.computed && member.property.kind === "Identifier") {
+          const name = (member.property as Identifier).name;
+          if (!extensionPropertySetters.has(name) && importedNames.has(name)) {
+            const objectType = expressionTypes?.get(member.object);
+            if (objectType?.kind === "builtin") {
+              extensionPropertySetters.set(name, objectType.name === "int" ? "number" : objectType.name);
+            } else if (objectType?.kind === "named") {
+              extensionPropertySetters.set(name, objectType.name);
+            } else if (objectType?.kind === "array" || objectType?.kind === "tuple") {
+              extensionPropertySetters.set(name, "Array");
             }
           }
         }
@@ -2547,6 +2769,7 @@ function collectEmitProgramRuntimeContext(
     extensionMethods,
     importedExtensionRuntimeNames,
     extensionProperties,
+    extensionPropertySetters,
     classNames,
     interfaceNames,
     interfaceMembers,
@@ -2619,6 +2842,7 @@ export function emitProgramStatementPairs(
     operators: runtimeContext.operators,
     extensionMethods: runtimeContext.extensionMethods,
     extensionProperties: runtimeContext.extensionProperties,
+    extensionPropertySetters: runtimeContext.extensionPropertySetters,
     classNames: runtimeContext.classNames,
     interfaceNames: runtimeContext.interfaceNames,
     interfaceMembers: runtimeContext.interfaceMembers,

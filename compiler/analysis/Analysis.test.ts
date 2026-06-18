@@ -1111,6 +1111,18 @@ let after = bind`));
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("infers Promise executor types for new expressions with trailing lambdas", () => {
+    const source = dedent`
+      let promise = new Promise { resolve, reject ->
+        resolve(123)
+      }
+    `;
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbolsOfVisibleSymbolsAt(source, 1, 5).get("promise")?.valueType).toBe("Promise<int>");
+  });
+
 
   it("resolves Promise.resolve(value) to Promise<T> matching the argument type", () => {
     const source = dedent`
@@ -2037,6 +2049,65 @@ let after = bind`));
     );
   });
 
+  it("reports unknown types in primary constructor parameters", () => {
+    const source = "class Vec2(val x: number2, val y: number)\n";
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Unknown type 'number2'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter"
+    );
+  });
+
+  it("checks extension properties declared with accessor blocks", () => {
+    const source = dedent`
+      class Vec2(val x: number, val y: number)
+      class View(var x: number, var y: number)
+      var View.point: Vec2 {
+        get => Vec2(x, y)
+        set { x = newValue.x; y = newValue.y }
+      }
+      val view = View(1, 2)
+      val point: Vec2 = view.point
+      view.point = Vec2(3, 4)
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues()).toEqual([]);
+  });
+
+  it("allows interface receiver accessors to see members inherited from implementing classes", () => {
+    const source = dedent`
+      class Vec2(val x: number, val y: number)
+      interface View {}
+      class Container(var x: number, var y: number)
+      class Sprite extends Container implements View
+      var View.point: Vec2 {
+        get => Vec2(x, y)
+        set { x = newValue.x; y = newValue.y }
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).not.toContain("Undefined variable 'x'");
+    expect(messages).not.toContain("Undefined variable 'y'");
+  });
+
+  it("reports unknown receiver types on extension property declarations", () => {
+    const source = dedent`
+      class Vec2(val x: number, val y: number)
+      var View2.point: Vec2 {
+        get => Vec2(x, y)
+      }
+    `;
+
+    const analysis = new Analysis(parseFile(tokenizeReader(source)));
+    expect(analysis.getIssues().map((issue) => issue.message)).toContain(
+      "Unknown type 'View2'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter"
+    );
+  });
+
   it("reports variable type mismatch on the variable name when initializer is not assignable", () => {
     const source = "let aa: string = 10 * 2\n";
     const ast = parseFile(tokenizeReader(source));
@@ -2143,6 +2214,26 @@ let after = bind`));
     expect(symbols.get("point")?.valueType).toBe("Point");
   });
 
+  it("applies default generic type arguments when classes are called without new", () => {
+    const source = dedent`
+      interface Renderer {
+        resize(width: number, height: number): void
+      }
+
+      class App<R = Renderer>(val renderer: R)
+
+      let app = App({ resize(width: number, height: number) {} })
+      app.renderer.resize(100, 200)
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const symbols = symbolsOfVisibleSymbolsAt(source, 6, 4);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(symbols.get("app")?.valueType).toBe("App<Renderer>");
+  });
+
   it("reports missing constructor arguments for class calls and new expressions", () => {
     const source = dedent`
       class Point(val x: number, val y: number)
@@ -2158,6 +2249,39 @@ let after = bind`));
     const messages = analysis.getIssues().map((issue) => issue.message);
 
     expect(messages.filter((message) => message === "Expected at least 2 argument(s), but got 0")).toHaveLength(2);
+  });
+
+  it("reports missing explicit constructor arguments for class calls and new expressions", () => {
+    const source = dedent`
+      class Demo2 {
+        constructor(x: number, y: number) {
+        }
+      }
+      fun demo() {
+        new Demo2()
+        Demo2()
+      }
+
+`;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages.filter((message) => message === "Expected at least 2 argument(s), but got 0")).toHaveLength(2);
+  });
+
+  it("reports constructor argument type mismatches for class calls without new", () => {
+    const source = dedent`
+      class Demo(val a: number, val b: string)
+      Demo(10, 10)
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Argument 2 of type 'int' is not assignable to parameter 'b' of type 'string'");
   });
 
   it("infers class type for new expressions", () => {

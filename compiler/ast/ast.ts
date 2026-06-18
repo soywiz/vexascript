@@ -113,6 +113,12 @@ export interface RangeExpression extends Node {
     exclusive: boolean
 }
 
+export interface ChainExpression extends Node {
+    kind: "ChainExpression"
+    receiver: Expr
+    operations: Expr[]
+}
+
 export interface AssignmentExpression extends Node {
     kind: "AssignmentExpression"
     operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||=" | "??=" | "<<=" | ">>=" | ">>>="
@@ -245,6 +251,7 @@ export type ObjectLiteralProperty = ObjectProperty | ObjectSpreadProperty;
 export interface ObjectLiteral extends Node {
     kind: "ObjectLiteral"
     properties: ObjectLiteralProperty[]
+    trailingComma?: boolean
 }
 
 export interface ImportSpecifier extends Node {
@@ -333,6 +340,7 @@ export interface VarStatement extends Statement {
     typeParameters?: TypeParameter[]
     typeAnnotation?: Identifier
     initializer?: Expr
+    accessors?: ClassMethodMember[]
     declarations?: VarDeclarator[]
 }
 

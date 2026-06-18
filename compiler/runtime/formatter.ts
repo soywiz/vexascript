@@ -4,6 +4,7 @@ import type {
   ArrowFunctionExpression, AssignmentExpression, AsExpression,
   BigIntLiteral, BinaryExpression, BindingElement, BindingName,
   BlockStatement, BooleanLiteral, BreakStatement, CallExpression,
+  ChainExpression,
   ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter,
   ClassStatement, CommaExpression, ConditionalExpression,
   ContinueStatement, DeferStatement, DoWhileStatement,
@@ -76,6 +77,7 @@ const MULTI_CHAR_SYMBOLS_LEGACY = [
   ">>",
   "...",
   "..<",
+  "..",
   "?.",
   "!."
 ] as const;
@@ -1848,7 +1850,43 @@ class AstFormatter {
     if (stmt.declared) { this.tok("declare"); this.sp(); }
     this.tok(stmt.declarationKind);
     this.sp();
-    if (stmt.declarations && stmt.declarations.length > 0) {
+    if (stmt.receiverType) {
+      this.emitTypeAnno(stmt.receiverType as Node);
+      if (stmt.receiverTypeArguments?.length) {
+        this.write("<");
+        stmt.receiverTypeArguments.forEach((ta, i) => {
+          if (i > 0) { this.write(","); this.sp(); }
+          this.emitTypeAnno(ta as Node);
+        });
+        this.write(">");
+      }
+      this.write(".");
+      this.emitBindingName(stmt.name);
+      if (stmt.typeAnnotation) { this.write(":"); this.sp(); this.emitTypeAnno(stmt.typeAnnotation as Node); }
+      if (stmt.accessors?.length) {
+        this.sp();
+        this.write("{");
+        this.nl();
+        this.indentLvl++;
+        for (const accessor of stmt.accessors) {
+          this.applyIndent();
+          this.write(accessor.accessorKind ?? "get");
+          if (accessor.accessorKind === "set" && accessor.parameters[0]) {
+            this.write("(");
+            this.emitFunctionParams(accessor.parameters);
+            this.write(")");
+          }
+          this.sp();
+          this.emitBlock(accessor.body);
+          this.nl();
+        }
+        this.indentLvl--;
+        this.applyIndent();
+        this.write("}");
+      } else if (stmt.initializer) {
+        this.sp(); this.write("=>"); this.sp(); this.emitExpr(stmt.initializer);
+      }
+    } else if (stmt.declarations && stmt.declarations.length > 0) {
       stmt.declarations.forEach((d, i) => {
         if (i > 0) { this.write(","); this.sp(); }
         this.emitBindingName(d.name);
@@ -2493,6 +2531,7 @@ class AstFormatter {
       case "MissingExpression": break;
       case "ArrayHole": break;
       case "BinaryExpression": this.emitBinaryExpr(expr as BinaryExpression); break;
+      case "ChainExpression": this.emitChainExpr(expr as ChainExpression); break;
       case "AssignmentExpression": this.emitAssignExpr(expr as AssignmentExpression); break;
       case "RangeExpression": this.emitRangeExpr(expr as RangeExpression); break;
       case "UnaryExpression": this.emitUnaryExpr(expr as UnaryExpression); break;
@@ -2567,6 +2606,42 @@ class AstFormatter {
     this.emitExpr(expr.start);
     this.sp(); this.write(expr.exclusive ? "..<" : "..."); this.sp();
     this.emitExpr(expr.end);
+  }
+
+  private emitChainExpr(expr: ChainExpression): void {
+    this.emitExpr(expr.receiver);
+    expr.operations.forEach((operation) => {
+      this.nl();
+      this.indentLvl++;
+      this.applyIndent();
+      this.tok("..");
+      this.emitChainOperation(operation);
+      this.indentLvl--;
+    });
+  }
+
+  private emitChainOperation(operation: Expr): void {
+    if ((operation as Node).kind === "AssignmentExpression") {
+      const assignment = operation as AssignmentExpression;
+      this.emitChainOperation(assignment.left);
+      this.sp(); this.write(assignment.operator); this.sp();
+      this.emitExpr(assignment.right);
+      return;
+    }
+    if ((operation as Node).kind === "CallExpression") {
+      const call = operation as CallExpression;
+      this.emitChainOperation(call.callee);
+      this.write("("); this.emitArgList(call.arguments); this.write(")");
+      return;
+    }
+    if ((operation as Node).kind === "MemberExpression") {
+      const member = operation as MemberExpression;
+      if (!member.computed && member.property.kind === "Identifier") {
+        this.emitExpr(member.property);
+        return;
+      }
+    }
+    this.emitExpr(operation);
   }
 
   private emitUnaryExpr(expr: UnaryExpression): void {

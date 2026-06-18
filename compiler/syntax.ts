@@ -88,6 +88,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
         { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
+        { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
         { match: String.raw`[;,.]`, token: "delimiter" },
         { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },
       ],
@@ -139,6 +140,7 @@ export function createPortableMonarchLanguage(): PortableMonarchLanguage {
         { match: String.raw`\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?:[nNL])?\b`, token: "number.float" },
         { match: String.raw`[A-Za-z_$][\w$]*`, token: "@cases", cases: { "@declarationKeywords": "keyword.declaration", "@controlKeywords": "keyword.control", "@default": "identifier" } },
         { match: String.raw`[{}()\[\]]`, token: "delimiter" },
+        { match: String.raw`(\.\.\.|\.\.<|\.\.)`, token: "operator" },
         { match: String.raw`[;,.]`, token: "delimiter" },
         { match: String.raw`[+\-*/%&|^~<>!=?:]+`, token: "operator" },
       ],
@@ -326,6 +328,8 @@ export function createVscodeTmLanguageGrammar(): Record<string, unknown> {
       operators: {
         patterns: [
           { name: "keyword.operator.assignment.compound.vexa", match: "(\\+=|-=|%=|\\*=|/=|&=|\\|=|&&=|\\|\\|=|\\?\\?=)" },
+          { name: "keyword.operator.range.vexa", match: "(\\.\\.\\.|\\.\\.<)" },
+          { name: "keyword.operator.chain.vexa", match: "\\.\\." },
           { name: "keyword.operator.arithmetic.vexa", match: "(\\*\\*|\\+|-|\\*|/|%)" },
           { name: "keyword.operator.relational.vexa", match: "(<=|>=|<|>)" },
           { name: "keyword.operator.equality.vexa", match: "(===|!==|==|!=)" },
@@ -444,6 +448,7 @@ export function createCodeMirrorLegacyModeSource(): string {
     { regex: /\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?(?:[nNL])?\\b/, token: "number" },
     { regex: /\\b(?:${[...VEXA_KEYWORD_DECLARATIONS, ...VEXA_KEYWORD_CONTROLS, ...VEXA_STORAGE_TYPES, ...VEXA_CONSTANTS].join("|")})\\b/, token: "keyword" },
     { regex: /[{}()\\[\\]]/, token: "bracket" },
+    { regex: /(\.\.\.|\.\.<|\.\.)/, token: "operator" },
     { regex: /[;,.]/, token: "punctuation" },
     { regex: /[+\\-*/%&|^~<>!=?:]+/, token: "operator" },
     { regex: /\\b[_A-Za-z][_A-Za-z0-9]*\\b/, token: "variableName" }

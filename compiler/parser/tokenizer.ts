@@ -104,6 +104,7 @@ function isDigitCode(code: number): boolean {
 
 function isIdentifierStartCode(code: number): boolean {
   return (
+    code === CODE_DOLLAR ||
     code === CODE_UNDERSCORE ||
     (code >= CODE_A_UPPER && code <= CODE_Z_UPPER) ||
     (code >= CODE_A_LOWER && code <= CODE_Z_LOWER)
@@ -845,6 +846,8 @@ function readSymbol(reader: StrReader): string {
       advanceCode(reader);
       return "..<";
     }
+    advanceCode(reader);
+    return "..";
   }
   if (ch === CODE_EQUALS && next === CODE_EQUALS) {
     advanceCode(reader);

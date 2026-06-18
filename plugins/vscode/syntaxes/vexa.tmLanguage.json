@@ -275,6 +275,14 @@
           "match": "(\\+=|-=|%=|\\*=|/=|&=|\\|=|&&=|\\|\\|=|\\?\\?=)"
         },
         {
+          "name": "keyword.operator.range.vexa",
+          "match": "(\\.\\.\\.|\\.\\.<)"
+        },
+        {
+          "name": "keyword.operator.chain.vexa",
+          "match": "\\.\\."
+        },
+        {
           "name": "keyword.operator.arithmetic.vexa",
           "match": "(\\*\\*|\\+|-|\\*|/|%)"
         },

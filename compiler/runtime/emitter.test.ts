@@ -54,6 +54,26 @@ describe("emitProgram", () => {
     expect(emitProgram(program)).toContain('const counts = new Map([["one", 1]]);');
   });
 
+  it("emits extension property accessor blocks as getter and setter functions", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      class Vec2(val x: number, val y: number)
+      class View(val x: number, val y: number)
+      var View.point: Vec2 {
+        get => Vec2(x, y)
+        set { x = newValue.x; y = newValue.y }
+      }
+      val view = View(1, 2)
+      view.point = Vec2(3, 4)
+      val point = view.point
+    `));
+
+    const output = emitProgram(program);
+    expect(output).toContain("const View$$point = ($this) =>");
+    expect(output).toContain("const View$$point$set = ($this, newValue) =>");
+    expect(output).toContain("View$$point$set(view, new Vec2(3, 4));");
+    expect(output).toContain("const point = View$$point(view);");
+  });
+
   it("emits vexa for-in as for-of const", () => {
     const program = parseFile(tokenizeReader("for (n in [1,2,3]) console.log(n)"));
     expect(emitProgram(program)).toContain("for (const n of [1, 2, 3]) console.log(n);");
@@ -218,6 +238,14 @@ let promise = go fetchValue()
     expect(emitted).toContain("[name]() {");
     expect(emitted).toContain("return 255;");
     expect(emitted).toContain("let count = 1000;");
+  });
+
+  it("emits async object method syntax", () => {
+    const program = parseFile(tokenizeReader("let obj = {async load(url: string) { return await fetch(url) }}"));
+    const emitted = emitProgram(program);
+
+    expect(emitted).toContain("let obj = {async load(url) {");
+    expect(emitted).toContain("return await fetch(url);");
   });
 
   it("erases type alias declarations", () => {

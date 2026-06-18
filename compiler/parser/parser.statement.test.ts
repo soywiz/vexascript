@@ -336,6 +336,18 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses TypeScript for-in without a declaration keyword", () => {
+        expect(parseStatement(tokenizeReader("for (value in iterable) break"), { language: "typescript" })).toEqual({
+            kind: "ForStatement",
+            iterationKind: "in",
+            iterator: { kind: "Identifier", name: "value" },
+            iterable: { kind: "Identifier", name: "iterable" },
+            body: {
+                kind: "BreakStatement"
+            }
+        });
+    });
+
     it("parses VexaScript for-in without declaration keyword", () => {
         expect(parseStatement(tokenizeReader("for (value in iterable) break"), { language: "vexa" })).toEqual({
             kind: "ForStatement",
@@ -2330,6 +2342,91 @@ describe("parseStatement", () => {
                 ]
             }
         });
+
+        expect(parseStatement(tokenizeReader(dedent`
+            var View.point: Vec2 {
+                get => Vec2(x, y)
+                set { x = newValue.x; y = newValue.y }
+            }
+        `.trim()))).toEqual({
+            kind: "VarStatement",
+            declarationKind: "var",
+            receiverType: { kind: "Identifier", name: "View" },
+            name: { kind: "Identifier", name: "point" },
+            typeAnnotation: { kind: "Identifier", name: "Vec2" },
+            accessors: [
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "point" },
+                    accessorKind: "get",
+                    parameters: [],
+                    returnType: { kind: "Identifier", name: "Vec2" },
+                    body: {
+                        kind: "BlockStatement",
+                        body: [{
+                            kind: "ReturnStatement",
+                            expression: {
+                                kind: "CallExpression",
+                                callee: { kind: "Identifier", name: "Vec2" },
+                                arguments: [
+                                    { kind: "Identifier", name: "x" },
+                                    { kind: "Identifier", name: "y" }
+                                ]
+                            }
+                        }]
+                    }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "point" },
+                    accessorKind: "set",
+                    parameters: [{
+                        kind: "FunctionParameter",
+                        name: { kind: "Identifier", name: "newValue" },
+                        typeAnnotation: { kind: "Identifier", name: "Vec2" }
+                    }],
+                    body: {
+                        kind: "BlockStatement",
+                        body: [
+                            {
+                                kind: "ExprStatement",
+                                expression: {
+                                    kind: "AssignmentExpression",
+                                    operator: "=",
+                                    left: {
+                                        kind: "Identifier",
+                                        name: "x"
+                                    },
+                                    right: {
+                                        kind: "MemberExpression",
+                                        object: { kind: "Identifier", name: "newValue" },
+                                        property: { kind: "Identifier", name: "x" },
+                                        computed: false
+                                    }
+                                }
+                            },
+                            {
+                                kind: "ExprStatement",
+                                expression: {
+                                    kind: "AssignmentExpression",
+                                    operator: "=",
+                                    left: {
+                                        kind: "Identifier",
+                                        name: "y"
+                                    },
+                                    right: {
+                                        kind: "MemberExpression",
+                                        object: { kind: "Identifier", name: "newValue" },
+                                        property: { kind: "Identifier", name: "y" },
+                                        computed: false
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
     });
 
 
@@ -2364,6 +2461,13 @@ describe("parseStatement", () => {
         expect(parseStatement(tokenizeReader("export * from \"./all\""))).toEqual({
             kind: "ExportStatement",
             exportAll: true,
+            from: { kind: "StringLiteral", value: "./all" }
+        });
+
+        expect(parseStatement(tokenizeReader("export * as widgets from \"./all\""))).toEqual({
+            kind: "ExportStatement",
+            exportAll: true,
+            namespaceExport: { kind: "Identifier", name: "widgets" },
             from: { kind: "StringLiteral", value: "./all" }
         });
 
@@ -2420,6 +2524,30 @@ describe("parseStatement", () => {
                 }
             ],
             from: { kind: "StringLiteral", value: "./types" }
+        });
+    });
+
+    it("parses consecutive minified function declarations in TypeScript mode", () => {
+        const program = parseFile(
+            tokenizeReader("function first(){}function second(){}"),
+            { language: "typescript" }
+        );
+
+        expect(program.body).toHaveLength(2);
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "first" }
+        });
+        expect(program.body[1]).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "second" }
+        });
+    });
+
+    it("parses TypeScript function names that use '$' identifiers", () => {
+        expect(parseStatement(tokenizeReader("function $() {}"), { language: "typescript" })).toMatchObject({
+            kind: "FunctionStatement",
+            name: { kind: "Identifier", name: "$" }
         });
     });
 

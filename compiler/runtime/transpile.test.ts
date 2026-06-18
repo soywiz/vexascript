@@ -699,6 +699,63 @@ let total = counter.plus(2)`;
     expect(result.code).toContain("let total = Counter$$plus$$int(counter, 2);");
   });
 
+  it("lowers chain expressions to statements that return the receiver", () => {
+    const source = `class Badge {
+  var point: int = 0
+  beginFill(color: int): Badge { return this }
+  endFill(): Badge { return this }
+}
+val badge = Badge()
+  ..point = 7
+  ..beginFill(1)
+  ..endFill()
+console.log(badge.point)`;
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const badge = (($$chain_0) => { $$chain_0.point = 7; $$chain_0.beginFill(1); $$chain_0.endFill(); return $$chain_0; })(new Badge());");
+  });
+
+  it("lowers imported extension method calls using the imported receiver runtime name", () => {
+    const declarationSource = [
+      "export class View {}",
+      "export class Container {}",
+      "export fun View.addTo(container: Container): void {}"
+    ].join("\n");
+    const externalDeclarations = compileSource(declarationSource).ast!.body;
+    const source = `import { View, Container, addTo } from "./view-utils"
+class Graphics extends View {}
+val badge = Graphics()
+val stage = Container()
+badge.addTo(stage)`;
+    const result = transpile(source, { target: "conservative", externalDeclarations });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('import { View, Container, View$$addTo$$Container } from "./view-utils";');
+    expect(result.code).toContain("View$$addTo$$Container(badge, stage);");
+    expect(result.code).not.toContain("Graphics$$addTo");
+  });
+
+  it("lowers chain expressions with imported extension method calls", () => {
+    const declarationSource = [
+      "export class View {}",
+      "export class Container<T> {}",
+      "export fun View.addTo(container: Container<any>): void {}"
+    ].join("\n");
+    const externalDeclarations = compileSource(declarationSource).ast!.body;
+    const source = `import { View, Container, addTo } from "./view-utils"
+class Graphics extends View {}
+val stage = Container()
+val badge = Graphics()
+  ..addTo(stage)`;
+    const result = transpile(source, { target: "conservative", externalDeclarations });
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain('import { View, Container, View$$addTo$$Container$any } from "./view-utils";');
+    expect(result.code).toContain("const badge = (($$chain_0) => { View$$addTo$$Container$any($$chain_0, stage); return $$chain_0; })(new Graphics());");
+    expect(result.code).not.toContain("Graphics$$addTo");
+  });
+
   it("lowers int multiplication and division to 32-bit JavaScript operations", () => {
     const source = `let a: int = 9
 let b: int = 4

@@ -1,4 +1,5 @@
-import type { BinaryExpression, Identifier, ImportStatement, Node, Program, Statement } from "compiler/ast/ast";
+import type { BinaryExpression, Identifier, ImportStatement, MemberExpression, Node, Program, Statement } from "compiler/ast/ast";
+import { walkAst } from "compiler/ast/traversal";
 import { Binder } from "./Binder";
 import type {
   AnalysisIssue,
@@ -139,6 +140,16 @@ export class Analysis {
         usedImportedBindings.add(resolution.symbol.node);
       }
     }
+    const memberPropertyNames = new Set<string>();
+    walkAst(this.program, (node) => {
+      if (node.kind !== "MemberExpression") {
+        return;
+      }
+      const member = node as MemberExpression;
+      if (!member.computed && member.property.kind === "Identifier") {
+        memberPropertyNames.add((member.property as Identifier).name);
+      }
+    });
 
     const unused: Identifier[] = [];
     for (const statement of this.program.body) {
@@ -157,6 +168,9 @@ export class Analysis {
         bindings.push(specifier.local ?? specifier.imported);
       }
       for (const binding of bindings) {
+        if (memberPropertyNames.has(binding.name)) {
+          continue;
+        }
         if (!usedImportedBindings.has(binding)) {
           unused.push(binding);
         }
