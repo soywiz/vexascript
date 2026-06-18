@@ -2,6 +2,9 @@ import { describe, expect, it } from "../test/expect";
 import {
   findMatchingTypeDelimiter,
   findTopLevelTypeCharacter,
+  looksLikeFunctionTypeAnnotation,
+  parseObjectTypeAnnotation,
+  parseFunctionTypeAnnotation,
   splitOptionalTypeSuffix,
   splitTopLevelDelimitedTypeText,
   splitTopLevelTypeText,
@@ -34,5 +37,91 @@ describe("type-name text structure", () => {
     expect(splitOptionalTypeSuffix("(() => void)?")).toEqual({ typeName: "(() => void)", optional: true });
     expect(splitOptionalTypeSuffix("T extends U ? X : Y")).toEqual({ typeName: "T extends U ? X : Y", optional: false });
     expect(splitOptionalTypeSuffix("[EventTarget?]")).toEqual({ typeName: "[EventTarget?]", optional: false });
+  });
+});
+
+describe("parseFunctionTypeAnnotation", () => {
+  it("parses a simple function type with named parameters", () => {
+    const result = parseFunctionTypeAnnotation("(x: string, y: number) => boolean");
+    expect(result).toEqual({
+      parameters: [
+        { name: "x", typeName: "string" },
+        { name: "y", typeName: "number" }
+      ],
+      returnTypeName: "boolean"
+    });
+  });
+
+  it("parses a function type with no parameters", () => {
+    const result = parseFunctionTypeAnnotation("() => void");
+    expect(result).toEqual({ parameters: [], returnTypeName: "void" });
+  });
+
+  it("assigns generated names for untyped positional parameters", () => {
+    const result = parseFunctionTypeAnnotation("(string, number) => void");
+    expect(result?.parameters[0]?.name).toBe("arg1");
+    expect(result?.parameters[0]?.typeName).toBe("string");
+  });
+
+  it("parses optional parameters", () => {
+    const result = parseFunctionTypeAnnotation("(x?: string) => void");
+    expect(result?.parameters[0]?.optional).toBe(true);
+  });
+
+  it("parses rest parameters", () => {
+    const result = parseFunctionTypeAnnotation("(...args: string[]) => void");
+    expect(result?.parameters[0]?.rest).toBe(true);
+    expect(result?.parameters[0]?.typeName).toBe("string[]");
+  });
+
+  it("returns null for a non-function type text", () => {
+    expect(parseFunctionTypeAnnotation("string")).toBeNull();
+    expect(parseFunctionTypeAnnotation("{ x: number }")).toBeNull();
+  });
+});
+
+describe("parseObjectTypeAnnotation", () => {
+  it("parses a simple object type", () => {
+    const result = parseObjectTypeAnnotation("{ name: string; age: number }");
+    expect(result).toEqual([
+      { name: "name", typeName: "string" },
+      { name: "age", typeName: "number" }
+    ]);
+  });
+
+  it("returns an empty array for an empty object type", () => {
+    expect(parseObjectTypeAnnotation("{}")).toEqual([]);
+  });
+
+  it("parses optional properties", () => {
+    const result = parseObjectTypeAnnotation("{ x?: number }");
+    expect(result?.[0]?.optional).toBe(true);
+    expect(result?.[0]?.name).toBe("x");
+  });
+
+  it("strips readonly from property names", () => {
+    const result = parseObjectTypeAnnotation("{ readonly x: string }");
+    expect(result?.[0]?.name).toBe("x");
+  });
+
+  it("returns null for a non-object type text", () => {
+    expect(parseObjectTypeAnnotation("string")).toBeNull();
+    expect(parseObjectTypeAnnotation("(x: string) => void")).toBeNull();
+  });
+
+  it("parses a constructor signature", () => {
+    const result = parseObjectTypeAnnotation("{ new(x: string): MyClass }");
+    expect(result?.[0]?.name).toBe("constructor");
+  });
+});
+
+describe("looksLikeFunctionTypeAnnotation", () => {
+  it("returns true when the text contains =>", () => {
+    expect(looksLikeFunctionTypeAnnotation("(x: string) => void")).toBe(true);
+  });
+
+  it("returns false when the text has no =>", () => {
+    expect(looksLikeFunctionTypeAnnotation("string")).toBe(false);
+    expect(looksLikeFunctionTypeAnnotation("{ x: number }")).toBe(false);
   });
 });

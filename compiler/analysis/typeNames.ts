@@ -243,3 +243,170 @@ export function tupleElementTypeText(elementText: string): string {
   }
   return trimmed;
 }
+
+export interface FunctionTypeAnnotationParameter {
+  name: string;
+  typeName: string;
+  optional?: boolean;
+  rest?: boolean;
+}
+
+export interface FunctionTypeAnnotationShape {
+  parameters: FunctionTypeAnnotationParameter[];
+  returnTypeName: string;
+}
+
+export interface ObjectTypeAnnotationMember {
+  name: string;
+  typeName: string;
+  optional?: boolean;
+}
+
+/**
+ * Parses a function type annotation text of the form `(param: Type, ...) => ReturnType`
+ * into its structural parts. Returns null if the text does not look like a function type.
+ */
+export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnotationShape | null {
+  const trimmed = typeName.trim();
+  if (!trimmed.startsWith("(")) {
+    return null;
+  }
+
+  const closeParenIndex = findMatchingTypeDelimiter(trimmed, 0, "(", ")");
+  if (closeParenIndex < 0) {
+    return null;
+  }
+  const afterParameters = trimmed.slice(closeParenIndex + 1).trimStart();
+  if (!afterParameters.startsWith("=>")) {
+    return null;
+  }
+
+  const parameterBody = trimmed.slice(1, closeParenIndex).trim();
+  const parameters =
+    parameterBody.length === 0
+      ? []
+      : splitTopLevelDelimitedTypeText(parameterBody).map((part, index) => {
+          let text = part.trim();
+          let rest = false;
+          if (text.startsWith("...")) {
+            rest = true;
+            text = text.slice(3).trim();
+          }
+
+          const colonIndex = findTopLevelTypeCharacter(text, ":");
+          if (colonIndex < 0) {
+            return {
+              name: `arg${index + 1}`,
+              typeName: text.length > 0 ? text : "unknown",
+              ...(rest ? { rest: true as const } : {})
+            };
+          }
+
+          let name = text.slice(0, colonIndex).trim();
+          const paramTypeName = text.slice(colonIndex + 1).trim();
+          let optional = false;
+          if (name.endsWith("?")) {
+            optional = true;
+            name = name.slice(0, -1).trim();
+          }
+          return {
+            name: name.length > 0 ? name : `arg${index + 1}`,
+            typeName: paramTypeName.length > 0 ? paramTypeName : "unknown",
+            ...(optional ? { optional: true as const } : {}),
+            ...(rest ? { rest: true as const } : {})
+          };
+        });
+
+  return {
+    parameters,
+    returnTypeName: afterParameters.slice(2).trim()
+  };
+}
+
+/**
+ * Parses an object type annotation text of the form `{ name: Type; ... }` into
+ * a list of member descriptors. Returns null if the text does not look like an
+ * object type literal.
+ */
+export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotationMember[] | null {
+  const trimmed = typeName.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return null;
+  }
+
+  const body = trimmed.slice(1, -1).trim();
+  if (body.length === 0) {
+    return [];
+  }
+
+  return splitTopLevelDelimitedTypeText(body, new Set([",", ";"])).map((part) => {
+    const trimmedPart = part.trim();
+    const colonIndex = findTopLevelTypeCharacter(trimmedPart, ":");
+    if (trimmedPart.startsWith("new(")) {
+      const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, 3, "(", ")");
+      if (closeParenIndex >= 0) {
+        const returnTypeSeparator = trimmedPart.slice(closeParenIndex + 1).trimStart();
+        if (returnTypeSeparator.startsWith(":")) {
+          const parameterText = trimmedPart.slice(3, closeParenIndex + 1);
+          const returnTypeName = returnTypeSeparator.slice(1).trim();
+          return {
+            name: "constructor",
+            typeName: `${parameterText} => ${returnTypeName}`
+          };
+        }
+      }
+    }
+
+    const signatureParenIndex = trimmedPart.indexOf("(");
+    if (signatureParenIndex > 0 && (colonIndex < 0 || signatureParenIndex < colonIndex)) {
+      const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, signatureParenIndex, "(", ")");
+      if (closeParenIndex >= 0) {
+        const returnTypeSeparator = trimmedPart.slice(closeParenIndex + 1).trimStart();
+        if (returnTypeSeparator.startsWith(":")) {
+          let name = trimmedPart.slice(0, signatureParenIndex).trim();
+          let optional = false;
+          if (name.endsWith("?")) {
+            optional = true;
+            name = name.slice(0, -1).trim();
+          }
+          if (name.startsWith("readonly ")) {
+            name = name.slice("readonly ".length).trim();
+          }
+          const parameterText = trimmedPart.slice(signatureParenIndex, closeParenIndex + 1);
+          const returnTypeName = returnTypeSeparator.slice(1).trim();
+          return {
+            name,
+            typeName: `${parameterText} => ${returnTypeName}`,
+            ...(optional ? { optional: true as const } : {})
+          };
+        }
+      }
+    }
+    if (colonIndex < 0) {
+      return { name: part.trim(), typeName: "unknown" };
+    }
+    let name = part.slice(0, colonIndex).trim();
+    const memberTypeName = part.slice(colonIndex + 1).trim();
+    let optional = false;
+    if (name.endsWith("?")) {
+      optional = true;
+      name = name.slice(0, -1).trim();
+    }
+    if (name.startsWith("readonly ")) {
+      name = name.slice("readonly ".length).trim();
+    }
+    if ((name.startsWith('"') && name.endsWith('"')) || (name.startsWith("'") && name.endsWith("'"))) {
+      name = name.slice(1, -1);
+    }
+    return {
+      name,
+      typeName: memberTypeName.length > 0 ? memberTypeName : "unknown",
+      ...(optional ? { optional: true as const } : {})
+    };
+  });
+}
+
+/** Returns true if the type text contains `=>`, suggesting a function type annotation. */
+export function looksLikeFunctionTypeAnnotation(typeName: string): boolean {
+  return typeName.includes("=>");
+}

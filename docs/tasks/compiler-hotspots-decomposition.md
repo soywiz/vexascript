@@ -83,6 +83,7 @@ Examples of likely seams:
   - TypeChecker.ts now imports these as standalone functions; 26 call sites updated.
   - Second batch: extracted 5 more pure helpers — `isAsyncLike`, `statementAllowsLabeledContinue`, `statementListPreventsSwitchFallthrough`, `statementPreventsSwitchFallthrough` into `compiler/analysis/controlFlow.ts`, and `tupleElementTypeText` added to `compiler/analysis/typeNames.ts`. All covered by `compiler/analysis/controlFlow.test.ts` (28 tests).
   - Third batch: extracted 9 type predicate functions into `compiler/analysis/typeClassifiers.ts` (64 tests including new property helpers). Expanded `compiler/analysis/propertyNames.ts` with 4 property type access helpers (`propertyEntries`, `propertyTypeFrom`, `propertyTypeAllowsUndefined`, `propertyTypeWithoutUndefined`). TypeChecker.ts now imports 40+ standalone functions.
+  - Fourth batch: extracted pure type annotation text parsers (`parseFunctionTypeAnnotation`, `parseObjectTypeAnnotation`, `looksLikeFunctionTypeAnnotation`) from TypeChecker.ts into `compiler/analysis/typeNames.ts`. 14 new tests added to `compiler/analysis/typeNames.test.ts`.
 * [ ] Separate statement-family checking from shared type/call resolution helpers.
 * [ ] Split parser logic by syntax families where it reduces branching without duplicating token flow.
 * [x] Reduce the amount of bundling-specific logic living inside generic emission paths.
@@ -90,4 +91,5 @@ Examples of likely seams:
 * [x] Add narrow unit tests for newly extracted helpers before moving larger blocks.
   - `compiler/analysis/typeDisplay.test.ts` and `compiler/analysis/propertyNames.test.ts` cover all extracted functions.
   - `compiler/analysis/controlFlow.test.ts` covers all control-flow predicates.
-* [ ] Keep behavior-preserving refactors separate from feature work whenever possible.
+* [x] Keep behavior-preserving refactors separate from feature work whenever possible.
+  - All extraction commits above are pure refactors: same external behavior, tests unchanged, only new test files added.

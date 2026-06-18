@@ -37,7 +37,7 @@ This section is the fast onboarding map for agents and contributors.
   - Pure property-name normalization, matching, and property type lookup helpers (normalizePropertyName, isDynamicPropertyName, propertyNamesMatch, propertyTypeFrom, propertyTypeAllowsUndefined, propertyTypeWithoutUndefined) extracted from TypeChecker: `compiler/analysis/propertyNames.ts`, tests: `compiler/analysis/propertyNames.test.ts`
   - Pure type-predicate classifiers (isIntType, isStringLikeType, isBigIntType, isLongType, isNumberType, isNumericType, isNumericFamilyType, isNullishType, isPrimitiveLikeOperatorType) extracted from TypeChecker: `compiler/analysis/typeClassifiers.ts`, tests: `compiler/analysis/typeClassifiers.test.ts`
   - Pure control-flow predicates (isAsyncLike, statementAllowsLabeledContinue, statementPreventsSwitchFallthrough) extracted from TypeChecker for stateless reuse: `compiler/analysis/controlFlow.ts`, tests: `compiler/analysis/controlFlow.test.ts`
-  - Shared structural type-text parsing/splitting and substitution helpers (includes tupleElementTypeText extracted from TypeChecker): `compiler/analysis/typeNames.ts`
+  - Shared structural type-text parsing/splitting and substitution helpers (includes tupleElementTypeText, parseFunctionTypeAnnotation, parseObjectTypeAnnotation extracted from TypeChecker): `compiler/analysis/typeNames.ts`
   - Type-name helper tests: `compiler/analysis/typeNames.test.ts`
   - Declaration-index tests: `compiler/analysis/declarationIndex.test.ts`
   - Project semantic index/cache with precise top-level declaration kinds for classes, interfaces, type aliases, functions, variables, and extension members: `compiler/analysis/projectIndex.ts`

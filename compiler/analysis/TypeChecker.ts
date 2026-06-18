@@ -102,8 +102,9 @@ import {
   unionType
 } from "./types";
 import {
-  findMatchingTypeDelimiter,
-  findTopLevelTypeCharacter,
+  looksLikeFunctionTypeAnnotation,
+  parseObjectTypeAnnotation,
+  parseFunctionTypeAnnotation,
   parseTypeNameShape,
   splitOptionalTypeSuffix,
   splitTopLevelDelimitedTypeText,
@@ -3533,7 +3534,7 @@ export class TypeChecker {
     if (objectType) {
       return objectType;
     }
-    if (this.looksLikeFunctionTypeAnnotation(typeName)) {
+    if (looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
     }
     if (normalizedTypeName.startsWith("keyof ")) {
@@ -5962,7 +5963,7 @@ export class TypeChecker {
     if (objectAnnotation) {
       return objectAnnotation;
     }
-    if (this.looksLikeFunctionTypeAnnotation(normalizedTypeName)) {
+    if (looksLikeFunctionTypeAnnotation(normalizedTypeName)) {
       return UNKNOWN_TYPE;
     }
 
@@ -9401,7 +9402,7 @@ export class TypeChecker {
     if (computedType) {
       return computedType;
     }
-    if (this.looksLikeFunctionTypeAnnotation(typeAnnotation.name)) {
+    if (looksLikeFunctionTypeAnnotation(typeAnnotation.name)) {
       return UNKNOWN_TYPE;
     }
 
@@ -9467,7 +9468,7 @@ export class TypeChecker {
     if (computedType) {
       return computedType;
     }
-    if (this.looksLikeFunctionTypeAnnotation(typeName)) {
+    if (looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
     }
 
@@ -9785,7 +9786,7 @@ export class TypeChecker {
   }
 
   private resolveFunctionTypeAnnotation(typeName: string, node: Node, scope: Scope): AnalysisType | null {
-    const parsed = this.parseFunctionTypeAnnotation(typeName);
+    const parsed = parseFunctionTypeAnnotation(typeName);
     if (!parsed) {
       return null;
     }
@@ -9801,7 +9802,7 @@ export class TypeChecker {
   }
 
   private resolveObjectTypeAnnotation(typeName: string, node: Node, scope: Scope): AnalysisType | null {
-    const members = this.parseObjectTypeAnnotation(typeName);
+    const members = parseObjectTypeAnnotation(typeName);
     if (!members) {
       return null;
     }
@@ -9816,7 +9817,7 @@ export class TypeChecker {
   }
 
   private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {
-    const parsed = this.parseFunctionTypeAnnotation(typeName);
+    const parsed = parseFunctionTypeAnnotation(typeName);
     if (!parsed) {
       return null;
     }
@@ -9832,7 +9833,7 @@ export class TypeChecker {
   }
 
   private objectTypeFromAnnotationText(typeName: string): AnalysisType | null {
-    const members = this.parseObjectTypeAnnotation(typeName);
+    const members = parseObjectTypeAnnotation(typeName);
     if (!members) {
       return null;
     }
@@ -9846,144 +9847,4 @@ export class TypeChecker {
     return objectTypeWithProperties(properties);
   }
 
-  private parseFunctionTypeAnnotation(typeName: string): {
-    parameters: Array<{ name: string; typeName: string; optional?: boolean; rest?: boolean }>;
-    returnTypeName: string;
-  } | null {
-    const trimmed = typeName.trim();
-    if (!trimmed.startsWith("(")) {
-      return null;
-    }
-
-    const closeParenIndex = findMatchingTypeDelimiter(trimmed, 0, "(", ")");
-    if (closeParenIndex < 0) {
-      return null;
-    }
-    const afterParameters = trimmed.slice(closeParenIndex + 1).trimStart();
-    if (!afterParameters.startsWith("=>")) {
-      return null;
-    }
-
-    const parameterBody = trimmed.slice(1, closeParenIndex).trim();
-    const parameters = parameterBody.length === 0
-      ? []
-      : splitTopLevelDelimitedTypeText(parameterBody).map((part, index) => {
-          let text = part.trim();
-          let rest = false;
-          if (text.startsWith("...")) {
-            rest = true;
-            text = text.slice(3).trim();
-          }
-
-          const colonIndex = findTopLevelTypeCharacter(text, ":");
-          if (colonIndex < 0) {
-            return {
-              name: `arg${index + 1}`,
-              typeName: text.length > 0 ? text : "unknown",
-              ...(rest ? { rest: true } : {})
-            };
-          }
-
-          let name = text.slice(0, colonIndex).trim();
-          const typeName = text.slice(colonIndex + 1).trim();
-          let optional = false;
-          if (name.endsWith("?")) {
-            optional = true;
-            name = name.slice(0, -1).trim();
-          }
-          return {
-            name: name.length > 0 ? name : `arg${index + 1}`,
-            typeName: typeName.length > 0 ? typeName : "unknown",
-            ...(optional ? { optional: true } : {}),
-            ...(rest ? { rest: true } : {})
-          };
-        });
-
-    return {
-      parameters,
-      returnTypeName: afterParameters.slice(2).trim()
-    };
-  }
-
-  private parseObjectTypeAnnotation(typeName: string): Array<{ name: string; typeName: string; optional?: boolean }> | null {
-    const trimmed = typeName.trim();
-    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
-      return null;
-    }
-
-    const body = trimmed.slice(1, -1).trim();
-    if (body.length === 0) {
-      return [];
-    }
-
-    return splitTopLevelDelimitedTypeText(body, new Set([",", ";"])).map((part) => {
-      const trimmedPart = part.trim();
-      const colonIndex = findTopLevelTypeCharacter(trimmedPart, ":");
-      if (trimmedPart.startsWith("new(")) {
-        const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, 3, "(", ")");
-        if (closeParenIndex >= 0) {
-          const returnTypeSeparator = trimmedPart.slice(closeParenIndex + 1).trimStart();
-          if (returnTypeSeparator.startsWith(":")) {
-            const parameterText = trimmedPart.slice(3, closeParenIndex + 1);
-            const returnTypeName = returnTypeSeparator.slice(1).trim();
-            return {
-              name: "constructor",
-              typeName: `${parameterText} => ${returnTypeName}`
-            };
-          }
-        }
-      }
-
-      const signatureParenIndex = trimmedPart.indexOf("(");
-      if (signatureParenIndex > 0 && (colonIndex < 0 || signatureParenIndex < colonIndex)) {
-        const closeParenIndex = findMatchingTypeDelimiter(trimmedPart, signatureParenIndex, "(", ")");
-        if (closeParenIndex >= 0) {
-          const returnTypeSeparator = trimmedPart.slice(closeParenIndex + 1).trimStart();
-          if (returnTypeSeparator.startsWith(":")) {
-            let name = trimmedPart.slice(0, signatureParenIndex).trim();
-            let optional = false;
-            if (name.endsWith("?")) {
-              optional = true;
-              name = name.slice(0, -1).trim();
-            }
-            if (name.startsWith("readonly ")) {
-              name = name.slice("readonly ".length).trim();
-            }
-            const parameterText = trimmedPart.slice(signatureParenIndex, closeParenIndex + 1);
-            const returnTypeName = returnTypeSeparator.slice(1).trim();
-            return {
-              name,
-              typeName: `${parameterText} => ${returnTypeName}`,
-              ...(optional ? { optional: true } : {})
-            };
-          }
-        }
-      }
-      if (colonIndex < 0) {
-        return { name: part.trim(), typeName: "unknown" };
-      }
-      let name = part.slice(0, colonIndex).trim();
-      const typeName = part.slice(colonIndex + 1).trim();
-      let optional = false;
-      if (name.endsWith("?")) {
-        optional = true;
-        name = name.slice(0, -1).trim();
-      }
-      if (name.startsWith("readonly ")) {
-        name = name.slice("readonly ".length).trim();
-      }
-      if ((name.startsWith('"') && name.endsWith('"')) || (name.startsWith("'") && name.endsWith("'"))) {
-        name = name.slice(1, -1);
-      }
-      return {
-        name,
-        typeName: typeName.length > 0 ? typeName : "unknown",
-        ...(optional ? { optional: true } : {})
-      };
-    });
-  }
-
-  private looksLikeFunctionTypeAnnotation(typeName: string): boolean {
-    return typeName.includes("=>");
-  }
 }
