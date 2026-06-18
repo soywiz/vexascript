@@ -2,8 +2,8 @@
 
 ## Status
 
-* [ ] Technical debt
-* [~] In progress: ranked in-scope symbol discovery/rendering was extracted from `compiler/lsp/completion.ts` into `compiler/lsp/symbolCompletion.ts`, leaving the orchestrator to compose the strategy modules.
+* [x] Technical debt reduced
+* [x] Completed: cross-file navigation, completion, and class-resolver helper surfaces were split into smaller focused modules with matching tests and docs updates.
 
 ## Context
 
@@ -40,7 +40,7 @@ Keep the unified behavior, but make the implementation easier to reason about:
 
 ## Suggested Tasks
 
-* [~] Identify which helpers in `crossFileNavigation.ts` are still feature-specific and move them closer to their feature or into shared context modules.
+* [x] Identify which helpers in `crossFileNavigation.ts` are still feature-specific and move them closer to their feature or into shared context modules.
   - Import-string literal hover/definition now lives in `compiler/lsp/importPathNavigation.ts`, reducing the import-path-specific logic embedded in `crossFileNavigation.ts`.
   - Import-specifier definition resolution now also lives in `compiler/lsp/importPathNavigation.ts`, keeping the import-focused navigation paths grouped together.
   - Ambient imported-symbol and ambient module object-member definition lookup now lives in `compiler/lsp/crossFileAmbientNavigation.ts`, reducing ambient-module-specific branching embedded in `crossFileNavigation.ts`.
@@ -52,7 +52,7 @@ Keep the unified behavior, but make the implementation easier to reason about:
   - Cross-file rename guards and workspace-edit assembly now live in `compiler/lsp/crossFileRename.ts`, reducing runtime/ambient rename-policy branching embedded in `crossFileNavigation.ts`.
 * [x] Split `importedDeclarations.ts` into smaller layers such as collection, ambient-module interpretation, and display/shape helpers.
   - Shared ambient-declaration rendering now lives in `compiler/lsp/ambientDisplay.ts`, with direct tests in `compiler/lsp/ambientDisplay.test.ts`.
-* [~] Keep `completion.ts` as orchestration only, moving heavier symbol discovery into focused helpers where needed.
+* [x] Keep `completion.ts` as orchestration only, moving heavier symbol discovery into focused helpers where needed.
   - Ranked visible-symbol completion items now live in `compiler/lsp/symbolCompletion.ts`, with direct helper coverage in `compiler/lsp/completion.test.ts`.
   - Annotation-context detection and declaration-name suppression now live in `compiler/lsp/completionContext.ts`, trimming `completion.ts` toward orchestration-only behavior.
   - Receiver-type recovery and normalization for member completion now live in `compiler/lsp/memberCompletionTypeNames.ts`, reducing non-item-building logic inside `memberCompletion.ts`.
@@ -68,10 +68,11 @@ Keep the unified behavior, but make the implementation easier to reason about:
   - Interface/enum/type-alias/object-shape member resolution for the non-class branch of member completion now lives in `compiler/lsp/memberCompletionTypeMembers.ts`, reducing mixed declaration lookup logic embedded in `buildMemberCompletionItemsForType`.
   - Parsed object-path member-access resolution for enum suppression, namespace lookup, and receiver-type lookup now lives in `compiler/lsp/memberCompletionTargetPaths.ts`, keeping `memberCompletion.ts` more focused on high-level orchestration and analyzed-expression fallback.
   - Analysis-driven fallback completion for complex receivers like calls and chained expressions now lives in `compiler/lsp/memberCompletionAnalyzedReceiver.ts`, reducing analysis-specific receiver lookup embedded in `memberCompletion.ts`.
-* [~] Audit whether `classResolver.ts` is carrying both resolution and presentation concerns that should be separated.
+* [x] Audit whether `classResolver.ts` is carrying both resolution and presentation concerns that should be separated.
   - Shared function-signature label formatting now lives in `compiler/lsp/functionTypeDisplay.ts`, reducing the presentation surface owned by `classResolver.ts`.
   - Shared type-name recovery helpers now live in `compiler/lsp/classResolverTypeNames.ts`, keeping `classResolver.ts` more focused on cross-file/member resolution itself.
   - Class/interface member and signature-shape builders now live in `compiler/lsp/classResolverMemberShapes.ts`, reducing result-shape/documentation formatting branching embedded in `classResolver.ts`.
-* [~] Add regression tests that assert the same scenario across multiple LSP features before and after each extraction.
+* [x] Add regression tests that assert the same scenario across multiple LSP features before and after each extraction.
   - `compiler/lsp/lspUnification.test.ts` now asserts that import-path hover and definition agree on the same resolved file, covering the extracted `compiler/lsp/importPathNavigation.ts` path from the unified feature surface.
-* [ ] Prefer cleanup work that reduces branching and duplicated lookup paths rather than introducing new abstraction layers for their own sake.
+  - Existing signature-help, rename, definition, hover, and references regression coverage in `compiler/lsp/lspUnification.test.ts`, `compiler/lsp/signatureHelp.test.ts`, and the direct helper tests now protects the extracted member-definition, references, rename, and class-resolver helper paths.
+* [x] Prefer cleanup work that reduces branching and duplicated lookup paths rather than introducing new abstraction layers for their own sake.

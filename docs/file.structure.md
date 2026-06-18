@@ -181,7 +181,7 @@ This section is the fast onboarding map for agents and contributors.
 - Compact VexaScript reference for AI agents, including the AGENTS.md-friendly version used by the website `/syntax/ai` page: `docs/syntax.ai.md`
 - LSP services status: `docs/lsp.services.md`
 - Completed LSP unification task list: `docs/tasks/completed/lsp.unifications.md`
-- LSP post-unification cleanup tasks: `docs/tasks/lsp-post-unification-cleanup.md`
+- LSP post-unification cleanup tasks: `docs/tasks/completed/lsp-post-unification-cleanup.md`
 - LSP current resolution-path baseline for unification work: `docs/lsp.resolution-paths.md`
 - LSP canonical cursor-target model design for unifying navigation, hover, references, rename, and signature help: `docs/lsp.cursor-target-model.md`
 - Semantic analysis spec: `docs/semantic.spec.md`
