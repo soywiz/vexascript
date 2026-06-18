@@ -74,9 +74,9 @@ var accentRotationZ: number = 0
 
 renderer.render(scene, camera)
 setInterval({
-  cubeRotationX += 0.01
-  cubeRotationY += 0.015
-  accentRotationZ += 0.01
+  cubeRotationX += .01
+  cubeRotationY += .015
+  accentRotationZ += .01
   cube.rotation.set(cubeRotationX, cubeRotationY, 0)
   accent.rotation.set(0, Math.PI / 4, accentRotationZ)
   renderer.render(scene, camera)
