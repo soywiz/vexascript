@@ -35,7 +35,8 @@ This section is the fast onboarding map for agents and contributors.
   - Shared cached one-pass top-level declaration indexing for runtime/ambient/program statement arrays reused by binder/type-checker: `compiler/analysis/declarationIndex.ts`
   - Pure type display helpers (typeToDiagnosticLabel, isNumberLikeType) extracted from TypeChecker for independent reuse and testing: `compiler/analysis/typeDisplay.ts`, tests: `compiler/analysis/typeDisplay.test.ts`
   - Pure property-name normalization and matching helpers (normalizePropertyName, isDynamicPropertyName, propertyNamesMatch) extracted from TypeChecker: `compiler/analysis/propertyNames.ts`, tests: `compiler/analysis/propertyNames.test.ts`
-  - Shared structural type-text parsing/splitting and substitution helpers: `compiler/analysis/typeNames.ts`
+  - Pure control-flow predicates (isAsyncLike, statementAllowsLabeledContinue, statementPreventsSwitchFallthrough) extracted from TypeChecker for stateless reuse: `compiler/analysis/controlFlow.ts`, tests: `compiler/analysis/controlFlow.test.ts`
+  - Shared structural type-text parsing/splitting and substitution helpers (includes tupleElementTypeText extracted from TypeChecker): `compiler/analysis/typeNames.ts`
   - Type-name helper tests: `compiler/analysis/typeNames.test.ts`
   - Declaration-index tests: `compiler/analysis/declarationIndex.test.ts`
   - Project semantic index/cache with precise top-level declaration kinds for classes, interfaces, type aliases, functions, variables, and extension members: `compiler/analysis/projectIndex.ts`

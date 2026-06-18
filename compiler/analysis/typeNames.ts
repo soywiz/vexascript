@@ -223,3 +223,23 @@ export function stripEnclosingTypeParens(typeName: string): string {
   }
   return stripEnclosingTypeParens(trimmed.slice(1, -1));
 }
+
+/**
+ * Strips an optional rest marker (`...`) and a labeled-element prefix
+ * (`name:` or `name?:`) from a raw tuple element type string, returning just
+ * the element's type text.
+ */
+export function tupleElementTypeText(elementText: string): string {
+  let trimmed = elementText.trim();
+  if (trimmed.startsWith("...")) {
+    trimmed = trimmed.slice(3).trim();
+  }
+  const colonIndex = findTopLevelTypeCharacter(trimmed, ":");
+  if (colonIndex >= 0) {
+    const label = trimmed.slice(0, colonIndex).trim();
+    if (/^[A-Za-z_$][\w$]*\??$/.test(label)) {
+      return trimmed.slice(colonIndex + 1).trim();
+    }
+  }
+  return trimmed;
+}

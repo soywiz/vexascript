@@ -108,7 +108,8 @@ import {
   splitOptionalTypeSuffix,
   splitTopLevelDelimitedTypeText,
   splitTopLevelTypeText,
-  stripEnclosingTypeParens
+  stripEnclosingTypeParens,
+  tupleElementTypeText
 } from "./typeNames";
 import { ANALYSIS_ISSUE_CODES } from "./issueCodes";
 import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
@@ -117,6 +118,7 @@ import { declarationIndexForStatements } from "./declarationIndex";
 import { walkAst } from "compiler/ast/traversal";
 import { isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
 import { isDynamicPropertyName, normalizePropertyName, propertyNamesMatch } from "./propertyNames";
+import { isAsyncLike, statementAllowsLabeledContinue, statementListPreventsSwitchFallthrough } from "./controlFlow";
 
 type EnumResolvedValue =
   | { kind: "constant-int"; value: number }
@@ -414,12 +416,6 @@ export class TypeChecker {
     return this.syncFunctionStack.length > 0;
   }
 
-  // A `sync` function is internally an async function: it is emitted as `async`, returns a
-  // Promise<T> when observed from the outside, and supports auto-await inside its own body.
-  private isAsyncLike(node: { async?: boolean; sync?: boolean }): boolean {
-    return node.async === true || node.sync === true;
-  }
-
   private visitProgram(program: Program, scope: Scope, flow: FlowContext): void {
     for (const statement of program.body) {
       this.visitStatement(statement, scope, flow);
@@ -531,7 +527,7 @@ export class TypeChecker {
         }
         const labels = [
           ...(flow.labels ?? []),
-          { name: labeled.label.name, allowsContinue: this.statementAllowsLabeledContinue(labeled.body) }
+          { name: labeled.label.name, allowsContinue: statementAllowsLabeledContinue(labeled.body) }
         ];
         this.visitStatement(labeled.body, scope, { ...flow, labels });
         return;
@@ -724,16 +720,6 @@ export class TypeChecker {
 
   private resolveAnnotationStatement(name: string): AnnotationStatement | null {
     return this.annotationStatementsByName.get(name) ?? null;
-  }
-
-  private statementAllowsLabeledContinue(statement: Statement): boolean {
-    if (statement.kind === "WhileStatement" || statement.kind === "DoWhileStatement" || statement.kind === "ForStatement") {
-      return true;
-    }
-    if (statement.kind === "LabeledStatement") {
-      return this.statementAllowsLabeledContinue((statement as LabeledStatement).body);
-    }
-    return false;
   }
 
   private validateVarDeclaration(
@@ -1300,8 +1286,8 @@ export class TypeChecker {
         });
       }
     }
-      const isAsyncLike = this.isAsyncLike(statement);
-    this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => this.withAsyncLikeFunction(isAsyncLike, () => {
+      const asyncLike = isAsyncLike(statement);
+    this.withGeneratorFunction(statement.generator === true, () => this.withSyncFunction(statement.sync === true, () => this.withAsyncLikeFunction(asyncLike, () => {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
       this.withTypeParameters(typeParameterNames, () => {
         const functionScope = this.scopeFor(statement, scope);
@@ -1309,7 +1295,7 @@ export class TypeChecker {
           statement.returnType,
           statement.receiverType ? functionScope : scope
         );
-        if (isAsyncLike) {
+        if (asyncLike) {
           this.validateAsyncReturnTypeAnnotation(declaredReturnType, statement.returnType ?? statement.name);
         }
         const returnType = declaredReturnType ?? UNKNOWN_TYPE;
@@ -1340,7 +1326,7 @@ export class TypeChecker {
           switchDepth: 0,
           labels: [],
           expectedReturnType: returnType,
-          inAsync: isAsyncLike,
+          inAsync: asyncLike,
           inGenerator: statement.generator === true
         };
         for (const bodyStatement of statement.body.body) {
@@ -1349,7 +1335,7 @@ export class TypeChecker {
         const resolvedReturnType = this.finalizeFunctionReturnType(
           declaredReturnType,
           statement.body,
-          isAsyncLike,
+          asyncLike,
           statement.generator === true
         );
         if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
@@ -1360,7 +1346,7 @@ export class TypeChecker {
           );
         }
         if (statement.missingBody !== true) {
-          this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, isAsyncLike, statement.generator === true);
+          this.reportMissingReturnPath(statement.body, resolvedReturnType, statement.name, asyncLike, statement.generator === true);
         }
       }, this.typeParameterConstraintMap(statement.typeParameters ?? [], scope));
     })));
@@ -1549,7 +1535,7 @@ export class TypeChecker {
           }
         }
         const methodTypeParameterNames = method.typeParameters?.map((parameter) => parameter.name.name) ?? [];
-        const methodIsAsyncLike = this.isAsyncLike(method);
+        const methodIsAsyncLike = isAsyncLike(method);
         this.withGeneratorFunction(method.generator === true, () => this.withSyncFunction(method.sync === true, () => this.withAsyncLikeFunction(methodIsAsyncLike, () => {
           this.withTypeParameters(methodTypeParameterNames, () => {
             const declaredMethodReturnType = this.resolveTypeAnnotation(method.returnType, classScope);
@@ -1764,7 +1750,7 @@ export class TypeChecker {
       if (
         index < statement.cases.length - 1 &&
         switchCase.consequent.length > 0 &&
-        !this.statementListPreventsSwitchFallthrough(switchCase.consequent)
+        !statementListPreventsSwitchFallthrough(switchCase.consequent)
       ) {
         this.issues.push({
           message: "Switch case falls through to the next case; add 'break', 'return', 'throw', or 'continue' to make control flow explicit",
@@ -1788,51 +1774,6 @@ export class TypeChecker {
       for (const consequent of switchCase.consequent) {
         this.visitStatement(consequent, caseScope, switchFlow);
       }
-    }
-  }
-
-  private statementListPreventsSwitchFallthrough(statements: Statement[]): boolean {
-    for (const statement of statements) {
-      if (this.statementPreventsSwitchFallthrough(statement)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private statementPreventsSwitchFallthrough(statement: Statement): boolean {
-    switch (statement.kind) {
-      case "BreakStatement":
-      case "ContinueStatement":
-      case "ReturnStatement":
-      case "ThrowStatement":
-        return true;
-      case "BlockStatement":
-        return this.statementListPreventsSwitchFallthrough((statement as BlockStatement).body);
-      case "IfStatement": {
-        const conditional = statement as IfStatement;
-        return (
-          conditional.elseBranch !== undefined &&
-          this.statementPreventsSwitchFallthrough(conditional.thenBranch) &&
-          this.statementPreventsSwitchFallthrough(conditional.elseBranch)
-        );
-      }
-      case "TryStatement": {
-        const tryStatement = statement as TryStatement;
-        if (tryStatement.finallyBlock && this.statementPreventsSwitchFallthrough(tryStatement.finallyBlock)) {
-          return true;
-        }
-        return (
-          this.statementPreventsSwitchFallthrough(tryStatement.tryBlock) &&
-          (tryStatement.catchClause === undefined || this.statementPreventsSwitchFallthrough(tryStatement.catchClause.body))
-        );
-      }
-      case "WithStatement":
-        return this.statementPreventsSwitchFallthrough((statement as WithStatement).body);
-      case "LabeledStatement":
-        return this.statementPreventsSwitchFallthrough((statement as LabeledStatement).body);
-      default:
-        return false;
     }
   }
 
@@ -2484,7 +2425,7 @@ export class TypeChecker {
         break;
       case "ArrowFunctionExpression": {
         const arrow = expression as ArrowFunctionExpression;
-        const arrowIsAsyncLike = this.isAsyncLike(arrow);
+        const arrowIsAsyncLike = isAsyncLike(arrow);
         this.withGeneratorFunction(false, () => this.withSyncFunction(arrow.sync === true, () => this.withAsyncLikeFunction(arrowIsAsyncLike, () => {
           if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
             result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
@@ -2539,7 +2480,7 @@ export class TypeChecker {
       }
       case "FunctionExpression": {
         const fn = expression as FunctionExpression;
-        const fnIsAsyncLike = this.isAsyncLike(fn);
+        const fnIsAsyncLike = isAsyncLike(fn);
         this.withGeneratorFunction(fn.generator === true, () => this.withSyncFunction(fn.sync === true, () => this.withAsyncLikeFunction(fnIsAsyncLike, () => {
           const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
           const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
@@ -3731,7 +3672,7 @@ export class TypeChecker {
           ? []
           : splitTopLevelTypeText(tupleBody, ",").map((part) =>
             this.typeFromTypeNameLooseWithTypeParameters(
-              this.tupleElementTypeText(part),
+              tupleElementTypeText(part),
               localTypeParameterNames,
               contextualThisTypeName
             ) ?? UNKNOWN_TYPE
@@ -3766,21 +3707,6 @@ export class TypeChecker {
     return this.typeFromTypeNameLoose(typeName);
   }
 
-
-  private tupleElementTypeText(elementText: string): string {
-    let trimmed = elementText.trim();
-    if (trimmed.startsWith("...")) {
-      trimmed = trimmed.slice(3).trim();
-    }
-    const colonIndex = findTopLevelTypeCharacter(trimmed, ":");
-    if (colonIndex >= 0) {
-      const label = trimmed.slice(0, colonIndex).trim();
-      if (/^[A-Za-z_$][\w$]*\??$/.test(label)) {
-        return trimmed.slice(colonIndex + 1).trim();
-      }
-    }
-    return trimmed;
-  }
 
   private typeParameterConstraintMapLoose(
     typeParameters: TypeParameter[],
@@ -6081,7 +6007,7 @@ export class TypeChecker {
       const elements = tupleBody.trim().length === 0
         ? []
         : splitTopLevelTypeText(tupleBody, ",").map((part) =>
-            this.resolveTypeNameText(this.tupleElementTypeText(part), node, scope, false)
+            this.resolveTypeNameText(tupleElementTypeText(part), node, scope, false)
           );
       return tupleType(elements);
     }
@@ -6335,7 +6261,7 @@ export class TypeChecker {
       const tupleBody = tupleTypeMatch[1] ?? "";
       const elements = tupleBody.trim().length === 0
         ? []
-        : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(this.tupleElementTypeText(part)));
+        : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(tupleElementTypeText(part)));
       return tupleType(elements);
     }
 
@@ -9262,7 +9188,7 @@ export class TypeChecker {
           rawReturnType = symbolType.returnType;
         }
         rawReturnType ??= builtinType("void");
-        const returnType = this.isAsyncLike(classMember) && !this.getAsyncReturnValueType(rawReturnType)
+        const returnType = isAsyncLike(classMember) && !this.getAsyncReturnValueType(rawReturnType)
           ? namedType("Promise", [rawReturnType])
           : rawReturnType;
         if (classMember.accessorKind === "get") {
@@ -9631,7 +9557,7 @@ export class TypeChecker {
       return tupleType(
         tupleBody.length === 0
           ? []
-          : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(this.tupleElementTypeText(part)))
+          : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(tupleElementTypeText(part)))
       );
     }
 
@@ -9697,7 +9623,7 @@ export class TypeChecker {
       return tupleType(
         tupleBody.length === 0
           ? []
-          : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(this.tupleElementTypeText(part)))
+          : splitTopLevelTypeText(tupleBody, ",").map((part) => this.typeFromTypeNameLoose(tupleElementTypeText(part)))
       );
     }
 

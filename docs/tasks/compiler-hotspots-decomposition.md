@@ -81,9 +81,11 @@ Examples of likely seams:
   - Identified 6 pure private methods (no `this`-state dependency): `typeToDiagnosticLabel`, `isNumberLikeType`, `normalizePropertyName`, `normalizeIndexSignaturePropertyName`, `isDynamicPropertyName`, `propertyNamesMatch`.
   - Extracted into two new focused modules: `compiler/analysis/typeDisplay.ts` (type formatting + numeric predicate) and `compiler/analysis/propertyNames.ts` (property name normalization and matching). Both have full unit-test coverage.
   - TypeChecker.ts now imports these as standalone functions; 26 call sites updated.
+  - Second batch: extracted 5 more pure helpers — `isAsyncLike`, `statementAllowsLabeledContinue`, `statementListPreventsSwitchFallthrough`, `statementPreventsSwitchFallthrough` into `compiler/analysis/controlFlow.ts`, and `tupleElementTypeText` added to `compiler/analysis/typeNames.ts`. All covered by `compiler/analysis/controlFlow.test.ts` (28 tests).
 * [ ] Separate statement-family checking from shared type/call resolution helpers.
 * [ ] Split parser logic by syntax families where it reduces branching without duplicating token flow.
 * [ ] Reduce the amount of bundling-specific logic living inside generic emission paths.
 * [x] Add narrow unit tests for newly extracted helpers before moving larger blocks.
   - `compiler/analysis/typeDisplay.test.ts` and `compiler/analysis/propertyNames.test.ts` cover all extracted functions.
+  - `compiler/analysis/controlFlow.test.ts` covers all control-flow predicates.
 * [ ] Keep behavior-preserving refactors separate from feature work whenever possible.
