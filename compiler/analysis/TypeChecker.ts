@@ -6525,10 +6525,13 @@ export class TypeChecker {
     }
     if (type.kind === "named") {
       const expanded = this.expandTypeAliases(type);
-      if (expanded !== type) {
+      if (expanded.kind !== "named") {
         return this.memberTypeFromObjectType(expanded, propertyName);
       }
-      return this.resolveNamedTypeMembers(type)?.get(propertyName) ?? null;
+      if (!isSameType(expanded, type)) {
+        return this.memberTypeFromObjectType(expanded, propertyName);
+      }
+      return this.resolveNamedTypeMembers(expanded)?.get(propertyName) ?? null;
     }
     if (type.kind === "tuple" && /^\d+$/.test(propertyName)) {
       return type.elements[Number(propertyName)] ?? null;

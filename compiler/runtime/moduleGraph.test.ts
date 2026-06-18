@@ -2,6 +2,7 @@ import { Script, createContext, describe, expect, it, join, mkdir, mkdtemp, rm, 
 import dedent from "compiler/utils/dedent";
 import { bundleModuleGraph, bundleModuleGraphAsModules } from "./moduleGraph";
 import { ensureEcmaScriptRuntimeProgram } from "./ecmascriptDeclarations";
+import { ensureDomProgram } from "./domDeclarations.shared";
 
 async function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "vexa-module-graph-"));
@@ -83,6 +84,137 @@ describe("bundleModuleGraph", () => {
         expect(result.code).toContain(
           "const sum = Point$$operator$plus$$Point(new Point(1, 2), new Point(3, 4));"
         );
+      }
+    );
+  });
+
+  it("bundles the website playground starter workspace without stack overflows", async () => {
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "main.vx": dedent`
+          import { increment, LoggedProperty } from "./counter.vx"
+          import { Point } from "./point.vx"
+          import { TimeSpan, delay, seconds, milliseconds, operator+, operator/ } from "./time.vx"
+          import { drawCard, drawDot } from "./c2d.vx"
+
+          fun describe(point: Point): string {
+            return \`(\${point.x}, \${point.y})\`
+          }
+
+          val cardOrigin = Point(36, 28)
+          val cardSize = Point(248, 116)
+          val pulseCenter = cardOrigin + Point(190, 58)
+          val pulseDelay = 1.seconds + 250.milliseconds
+
+          sync fun example() {
+            val current = increment(41)
+            console.log(current.toString())
+            console.log(describe(pulseCenter))
+
+            val app = document.querySelector("#app")
+            val canvas = document.createElement("canvas") as HTMLCanvasElement
+            canvas
+              ..width = 320
+              ..height = 180
+            app?.append(canvas)
+
+            const c2d = canvas.getContext("2d")! as CanvasRenderingContext2D
+            c2d
+              ..fillStyle = "#f4f8fc"
+              ..fillRect(0, 0, canvas.width, canvas.height)
+              ..drawCard(cardOrigin, cardSize, "#8cb3d9", "VexaScript")
+              ..drawDot(pulseCenter, 12, "#17324d")
+
+            let prop by LoggedProperty(10)
+            prop++
+
+            for (n in 0..<80) {
+              c2d.drawDot(pulseCenter, 18 + n / 4.0, "#4d7ea8")
+              c2d.drawDot(pulseCenter, 12 - n / 20.0, "#17324d")
+              delay(pulseDelay / 100)
+            }
+
+            prop += 5
+
+            console.log(TimeSpan(500.0).ms)
+            console.log((pulseDelay + 500.milliseconds).ms)
+          }
+
+          example()
+        `,
+        "c2d.vx": dedent`
+          import { Point } from "./point.vx"
+
+          export fun CanvasRenderingContext2D.circle(p: Point, radius: number) {
+            beginPath()
+            arc(p.x, p.y, radius, 0, Math.PI * 2)
+          }
+
+          export fun CanvasRenderingContext2D.fillWithStyle(style: string | CanvasGradient | CanvasPattern) {
+            fillStyle = style
+            fill()
+          }
+
+          export fun CanvasRenderingContext2D.drawCard(origin: Point, size: Point, fill: string, label: string) {
+            fillStyle = fill
+            fillRect(origin.x, origin.y, size.x, size.y)
+            fillStyle = "#17324d"
+            font = "bold 18px sans-serif"
+            fillText(label, origin.x + 16, origin.y + 32)
+          }
+
+          export fun CanvasRenderingContext2D.drawDot(center: Point, radius: number, fill: string) {
+            circle(center, radius)
+            fillWithStyle(fill)
+          }
+        `,
+        "counter.vx": dedent`
+          export fun increment(value: int): int {
+            return value + 1
+          }
+
+          export class LoggedProperty<T>(var current: T) {
+            get value(): T => current
+            set value(newValue: T) {
+              console.log("changed value", current, "->", newValue)
+              current = newValue
+            }
+          }
+        `,
+        "point.vx": dedent`
+          export class Point(val x: number, val y: number) {
+            operator+() => this
+            operator-() => Point(-x, -y)
+            operator+(other: Point) => Point(x + other.x, y + other.y)
+            operator-(other: Point) => Point(x - other.x, y - other.y)
+            operator*(scale: number) => Point(x * scale, y * scale)
+          }
+        `,
+        "time.vx": dedent`
+          export class TimeSpan(val ms: number)
+
+          export val number.seconds => TimeSpan(this * 1000.0)
+          export val number.milliseconds => TimeSpan(this)
+
+          fun TimeSpan.operator+(other: TimeSpan): TimeSpan => TimeSpan(ms + other.ms)
+          fun TimeSpan.operator-(other: TimeSpan): TimeSpan => TimeSpan(ms - other.ms)
+          fun TimeSpan.operator*(scale: number): TimeSpan => TimeSpan(ms * scale)
+          fun TimeSpan.operator/(scale: number): TimeSpan => TimeSpan(ms / scale)
+
+          export fun delay(time: TimeSpan) {
+            return new Promise { resolve, reject ->
+              setTimeout(resolve, time.ms)
+            }
+          }
+        `,
+      },
+      async (dir) => {
+        const result = await bundleModuleGraph(join(dir, "main.vx"), "optimized", {
+          ambientDeclarations: (await ensureDomProgram()).body,
+        });
+
+        expect(result.errors).toEqual([]);
       }
     );
   });
