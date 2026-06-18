@@ -14,7 +14,7 @@ val shell = document.createElement("div")
   ..addTo(document.body)
 
 val title = document.createElement("h1")
-  ..textContent = "js + VexaScript"
+  ..textContent = "THREE.js + VexaScript"
   ..setAttribute("style", "margin:0;font-size:28px;")
   ..addTo(shell)
 
