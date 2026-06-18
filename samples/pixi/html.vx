@@ -1,0 +1,56 @@
+import { Application, Graphics, View, Text, TextStyle, type Point, type Container } from "pixi.js"
+import { addTo, point, Vec2 } from "./utils.vx"
+
+val width = 480
+val height = 320
+val centerX = width / 2
+val centerY = height / 2
+
+val app = Application()
+await app.init({
+    width,
+    height,
+    resolution: 1,
+    antialias: true,     // Enable antialiasing
+})
+app.renderer.resize(width, height)
+val stage = app.stage
+
+document.body.setAttribute("style", "margin:0;display:grid;place-items:center;min-height:100vh;background:#f3efe2;")
+document.body.appendChild(app.canvas)
+
+val badge = Graphics()
+    ..point = Vec2(centerX, centerY - 16)
+    ..drawRoundedRect(-110, -64, 220, 128, 28)
+    ..fill(0xff6b35)
+    ..addTo(stage)
+
+val orb = Graphics()
+    ..circle(0, 0, 28)
+    ..fill()
+    ..point = Vec2(centerX, centerY - 16)
+    ..addTo(stage)
+
+val label = Text()
+    ..text = "Hello PIXI from VexaScript"
+    ..style = TextStyle({
+        fill: 0x1f2933,
+        fontSize: 24,
+        fontFamily: "Avenir Next, Arial, sans-serif",
+        fontWeight: "700"
+    })
+    ..anchor = 0.5
+    ..point = Vec2(centerX, height - 54)
+    ..addTo(stage)
+
+var drift: number = 0
+app.ticker.add {
+    drift++
+    //orb.x = centerX + Math.cos(drift * 0.04) * 56
+    //orb.point = Vec2(centerX + Math.cos(drift * 0.04) * 56, 0)
+    //console.log(orb.point)
+    orb.point = Vec2(centerX + Math.cos(drift * 0.02) * 56, orb.point.y)
+}
+
+console.log("pixi-ready")
+console.log(app.ticker.FPS)

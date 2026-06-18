@@ -1,0 +1,14 @@
+import { View, type Container } from "pixi.js"
+
+class Vec2(val x: number, val y: number) {
+    operator+(other: Vec2) => Vec2(x + other.x, y + other.y)
+}
+
+var View.point: Vec2 {
+    get { return Vec2(x, y) }
+    set { x = newValue.x; y = newValue.y }
+}
+
+fun View.addTo(container: Container<any>) { // if we don't specify generic, we asume the base ContainerChild
+    container.addChild(this)
+}
