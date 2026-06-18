@@ -6,6 +6,7 @@ This section is the fast onboarding map for agents and contributors.
 
 - Parser:
   - Main parser implementation: `compiler/parser/parser.ts`
+  - Pure token classification helpers (isEofToken, hasLineBreakBetween, typeTokenText, isLikelyStatementStart, isClassMemberModifier) extracted from the parser: `compiler/parser/tokenHelpers.ts`, tests: `compiler/parser/tokenHelpers.test.ts`
   - Parser tests: `compiler/parser/parser.expression.test.ts`, `compiler/parser/parser.statement.test.ts`, `compiler/parser/parser.program.test.ts`, and `compiler/parser/parser.file-recovery.test.ts`
 - Tokenizer:
   - Tokenization and lexical errors: `compiler/parser/tokenizer.ts`

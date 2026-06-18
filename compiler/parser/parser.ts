@@ -1,5 +1,6 @@
 import { ListReader } from "compiler/utils/ListReader";
 import { Token } from "./tokenizer";
+import { hasLineBreakBetween, isClassMemberModifier, isEofToken, isLikelyStatementStart, typeTokenText } from "./tokenHelpers";
 import {
     AnnotationApplication,
     AnnotationStatement,
@@ -250,7 +251,7 @@ export class Parser {
         const body: Statement[] = [];
 
         while (this.tokens.hasMore) {
-            if (this.isEofToken(this.tokens.peek())) {
+            if (isEofToken(this.tokens.peek())) {
                 this.tokens.skip();
                 break;
             }
@@ -548,7 +549,7 @@ export class Parser {
         const body: Statement[] = [];
 
         while (this.tokens.hasMore) {
-            if (this.isEofToken(this.tokens.peek())) {
+            if (isEofToken(this.tokens.peek())) {
                 this.tokens.skip();
                 break;
             }
@@ -578,7 +579,7 @@ export class Parser {
 
     recover(recoveryHint?: RecoveryHint, originToken?: Token): void {
         const startToken = originToken ?? this.tokens.peek();
-        if (startToken && !this.isEofToken(startToken)) {
+        if (startToken && !isEofToken(startToken)) {
             this.recoveryMarkers.push({
                 token: startToken,
                 ...(recoveryHint ? { recoveryHint } : {})
@@ -604,7 +605,7 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (this.isEofToken(token)) {
+            if (isEofToken(token)) {
                 return;
             }
 
@@ -671,7 +672,7 @@ export class Parser {
                 parenDepth === 0 &&
                 bracketDepth === 0 &&
                 braceDepth === 0 &&
-                this.isLikelyStatementStart(token)
+                isLikelyStatementStart(token)
             ) {
                 return;
             }
@@ -692,53 +693,12 @@ export class Parser {
                 parenDepth === 0 &&
                 bracketDepth === 0 &&
                 braceDepth === 0 &&
-                this.isLikelyStatementStart(token)
+                isLikelyStatementStart(token)
             ) {
                 return;
             }
             this.tokens.skip();
         }
-    }
-
-    private isLikelyStatementStart(token: Token | undefined): boolean {
-        if (!token) {
-            return false;
-        }
-        if (token.type === "symbol" && (token.value === "}" || token.value === "{")) {
-            return true;
-        }
-        if (token.type !== "identifier") {
-            return false;
-        }
-        return (
-            token.value === "let" ||
-            token.value === "var" ||
-            token.value === "val" ||
-            token.value === "const" ||
-            token.value === "fun" ||
-            token.value === "function" ||
-            token.value === "enum" ||
-            token.value === "declare" ||
-            token.value === "export" ||
-            token.value === "class" ||
-            token.value === "if" ||
-            token.value === "for" ||
-            token.value === "while" ||
-            token.value === "with" ||
-            token.value === "do" ||
-            token.value === "switch" ||
-            token.value === "try" ||
-            token.value === "catch" ||
-            token.value === "finally" ||
-            token.value === "defer" ||
-            token.value === "return" ||
-            token.value === "throw" ||
-            token.value === "break" ||
-            token.value === "continue" ||
-            token.value === "debugger" ||
-            token.value === "case" ||
-            token.value === "default"
-        );
     }
 
     private emitErrorFrom(error: unknown): void {
@@ -1179,7 +1139,7 @@ export class Parser {
                     this.fail("Expected property name in type literal", this.tokenAt(propertyName));
                 }
 
-                let nameText = `${readonlyText}${this.typeTokenText(propertyName)}`;
+                let nameText = `${readonlyText}${typeTokenText(propertyName)}`;
                 if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
                     this.tokens.skip();
                     nameText += "?";
@@ -1313,7 +1273,7 @@ export class Parser {
             this.fail("Expected type identifier", this.tokenAt(token));
         }
 
-        let typeName = this.typeTokenText(token);
+        let typeName = typeTokenText(token);
         while (
             token.type === "identifier" &&
             this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "." &&
@@ -1529,13 +1489,6 @@ export class Parser {
         return false;
     }
 
-    private typeTokenText(token: Token): string {
-        if (token.type === "string") {
-            return JSON.stringify(token.value);
-        }
-        return token.value;
-    }
-
     private readParenthesizedTypeText(openParen: Token): string {
         let text = "";
         let depth = 1;
@@ -1552,7 +1505,7 @@ export class Parser {
                     break;
                 }
             }
-            text += this.typeTokenText(token);
+            text += typeTokenText(token);
         }
         if (depth !== 0) {
             this.fail("Expected ')' to close function type annotation", this.tokenAt(openParen));
@@ -1574,7 +1527,7 @@ export class Parser {
             }
             if (token.type === "symbol" && token.value === "<") {
                 depth += 1;
-                text += this.typeTokenText(token);
+                text += typeTokenText(token);
                 continue;
             }
             if (token.type === "symbol" && [">", ">>", ">>>"].includes(token.value)) {
@@ -1591,7 +1544,7 @@ export class Parser {
                 }
                 continue;
             }
-            text += this.typeTokenText(token);
+            text += typeTokenText(token);
         }
         if (depth !== 0) {
             this.fail("Expected '>' to close generic type text", this.tokenAt(open));
@@ -1636,7 +1589,7 @@ export class Parser {
             this.fail("Expected method name in type literal", this.tokenAt(nameToken));
         }
 
-        let text = this.typeTokenText(nameToken);
+        let text = typeTokenText(nameToken);
         if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "?") {
             this.tokens.skip();
             text += "?";
@@ -1684,7 +1637,7 @@ export class Parser {
                     break;
                 }
             }
-            text += this.typeTokenText(this.tokens.read()!);
+            text += typeTokenText(this.tokens.read()!);
         }
         return text.trim();
     }
@@ -1719,7 +1672,7 @@ export class Parser {
         if (!nextToken || nextToken.type === "eof") {
             return false;
         }
-        if (this.hasLineBreakBetween(operator, nextToken)) {
+        if (hasLineBreakBetween(operator, nextToken)) {
             return true;
         }
         return nextToken.type === "symbol" && (nextToken.value === "}" || nextToken.value === ";");
@@ -1923,17 +1876,6 @@ export class Parser {
         return preferred ?? this.tokens.peek() ?? this.getLastReadToken();
     }
 
-    private isEofToken(token?: Token): boolean {
-        return token?.type === "eof";
-    }
-
-    private hasLineBreakBetween(a: Token | undefined, b: Token | undefined): boolean {
-        if (!a || !b) {
-            return false;
-        }
-        return a.range.end.line < b.range.start.line;
-    }
-
     private consumeStatementSeparator(
         context: "file" | "block",
         previousToken: Token | undefined
@@ -1943,7 +1885,7 @@ export class Parser {
         }
 
         const next = this.tokens.peek();
-        if (context === "file" && this.isEofToken(next)) {
+        if (context === "file" && isEofToken(next)) {
             this.tokens.skip();
             return;
         }
@@ -1957,14 +1899,14 @@ export class Parser {
             return;
         }
 
-        if (this.hasLineBreakBetween(previousToken, next)) {
+        if (hasLineBreakBetween(previousToken, next)) {
             return;
         }
 
         if (
             previousToken?.type === "symbol" &&
             previousToken.value === "}" &&
-            this.isLikelyStatementStart(next)
+            isLikelyStatementStart(next)
         ) {
             return;
         }
@@ -1992,7 +1934,7 @@ export class Parser {
             return;
         }
 
-        if (this.hasLineBreakBetween(previousToken, next)) {
+        if (hasLineBreakBetween(previousToken, next)) {
             return;
         }
 
@@ -2484,7 +2426,7 @@ export class Parser {
         const statements: Statement[] = [];
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (this.isEofToken(token)) {
+            if (isEofToken(token)) {
                 this.fail("Expected '}' to close tail lambda", this.tokenAt(openBrace), "block");
             }
 
@@ -2988,7 +2930,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "symbol" && token.value === "!" && !this.hasLineBreakBetween(expr.lastToken, token)) {
+            if (token?.type === "symbol" && token.value === "!" && !hasLineBreakBetween(expr.lastToken, token)) {
                 this.tokens.skip();
                 expr = this.attachNodeBounds({
                     kind: "NonNullExpression",
@@ -2998,7 +2940,7 @@ export class Parser {
             }
 
             if (token?.type === "symbol" && token.value === "[") {
-                if (this.hasLineBreakBetween(expr.lastToken, token)) {
+                if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
                 this.tokens.skip();
@@ -3030,7 +2972,7 @@ export class Parser {
                 continue;
             }
 
-            if (token?.type === "string" && !this.hasLineBreakBetween(expr.lastToken, token)) {
+            if (token?.type === "string" && !hasLineBreakBetween(expr.lastToken, token)) {
                 this.tokens.skip();
                 expr = this.attachNodeBounds({
                     kind: "CallExpression",
@@ -3049,7 +2991,7 @@ export class Parser {
             }
 
             if (token?.type === "symbol" && token.value === "{") {
-                if (this.hasLineBreakBetween(expr.lastToken, token)) {
+                if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
                 const tailLambda = this.parseTailLambdaArgument();
@@ -3095,7 +3037,7 @@ export class Parser {
             }
 
             if (token?.type === "symbol" && (token.value === "++" || token.value === "--")) {
-                if (this.hasLineBreakBetween(expr.lastToken, token)) {
+                if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
                 this.tokens.skip();
@@ -3176,7 +3118,7 @@ export class Parser {
             }
 
             if (token?.type === "symbol" && token.value === "[") {
-                if (this.hasLineBreakBetween(expr.lastToken, token)) {
+                if (hasLineBreakBetween(expr.lastToken, token)) {
                     break;
                 }
                 this.tokens.skip();
@@ -4736,7 +4678,7 @@ export class Parser {
         const members: EnumMember[] = [];
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (this.isEofToken(token)) {
+            if (isEofToken(token)) {
                 this.fail("Expected '}' to close enum body", this.tokenAt(openBrace), "block");
             }
             if (token?.type === "symbol" && token.value === "}") {
@@ -5425,7 +5367,7 @@ export class Parser {
         let isAsyncMember = false;
         let isSyncMember = false;
 
-        while (this.tokens.peek()?.type === "identifier" && this.isClassMemberModifier(this.tokens.peek()!.value)) {
+        while (this.tokens.peek()?.type === "identifier" && isClassMemberModifier(this.tokens.peek()!.value)) {
             const peekValue = this.tokens.peek()!.value;
             // 'async'/'sync' followed by ':' or '?' means it is the member name, not a modifier
             if ((peekValue === "async" || peekValue === "sync") &&
@@ -5882,10 +5824,6 @@ export class Parser {
         return [this.attachNodeBounds(fieldMember, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
     }
 
-    private isClassMemberModifier(value: string): boolean {
-        return value === "override" || value === "public" || value === "private" || value === "protected" || value === "readonly" || value === "static" || value === "abstract" || value === "async" || value === "sync";
-    }
-
     private applyClassMemberModifiers(
         member: ClassMember,
         modifiers: {
@@ -6122,7 +6060,7 @@ export class Parser {
         const members: ClassMember[] = [];
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (this.isEofToken(token)) {
+            if (isEofToken(token)) {
                 this.fail("Expected '}' to close class body", this.tokenAt(openBrace), "block");
             }
             if (token?.type === "symbol" && token.value === "}") {
@@ -6206,7 +6144,7 @@ export class Parser {
         const members: InterfaceMember[] = [];
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (this.isEofToken(token)) {
+            if (isEofToken(token)) {
                 this.fail("Expected '}' to close interface body", this.tokenAt(openBrace), "block");
             }
             if (token?.type === "symbol" && token.value === "}") {
@@ -6315,7 +6253,7 @@ export class Parser {
             if (!computedMemberKey && (!memberNameToken || !["identifier", "string", "number"].includes(memberNameToken.type))) {
                 this.fail("Expected interface member name", this.tokenAt(memberNameToken));
             }
-            let memberName = computedMemberKey ? `[${this.computedMemberKeyText(computedMemberKey)}]` : this.typeTokenText(memberNameToken!);
+            let memberName = computedMemberKey ? `[${this.computedMemberKeyText(computedMemberKey)}]` : typeTokenText(memberNameToken!);
             if (
                 !computedMemberKey &&
                 memberNameToken?.type === "identifier" &&
@@ -6497,7 +6435,7 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (this.isEofToken(token)) {
+            if (isEofToken(token)) {
                 this.fail("Expected '}' to close block statement", this.tokenAt(openBrace), "block");
             }
 
@@ -6821,7 +6759,7 @@ export class Parser {
 
         while (this.tokens.hasMore) {
             const token = this.tokens.peek();
-            if (this.isEofToken(token)) {
+            if (isEofToken(token)) {
                 this.fail("Expected '}' to close switch statement", this.tokenAt(openBrace), "switch");
             }
 
@@ -6930,13 +6868,13 @@ export class Parser {
         if (!next) {
             return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
         }
-        if (this.isEofToken(next)) {
+        if (isEofToken(next)) {
             return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
         }
         if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
             return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
         }
-        if (this.hasLineBreakBetween(returnKeyword, next)) {
+        if (hasLineBreakBetween(returnKeyword, next)) {
             return this.attachNodeBounds({ kind: "ReturnStatement" } as ReturnStatement, returnKeyword, returnKeyword);
         }
 
@@ -6952,7 +6890,7 @@ export class Parser {
             this.fail("Expected 'continue' statement", this.tokenAt(continueKeyword));
         }
         const next = this.tokens.peek();
-        if (next?.type === "identifier" && !this.hasLineBreakBetween(continueKeyword, next)) {
+        if (next?.type === "identifier" && !hasLineBreakBetween(continueKeyword, next)) {
             const labelToken = this.tokens.read()!;
             return this.attachNodeBounds({
                 kind: "ContinueStatement",
@@ -6968,7 +6906,7 @@ export class Parser {
             this.fail("Expected 'break' statement", this.tokenAt(breakKeyword));
         }
         const next = this.tokens.peek();
-        if (next?.type === "identifier" && !this.hasLineBreakBetween(breakKeyword, next)) {
+        if (next?.type === "identifier" && !hasLineBreakBetween(breakKeyword, next)) {
             const labelToken = this.tokens.read()!;
             return this.attachNodeBounds({
                 kind: "BreakStatement",
@@ -6985,7 +6923,7 @@ export class Parser {
         }
 
         const next = this.tokens.peek();
-        if (!next || this.isEofToken(next) || this.hasLineBreakBetween(throwKeyword, next)) {
+        if (!next || isEofToken(next) || hasLineBreakBetween(throwKeyword, next)) {
             this.fail("Expected expression after 'throw'", this.tokenAt(next));
         }
         if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
@@ -7006,7 +6944,7 @@ export class Parser {
         }
 
         const next = this.tokens.peek();
-        if (!next || this.isEofToken(next) || this.hasLineBreakBetween(deferKeyword, next)) {
+        if (!next || isEofToken(next) || hasLineBreakBetween(deferKeyword, next)) {
             this.fail("Expected expression after 'defer'", this.tokenAt(next));
         }
         if (next.type === "symbol" && (next.value === ";" || next.value === "}")) {
