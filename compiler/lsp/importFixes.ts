@@ -382,15 +382,16 @@ async function collectNodeModuleExportsFromExistingImports(
   return exports;
 }
 
-function findExistingImportFromPath(ast: Program, importPath: string): ImportStatement | null {
+function findExistingImportsFromPath(ast: Program, importPath: string): ImportStatement[] {
+  const matches: ImportStatement[] = [];
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") break;
     const importStmt = statement as ImportStatement;
     if (importStmt.from.value === importPath) {
-      return importStmt;
+      matches.push(importStmt);
     }
   }
-  return null;
+  return matches;
 }
 
 function importedModulePaths(ast: Program): Set<string> {
@@ -579,9 +580,26 @@ export function buildAutoImportTextEdits(
   ast: Program,
   suggestion: AutoImportSuggestion
 ): TextEdit[] {
-  const existingImport = findExistingImportFromPath(ast, suggestion.importPath);
   const typeOnly = isTypeOnlySymbolExport(suggestion.symbol);
+  const existingImports = findExistingImportsFromPath(ast, suggestion.importPath);
+  const existingImport = existingImports.find((statement) => statement.namespaceImport === undefined) ?? existingImports[0] ?? null;
   if (existingImport?.firstToken && existingImport?.lastToken) {
+    const hasNamespaceImport = existingImport.namespaceImport !== undefined;
+    const canMergeNamedSpecifiersIntoExistingImport = !hasNamespaceImport;
+
+    if (!canMergeNamedSpecifiersIntoExistingImport) {
+      const insertionLine = existingImport.lastToken.range.end.line + 1;
+      return [{
+        range: {
+          start: { line: insertionLine, character: 0 },
+          end: { line: insertionLine, character: 0 }
+        },
+        newText: typeOnly
+          ? `import type { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
+          : `import { ${suggestion.symbol.name} } from "${suggestion.importPath}"\n`
+      }];
+    }
+
     const existingNames = existingImport.specifiers.map((specifier) => ({
       name: specifier.imported.name,
       typeOnly: specifier.typeOnly === true

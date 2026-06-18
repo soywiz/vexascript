@@ -1,4 +1,4 @@
-import * as THREE from "three"
+import { WebGLRenderer, Scene, PerspectiveCamera, AmbientLight, Color, Vector3, DirectionalLight, MeshStandardMaterial, BoxGeometry, Mesh } from "three"
 import { buildSceneMetrics, formatSceneMetrics } from "./scene-data.vx"
 import { addTo } from "./extensions.vx"
 
@@ -14,7 +14,7 @@ val shell = document.createElement("div")
   ..addTo(document.body)
 
 val title = document.createElement("h1")
-  ..textContent = "THREE.js + VexaScript"
+  ..textContent = "js + VexaScript"
   ..setAttribute("style", "margin:0;font-size:28px;")
   ..addTo(shell)
 
@@ -23,48 +23,48 @@ val subtitle = document.createElement("p")
   ..setAttribute("style", "margin:0;max-width:720px;text-align:center;font-size:14px;")
   ..addTo(shell)
 
-val renderer = THREE.WebGLRenderer({ antialias: true, alpha: true })
+val renderer = WebGLRenderer({ antialias: true, alpha: true })
   ..setSize(320, 320)
   ..setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  //..setClearColor(THREE.Color("#f7fbff"))
+  //..setClearColor(Color("#f7fbff"))
 
 val canvas = renderer.domElement
   ..setAttribute("style", "border-radius:24px;box-shadow:0 24px 80px rgba(23,50,77,0.18);")
   ..addTo(shell)
 
-val scene = THREE.Scene()
-  ..background = THREE.Color("#f7fbff")
+val scene = Scene()
+  ..background = Color("#f7fbff")
 
-val camera = THREE.PerspectiveCamera(45, 320 / 320, 0.1, 100)
+val camera = PerspectiveCamera(45, 320 / 320, 0.1, 100)
   ..position.set(4, 3, 7)
-  ..lookAt(THREE.Vector3(metrics.centerX, metrics.centerY, metrics.centerZ))
+  ..lookAt(Vector3(metrics.centerX, metrics.centerY, metrics.centerZ))
 
-val ambient = THREE.AmbientLight(0xffffff, 0.7)
+val ambient = AmbientLight(0xffffff, 0.7)
 scene.add(ambient)
 
-val keyLight = THREE.DirectionalLight(0xffffff, 1.1)
+val keyLight = DirectionalLight(0xffffff, 1.1)
   ..position.set(5, 8, 6)
 scene.add(keyLight)
 
-val fillLight = THREE.DirectionalLight(0x8cb3d9, 0.55)
+val fillLight = DirectionalLight(0x8cb3d9, 0.55)
   ..position.set(-4, 3, -3)
 scene.add(fillLight)
 
-val cubeMaterial = THREE.MeshStandardMaterial({
+val cubeMaterial = MeshStandardMaterial({
   color: metrics.tintHex,
   roughness: 0.28,
   metalness: 0.12
 })
-val cube = THREE.Mesh(THREE.BoxGeometry(2.2, 2.2, 2.2), cubeMaterial)
+val cube = Mesh(BoxGeometry(2.2, 2.2, 2.2), cubeMaterial)
   ..position.set(metrics.centerX, metrics.centerY, metrics.centerZ)
 scene.add(cube)
 
-val accentMaterial = THREE.MeshStandardMaterial({
-  color: THREE.Color("#17324d"),
+val accentMaterial = MeshStandardMaterial({
+  color: Color("#17324d"),
   roughness: 0.4,
   metalness: 0.05
 })
-val accent = THREE.Mesh(THREE.BoxGeometry(0.7, 0.7, 3.2), accentMaterial)
+val accent = Mesh(BoxGeometry(0.7, 0.7, 3.2), accentMaterial)
   ..position.set(metrics.centerX, metrics.centerY, metrics.centerZ - 2.4)
   ..rotation.set(0, Math.PI / 4, 0)
 scene.add(accent)

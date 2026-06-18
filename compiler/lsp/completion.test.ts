@@ -384,6 +384,39 @@ describe("createCompletionItemsForPosition", () => {
     expect(readdir?.additionalTextEdits?.[0]?.range.start).toEqual({ line: 0, character: 0 });
   });
 
+  it("adds a separate named import when the module is already imported as a namespace", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      import * as THREE from "three"
+      fun demo() {
+        return WebGL^^^
+      }
+    `);
+    const ast = parseFile(tokenizeReader(source));
+    const items = await createCompletionItemsForPosition(
+      ast,
+      line,
+      character,
+      undefined,
+      [],
+      {
+        text: source,
+        uri: "file:///consumer.vx",
+        sourceRoots: [],
+        getExportedSymbols: async () => [
+          { name: "WebGLRenderer", filePath: "/virtual/@types/three/index.d.ts", importPath: "three", kind: "class" },
+        ],
+      }
+    );
+    const renderer = items.find((item) => item.label === "WebGLRenderer");
+
+    expect(renderer).toBeDefined();
+    expect(renderer?.detail).toBe("Auto import from three");
+    expect(renderer?.additionalTextEdits?.[0]?.newText).toBe(
+      'import { WebGLRenderer } from "three"\n'
+    );
+    expect(renderer?.additionalTextEdits?.[0]?.range.start).toEqual({ line: 1, character: 0 });
+  });
+
   it("offers type-only auto-import completions from named exports of an already imported node_modules module", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-completion-"));
     const packageDir = join(root, "node_modules", "preact");

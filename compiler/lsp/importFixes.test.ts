@@ -355,6 +355,26 @@ describe("import quick fixes", () => {
     expect(actions[0]?.edit?.changes?.[uri]?.[0]?.newText).toBe('import { h, type ComponentChildren } from "preact"');
   });
 
+  it("creates a separate named import when the module is already imported as a namespace", async () => {
+    const source = 'import * as THREE from "three"\nfun demo() {\n  return WebGLRenderer()\n}\n';
+    const session = createAnalysisSession(source);
+    const uri = "file:///consumer.vx";
+    const actions = await createAutoImportCodeActions({
+      uri,
+      ast: session.ast,
+      diagnostics: [undefinedVariableDiagnostic("WebGLRenderer")],
+      sourceRoots: [],
+      getExportedSymbols: async () => [
+        { name: "WebGLRenderer", filePath: "/virtual/@types/three/index.d.ts", importPath: "three", kind: "class" }
+      ]
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.title).toBe("Import 'WebGLRenderer' from 'three'");
+    expect(actions[0]?.edit?.changes?.[uri]?.[0]?.newText).toBe('import { WebGLRenderer } from "three"\n');
+    expect(actions[0]?.edit?.changes?.[uri]?.[0]?.range.start).toEqual({ line: 1, character: 0 });
+  });
+
   it("creates one auto-import code action per matching module when names collide", async () => {
     const source = "fun demo() {\n  greet()\n}\n";
     const session = createAnalysisSession(source);
