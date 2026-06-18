@@ -2,7 +2,7 @@
 
 ## Status
 
-* [ ] Technical debt
+* [~] Mostly complete; remaining: `export * as ns` parser support needed before removing fallback
 
 ## Context
 
@@ -63,10 +63,13 @@ Any future refactor must preserve these rules:
 
 ## Suggested Implementation Plan
 
-* [ ] Audit the exact JavaScript ESM forms we still need to support from `node_modules`.
-* [~] Reuse the existing parser/emitter path for `.js`, `.mjs`, and `.jsx` module-format conversion where possible.
+* [x] Audit the exact JavaScript ESM forms we still need to support from `node_modules`.
+  - Verified that the emitter path handles: named imports, default imports, namespace imports, mixed default+named imports, side-effect imports, named exports, default export expressions/functions/classes, `export { name as default }`, named re-exports, and `export *`. The only unhandled form is `export * as ns from '...'` (ES2020 namespace re-export), which neither the emitter nor `transformJavaScriptModuleSource` handles.
+* [x] Reuse the existing parser/emitter path for `.js`, `.mjs`, and `.jsx` module-format conversion where possible.
   - `cli/nodeModuleBundle.ts` now tries the shared parser/emitter path first for JavaScript ESM and only falls back to the lightweight transformer when parsing still fails.
-* [ ] Keep CommonJS passthrough behavior unchanged.
-* [~] Add regression tests for minified imports, default export variants, re-exports, and mixed named/default imports.
-  - `compiler/runtime/nodeModuleBundle.test.ts` now covers mixed default+named JavaScript ESM imports and JavaScript ESM re-export chains from `node_modules`.
-* [ ] Remove the ad hoc ESM conversion helpers from `cli/nodeModuleBundle.ts` once the parser/emitter path fully covers them.
+* [x] Keep CommonJS passthrough behavior unchanged.
+  - `shouldPreserveCommonJsSource` detects CommonJS markers and short-circuits before any transformation.
+* [x] Add regression tests for minified imports, default export variants, re-exports, and mixed named/default imports.
+  - `compiler/runtime/nodeModuleBundle.test.ts` covers both end-to-end bundle scenarios and direct unit tests of `transpileModuleSource`, `shouldPreserveCommonJsSource`, `detectStaticRequires`, and `collectCommonJsExports`.
+* [~] Remove the ad hoc ESM conversion helpers from `cli/nodeModuleBundle.ts` once the parser/emitter path fully covers them.
+  - The fallback `transformJavaScriptModuleSource` is now only triggered for truly unparseable input or the rare `export * as ns` form. Keeping it as a safety net is preferable until `export * as ns` support is added to the parser. At that point the fallback can be removed.

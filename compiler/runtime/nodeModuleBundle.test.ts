@@ -1,5 +1,11 @@
 import { describe, expect, it, join, mkdir, mkdtemp, rm, tmpdir, writeFile } from "../test/expect";
-import { bundleNodeModuleGraph } from "../../cli/nodeModuleBundle";
+import {
+  bundleNodeModuleGraph,
+  collectCommonJsExports,
+  detectStaticRequires,
+  shouldPreserveCommonJsSource,
+  transpileModuleSource
+} from "../../cli/nodeModuleBundle";
 
 async function withTempProject(files: Record<string, string>, run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "vexa-node-module-bundle-"));
@@ -12,6 +18,124 @@ async function withTempProject(files: Record<string, string>, run: (dir: string)
     await rm(dir, { recursive: true, force: true });
   });
 }
+
+describe("shouldPreserveCommonJsSource", () => {
+  it("returns true for a .js file with module.exports", () => {
+    expect(shouldPreserveCommonJsSource('module.exports = { foo: 1 };', "/lib/foo.js")).toBe(true);
+  });
+
+  it("returns true for a .cjs file with exports.x assignment", () => {
+    expect(shouldPreserveCommonJsSource('exports.foo = 42;', "/lib/foo.cjs")).toBe(true);
+  });
+
+  it("returns true for a .js file with require() call", () => {
+    expect(shouldPreserveCommonJsSource('const x = require("bar");', "/lib/foo.js")).toBe(true);
+  });
+
+  it("returns false when the file also has ESM export markers", () => {
+    expect(shouldPreserveCommonJsSource('const x = require("bar");\nexport const y = x;', "/lib/foo.js")).toBe(false);
+  });
+
+  it("returns false for a .mjs file regardless of content", () => {
+    expect(shouldPreserveCommonJsSource('module.exports = {};', "/lib/foo.mjs")).toBe(false);
+  });
+
+  it("returns false for a .ts file", () => {
+    expect(shouldPreserveCommonJsSource('exports.foo = 1;', "/lib/foo.ts")).toBe(false);
+  });
+
+  it("returns false for a .js file with no CommonJS markers", () => {
+    expect(shouldPreserveCommonJsSource('export const x = 1;', "/lib/foo.js")).toBe(false);
+  });
+});
+
+describe("detectStaticRequires", () => {
+  it("extracts single require specifier", () => {
+    expect(detectStaticRequires('const x = require("foo");')).toEqual(["foo"]);
+  });
+
+  it("extracts multiple unique specifiers", () => {
+    expect(detectStaticRequires('require("a");\nrequire("b");\nrequire("a");')).toEqual(["a", "b"]);
+  });
+
+  it("ignores require calls with non-string arguments", () => {
+    expect(detectStaticRequires('require(name);')).toEqual([]);
+  });
+
+  it("accepts single-quoted string literals", () => {
+    expect(detectStaticRequires("require('bar');")).toEqual(["bar"]);
+  });
+
+  it("returns empty array when no requires are present", () => {
+    expect(detectStaticRequires('const x = 1;')).toEqual([]);
+  });
+});
+
+describe("collectCommonJsExports", () => {
+  it("collects named exports from exports.x = assignments", () => {
+    const names = collectCommonJsExports('exports.foo = 1;\nexports.bar = 2;');
+    expect(names).toContain("foo");
+    expect(names).toContain("bar");
+  });
+
+  it("collects default export from exports.default assignment", () => {
+    expect(collectCommonJsExports('exports.default = fn;')).toContain("default");
+  });
+
+  it("collects default export from module.exports assignment", () => {
+    expect(collectCommonJsExports('module.exports = fn;')).toContain("default");
+  });
+
+  it("excludes __esModule marker from export names", () => {
+    expect(collectCommonJsExports('exports.__esModule = true;')).not.toContain("__esModule");
+  });
+
+  it("returns empty array when no exports are present", () => {
+    expect(collectCommonJsExports('const x = 1;')).toEqual([]);
+  });
+});
+
+describe("transpileModuleSource", () => {
+  it("preserves CommonJS .js source unchanged and returns null exportNames", () => {
+    const cjs = 'const x = require("foo");\nexports.value = x;';
+    const result = transpileModuleSource(cjs, "/lib/foo.js");
+    expect(result.code).toBe(cjs);
+    expect(result.exportNames).toBeNull();
+  });
+
+  it("strips TypeScript type annotations through the emitter path", () => {
+    const ts = 'export const value: number = 7;';
+    const result = transpileModuleSource(ts, "/lib/foo.ts");
+    expect(result.code).not.toContain(": number");
+    expect(result.code).toContain("exports.value = value");
+    expect(result.exportNames).toContain("value");
+  });
+
+  it("converts JavaScript ESM imports to CommonJS require via emitter path", () => {
+    const esm = 'import { a } from "foo";\nexport const b = a + 1;';
+    const result = transpileModuleSource(esm, "/lib/foo.mjs");
+    expect(result.code).toContain('require("foo")');
+    expect(result.code).not.toContain("import ");
+    expect(result.exportNames).toContain("b");
+  });
+
+  it("handles export { name as default } via the emitter path", () => {
+    const esm = 'const impl=()=>7;\nexport{impl as default};\n';
+    const result = transpileModuleSource(esm, "/lib/render.mjs");
+    expect(result.code).toContain("exports.default = impl");
+    expect(result.code).toContain("exports.__esModule = true");
+  });
+
+  it("handles re-exports from another module via the emitter path", () => {
+    const esm = 'export { version } from "./shared.js";\nexport { default } from "./shared.js";\n';
+    const result = transpileModuleSource(esm, "/lib/render.js");
+    expect(result.code).toContain('require("./shared.js")');
+    expect(result.code).toContain("exports.version");
+    expect(result.code).toContain("exports.default");
+    expect(result.exportNames).toContain("version");
+    expect(result.exportNames).toContain("default");
+  });
+});
 
 describe("bundleNodeModuleGraph", () => {
   it("lowers bundled .mjs imports to runtime requires inside wrapped factories", async () => {

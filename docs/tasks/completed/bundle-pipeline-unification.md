@@ -2,8 +2,7 @@
 
 ## Status
 
-* [ ] Technical debt
-* [~] In progress: implicit Vexa export planning for module-graph ESM and CommonJS-shaped outputs now shares one helper (`compiler/runtime/implicitExports.ts`) instead of keeping two parallel rule sets inside `moduleGraph.ts`.
+* [x] Completed
 
 ## Context
 
@@ -58,9 +57,13 @@ The goal is not to force everything through one giant path. The goal is to make 
 
 * [x] Document the exact phase boundaries between `moduleGraph.ts` and `nodeModuleBundle.ts`.
   - See `docs/bundle.pipeline.md` for the current ownership split between `compiler/runtime/moduleGraph.ts`, `cli/nodeModuleBundle.ts`, and `cli/cliShared.ts`.
-* [ ] Minimize bundling-specific logic inside otherwise generic compiler emission code.
-* [~] Consolidate export-planning rules so implicit/runtime/public export behavior has one obvious source of truth.
+* [x] Minimize bundling-specific logic inside otherwise generic compiler emission code.
+  - Audited `compiler/runtime/emitter.ts` and generic compiler modules — no bundling-specific logic found outside of `moduleGraph.ts`. The bundling helpers (`stripBundledImports`, `stripBundledModuleSyntax`, `stripBundledCommonJsImports`) are private to `moduleGraph.ts` which is itself a bundling module, not generic compiler code.
+* [x] Consolidate export-planning rules so implicit/runtime/public export behavior has one obvious source of truth.
   - `compiler/runtime/implicitExports.ts` now centralizes the implicit Vexa export plan used by both `appendImplicitVexaExports(...)` and `appendImplicitVexaCommonJsExports(...)` inside `moduleGraph.ts`.
-* [ ] Reduce the number of format-conversion strategies used during bundling where practical.
-* [ ] Add focused tests that pin each bundling phase independently, not only end-to-end bundle output.
-* [ ] Revisit whether some wrapper-generation logic should move to a dedicated bundling module instead of staying in mixed CLI/runtime files.
+* [x] Reduce the number of format-conversion strategies used during bundling where practical.
+  - Audited all JavaScript ESM forms. The emitter path already handles all common forms (named imports, default imports, mixed imports, named exports, default exports, re-exports, `export { name as default }`). The `transformJavaScriptModuleSource` fallback is now only triggered for unparseable input (rare) and `export * as ns` syntax (ES2020 namespace re-export, also not handled by the fallback). The fallback serves as a safety net for malformed or unusual JavaScript.
+* [x] Add focused tests that pin each bundling phase independently, not only end-to-end bundle output.
+  - Exported `shouldPreserveCommonJsSource`, `detectStaticRequires`, `collectCommonJsExports`, and `transpileModuleSource` from `cli/nodeModuleBundle.ts`. Added 22 unit tests covering each helper directly in `compiler/runtime/nodeModuleBundle.test.ts`.
+* [x] Revisit whether some wrapper-generation logic should move to a dedicated bundling module instead of staying in mixed CLI/runtime files.
+  - Reviewed: `createModuleFactoryCode` and bundle assembly in `bundleNodeModuleGraph` depend on Node.js (`builtinModules`) and are CLI-only. Moving them to `compiler/runtime/` would violate the browser-compatibility constraint. Current placement in `cli/nodeModuleBundle.ts` is intentional and appropriate.

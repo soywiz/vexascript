@@ -247,7 +247,7 @@ async function resolveDependency(
   return { kind: "external" };
 }
 
-function detectStaticRequires(source: string): string[] {
+export function detectStaticRequires(source: string): string[] {
   const specifiers = new Set<string>();
   for (const match of source.matchAll(STATIC_REQUIRE_PATTERN)) {
     const specifier = match[2];
@@ -306,7 +306,7 @@ function collectExplicitExportNames(program: Program): string[] {
   return [...exportNames];
 }
 
-function shouldPreserveCommonJsSource(source: string, filePath: string): boolean {
+export function shouldPreserveCommonJsSource(source: string, filePath: string): boolean {
   const extension = extname(filePath).toLowerCase();
   if (extension !== ".js" && extension !== ".cjs") {
     return false;
@@ -424,7 +424,7 @@ function isJavaScriptLikeModulePath(filePath: string): boolean {
   return extension === ".js" || extension === ".mjs" || extension === ".cjs" || extension === ".jsx";
 }
 
-function transpileModuleSource(source: string, filePath: string): { code: string; exportNames: string[] | null } {
+export function transpileModuleSource(source: string, filePath: string): { code: string; exportNames: string[] | null } {
   if (shouldPreserveCommonJsSource(source, filePath)) {
     return {
       code: source,
@@ -494,7 +494,7 @@ function minimalBundlePath(rootDir: string, filePath: string): string {
   return `./${relativePath}`;
 }
 
-function collectCommonJsExports(code: string): string[] {
+export function collectCommonJsExports(code: string): string[] {
   const exports = new Set<string>();
   const exportPattern = /\bexports\.([A-Za-z_$][A-Za-z0-9_$]*)\s*=/g;
   for (const match of code.matchAll(exportPattern)) {
