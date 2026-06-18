@@ -58,6 +58,7 @@ This section is the fast onboarding map for agents and contributors.
   - JavaScript emission: `compiler/runtime/emitter.ts`
   - CommonJS-specific import/export emission helpers extracted from the generic emitter path: `compiler/runtime/commonJsEmitter.ts`, `compiler/runtime/commonJsEmitter.test.ts`
   - Shared implicit Vexa export planning used by both module-graph ESM output and module-graph CommonJS-shaped output: `compiler/runtime/implicitExports.ts`, `compiler/runtime/implicitExports.test.ts`
+  - Pure bundling-syntax-stripping helpers (stripBundledImports, stripBundledModuleSyntax, stripBundledCommonJsImports) extracted from module-graph for independent reuse and testing: `compiler/runtime/bundlingStripping.ts`, `compiler/runtime/bundlingStripping.test.ts`
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
   - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.vx` entry file together with its transitively imported local `.vx` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before the CLI hands the emitted JavaScript to the Node-side package bundler): `compiler/runtime/moduleGraph.ts`

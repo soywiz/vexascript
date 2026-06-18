@@ -84,7 +84,8 @@ Examples of likely seams:
   - Second batch: extracted 5 more pure helpers — `isAsyncLike`, `statementAllowsLabeledContinue`, `statementListPreventsSwitchFallthrough`, `statementPreventsSwitchFallthrough` into `compiler/analysis/controlFlow.ts`, and `tupleElementTypeText` added to `compiler/analysis/typeNames.ts`. All covered by `compiler/analysis/controlFlow.test.ts` (28 tests).
 * [ ] Separate statement-family checking from shared type/call resolution helpers.
 * [ ] Split parser logic by syntax families where it reduces branching without duplicating token flow.
-* [ ] Reduce the amount of bundling-specific logic living inside generic emission paths.
+* [x] Reduce the amount of bundling-specific logic living inside generic emission paths.
+  - Extracted three pure bundling-stripping helpers (`stripBundledImports`, `stripBundledModuleSyntax`, `stripBundledCommonJsImports`) from `moduleGraph.ts` into `compiler/runtime/bundlingStripping.ts` with 15 unit tests. `moduleGraph.ts` now imports them from the new module.
 * [x] Add narrow unit tests for newly extracted helpers before moving larger blocks.
   - `compiler/analysis/typeDisplay.test.ts` and `compiler/analysis/propertyNames.test.ts` cover all extracted functions.
   - `compiler/analysis/controlFlow.test.ts` covers all control-flow predicates.
