@@ -103,9 +103,11 @@ import {
 } from "./types";
 import {
   looksLikeFunctionTypeAnnotation,
+  parseReadonlyContainerTypeText,
   parseObjectTypeAnnotation,
   parseFunctionTypeAnnotation,
   parseConditionalTypeText,
+  parseMappedTypeMemberText,
   parseTemplateLiteralTypeText,
   parseTypeNameShape,
   splitArraySuffixTypeName,
@@ -3574,6 +3576,23 @@ export class TypeChecker {
     if (looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
     }
+    const readonlyContainer = parseReadonlyContainerTypeText(normalizedTypeName);
+    if (readonlyContainer?.kind === "tuple") {
+      return tupleType(
+        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
+          this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
+        )
+      );
+    }
+    if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
+      return namedType("ReadonlyArray", [
+        this.typeFromTypeNameLooseWithTypeParameters(
+          readonlyContainer.elementTypeText,
+          localTypeParameterNames,
+          contextualThisTypeName
+        ) ?? UNKNOWN_TYPE
+      ]);
+    }
     const optionalSuffix = splitOptionalTypeSuffix(normalizedTypeName);
     if (optionalSuffix.optional) {
       return unionType([
@@ -5868,6 +5887,19 @@ export class TypeChecker {
     if (this.isDeferredAdvancedTypeName(normalizedTypeName)) {
       return UNKNOWN_TYPE;
     }
+    const readonlyContainer = parseReadonlyContainerTypeText(normalizedTypeName);
+    if (readonlyContainer?.kind === "tuple") {
+      return tupleType(
+        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
+          this.resolveTypeNameText(part, node, scope, false)
+        )
+      );
+    }
+    if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
+      return namedType("ReadonlyArray", [
+        this.resolveTypeNameText(readonlyContainer.elementTypeText, node, scope, false)
+      ]);
+    }
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
     if (unionParts.length > 1) {
       return unionType(unionParts.map((part) =>
@@ -5920,6 +5952,12 @@ export class TypeChecker {
     const literal = resolveLiteralTypeName(normalizedTypeName);
     if (literal) {
       return literal;
+    }
+    if (normalizedTypeName === "unique symbol") {
+      return builtinType("symbol");
+    }
+    if (normalizedTypeName.startsWith("asserts ")) {
+      return builtinType("void");
     }
     const templateLiteralType = this.templateLiteralTypeFromText(normalizedTypeName);
     if (templateLiteralType) {
@@ -6110,6 +6148,23 @@ export class TypeChecker {
     const normalizedTypeName = stripEnclosingTypeParens(typeName);
     if (this.isDeferredAdvancedTypeName(normalizedTypeName)) {
       return UNKNOWN_TYPE;
+    }
+
+    if (normalizedTypeName === "unique symbol") {
+      return builtinType("symbol");
+    }
+    if (normalizedTypeName.startsWith("asserts ")) {
+      return builtinType("void");
+    }
+
+    const readonlyContainer = parseReadonlyContainerTypeText(normalizedTypeName);
+    if (readonlyContainer?.kind === "tuple") {
+      return tupleType(
+        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part))
+      );
+    }
+    if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
+      return namedType("ReadonlyArray", [this.typeFromTypeNameLoose(readonlyContainer.elementTypeText)]);
     }
 
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
@@ -6452,14 +6507,40 @@ export class TypeChecker {
     substitutions: Map<string, AnalysisType>,
     scope: Scope
   ): AnalysisType | null {
-    const conditional = parseConditionalTypeText(stripEnclosingTypeParens(typeAlias.targetType.name.trim()));
+    return this.resolveConditionalTypeText(typeAlias.targetType.name, substitutions, scope);
+  }
+
+  private resolveConditionalTypeText(
+    typeText: string,
+    substitutions: Map<string, AnalysisType>,
+    scope: Scope
+  ): AnalysisType | null {
+    const conditional = parseConditionalTypeText(stripEnclosingTypeParens(typeText.trim()));
     if (!conditional) {
       return null;
+    }
+
+    const distributiveSource = this.distributiveConditionalSourceType(conditional.checkTypeText.trim(), substitutions);
+    if (distributiveSource?.kind === "union") {
+      return combineTypes(distributiveSource.types.map((member) => {
+        const distributedSubstitutions = new Map(substitutions);
+        distributedSubstitutions.set(conditional.checkTypeText.trim(), member);
+        return this.resolveConditionalTypeBranch(conditional, member, distributedSubstitutions, scope);
+      }));
     }
 
     const checkType = this.typeFromTypeNameLoose(
       this.substituteTypeParametersInComputedName(conditional.checkTypeText, substitutions)
     );
+    return this.resolveConditionalTypeBranch(conditional, checkType, substitutions, scope);
+  }
+
+  private resolveConditionalTypeBranch(
+    conditional: NonNullable<ReturnType<typeof parseConditionalTypeText>>,
+    checkType: AnalysisType,
+    substitutions: Map<string, AnalysisType>,
+    scope: Scope
+  ): AnalysisType {
     const inferSubstitutions = this.inferConditionalPatternSubstitutions(
       checkType,
       conditional.extendsTypeText,
@@ -6482,12 +6563,19 @@ export class TypeChecker {
         finalSubstitutions.set(name, type);
       }
     }
-    return this.resolveTypeNameText(
-      this.substituteTypeParametersInComputedName(selectedBranch, finalSubstitutions),
-      typeAlias.targetType,
-      scope,
-      false
-    );
+    const substitutedBranchText = this.substituteTypeParametersInComputedName(selectedBranch, finalSubstitutions);
+    return this.resolveConditionalTypeText(substitutedBranchText, finalSubstitutions, scope)
+      ?? this.typeFromTypeNameLoose(substitutedBranchText);
+  }
+
+  private distributiveConditionalSourceType(
+    checkTypeText: string,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType | null {
+    if (!/^[A-Za-z_$][\w$]*$/.test(checkTypeText)) {
+      return null;
+    }
+    return substitutions.get(checkTypeText) ?? null;
   }
 
   private resolveMappedUtilityAliasTarget(
@@ -6499,15 +6587,16 @@ export class TypeChecker {
       return null;
     }
     const body = trimmedTarget.slice(1, -1).trim().replace(/;$/, "").trim();
-    const mappedMemberMatch = /^(readonly\s+)?\[(\w+)\s+in\s+([^\]]+)\](\?)?\s*:\s*(.+)$/.exec(body);
-    if (!mappedMemberMatch) {
+    const mappedMember = parseMappedTypeMemberText(body);
+    if (!mappedMember) {
       return null;
     }
 
-    const keyParameterName = mappedMemberMatch[2];
-    const keySourceText = mappedMemberMatch[3];
-    const optionalMarker = mappedMemberMatch[4];
-    const valueTypeText = mappedMemberMatch[5];
+    const keyParameterName = mappedMember.keyParameterName;
+    const keySourceText = mappedMember.keySourceText;
+    const keyRemapText = mappedMember.keyRemapText;
+    const optionalModifier = mappedMember.optionalModifier;
+    const valueTypeText = mappedMember.valueTypeText;
     if (!keyParameterName || !keySourceText || !valueTypeText) {
       return null;
     }
@@ -6551,11 +6640,56 @@ export class TypeChecker {
         propertyType,
         substitutions
       );
-      properties[propertyName] = optionalMarker
-        ? unionType([mappedPropertyType, builtinType("undefined")])
-        : mappedPropertyType;
+      const remappedKeys = this.resolveMappedUtilityRemappedKeys(
+        keyRemapText,
+        keyParameterName,
+        propertyName,
+        substitutions
+      );
+      if (!remappedKeys) {
+        return null;
+      }
+      const finalPropertyType = this.applyMappedUtilityOptionalModifier(mappedPropertyType, optionalModifier);
+      for (const remappedKey of remappedKeys) {
+        properties[remappedKey] = finalPropertyType;
+      }
     }
     return objectTypeWithProperties(properties);
+  }
+
+  private resolveMappedUtilityRemappedKeys(
+    keyRemapText: string | undefined,
+    keyParameterName: string,
+    propertyName: string,
+    substitutions: Map<string, AnalysisType>
+  ): string[] | null {
+    if (!keyRemapText) {
+      return [propertyName];
+    }
+
+    const remapSubstitutions = new Map(substitutions);
+    remapSubstitutions.set(keyParameterName, literalType("string", propertyName));
+    const remappedKeyType = this.typeFromTypeNameLoose(
+      this.substituteTypeParametersInComputedName(keyRemapText, remapSubstitutions)
+    );
+    if (remappedKeyType.kind === "builtin" && remappedKeyType.name === "never") {
+      return [];
+    }
+    return this.literalPropertyNamesFromType(remappedKeyType);
+  }
+
+  private applyMappedUtilityOptionalModifier(
+    propertyType: AnalysisType,
+    optionalModifier: "?" | "+?" | "-?" | undefined
+  ): AnalysisType {
+    if (optionalModifier === "-?") {
+      return propertyTypeWithoutUndefined(removeNullishFromType(propertyType))
+        ?? removeNullishFromType(propertyType);
+    }
+    if (optionalModifier === "?" || optionalModifier === "+?") {
+      return unionType([propertyType, builtinType("undefined")]);
+    }
+    return propertyType;
   }
 
   private resolveMappedUtilityPropertyType(
@@ -6674,16 +6808,29 @@ export class TypeChecker {
   ): Map<string, AnalysisType> | null {
     const substitutedPattern = this.substituteTypeParametersInComputedName(patternText, substitutions).trim();
 
-    const arrayMatch = /^\(?infer\s+([A-Za-z_$][\w$]*)\)?\[\]$/.exec(substitutedPattern);
-    if (arrayMatch?.[1]) {
-      const elementType = this.arrayElementTypeForInferPattern(sourceType);
-      return elementType ? new Map([[arrayMatch[1], elementType]]) : null;
+    const directInferMatch = /^infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+))?$/.exec(substitutedPattern);
+    if (directInferMatch?.[1]) {
+      return this.constrainedInferSubstitution(
+        directInferMatch[1],
+        sourceType,
+        directInferMatch[2]?.trim()
+      );
     }
 
-    const genericInferMatch = /^([A-Za-z_$][\w$.]*)<\s*infer\s+([A-Za-z_$][\w$]*)\s*>$/.exec(substitutedPattern);
+    const arrayMatch = /^\(?infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+?))?\)?\[\]$/.exec(substitutedPattern);
+    if (arrayMatch?.[1]) {
+      const elementType = this.arrayElementTypeForInferPattern(sourceType);
+      return elementType
+        ? this.constrainedInferSubstitution(arrayMatch[1], elementType, arrayMatch[2]?.trim())
+        : null;
+    }
+
+    const genericInferMatch = /^([A-Za-z_$][\w$.]*)<\s*infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+?))?\s*>$/.exec(substitutedPattern);
     if (genericInferMatch?.[1] && genericInferMatch[2]) {
       const inferred = this.genericInferTypeArgument(sourceType, genericInferMatch[1]);
-      return inferred ? new Map([[genericInferMatch[2], inferred]]) : null;
+      return inferred
+        ? this.constrainedInferSubstitution(genericInferMatch[2], inferred, genericInferMatch[3]?.trim())
+        : null;
     }
 
     const functionArgsInferMatch = /^\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(substitutedPattern);
@@ -6720,6 +6867,20 @@ export class TypeChecker {
     return null;
   }
 
+  private constrainedInferSubstitution(
+    name: string,
+    inferredType: AnalysisType,
+    constraintText?: string
+  ): Map<string, AnalysisType> | null {
+    if (constraintText) {
+      const constraintType = this.typeFromTypeNameLoose(constraintText);
+      if (!this.isTypeAssignable(inferredType, constraintType)) {
+        return null;
+      }
+    }
+    return new Map([[name, inferredType]]);
+  }
+
   private inferFunctionConditionalPatternSubstitutions(
     sourceType: AnalysisType & { kind: "function" },
     pattern: ReturnType<typeof parseFunctionTypeAnnotation>
@@ -6731,17 +6892,37 @@ export class TypeChecker {
 
     if (pattern.parameters.length === 1 && pattern.parameters[0]?.rest === true) {
       const parameterTypeName = pattern.parameters[0].typeName.trim();
-      const restInferMatch = /^infer\s+([A-Za-z_$][\w$]*)$/.exec(parameterTypeName);
+      const restInferMatch = /^infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+))?$/.exec(parameterTypeName);
       if (restInferMatch?.[1]) {
-        result.set(restInferMatch[1], tupleType(sourceType.parameters.map((parameter) => parameter.type)));
+        const constrained = this.constrainedInferSubstitution(
+          restInferMatch[1],
+          tupleType(sourceType.parameters.map((parameter) => parameter.type)),
+          restInferMatch[2]?.trim()
+        );
+        if (!constrained) {
+          return null;
+        }
+        for (const [name, type] of constrained.entries()) {
+          result.set(name, type);
+        }
       } else if (parameterTypeName !== "any") {
         return null;
       }
     }
 
-    const returnInferMatch = /^infer\s+([A-Za-z_$][\w$]*)$/.exec(pattern.returnTypeName.trim());
+    const returnInferMatch = /^infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+))?$/.exec(pattern.returnTypeName.trim());
     if (returnInferMatch?.[1]) {
-      result.set(returnInferMatch[1], sourceType.returnType);
+      const constrained = this.constrainedInferSubstitution(
+        returnInferMatch[1],
+        sourceType.returnType,
+        returnInferMatch[2]?.trim()
+      );
+      if (!constrained) {
+        return null;
+      }
+      for (const [name, type] of constrained.entries()) {
+        result.set(name, type);
+      }
     } else if (pattern.returnTypeName.trim() !== "any") {
       const expectedReturnType = this.typeFromTypeNameLoose(pattern.returnTypeName);
       if (!this.isTypeAssignable(sourceType.returnType, expectedReturnType)) {
@@ -9523,6 +9704,16 @@ export class TypeChecker {
       return UNKNOWN_TYPE;
     }
 
+    const readonlyContainer = parseReadonlyContainerTypeText(normalizedTypeName);
+    if (readonlyContainer?.kind === "tuple") {
+      return tupleType(
+        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part))
+      );
+    }
+    if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
+      return namedType("ReadonlyArray", [this.typeFromTypeNameLoose(readonlyContainer.elementTypeText)]);
+    }
+
     const optionalSuffix = splitOptionalTypeSuffix(normalizedTypeName);
     if (optionalSuffix.optional) {
       return unionType([
@@ -9597,6 +9788,16 @@ export class TypeChecker {
     }
     if (looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
+    }
+
+    const readonlyContainer = parseReadonlyContainerTypeText(normalizedTypeName);
+    if (readonlyContainer?.kind === "tuple") {
+      return tupleType(
+        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part))
+      );
+    }
+    if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
+      return namedType("ReadonlyArray", [this.typeFromTypeNameLoose(readonlyContainer.elementTypeText)]);
     }
 
     const optionalSuffix = splitOptionalTypeSuffix(normalizedTypeName);

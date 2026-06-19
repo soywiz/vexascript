@@ -3,6 +3,8 @@ import {
   findMatchingTypeDelimiter,
   findTopLevelTypeCharacter,
   looksLikeFunctionTypeAnnotation,
+  parseMappedTypeMemberText,
+  parseReadonlyContainerTypeText,
   parseObjectTypeAnnotation,
   parseFunctionTypeAnnotation,
   splitArraySuffixTypeName,
@@ -74,6 +76,28 @@ describe("parseFunctionTypeAnnotation", () => {
     const result = parseFunctionTypeAnnotation("(...args: string[]) => void");
     expect(result?.parameters[0]?.rest).toBe(true);
     expect(result?.parameters[0]?.typeName).toBe("string[]");
+  });
+
+  it("parses abstract constructor signatures", () => {
+    const result = parseFunctionTypeAnnotation("abstract new (name: string, age: number) => User");
+    expect(result).toEqual({
+      parameters: [
+        { name: "name", typeName: "string" },
+        { name: "age", typeName: "number" }
+      ],
+      returnTypeName: "User",
+      constructor: true
+    });
+  });
+
+  it("preserves TypeScript assertion return types", () => {
+    const result = parseFunctionTypeAnnotation("(value: unknown) => asserts value is string");
+    expect(result).toEqual({
+      parameters: [
+        { name: "value", typeName: "unknown" }
+      ],
+      returnTypeName: "asserts value is string"
+    });
   });
 
   it("returns null for a non-function type text", () => {
@@ -175,5 +199,47 @@ describe("splitIndexedAccessTypeName", () => {
 
   it("returns null when the index part is empty", () => {
     expect(splitIndexedAccessTypeName("T[]")).toBeNull();
+  });
+});
+
+describe("parseReadonlyContainerTypeText", () => {
+  it("parses readonly array shorthand", () => {
+    expect(parseReadonlyContainerTypeText("readonly string[]")).toEqual({
+      kind: "array",
+      elementTypeText: "string"
+    });
+  });
+
+  it("parses readonly tuple shorthand", () => {
+    expect(parseReadonlyContainerTypeText("readonly [name: string, count: number]")).toEqual({
+      kind: "tuple",
+      tupleElementTypeTexts: ["string", "number"]
+    });
+  });
+
+  it("returns null for non-readonly containers", () => {
+    expect(parseReadonlyContainerTypeText("string[]")).toBeNull();
+  });
+});
+
+describe("parseMappedTypeMemberText", () => {
+  it("parses mapped members with key remapping and modifiers", () => {
+    expect(parseMappedTypeMemberText('[K in keyof T as `label_${K}`]-?: T[K]')).toEqual({
+      keyParameterName: "K",
+      keySourceText: "keyof T",
+      keyRemapText: "`label_${K}`",
+      optionalModifier: "-?",
+      valueTypeText: "T[K]"
+    });
+  });
+
+  it("parses readonly mapped members", () => {
+    expect(parseMappedTypeMemberText('-readonly [K in keyof T as Exclude<K, "skip">]: T[K]')).toEqual({
+      readonlyModifier: "-readonly",
+      keyParameterName: "K",
+      keySourceText: "keyof T",
+      keyRemapText: 'Exclude<K, "skip">',
+      valueTypeText: "T[K]"
+    });
   });
 });

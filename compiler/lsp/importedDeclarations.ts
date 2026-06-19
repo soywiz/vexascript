@@ -43,6 +43,7 @@ import {
 import {
   findMatchingTypeDelimiter,
   parseConditionalTypeText,
+  parseReadonlyContainerTypeText,
   parseTemplateLiteralTypeText,
   findTopLevelTypeCharacter,
   parseFunctionTypeAnnotation,
@@ -160,25 +161,176 @@ function localExportBindingNamesForExportedName(
   return localNames;
 }
 
-function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
+interface ImportTypeReferenceText {
+  kind: "import-type" | "type-query";
+  moduleName: string;
+  memberPath: string[];
+}
+
+function parseImportTypeReferenceText(typeName: string): ImportTypeReferenceText | null {
+  const trimmed = stripEnclosingTypeParens(typeName.trim());
+  let body = trimmed;
+  let kind: ImportTypeReferenceText["kind"] = "import-type";
+  if (body.startsWith("typeof ")) {
+    body = body.slice("typeof ".length).trim();
+    kind = "type-query";
+  }
+  if (!body.startsWith("import(")) {
+    return null;
+  }
+
+  const closeParenIndex = findMatchingTypeDelimiter(body, "import".length, "(", ")");
+  if (closeParenIndex < 0) {
+    return null;
+  }
+  const moduleLiteral = body.slice("import(".length, closeParenIndex).trim();
+  if (
+    moduleLiteral.length < 2
+    || (moduleLiteral[0] !== "\"" && moduleLiteral[0] !== "'")
+    || moduleLiteral[moduleLiteral.length - 1] !== moduleLiteral[0]
+  ) {
+    return null;
+  }
+  const moduleName = moduleLiteral.slice(1, -1);
+  const suffix = body.slice(closeParenIndex + 1).trim();
+  if (suffix.length === 0) {
+    return { kind, moduleName, memberPath: [] };
+  }
+  if (!suffix.startsWith(".")) {
+    return null;
+  }
+  const memberText = suffix.slice(1).trim();
+  if (memberText.length === 0) {
+    return null;
+  }
+  return {
+    kind,
+    moduleName,
+    memberPath: splitTopLevelDelimitedTypeText(memberText, new Set(["."]))
+  };
+}
+
+function propertyTypeFromObjectLikeType(type: AnalysisType, propertyName: string): AnalysisType | null {
+  const properties = ambientObjectProperties(type);
+  return properties?.[propertyName] ?? null;
+}
+
+function resolveImportTypeQueryMembers(baseType: AnalysisType, memberPath: readonly string[]): AnalysisType {
+  let currentType = baseType;
+  for (const segmentText of memberPath) {
+    const parsed = parseTypeNameShape(segmentText);
+    if (parsed.typeArguments.length > 0 || parsed.arrayDepth > 0) {
+      return UNKNOWN_TYPE;
+    }
+    currentType = propertyTypeFromObjectLikeType(currentType, parsed.baseName) ?? UNKNOWN_TYPE;
+    if (currentType === UNKNOWN_TYPE) {
+      return UNKNOWN_TYPE;
+    }
+  }
+  return currentType;
+}
+
+function resolveNodeModuleImportTypeReference(
+  typeName: string,
+  declarations: readonly Statement[],
+  resolvingImportTypes: Set<string>
+): AnalysisType | null {
+  const importTypeReference = parseImportTypeReferenceText(typeName);
+  if (!importTypeReference) {
+    return null;
+  }
+
+  const visitKey = `${importTypeReference.kind}:${importTypeReference.moduleName}:${importTypeReference.memberPath.join(".")}`;
+  if (resolvingImportTypes.has(visitKey)) {
+    return UNKNOWN_TYPE;
+  }
+  resolvingImportTypes.add(visitKey);
+  try {
+    if (importTypeReference.kind === "type-query" && importTypeReference.memberPath.length > 0) {
+      const [firstMember, ...restMembers] = importTypeReference.memberPath;
+      const parsedFirstMember = parseTypeNameShape(firstMember ?? "");
+      if (
+        firstMember
+        && parsedFirstMember.baseName === firstMember
+        && parsedFirstMember.typeArguments.length === 0
+        && parsedFirstMember.arrayDepth === 0
+      ) {
+        const directExportType = resolveNodeModuleNamedImportType(declarations, parsedFirstMember.baseName, resolvingImportTypes);
+        if (directExportType) {
+          return restMembers.length === 0
+            ? directExportType
+            : resolveImportTypeQueryMembers(directExportType, restMembers);
+        }
+      }
+    }
+
+    if (importTypeReference.kind === "import-type") {
+      if (importTypeReference.memberPath.length > 0) {
+        const referencedTypeText = importTypeReference.memberPath.join(".");
+        const parsed = parseTypeNameShape(referencedTypeText);
+        if (
+          importTypeReference.memberPath.length === 1
+          && parsed.baseName === referencedTypeText
+          && parsed.typeArguments.length === 0
+          && parsed.arrayDepth === 0
+        ) {
+          const directExportType = resolveNodeModuleNamedImportType(declarations, parsed.baseName, resolvingImportTypes);
+          if (directExportType) {
+            return directExportType;
+          }
+        }
+        return typeFromAnnotationText(referencedTypeText, declarations, resolvingImportTypes);
+      }
+    }
+
+    const namespaceProperties = collectNodeModuleNamespaceExportedProperties(declarations);
+    const namespaceType = objectTypeWithProperties(namespaceProperties);
+    if (importTypeReference.kind === "type-query") {
+      return importTypeReference.memberPath.length === 0
+        ? namespaceType
+        : resolveImportTypeQueryMembers(namespaceType, importTypeReference.memberPath);
+    }
+    return namespaceType;
+  } finally {
+    resolvingImportTypes.delete(visitKey);
+  }
+}
+
+function typeFromAnnotationText(
+  typeName: string | undefined,
+  declarations: readonly Statement[] = [],
+  resolvingImportTypes: Set<string> = new Set()
+): AnalysisType {
   if (!typeName) {
     return UNKNOWN_TYPE;
   }
   const normalized = stripEnclosingTypeParens(typeName.trim());
+  const importedType = resolveNodeModuleImportTypeReference(normalized, declarations, resolvingImportTypes);
+  if (importedType) {
+    return importedType;
+  }
+  if (normalized === "unique symbol") {
+    return builtinType("symbol");
+  }
+  if (normalized.startsWith("asserts ")) {
+    return builtinType("void");
+  }
   if (normalized.startsWith("[") && normalized.endsWith("]")) {
     const members = splitTopLevelDelimitedTypeText(normalized.slice(1, -1), new Set([","]));
     return {
       kind: "tuple",
-      elements: members.map((member) => typeFromAnnotationText(member.trim())).filter((member) => member !== UNKNOWN_TYPE)
+      elements: members
+        .map((member) => typeFromAnnotationText(member.trim(), declarations, resolvingImportTypes))
+        .filter((member) => member !== UNKNOWN_TYPE)
     };
   }
   const unionParts = splitTopLevelTypeText(normalized, "|");
   if (unionParts.length > 1) {
-    return unionType(unionParts.map((part) => typeFromAnnotationText(part)));
+    return unionType(unionParts.map((part) => typeFromAnnotationText(part, declarations, resolvingImportTypes)));
   }
   const intersectionParts = splitTopLevelTypeText(normalized, "&");
   if (intersectionParts.length > 1) {
-    return intersectionType(intersectionParts.map((part) => typeFromAnnotationText(part)));
+    return intersectionType(intersectionParts.map((part) => typeFromAnnotationText(part, declarations, resolvingImportTypes)));
   }
   const arrowIndex = normalized.indexOf("=>");
   const parameterListEnd = normalized.startsWith("(")
@@ -192,13 +344,19 @@ function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
         ? []
         : splitTopLevelDelimitedTypeText(parameterText, new Set([","])).map((parameter, index) => ({
             name: `arg${index}`,
-            type: typeFromAnnotationText(parameter.split(":").slice(1).join(":").trim() || parameter.trim())
+            type: typeFromAnnotationText(
+              parameter.split(":").slice(1).join(":").trim() || parameter.trim(),
+              declarations,
+              resolvingImportTypes
+            )
           })),
-      typeFromAnnotationText(returnText)
+      typeFromAnnotationText(returnText, declarations, resolvingImportTypes)
     );
   }
   const parsed = parseTypeNameShape(normalized);
-  const resolvedTypeArguments = parsed.typeArguments.map((argument) => typeFromAnnotationText(argument));
+  const resolvedTypeArguments = parsed.typeArguments.map((argument) =>
+    typeFromAnnotationText(argument, declarations, resolvingImportTypes)
+  );
   let resolvedBase: AnalysisType = BUILTIN_TYPE_NAMES.has(parsed.baseName)
     ? builtinType(parsed.baseName as Parameters<typeof builtinType>[0])
     : namedType(parsed.baseName, resolvedTypeArguments);
@@ -208,7 +366,11 @@ function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
   return resolvedBase;
 }
 
-function externalFunctionOverloads(declarations: readonly Statement[], name: string): FunctionType[] {
+function externalFunctionOverloads(
+  declarations: readonly Statement[],
+  name: string,
+  resolvingImportTypes: Set<string> = new Set()
+): FunctionType[] {
   const locallyExportedNames = localExportBindingNamesForExportedName(declarations, name);
   const overloads: FunctionType[] = [];
   for (const statement of declarations) {
@@ -217,7 +379,7 @@ function externalFunctionOverloads(declarations: readonly Statement[], name: str
       const fn = declaration as FunctionStatement;
       overloads.push(functionType(
         fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => {
-          const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name);
+          const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name, declarations, resolvingImportTypes);
           const isRest = parameter.rest === true;
           const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
           return {
@@ -227,7 +389,7 @@ function externalFunctionOverloads(declarations: readonly Statement[], name: str
             rest: isRest
           };
         }),
-        typeFromAnnotationText(fn.returnType?.name),
+        typeFromAnnotationText(fn.returnType?.name, declarations, resolvingImportTypes),
         fn.typeParameters?.map((parameter) => parameter.name.name),
         importedTypeParameterConstraintMap(fn.typeParameters),
         importedTypeParameterDefaultMap(fn.typeParameters)
@@ -244,17 +406,17 @@ function externalFunctionOverloads(declarations: readonly Statement[], name: str
     }
     overloads.push(functionType(
       fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => {
-        const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name);
-        const isRest = parameter.rest === true;
-        const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
-        return {
-          name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
-          type,
+      const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name, declarations, resolvingImportTypes);
+      const isRest = parameter.rest === true;
+      const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
+      return {
+        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+        type,
           optional: parameter.optional === true || parameter.defaultValue !== undefined || isRest,
           rest: isRest
         };
       }),
-      typeFromAnnotationText(fn.returnType?.name),
+      typeFromAnnotationText(fn.returnType?.name, declarations, resolvingImportTypes),
       fn.typeParameters?.map((parameter) => parameter.name.name),
       importedTypeParameterConstraintMap(fn.typeParameters),
       importedTypeParameterDefaultMap(fn.typeParameters)
@@ -263,8 +425,12 @@ function externalFunctionOverloads(declarations: readonly Statement[], name: str
   return overloads;
 }
 
-function callableTypeFromExternalFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
-  const overloads = externalFunctionOverloads(declarations, name);
+function callableTypeFromExternalFunction(
+  declarations: readonly Statement[],
+  name: string,
+  resolvingImportTypes: Set<string> = new Set()
+): AnalysisType | null {
+  const overloads = externalFunctionOverloads(declarations, name, resolvingImportTypes);
   if (overloads.length === 0) {
     return null;
   }
@@ -284,9 +450,10 @@ function displayTypeForExternalFunction(declarations: readonly Statement[], name
 
 function resolveNodeModuleNamedImportType(
   declarations: readonly Statement[],
-  importedName: string
+  importedName: string,
+  resolvingImportTypes: Set<string> = new Set()
 ): AnalysisType | null {
-  const callableType = callableTypeFromExternalFunction(declarations, importedName);
+  const callableType = callableTypeFromExternalFunction(declarations, importedName, resolvingImportTypes);
   if (callableType) {
     return callableType;
   }
@@ -310,7 +477,7 @@ function resolveNodeModuleNamedImportType(
       if (declaration.kind === "VarStatement") {
         const varStatement = declaration as VarStatement;
         if (varStatement.name.kind === "Identifier" && varStatement.name.name === importedName) {
-          return typeFromAnnotationText(varStatement.typeAnnotation?.name);
+          return typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
         }
       }
       continue;
@@ -331,7 +498,7 @@ function resolveNodeModuleNamedImportType(
     if (statement.kind === "VarStatement") {
       const varStatement = statement as VarStatement;
       if (varStatement.name.kind === "Identifier" && locallyExportedNames.has(varStatement.name.name)) {
-        return typeFromAnnotationText(varStatement.typeAnnotation?.name);
+        return typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
       }
     }
   }
@@ -593,6 +760,45 @@ function objectTypeFromAmbientInterfaceStatement(
     visited.delete(visitKey);
   }
   return objectTypeWithProperties(properties);
+}
+
+function resolveAmbientImportTypeReference(
+  typeName: string,
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType | null {
+  const importTypeReference = parseImportTypeReferenceText(typeName);
+  if (!importTypeReference) {
+    return null;
+  }
+
+  const moduleNamespaceType = resolveAmbientDefaultImportType(
+    importTypeReference.moduleName,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations
+  );
+  if (importTypeReference.kind === "type-query") {
+    if (!moduleNamespaceType) {
+      return null;
+    }
+    return importTypeReference.memberPath.length === 0
+      ? moduleNamespaceType
+      : resolveImportTypeQueryMembers(moduleNamespaceType, importTypeReference.memberPath);
+  }
+
+  if (importTypeReference.memberPath.length === 0) {
+    return moduleNamespaceType;
+  }
+
+  const referencedTypeText = importTypeReference.memberPath.join(".");
+  return resolveAmbientTypeReference(
+    importTypeReference.moduleName,
+    referencedTypeText,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
 }
 
 function resolveAmbientQualifiedImportedType(
@@ -1239,6 +1445,21 @@ function typeFromAmbientAnnotationText(
     return UNKNOWN_TYPE;
   }
   const normalized = stripEnclosingTypeParens(typeName.trim());
+  const importedType = resolveAmbientImportTypeReference(
+    normalized,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+  if (importedType) {
+    return importedType;
+  }
+  if (normalized === "unique symbol") {
+    return builtinType("symbol");
+  }
+  if (normalized.startsWith("asserts ")) {
+    return builtinType("void");
+  }
   const unionParts = splitTopLevelTypeText(normalized, "|");
   if (unionParts.length > 1) {
     return unionType(unionParts.map((part) =>
@@ -1284,6 +1505,26 @@ function typeFromAmbientAnnotationText(
         visited
       )
     );
+  }
+  const readonlyContainer = parseReadonlyContainerTypeText(normalized);
+  if (readonlyContainer?.kind === "tuple") {
+    return {
+      kind: "tuple",
+      elements: (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
+        typeFromAmbientAnnotationText(part, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+      )
+    };
+  }
+  if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
+    return namedType("ReadonlyArray", [
+      typeFromAmbientAnnotationText(
+        readonlyContainer.elementTypeText,
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      )
+    ]);
   }
   if (
     (normalized.startsWith("\"") && normalized.endsWith("\""))
@@ -1546,6 +1787,27 @@ function ambientConditionalTypeFromText(
     return null;
   }
 
+  const distributiveSource = ambientDistributiveConditionalSourceType(
+    conditional.checkTypeText.trim(),
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+  if (distributiveSource?.kind === "union") {
+    return combineTypes(distributiveSource.types.map((member) =>
+      ambientResolveConditionalBranch(
+        conditional,
+        member,
+        new Map([[conditional.checkTypeText.trim(), member]]),
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      )
+    ));
+  }
+
   const checkType = typeFromAmbientAnnotationText(
     conditional.checkTypeText,
     declarations,
@@ -1553,13 +1815,33 @@ function ambientConditionalTypeFromText(
     ambientGlobalDeclarations,
     visited
   );
-  const inferSubstitutions = ambientInferConditionalPatternSubstitutions(checkType, conditional.extendsTypeText);
+  return ambientResolveConditionalBranch(
+    conditional,
+    checkType,
+    new Map(),
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+}
+
+function ambientResolveConditionalBranch(
+  conditional: NonNullable<ReturnType<typeof parseConditionalTypeText>>,
+  checkType: AnalysisType,
+  substitutions: Map<string, AnalysisType>,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType {
+  const inferSubstitutions = ambientInferConditionalPatternSubstitutions(checkType, substituteAmbientTypeNames(conditional.extendsTypeText, substitutions));
   const selectedBranch = inferSubstitutions
     ? substituteAmbientTypeNames(conditional.trueTypeText, inferSubstitutions)
     : ambientTypeAssignableForUtility(
       checkType,
       typeFromAmbientAnnotationText(
-        conditional.extendsTypeText,
+        substituteAmbientTypeNames(conditional.extendsTypeText, substitutions),
         declarations,
         ambientModuleDeclarations,
         ambientGlobalDeclarations,
@@ -1569,8 +1851,40 @@ function ambientConditionalTypeFromText(
       ? conditional.trueTypeText
       : conditional.falseTypeText;
 
+  const finalSubstitutions = new Map(substitutions);
+  if (inferSubstitutions) {
+    for (const [name, type] of inferSubstitutions.entries()) {
+      finalSubstitutions.set(name, type);
+    }
+  }
+  const substitutedBranch = substituteAmbientTypeNames(selectedBranch, finalSubstitutions);
+  return ambientConditionalTypeFromText(
+    substitutedBranch,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  ) ?? typeFromAmbientAnnotationText(
+    substitutedBranch,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+}
+
+function ambientDistributiveConditionalSourceType(
+  checkTypeText: string,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType | null {
+  if (!/^[A-Za-z_$][\w$]*$/.test(checkTypeText)) {
+    return null;
+  }
   return typeFromAmbientAnnotationText(
-    selectedBranch,
+    checkTypeText,
     declarations,
     ambientModuleDeclarations,
     ambientGlobalDeclarations,
@@ -1583,16 +1897,24 @@ function ambientInferConditionalPatternSubstitutions(
   patternText: string
 ): Map<string, AnalysisType> | null {
   const trimmed = patternText.trim();
-  const arrayMatch = /^\(?infer\s+([A-Za-z_$][\w$]*)\)?\[\]$/.exec(trimmed);
+  const directInferMatch = /^infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+))?$/.exec(trimmed);
+  if (directInferMatch?.[1]) {
+    return ambientConstrainedInferSubstitution(
+      directInferMatch[1],
+      sourceType,
+      directInferMatch[2]?.trim()
+    );
+  }
+  const arrayMatch = /^\(?infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+?))?\)?\[\]$/.exec(trimmed);
   if (arrayMatch?.[1]) {
     const elementType = ambientArrayElementTypeForInferPattern(sourceType);
-    return elementType ? new Map([[arrayMatch[1], elementType]]) : null;
+    return elementType ? ambientConstrainedInferSubstitution(arrayMatch[1], elementType, arrayMatch[2]?.trim()) : null;
   }
 
-  const genericInferMatch = /^([A-Za-z_$][\w$.]*)<\s*infer\s+([A-Za-z_$][\w$]*)\s*>$/.exec(trimmed);
+  const genericInferMatch = /^([A-Za-z_$][\w$.]*)<\s*infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+?))?\s*>$/.exec(trimmed);
   if (genericInferMatch?.[1] && genericInferMatch[2]) {
     const inferred = ambientGenericInferTypeArgument(sourceType, genericInferMatch[1]);
-    return inferred ? new Map([[genericInferMatch[2], inferred]]) : null;
+    return inferred ? ambientConstrainedInferSubstitution(genericInferMatch[2], inferred, genericInferMatch[3]?.trim()) : null;
   }
 
   const functionArgsInferMatch = /^\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(trimmed);
@@ -1610,16 +1932,36 @@ function ambientInferConditionalPatternSubstitutions(
     const result = new Map<string, AnalysisType>();
     if (functionInferMatch.parameters.length === 1 && functionInferMatch.parameters[0]?.rest === true) {
       const parameterTypeName = functionInferMatch.parameters[0].typeName.trim();
-      const restInferMatch = /^infer\s+([A-Za-z_$][\w$]*)$/.exec(parameterTypeName);
+      const restInferMatch = /^infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+))?$/.exec(parameterTypeName);
       if (restInferMatch?.[1]) {
-        result.set(restInferMatch[1], { kind: "tuple", elements: sourceType.parameters.map((parameter) => parameter.type) });
+        const constrained = ambientConstrainedInferSubstitution(
+          restInferMatch[1],
+          { kind: "tuple", elements: sourceType.parameters.map((parameter) => parameter.type) },
+          restInferMatch[2]?.trim()
+        );
+        if (!constrained) {
+          return null;
+        }
+        for (const [name, type] of constrained.entries()) {
+          result.set(name, type);
+        }
       } else if (parameterTypeName !== "any") {
         return null;
       }
     }
-    const returnInferMatch = /^infer\s+([A-Za-z_$][\w$]*)$/.exec(functionInferMatch.returnTypeName.trim());
+    const returnInferMatch = /^infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+))?$/.exec(functionInferMatch.returnTypeName.trim());
     if (returnInferMatch?.[1]) {
-      result.set(returnInferMatch[1], sourceType.returnType);
+      const constrained = ambientConstrainedInferSubstitution(
+        returnInferMatch[1],
+        sourceType.returnType,
+        returnInferMatch[2]?.trim()
+      );
+      if (!constrained) {
+        return null;
+      }
+      for (const [name, type] of constrained.entries()) {
+        result.set(name, type);
+      }
     } else if (functionInferMatch.returnTypeName.trim() !== "any") {
       return null;
     }
@@ -1643,6 +1985,20 @@ function ambientInferConditionalPatternSubstitutions(
   }
 
   return null;
+}
+
+function ambientConstrainedInferSubstitution(
+  name: string,
+  inferredType: AnalysisType,
+  constraintText?: string
+): Map<string, AnalysisType> | null {
+  if (constraintText) {
+    const constraintType = typeFromAnnotationText(constraintText);
+    if (!ambientTypeAssignableForUtility(inferredType, constraintType)) {
+      return null;
+    }
+  }
+  return new Map([[name, inferredType]]);
 }
 
 function ambientArrayElementTypeForInferPattern(sourceType: AnalysisType): AnalysisType | null {
@@ -1885,7 +2241,7 @@ function collectNodeModuleNamespaceExportedProperties(
       const variable = declaration as VarStatement;
       const bindings = variable.declarations?.flatMap((item) => bindingIdentifiers(item.name)) ?? bindingIdentifiers(variable.name);
       for (const binding of bindings) {
-        properties[binding.name] = typeFromAnnotationText(variable.typeAnnotation?.name);
+        properties[binding.name] = typeFromAnnotationText(variable.typeAnnotation?.name, statements);
       }
       continue;
     }
@@ -2437,7 +2793,29 @@ function collectTypeQueryDependencyNamesFromText(typeText: string | undefined, c
     return;
   }
   const stripped = typeText.replace(/"[^"]*"|'[^']*'/g, " ");
-  for (const match of typeText.matchAll(/typeof\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)/g)) {
+  for (const match of stripped.matchAll(/typeof\s+import\s*\(\s*[^)]*\s*\)\s*\.\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)/g)) {
+    const fullName = match[1];
+    if (!fullName) {
+      continue;
+    }
+    collected.add(fullName);
+    const leafName = fullName.split(".").pop();
+    if (leafName) {
+      collected.add(leafName);
+    }
+  }
+  for (const match of stripped.matchAll(/import\s*\(\s*[^)]*\s*\)\s*\.\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)/g)) {
+    const fullName = match[1];
+    if (!fullName) {
+      continue;
+    }
+    collected.add(fullName);
+    const leafName = fullName.split(".").pop();
+    if (leafName) {
+      collected.add(leafName);
+    }
+  }
+  for (const match of stripped.matchAll(/typeof\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)/g)) {
     const fullName = match[1];
     if (!fullName) {
       continue;
@@ -2457,6 +2835,7 @@ function collectTypeQueryDependencyNamesFromText(typeText: string | undefined, c
       BUILTIN_TYPE_NAMES.has(fullName)
       || [
         "typeof",
+        "import",
         "keyof",
         "infer",
         "extends",

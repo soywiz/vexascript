@@ -21,6 +21,21 @@ export interface ConditionalTypeText {
   falseTypeText: string;
 }
 
+export interface ReadonlyContainerTypeText {
+  kind: "array" | "tuple";
+  elementTypeText?: string;
+  tupleElementTypeTexts?: string[];
+}
+
+export interface MappedTypeMemberText {
+  readonlyModifier?: "readonly" | "+readonly" | "-readonly";
+  keyParameterName: string;
+  keySourceText: string;
+  keyRemapText?: string;
+  optionalModifier?: "?" | "+?" | "-?";
+  valueTypeText: string;
+}
+
 interface TypeTextDepths {
   angle: number;
   paren: number;
@@ -337,17 +352,110 @@ export function parseConditionalTypeText(typeName: string): ConditionalTypeText 
   };
 }
 
+export function parseReadonlyContainerTypeText(typeName: string): ReadonlyContainerTypeText | null {
+  const trimmed = stripEnclosingTypeParens(typeName.trim());
+  if (!trimmed.startsWith("readonly ")) {
+    return null;
+  }
+
+  const inner = trimmed.slice("readonly ".length).trim();
+  if (inner.startsWith("[") && inner.endsWith("]")) {
+    const tupleBody = inner.slice(1, -1).trim();
+    return {
+      kind: "tuple",
+      tupleElementTypeTexts: tupleBody.length === 0 ? [] : splitTopLevelTypeText(tupleBody, ",").map(tupleElementTypeText)
+    };
+  }
+
+  const arraySuffix = splitArraySuffixTypeName(inner);
+  if (arraySuffix) {
+    return {
+      kind: "array",
+      elementTypeText: arraySuffix.elementTypeName
+    };
+  }
+
+  return null;
+}
+
+export function parseMappedTypeMemberText(typeName: string): MappedTypeMemberText | null {
+  const trimmed = typeName.trim().replace(/;$/, "").trim();
+  let rest = trimmed;
+  let readonlyModifier: MappedTypeMemberText["readonlyModifier"];
+
+  const readonlyMatch = /^([+-]?readonly)\s+/.exec(rest);
+  if (readonlyMatch?.[1]) {
+    readonlyModifier = readonlyMatch[1] as MappedTypeMemberText["readonlyModifier"];
+    rest = rest.slice(readonlyMatch[0].length).trimStart();
+  }
+
+  if (!rest.startsWith("[")) {
+    return null;
+  }
+  const closeBracketIndex = findMatchingTypeDelimiter(rest, 0, "[", "]");
+  if (closeBracketIndex < 0) {
+    return null;
+  }
+
+  const bracketBody = rest.slice(1, closeBracketIndex).trim();
+  rest = rest.slice(closeBracketIndex + 1).trimStart();
+
+  const optionalMatch = /^([+-]?\?)/.exec(rest);
+  const optionalModifier = optionalMatch?.[1] as MappedTypeMemberText["optionalModifier"] | undefined;
+  if (optionalMatch) {
+    rest = rest.slice(optionalMatch[0].length).trimStart();
+  }
+
+  if (!rest.startsWith(":")) {
+    return null;
+  }
+  const valueTypeText = rest.slice(1).trim();
+  if (!valueTypeText) {
+    return null;
+  }
+
+  const inIndex = findTopLevelTypeKeyword(bracketBody, "in");
+  if (inIndex < 0) {
+    return null;
+  }
+  const keyParameterName = bracketBody.slice(0, inIndex).trim();
+  if (!/^[A-Za-z_$][\w$]*$/.test(keyParameterName)) {
+    return null;
+  }
+
+  const sourceAndRemap = bracketBody.slice(inIndex + "in".length).trim();
+  const asIndex = findTopLevelTypeKeyword(sourceAndRemap, "as");
+  const keySourceText = (asIndex >= 0 ? sourceAndRemap.slice(0, asIndex) : sourceAndRemap).trim();
+  const keyRemapText = asIndex >= 0 ? sourceAndRemap.slice(asIndex + "as".length).trim() : undefined;
+  if (!keySourceText) {
+    return null;
+  }
+
+  return {
+    keyParameterName,
+    keySourceText,
+    ...(readonlyModifier ? { readonlyModifier } : {}),
+    ...(keyRemapText ? { keyRemapText } : {}),
+    ...(optionalModifier ? { optionalModifier } : {}),
+    valueTypeText
+  };
+}
+
 function findTopLevelExtendsKeyword(text: string): number {
+  return findTopLevelTypeKeyword(text, "extends");
+}
+
+function findTopLevelTypeKeyword(text: string, keyword: string): number {
   let foundIndex = -1;
   scanTypeText(text, (_character, index, isTopLevel) => {
     if (!isTopLevel) {
       return;
     }
-    if (text.slice(index, index + "extends".length) !== "extends") {
+    if (text.slice(index, index + keyword.length) !== keyword) {
       return;
     }
     const before = index === 0 ? " " : text[index - 1]!;
-    const after = index + "extends".length >= text.length ? " " : text[index + "extends".length]!;
+    const after = index + keyword.length >= text.length ? " " : text[index + keyword.length]!;
     if (/\w/.test(before) || /\w/.test(after)) {
       return;
     }
@@ -367,6 +475,7 @@ export interface FunctionTypeAnnotationParameter {
 export interface FunctionTypeAnnotationShape {
   parameters: FunctionTypeAnnotationParameter[];
   returnTypeName: string;
+  constructor?: boolean;
 }
 
 export interface ObjectTypeAnnotationMember {
@@ -381,20 +490,31 @@ export interface ObjectTypeAnnotationMember {
  */
 export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnotationShape | null {
   const trimmed = typeName.trim();
-  if (!trimmed.startsWith("(")) {
+  let working = trimmed;
+  let constructor = false;
+
+  if (working.startsWith("abstract ")) {
+    working = working.slice("abstract ".length).trimStart();
+  }
+  if (working.startsWith("new")) {
+    constructor = true;
+    working = working.slice("new".length).trimStart();
+  }
+
+  if (!working.startsWith("(")) {
     return null;
   }
 
-  const closeParenIndex = findMatchingTypeDelimiter(trimmed, 0, "(", ")");
+  const closeParenIndex = findMatchingTypeDelimiter(working, 0, "(", ")");
   if (closeParenIndex < 0) {
     return null;
   }
-  const afterParameters = trimmed.slice(closeParenIndex + 1).trimStart();
+  const afterParameters = working.slice(closeParenIndex + 1).trimStart();
   if (!afterParameters.startsWith("=>")) {
     return null;
   }
 
-  const parameterBody = trimmed.slice(1, closeParenIndex).trim();
+  const parameterBody = working.slice(1, closeParenIndex).trim();
   const parameters =
     parameterBody.length === 0
       ? []
@@ -432,7 +552,8 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
 
   return {
     parameters,
-    returnTypeName: afterParameters.slice(2).trim()
+    returnTypeName: afterParameters.slice(2).trim(),
+    ...(constructor ? { constructor: true } : {})
   };
 }
 

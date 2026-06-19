@@ -880,13 +880,14 @@ type EventPath = [EventTarget?]
 type UserKey = keyof User
 type UserName = User["name"]
 type NameCopy = typeof currentUser.name
+type UtilModule = typeof import("node:util")
 type UUID = `${string}-${string}-${string}-${string}-${string}`
 type Stream<R> = import("stream/web").ReadableStream<R>
 let name: Text = "Ada"
 let boxed: Boxed<Text> = new Box<string>()
 ```
 
-`type` declarations are type-only and are omitted from emitted JavaScript output. Mapped and conditional types are preserved structurally by the parser; semantic analysis resolves the portions it understands and otherwise treats them conservatively as `unknown`. Template literal types are also resolved when their interpolated members reduce to literal or union-of-literal values; when an interpolation stays wide (for example `${string}`), the result degrades conservatively to `string` instead of `unknown`. Top-level conditional aliases also resolve a practical subset of common `infer` patterns such as array element extraction, `Promise<infer T>`, and function return types. Common TypeScript utility aliases such as `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Exclude`, `Extract`, `NonNullable`, `Record`, `Awaited`, `ReturnType`, `Parameters`, `ConstructorParameters`, `InstanceType`, `ThisParameterType`, `OmitThisParameter`, `NoInfer`, `ThisType`, `Uppercase`, `Lowercase`, `Capitalize`, and `Uncapitalize` are also resolved when their inputs fit the currently supported type forms.
+`type` declarations are type-only and are omitted from emitted JavaScript output. Mapped and conditional types are preserved structurally by the parser; semantic analysis resolves the portions it understands and otherwise treats them conservatively as `unknown`. Template literal types are also resolved when their interpolated members reduce to literal or union-of-literal values; when an interpolation stays wide (for example `${string}`), the result degrades conservatively to `string` instead of `unknown`. Top-level conditional aliases also resolve a practical subset of common `infer` patterns such as array element extraction, `Promise<infer T>`, function return types, constrained forms like `infer U extends string`, and nested conditional branches; naked-type-parameter conditionals also distribute over unions in common cases. TypeScript readonly container shorthand such as `readonly string[]` and `readonly [string, int]` is also resolved semantically; today VexaScript preserves the container shape but does not yet model tuple/array mutability as a separate type dimension. Homomorphic mapped aliases also support practical key-remapping forms such as `as K`, `as Exclude<K, ...>`, and template-literal remaps like `` as `label_${K}` ``, plus `?` and `-?` optionality modifiers when the remapped keys reduce to string literals. `unique symbol` currently resolves conservatively as `symbol`, and TypeScript assertion signatures such as `(value: unknown) => asserts value is T` currently resolve as `void`-returning function types without flow-sensitive narrowing. Constructor-signature type forms such as `new (...) => T` and `abstract new (...) => T` are also understood well enough for utility aliases like `ConstructorParameters` and `InstanceType`. Common TypeScript utility aliases such as `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Exclude`, `Extract`, `NonNullable`, `Record`, `Awaited`, `ReturnType`, `Parameters`, `ConstructorParameters`, `InstanceType`, `ThisParameterType`, `OmitThisParameter`, `NoInfer`, `ThisType`, `Uppercase`, `Lowercase`, `Capitalize`, and `Uncapitalize` are also resolved when their inputs fit the currently supported type forms.
 
 ### Type annotation forms
 
@@ -894,21 +895,23 @@ Supported type annotation forms in declarations/members:
 
 - plain type names (`Point`, `number`, `K`)
 - primitive/builtin type names (`int`, `number`, `string`, `boolean`, `bigint`, `long`, `void`, `null`, `undefined`, `any`, `unknown`, `never`, `object`, `symbol`)
+- `unique symbol` type annotations, currently treated conservatively as `symbol`
 - generic type references (`Map<K, V>`)
 - array suffixes (`K[]`, `Map<K, V>[]`)
+- readonly container shorthand (`readonly string[]`, `readonly [string, int]`)
 - optional type suffixes (`User?`, `(() => void)?`), equivalent to `User | undefined`
 - union types (`string | number`)
 - intersection types (`Named & Serializable`)
-- function types (`(value: int) => string`, including optional and rest parameters)
+- function types (`(value: int) => string`, constructor signatures like `new (value: int) => Box`, and optional/rest parameters)
 - object type literals (`{ x: int; label?: string }`)
 - literal types (`"ready"`, `404`, `true`)
 - tuple types (`[string, int]`, `[value: T, setter: (newValue: T) => void]`, `[EventTarget?]`)
 - `keyof` type operators (`keyof User`)
-- `typeof` type queries over values and dotted members (`typeof config`, `typeof user.name`)
+- `typeof` type queries over values, dotted members, and module imports (`typeof config`, `typeof user.name`, `typeof import("node:util").format`)
 - indexed access types (`User["name"]`, `Tuple[0]`, `User[keyof User]`)
 - template literal types (`` `${string}-${string}` ``)
-- import types (`import("stream/web").ReadableStream<R>`)
-- mapped types (`{ [K in keyof T]?: T[K] }`)
+- import types (`import("stream/web").ReadableStream<R>`, `import("pkg").Thing`)
+- mapped types (`{ [K in keyof T]?: T[K] }`, `{ [K in keyof T as Exclude<K, "id">]: T[K] }`, `{ [K in keyof T as `label_${K}`]-?: T[K] }`)
 - conditional types (`T extends U ? X : Y`)
 - inferred conditional-type variables (`T extends (infer U)[] ? U : T`)
 

@@ -163,6 +163,28 @@ describe("node_modules typings resolution", () => {
     expect(typeToString(symbolTypes.get("render")!)).toBe("<P>(vnode: VNode<P>, context: any) => string");
   });
 
+  it("resolves node_modules import types from package declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "renderer", dedent`
+      export interface FormatterOptions {
+        trim?: boolean;
+      }
+      export const defaultOptions: import("renderer").FormatterOptions;
+    `);
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { defaultOptions } from "renderer"
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
+
+    expect(typeToString(symbolTypes.get("defaultOptions")!)).toBe("FormatterOptions");
+  });
+
   it("assigns callable generic named imports from package exports subpath typings such as preact/hooks", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");
@@ -1693,6 +1715,44 @@ describe("node_modules typings resolution", () => {
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves readonly array and tuple shorthand from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "readonly-box",
+      dedent`
+        export type Names = readonly string[];
+        export type Pair = readonly [name: string, count: number];
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { Names, Pair } from "readonly-box"
+
+      let names: Names = ["Ada", "Grace"]
+      let pair: Pair = ["Ada", 1]
+      let arrayLike: ReadonlyArray<string> = names
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("resolves top-level conditional infer aliases from imported declaration files", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(
@@ -1716,6 +1776,144 @@ describe("node_modules typings resolution", () => {
       let element: ElementValue = "Ada"
       let awaitedValue: AwaitedInt = 1
       let result: HandlerResult = true
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves constrained infer and nested conditional aliases from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "conditional-box",
+      dedent`
+        export type Constrained<T> = T extends infer U extends string ? U : never;
+        export type Recursive<T> = T extends string ? true : T extends number ? false : never;
+        export type ConstrainedName = Constrained<"Ada">;
+        export type RecursiveString = Recursive<string>;
+        export type RecursiveNumber = Recursive<number>;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { ConstrainedName, RecursiveString, RecursiveNumber } from "conditional-box"
+
+      let constrained: ConstrainedName = "Ada"
+      let recursiveString: RecursiveString = true
+      let recursiveNumber: RecursiveNumber = false
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves mapped key remapping aliases from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "mapped-remap-box",
+      dedent`
+        export interface Person {
+          name: string;
+          age: number;
+        }
+        export interface MaybePerson {
+          name?: string;
+        }
+        export type Labels<T> = { [K in keyof T as \`label_\${K}\`]: T[K] };
+        export type WithoutName<T> = { [K in keyof T as Exclude<K, "name">]: T[K] };
+        export type Concrete<T> = { [K in keyof T as K]-?: T[K] };
+        export type PersonLabels = Labels<Person>;
+        export type PersonWithoutName = WithoutName<Person>;
+        export type ConcreteMaybePerson = Concrete<MaybePerson>;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { PersonLabels, PersonWithoutName, ConcreteMaybePerson } from "mapped-remap-box"
+
+      let labels: PersonLabels = { label_name: "Ada", label_age: 1 }
+      let labelName: string = labels.label_name
+      let onlyAge: PersonWithoutName = { age: 1 }
+      let age: number = onlyAge.age
+      let concrete: ConcreteMaybePerson = { name: "Ada" }
+      let concreteName: string = concrete.name
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves unique symbol, assertion signatures, and abstract constructor signatures from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "ts-signature-box",
+      dedent`
+        export class User {
+          constructor(name: string, age: number);
+        }
+        export type Token = unique symbol;
+        export type AssertString = (value: unknown) => asserts value is string;
+        export type UserCtorArgs = ConstructorParameters<abstract new (name: string, age: number) => User>;
+        export type UserInstance = InstanceType<abstract new (name: string, age: number) => User>;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { User } from "ts-signature-box"
+      import type { Token, AssertString, UserCtorArgs, UserInstance } from "ts-signature-box"
+
+      let token: Token = Symbol.iterator
+      let assertString: AssertString = (value: unknown) => {}
+      let args: UserCtorArgs = ["Ada", 1]
+      let user: UserInstance = new User("Ada", 1)
     `;
     await writeFile(mainPath, source, "utf8");
 

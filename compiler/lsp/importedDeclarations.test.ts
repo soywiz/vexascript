@@ -338,6 +338,42 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     expect(importedSymbolDisplayTypes.get("util")).toBe('typeof import("node:util")');
   });
 
+  it("resolves ambient import types and typeof import type queries", async () => {
+    const utilDecls = parseAmbientModule(
+      `declare module "node:util" {
+        export interface FormatterOptions {
+          trim?: boolean;
+        }
+        export function format(value: string, options?: FormatterOptions): string;
+      }`,
+      "node:util"
+    );
+    const loggerDecls = parseAmbientModule(
+      `declare module "logger" {
+        export interface LoggerShape {
+          format: typeof import("node:util").format;
+          options: import("node:util").FormatterOptions;
+        }
+        export const logger: LoggerShape;
+      }`,
+      "logger"
+    );
+
+    const ast = parseSource(`import { logger } from "logger"`, {}).ast!;
+    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations: new Map([
+        ["node:util", utilDecls],
+        ["logger", loggerDecls]
+      ])
+    });
+
+    expect(typeToString(importedSymbolTypes.get("logger")!)).toBe(
+      "{ format: (value: string, options: { trim: boolean? }) => string, options: { trim: boolean? } }"
+    );
+  });
+
   it("reports unknown members on default imports from ambient modules", async () => {
     const utilDecls = parseAmbientModule(
       `declare module "node:util" {

@@ -1455,11 +1455,34 @@ export class Parser {
 
     private parseTypeQueryOperandText(): string {
         const first = this.tokens.read();
-        if (!first || first.type !== "identifier") {
+        if (!first) {
             this.fail("Expected identifier after 'typeof' in type annotation", this.tokenAt(first));
         }
 
-        let operand = first.value;
+        let operand = "";
+        if (first.type === "identifier" && first.value !== "import") {
+            operand = first.value;
+        } else if (first.type === "identifier" && first.value === "import") {
+            operand = "import";
+            const openParen = this.tokens.read();
+            if (!openParen || openParen.type !== "symbol" || openParen.value !== "(") {
+                this.fail("Expected '(' after 'import' in type query", this.tokenAt(openParen));
+            }
+            operand += "(";
+            const moduleName = this.tokens.read();
+            if (!moduleName || moduleName.type !== "string") {
+                this.fail("Expected module string in 'import(...)' type query", this.tokenAt(moduleName));
+            }
+            operand += JSON.stringify(moduleName.value);
+            const closeParen = this.tokens.read();
+            if (!closeParen || closeParen.type !== "symbol" || closeParen.value !== ")") {
+                this.fail("Expected ')' after module string in 'import(...)' type query", this.tokenAt(closeParen));
+            }
+            operand += ")";
+        } else {
+            this.fail("Expected identifier after 'typeof' in type annotation", this.tokenAt(first));
+        }
+
         while (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
             this.tokens.skip();
             const property = this.tokens.read();

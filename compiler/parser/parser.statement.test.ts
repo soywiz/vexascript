@@ -1770,6 +1770,10 @@ describe("parseStatement", () => {
             kind: "VarStatement",
             typeAnnotation: { kind: "Identifier", name: "typeof person.name" }
         });
+        expect(parseStatement(tokenizeReader('let formatter: typeof import("node:util").format'), { language: "typescript" })).toMatchObject({
+            kind: "VarStatement",
+            typeAnnotation: { kind: "Identifier", name: 'typeof import("node:util").format' }
+        });
         expect(parseStatement(tokenizeReader('let name: Person["name"]'))).toMatchObject({
             kind: "VarStatement",
             typeAnnotation: { kind: "Identifier", name: "Person[\"name\"]" }

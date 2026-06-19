@@ -511,6 +511,22 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves readonly array and tuple shorthand types", () => {
+    const source = dedent`
+      type ReadonlyNames = readonly string[]
+      type ReadonlyPair = readonly [name: string, count: int]
+
+      let names: ReadonlyNames = ["Ada", "Grace"]
+      let pair: ReadonlyPair = ["Ada", 1]
+      let arrayLike: ReadonlyArray<string> = names
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("resolves top-level conditional aliases that use common infer patterns", () => {
     const source = dedent`
       type Element<T> = T extends (infer U)[] ? U : T
@@ -522,6 +538,74 @@ describe("Analysis", () => {
       let element: Element<string[]> = "Ada"
       let awaitedValue: AwaitedValue<Promise<int>> = 1
       let result: Result<Handler> = true
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves constrained infer, nested conditional branches, and distributive conditional aliases", () => {
+    const source = dedent`
+      type Constrained<T> = T extends infer U extends string ? U : never
+      type Recursive<T> = T extends string ? true : T extends number ? false : never
+      type Dist<T> = T extends string ? "text" : "other"
+
+      let constrained: Constrained<"Ada"> = "Ada"
+      let recursiveString: Recursive<string> = true
+      let recursiveNumber: Recursive<int> = false
+      let distributiveText: Dist<string | int> = "text"
+      let distributiveOther: Dist<string | int> = "other"
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves mapped aliases that remap, filter, and concretize keys", () => {
+    const source = dedent`
+      interface Person {
+        name: string
+        age: int
+      }
+      interface MaybePerson {
+        name?: string
+      }
+      type Labels<T> = { [K in keyof T as \`label_\${K}\`]: T[K] }
+      type WithoutName<T> = { [K in keyof T as Exclude<K, "name">]: T[K] }
+      type Concrete<T> = { [K in keyof T as K]-?: T[K] }
+
+      let labels: Labels<Person> = { label_name: "Ada", label_age: 1 }
+      let labelName: string = labels.label_name
+      let onlyAge: WithoutName<Person> = { age: 1 }
+      let age: int = onlyAge.age
+      let concrete: Concrete<MaybePerson> = { name: "Ada" }
+      let concreteName: string = concrete.name
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves unique symbol, assertion signatures, and abstract constructor signatures", () => {
+    const source = dedent`
+      class User {
+        constructor(name: string, age: int) {}
+      }
+      type Token = unique symbol
+      type AssertString = (value: unknown) => asserts value is string
+      type UserCtorArgs = ConstructorParameters<abstract new (name: string, age: int) => User>
+      type UserInstance = InstanceType<abstract new (name: string, age: int) => User>
+
+      let token: Token = Symbol.iterator
+      let assertString: AssertString = (value: unknown) => {}
+      let args: UserCtorArgs = ["Ada", 1]
+      let user: UserInstance = new User("Ada", 1)
     `;
 
     const ast = parseFile(tokenizeReader(source));
