@@ -1,13 +1,9 @@
-import { Application, Graphics, Text, TextStyle, Container } from "pixi.js"
+import { Application, Graphics, Text, TextStyle } from "pixi.js"
+import { position, addTo, Vec2 } from "./utils.vx"
 
 val width = 480
 val height = 320
-val centerX = width / 2
-val centerY = height / 2
-
-fun Container.addTo(other: Container) {
-    other.addChild(this)
-}
+val center = Vec2(width / 2, height / 2)
 
 val app = Application()
 await app.init({
@@ -19,23 +15,20 @@ await app.init({
 app.renderer.resize(width, height)
 val stage = app.stage
 
-document.body.setAttribute("style", "margin:0;display:grid;place-items:center;min-height:100vh;background:#f3efe2;")
-document.body.appendChild(app.canvas)
+document.body
+    ..setAttribute("style", "margin:0;display:grid;place-items:center;min-height:100vh;background:#f3efe2;")
+    ..appendChild(app.canvas)
 
 val badge = Graphics()
-    ..beginFill(0xff6b35)
-    ..drawRoundedRect(-110, -64, 220, 128, 28)
-    ..endFill()
-    ..x = centerX
-    ..y = centerY - 16
+    ..roundRect(-110, -64, 220, 128, 28)
+    ..fill(0xff6b35)
+    ..position = center + Vec2(0, -16)
     ..addTo(stage)
 
 val orb = Graphics()
-    ..beginFill(0x004e89)
     ..circle(0, 0, 28)
-    ..endFill()
-    ..x = centerX
-    ..y = centerY - 16
+    ..fill(0x004e89)
+    ..position = center + Vec2(0, -16)
     ..addTo(stage)
 
 val label = Text()
@@ -44,17 +37,16 @@ val label = Text()
         fill: 0x1f2933,
         fontSize: 24,
         fontFamily: "Avenir Next, Arial, sans-serif",
-        fontWeight: "700"
+        fontWeight: "700",
     })
     ..anchor = 0.5
-    ..x = centerX
-    ..y = height - 54
+    ..position = Vec2(center.x, height - 54)
     ..addTo(stage)
 
 var drift = 0
 app.ticker.add {
     drift++
-    orb.x = centerX + Math.cos(drift * 0.02) * 56
+    orb.x = center.x + Math.cos(drift * 0.02) * 56
 }
 
 console.log("pixi-ready")

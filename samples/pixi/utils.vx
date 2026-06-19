@@ -1,0 +1,17 @@
+import { Container } from "pixi.js"
+
+class Vec2(val x: number, val y: number) {
+    operator+(other: Vec2) => Vec2(x + other.x, y + other.y)
+    operator-(other: Vec2) => Vec2(x - other.x, y - other.y)
+    operator*(scale: number) => Vec2(x * scale, y * scale)
+    operator/(scale: number) => Vec2(x / scale, y / scale)
+}
+
+fun Container.addTo(other: Container) {
+    other.addChild(this)
+}
+
+var Container.position: Vec2 {
+    get => Vec2(x, y)
+    set { x = newValue.x; y = newValue.y }
+}
