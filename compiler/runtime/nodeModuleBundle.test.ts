@@ -137,6 +137,13 @@ describe("transpileModuleSource", () => {
     expect(result.exportNames).toContain("b");
   });
 
+  it("preserves JavaScript for-in loops when transpiling bundled modules", () => {
+    const esm = "export function firstKey(obj) {\n  let key;\n  for (key in obj) return key;\n}\n";
+    const result = transpileModuleSource(esm, "/lib/iterate.mjs");
+    expect(result.code).toContain("for (key in obj)");
+    expect(result.code).not.toContain("for (const key of obj)");
+  });
+
   it("handles export { name as default } via the emitter path", () => {
     const esm = 'const impl=()=>7;\nexport{impl as default};\n';
     const result = transpileModuleSource(esm, "/lib/render.mjs");

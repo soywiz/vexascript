@@ -1296,6 +1296,9 @@ export class TypeChecker {
       const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
       this.withTypeParameters(typeParameterNames, () => {
         const functionScope = this.scopeFor(statement, scope);
+        if (statement.receiverType) {
+          this.resolveTypeAnnotation(statement.receiverType, functionScope);
+        }
         const declaredReturnType = this.resolveTypeAnnotation(
           statement.returnType,
           statement.receiverType ? functionScope : scope

@@ -1,9 +1,13 @@
-import { Application, Graphics, Text, TextStyle } from "pixi.js"
+import { Application, Graphics, Text, TextStyle, Container } from "pixi.js"
 
 val width = 480
 val height = 320
 val centerX = width / 2
 val centerY = height / 2
+
+fun Container.addTo(other: Container) {
+    other.addChild(this)
+}
 
 val app = Application()
 await app.init({
@@ -19,35 +23,35 @@ document.body.setAttribute("style", "margin:0;display:grid;place-items:center;mi
 document.body.appendChild(app.canvas)
 
 val badge = Graphics()
-badge.beginFill(0xff6b35)
-badge.drawRoundedRect(-110, -64, 220, 128, 28)
-badge.endFill()
-badge.x = centerX
-badge.y = centerY - 16
-stage.addChild(badge)
+    ..beginFill(0xff6b35)
+    ..drawRoundedRect(-110, -64, 220, 128, 28)
+    ..endFill()
+    ..x = centerX
+    ..y = centerY - 16
+    ..addTo(stage)
 
 val orb = Graphics()
-orb.beginFill(0x004e89)
-orb.circle(0, 0, 28)
-orb.endFill()
-orb.x = centerX
-orb.y = centerY - 16
-stage.addChild(orb)
+    ..beginFill(0x004e89)
+    ..circle(0, 0, 28)
+    ..endFill()
+    ..x = centerX
+    ..y = centerY - 16
+    ..addTo(stage)
 
 val label = Text()
-label.text = "Hello PIXI from VexaScript"
-label.style = TextStyle({
-    fill: 0x1f2933,
-    fontSize: 24,
-    fontFamily: "Avenir Next, Arial, sans-serif",
-    fontWeight: "700"
-})
-label.anchor = 0.5
-label.x = centerX
-label.y = height - 54
-stage.addChild(label)
+    ..text = "Hello PIXI from VexaScript"
+    ..style = TextStyle({
+        fill: 0x1f2933,
+        fontSize: 24,
+        fontFamily: "Avenir Next, Arial, sans-serif",
+        fontWeight: "700"
+    })
+    ..anchor = 0.5
+    ..x = centerX
+    ..y = height - 54
+    ..addTo(stage)
 
-var drift: number = 0
+var drift = 0
 app.ticker.add {
     drift++
     orb.x = centerX + Math.cos(drift * 0.02) * 56

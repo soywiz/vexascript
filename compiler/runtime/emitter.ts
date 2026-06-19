@@ -201,6 +201,7 @@ interface ActiveEmitState {
    */
   autoAwaitExpressions: ReadonlySet<Node>;
   asyncForStatements: ReadonlySet<Node>;
+  sourceLanguage: "vexa" | "typescript";
   moduleFormat: "esm" | "commonjs";
   rewriteImportExtensions: boolean;
   jsxFactory: string;
@@ -233,6 +234,7 @@ function createEmptyEmitState(): ActiveEmitState {
     expressionTypes: undefined,
     autoAwaitExpressions: new Set(),
     asyncForStatements: new Set(),
+    sourceLanguage: "vexa",
     moduleFormat: "esm",
     rewriteImportExtensions: false,
     jsxFactory: DEFAULT_JSX_FACTORY,
@@ -264,6 +266,8 @@ const PREC_MEMBER = 17;
 const PREC_PRIMARY = 18;
 
 export interface EmitOptions {
+  /** Source language semantics for constructs that differ between Vexa and TS/JS. */
+  sourceLanguage?: "vexa" | "typescript";
   /** Callee used for elements, e.g. `React.createElement` (default) or `h`. */
   jsxFactory?: string;
   /** Expression used for fragments, e.g. `React.Fragment` (default) or `Fragment`. */
@@ -1804,6 +1808,9 @@ function emitForStatement(statement: ForStatement): string {
     const awaitPrefix = isAsyncFor(statement) ? "await " : "";
     if (statement.iterator.kind === "Identifier") {
       const iteratorName = (statement.iterator as Identifier).name;
+      if (statement.iterationKind === "in" && activeState.sourceLanguage !== "vexa") {
+        return `for ${awaitPrefix}(${iteratorName} in ${emitExpression(statement.iterable)}) ${emitStatement(statement.body)}`;
+      }
       return `for ${awaitPrefix}(const ${iteratorName} of ${emitExpression(statement.iterable)}) ${emitStatement(statement.body)}`;
     }
 
@@ -2373,6 +2380,7 @@ interface EmitProgramRuntimeContext {
   jsNames: Map<string, string>;
   variableDelegates: Map<string, RuntimeVariableDelegateInfo>;
   enumInfos: Map<string, RuntimeEnumInfo>;
+  sourceLanguage: "vexa" | "typescript";
   moduleFormat: "esm" | "commonjs";
   rewriteImportExtensions: boolean;
   jsxFactory: string;
@@ -2842,6 +2850,7 @@ function collectEmitProgramRuntimeContext(
     jsNames,
     variableDelegates,
     enumInfos,
+    sourceLanguage: options.sourceLanguage ?? "vexa",
     moduleFormat: options.moduleFormat ?? "esm",
     rewriteImportExtensions: options.rewriteImportExtensions ?? false,
     jsxFactory: options.jsxFactory ?? DEFAULT_JSX_FACTORY,
@@ -2923,6 +2932,7 @@ export function emitProgramStatementPairs(
     expressionTypes,
     autoAwaitExpressions,
     asyncForStatements,
+    sourceLanguage: runtimeContext.sourceLanguage,
     moduleFormat: runtimeContext.moduleFormat,
     rewriteImportExtensions: runtimeContext.rewriteImportExtensions,
     jsxFactory: runtimeContext.jsxFactory,

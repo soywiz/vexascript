@@ -205,6 +205,35 @@ function empty(): int {
     expect(diagnostic?.range.start).toEqual({ line: 0, character: 9 });
   });
 
+  it("anchors unknown extension receiver types on the receiver type name", () => {
+    const source = dedent`
+      import { Application } from "pixi.js"
+
+      fun Container.addTo(other: Container) {
+        return other
+      }
+      `;
+    const doc = TextDocument.create("file:///demo.vx", "vexa", 1, source);
+    const diagnostics = collectDiagnostics(source, (offset) => doc.positionAt(offset));
+    const unknownTypeDiagnostics = diagnostics.filter(
+      (item) => item.code === VEXA_DIAGNOSTIC_CODES.UNKNOWN_TYPE
+    );
+
+    const receiverOffset = source.indexOf("Container.addTo");
+    const parameterOffset = source.indexOf("Container)", receiverOffset);
+    expect(unknownTypeDiagnostics.map((item) => item.message)).toContain(
+      "Unknown type 'Container'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter"
+    );
+    expect(unknownTypeDiagnostics.some((item) => item.range.start.line === doc.positionAt(receiverOffset).line
+      && item.range.start.character === doc.positionAt(receiverOffset).character
+      && item.range.end.line === doc.positionAt(receiverOffset + "Container".length).line
+      && item.range.end.character === doc.positionAt(receiverOffset + "Container".length).character)).toBe(true);
+    expect(unknownTypeDiagnostics.some((item) => item.range.start.line === doc.positionAt(parameterOffset).line
+      && item.range.start.character === doc.positionAt(parameterOffset).character
+      && item.range.end.line === doc.positionAt(parameterOffset + "Container".length).line
+      && item.range.end.character === doc.positionAt(parameterOffset + "Container".length).character)).toBe(true);
+  });
+
   it("anchors unknown nested generic types on the missing type name", () => {
     const source = dedent`
       import { type InputHTMLAttributes } from "preact"

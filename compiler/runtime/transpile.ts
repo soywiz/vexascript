@@ -287,9 +287,10 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
   const externalDeclarations = options.externalDeclarations ?? [];
   const importedSymbolTypes = options.importedSymbolTypes ?? new Map();
   const ambientDeclarations = options.ambientDeclarations ?? [];
+  const parserOptions = parserOptionsForTranspile(options);
   const artifacts = options.compilationArtifacts ?? compileSource(
     source,
-    parserOptionsForTranspile(options),
+    parserOptions,
     { externalDeclarations, ambientDeclarations, importedSymbolTypes }
   );
   const errors: string[] = [];
@@ -396,6 +397,7 @@ export function transpile(source: string, options: TranspileOptions = {}): Trans
     autoAwaitExpressions,
     contextProgram,
     {
+      sourceLanguage: parserOptions.language ?? "vexa",
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {}),
       ...(options.moduleFormat ? { moduleFormat: options.moduleFormat } : {}),

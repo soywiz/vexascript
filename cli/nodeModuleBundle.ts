@@ -29,9 +29,26 @@ interface CachedBundledModuleArtifact {
   resolvedDependencies: Record<string, string | null>;
 }
 
+type VfsStatResult = Awaited<ReturnType<Vfs["stat"]>> | null;
+
 type ResolvedDependency =
   | { kind: "bundled"; filePath: string }
   | { kind: "external" };
+
+interface ResolutionContext {
+  packageJsonByDir: Map<string, Record<string, unknown> | null>;
+  statByPath: Map<string, VfsStatResult>;
+  fileExistsByPath: Map<string, boolean>;
+  isDirectoryByPath: Map<string, boolean>;
+  fileMtimeByPath: Map<string, number | null>;
+  readDirByPath: Map<string, Awaited<ReturnType<Vfs["readDir"]>> | null>;
+  resolvedPathWithExtensionsByPath: Map<string, string | null>;
+  resolvedDirectoryModuleByPath: Map<string, string | null>;
+  resolvedAsModulePathByPath: Map<string, string | null>;
+  resolvedBareSpecifierInPnpmStoreByKey: Map<string, string | null>;
+  resolvedBareSpecifierByKey: Map<string, string | null>;
+  resolvedDependencyByKey: Map<string, ResolvedDependency>;
+}
 
 const NODE_BUILTIN_SET = new Set([
   ...builtinModules,
@@ -41,6 +58,36 @@ const NODE_BUILTIN_SET = new Set([
 const STATIC_REQUIRE_PATTERN = /\brequire\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
 const STATIC_DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
 const bundledModuleArtifactCache = new Map<string, CachedBundledModuleArtifact>();
+
+function createResolutionContext(): ResolutionContext {
+  return {
+    packageJsonByDir: new Map(),
+    statByPath: new Map(),
+    fileExistsByPath: new Map(),
+    isDirectoryByPath: new Map(),
+    fileMtimeByPath: new Map(),
+    readDirByPath: new Map(),
+    resolvedPathWithExtensionsByPath: new Map(),
+    resolvedDirectoryModuleByPath: new Map(),
+    resolvedAsModulePathByPath: new Map(),
+    resolvedBareSpecifierInPnpmStoreByKey: new Map(),
+    resolvedBareSpecifierByKey: new Map(),
+    resolvedDependencyByKey: new Map()
+  };
+}
+
+function dependencyCacheKey(importerFilePath: string, specifier: string): string {
+  return `${importerFilePath}\n${specifier}`;
+}
+
+async function statInVfs(path: string, vfs: Vfs, context: ResolutionContext): Promise<VfsStatResult> {
+  if (context.statByPath.has(path)) {
+    return context.statByPath.get(path) ?? null;
+  }
+  const stat = await vfs.stat(path).catch(() => null);
+  context.statByPath.set(path, stat);
+  return stat;
+}
 
 function isBuiltinSpecifier(specifier: string): boolean {
   return NODE_BUILTIN_SET.has(specifier) || NODE_BUILTIN_SET.has(`node:${specifier}`);
@@ -64,49 +111,81 @@ function splitPackageSpecifier(specifier: string): { packageName: string; subpat
   };
 }
 
-async function readPackageJson(packageDir: string, vfs: Vfs): Promise<Record<string, unknown> | null> {
+async function readPackageJson(packageDir: string, vfs: Vfs, context: ResolutionContext): Promise<Record<string, unknown> | null> {
+  if (context.packageJsonByDir.has(packageDir)) {
+    return context.packageJsonByDir.get(packageDir) ?? null;
+  }
   const packageJsonPath = resolve(packageDir, "package.json");
-  if (!(await fileExistsInVfs(packageJsonPath, vfs))) {
+  if (!(await fileExistsInVfs(packageJsonPath, vfs, context))) {
+    context.packageJsonByDir.set(packageDir, null);
     return null;
   }
   try {
     const source = await vfs.readFile(packageJsonPath);
     if (source === null) {
+      context.packageJsonByDir.set(packageDir, null);
       return null;
     }
     const parsed = JSON.parse(source);
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+    const result = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+    context.packageJsonByDir.set(packageDir, result);
+    return result;
   } catch {
+    context.packageJsonByDir.set(packageDir, null);
     return null;
   }
 }
 
-async function fileExistsInVfs(path: string, vfs: Vfs): Promise<boolean> {
-  return vfs.fileExists(path);
+async function fileExistsInVfs(path: string, vfs: Vfs, context: ResolutionContext): Promise<boolean> {
+  if (context.fileExistsByPath.has(path)) {
+    return context.fileExistsByPath.get(path) === true;
+  }
+  const stat = await statInVfs(path, vfs, context);
+  if (stat) {
+    context.fileExistsByPath.set(path, true);
+    return true;
+  }
+  const exists = await vfs.fileExists(path).catch(() => false);
+  context.fileExistsByPath.set(path, exists);
+  return exists;
 }
 
-async function isDirectoryInVfs(path: string, vfs: Vfs): Promise<boolean> {
-  try {
-    const stat = await vfs.stat(path);
-    return stat?.isDirectory === true;
-  } catch {
-    return false;
+async function isDirectoryInVfs(path: string, vfs: Vfs, context: ResolutionContext): Promise<boolean> {
+  if (context.isDirectoryByPath.has(path)) {
+    return context.isDirectoryByPath.get(path) === true;
   }
+  const isDirectory = (await statInVfs(path, vfs, context))?.isDirectory === true;
+  context.isDirectoryByPath.set(path, isDirectory);
+  return isDirectory;
 }
 
-async function fileMtimeInVfs(path: string, vfs: Vfs): Promise<number | null> {
-  try {
-    return (await vfs.stat(path)).mtimeMs;
-  } catch {
-    return null;
+async function fileMtimeInVfs(path: string, vfs: Vfs, context: ResolutionContext): Promise<number | null> {
+  if (context.fileMtimeByPath.has(path)) {
+    return context.fileMtimeByPath.get(path) ?? null;
   }
+  const mtimeMs = (await statInVfs(path, vfs, context))?.mtimeMs ?? null;
+  context.fileMtimeByPath.set(path, mtimeMs);
+  return mtimeMs;
+}
+
+async function readDirInVfs(path: string, vfs: Vfs, context: ResolutionContext): Promise<Awaited<ReturnType<Vfs["readDir"]>> | null> {
+  if (context.readDirByPath.has(path)) {
+    return context.readDirByPath.get(path) ?? null;
+  }
+  const entries = await vfs.readDir(path).catch(() => null);
+  context.readDirByPath.set(path, entries);
+  return entries;
 }
 
 async function resolvePathWithExtensions(
   basePath: string,
   vfs: Vfs,
-  virtualSources: ReadonlyMap<string, string>
+  virtualSources: ReadonlyMap<string, string>,
+  context: ResolutionContext
 ): Promise<string | null> {
+  if (context.resolvedPathWithExtensionsByPath.has(basePath)) {
+    return context.resolvedPathWithExtensionsByPath.get(basePath) ?? null;
+  }
   const candidates = extname(basePath)
     ? [basePath]
     : [
@@ -121,12 +200,15 @@ async function resolvePathWithExtensions(
       ];
   for (const candidate of candidates) {
     if (virtualSources.has(candidate)) {
+      context.resolvedPathWithExtensionsByPath.set(basePath, candidate);
       return candidate;
     }
-    if ((await fileExistsInVfs(candidate, vfs)) && !(await isDirectoryInVfs(candidate, vfs))) {
+    if ((await fileExistsInVfs(candidate, vfs, context)) && !(await isDirectoryInVfs(candidate, vfs, context))) {
+      context.resolvedPathWithExtensionsByPath.set(basePath, candidate);
       return candidate;
     }
   }
+  context.resolvedPathWithExtensionsByPath.set(basePath, null);
   return null;
 }
 
@@ -150,9 +232,13 @@ function packageExportTarget(value: unknown): string | null {
 async function resolveDirectoryModule(
   directoryPath: string,
   vfs: Vfs,
-  virtualSources: ReadonlyMap<string, string>
+  virtualSources: ReadonlyMap<string, string>,
+  context: ResolutionContext
 ): Promise<string | null> {
-  const packageJson = await readPackageJson(directoryPath, vfs);
+  if (context.resolvedDirectoryModuleByPath.has(directoryPath)) {
+    return context.resolvedDirectoryModuleByPath.get(directoryPath) ?? null;
+  }
+  const packageJson = await readPackageJson(directoryPath, vfs, context);
   if (packageJson) {
     const exportsField = packageExportTarget(packageJson["exports"]);
     const moduleField = typeof packageJson["module"] === "string" ? packageJson["module"] : null;
@@ -161,8 +247,9 @@ async function resolveDirectoryModule(
       if (!candidate) {
         continue;
       }
-      const resolvedEntry = await resolveAsModulePath(resolve(directoryPath, candidate), vfs, virtualSources);
+      const resolvedEntry = await resolveAsModulePath(resolve(directoryPath, candidate), vfs, virtualSources, context);
       if (resolvedEntry) {
+        context.resolvedDirectoryModuleByPath.set(directoryPath, resolvedEntry);
         return resolvedEntry;
       }
     }
@@ -170,27 +257,38 @@ async function resolveDirectoryModule(
   for (const indexName of ["index.js", "index.mjs", "index.cjs", "index.json", "index.ts", "index.tsx"]) {
     const candidate = resolve(directoryPath, indexName);
     if (virtualSources.has(candidate)) {
+      context.resolvedDirectoryModuleByPath.set(directoryPath, candidate);
       return candidate;
     }
-    if (await fileExistsInVfs(candidate, vfs)) {
+    if (await fileExistsInVfs(candidate, vfs, context)) {
+      context.resolvedDirectoryModuleByPath.set(directoryPath, candidate);
       return candidate;
     }
   }
+  context.resolvedDirectoryModuleByPath.set(directoryPath, null);
   return null;
 }
 
 async function resolveAsModulePath(
   candidatePath: string,
   vfs: Vfs,
-  virtualSources: ReadonlyMap<string, string>
+  virtualSources: ReadonlyMap<string, string>,
+  context: ResolutionContext
 ): Promise<string | null> {
-  const direct = await resolvePathWithExtensions(candidatePath, vfs, virtualSources);
+  if (context.resolvedAsModulePathByPath.has(candidatePath)) {
+    return context.resolvedAsModulePathByPath.get(candidatePath) ?? null;
+  }
+  const direct = await resolvePathWithExtensions(candidatePath, vfs, virtualSources, context);
   if (direct) {
+    context.resolvedAsModulePathByPath.set(candidatePath, direct);
     return direct;
   }
-  if (await isDirectoryInVfs(candidatePath, vfs)) {
-    return resolveDirectoryModule(candidatePath, vfs, virtualSources);
+  if (await isDirectoryInVfs(candidatePath, vfs, context)) {
+    const resolved = await resolveDirectoryModule(candidatePath, vfs, virtualSources, context);
+    context.resolvedAsModulePathByPath.set(candidatePath, resolved);
+    return resolved;
   }
+  context.resolvedAsModulePathByPath.set(candidatePath, null);
   return null;
 }
 
@@ -198,13 +296,17 @@ async function resolveBareSpecifierInPnpmVirtualStore(
   nodeModulesDir: string,
   specifier: string,
   vfs: Vfs,
-  virtualSources: ReadonlyMap<string, string>
+  virtualSources: ReadonlyMap<string, string>,
+  context: ResolutionContext
 ): Promise<string | null> {
+  const cacheKey = dependencyCacheKey(nodeModulesDir, specifier);
+  if (context.resolvedBareSpecifierInPnpmStoreByKey.has(cacheKey)) {
+    return context.resolvedBareSpecifierInPnpmStoreByKey.get(cacheKey) ?? null;
+  }
   const storeDir = resolve(nodeModulesDir, ".pnpm");
-  let entries;
-  try {
-    entries = await vfs.readDir(storeDir);
-  } catch {
+  const entries = await readDirInVfs(storeDir, vfs, context);
+  if (!entries) {
+    context.resolvedBareSpecifierInPnpmStoreByKey.set(cacheKey, null);
     return null;
   }
 
@@ -214,31 +316,34 @@ async function resolveBareSpecifierInPnpmVirtualStore(
       continue;
     }
     const packageDir = resolve(storeDir, entry.name, "node_modules", packageName);
-    if (!(await isDirectoryInVfs(packageDir, vfs))) {
+    if (!(await isDirectoryInVfs(packageDir, vfs, context))) {
       continue;
     }
 
-    const packageJson = await readPackageJson(packageDir, vfs);
+    const packageJson = await readPackageJson(packageDir, vfs, context);
     const exportsValue = packageJson?.["exports"];
     if (subpath && exportsValue && typeof exportsValue === "object" && !Array.isArray(exportsValue)) {
       const exportsField = exportsValue as Record<string, unknown>;
       const exportKey = `./${subpath}`;
       const exportTarget = packageExportTarget(exportsField[exportKey]);
       if (exportTarget) {
-        const resolvedExport = await resolveAsModulePath(resolve(packageDir, exportTarget), vfs, virtualSources);
+        const resolvedExport = await resolveAsModulePath(resolve(packageDir, exportTarget), vfs, virtualSources, context);
         if (resolvedExport) {
+          context.resolvedBareSpecifierInPnpmStoreByKey.set(cacheKey, resolvedExport);
           return resolvedExport;
         }
       }
     }
 
     const rootTarget = subpath ? resolve(packageDir, subpath) : packageDir;
-    const resolved = await resolveAsModulePath(rootTarget, vfs, virtualSources);
+    const resolved = await resolveAsModulePath(rootTarget, vfs, virtualSources, context);
     if (resolved) {
+      context.resolvedBareSpecifierInPnpmStoreByKey.set(cacheKey, resolved);
       return resolved;
     }
   }
 
+  context.resolvedBareSpecifierInPnpmStoreByKey.set(cacheKey, null);
   return null;
 }
 
@@ -246,37 +351,45 @@ async function resolveBareSpecifier(
   importerFilePath: string,
   specifier: string,
   vfs: Vfs,
-  virtualSources: ReadonlyMap<string, string>
+  virtualSources: ReadonlyMap<string, string>,
+  context: ResolutionContext
 ): Promise<string | null> {
+  const cacheKey = dependencyCacheKey(importerFilePath, specifier);
+  if (context.resolvedBareSpecifierByKey.has(cacheKey)) {
+    return context.resolvedBareSpecifierByKey.get(cacheKey) ?? null;
+  }
   const { packageName, subpath } = splitPackageSpecifier(specifier);
   let currentDir = dirname(importerFilePath);
   while (true) {
     const packageDir = resolve(currentDir, "node_modules", packageName);
-    if (await isDirectoryInVfs(packageDir, vfs)) {
-      const packageJson = await readPackageJson(packageDir, vfs);
+    if (await isDirectoryInVfs(packageDir, vfs, context)) {
+      const packageJson = await readPackageJson(packageDir, vfs, context);
       const exportsValue = packageJson?.["exports"];
       if (subpath && exportsValue && typeof exportsValue === "object" && !Array.isArray(exportsValue)) {
         const exportsField = exportsValue as Record<string, unknown>;
         const exportKey = `./${subpath}`;
         const exportTarget = packageExportTarget(exportsField[exportKey]);
         if (exportTarget) {
-          const resolvedExport = await resolveAsModulePath(resolve(packageDir, exportTarget), vfs, virtualSources);
+          const resolvedExport = await resolveAsModulePath(resolve(packageDir, exportTarget), vfs, virtualSources, context);
           if (resolvedExport) {
+            context.resolvedBareSpecifierByKey.set(cacheKey, resolvedExport);
             return resolvedExport;
           }
         }
       }
 
       const rootTarget = subpath ? resolve(packageDir, subpath) : packageDir;
-      const resolved = await resolveAsModulePath(rootTarget, vfs, virtualSources);
+      const resolved = await resolveAsModulePath(rootTarget, vfs, virtualSources, context);
       if (resolved) {
+        context.resolvedBareSpecifierByKey.set(cacheKey, resolved);
         return resolved;
       }
     }
 
     const nodeModulesDir = resolve(currentDir, "node_modules");
-    const resolvedFromPnpmStore = await resolveBareSpecifierInPnpmVirtualStore(nodeModulesDir, specifier, vfs, virtualSources);
+    const resolvedFromPnpmStore = await resolveBareSpecifierInPnpmVirtualStore(nodeModulesDir, specifier, vfs, virtualSources, context);
     if (resolvedFromPnpmStore) {
+      context.resolvedBareSpecifierByKey.set(cacheKey, resolvedFromPnpmStore);
       return resolvedFromPnpmStore;
     }
 
@@ -286,6 +399,7 @@ async function resolveBareSpecifier(
     }
     currentDir = parentDir;
   }
+  context.resolvedBareSpecifierByKey.set(cacheKey, null);
   return null;
 }
 
@@ -293,29 +407,46 @@ async function resolveDependency(
   importerFilePath: string,
   specifier: string,
   vfs: Vfs,
-  virtualSources: ReadonlyMap<string, string>
+  virtualSources: ReadonlyMap<string, string>,
+  context: ResolutionContext
 ): Promise<ResolvedDependency> {
+  const cacheKey = dependencyCacheKey(importerFilePath, specifier);
+  const cached = context.resolvedDependencyByKey.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
   if (isBuiltinSpecifier(specifier)) {
-    return { kind: "external" };
+    const resolved = { kind: "external" } satisfies ResolvedDependency;
+    context.resolvedDependencyByKey.set(cacheKey, resolved);
+    return resolved;
   }
 
   if (isRelativeOrAbsoluteSpecifier(specifier)) {
     const targetPath = await resolveAsModulePath(
       specifier.startsWith("/") ? specifier : resolve(dirname(importerFilePath), specifier),
       vfs,
-      virtualSources
+      virtualSources,
+      context
     );
     if (targetPath) {
-      return { kind: "bundled", filePath: targetPath };
+      const resolved = { kind: "bundled", filePath: targetPath } satisfies ResolvedDependency;
+      context.resolvedDependencyByKey.set(cacheKey, resolved);
+      return resolved;
     }
-    return { kind: "external" };
+    const resolved = { kind: "external" } satisfies ResolvedDependency;
+    context.resolvedDependencyByKey.set(cacheKey, resolved);
+    return resolved;
   }
 
-  const packagePath = await resolveBareSpecifier(importerFilePath, specifier, vfs, virtualSources);
+  const packagePath = await resolveBareSpecifier(importerFilePath, specifier, vfs, virtualSources, context);
   if (packagePath) {
-    return { kind: "bundled", filePath: packagePath };
+    const resolved = { kind: "bundled", filePath: packagePath } satisfies ResolvedDependency;
+    context.resolvedDependencyByKey.set(cacheKey, resolved);
+    return resolved;
   }
-  return { kind: "external" };
+  const resolved = { kind: "external" } satisfies ResolvedDependency;
+  context.resolvedDependencyByKey.set(cacheKey, resolved);
+  return resolved;
 }
 
 export function detectStaticRequires(source: string): string[] {
@@ -429,7 +560,10 @@ export function transpileModuleSource(source: string, filePath: string): { code:
     throw new Error(`Unable to parse bundled module '${filePath}': ${issue.message}`);
   }
   return {
-    code: emitProgram(parsed.ast, undefined, undefined, undefined, { moduleFormat: "commonjs" }),
+    code: emitProgram(parsed.ast, undefined, undefined, undefined, {
+      moduleFormat: "commonjs",
+      sourceLanguage: "typescript"
+    }),
     exportNames: collectExplicitExportNames(parsed.ast)
   };
 }
@@ -504,7 +638,8 @@ function createModuleFactoryCode(
 async function createCachedBundledModuleArtifact(
   filePath: string,
   vfs: Vfs,
-  virtualSources: ReadonlyMap<string, string>
+  virtualSources: ReadonlyMap<string, string>,
+  context: ResolutionContext
 ): Promise<CachedBundledModuleArtifact> {
   const extension = extname(filePath).toLowerCase();
   const source = virtualSources.get(filePath) ?? await vfs.readFile(filePath);
@@ -519,11 +654,11 @@ async function createCachedBundledModuleArtifact(
   const transpiledCode = rewriteStaticDynamicImports(transpiled.code);
   const resolvedDependencies: Record<string, string | null> = {};
   for (const specifier of [...detectStaticRequires(transpiledCode), ...detectStaticDynamicImports(transpiled.code)]) {
-    const resolved = await resolveDependency(filePath, specifier, vfs, virtualSources);
+    const resolved = await resolveDependency(filePath, specifier, vfs, virtualSources, context);
     resolvedDependencies[specifier] = resolved.kind === "bundled" ? resolved.filePath : null;
   }
   return {
-    mtimeMs: await fileMtimeInVfs(filePath, vfs) ?? -1,
+    mtimeMs: await fileMtimeInVfs(filePath, vfs, context) ?? -1,
     code: transpiledCode,
     resolvedDependencies
   };
@@ -532,19 +667,20 @@ async function createCachedBundledModuleArtifact(
 async function loadBundledModuleArtifact(
   filePath: string,
   vfs: Vfs,
-  virtualSources: ReadonlyMap<string, string>
+  virtualSources: ReadonlyMap<string, string>,
+  context: ResolutionContext
 ): Promise<CachedBundledModuleArtifact> {
   if (virtualSources.has(filePath)) {
-    return createCachedBundledModuleArtifact(filePath, vfs, virtualSources);
+    return createCachedBundledModuleArtifact(filePath, vfs, virtualSources, context);
   }
 
-  const mtimeMs = await fileMtimeInVfs(filePath, vfs);
+  const mtimeMs = await fileMtimeInVfs(filePath, vfs, context);
   const cached = mtimeMs === null ? undefined : bundledModuleArtifactCache.get(filePath);
   if (cached && cached.mtimeMs === mtimeMs) {
     return cached;
   }
 
-  const artifact = await createCachedBundledModuleArtifact(filePath, vfs, virtualSources);
+  const artifact = await createCachedBundledModuleArtifact(filePath, vfs, virtualSources, context);
   bundledModuleArtifactCache.set(filePath, artifact);
   return artifact;
 }
@@ -556,6 +692,7 @@ export async function bundleNodeModuleGraph(
 ): Promise<BundleNodeModulesResult> {
   const activeVfs = options.vfs ?? vfs();
   const virtualSources = options.virtualSources ?? new Map<string, string>();
+  const resolutionContext = createResolutionContext();
   const externalDependencyStrategy = options.externalDependencyStrategy ?? "runtime-error";
   const entryId = "__vexa_entry__";
   const moduleById = new Map<string, BundledModuleRecord>();
@@ -575,7 +712,7 @@ export async function bundleNodeModuleGraph(
     if (!virtualSources.has(filePath)) {
       watchedFiles.add(filePath);
     }
-    const artifact = await loadBundledModuleArtifact(filePath, activeVfs, virtualSources);
+    const artifact = await loadBundledModuleArtifact(filePath, activeVfs, virtualSources, resolutionContext);
     const dependencyMap: Record<string, string | null> = {};
     for (const [specifier, resolvedFilePath] of Object.entries(artifact.resolvedDependencies)) {
       if (resolvedFilePath !== null) {
@@ -600,7 +737,7 @@ export async function bundleNodeModuleGraph(
   const entryCode = rewriteStaticDynamicImports(entryTranspiled.code);
   const entryDependencyMap: Record<string, string | null> = {};
   for (const specifier of [...detectStaticRequires(entryCode), ...detectStaticDynamicImports(entryTranspiled.code)]) {
-    const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources);
+    const resolved = await resolveDependency(sourcePath, specifier, activeVfs, virtualSources, resolutionContext);
     if (resolved.kind === "bundled") {
       entryDependencyMap[specifier] = await visitResolvedFile(resolved.filePath);
     } else {
