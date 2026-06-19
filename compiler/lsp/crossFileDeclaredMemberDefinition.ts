@@ -31,18 +31,250 @@ import {
   resolveTypeDefinitionAcrossFiles
 } from "./crossFileTypeResolution";
 import { pathToUri, uriToFilePath } from "./importFixes";
+import { findNodeModuleMemberLocation } from "./nodeModulesTypings";
+
+function pushReceiverTypeName(names: string[], seen: Set<string>, name: string) {
+  if (seen.has(name)) {
+    return;
+  }
+  seen.add(name);
+  names.push(name);
+}
 
 function receiverTypeNamesForObjectType(objectType: AnalysisType): string[] {
-  if (objectType.kind === "array") {
-    return ["Array"];
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const visit = (type: AnalysisType) => {
+    if (type.kind === "array") {
+      pushReceiverTypeName(names, seen, "Array");
+      return;
+    }
+    if ((type.kind === "named" || type.kind === "builtin") && type.name === "int") {
+      pushReceiverTypeName(names, seen, "int");
+      pushReceiverTypeName(names, seen, "number");
+      return;
+    }
+    if (type.kind === "named" || type.kind === "builtin") {
+      pushReceiverTypeName(names, seen, type.name);
+      return;
+    }
+    if (type.kind === "union" || type.kind === "intersection") {
+      for (const memberType of type.types) {
+        visit(memberType);
+      }
+    }
+  };
+
+  visit(objectType);
+  return names;
+}
+
+async function resolveImportedNodeModuleMemberDefinition(
+  context: ResolveContext,
+  typeName: string,
+  memberName: string
+): Promise<Location | null> {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath || !context.session.ast) {
+    return null;
   }
-  if ((objectType.kind === "named" || objectType.kind === "builtin") && objectType.name === "int") {
-    return ["int", "number"];
+
+  for (const statement of context.session.ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    const from = importStatement.from.value;
+    if (from.startsWith(".") || from.startsWith("/")) {
+      continue;
+    }
+    const location = await findNodeModuleMemberLocation(
+      currentFilePath,
+      from,
+      typeName,
+      memberName,
+      context.vfs ? { vfs: context.vfs } : {}
+    );
+    if (location) {
+      return {
+        uri: pathToUri(location.typingsPath),
+        range: location.range
+      };
+    }
   }
-  if (objectType.kind === "named" || objectType.kind === "builtin") {
-    return [objectType.name];
+
+  return null;
+}
+
+async function resolveDeclaredMemberDefinitionForReceiverType(
+  context: ResolveContext,
+  objectTypeName: string,
+  memberName: string,
+  receiverTypeName: string,
+  preferredAmbientReceiverFilePath?: string
+): Promise<Location | null> {
+  const resolvedReceiverTypeName = receiverTypeName === "Array"
+    ? receiverTypeName
+    : boxedPrimitiveTypeName(receiverTypeName);
+  const primaryResolution = await resolveTypeDefinitionAcrossFiles(
+    context,
+    resolvedReceiverTypeName,
+    preferredAmbientReceiverFilePath
+  );
+  if (primaryResolution) {
+    if (primaryResolution.filePath.includes("/node_modules/")) {
+      const nodeModuleLocation = await resolveImportedNodeModuleMemberDefinition(
+        context,
+        receiverTypeName,
+        memberName
+      );
+      if (nodeModuleLocation) {
+        return nodeModuleLocation;
+      }
+    }
+
+    const resolverCache = createClassResolverCache();
+    const resolverOptions = {
+      uri: context.uri,
+      sourceRoots: context.sourceRoots,
+      ...(context.getSessionForFilePath
+        ? { getSessionForFilePath: context.getSessionForFilePath }
+        : {})
+    };
+    const resolverContext = {
+      ast: context.session.ast!,
+      options: resolverOptions,
+      analysis: context.session.analysis!,
+      cache: resolverCache
+    };
+    const fallbackClassResolution = primaryResolution.declaration.kind === "ClassStatement"
+      ? null
+      : await resolveClassStatementAcrossFiles(
+        context.session.ast!,
+        resolvedReceiverTypeName,
+        resolverOptions,
+        resolverCache
+      ) ?? await resolveAmbientTypeDefinitionOfKind(
+        context,
+        resolvedReceiverTypeName,
+        "ClassStatement",
+        primaryResolution.filePath
+      ).then((resolved) => resolved
+        ? { classStatement: resolved.declaration as ClassStatement, filePath: resolved.filePath }
+        : null);
+    const fallbackInterfaceResolution = primaryResolution.declaration.kind === "InterfaceStatement"
+      ? null
+      : await resolveInterfaceStatementAcrossFiles(
+        context.session.ast!,
+        resolvedReceiverTypeName,
+        resolverOptions,
+        resolverCache
+      ) ?? await resolveAmbientTypeDefinitionOfKind(
+        context,
+        resolvedReceiverTypeName,
+        "InterfaceStatement",
+        primaryResolution.filePath
+      ).then((resolved) => resolved
+        ? { interfaceStatement: resolved.declaration as InterfaceStatement, filePath: resolved.filePath }
+        : null);
+    const classMemberDeclaration = primaryResolution.declaration.kind === "ClassStatement"
+      ? await resolveClassMemberDeclaration(
+        {
+          classStatement: primaryResolution.declaration,
+          filePath: primaryResolution.filePath
+        },
+        memberName,
+        objectTypeName,
+        resolverContext
+      )
+      : fallbackClassResolution
+        ? await resolveClassMemberDeclaration(
+          fallbackClassResolution,
+          memberName,
+          objectTypeName,
+          resolverContext
+        )
+        : null;
+    if (classMemberDeclaration) {
+      const memberFilePath = await preferVirtualRuntimeDeclarationFilePath(
+        classMemberDeclaration.filePath,
+        context
+      );
+      const range = classMemberDeclarationRangeByName(
+        classMemberDeclaration.declaration,
+        memberName
+      ) ?? (classMemberDeclaration.declaration.kind === "InterfaceStatement"
+        ? await fallbackInterfaceMemberRangeInFile(
+          context,
+          memberFilePath,
+          classMemberDeclaration.declaration.name.name,
+          memberName
+        )
+        : null);
+      if (range) {
+        return {
+          uri: pathToUri(memberFilePath),
+          range
+        };
+      }
+    }
+
+    const interfaceMemberDeclaration = primaryResolution.declaration.kind === "InterfaceStatement"
+      ? await resolveInterfaceMemberDeclaration(
+        {
+          interfaceStatement: primaryResolution.declaration,
+          filePath: primaryResolution.filePath
+        },
+        memberName,
+        objectTypeName,
+        resolverContext
+      )
+      : fallbackInterfaceResolution
+        ? await resolveInterfaceMemberDeclaration(
+          fallbackInterfaceResolution,
+          memberName,
+          objectTypeName,
+          resolverContext
+        )
+        : null;
+    if (interfaceMemberDeclaration) {
+      const memberFilePath = await preferVirtualRuntimeDeclarationFilePath(
+        interfaceMemberDeclaration.filePath,
+        context
+      );
+      const range = classMemberDeclarationRangeByName(interfaceMemberDeclaration.declaration, memberName)
+        ?? await fallbackInterfaceMemberRangeInFile(
+          context,
+          memberFilePath,
+          interfaceMemberDeclaration.declaration.name.name,
+          memberName
+        );
+      if (range) {
+        return {
+          uri: pathToUri(memberFilePath),
+          range
+        };
+      }
+    }
   }
-  return [];
+
+  const typeAliasResolution = await resolveTypeAliasDefinitionAcrossFiles(context, receiverTypeName);
+  if (!typeAliasResolution) {
+    return null;
+  }
+  const range = await fallbackTypeAliasMemberRangeInFile(
+    context,
+    typeAliasResolution.filePath,
+    typeAliasResolution.declaration.name.name,
+    memberName
+  );
+  if (!range) {
+    return null;
+  }
+  return {
+    uri: pathToUri(typeAliasResolution.filePath),
+    range
+  };
 }
 
 export async function resolveDeclaredMemberDefinitionAcrossFiles(
@@ -53,152 +285,20 @@ export async function resolveDeclaredMemberDefinitionAcrossFiles(
 ): Promise<Location | null> {
   const structuralMember = parseObjectTypeMemberInfo(typeToString(objectType), memberName);
   const receiverTypeNames = receiverTypeNamesForObjectType(objectType);
+  const objectTypeName = objectType.kind === "array"
+    ? `Array<${typeToString(objectType.elementType)}>`
+    : typeToString(objectType);
 
-  if (objectType.kind === "named" || objectType.kind === "array" || objectType.kind === "builtin") {
-    const resolvedReceiverTypeName = objectType.kind === "array"
-      ? receiverTypeNames[0]!
-      : boxedPrimitiveTypeName(receiverTypeNames[0]!);
-    const primaryResolution = await resolveTypeDefinitionAcrossFiles(
+  for (const receiverTypeName of receiverTypeNames) {
+    const location = await resolveDeclaredMemberDefinitionForReceiverType(
       context,
-      resolvedReceiverTypeName,
+      objectTypeName,
+      memberName,
+      receiverTypeName,
       _preferredAmbientReceiverFilePath ?? undefined
     );
-    if (primaryResolution) {
-      const resolverCache = createClassResolverCache();
-      const resolverOptions = {
-        uri: context.uri,
-        sourceRoots: context.sourceRoots,
-        ...(context.getSessionForFilePath
-          ? { getSessionForFilePath: context.getSessionForFilePath }
-          : {})
-      };
-      const resolverContext = {
-        ast: context.session.ast!,
-        options: resolverOptions,
-        analysis: context.session.analysis!,
-        cache: resolverCache
-      };
-      const objectTypeName = objectType.kind === "array"
-        ? `Array<${typeToString(objectType.elementType)}>`
-        : typeToString(objectType);
-      const fallbackClassResolution = primaryResolution.declaration.kind === "ClassStatement"
-        ? null
-        : await resolveClassStatementAcrossFiles(
-          context.session.ast!,
-          resolvedReceiverTypeName,
-          resolverOptions,
-          resolverCache
-        ) ?? await resolveAmbientTypeDefinitionOfKind(
-          context,
-          resolvedReceiverTypeName,
-          "ClassStatement",
-          primaryResolution.filePath
-        ).then((resolved) => resolved
-          ? { classStatement: resolved.declaration as ClassStatement, filePath: resolved.filePath }
-          : null);
-      const fallbackInterfaceResolution = primaryResolution.declaration.kind === "InterfaceStatement"
-        ? null
-        : await resolveInterfaceStatementAcrossFiles(
-          context.session.ast!,
-          resolvedReceiverTypeName,
-          resolverOptions,
-          resolverCache
-        ) ?? await resolveAmbientTypeDefinitionOfKind(
-          context,
-          resolvedReceiverTypeName,
-          "InterfaceStatement",
-          primaryResolution.filePath
-        ).then((resolved) => resolved
-          ? { interfaceStatement: resolved.declaration as InterfaceStatement, filePath: resolved.filePath }
-          : null);
-      const classMemberDeclaration = primaryResolution.declaration.kind === "ClassStatement"
-        ? await resolveClassMemberDeclaration(
-          {
-            classStatement: primaryResolution.declaration,
-            filePath: primaryResolution.filePath
-          },
-          memberName,
-          objectTypeName,
-          resolverContext
-        )
-        : fallbackClassResolution
-          ? await resolveClassMemberDeclaration(
-            fallbackClassResolution,
-            memberName,
-            objectTypeName,
-            resolverContext
-          )
-          : null;
-      if (classMemberDeclaration) {
-        const memberFilePath = await preferVirtualRuntimeDeclarationFilePath(
-          classMemberDeclaration.filePath,
-          context
-        );
-        const range = classMemberDeclarationRangeByName(
-          classMemberDeclaration.classStatement,
-          memberName
-        );
-        if (range) {
-          return {
-            uri: pathToUri(memberFilePath),
-            range
-          };
-        }
-      }
-
-      const interfaceMemberDeclaration = primaryResolution.declaration.kind === "InterfaceStatement"
-        ? await resolveInterfaceMemberDeclaration(
-          {
-            interfaceStatement: primaryResolution.declaration,
-            filePath: primaryResolution.filePath
-          },
-          memberName,
-          objectTypeName,
-          resolverContext
-        )
-        : fallbackInterfaceResolution
-          ? await resolveInterfaceMemberDeclaration(
-            fallbackInterfaceResolution,
-            memberName,
-            objectTypeName,
-            resolverContext
-          )
-          : null;
-      if (interfaceMemberDeclaration) {
-        const memberFilePath = await preferVirtualRuntimeDeclarationFilePath(
-          interfaceMemberDeclaration.filePath,
-          context
-        );
-        const range = classMemberDeclarationRangeByName(interfaceMemberDeclaration.declaration, memberName)
-          ?? await fallbackInterfaceMemberRangeInFile(
-            context,
-            memberFilePath,
-            interfaceMemberDeclaration.declaration.name.name,
-            memberName
-          );
-        if (range) {
-          return {
-            uri: pathToUri(memberFilePath),
-            range
-          };
-        }
-      }
-    }
-
-    const typeAliasResolution = await resolveTypeAliasDefinitionAcrossFiles(context, receiverTypeNames[0]!);
-    if (typeAliasResolution) {
-      const range = await fallbackTypeAliasMemberRangeInFile(
-        context,
-        typeAliasResolution.filePath,
-        typeAliasResolution.declaration.name.name,
-        memberName
-      );
-      if (range) {
-        return {
-          uri: pathToUri(typeAliasResolution.filePath),
-          range
-        };
-      }
+    if (location) {
+      return location;
     }
   }
 

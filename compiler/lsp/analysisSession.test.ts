@@ -239,7 +239,7 @@ describe("lsp analysis session", () => {
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
-  it("getForDocumentAsync reuses an in-flight resolution instead of duplicating work", async () => {
+  it("getForDocumentAsync reuses its own in-flight resolution instead of duplicating work", async () => {
     const source = "let a = 1\n";
     const doc = TextDocument.create("file:///test.vx", "vexa", 1, source);
     let resolveCount = 0;
@@ -251,18 +251,34 @@ describe("lsp analysis session", () => {
       return { externalDeclarations: [], importedSymbolTypes: new Map() };
     });
 
-    // Trigger async resolution via getForDocument (which populates the pending queue)
-    cache.getForDocument(doc);
-
-    // Both async calls should share the in-flight resolution
     const [s1, s2] = await Promise.all([
       cache.getForDocumentAsync(doc),
       cache.getForDocumentAsync(doc)
     ]);
 
     expect(s1).toBe(s2);
-    // The resolver was fired at most twice: once from getForDocument, once at most from async
-    expect(resolveCount).toBeLessThanOrEqual(2);
+    expect(resolveCount).toBe(1);
+  });
+
+  it("getForDocumentAsync reuses the in-flight resolution started by getForDocument", async () => {
+    const source = "let a = 1\n";
+    const doc = TextDocument.create("file:///test.vx", "vexa", 1, source);
+    let resolveCount = 0;
+
+    const cache = new AnalysisSessionCache(async () => {
+      resolveCount++;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { externalDeclarations: [], importedSymbolTypes: new Map() };
+    });
+
+    cache.getForDocument(doc);
+    const [s1, s2] = await Promise.all([
+      cache.getForDocumentAsync(doc),
+      cache.getForDocumentAsync(doc)
+    ]);
+
+    expect(s1).toBe(s2);
+    expect(resolveCount).toBe(1);
   });
 
   it("getForDocumentAsync does not reuse a pending resolution for a different version", async () => {

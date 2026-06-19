@@ -3,7 +3,15 @@ import { typeToString } from "compiler/analysis/types";
 import type { AnalysisType } from "compiler/analysis/types";
 import { COMPLETION_RECOVERY_MEMBER } from "./completionModel";
 import type { Analysis } from "compiler/analysis/Analysis";
-import type { CallExpression, Expr, Identifier, MemberExpression, Program } from "compiler/ast/ast";
+import type {
+  AssignmentExpression,
+  CallExpression,
+  ChainExpression,
+  Expr,
+  Identifier,
+  MemberExpression,
+  Program
+} from "compiler/ast/ast";
 import { nodeRange, rangeSize } from "./ranges";
 import { walkAst } from "compiler/ast/traversal";
 
@@ -115,6 +123,120 @@ export function receiverTypeNameEndingAt(
   }
   const resolved = best ?? nearest;
   return resolved ? normalizeRecoveredReceiverType(resolved.type, resolved.node, analysis.getExpressionTypes()) : null;
+}
+
+function positionIsAtOrBefore(
+  left: { line: number; character: number },
+  right: { line: number; character: number }
+): boolean {
+  return left.line < right.line || (left.line === right.line && left.character <= right.character);
+}
+
+function positionIsWithinRange(
+  line: number,
+  character: number,
+  range: { start: { line: number; character: number }; end: { line: number; character: number } }
+): boolean {
+  return (
+    positionIsAtOrBefore(range.start, { line, character }) &&
+    positionIsAtOrBefore({ line, character }, range.end)
+  );
+}
+
+export function receiverTypeNameBeforePosition(
+  analysis: Analysis,
+  line: number,
+  character: number
+): string | null {
+  let best:
+    | { node: Expr; type: AnalysisType; size: number; endLine: number; endCharacter: number }
+    | null = null;
+  for (const [node, type] of analysis.getExpressionTypes()) {
+    const range = nodeRange(node);
+    if (!range || !positionIsAtOrBefore(range.end, { line, character })) {
+      continue;
+    }
+    const size = rangeSize(range);
+    if (
+      !best ||
+      range.end.line > best.endLine ||
+      (range.end.line === best.endLine && range.end.character > best.endCharacter) ||
+      (range.end.line === best.endLine && range.end.character === best.endCharacter && size > best.size)
+    ) {
+      best = {
+        node: node as Expr,
+        type,
+        size,
+        endLine: range.end.line,
+        endCharacter: range.end.character
+      };
+    }
+  }
+  return best ? normalizeRecoveredReceiverType(best.type, best.node, analysis.getExpressionTypes()) : null;
+}
+
+function memberAccessReceiverNodeAtPosition(node: Expr, line: number, character: number): Expr | null {
+  switch (node.kind) {
+    case "MemberExpression": {
+      const member = node as MemberExpression;
+      const propertyRange = nodeRange(member.property);
+      if (member.computed || !propertyRange || !positionIsWithinRange(line, character, propertyRange)) {
+        return null;
+      }
+      return member.object as Expr;
+    }
+    case "CallExpression": {
+      const call = node as CallExpression;
+      if (call.callee.kind !== "MemberExpression") {
+        return null;
+      }
+      return memberAccessReceiverNodeAtPosition(call.callee as Expr, line, character);
+    }
+    case "AssignmentExpression": {
+      const assignment = node as AssignmentExpression;
+      if (assignment.left.kind !== "MemberExpression") {
+        return null;
+      }
+      return memberAccessReceiverNodeAtPosition(assignment.left as Expr, line, character);
+    }
+    case "ChainExpression": {
+      const chain = node as ChainExpression;
+      const operationContainsCursor = chain.operations.some((operation) => {
+        const range = nodeRange(operation);
+        return range ? positionIsWithinRange(line, character, range) : false;
+      });
+      return operationContainsCursor ? (chain.receiver as Expr) : null;
+    }
+    default:
+      return null;
+  }
+}
+
+export function receiverTypeNameFromContainingMemberAccess(
+  analysis: Analysis,
+  line: number,
+  character: number
+): string | null {
+  let best: { node: Expr; type: AnalysisType; size: number } | null = null;
+  for (const [node] of analysis.getExpressionTypes()) {
+    const range = nodeRange(node);
+    if (!range || !positionIsWithinRange(line, character, range)) {
+      continue;
+    }
+    const receiverNode = memberAccessReceiverNodeAtPosition(node as Expr, line, character);
+    if (!receiverNode) {
+      continue;
+    }
+    const receiverType = analysis.getExpressionTypes().get(receiverNode);
+    if (!receiverType) {
+      continue;
+    }
+    const size = rangeSize(range);
+    if (!best || size < best.size) {
+      best = { node: receiverNode, type: receiverType, size };
+    }
+  }
+  return best ? normalizeRecoveredReceiverType(best.type, best.node, analysis.getExpressionTypes()) : null;
 }
 
 export function recoveredReceiverTypeName(

@@ -82,10 +82,38 @@ describe("deprecated semantic token modifiers", () => {
       session,
       getSessionForFilePath: () => null
     });
-    const beginFillOffset = source.indexOf("beginFill");
+    const beginFillOffset = source.lastIndexOf("beginFill");
     const beginFillKey = semanticTokenRangeKey({
       start: { offset: beginFillOffset, line: 3, column: 6 },
       end: { offset: beginFillOffset + "beginFill".length, line: 3, column: 15 }
+    });
+
+    expect(modifiers.get(beginFillKey)).toBe(DEPRECATED_TOKEN_MODIFIER);
+    expect(modifiers.size).toBe(1);
+  });
+
+  it("marks deprecated chain-expression members", async () => {
+    const source = dedent`
+      declare class Graphics {
+        /** @deprecated since 8.0.0 Use fill instead */
+        beginFill(color: number): Graphics
+        fill(color: number): Graphics
+      }
+
+      val badge = Graphics()
+        ..beginFill(0xffb635)
+        ..fill(0xffb635)
+      `;
+    const session = createAnalysisSession(source);
+    const modifiers = await collectDeprecatedSemanticTokenModifiers({
+      uri: "file:///sample.vx",
+      sourceRoots: [],
+      session
+    });
+    const beginFillOffset = source.lastIndexOf("beginFill");
+    const beginFillKey = semanticTokenRangeKey({
+      start: { offset: beginFillOffset, line: 7, column: 4 },
+      end: { offset: beginFillOffset + "beginFill".length, line: 7, column: 13 }
     });
 
     expect(modifiers.get(beginFillKey)).toBe(DEPRECATED_TOKEN_MODIFIER);

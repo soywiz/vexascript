@@ -1226,6 +1226,73 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("value");
   });
 
+  it("offers members after a same-line chain operator", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Builder {
+        self(): Builder
+        value(): int
+      }
+      fun build(): Builder {
+        return new Builder()
+      }
+      fun demo() {
+        build()..val^^^
+      }
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("value");
+    expect(labels).not.toContain("build");
+  });
+
+  it("offers members after a chain operator on a continuation line", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Builder {
+        self(): Builder
+        value(): int
+      }
+      fun build(): Builder {
+        return new Builder()
+      }
+      fun demo() {
+        build()
+          ..self()
+          ..val^^^
+      }
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("value");
+    expect(labels).not.toContain("build");
+  });
+
+  it("offers members after a leading dot on a continuation line", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Builder {
+        self(): Builder
+        value(): int
+      }
+      fun build(): Builder {
+        return new Builder()
+      }
+      fun demo() {
+        build()
+          .self()
+          .val^^^
+      }
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("value");
+    expect(labels).not.toContain("build");
+  });
+
   it("offers members after accessing a nullable inherited DOM member", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-child-"));
     const file = join(root, "main.vx");
@@ -1562,6 +1629,151 @@ describe("createCompletionItemsForPosition", () => {
     expect(items.map((item) => item.label)).toContain("showHidden");
     expect(byLabel.get("showHidden")?.insertText).toBe("showHidden: ");
     expect(byLabel.get("depth")?.insertText).toBe("depth: ");
+  });
+
+  it("offers string literal union values inside object literal property values", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      interface ApplicationOptions {
+        preference?: "webgl" | "webgpu" | "canvas" | undefined
+        failIfMajorPerformanceCaveat?: boolean
+      }
+
+      declare function init(options?: Partial<ApplicationOptions>): Promise<void>
+
+      init({
+        preference: ^^^
+      })
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx",
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource)
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(items.map((item) => item.label)).toContain("webgl");
+    expect(items.map((item) => item.label)).toContain("webgpu");
+    expect(items.map((item) => item.label)).toContain("canvas");
+    expect(byLabel.get("webgl")?.insertText).toBe("\"webgl\"");
+    expect(byLabel.get("webgpu")?.insertText).toBe("\"webgpu\"");
+    expect(byLabel.get("canvas")?.insertText).toBe("\"canvas\"");
+  });
+
+  it("re-triggers suggest after accepting an object property whose value has literal candidates", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      interface ApplicationOptions {
+        preference?: "webgl" | "webgpu" | "canvas" | undefined
+        failIfMajorPerformanceCaveat?: boolean
+      }
+
+      declare function init(options?: Partial<ApplicationOptions>): Promise<void>
+
+      init({
+        ^^^
+      })
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx",
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(recoveredSource)
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(byLabel.get("preference")?.insertText).toBe("preference: ");
+    expect(byLabel.get("preference")?.command).toEqual({
+      title: "Trigger suggest",
+      command: "editor.action.triggerSuggest"
+    });
+    expect(byLabel.get("failIfMajorPerformanceCaveat")?.command).toBe(undefined);
+  });
+
+  it("offers numeric literal union values inside object literal property values", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      declare function useConfig(config: { retryMs: 100 | 250 | 500 }): void
+
+      useConfig({
+        retryMs: ^^^
+      })
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx",
+      recoverAnalysisSession: (recoveredSource) => createAnalysisSession(recoveredSource)
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(items.map((item) => item.label)).toContain("100");
+    expect(items.map((item) => item.label)).toContain("250");
+    expect(items.map((item) => item.label)).toContain("500");
+    expect(byLabel.get("100")?.insertText).toBe("100");
+    expect(byLabel.get("250")?.insertText).toBe("250");
+    expect(byLabel.get("500")?.insertText).toBe("500");
+  });
+
+  it("offers enum values inside object literal property values", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      enum Renderer {
+        WebGL,
+        WebGPU,
+        Canvas,
+      }
+
+      declare function useConfig(config: { renderer: Renderer }): void
+
+      useConfig({
+        renderer: ^^^
+      })
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx",
+      recoverAnalysisSession: (recoveredSource) => createAnalysisSession(recoveredSource)
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(items.map((item) => item.label)).toContain("WebGL");
+    expect(items.map((item) => item.label)).toContain("WebGPU");
+    expect(items.map((item) => item.label)).toContain("Canvas");
+    expect(byLabel.get("WebGL")?.insertText).toBe("Renderer.WebGL");
+    expect(byLabel.get("WebGPU")?.insertText).toBe("Renderer.WebGPU");
+    expect(byLabel.get("Canvas")?.insertText).toBe("Renderer.Canvas");
+  });
+
+  it("offers mixed literal and enum values across unions inside object literal property values", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      enum Renderer {
+        WebGL,
+        WebGPU,
+      }
+
+      declare function useConfig(config: { mode: Renderer | "auto" | 60 }): void
+
+      useConfig({
+        mode: ^^^
+      })
+    `);
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: "file:///virtual/main.vx",
+      recoverAnalysisSession: (recoveredSource) => createAnalysisSession(recoveredSource)
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(items.map((item) => item.label)).toContain("auto");
+    expect(items.map((item) => item.label)).toContain("60");
+    expect(items.map((item) => item.label)).toContain("WebGL");
+    expect(items.map((item) => item.label)).toContain("WebGPU");
+    expect(byLabel.get("auto")?.insertText).toBe("\"auto\"");
+    expect(byLabel.get("60")?.insertText).toBe("60");
+    expect(byLabel.get("WebGL")?.insertText).toBe("Renderer.WebGL");
+    expect(byLabel.get("WebGPU")?.insertText).toBe("Renderer.WebGPU");
   });
 
   it("resolves go-to-definition for DOM members from ambient declarations with an absolute project root", async () => {

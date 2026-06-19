@@ -287,11 +287,11 @@ describe("LSP server core", () => {
     assert.deepEqual(nodeResult.capabilities["codeLensProvider"], { resolveProvider: false });
     assert.deepEqual(nodeResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@"]
+      triggerCharacters: [".", "@", ":"]
     });
     assert.deepEqual(browserResult.capabilities["completionProvider"], {
       resolveProvider: false,
-      triggerCharacters: [".", "@"]
+      triggerCharacters: [".", "@", ":"]
     });
     const sharedCapabilities = Object.keys(nodeResult.capabilities).filter(
       (capability) => !["executeCommandProvider", "workspaceSymbolProvider"].includes(capability)
@@ -374,6 +374,147 @@ describe("LSP server core", () => {
     );
   });
 
+  it("does not log operation timings by default", async () => {
+    const server = startServer(false);
+    const { source, line, character } = sourceWithCursor([
+      "function add(a: number, b: number): number {",
+      "  return a + b",
+      "}",
+      "val total = ad^^^d(1, 2)",
+      ""
+    ].join("\n"));
+    const document = openedDocument(server, source);
+
+    await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line, character }
+    });
+
+    assert.equal(
+      server.fakeConnection.infoMessages.some((message) =>
+        /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+      ),
+      false
+    );
+  });
+
+  it("logs operation timings in the LSP output channel when enabled", async () => {
+    const server = startServer(false);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: { enableLspTimings: true }
+    });
+    const { source, line, character } = sourceWithCursor([
+      "function add(a: number, b: number): number {",
+      "  return a + b",
+      "}",
+      "val total = ad^^^d(1, 2)",
+      ""
+    ].join("\n"));
+    const document = openedDocument(server, source);
+
+    await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line, character }
+    });
+
+    assert.equal(
+      server.fakeConnection.infoMessages.some((message) =>
+        /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+      ),
+      true
+    );
+  });
+
+  it("logs timing phases and cache states for expensive requests when enabled", async () => {
+    const server = startServer(false);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: {
+        enableLspTimings: true,
+        enableLspTimingCacheEvents: true
+      }
+    });
+    const document = openedDocument(server, [
+      "declare class Graphics {",
+      "  /** @deprecated since 8.0.0 Use fill instead */",
+      "  beginFill(color: number): Graphics",
+      "  fill(color: number): Graphics",
+      "}",
+      "val badge = Graphics()",
+      "badge.beginFill(1)",
+      ""
+    ].join("\n"));
+
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+    await server.fakeConnection.handlers.get("semanticTokens")!({
+      textDocument: { uri: document.uri }
+    });
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      message.startsWith("[Timing] textDocument/diagnostic cache miss v1")
+    ), true);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      message.startsWith("[Timing] textDocument/diagnostic cache hit v1")
+    ), true);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      /^\[Timing\] textDocument\/diagnostic::analysisSession took \d+(?:\.\d+)?ms$/.test(message)
+    ), true);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      /^\[Timing\] textDocument\/semanticTokens\/full::deprecatedSemanticTokenModifiers took \d+(?:\.\d+)?ms$/.test(message)
+    ), true);
+  });
+
+  it("keeps cache hit/miss logs disabled when only timings are enabled", async () => {
+    const server = startServer(false);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: { enableLspTimings: true }
+    });
+    const document = openedDocument(server, "val answer = 42\n");
+
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      message.includes("cache miss")
+    ), false);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      message.includes("cache hit")
+    ), false);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      /^\[Timing\] textDocument\/diagnostic took \d+(?:\.\d+)?ms$/.test(message)
+    ), true);
+  });
+
+  it("reuses cached workspace diagnostics between repeated pulls for the same document version", async () => {
+    const server = startServer(true);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: { enableLspTimings: true }
+    });
+    const document = openedDocument(server, "val answer = 42\n");
+
+    await server.fakeConnection.handlers.get("workspaceDiagnostics")!({});
+    const afterFirstPull = server.fakeConnection.infoMessages.filter((message) =>
+      message.startsWith("[Timing] workspace/diagnostic took ")
+    ).length;
+
+    await server.fakeConnection.handlers.get("workspaceDiagnostics")!({});
+    const afterSecondPull = server.fakeConnection.infoMessages.filter((message) =>
+      message.startsWith("[Timing] workspace/diagnostic took ")
+    ).length;
+
+    assert.equal(afterFirstPull, 1);
+    assert.equal(afterSecondPull, 1);
+    assert.equal(document.version, 1);
+  });
+
   it("awaits async analysis-session resolution before returning pull diagnostics", async () => {
     const fakeConnection = createFakeConnection();
     const fakeDocuments = createFakeDocuments();
@@ -449,7 +590,8 @@ describe("LSP server core", () => {
       const server = startServer(withWorkspace);
       server.fakeConnection.setConfiguration({
         inlayHints: { parameters: true, types: true },
-        referenceCodeLens: { enabled: true }
+        referenceCodeLens: { enabled: true },
+        lsp: { timings: { enabled: true, cacheEvents: { enabled: true } } }
       });
 
       await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
@@ -457,6 +599,86 @@ describe("LSP server core", () => {
       assert.equal(server.fakeConnection.inlayHintRefreshes(), 1);
       assert.deepEqual(server.fakeConnection.sentRequests, ["workspace/codeLens/refresh"]);
     }
+  });
+
+  it("toggles timing logs when the configuration changes", async () => {
+    const server = startServer(false);
+    const { source, line, character } = sourceWithCursor([
+      "function add(a: number, b: number): number {",
+      "  return a + b",
+      "}",
+      "val total = ad^^^d(1, 2)",
+      ""
+    ].join("\n"));
+    const document = openedDocument(server, source);
+
+    await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line, character }
+    });
+    assert.equal(server.fakeConnection.infoMessages.some((message) => message.includes("[Timing]")), false);
+
+    server.fakeConnection.setConfiguration({ lsp: { timings: { enabled: true } } });
+    await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+    assert.equal(server.fakeConnection.infoMessages.some((message) => message.startsWith("[Timing] workspace/didChangeConfiguration took ")), true);
+
+    const enabledCount = server.fakeConnection.infoMessages.filter((message) =>
+      /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+    ).length;
+    await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line, character }
+    });
+    assert.equal(
+      server.fakeConnection.infoMessages.filter((message) =>
+        /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+      ).length > enabledCount,
+      true
+    );
+
+    server.fakeConnection.setConfiguration({ lsp: { timings: { enabled: false } } });
+    await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+    const disabledCount = server.fakeConnection.infoMessages.filter((message) =>
+      /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+    ).length;
+    await server.fakeConnection.handlers.get("completion")!({
+      textDocument: { uri: document.uri },
+      position: { line, character }
+    });
+    assert.equal(
+      server.fakeConnection.infoMessages.filter((message) =>
+        /^\[Timing\] textDocument\/completion took \d+(?:\.\d+)?ms$/.test(message)
+      ).length,
+      disabledCount
+    );
+  });
+
+  it("toggles cache hit/miss logs independently from timing durations", async () => {
+    const server = startServer(false);
+    server.fakeConnection.setConfiguration({ lsp: { timings: { enabled: true } } });
+    await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+    const document = openedDocument(server, "val answer = 42\n");
+
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+    assert.equal(server.fakeConnection.infoMessages.some((message) => message.includes("cache hit")), false);
+
+    server.fakeConnection.setConfiguration({ lsp: { timings: { enabled: true, cacheEvents: { enabled: true } } } });
+    await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+    await server.fakeDocuments.change(TextDocument.create(document.uri, "vexa", 2, "val answer = 43\n"));
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+
+    assert.equal(server.fakeConnection.infoMessages.some((message) => message.includes("cache miss")), true);
+    assert.equal(server.fakeConnection.infoMessages.some((message) => message.includes("cache hit")), true);
   });
 
   it("refreshes inlay hints independently when only one sub-setting changes", async () => {

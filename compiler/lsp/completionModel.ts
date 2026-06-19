@@ -137,6 +137,7 @@ export const CompletionItemInsertTextFormat = {
 
 export const CompletionCommand = {
   TriggerParameterHints: "editor.action.triggerParameterHints",
+  TriggerSuggest: "editor.action.triggerSuggest",
 } as const;
 
 export function isCallableCompletionLabel(label: string): boolean {

@@ -4,6 +4,7 @@ import { collectImportedTypeDeclarations, collectImportedSymbolTypes, collectAll
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
 import { namedType, typeToString } from "compiler/analysis/types";
+import type { Identifier, Statement, VarStatement } from "compiler/ast/ast";
 
 const MINI_DTS = dedent`
   declare function pkg(x: string): pkg.Result;
@@ -405,6 +406,69 @@ describe("node_modules typings resolution", () => {
     )).toBe(true);
   });
 
+  it("only injects relevant node_modules externals while keeping helper types needed by imported members", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export interface Helper {
+          label: string;
+        }
+
+        export declare class Foo {
+          value: Helper;
+        }
+
+        export declare function keep(): Foo;
+        export declare function drop(): string;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { keep } from "pkg"
+
+      const value = keep().value
+      console.log(value.label)
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const externalNames = collected.externalDeclarations.map((statement) => {
+      const candidate = statement as {
+        name?: { name?: string };
+        declaration?: { name?: { name?: string } };
+      };
+      return candidate.name?.name ?? candidate.declaration?.name?.name ?? statement.kind;
+    });
+
+    expect(externalNames).toContain("Helper");
+    expect(externalNames).toContain("Foo");
+    expect(externalNames).not.toContain("drop");
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("follows triple-slash references and support imports when collecting node_modules typings", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "pixi-like");
@@ -483,6 +547,205 @@ describe("node_modules typings resolution", () => {
       collected.invalidImportedBindings
     );
 
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
+  });
+
+  it("preserves imported support declarations needed by node_modules option types", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    await mkdir(join(pkgDir, "rendering"), { recursive: true });
+    await mkdir(join(pkgDir, "app"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pixi-like", types: "./app/Application.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "rendering", "RendererOptions.d.ts"),
+      dedent`
+        export interface RendererOptions {
+          width?: number;
+          height?: number;
+          resolution?: number;
+          antialias?: boolean;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "rendering", "autoDetectRenderer.d.ts"),
+      dedent`
+        import type { RendererOptions } from "./RendererOptions";
+
+        export interface AutoDetectOptions extends RendererOptions {
+          preference?: "webgl" | "webgpu";
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "app", "Application.d.ts"),
+      dedent`
+        import type { AutoDetectOptions } from "../rendering/autoDetectRenderer";
+
+        export interface ApplicationOptions extends AutoDetectOptions {
+        }
+
+        export declare class Application {
+          init(options: Partial<ApplicationOptions>): Promise<void>;
+        }
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Application } from "pixi-like"
+
+      val app = Application()
+      await app.init({
+        width: 480,
+        height: 320,
+        resolution: 1,
+        antialias: true,
+      })
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(collected.externalDeclarations.some((statement) => statement.kind === "ImportStatement")).toBe(true);
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
+  });
+
+  it("includes typeof-referenced support vars needed by node_modules renderer option extraction", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    await mkdir(join(pkgDir, "rendering"), { recursive: true });
+    await mkdir(join(pkgDir, "app"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pixi-like", types: "./app/Application.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "rendering", "SharedSystems.d.ts"),
+      dedent`
+        export interface ViewSystemOptions {
+          width?: number;
+          height?: number;
+          antialias?: boolean;
+          resolution?: number;
+        }
+
+        export interface TickerOptions {
+          autoStart?: boolean;
+        }
+
+        export declare class ViewSystem {
+          static defaultOptions: ViewSystemOptions;
+        }
+
+        export declare class TickerSystem {
+          static defaultOptions: TickerOptions;
+        }
+
+        export declare const SharedSystems: (typeof ViewSystem | typeof TickerSystem)[];
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "rendering", "RendererOptions.d.ts"),
+      dedent`
+        import type { SharedSystems } from "./SharedSystems";
+
+        export type ExtractRendererOptions<T extends any[]> = T extends any ? never : never;
+
+        export interface SharedRendererOptions extends ExtractRendererOptions<typeof SharedSystems> {
+        }
+
+        export interface RendererOptions extends SharedRendererOptions {
+          preference?: "webgl" | "webgpu";
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "rendering", "autoDetectRenderer.d.ts"),
+      dedent`
+        import type { RendererOptions } from "./RendererOptions";
+
+        export interface AutoDetectOptions extends RendererOptions {
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "app", "Application.d.ts"),
+      dedent`
+        import type { AutoDetectOptions } from "../rendering/autoDetectRenderer";
+
+        export interface ApplicationOptions extends AutoDetectOptions {
+        }
+
+        export declare class Application {
+          init(options: Partial<ApplicationOptions>): Promise<void>;
+        }
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Application } from "pixi-like"
+
+      val app = Application()
+      await app.init({
+        width: 480,
+        height: 320,
+        resolution: 1,
+        antialias: true,
+        autoStart: true,
+      })
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(
+      collected.externalDeclarations.some((statement) => {
+        const declaration = statement.kind === "ExportStatement"
+          ? (statement as { declaration?: Statement }).declaration
+          : statement;
+        return declaration?.kind === "VarStatement"
+          && (declaration as VarStatement).name.kind === "Identifier"
+          && ((declaration as VarStatement).name as Identifier).name === "SharedSystems";
+      })
+    ).toBe(true);
     expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
   });
 

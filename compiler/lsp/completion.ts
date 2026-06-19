@@ -17,7 +17,10 @@ import type { CompletionRequestOptions } from "./completionModel";
 import { buildExtensionMemberCompletionItems, buildMemberAccessCompletions } from "./memberCompletion";
 import { parseMemberAccessTarget } from "./memberCompletionParsing";
 import { inferLiteralTypeName } from "./memberCompletionTypeNames";
-import { buildContextualObjectLiteralCompletionItems } from "./objectLiteralCompletion";
+import {
+  buildContextualObjectLiteralCompletionItems,
+  buildContextualObjectLiteralValueCompletionItems
+} from "./objectLiteralCompletion";
 import { buildVisibleSymbolCompletionItems } from "./symbolCompletion";
 import {
   annotationCompletionItems,
@@ -79,6 +82,17 @@ export async function createCompletionItemsForPosition(
   );
   if (objectLiteralCompletions.length > 0) {
     return objectLiteralCompletions;
+  }
+
+  const objectLiteralValueCompletions = await buildContextualObjectLiteralValueCompletionItems(
+    ast,
+    resolvedAnalysis,
+    line,
+    character,
+    options
+  );
+  if (objectLiteralValueCompletions.length > 0) {
+    return objectLiteralValueCompletions;
   }
 
   const expectedTypeName = await inferExpectedTypeForPosition(

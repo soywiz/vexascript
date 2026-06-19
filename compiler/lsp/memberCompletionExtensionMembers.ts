@@ -1,6 +1,12 @@
 import { buildExtensionAutoImportSuggestions } from "./importFixes";
 import { Analysis } from "compiler/analysis/Analysis";
 import { baseTypeName } from "compiler/analysis/typeNames";
+import {
+  createClassResolverCache,
+  resolveClassStatementAcrossFiles,
+  resolveInterfaceStatementAcrossFiles,
+  type ClassResolverCache
+} from "./classResolver";
 import type {
   ExportStatement,
   FunctionStatement,
@@ -24,6 +30,80 @@ import {
   inferExtensionReturnTypeName
 } from "./memberCompletionExtensions";
 
+async function extensionReceiverMatchesResolvedType(
+  ast: Program,
+  receiverType: string,
+  objectTypeName: string,
+  options: CompletionRequestOptions,
+  resolverCache: ClassResolverCache
+): Promise<boolean> {
+  if (extensionReceiverMatches(receiverType, objectTypeName)) {
+    return true;
+  }
+
+  const resolverOptions = {
+    ...(options.uri ? { uri: options.uri } : {}),
+    ...(options.sourceRoots ? { sourceRoots: options.sourceRoots } : {}),
+    ...(options.vfs ? { vfs: options.vfs } : {}),
+    ...(options.ambientModuleDeclarations
+      ? { ambientModuleDeclarations: options.ambientModuleDeclarations }
+      : {}),
+    ...(options.getSessionForFilePath
+      ? { getSessionForFilePath: options.getSessionForFilePath }
+      : {})
+  };
+  const normalizedObjectTypeName = baseTypeName(objectTypeName);
+  const seen = new Set<string>();
+
+  const matchesHierarchy = async (typeName: string): Promise<boolean> => {
+    const normalizedTypeName = baseTypeName(typeName);
+    if (!normalizedTypeName || seen.has(normalizedTypeName)) {
+      return false;
+    }
+    seen.add(normalizedTypeName);
+
+    if (extensionReceiverMatches(receiverType, normalizedTypeName)) {
+      return true;
+    }
+
+    const classResolution = await resolveClassStatementAcrossFiles(
+      ast,
+      normalizedTypeName,
+      resolverOptions,
+      resolverCache
+    );
+    if (classResolution) {
+      const classStatement = classResolution.classStatement;
+      if (classStatement.extendsType && await matchesHierarchy(classStatement.extendsType.name)) {
+        return true;
+      }
+      for (const implemented of classStatement.implementsTypes ?? []) {
+        if (await matchesHierarchy(implemented.name)) {
+          return true;
+        }
+      }
+    }
+
+    const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
+      ast,
+      normalizedTypeName,
+      resolverOptions,
+      resolverCache
+    );
+    if (interfaceResolution) {
+      for (const parent of interfaceResolution.interfaceStatement.extendsTypes ?? []) {
+        if (await matchesHierarchy(parent.name)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  return matchesHierarchy(normalizedObjectTypeName);
+}
+
 export async function collectAvailableExtensionMembers(
   ast: Program,
   objectTypeName: string,
@@ -36,8 +116,13 @@ export async function collectAvailableExtensionMembers(
   const importedNames = new Set<string>();
   const candidates: ExtensionMemberCompletionCandidate[] = [];
   const seen = new Set<string>();
+  const resolverCache = createClassResolverCache();
 
-  const maybePushStatement = (statement: Statement): void => {
+  const maybePushStatement = async (
+    statement: Statement,
+    statementAnalysis: Analysis | null,
+    visibleImportedNames?: ReadonlySet<string>
+  ): Promise<void> => {
     const candidate = statement.kind === "ExportStatement"
       ? (statement as ExportStatement).declaration
       : statement;
@@ -47,10 +132,13 @@ export async function collectAvailableExtensionMembers(
     if (candidate.kind === "VarStatement") {
       const variable = candidate as VarStatement;
       const receiverType = variable.receiverType?.name;
-      if (!receiverType || !extensionReceiverMatches(receiverType, objectTypeName)) {
+      if (!receiverType || !(await extensionReceiverMatchesResolvedType(ast, receiverType, objectTypeName, options, resolverCache))) {
         return;
       }
       for (const bindingName of extensionBindingNames(variable)) {
+        if (visibleImportedNames && !visibleImportedNames.has(bindingName)) {
+          continue;
+        }
         if (seen.has(`property:${bindingName}`)) {
           continue;
         }
@@ -59,7 +147,7 @@ export async function collectAvailableExtensionMembers(
           name: bindingName,
           receiverType,
           kind: "property",
-          returnTypeName: inferExtensionReturnTypeName(variable, analysis)
+          returnTypeName: inferExtensionReturnTypeName(variable, statementAnalysis)
         });
       }
       return;
@@ -67,7 +155,14 @@ export async function collectAvailableExtensionMembers(
     if (candidate.kind === "FunctionStatement") {
       const fn = candidate as FunctionStatement;
       const receiverType = fn.receiverType?.name;
-      if (!receiverType || fn.operator || !extensionReceiverMatches(receiverType, objectTypeName)) {
+      if (
+        !receiverType
+        || fn.operator
+        || !(await extensionReceiverMatchesResolvedType(ast, receiverType, objectTypeName, options, resolverCache))
+      ) {
+        return;
+      }
+      if (visibleImportedNames && !visibleImportedNames.has(fn.name.name)) {
         return;
       }
       if (seen.has(`method:${fn.name.name}`)) {
@@ -78,13 +173,13 @@ export async function collectAvailableExtensionMembers(
         name: fn.name.name,
         receiverType,
         kind: "method",
-        returnTypeName: inferExtensionReturnTypeName(fn, analysis)
+        returnTypeName: inferExtensionReturnTypeName(fn, statementAnalysis)
       });
     }
   };
 
   for (const statement of ast.body) {
-    maybePushStatement(statement);
+    await maybePushStatement(statement, analysis);
     if (statement.kind !== "ImportStatement") {
       continue;
     }
@@ -117,49 +212,7 @@ export async function collectAvailableExtensionMembers(
       continue;
     }
     for (const importedStatement of importedAst.body) {
-      const unwrapped = importedStatement.kind === "ExportStatement"
-        ? (importedStatement as ExportStatement).declaration
-        : importedStatement;
-      if (!unwrapped) {
-        continue;
-      }
-      if (unwrapped.kind === "VarStatement") {
-        const variable = unwrapped as VarStatement;
-        const receiverType = variable.receiverType?.name;
-        if (!receiverType || !extensionReceiverMatches(receiverType, objectTypeName)) {
-          continue;
-        }
-        for (const bindingName of extensionBindingNames(variable)) {
-          if (!importedNames.has(bindingName) || seen.has(`property:${bindingName}`)) {
-            continue;
-          }
-          seen.add(`property:${bindingName}`);
-          candidates.push({
-            name: bindingName,
-            receiverType,
-            kind: "property",
-            returnTypeName: inferExtensionReturnTypeName(variable, importedAnalysis)
-          });
-        }
-        continue;
-      }
-      if (unwrapped.kind === "FunctionStatement") {
-        const fn = unwrapped as FunctionStatement;
-        const receiverType = fn.receiverType?.name;
-        if (!receiverType || fn.operator || !extensionReceiverMatches(receiverType, objectTypeName)) {
-          continue;
-        }
-        if (!importedNames.has(fn.name.name) || seen.has(`method:${fn.name.name}`)) {
-          continue;
-        }
-        seen.add(`method:${fn.name.name}`);
-        candidates.push({
-          name: fn.name.name,
-          receiverType,
-          kind: "method",
-          returnTypeName: inferExtensionReturnTypeName(fn, importedAnalysis)
-        });
-      }
+      await maybePushStatement(importedStatement, importedAnalysis, importedNames);
     }
   }
 

@@ -596,6 +596,84 @@ function findMemberLocationInDeclarationEntries(
   return null;
 }
 
+function findStructuralMemberLocationInDeclarationEntries(
+  declarationEntries: readonly NodeModuleDeclarationEntry[],
+  memberName: string,
+  declarationKinds: ReadonlySet<"InterfaceStatement" | "ClassStatement">,
+  visitedNamespaces = new Set<Statement>()
+): NodeModuleMemberLocation | null {
+  for (let index = declarationEntries.length - 1; index >= 0; index -= 1) {
+    const entry = declarationEntries[index]!;
+    const candidate =
+      entry.statement.kind === "ExportStatement"
+        ? (entry.statement as { declaration?: Statement }).declaration ?? entry.statement
+        : entry.statement;
+
+    if (candidate.kind === "NamespaceStatement") {
+      if (visitedNamespaces.has(candidate)) {
+        continue;
+      }
+      const nextVisitedNamespaces = new Set(visitedNamespaces);
+      nextVisitedNamespaces.add(candidate);
+      const nested = findStructuralMemberLocationInDeclarationEntries(
+        (candidate as NamespaceStatement).body.body.map((statement) => ({
+          statement,
+          typingsPath: entry.typingsPath
+        })),
+        memberName,
+        declarationKinds,
+        nextVisitedNamespaces
+      );
+      if (nested) {
+        return nested;
+      }
+      continue;
+    }
+
+    if (!declarationKinds.has(candidate.kind as "InterfaceStatement" | "ClassStatement")) {
+      continue;
+    }
+
+    const members = candidate.kind === "InterfaceStatement"
+      ? (candidate as InterfaceStatement).members
+      : candidate.kind === "ClassStatement"
+        ? (candidate as ClassStatement).members
+        : [];
+    for (const member of members) {
+      if (member.name.name !== memberName) {
+        continue;
+      }
+      const range = nodeRange(member.name);
+      if (range) {
+        return { typingsPath: entry.typingsPath, range };
+      }
+    }
+  }
+
+  return null;
+}
+
+export async function findNodeModuleStructuralMemberLocation(
+  importerFilePath: string,
+  packageName: string,
+  memberName: string,
+  options: ModuleResolutionOptions = {}
+): Promise<NodeModuleMemberLocation | null> {
+  const activeVfs = options.vfs ?? vfs();
+  const typings = await getNodeModuleTypings(importerFilePath, packageName, { vfs: activeVfs });
+  if (!typings) return null;
+
+  return findStructuralMemberLocationInDeclarationEntries(
+    typings.declarationEntries,
+    memberName,
+    new Set(["InterfaceStatement"])
+  ) ?? findStructuralMemberLocationInDeclarationEntries(
+    typings.declarationEntries,
+    memberName,
+    new Set(["ClassStatement"])
+  );
+}
+
 /**
  * Searches `statements` (recursing into namespace bodies) for a type named
  * `typeName`, then looks for `memberName` within it. Returns the range of the

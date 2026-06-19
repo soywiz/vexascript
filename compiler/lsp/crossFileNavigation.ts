@@ -11,6 +11,7 @@ export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 import type {
   Identifier,
 } from "compiler/ast/ast";
+import type { AnalysisType } from "compiler/analysis/types";
 import type { Hover, Location } from "vscode-languageserver/node.js";
 import { pathToUri } from "./importFixes";
 import { nodeRange } from "./ranges";
@@ -46,12 +47,49 @@ import {
   resolveAmbientModuleObjectMemberDefinition,
   resolveAmbientReceiverDeclarationFilePath
 } from "./crossFileAmbientNavigation";
+import { resolveContextualObjectLiteralPropertyDefinition } from "./objectLiteralCompletion";
+import { resolveContextualObjectLiteralPropertyHover } from "./objectLiteralCompletion";
 import {
   resolveImportPathDefinition,
   resolveImportPathHover,
   resolveImportSpecifierDefinition
 } from "./importPathNavigation";
 import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
+
+function collectNodeModulesReceiverTypeNames(objectType: AnalysisType): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const push = (name: string) => {
+    if (seen.has(name)) {
+      return;
+    }
+    seen.add(name);
+    names.push(name);
+  };
+  const visit = (type: AnalysisType) => {
+    if (type.kind === "array") {
+      push("Array");
+      return;
+    }
+    if ((type.kind === "named" || type.kind === "builtin") && type.name === "int") {
+      push("int");
+      push("number");
+      return;
+    }
+    if (type.kind === "named" || type.kind === "builtin") {
+      push(type.name);
+      return;
+    }
+    if (type.kind === "union" || type.kind === "intersection") {
+      for (const memberType of type.types) {
+        visit(memberType);
+      }
+    }
+  };
+
+  visit(objectType);
+  return names;
+}
 
 async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Promise<Location | null> {
   if (!context.session.ast || !context.session.analysis) {
@@ -147,22 +185,15 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   // Fallback: look for the member in node_modules .d.ts declarations. This
   // handles types whose namespace/interface is declared in a package's type
   // definitions rather than a local .vx file.
-  const nodeModulesReceiverTypeName = objectType.kind === "array"
-    ? "Array"
-    : (objectType.kind === "named" || objectType.kind === "builtin") && objectType.name === "int"
-      ? "int"
-      : objectType.kind === "named" || objectType.kind === "builtin"
-        ? objectType.name
-        : null;
-  const nodeModulesDefinition = nodeModulesReceiverTypeName
-    ? await resolveNodeModulesMemberDefinition(
+  for (const receiverTypeName of collectNodeModulesReceiverTypeNames(objectType)) {
+    const nodeModulesDefinition = await resolveNodeModulesMemberDefinition(
       context,
-      nodeModulesReceiverTypeName,
+      receiverTypeName,
       memberName
-    )
-    : null;
-  if (nodeModulesDefinition) {
-    return nodeModulesDefinition;
+    );
+    if (nodeModulesDefinition) {
+      return nodeModulesDefinition;
+    }
   }
 
   return null;
@@ -177,6 +208,13 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
   const importSpecifierDefinition = await resolveImportSpecifierDefinition(context);
   if (importSpecifierDefinition) {
     return importSpecifierDefinition;
+  }
+
+  for (const character of candidateCharacters(context.character)) {
+    const objectLiteralPropertyDefinition = await resolveContextualObjectLiteralPropertyDefinition({ ...context, character });
+    if (objectLiteralPropertyDefinition) {
+      return objectLiteralPropertyDefinition;
+    }
   }
 
   for (const character of candidateCharacters(context.character)) {
@@ -262,6 +300,13 @@ export async function resolveHoverWithLocalFallback(context: ResolveContext): Pr
   const importHover = await resolveImportPathHover(context);
   if (importHover) {
     return importHover;
+  }
+
+  for (const character of candidateCharacters(context.character)) {
+    const objectLiteralPropertyHover = await resolveContextualObjectLiteralPropertyHover({ ...context, character });
+    if (objectLiteralPropertyHover) {
+      return objectLiteralPropertyHover;
+    }
   }
 
   for (const character of candidateCharacters(context.character)) {

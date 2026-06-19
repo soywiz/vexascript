@@ -134,6 +134,42 @@ export class AnalysisSessionCache {
     private readonly onSessionUpdated?: () => void
   ) {}
 
+  private startAsyncResolution(
+    document: TextDocument,
+    baseSession: AnalysisSession
+  ): Promise<AnalysisSession> {
+    const docText = document.getText();
+    const docVersion = document.version;
+    const docUri = document.uri;
+    const resolveExternalDeclarations = this.resolveExternalDeclarations;
+    if (!resolveExternalDeclarations) {
+      this.cache.set(docUri, { version: docVersion, session: baseSession });
+      return Promise.resolve(baseSession);
+    }
+    let pendingPromise: Promise<AnalysisSession> | undefined;
+    pendingPromise = (async () => {
+      try {
+        const resolved = await resolveExternalDeclarations(document, baseSession);
+        const session = buildSessionFromResolved(docText, baseSession, resolved);
+        const still = this.cache.get(docUri);
+        if (!still || still.version <= docVersion) {
+          this.cache.set(docUri, { version: docVersion, session });
+          this.onSessionUpdated?.();
+        }
+        return session;
+      } catch {
+        return baseSession;
+      } finally {
+        const pending = this.pending.get(docUri);
+        if (pendingPromise && pending?.version === docVersion && pending.promise === pendingPromise) {
+          this.pending.delete(docUri);
+        }
+      }
+    })();
+    this.pending.set(docUri, { version: docVersion, promise: pendingPromise });
+    return pendingPromise;
+  }
+
   getForDocument(document: TextDocument): AnalysisSession {
     const cached = this.cache.get(document.uri);
     if (cached && cached.version === document.version) {
@@ -151,26 +187,9 @@ export class AnalysisSessionCache {
     }
 
     // Kick off async resolution if not already in progress for this version
-    if (!this.pending.has(docUri)) {
-      const resolveExternalDeclarations = this.resolveExternalDeclarations;
-      const promise = (async () => {
-        try {
-          const resolved = await resolveExternalDeclarations(document, baseSession);
-          const session = buildSessionFromResolved(docText, baseSession, resolved);
-          // Only update if version still matches
-          const still = this.cache.get(docUri);
-          if (!still || still.version <= docVersion) {
-            this.cache.set(docUri, { version: docVersion, session });
-            this.onSessionUpdated?.();
-          }
-          this.pending.delete(docUri);
-          return session;
-        } catch {
-          this.pending.delete(docUri);
-          return baseSession;
-        }
-      })();
-      this.pending.set(docUri, { version: docVersion, promise });
+    const pending = this.pending.get(docUri);
+    if (!pending || pending.version !== docVersion) {
+      this.startAsyncResolution(document, baseSession);
     }
 
     // Return stale or base session until async resolution completes
@@ -190,22 +209,8 @@ export class AnalysisSessionCache {
     }
 
     const docText = document.getText();
-    const docVersion = document.version;
-    const docUri = document.uri;
     const baseSession = createAnalysisSession(docText);
-
-    if (!this.resolveExternalDeclarations) {
-      this.cache.set(docUri, { version: docVersion, session: baseSession });
-      return baseSession;
-    }
-
-    const resolved = await this.resolveExternalDeclarations(document, baseSession);
-    const session = buildSessionFromResolved(docText, baseSession, resolved);
-    const still = this.cache.get(docUri);
-    if (!still || still.version <= docVersion) {
-      this.cache.set(docUri, { version: docVersion, session });
-    }
-    return session;
+    return this.startAsyncResolution(document, baseSession);
   }
 
   delete(uri: string): void {

@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { commands, Location, Position, Range, Selection, Uri, workspace, window } = require("vscode");
+const { commands, languages, Location, Position, Range, Selection, Uri, workspace, window } = require("vscode");
 const {
   LanguageClient,
   TransportKind
@@ -11,6 +11,13 @@ const {
   shouldRetriggerParameterHintsForSelectionChange,
   selectionStateFromEvent
 } = require("./parameterHints.js");
+const {
+  shouldTriggerValueSuggestions,
+  shouldKeepValueSuggestions
+} = require("./suggestTrigger.js");
+const {
+  collectDeprecatedDiagnosticRanges
+} = require("./deprecatedDecorations.js");
 
 /** @type {LanguageClient | undefined} */
 let client;
@@ -94,7 +101,9 @@ function activate(context) {
     initializationOptions: {
       enableReferenceCodeLens: vexaConfig.get("referenceCodeLens.enabled", false),
       enableInlayHintsParameters: vexaConfig.get("inlayHints.parameters", true),
-      enableInlayHintsTypes: vexaConfig.get("inlayHints.types", true)
+      enableInlayHintsTypes: vexaConfig.get("inlayHints.types", true),
+      enableLspTimings: vexaConfig.get("lsp.timings.enabled", false),
+      enableLspTimingCacheEvents: vexaConfig.get("lsp.timings.cacheEvents.enabled", false)
     }
   };
 
@@ -108,6 +117,7 @@ function activate(context) {
   const ready = client.start();
 
   registerAutoAwaitGutterIcons(context, client, ready);
+  registerDeprecatedDiagnosticDecorations(context);
 }
 
 /**
@@ -128,6 +138,9 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
   let parameterHintsRetryPending;
   let parameterHintsArmed = false;
   let lastParameterHintsSelection;
+  let valueSuggestionsPending;
+  let valueSuggestionsRetryPending;
+  let valueSuggestionsArmed = false;
   const isVexaScript = (document) =>
     document && (document.languageId === "vexa" || document.uri.fsPath.endsWith(".vx"));
 
@@ -153,6 +166,24 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
     parameterHintsRetryPending = setTimeout(() => {
       parameterHintsRetryPending = undefined;
       commands.executeCommand("editor.action.triggerParameterHints");
+    }, 90);
+  }
+
+  function scheduleValueSuggestions() {
+    valueSuggestionsArmed = true;
+    if (valueSuggestionsPending) {
+      clearTimeout(valueSuggestionsPending);
+    }
+    if (valueSuggestionsRetryPending) {
+      clearTimeout(valueSuggestionsRetryPending);
+    }
+    valueSuggestionsPending = setTimeout(() => {
+      valueSuggestionsPending = undefined;
+      commands.executeCommand("editor.action.triggerSuggest");
+    }, 25);
+    valueSuggestionsRetryPending = setTimeout(() => {
+      valueSuggestionsRetryPending = undefined;
+      commands.executeCommand("editor.action.triggerSuggest");
     }, 90);
   }
 
@@ -193,6 +224,11 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
         if (shouldRetriggerParameterHints(event.contentChanges)) {
           scheduleParameterHints(editor, "typing");
         }
+        if (shouldTriggerValueSuggestions(event.contentChanges)) {
+          scheduleValueSuggestions();
+        } else if (shouldKeepValueSuggestions(event.contentChanges, { valueSuggestionsArmed })) {
+          scheduleValueSuggestions();
+        }
       }
     }),
     window.onDidChangeTextEditorSelection((event) => {
@@ -200,12 +236,14 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
       if (!editor || event.textEditor !== editor || !isVexaScript(editor.document)) {
         parameterHintsArmed = false;
         lastParameterHintsSelection = undefined;
+        valueSuggestionsArmed = false;
         return;
       }
       const selectionState = selectionStateFromEvent(event);
       if (!selectionState) {
         parameterHintsArmed = false;
         lastParameterHintsSelection = undefined;
+        valueSuggestionsArmed = false;
         return;
       }
       if (shouldRetriggerParameterHintsForSelectionChange(event, {
@@ -218,6 +256,9 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
       if (lastParameterHintsSelection && selectionState.line !== lastParameterHintsSelection.line) {
         parameterHintsArmed = false;
       }
+      if (lastParameterHintsSelection && selectionState.line !== lastParameterHintsSelection.line) {
+        valueSuggestionsArmed = false;
+      }
       lastParameterHintsSelection = selectionState;
     })
   );
@@ -227,6 +268,50 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
     .catch(() => {
       /* server failed to start; nothing to decorate */
     });
+}
+
+function registerDeprecatedDiagnosticDecorations(context) {
+  const decorationType = window.createTextEditorDecorationType({
+    textDecoration: "line-through"
+  });
+  const isVexaScript = (document) =>
+    document && (document.languageId === "vexa" || document.uri.fsPath.endsWith(".vx"));
+
+  function applyDecorations(editor) {
+    if (!editor || !isVexaScript(editor.document)) {
+      return;
+    }
+    const ranges = collectDeprecatedDiagnosticRanges(
+      editor.document.uri.toString(),
+      languages.getDiagnostics(editor.document.uri)
+    ).map((range) => new Range(
+      new Position(range.start.line, range.start.character),
+      new Position(range.end.line, range.end.character)
+    ));
+    editor.setDecorations(decorationType, ranges);
+  }
+
+  function refreshVisibleEditors() {
+    for (const editor of window.visibleTextEditors) {
+      applyDecorations(editor);
+    }
+  }
+
+  context.subscriptions.push(
+    decorationType,
+    languages.onDidChangeDiagnostics((event) => {
+      const changedUris = new Set(event.uris.map((uri) => uri.toString()));
+      for (const editor of window.visibleTextEditors) {
+        if (changedUris.has(editor.document.uri.toString())) {
+          applyDecorations(editor);
+        }
+      }
+    }),
+    window.onDidChangeVisibleTextEditors(() => refreshVisibleEditors()),
+    window.onDidChangeActiveTextEditor((editor) => applyDecorations(editor))
+  );
+
+  refreshVisibleEditors();
 }
 
 function deactivate() {

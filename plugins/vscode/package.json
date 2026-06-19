@@ -74,6 +74,16 @@
           "type": "boolean",
           "default": true,
           "description": "Show inferred type hints for variables, function parameters, and return types."
+        },
+        "vexa.lsp.timings.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show per-operation timing logs in the VexaScript LSP output channel."
+        },
+        "vexa.lsp.timings.cacheEvents.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "When timing logs are enabled, also show cache hit/miss messages in the VexaScript LSP output channel."
         }
       }
     },

@@ -1279,6 +1279,136 @@ export interface CollectedImportedDeclarations {
   invalidImportedBindings: Set<string>;
 }
 
+function importableDeclarationName(statement: Statement): string | null {
+  const declaration = unwrapDeclaration(statement);
+  if (!declaration) {
+    const rawDeclaration =
+      statement.kind === "ExportStatement"
+        ? (statement as { declaration?: Statement }).declaration ?? statement
+        : statement;
+    if (rawDeclaration.kind === "VarStatement" && (rawDeclaration as VarStatement).name.kind === "Identifier") {
+      return ((rawDeclaration as VarStatement).name as Identifier).name;
+    }
+    return null;
+  }
+  if (
+    declaration.kind === "ClassStatement"
+    || declaration.kind === "InterfaceStatement"
+    || declaration.kind === "EnumStatement"
+    || declaration.kind === "TypeAliasStatement"
+    || declaration.kind === "FunctionStatement"
+  ) {
+    return declaration.name.name;
+  }
+  if (declaration.kind === "VarStatement" && declaration.name.kind === "Identifier") {
+    return declaration.name.name;
+  }
+  return null;
+}
+
+function shouldIncludeNodeModuleExternalDeclaration(
+  statement: Statement,
+  wantedNames: ReadonlySet<string>
+): boolean {
+  const rawDeclaration =
+    statement.kind === "ExportStatement"
+      ? (statement as { declaration?: Statement }).declaration ?? statement
+      : statement;
+  if (rawDeclaration.kind === "ImportStatement") {
+    return true;
+  }
+  if (rawDeclaration.kind === "NamespaceStatement") {
+    return true;
+  }
+  const declaration = unwrapDeclaration(statement);
+  if (!declaration) {
+    return false;
+  }
+  if (TYPE_DECLARATION_KINDS.has(declaration.kind)) {
+    return true;
+  }
+  const declarationName = importableDeclarationName(statement);
+  return declarationName ? wantedNames.has(declarationName) : false;
+}
+
+function collectTypeQueryDependencyNamesFromText(typeText: string | undefined, collected: Set<string>): void {
+  if (!typeText) {
+    return;
+  }
+  for (const match of typeText.matchAll(/typeof\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)/g)) {
+    const fullName = match[1];
+    if (!fullName) {
+      continue;
+    }
+    collected.add(fullName);
+    const leafName = fullName.split(".").pop();
+    if (leafName) {
+      collected.add(leafName);
+    }
+  }
+}
+
+function collectTypeQueryDependencyNames(statement: Statement, collected: Set<string>): void {
+  const rawDeclaration =
+    statement.kind === "ExportStatement"
+      ? (statement as { declaration?: Statement }).declaration ?? statement
+      : statement;
+  const queue: unknown[] = [rawDeclaration];
+  const visited = new WeakSet<object>();
+  const typeBearingKeys = new Set([
+    "typeAnnotation",
+    "returnType",
+    "extendsType",
+    "extendsTypes",
+    "implementsTypes",
+    "receiverType",
+    "typeArguments",
+    "constraint",
+    "defaultType",
+    "typeParameters",
+    "members",
+    "parameters",
+    "declarations"
+  ]);
+
+  while (queue.length > 0) {
+    const next = queue.shift();
+    if (!next || typeof next !== "object") {
+      continue;
+    }
+    if (visited.has(next)) {
+      continue;
+    }
+    visited.add(next);
+    if (Array.isArray(next)) {
+      queue.push(...next);
+      continue;
+    }
+
+    const typeName = (next as { kind?: unknown; name?: unknown }).name;
+    if ((next as { kind?: unknown }).kind === "Identifier" && typeof typeName === "string") {
+      collectTypeQueryDependencyNamesFromText(typeName, collected);
+    }
+
+    for (const [key, value] of Object.entries(next)) {
+      if (!typeBearingKeys.has(key)) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        queue.push(...value);
+        continue;
+      }
+      if (value && typeof value === "object") {
+        const typeName = (value as { name?: unknown }).name;
+        if (typeof typeName === "string") {
+          collectTypeQueryDependencyNamesFromText(typeName, collected);
+        }
+        queue.push(value);
+      }
+    }
+  }
+}
+
 function ambientModuleDeclarationCandidates(
   importPath: string,
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]> | undefined
@@ -1321,19 +1451,72 @@ export async function collectAllImportedDeclarations(
       continue;
     }
     const importStatement = statement as ImportStatement;
+    const wantedNames = new Set(
+      importStatement.specifiers.map((specifier) => specifier.imported.name)
+    );
     const targetFilePath = await resolveImportTargetInContext(currentFilePath, importStatement.from.value, context);
 
     if (!targetFilePath) {
       const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
       if (nodeModuleTypings) {
+        if (nodeModuleTypings.defaultExportName && (importStatement.defaultImport || importStatement.namespaceImport)) {
+          wantedNames.add(nodeModuleTypings.defaultExportName);
+        }
+        const importedNodeModuleDeclarations: Statement[] = [];
+        const supportingDeclarationNames = new Set<string>();
+        const seenNodeModuleStatements = new Set<Statement>();
+        const includeNodeModuleDeclaration = (targetStatement: Statement): void => {
+          if (seenNodeModuleStatements.has(targetStatement)) {
+            return;
+          }
+          const declaration = unwrapDeclaration(targetStatement);
+          if (!declaration) {
+            seenNodeModuleStatements.add(targetStatement);
+            const rawDeclaration =
+              targetStatement.kind === "ExportStatement"
+                ? (targetStatement as { declaration?: Statement }).declaration ?? targetStatement
+                : targetStatement;
+            importedNodeModuleDeclarations.push(rawDeclaration);
+            if (rawDeclaration.kind !== "VarStatement") {
+              collectTypeQueryDependencyNames(targetStatement, supportingDeclarationNames);
+            }
+            return;
+          }
+          if (seen.has(declaration)) {
+            return;
+          }
+          seen.add(declaration);
+          seenNodeModuleStatements.add(targetStatement);
+          importedNodeModuleDeclarations.push(declaration);
+          if (declaration.kind !== "VarStatement") {
+            collectTypeQueryDependencyNames(declaration, supportingDeclarationNames);
+          }
+        };
         // For node_modules .d.ts files, include all top-level declarations so
-        // member resolution works for named types like `moment.parseZone`.
+        // imported symbols can still resolve helper types and members without
+        // paying to analyze every unrelated export in large packages.
         for (const targetStatement of nodeModuleTypings.declarations) {
-          if (!seen.has(targetStatement as ImportableDeclaration)) {
-            seen.add(targetStatement as ImportableDeclaration);
-            externalDeclarations.push(targetStatement);
+          if (!shouldIncludeNodeModuleExternalDeclaration(targetStatement, wantedNames)) {
+            continue;
+          }
+          includeNodeModuleDeclaration(targetStatement);
+        }
+        let addedSupportDeclaration = true;
+        while (addedSupportDeclaration) {
+          addedSupportDeclaration = false;
+          for (const targetStatement of nodeModuleTypings.declarations) {
+            const declarationName = importableDeclarationName(targetStatement);
+            if (!declarationName || !supportingDeclarationNames.has(declarationName)) {
+              continue;
+            }
+            if (seenNodeModuleStatements.has(targetStatement)) {
+              continue;
+            }
+            includeNodeModuleDeclaration(targetStatement);
+            addedSupportDeclaration = true;
           }
         }
+        externalDeclarations.push(...importedNodeModuleDeclarations);
         const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
         const namespaceImportType = Object.keys(namespaceExportProperties).length > 0
           ? objectTypeWithProperties(namespaceExportProperties)
@@ -1446,10 +1629,6 @@ export async function collectAllImportedDeclarations(
       continue;
     }
 
-    const wantedNames = new Set(
-      importStatement.specifiers.map((specifier) => specifier.imported.name)
-    );
-
     const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
     const exportedNames = new Set<string>();
 
@@ -1527,17 +1706,26 @@ export async function collectImportedTypeDeclarations(
     const importStatement = statement as ImportStatement;
     const targetFilePath = await resolveImportTargetInContext(currentFilePath, importStatement.from.value, context);
     if (!targetFilePath) {
-      // Bare specifier — load all declarations from node_modules typings so
-      // named types (namespaces, interfaces) resolve for member access.
+      const wantedNames = new Set(
+        importStatement.specifiers.map((specifier) => specifier.imported.name)
+      );
       const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
       if (nodeModuleTypings) {
+        if (nodeModuleTypings.defaultExportName && (importStatement.defaultImport || importStatement.namespaceImport)) {
+          wantedNames.add(nodeModuleTypings.defaultExportName);
+        }
         for (const targetStatement of nodeModuleTypings.declarations) {
-          // For node_modules .d.ts files, include all top-level declarations
-          // (namespaces, functions, interfaces, classes) without filtering so
-          // member resolution works for named types like `moment.parseZone`.
-          if (!seen.has(targetStatement as ImportableDeclaration)) {
-            seen.add(targetStatement as ImportableDeclaration);
+          if (!shouldIncludeNodeModuleExternalDeclaration(targetStatement, wantedNames)) {
+            continue;
+          }
+          const declaration = unwrapDeclaration(targetStatement);
+          if (!declaration) {
             result.push(targetStatement);
+            continue;
+          }
+          if (!seen.has(declaration)) {
+            seen.add(declaration);
+            result.push(declaration);
           }
         }
       }

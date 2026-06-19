@@ -10,14 +10,11 @@ import {
   mapAnalysisIssueCodeToDiagnosticCode,
   VEXA_DIAGNOSTIC_CODES
 } from "./diagnosticCodes";
+import { DiagnosticTag } from "./diagnosticTags";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
 
 const DocumentDiagnosticReportKind = {
   Full: "full"
-} as const;
-
-const DiagnosticTag = {
-  Unnecessary: 1
 } as const;
 
 function fallbackRange() {

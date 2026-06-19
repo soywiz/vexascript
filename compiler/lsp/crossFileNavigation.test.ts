@@ -244,6 +244,251 @@ describe("cross-file navigation", () => {
     expect(propertyDefinition?.range.start.line).toBe(propertyDefinitionLine);
   });
 
+  it("resolves contextual object-literal property keys to their node_modules declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-object-literal-property-nav-"));
+    const pkgDir = join(root, "node_modules", "pixi.js");
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { Application } from "pixi.js"
+
+      val app = Application()
+      await app.init({
+        width: 480,
+        height: 320,
+        resolution: 1,
+        antial^^^ias: true,
+      })
+    `);
+    const pkgSource = dedent`
+      export interface ApplicationOptions {
+        width?: number;
+        height?: number;
+        resolution?: number;
+        antialias?: boolean;
+      }
+
+      export class Application {
+        init(options: Partial<ApplicationOptions>): Promise<void>;
+      }
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi.js",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), pkgSource, "utf8");
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const pkgLines = pkgSource.split("\n");
+    const antialiasLine = pkgLines.findIndex((line) => line.includes("antialias?: boolean"));
+    const hover = await resolveHoverWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect((hover?.contents as { value?: string } | undefined)?.value).toContain("antialias: boolean");
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(location?.range.start.line).toBe(antialiasLine);
+    expect(location?.range.start.character).toBe(2);
+    expect(location?.range.end.character).toBe(11);
+  });
+
+  it("resolves contextual object-literal properties inherited through node_modules mixin namespaces", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-object-literal-mixin-property-nav-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    const appDir = join(pkgDir, "app");
+    const renderingDir = join(pkgDir, "rendering");
+    const renderersDir = join(renderingDir, "renderers");
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { Application } from "pixi-like"
+
+      val app = Application()
+      await app.init({
+        width: 480,
+        antial^^^ias: true,
+      })
+    `);
+
+    await mkdir(appDir, { recursive: true });
+    await mkdir(join(renderersDir, "gl"), { recursive: true });
+    await mkdir(join(renderersDir, "shared", "system"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi-like",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export * from "./app/Application";
+        export * from "./rendering/RenderingMixins";
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(appDir, "Application.d.ts"),
+      dedent`
+        import type { AutoDetectOptions } from "../rendering/renderers/autoDetectRenderer";
+
+        export interface ApplicationOptions extends AutoDetectOptions, PixiMixins.ApplicationOptions {
+        }
+
+        export declare class Application {
+          init(options?: Partial<ApplicationOptions>): Promise<void>;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(renderingDir, "RenderingMixins.d.ts"),
+      dedent`
+        declare global {
+          namespace PixiMixins {
+            interface ApplicationOptions {
+            }
+
+            interface RendererOptions {
+              width?: number;
+            }
+
+            interface WebGLOptions {
+            }
+          }
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(renderersDir, "autoDetectRenderer.d.ts"),
+      dedent`
+        import type { RendererOptions } from "./types";
+
+        export interface AutoDetectOptions extends RendererOptions {
+          preference?: "webgl" | "webgpu" | "canvas";
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(renderersDir, "types.d.ts"),
+      dedent`
+        import type { WebGLOptions } from "./gl/WebGLRenderer";
+
+        export interface RendererOptions extends WebGLOptions {
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(renderersDir, "gl", "WebGLRenderer.d.ts"),
+      dedent`
+        import type { SharedRendererOptions } from "../shared/system/SharedSystems";
+
+        export interface WebGLOptions extends SharedRendererOptions, PixiMixins.WebGLOptions {
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(renderersDir, "shared", "system", "SharedSystems.d.ts"),
+      dedent`
+        export type ExtractRendererOptions<T> = ViewSystemOptions;
+
+        export interface ViewSystemOptions {
+          antialias?: boolean;
+        }
+
+        export interface SharedRendererOptions extends ExtractRendererOptions<typeof SharedSystems>, PixiMixins.RendererOptions {
+          skipExtensionImports?: boolean;
+        }
+
+        export declare const SharedSystems: unknown[];
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const sharedSystemsSource = await readFile(join(renderersDir, "shared", "system", "SharedSystems.d.ts"), "utf8");
+    const antialiasLine = sharedSystemsSource.split("\n").findIndex((line) => line.includes("antialias?: boolean"));
+    const hover = await resolveHoverWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect((hover?.contents as { value?: string } | undefined)?.value).toContain("antialias: boolean");
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(join(renderersDir, "shared", "system", "SharedSystems.d.ts")).toString());
+    expect(location?.range.start.line).toBe(antialiasLine);
+  });
+
   it("navigates node_modules members inherited through qualified namespace mixins", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-node-module-mixin-members-"));
     const pkgDir = join(root, "node_modules", "pixi-like");
@@ -320,6 +565,241 @@ describe("cross-file navigation", () => {
 
     expect(definition?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
     expect(definition?.range.start.line).toBe(definitionLine);
+  });
+
+  it("resolves go-to-definition for members on node_modules union receiver types", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-union-member-nav-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { Application } from "pixi-like"
+
+      val app = Application()
+      app.renderer.resi^^^ze(480, 320, 1)
+    `);
+    const pkgSource = dedent`
+      export declare class WebGLRenderer {
+        resize(desiredScreenWidth: number, desiredScreenHeight: number, resolution: number): void;
+      }
+
+      export declare class WebGPURenderer {
+        resize(desiredScreenWidth: number, desiredScreenHeight: number, resolution: number): void;
+      }
+
+      export declare class CanvasRenderer {
+        resize(desiredScreenWidth: number, desiredScreenHeight: number, resolution: number): void;
+      }
+
+      export type Renderer = WebGLRenderer | WebGPURenderer | CanvasRenderer;
+
+      export declare class Application {
+        renderer: Renderer;
+      }
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi-like",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), pkgSource, "utf8");
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const pkgLines = pkgSource.split("\n");
+    const resizeLine = pkgLines.findIndex((line) => line.includes("resize(desiredScreenWidth"));
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(location?.range.start.line).toBe(resizeLine);
+  });
+
+  it("resolves inherited node_modules accessor members to their base declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-accessor-member-nav-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { Text } from "pixi-like"
+
+      val label = Text()
+      label.te^^^xt = "Hello"
+    `);
+    const pkgSource = dedent`
+      export type TextString = string | number;
+
+      export declare abstract class AbstractText {
+        set text(value: TextString);
+        get text(): string;
+      }
+
+      export interface Text extends AbstractText {
+      }
+
+      export declare class Text extends AbstractText {
+        constructor();
+      }
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi-like",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), pkgSource, "utf8");
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const pkgLines = pkgSource.split("\n");
+    const textLine = pkgLines.findIndex((line) => line.includes("set text(value: TextString);"));
+    const hover = await resolveHoverWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect((hover?.contents as { value?: string } | undefined)?.value).toContain("text:");
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(location?.range.start.line).toBe(textLine);
+  });
+
+  it("resolves node_modules inherited members through export-star barrels to the original declaration file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-barrel-member-nav-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    const textDir = join(pkgDir, "scene", "text");
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { Text } from "pixi-like"
+
+      val label = Text()
+      label.te^^^xt = "Hello"
+    `);
+    const indexSource = dedent`
+      export * from "./scene/text/Text";
+    `;
+    const textSource = dedent`
+      import { AbstractText, type TextString } from "./AbstractText";
+
+      export interface Text extends AbstractText {
+      }
+
+      export declare class Text extends AbstractText {
+        constructor();
+      }
+    `;
+    const abstractTextSource = dedent`
+      export type TextString = string | number;
+
+      export declare abstract class AbstractText {
+        set text(value: TextString);
+        get text(): string;
+      }
+    `;
+
+    await mkdir(textDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi-like",
+        types: "index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), indexSource, "utf8");
+    await writeFile(join(textDir, "Text.d.ts"), textSource, "utf8");
+    await writeFile(join(textDir, "AbstractText.d.ts"), abstractTextSource, "utf8");
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const abstractLines = abstractTextSource.split("\n");
+    const textLine = abstractLines.findIndex((line) => line.includes("set text(value: TextString);"));
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(join(textDir, "AbstractText.d.ts")).toString());
+    expect(location?.range.start.line).toBe(textLine);
   });
 
   it("resolves go-to-definition from member access to class member declaration", async () => {
@@ -3221,6 +3701,90 @@ describe("cross-file navigation", () => {
       expect(location).not.toBeNull();
       expect(location?.uri.endsWith("/node_modules/preact/src/index.d.ts")).toBe(true);
       expect((hover?.contents as { value?: string } | undefined)?.value).toContain("Component");
+    });
+
+    it("navigates contextual node_modules object literal properties to the reexported source declaration", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
+      const pkgDir = join(root, "node_modules", "pixi-like");
+      const mainPath = join(root, "main.vx");
+      const marked = sourceWithCursor(dedent`
+        import { TextStyle } from "pixi-like"
+
+        val style = TextStyle({
+          fo^^^ntSize: 24,
+        })
+      `);
+
+      await mkdir(join(pkgDir, "scene", "text"), { recursive: true });
+      await writeFile(
+        join(pkgDir, "package.json"),
+        JSON.stringify({
+          name: "pixi-like",
+          types: "index.d.ts"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "index.d.ts"),
+        dedent`
+          export * from "./scene/text/TextStyle";
+        `,
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "scene", "text", "TextStyle.d.ts"),
+        dedent`
+          export interface TextStyleOptions {
+            fill?: number;
+            fontSize?: number | string;
+          }
+
+          export declare class TextStyle {
+            constructor(options?: Partial<TextStyleOptions>);
+          }
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, marked.source, "utf8");
+
+      const baseSession = createAnalysisSession(marked.source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const session = createAnalysisSession(
+        marked.source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        new Map(),
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const hover = await resolveHoverWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect(location).not.toBeNull();
+      expect(location?.uri.endsWith("/node_modules/pixi-like/scene/text/TextStyle.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBe(2);
+      expect((hover?.contents as { value?: string } | undefined)?.value).toBe("fontSize: number | string");
     });
 
     it("falls back to local definition when no cross-file resolution matches", async () => {

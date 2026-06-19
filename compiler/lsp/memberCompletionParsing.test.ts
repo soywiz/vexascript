@@ -38,6 +38,29 @@ describe("memberCompletionParsing", () => {
       receiverEndCharacter: 16,
       prefix: "len"
     });
+
+    const chainOperator = sourceWithCursor("build()..val^^^ue");
+    expect(findMemberAccessDot(chainOperator.source, chainOperator.line, chainOperator.character)).toEqual({
+      dotCharacter: 8,
+      receiverEndCharacter: 7,
+      prefix: "val"
+    });
+  });
+
+  it("finds leading dots on continuation lines", () => {
+    const continued = sourceWithCursor("build()\n  .val^^^ue");
+    expect(findMemberAccessDot(continued.source, continued.line, continued.character)).toEqual({
+      dotCharacter: 2,
+      receiverEndCharacter: null,
+      prefix: "val"
+    });
+
+    const continuedChain = sourceWithCursor("build()\n  ..val^^^ue");
+    expect(findMemberAccessDot(continuedChain.source, continuedChain.line, continuedChain.character)).toEqual({
+      dotCharacter: 3,
+      receiverEndCharacter: null,
+      prefix: "val"
+    });
   });
 
   it("rejects non-member-access dots such as decimal literals", () => {

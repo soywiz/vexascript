@@ -3,7 +3,11 @@ import type { Program } from "compiler/ast/ast";
 import type { ClassResolverCache, ClassResolverOptions } from "./classResolver";
 import type { CompletionRequestOptions } from "./completionModel";
 import { findMemberAccessDot } from "./memberCompletionParsing";
-import { receiverTypeNameEndingAt } from "./memberCompletionTypeNames";
+import {
+  receiverTypeNameBeforePosition,
+  receiverTypeNameEndingAt,
+  receiverTypeNameFromContainingMemberAccess
+} from "./memberCompletionTypeNames";
 import type { CompletionItem } from "vscode-languageserver/node.js";
 
 export interface AnalyzedReceiverCompletionResult {
@@ -40,7 +44,11 @@ export async function buildAnalyzedReceiverMemberAccessCompletions(
     };
   }
 
-  const receiverTypeName = receiverTypeNameEndingAt(analysis, line, dot.receiverEndCharacter);
+  const receiverTypeName =
+    receiverTypeNameFromContainingMemberAccess(analysis, line, character) ??
+    (dot.receiverEndCharacter !== null
+      ? receiverTypeNameEndingAt(analysis, line, dot.receiverEndCharacter)
+      : receiverTypeNameBeforePosition(analysis, line, dot.dotCharacter));
   if (!receiverTypeName || receiverTypeName === "unknown") {
     return {
       foundDot: true,

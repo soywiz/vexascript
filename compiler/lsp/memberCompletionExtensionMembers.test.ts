@@ -113,4 +113,88 @@ describe("memberCompletionExtensionMembers", () => {
     expect(byLabel.get("seconds")?.detail).toBe("Extension property: number");
     expect(byLabel.get("clamp")?.detail).toBe("Extension method: number");
   });
+
+  it("offers imported extension members declared on a base class for subclass receivers", async () => {
+    const entryPath = "/workspace/main.vx";
+    const runtimePath = "/workspace/pixi.vx";
+    const utilsPath = "/workspace/utils.vx";
+    const runtimeSource = dedent`
+      export class Container {}
+      export class Graphics extends Container {}
+    `;
+    const utilsSource = dedent`
+      import { Container } from "./pixi"
+      export fun Container.addTo(other: Container) {}
+    `;
+    const entrySource = dedent`
+      import { Graphics } from "./pixi"
+      import { addTo } from "./utils"
+      fun demo() {
+        Graphics().
+      }
+    `;
+    const entrySession = createAnalysisSession(entrySource);
+    const runtimeSession = createAnalysisSession(runtimeSource);
+    const utilsSession = createAnalysisSession(utilsSource);
+    const getSessionForFilePath = async (filePath: string) => {
+      if (filePath === entryPath) {
+        return entrySession;
+      }
+      if (filePath === runtimePath) {
+        return runtimeSession;
+      }
+      if (filePath === utilsPath) {
+        return utilsSession;
+      }
+      return null;
+    };
+
+    class TestVfs extends Vfs {
+      override async readFile(filePath: string): Promise<string> {
+        if (filePath === entryPath) {
+          return entrySource;
+        }
+        if (filePath === runtimePath) {
+          return runtimeSource;
+        }
+        if (filePath === utilsPath) {
+          return utilsSource;
+        }
+        throw new Error(`Unexpected file read: ${filePath}`);
+      }
+
+      override async stat(filePath: string) {
+        if (filePath === entryPath || filePath === runtimePath || filePath === utilsPath) {
+          return { mtimeMs: 0, isFile: true, isDirectory: false };
+        }
+        throw new Error(`Unexpected stat: ${filePath}`);
+      }
+
+      override async writeFile(): Promise<void> {
+        throw new Error("Not implemented in test");
+      }
+
+      override async unlink(): Promise<void> {
+        throw new Error("Not implemented in test");
+      }
+
+      override async readDir(): Promise<[]> {
+        return [];
+      }
+    }
+
+    const items = await buildExtensionMemberCompletionItems(
+      entrySession.ast!,
+      "Graphics",
+      "add",
+      {
+        uri: "file:///workspace/main.vx",
+        getSessionForFilePath,
+        vfs: new TestVfs()
+      },
+      entrySession.analysis
+    );
+
+    expect(items.some((item) => item.label === "addTo" && item.detail === "Extension method: Container")).toBe(true);
+  });
 });

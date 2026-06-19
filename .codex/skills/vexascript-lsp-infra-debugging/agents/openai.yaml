@@ -1,3 +1,3 @@
 display_name: VexaScript LSP Infra Debugging
-short_description: Debug VexaScript LSP infra issues.
-default_prompt: Use this skill to debug a VexaScript editor or compiler issue that only appears through the LSP, VS Code, samples, bundling, or generated runtime output.
+short_description: Debug VexaScript LSP infra and performance issues.
+default_prompt: Use this skill to debug a VexaScript editor, compiler, or latency issue that only appears through the LSP, VS Code, samples, bundling, or generated runtime output.

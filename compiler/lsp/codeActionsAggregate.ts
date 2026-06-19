@@ -58,6 +58,7 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
     : {};
 
   const actions: CodeAction[] = [];
+  const hasDiagnostics = diagnostics.length > 0;
 
   const replacements = findDeclarationKeywordReplacementsAtPosition(
     ast,
@@ -164,61 +165,63 @@ export async function collectCodeActions(params: CollectCodeActionsParams): Prom
   // Intentionally disabled for now, but keep the implementation in
   // assignVariableFixes.ts so it can be re-enabled without rebuilding it.
 
-  actions.push(
-    ...await createAutoImportCodeActions({
-      uri,
-      ast,
-      diagnostics,
-      sourceRoots,
-      ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {})
-    })
-  );
+  if (hasDiagnostics) {
+    actions.push(
+      ...await createAutoImportCodeActions({
+        uri,
+        ast,
+        diagnostics,
+        sourceRoots,
+        ...(params.getExportedSymbols ? { getExportedSymbols: params.getExportedSymbols } : {})
+      })
+    );
 
-  actions.push(
-    ...createCallFixCodeActions({
-      uri,
-      text,
-      ast,
-      analysis,
-      diagnostics
-    })
-  );
+    actions.push(
+      ...createCallFixCodeActions({
+        uri,
+        text,
+        ast,
+        analysis,
+        diagnostics
+      })
+    );
 
-  actions.push(
-    ...await createCreateMemberCodeActions({
-      uri,
-      ast,
-      analysis,
-      diagnostics,
-      sourceRoots,
-      ...crossFile
-    })
-  );
+    actions.push(
+      ...await createCreateMemberCodeActions({
+        uri,
+        ast,
+        analysis,
+        diagnostics,
+        sourceRoots,
+        ...crossFile
+      })
+    );
 
-  actions.push(
-    ...await createTypeFixCodeActions({
-      uri,
-      text,
-      ast,
-      analysis,
-      diagnostics,
-      sourceRoots,
-      ...crossFile,
-      ...(params.refreshDiagnosticsCommand
-        ? { commandName: params.refreshDiagnosticsCommand }
-        : {})
-    })
-  );
+    actions.push(
+      ...await createTypeFixCodeActions({
+        uri,
+        text,
+        ast,
+        analysis,
+        diagnostics,
+        sourceRoots,
+        ...crossFile,
+        ...(params.refreshDiagnosticsCommand
+          ? { commandName: params.refreshDiagnosticsCommand }
+          : {})
+      })
+    );
 
-  actions.push(
-    ...await createInterfaceImplementationCodeActions({
-      uri,
-      ast,
-      diagnostics,
-      sourceRoots,
-      ...crossFile
-    })
-  );
+    actions.push(
+      ...await createInterfaceImplementationCodeActions({
+        uri,
+        ast,
+        diagnostics,
+        sourceRoots,
+        ...crossFile
+      })
+    );
+  }
 
   return actions;
 }

@@ -18,6 +18,7 @@ import type {
   Diagnostic,
   InitializeParams,
   Range,
+  SemanticTokens,
   TextDocuments,
   TextEdit
 } from "vscode-languageserver/node.js";
@@ -30,7 +31,7 @@ import { collectCodeActions } from "./codeActionsAggregate";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
-import { collectDeprecatedDiagnostics } from "./deprecatedDiagnostics";
+import { createDeprecatedDiagnosticsFromRanges } from "./deprecatedDiagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
 import { buildAmbientModuleSymbolExports, buildAutoImportSuggestions, buildSymbolExports, uriToFilePath } from "./importFixes";
@@ -56,9 +57,12 @@ import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 export { candidateCharacters } from "./navigation";
 import {
   createSemanticTokens,
+  DEPRECATED_TOKEN_MODIFIER,
+  semanticTokenRangeKey,
   VEXA_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
-import { collectDeprecatedSemanticTokenModifiers } from "./deprecatedSemanticTokens";
+import { collectDeprecatedMemberRanges } from "./deprecatedSemanticTokens";
+import type { DeprecatedMemberRange } from "./deprecatedSemanticTokens";
 import {
   createDocumentHighlights,
   createFoldingRanges,
@@ -126,9 +130,98 @@ export function startLspServer(options: LspServerOptions): void {
   let inlayHintsParameters = false;
   let inlayHintsTypes = false;
   let referenceCodeLensEnabled = false;
+  let lspTimingsEnabled = false;
+  let lspTimingCacheEventsEnabled = false;
+  const documentDiagnosticCache = new Map<string, { version: number; promise: Promise<{ items: Diagnostic[]; resultId: string }> }>();
+  const workspaceDiagnosticCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
+  const crossFileTypeDiagnosticsCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
+  const deprecatedMemberRangesCache = new Map<string, { version: number; promise: Promise<DeprecatedMemberRange[]> }>();
+  const deprecatedSemanticTokenModifiersCache = new Map<string, { version: number; promise: Promise<Map<string, number>> }>();
+  const workspaceMemberDiagnosticsCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
+  const semanticTokensCache = new Map<string, { version: number; promise: Promise<SemanticTokens> }>();
+  const codeActionCache = new Map<string, { version: number; promise: Promise<ReturnType<typeof deferCodeActions>> }>();
+
+  function nowMs(): number {
+    return typeof globalThis.performance?.now === "function"
+      ? globalThis.performance.now()
+      : Date.now();
+  }
+
+  function formatDurationMs(durationMs: number): string {
+    return durationMs >= 10 ? durationMs.toFixed(1) : durationMs.toFixed(2);
+  }
+
+  function logTimingMessage(message: string): void {
+    if (lspTimingsEnabled) {
+      connection.console.info(`[Timing] ${message}`);
+    }
+  }
+
+  async function logTimedOperation<T>(name: string, run: () => Promise<T> | T): Promise<T> {
+    const startedAt = nowMs();
+    try {
+      return await run();
+    } finally {
+      logTimingMessage(`${name} took ${formatDurationMs(nowMs() - startedAt)}ms`);
+    }
+  }
+
+  function logTimedOperationSync<T>(name: string, run: () => T): T {
+    const startedAt = nowMs();
+    try {
+      return run();
+    } finally {
+      logTimingMessage(`${name} took ${formatDurationMs(nowMs() - startedAt)}ms`);
+    }
+  }
+
+  async function logTimedPhase<T>(operationName: string, phaseName: string, run: () => Promise<T> | T): Promise<T> {
+    const startedAt = nowMs();
+    try {
+      return await run();
+    } finally {
+      logTimingMessage(`${operationName}::${phaseName} took ${formatDurationMs(nowMs() - startedAt)}ms`);
+    }
+  }
+
+  function logCacheState(operationName: string, state: "hit" | "miss", version: number): void {
+    if (lspTimingCacheEventsEnabled) {
+      logTimingMessage(`${operationName} cache ${state} v${version}`);
+    }
+  }
 
   function refreshDiagnostics(): void {
     connection.languages.diagnostics.refresh();
+  }
+
+  function invalidateDocumentCaches(uri: string): void {
+    documentDiagnosticCache.delete(uri);
+    workspaceDiagnosticCache.delete(uri);
+    crossFileTypeDiagnosticsCache.delete(uri);
+    deprecatedMemberRangesCache.delete(uri);
+    deprecatedSemanticTokenModifiersCache.delete(uri);
+    workspaceMemberDiagnosticsCache.delete(uri);
+    for (const key of codeActionCache.keys()) {
+      if (key.startsWith(`${uri}|`)) {
+        codeActionCache.delete(key);
+      }
+    }
+    for (const key of semanticTokensCache.keys()) {
+      if (key.startsWith(`${uri}|`)) {
+        semanticTokensCache.delete(key);
+      }
+    }
+  }
+
+  function invalidateAllCaches(): void {
+    documentDiagnosticCache.clear();
+    workspaceDiagnosticCache.clear();
+    crossFileTypeDiagnosticsCache.clear();
+    deprecatedMemberRangesCache.clear();
+    deprecatedSemanticTokenModifiersCache.clear();
+    workspaceMemberDiagnosticsCache.clear();
+    semanticTokensCache.clear();
+    codeActionCache.clear();
   }
 
   function featureContext(uri: string) {
@@ -151,11 +244,10 @@ export function startLspServer(options: LspServerOptions): void {
 
   async function collectWorkspaceDiagnosticsForDocument(doc: TextDocument): Promise<Diagnostic[]> {
     const session = await analysisSessions.getForDocumentAsync(doc);
-    const context = { ...featureContext(doc.uri), session };
     const [crossFileDiagnostics, crossFileTypeDiagnostics, deprecatedDiagnostics] = await Promise.all([
-      collectCrossFileMemberDiagnostics(context),
-      collectCrossFileTypeDiagnostics(context),
-      collectDeprecatedDiagnostics(context)
+      getWorkspaceMemberDiagnosticsForDocument(doc, session),
+      getCrossFileTypeDiagnosticsForDocument(doc, session),
+      getDeprecatedDiagnosticsForDocument(doc, session)
     ]);
     const sameFileKeys = new Set(
       session.semanticIssues.map((issue) => {
@@ -172,88 +264,260 @@ export function startLspServer(options: LspServerOptions): void {
     });
   }
 
-  connection.onInitialize((params) => {
-    environment.onInitialize?.(params);
-    referenceCodeLensEnabled = params.initializationOptions?.enableReferenceCodeLens === true;
-    inlayHintsParameters = params.initializationOptions?.enableInlayHintsParameters !== false;
-    inlayHintsTypes = params.initializationOptions?.enableInlayHintsTypes !== false;
-    return {
-      serverInfo: {
-        name: "VexaScript",
-        version: COMPILER_VERSION
-      },
-      capabilities: {
-        textDocumentSync: TextDocumentSyncKind.Incremental,
-        completionProvider: {
-          resolveProvider: false,
-          triggerCharacters: [".", "@"]
-        },
-        codeActionProvider: {
-          resolveProvider: true
-        },
-        ...(workspace
-          ? { executeCommandProvider: { commands: [workspace.refreshDiagnosticsCommand] } }
-          : {}),
-        documentFormattingProvider: true,
-        documentRangeFormattingProvider: true,
-        definitionProvider: true,
-        declarationProvider: true,
-        typeDefinitionProvider: true,
-        implementationProvider: true,
-        documentHighlightProvider: true,
-        ...(referenceCodeLensEnabled ? { codeLensProvider: { resolveProvider: false } } : {}),
-        foldingRangeProvider: true,
-        selectionRangeProvider: true,
-        linkedEditingRangeProvider: true,
-        callHierarchyProvider: true,
-        diagnosticProvider: {
-          interFileDependencies: workspace !== undefined,
-          workspaceDiagnostics: workspace !== undefined
-        },
-        documentOnTypeFormattingProvider: {
-          firstTriggerCharacter: "\n",
-          moreTriggerCharacter: ["}"]
-        },
-        hoverProvider: true,
-        referencesProvider: true,
-        signatureHelpProvider: {
-          triggerCharacters: ["(", ","],
-          retriggerCharacters: [","]
-        },
-        documentSymbolProvider: true,
-        ...(workspace ? { workspaceSymbolProvider: true } : {}),
-        semanticTokensProvider: {
-          legend: VEXA_SEMANTIC_TOKENS_LEGEND,
-          full: true,
-          range: true
-        },
-        inlayHintProvider: true,
-        renameProvider: {
-          prepareProvider: true
+  async function getCrossFileTypeDiagnosticsForDocument(
+    doc: TextDocument,
+    session?: AnalysisSession
+  ): Promise<Diagnostic[]> {
+    const cached = crossFileTypeDiagnosticsCache.get(doc.uri);
+    if (cached && cached.version === doc.version) {
+      logCacheState("crossFileTypeDiagnostics", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("crossFileTypeDiagnostics", "miss", doc.version);
+    const promise = (async () => {
+      const resolvedSession = session ?? await logTimedPhase("crossFileTypeDiagnostics", "analysisSession", () =>
+        analysisSessions.getForDocumentAsync(doc)
+      );
+      return logTimedPhase("crossFileTypeDiagnostics", "collect", () =>
+        collectCrossFileTypeDiagnostics({
+          ...featureContext(doc.uri),
+          session: resolvedSession
+        })
+      );
+    })();
+    crossFileTypeDiagnosticsCache.set(doc.uri, { version: doc.version, promise });
+    return promise;
+  }
+
+  async function getDeprecatedMemberRangesForDocument(
+    doc: TextDocument,
+    session?: AnalysisSession
+  ): Promise<DeprecatedMemberRange[]> {
+    const cached = deprecatedMemberRangesCache.get(doc.uri);
+    if (cached && cached.version === doc.version) {
+      logCacheState("deprecatedMemberRanges", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("deprecatedMemberRanges", "miss", doc.version);
+    const promise = (async () => {
+      const resolvedSession = session ?? await logTimedPhase("deprecatedMemberRanges", "analysisSession", () =>
+        analysisSessions.getForDocumentAsync(doc)
+      );
+      return logTimedPhase("deprecatedMemberRanges", "collect", () =>
+        collectDeprecatedMemberRanges({
+          ...featureContext(doc.uri),
+          session: resolvedSession
+        })
+      );
+    })();
+    deprecatedMemberRangesCache.set(doc.uri, { version: doc.version, promise });
+    return promise;
+  }
+
+  async function getDeprecatedDiagnosticsForDocument(
+    doc: TextDocument,
+    session?: AnalysisSession
+  ): Promise<Diagnostic[]> {
+    return createDeprecatedDiagnosticsFromRanges(
+      await getDeprecatedMemberRangesForDocument(doc, session)
+    );
+  }
+
+  async function getWorkspaceMemberDiagnosticsForDocument(
+    doc: TextDocument,
+    session?: AnalysisSession
+  ): Promise<Diagnostic[]> {
+    const cached = workspaceMemberDiagnosticsCache.get(doc.uri);
+    if (cached && cached.version === doc.version) {
+      logCacheState("workspaceMemberDiagnostics", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("workspaceMemberDiagnostics", "miss", doc.version);
+    const promise = (async () => {
+      const resolvedSession = session ?? await logTimedPhase("workspaceMemberDiagnostics", "analysisSession", () =>
+        analysisSessions.getForDocumentAsync(doc)
+      );
+      return logTimedPhase("workspaceMemberDiagnostics", "collect", () =>
+        collectCrossFileMemberDiagnostics({
+          ...featureContext(doc.uri),
+          session: resolvedSession
+        })
+      );
+    })();
+    workspaceMemberDiagnosticsCache.set(doc.uri, { version: doc.version, promise });
+    return promise;
+  }
+
+  async function getDocumentDiagnosticArtifacts(doc: TextDocument): Promise<{ items: Diagnostic[]; resultId: string }> {
+    const cached = documentDiagnosticCache.get(doc.uri);
+    if (cached && cached.version === doc.version) {
+      logCacheState("textDocument/diagnostic", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("textDocument/diagnostic", "miss", doc.version);
+    const promise = logTimedOperation("textDocument/diagnostic", async () => {
+      const session = await logTimedPhase("textDocument/diagnostic", "analysisSession", () =>
+        analysisSessions.getForDocumentAsync(doc)
+      );
+      const [moduleNotFoundDiagnostics, crossFileTypeDiagnostics, deprecatedDiagnostics] = await Promise.all([
+        logTimedPhase("textDocument/diagnostic", "moduleNotFoundDiagnostics", () =>
+          collectModuleNotFoundDiagnostics({
+            uri: doc.uri,
+            session,
+            getSessionForFilePath: environment.getSessionForFilePath
+          })
+        ),
+        logTimedPhase("textDocument/diagnostic", "crossFileTypeDiagnostics", () =>
+          getCrossFileTypeDiagnosticsForDocument(doc, session)
+        ),
+        logTimedPhase("textDocument/diagnostic", "deprecatedDiagnostics", () =>
+          getDeprecatedDiagnosticsForDocument(doc, session)
+        )
+      ]);
+      const syncDiagnostics = await logTimedPhase("textDocument/diagnostic", "localDiagnostics", () =>
+        collectDiagnosticsFromSession(session, doc.getText(), (offset) => doc.positionAt(offset))
+      );
+      return {
+        items: [...syncDiagnostics, ...moduleNotFoundDiagnostics, ...crossFileTypeDiagnostics, ...deprecatedDiagnostics],
+        resultId: String(doc.version)
+      };
+    });
+    documentDiagnosticCache.set(doc.uri, { version: doc.version, promise });
+    return promise;
+  }
+
+  async function getWorkspaceDiagnosticsForDocument(doc: TextDocument): Promise<Diagnostic[]> {
+    const cached = workspaceDiagnosticCache.get(doc.uri);
+    if (cached && cached.version === doc.version) {
+      logCacheState("workspace/diagnostic", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("workspace/diagnostic", "miss", doc.version);
+    const promise = collectWorkspaceDiagnosticsForDocument(doc);
+    workspaceDiagnosticCache.set(doc.uri, { version: doc.version, promise });
+    return promise;
+  }
+
+  async function getDeprecatedSemanticTokenModifiers(doc: TextDocument): Promise<Map<string, number>> {
+    const cached = deprecatedSemanticTokenModifiersCache.get(doc.uri);
+    if (cached && cached.version === doc.version) {
+      logCacheState("deprecatedSemanticTokenModifiers", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("deprecatedSemanticTokenModifiers", "miss", doc.version);
+    const promise = (async () => {
+      const ranges = await logTimedPhase("deprecatedSemanticTokenModifiers", "deprecatedMemberRanges", () =>
+        getDeprecatedMemberRangesForDocument(doc)
+      );
+      return logTimedPhase("deprecatedSemanticTokenModifiers", "buildMap", () => {
+        const tokenModifiers = new Map<string, number>();
+        for (const member of ranges) {
+          const key = semanticTokenRangeKey(member.range);
+          tokenModifiers.set(key, (tokenModifiers.get(key) ?? 0) | DEPRECATED_TOKEN_MODIFIER);
         }
-      }
-    };
-  });
+        return tokenModifiers;
+      });
+    })();
+    deprecatedSemanticTokenModifiersCache.set(doc.uri, { version: doc.version, promise });
+    return promise;
+  }
+
+  connection.onInitialize((params) =>
+    logTimedOperationSync("initialize", () => {
+      environment.onInitialize?.(params);
+      referenceCodeLensEnabled = params.initializationOptions?.enableReferenceCodeLens === true;
+      inlayHintsParameters = params.initializationOptions?.enableInlayHintsParameters !== false;
+      inlayHintsTypes = params.initializationOptions?.enableInlayHintsTypes !== false;
+      lspTimingsEnabled = params.initializationOptions?.enableLspTimings === true;
+      lspTimingCacheEventsEnabled =
+        lspTimingsEnabled && params.initializationOptions?.enableLspTimingCacheEvents === true;
+      return {
+        serverInfo: {
+          name: "VexaScript",
+          version: COMPILER_VERSION
+        },
+        capabilities: {
+          textDocumentSync: TextDocumentSyncKind.Incremental,
+          completionProvider: {
+            resolveProvider: false,
+            triggerCharacters: [".", "@", ":"]
+          },
+          codeActionProvider: {
+            resolveProvider: true
+          },
+          ...(workspace
+            ? { executeCommandProvider: { commands: [workspace.refreshDiagnosticsCommand] } }
+            : {}),
+          documentFormattingProvider: true,
+          documentRangeFormattingProvider: true,
+          definitionProvider: true,
+          declarationProvider: true,
+          typeDefinitionProvider: true,
+          implementationProvider: true,
+          documentHighlightProvider: true,
+          ...(referenceCodeLensEnabled ? { codeLensProvider: { resolveProvider: false } } : {}),
+          foldingRangeProvider: true,
+          selectionRangeProvider: true,
+          linkedEditingRangeProvider: true,
+          callHierarchyProvider: true,
+          diagnosticProvider: {
+            interFileDependencies: workspace !== undefined,
+            workspaceDiagnostics: workspace !== undefined
+          },
+          documentOnTypeFormattingProvider: {
+            firstTriggerCharacter: "\n",
+            moreTriggerCharacter: ["}"]
+          },
+          hoverProvider: true,
+          referencesProvider: true,
+          signatureHelpProvider: {
+            triggerCharacters: ["(", ","],
+            retriggerCharacters: [","]
+          },
+          documentSymbolProvider: true,
+          ...(workspace ? { workspaceSymbolProvider: true } : {}),
+          semanticTokensProvider: {
+            legend: VEXA_SEMANTIC_TOKENS_LEGEND,
+            full: true,
+            range: true
+          },
+          inlayHintProvider: true,
+          renameProvider: {
+            prepareProvider: true
+          }
+        }
+      };
+    })
+  );
 
   connection.onInitialized(() => {
     connection.console.info(`VexaScript compiler version: ${COMPILER_VERSION}`);
   });
 
   documents.onDidOpen((event) => {
-    environment.onDocumentOpenedOrChanged?.(event.document);
-    refreshDiagnostics();
+    logTimedOperationSync("textDocument/didOpen", () => {
+      invalidateDocumentCaches(event.document.uri);
+      environment.onDocumentOpenedOrChanged?.(event.document);
+      refreshDiagnostics();
+    });
   });
   documents.onDidChangeContent((event) => {
-    environment.onDocumentOpenedOrChanged?.(event.document);
-    refreshDiagnostics();
+    logTimedOperationSync("textDocument/didChange", () => {
+      invalidateDocumentCaches(event.document.uri);
+      environment.onDocumentOpenedOrChanged?.(event.document);
+      refreshDiagnostics();
+    });
   });
   documents.onDidClose((event) => {
-    analysisSessions.delete(event.document.uri);
-    environment.onDocumentClosed?.(event.document);
-    refreshDiagnostics();
+    logTimedOperationSync("textDocument/didClose", () => {
+      invalidateDocumentCaches(event.document.uri);
+      analysisSessions.delete(event.document.uri);
+      environment.onDocumentClosed?.(event.document);
+      refreshDiagnostics();
+    });
   });
 
-  connection.onCompletion(async (params) => {
+  connection.onCompletion((params) => logTimedOperation("textDocument/completion", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return createKeywordOnlyCompletionItems();
@@ -301,62 +565,92 @@ export function startLspServer(options: LspServerOptions): void {
         )
       }
     );
-  });
+  }));
 
   connection.onCodeAction(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return [];
     }
-
-    const session = await analysisSessions.getForDocumentAsync(doc);
-    if (!session.ast) {
-      return [];
+    const key = [
+      doc.uri,
+      params.range.start.line,
+      params.range.start.character,
+      params.range.end.line,
+      params.range.end.character,
+      ...params.context.diagnostics.map((diagnostic) => [
+        String(diagnostic.code ?? ""),
+        diagnostic.message,
+        diagnostic.range.start.line,
+        diagnostic.range.start.character,
+        diagnostic.range.end.line,
+        diagnostic.range.end.character
+      ].join(":"))
+    ].join("|");
+    const cached = codeActionCache.get(key);
+    if (cached && cached.version === doc.version) {
+      logCacheState("textDocument/codeAction", "hit", doc.version);
+      return cached.promise;
     }
+    logCacheState("textDocument/codeAction", "miss", doc.version);
+    const promise = logTimedOperation("textDocument/codeAction", async () => {
+      const session = await logTimedPhase("textDocument/codeAction", "analysisSession", () =>
+        analysisSessions.getForDocumentAsync(doc)
+      );
+      if (!session.ast) {
+        return [];
+      }
 
-    const actions = await collectCodeActions({
-      ...featureContext(params.textDocument.uri),
-      text: doc.getText(),
-      ast: session.ast,
-      analysis: session.analysis,
-      range: params.range,
-      diagnostics: params.context.diagnostics,
-      getExportedSymbols: () => getExportedSymbolsForSession(session),
-      ...(workspace ? { refreshDiagnosticsCommand: workspace.refreshDiagnosticsCommand } : {})
+      const actions = await logTimedPhase("textDocument/codeAction", "collect", () =>
+        collectCodeActions({
+          ...featureContext(params.textDocument.uri),
+          text: doc.getText(),
+          ast: session.ast,
+          analysis: session.analysis,
+          range: params.range,
+          diagnostics: params.context.diagnostics,
+          getExportedSymbols: () => getExportedSymbolsForSession(session),
+          ...(workspace ? { refreshDiagnosticsCommand: workspace.refreshDiagnosticsCommand } : {})
+        })
+      );
+
+      return deferCodeActions(actions);
     });
-
-    return deferCodeActions(actions);
+    codeActionCache.set(key, { version: doc.version, promise });
+    return promise;
   });
 
-  connection.onCodeActionResolve((action) => {
-    return resolveDeferredCodeAction(action);
-  });
+  connection.onCodeActionResolve((action) =>
+    logTimedOperationSync("codeAction/resolve", () => resolveDeferredCodeAction(action))
+  );
 
   if (workspace) {
     connection.onExecuteCommand((params) => {
-      if (params.command === workspace.refreshDiagnosticsCommand) {
-        refreshDiagnostics();
-      }
+      return logTimedOperationSync("workspace/executeCommand", () => {
+        if (params.command === workspace.refreshDiagnosticsCommand) {
+          refreshDiagnostics();
+        }
+      });
     });
   }
 
-  connection.onDocumentFormatting((params): TextEdit[] => {
+  connection.onDocumentFormatting((params): TextEdit[] => logTimedOperationSync("textDocument/formatting", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return [];
     }
 
     return [createFullDocumentFormatEdit(doc.getText())];
-  });
+  }));
 
-  connection.onDocumentRangeFormatting((params): TextEdit[] => {
+  connection.onDocumentRangeFormatting((params): TextEdit[] => logTimedOperationSync("textDocument/rangeFormatting", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return [];
     }
 
     return [createRangeFormatEdit(doc.getText(), params.range)];
-  });
+  }));
 
   async function resolveDefinition(uri: string, line: number, character: number) {
     const doc = documents.get(uri);
@@ -371,21 +665,29 @@ export function startLspServer(options: LspServerOptions): void {
     });
   }
 
-  connection.onDefinition((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
-  connection.onDeclaration((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
-  connection.onTypeDefinition((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
-  connection.onImplementation((params) => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character));
+  connection.onDefinition((params) =>
+    logTimedOperation("textDocument/definition", () => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character))
+  );
+  connection.onDeclaration((params) =>
+    logTimedOperation("textDocument/declaration", () => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character))
+  );
+  connection.onTypeDefinition((params) =>
+    logTimedOperation("textDocument/typeDefinition", () => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character))
+  );
+  connection.onImplementation((params) =>
+    logTimedOperation("textDocument/implementation", () => resolveDefinition(params.textDocument.uri, params.position.line, params.position.character))
+  );
 
-  connection.onDocumentHighlight(async (params) => {
+  connection.onDocumentHighlight((params) => logTimedOperation("textDocument/documentHighlight", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
     const session = await analysisSessions.getForDocumentAsync(doc);
     return session.analysis
       ? createDocumentHighlights(session.analysis, params.position.line, params.position.character, session.ast ?? undefined)
       : [];
-  });
+  }));
 
-  connection.onHover(async (params) => {
+  connection.onHover((params) => logTimedOperation("textDocument/hover", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return null;
@@ -402,9 +704,9 @@ export function startLspServer(options: LspServerOptions): void {
       character: params.position.character,
       session
     });
-  });
+  }));
 
-  connection.onPrepareRename(async (params) => {
+  connection.onPrepareRename((params) => logTimedOperation("textDocument/prepareRename", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return null;
@@ -421,9 +723,9 @@ export function startLspServer(options: LspServerOptions): void {
       character: params.position.character,
       session
     });
-  });
+  }));
 
-  connection.onRenameRequest(async (params) => {
+  connection.onRenameRequest((params) => logTimedOperation("textDocument/rename", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return null;
@@ -449,7 +751,7 @@ export function startLspServer(options: LspServerOptions): void {
       }
     }
     return null;
-  });
+  }));
 
   connection.languages.diagnostics.on(async (params) => {
     const doc = documents.get(params.textDocument.uri);
@@ -459,32 +761,29 @@ export function startLspServer(options: LspServerOptions): void {
         items: [] as Diagnostic[]
       };
     }
-
-    const session = await analysisSessions.getForDocumentAsync(doc);
-    const context = { ...featureContext(doc.uri), session };
-    const [moduleNotFoundDiagnostics, crossFileTypeDiagnostics, deprecatedDiagnostics] = await Promise.all([
-      collectModuleNotFoundDiagnostics({
-        uri: doc.uri,
-        session,
-        getSessionForFilePath: environment.getSessionForFilePath
-      }),
-      collectCrossFileTypeDiagnostics(context),
-      collectDeprecatedDiagnostics(context)
-    ]);
-    const syncDiagnostics = collectDiagnosticsFromSession(session, doc.getText(), (offset) => doc.positionAt(offset));
+    const { items, resultId } = await getDocumentDiagnosticArtifacts(doc);
     return {
       kind: DocumentDiagnosticReportKind.Full,
-      items: [...syncDiagnostics, ...moduleNotFoundDiagnostics, ...crossFileTypeDiagnostics, ...deprecatedDiagnostics],
-      resultId: String(doc.version)
+      items,
+      resultId
     };
   });
 
   if (workspace) {
     connection.languages.diagnostics.onWorkspace(async () => {
       const docs = documents.all();
+      const staleDocs = docs.filter((doc) => {
+        const cached = workspaceDiagnosticCache.get(doc.uri);
+        return !cached || cached.version !== doc.version;
+      });
+      if (staleDocs.length > 0) {
+        await logTimedOperation("workspace/diagnostic", async () => {
+          await Promise.all(staleDocs.map((doc) => getWorkspaceDiagnosticsForDocument(doc)));
+        });
+      }
       const items = await Promise.all(docs.map(async (doc) => ({
         kind: DocumentDiagnosticReportKind.Full,
-        items: await collectWorkspaceDiagnosticsForDocument(doc),
+        items: await getWorkspaceDiagnosticsForDocument(doc),
         uri: doc.uri,
         version: doc.version,
         resultId: String(doc.version)
@@ -494,7 +793,7 @@ export function startLspServer(options: LspServerOptions): void {
     });
   }
 
-  connection.onReferences(async (params) => {
+  connection.onReferences((params) => logTimedOperation("textDocument/references", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return [];
@@ -513,9 +812,9 @@ export function startLspServer(options: LspServerOptions): void {
       },
       params.context.includeDeclaration
     );
-  });
+  }));
 
-  connection.onSignatureHelp(async (params) => {
+  connection.onSignatureHelp((params) => logTimedOperation("textDocument/signatureHelp", async () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return null;
@@ -536,9 +835,9 @@ export function startLspServer(options: LspServerOptions): void {
         ambientModuleDeclarations: session.ambientModuleDeclarations
       }
     );
-  });
+  }));
 
-  connection.onDocumentSymbol((params) => {
+  connection.onDocumentSymbol((params) => logTimedOperationSync("textDocument/documentSymbol", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return [];
@@ -550,18 +849,18 @@ export function startLspServer(options: LspServerOptions): void {
     }
 
     return createDocumentSymbols(session.ast);
-  });
+  }));
 
   if (workspace) {
-    connection.onWorkspaceSymbol((params) => {
+    connection.onWorkspaceSymbol((params) => logTimedOperation("workspace/symbol", () => {
       return createWorkspaceSymbols({
         sourceRoots: environment.getSourceRoots(),
         query: params.query ?? ""
       });
-    });
+    }));
   }
 
-  connection.languages.inlayHint.on(async (params) => {
+  connection.languages.inlayHint.on((params) => logTimedOperation("textDocument/inlayHint", async () => {
     if (!inlayHintsParameters && !inlayHintsTypes) return [];
 
     const doc = documents.get(params.textDocument.uri);
@@ -581,41 +880,43 @@ export function startLspServer(options: LspServerOptions): void {
       featureContext(params.textDocument.uri),
       { parameters: inlayHintsParameters, types: inlayHintsTypes }
     );
-  });
+  }));
 
-  connection.onCodeLens((params) => {
+  connection.onCodeLens((params) => logTimedOperationSync("textDocument/codeLens", () => {
     if (!referenceCodeLensEnabled) return [];
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
     const session = analysisSessions.getForDocument(doc);
     return session.ast && session.analysis ? createReferenceCodeLenses(session.ast, session.analysis, doc.uri) : [];
-  });
+  }));
 
   // Custom request: the editor asks for the lines that receive an implicit `await` so it can render
   // gutter icons (similar to Kotlin's suspend-call markers). Not part of the standard LSP protocol.
-  connection.onRequest("vexa/autoAwaitDecorations", (params: { textDocument: { uri: string }; range?: Range }) => {
-    const doc = documents.get(params.textDocument.uri);
-    if (!doc) return [];
-    const session = analysisSessions.getForDocument(doc);
-    if (!session.ast || !session.analysis) return [];
-    return createAutoAwaitDecorations(session.ast, session.analysis, params.range);
-  });
+  connection.onRequest("vexa/autoAwaitDecorations", (params: { textDocument: { uri: string }; range?: Range }) =>
+    logTimedOperationSync("vexa/autoAwaitDecorations", () => {
+      const doc = documents.get(params.textDocument.uri);
+      if (!doc) return [];
+      const session = analysisSessions.getForDocument(doc);
+      if (!session.ast || !session.analysis) return [];
+      return createAutoAwaitDecorations(session.ast, session.analysis, params.range);
+    })
+  );
 
-  connection.onFoldingRanges((params) => {
+  connection.onFoldingRanges((params) => logTimedOperationSync("textDocument/foldingRange", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
     const ast = analysisSessions.getForDocument(doc).ast;
     return ast ? createFoldingRanges(ast) : [];
-  });
+  }));
 
-  connection.onSelectionRanges((params) => {
+  connection.onSelectionRanges((params) => logTimedOperationSync("textDocument/selectionRange", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
     const ast = analysisSessions.getForDocument(doc).ast;
     return ast ? createSelectionRanges(ast, params.positions) : [];
-  });
+  }));
 
-  connection.languages.onLinkedEditingRange((params) => {
+  connection.languages.onLinkedEditingRange((params) => logTimedOperationSync("textDocument/linkedEditingRange", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return null;
     const analysis = analysisSessions.getForDocument(doc).analysis;
@@ -626,14 +927,17 @@ export function startLspServer(options: LspServerOptions): void {
       : null;
     const ranges = edit?.changes?.[doc.uri]?.map((entry) => entry.range) ?? [];
     return ranges.length > 1 ? { ranges, wordPattern: "[A-Za-z_][A-Za-z0-9_]*" } : null;
-  });
+  }));
 
-  connection.onDocumentOnTypeFormatting((params) => {
-    const doc = documents.get(params.textDocument.uri);
-    return doc ? createOnTypeFormattingEdits(doc.getText(), params.position, params.ch) : [];
-  });
+  connection.onDocumentOnTypeFormatting((params) =>
+    logTimedOperationSync("textDocument/onTypeFormatting", () => {
+      const doc = documents.get(params.textDocument.uri);
+      return doc ? createOnTypeFormattingEdits(doc.getText(), params.position, params.ch) : [];
+    })
+  );
 
-  connection.onDidChangeConfiguration(async () => {
+  connection.onDidChangeConfiguration((() => logTimedOperation("workspace/didChangeConfiguration", async () => {
+    invalidateAllCaches();
     const config = await connection.workspace.getConfiguration("vexa");
     const newParameters = config?.inlayHints?.parameters !== false;
     const newTypes = config?.inlayHints?.types !== false;
@@ -647,57 +951,75 @@ export function startLspServer(options: LspServerOptions): void {
       referenceCodeLensEnabled = newCodeLensEnabled;
       connection.sendRequest("workspace/codeLens/refresh");
     }
+    lspTimingsEnabled = config?.lsp?.timings?.enabled === true;
+    lspTimingCacheEventsEnabled = lspTimingsEnabled && config?.lsp?.timings?.cacheEvents?.enabled === true;
     refreshDiagnostics();
-  });
+  })) as () => void);
 
   if (workspace) {
     connection.onDidChangeWatchedFiles((params) => {
-      for (const change of params.changes) {
-        const filePath = uriToFilePath(change.uri);
-        if (filePath) workspace.onWatchedFileChanged(filePath);
-      }
-      refreshDiagnostics();
+      return logTimedOperationSync("workspace/didChangeWatchedFiles", () => {
+        invalidateAllCaches();
+        for (const change of params.changes) {
+          const filePath = uriToFilePath(change.uri);
+          if (filePath) workspace.onWatchedFileChanged(filePath);
+        }
+        refreshDiagnostics();
+      });
     });
   }
 
-  connection.languages.callHierarchy.onPrepare((params) => {
+  connection.languages.callHierarchy.onPrepare((params) => logTimedOperationSync("textDocument/prepareCallHierarchy", () => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return null;
     const ast = analysisSessions.getForDocument(doc).ast;
     return ast ? prepareCallHierarchy(ast, doc.uri, params.position) : null;
-  });
+  }));
 
-  connection.languages.callHierarchy.onIncomingCalls((params) => {
+  connection.languages.callHierarchy.onIncomingCalls((params) => logTimedOperationSync("callHierarchy/incomingCalls", () => {
     const doc = documents.get(params.item.uri);
     if (!doc) return [];
     const ast = analysisSessions.getForDocument(doc).ast;
     return ast ? createIncomingCalls(ast, doc.uri, params.item) : [];
-  });
+  }));
 
-  connection.languages.callHierarchy.onOutgoingCalls((params) => {
+  connection.languages.callHierarchy.onOutgoingCalls((params) => logTimedOperationSync("callHierarchy/outgoingCalls", () => {
     const doc = documents.get(params.item.uri);
     if (!doc) return [];
     const ast = analysisSessions.getForDocument(doc).ast;
     return ast ? createOutgoingCalls(ast, doc.uri, params.item) : [];
-  });
+  }));
 
   connection.languages.semanticTokens.on(async (params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) {
       return { data: [] };
     }
-
-    const session = await analysisSessions.getForDocumentAsync(doc);
-    const tokenModifiersByRangeKey = await collectDeprecatedSemanticTokenModifiers({
-      ...featureContext(doc.uri),
-      session
+    const cacheKey = `${doc.uri}|full`;
+    const cached = semanticTokensCache.get(cacheKey);
+    if (cached && cached.version === doc.version) {
+      logCacheState("textDocument/semanticTokens/full", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("textDocument/semanticTokens/full", "miss", doc.version);
+    const promise = logTimedOperation("textDocument/semanticTokens/full", async () => {
+      const session = await logTimedPhase("textDocument/semanticTokens/full", "analysisSession", () =>
+        analysisSessions.getForDocumentAsync(doc)
+      );
+      const tokenModifiersByRangeKey = await logTimedPhase("textDocument/semanticTokens/full", "deprecatedSemanticTokenModifiers", () =>
+        getDeprecatedSemanticTokenModifiers(doc)
+      );
+      return logTimedPhase("textDocument/semanticTokens/full", "buildTokens", () =>
+        createSemanticTokens({
+          text: doc.getText(),
+          ast: session.ast,
+          analysis: session.analysis,
+          tokenModifiersByRangeKey
+        })
+      );
     });
-    return createSemanticTokens({
-      text: doc.getText(),
-      ast: session.ast,
-      analysis: session.analysis,
-      tokenModifiersByRangeKey
-    });
+    semanticTokensCache.set(cacheKey, { version: doc.version, promise });
+    return promise;
   });
 
   connection.languages.semanticTokens.onRange(async (params) => {
@@ -705,19 +1027,32 @@ export function startLspServer(options: LspServerOptions): void {
     if (!doc) {
       return { data: [] };
     }
-
-    const session = await analysisSessions.getForDocumentAsync(doc);
-    const tokenModifiersByRangeKey = await collectDeprecatedSemanticTokenModifiers({
-      ...featureContext(doc.uri),
-      session
+    const cacheKey = `${doc.uri}|range:${params.range.start.line}:${params.range.start.character}:${params.range.end.line}:${params.range.end.character}`;
+    const cached = semanticTokensCache.get(cacheKey);
+    if (cached && cached.version === doc.version) {
+      logCacheState("textDocument/semanticTokens/range", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("textDocument/semanticTokens/range", "miss", doc.version);
+    const promise = logTimedOperation("textDocument/semanticTokens/range", async () => {
+      const session = await logTimedPhase("textDocument/semanticTokens/range", "analysisSession", () =>
+        analysisSessions.getForDocumentAsync(doc)
+      );
+      const tokenModifiersByRangeKey = await logTimedPhase("textDocument/semanticTokens/range", "deprecatedSemanticTokenModifiers", () =>
+        getDeprecatedSemanticTokenModifiers(doc)
+      );
+      return logTimedPhase("textDocument/semanticTokens/range", "buildTokens", () =>
+        createSemanticTokens({
+          text: doc.getText(),
+          ast: session.ast,
+          analysis: session.analysis,
+          range: params.range,
+          tokenModifiersByRangeKey
+        })
+      );
     });
-    return createSemanticTokens({
-      text: doc.getText(),
-      ast: session.ast,
-      analysis: session.analysis,
-      range: params.range,
-      tokenModifiersByRangeKey
-    });
+    semanticTokensCache.set(cacheKey, { version: doc.version, promise });
+    return promise;
   });
 
   documents.listen(connection);

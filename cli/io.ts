@@ -23,3 +23,48 @@ export async function runCommand(
     });
   });
 }
+
+function spawnDetached(command: string, args: string[], spawnImpl: typeof spawn = spawn): Promise<void> {
+  return new Promise<void>((resolvePromise, reject) => {
+    const child = spawnImpl(command, args, {
+      detached: true,
+      stdio: "ignore",
+    });
+
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolvePromise();
+    });
+  });
+}
+
+export async function openUrlInDefaultBrowser(
+  url: string,
+  options: {
+    browserCommand?: string;
+    platform?: NodeJS.Platform;
+    spawnImpl?: typeof spawn;
+  } = {}
+): Promise<void> {
+  const browserCommand = options.browserCommand ?? process.env["BROWSER"];
+  const platform = options.platform ?? process.platform;
+  const spawnImpl = options.spawnImpl ?? spawn;
+
+  if (browserCommand) {
+    await spawnDetached(browserCommand, [url], spawnImpl);
+    return;
+  }
+
+  if (platform === "darwin") {
+    await spawnDetached("open", [url], spawnImpl);
+    return;
+  }
+
+  if (platform === "win32") {
+    await spawnDetached("cmd", ["/c", "start", "", url], spawnImpl);
+    return;
+  }
+
+  await spawnDetached("xdg-open", [url], spawnImpl);
+}

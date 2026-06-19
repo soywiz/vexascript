@@ -84,6 +84,46 @@ View$$point$set(receiver, value)
 
 If the browser still shows an old error after a compiler fix, rebuild/reinstall the extension or restart the dev server before trusting the UI.
 
+## Latency Reproduction
+
+For LSP performance regressions, reproduce with the same workspace/sample wiring before changing caches.
+
+Use:
+
+```bash
+pnpm tsx .codex/skills/vexascript-lsp-infra-debugging/scripts/profile_pixi_lsp_latency.ts
+```
+
+That script builds the same `AnalysisSessionCache` shape as `compiler/lsp/server.ts`, opens `samples/pixi/html.vx`, mirrors it into the project index, and measures the same cold-path ingredients that feed:
+
+- `textDocument/diagnostic`
+- `workspace/diagnostic`
+- `textDocument/semanticTokens/full`
+- `textDocument/semanticTokens/range`
+
+Treat the script as the terminal-side reproduction for editor latency. It removes VS Code transport noise but keeps the same imported declarations, ambient types, DOM libs, and project-index lookups.
+
+Current findings from the Pixi sample:
+
+- cold `AnalysisSessionCache.getForDocumentAsync(...)` is a major first-hit cost
+- deprecated-member analysis is expensive in both diagnostics and semantic tokens
+- `semanticTokens` token building itself is cheap once deprecated modifiers are already available
+- workspace diagnostics add some extra member-diagnostic work, but deprecated-member work dominates more often than token emission
+
+If VS Code timings are much worse than the script timings, compare:
+
+1. whether VS Code is triggering multiple surfaces concurrently on the same edit/open burst
+2. whether the expensive sub-results are cached across diagnostics and semantic tokens
+3. whether the editor is repeatedly forcing `workspace/didChangeConfiguration` or other refresh paths
+4. whether the sample has unsaved edits or extra imports that differ from the checked-in `samples/pixi/html.vx`
+
+When chasing latency, measure substeps separately before adding more caches. In this codebase the likely hotspots are:
+
+- imported-declaration collection during cold session creation
+- deprecated-member discovery (`collectDeprecatedDiagnostics` / `collectDeprecatedSemanticTokenModifiers`)
+- cross-file diagnostics helpers
+- expensive code-action producers that only make sense when diagnostics exist
+
 ## Validation Sequence
 
 Use the narrowest relevant tests first:

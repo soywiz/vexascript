@@ -115,6 +115,7 @@ export interface ResolvedClassMember {
 }
 
 export interface ResolvedClassMemberDeclaration {
+  declaration: ClassStatement | InterfaceStatement;
   classStatement: ClassStatement;
   filePath: string;
   memberName: string;
@@ -325,16 +326,25 @@ async function resolveNodeModuleImportedClassStatement(
     if (importStatement.from.value.startsWith(".")) {
       continue;
     }
-    const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, importStatement.from.value, { vfs: options.vfs });
     const typings = await getNodeModuleTypings(importerFilePath, importStatement.from.value, { vfs: options.vfs });
-    if (!typings || !typingsPath) {
+    if (!typings) {
       continue;
     }
-    const declaration = findClassStatementInProgram({ kind: "Program", body: typings.declarations }, className);
-    if (declaration) {
+
+    for (const entry of typings.declarationEntries) {
+      const declaration = entry.statement.kind === "ExportStatement"
+        ? (entry.statement as ExportStatement).declaration
+        : entry.statement;
+      if (!declaration || declaration.kind !== "ClassStatement") {
+        continue;
+      }
+      const classStatement = declaration as ClassStatement;
+      if (classStatement.name.name !== className) {
+        continue;
+      }
       return {
-        classStatement: declaration,
-        filePath: typingsPath
+        classStatement,
+        filePath: entry.typingsPath
       };
     }
   }
@@ -768,6 +778,7 @@ async function resolveClassMemberDeclarationRecursive(
   const ownMemberKind = classOwnMemberKind(classStatement, memberName, classPropertyParameters);
   if (ownMemberKind) {
     return {
+      declaration: classStatement,
       classStatement,
       filePath: classResolution.filePath,
       memberName,
@@ -791,6 +802,7 @@ async function resolveClassMemberDeclarationRecursive(
     );
     if (mergedDeclaration) {
       return {
+        declaration: mergedDeclaration.declaration,
         classStatement,
         filePath: mergedDeclaration.filePath,
         memberName,

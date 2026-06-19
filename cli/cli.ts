@@ -14,6 +14,7 @@ import {
   ensureRuntimeDependencies,
   resolveServeBundleInput
 } from "./cliShared";
+import { openUrlInDefaultBrowser } from "./io";
 
 /** Thrown when diagnostics have already been printed; the top-level handler should exit silently. */
 export class DiagnosticError extends Error {
@@ -407,18 +408,19 @@ function createProgram(): Command {
     .description("Serve a static folder, inject the bundle into HTML, and live-reload on bundle changes")
     .argument("[dir]", "Folder to serve", ".")
     .option("--bundle <input>", "Bundle entry VexaScript file")
+    .option("--open", "Open the served site in the default browser")
     .option("--port <number>", "HTTP port", "8080")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .action(async (
       dir: string | undefined,
-      opts: { bundle?: string; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }
+      opts: { bundle?: string; open?: boolean; port?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string }
     ) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
       const rootDir = dir ?? ".";
       const { startServeSession } = await import("./cliServe");
-      await startServeSession({
+      const session = await startServeSession({
         rootDir,
         bundleInput: await resolveServeBundleInput(rootDir, opts.bundle),
         port: Number.parseInt(opts.port ?? "8080", 10),
@@ -426,6 +428,15 @@ function createProgram(): Command {
         ...jsxOptions,
         onDiagnosticError: printDiagnostics
       });
+      if (opts.open) {
+        const url = `http://localhost:${session.port}`;
+        try {
+          await openUrlInDefaultBrowser(url);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`Unable to open ${url} in the default browser: ${message}`);
+        }
+      }
     });
 
   program

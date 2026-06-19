@@ -1,17 +1,14 @@
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import type { ResolveContext } from "./crossFileContext";
 import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
+import { DiagnosticTag } from "./diagnosticTags";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
-import { collectDeprecatedMemberRanges } from "./deprecatedSemanticTokens";
+import { collectDeprecatedMemberRanges, type DeprecatedMemberRange } from "./deprecatedSemanticTokens";
 
-const DiagnosticTag = {
-  Deprecated: 2
-} as const;
-
-export async function collectDeprecatedDiagnostics(
-  context: Omit<ResolveContext, "line" | "character">
-): Promise<Diagnostic[]> {
-  return (await collectDeprecatedMemberRanges(context)).map((member): Diagnostic => ({
+export function createDeprecatedDiagnosticsFromRanges(
+  ranges: DeprecatedMemberRange[]
+): Diagnostic[] {
+  return ranges.map((member): Diagnostic => ({
     code: VEXA_DIAGNOSTIC_CODES.STYLE_DEPRECATED_MEMBER,
     severity: DiagnosticSeverity.Warning,
     range: {
@@ -28,4 +25,12 @@ export async function collectDeprecatedDiagnostics(
     source: "vexa-ls",
     tags: [DiagnosticTag.Deprecated]
   }));
+}
+
+export async function collectDeprecatedDiagnostics(
+  context: Omit<ResolveContext, "line" | "character">
+): Promise<Diagnostic[]> {
+  return createDeprecatedDiagnosticsFromRanges(
+    await collectDeprecatedMemberRanges(context)
+  );
 }

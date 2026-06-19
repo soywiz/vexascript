@@ -43,7 +43,9 @@ function isCallableCompletionItem(item: Pick<CompletionItem, "kind" | "label">):
   return /^[A-Za-z_][A-Za-z0-9_]*$/u.test(item.label);
 }
 
-export function completionInsertText(item: Pick<CompletionItem, "kind" | "label" | "insertText" | "insertTextFormat">): MonacoLikeCompletionInsert {
+export function completionInsertText(
+  item: Pick<CompletionItem, "kind" | "label" | "insertText" | "insertTextFormat" | "command">
+): MonacoLikeCompletionInsert {
   if (item.insertText) {
     return {
       insertText: item.insertText,

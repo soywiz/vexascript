@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, readFile, readdir, rm, spawn, tmpdir, vi, writeFile } from "../compiler/test/expect";
 import { createServer as createNetServer } from "node:net";
+import { chmod } from "node:fs/promises";
 import { ensureLspTransportArg, runCli } from "./cli";
 import { startServeSession } from "./cliServe";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
@@ -58,7 +59,7 @@ async function buildBundledCli(): Promise<{
   );
 }
 
-async function readSseEvent(url: string, eventName: string): Promise<string> {
+async function readSseEvent(url: string, eventName: string, options: { waitForReady?: boolean } = {}): Promise<string> {
   const controller = new AbortController();
   const response = await fetch(url, {
     headers: {
@@ -73,6 +74,7 @@ async function readSseEvent(url: string, eventName: string): Promise<string> {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let readyReceived = !options.waitForReady;
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -86,6 +88,12 @@ async function readSseEvent(url: string, eventName: string): Promise<string> {
         buffer = buffer.slice(separator + 2);
         const eventType = rawEvent.match(/^event:\s*(.+)$/m)?.[1]?.trim();
         const data = rawEvent.match(/^data:\s*(.+)$/m)?.[1]?.trim() ?? "";
+        if (eventType === "ready") {
+          readyReceived = true;
+        }
+        if (!readyReceived) {
+          continue;
+        }
         if (eventType === eventName) {
           controller.abort();
           return data;
@@ -284,7 +292,7 @@ describe("CLI", () => {
       const initialBundle = await fetchText(`${baseUrl}/__vexa_bundle__.js`);
       expect(initialBundle).toContain('console.log("hello");');
 
-      const reloadPromise = readSseEvent(`${baseUrl}/__vexa_live_reload`, "reload");
+      const reloadPromise = readSseEvent(`${baseUrl}/__vexa_live_reload`, "reload", { waitForReady: true });
       await writeFile(entry, 'console.log("updated")\n', "utf8");
       expect(await reloadPromise).toBeTruthy();
       expect(/^Bundled in \d+ms$/.test(String(logSpy.mock.calls.at(-1)?.[0] ?? ""))).toBe(true);
@@ -296,6 +304,78 @@ describe("CLI", () => {
       if (session) {
         await session.close();
       }
+    }
+  });
+
+  it("serve command accepts --open and opens the served URL", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-open-"));
+    const entry = join(dir, "main.vx");
+    const html = join(dir, "index.html");
+    const openedUrlFile = join(dir, "opened-url.txt");
+    const browserScript = join(dir, "fake-browser.mjs");
+    await writeFile(entry, 'console.log("hello")\n', "utf8");
+    await writeFile(html, "<!doctype html><html><body><script type=\"module\" src=\"%VEXA_ENTRYPOINT%\"></script></body></html>", "utf8");
+    await writeFile(browserScript, [
+      "#!/usr/bin/env node",
+      "import { writeFile } from \"node:fs/promises\";",
+      "const outputPath = process.env.BROWSER_LOG;",
+      "if (!outputPath) {",
+      "  console.error(\"Missing BROWSER_LOG\");",
+      "  process.exit(1);",
+      "}",
+      "writeFile(outputPath, `${process.argv[2] ?? \"\"}\\n`, \"utf8\").then(() => process.exit(0), (error) => {",
+      "  console.error(error instanceof Error ? error.message : String(error));",
+      "  process.exit(1);",
+      "});"
+    ].join("\n"), "utf8");
+    await chmod(browserScript, 0o755);
+
+    const child = spawn(process.execPath, ["--import", "tsx", "cli/cli.ts", "serve", dir, "--bundle", entry, "--port", "0", "--open"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        BROWSER: browserScript,
+        BROWSER_LOG: openedUrlFile
+      },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+
+    try {
+      const openedUrl = await new Promise<string>((resolvePromise, reject) => {
+        const startedAt = Date.now();
+        const check = () => {
+          void readFile(openedUrlFile, "utf8").then(
+            (content) => resolvePromise(content.trim()),
+            () => {
+              if (Date.now() - startedAt > 10000) {
+                reject(new Error(`Timed out waiting for browser open.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+                return;
+              }
+              setTimeout(check, 50);
+            }
+          );
+        };
+        check();
+      });
+
+      expect(/^http:\/\/localhost:\d+$/.test(openedUrl)).toBe(true);
+      expect(stdout).toContain("Serving at http://localhost:");
+    } finally {
+      child.kill();
+      await new Promise<void>((resolvePromise) => {
+        child.once("close", () => resolvePromise());
+      });
     }
   });
 

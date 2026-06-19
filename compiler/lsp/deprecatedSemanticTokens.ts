@@ -65,7 +65,14 @@ function memberPropertyPosition(member: MemberExpression): { line: number; chara
 
 async function hasDeprecatedResolvedDocumentation(
   context: Omit<ResolveContext, "line" | "character">,
-  member: MemberExpression
+  member: MemberExpression,
+  resolverContext: {
+    ast: Program;
+    options: ClassResolverOptions;
+    analysis: NonNullable<ResolveContext["session"]["analysis"]>;
+    cache: ReturnType<typeof createClassResolverCache>;
+  },
+  externalTypeDeclarations: Map<string, ClassStatement | InterfaceStatement | null>
 ): Promise<boolean> {
   if (member.computed || member.property.kind !== "Identifier" || !context.session.analysis || !context.session.ast) {
     return false;
@@ -80,27 +87,18 @@ async function hasDeprecatedResolvedDocumentation(
     : objectType.kind === "named" || objectType.kind === "builtin"
       ? boxedPrimitiveTypeName(objectType.name)
       : null;
-  const declaration = typeName
-    ? findExternalTypeDeclaration(context.session.externalDeclarations, typeName)
-    : null;
+  const declaration = !typeName
+    ? null
+    : externalTypeDeclarations.has(typeName)
+      ? externalTypeDeclarations.get(typeName) ?? null
+      : (() => {
+          const resolved = findExternalTypeDeclaration(context.session.externalDeclarations, typeName);
+          externalTypeDeclarations.set(typeName, resolved);
+          return resolved;
+        })();
   if (!declaration) {
     return false;
   }
-
-  const resolverOptions: ClassResolverOptions = {
-    uri: context.uri,
-    sourceRoots: context.sourceRoots,
-    ...(context.getSessionForFilePath ? { getSessionForFilePath: context.getSessionForFilePath } : {}),
-    ...(context.session.ambientModuleDeclarations
-      ? { ambientModuleDeclarations: context.session.ambientModuleDeclarations }
-      : {})
-  };
-  const resolverContext = {
-    ast: context.session.ast,
-    options: resolverOptions,
-    analysis: context.session.analysis,
-    cache: createClassResolverCache()
-  };
   const property = member.property as Identifier;
   const memberName = property.name;
   const objectTypeName = typeToString(objectType);
@@ -129,6 +127,22 @@ export async function collectDeprecatedMemberRanges(
     return [];
   }
 
+  const resolverOptions: ClassResolverOptions = {
+    uri: context.uri,
+    sourceRoots: context.sourceRoots,
+    ...(context.getSessionForFilePath ? { getSessionForFilePath: context.getSessionForFilePath } : {}),
+    ...(context.session.ambientModuleDeclarations
+      ? { ambientModuleDeclarations: context.session.ambientModuleDeclarations }
+      : {})
+  };
+  const sharedResolverContext = {
+    ast,
+    options: resolverOptions,
+    analysis: context.session.analysis,
+    cache: createClassResolverCache()
+  };
+  const externalTypeDeclarations = new Map<string, ClassStatement | InterfaceStatement | null>();
+
   const deprecatedMembers: DeprecatedMemberRange[] = [];
   const members: MemberExpression[] = [];
   walkAst(ast, (node) => {
@@ -146,7 +160,12 @@ export async function collectDeprecatedMemberRanges(
     if (!position || !member.property.firstToken) {
       continue;
     }
-    const directDeprecated = await hasDeprecatedResolvedDocumentation(context, member);
+    const directDeprecated = await hasDeprecatedResolvedDocumentation(
+      context,
+      member,
+      sharedResolverContext,
+      externalTypeDeclarations
+    );
     const hover = directDeprecated
       ? null
       : await resolveMemberHoverAcrossFiles({

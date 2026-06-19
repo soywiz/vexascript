@@ -26,6 +26,24 @@ describe("completionInsertText", () => {
     });
   });
 
+  it("preserves explicit commands from the language server", () => {
+    expect(completionInsertText({
+      label: "preference",
+      kind: 5,
+      insertText: "preference: ",
+      command: {
+        title: "Trigger suggest",
+        command: "editor.action.triggerSuggest",
+      },
+    })).toEqual({
+      insertText: "preference: ",
+      command: {
+        title: "Trigger suggest",
+        command: "editor.action.triggerSuggest",
+      },
+    });
+  });
+
   it("does not force snippets for non-callable completions", () => {
     expect(completionInsertText({
       label: "textContent",

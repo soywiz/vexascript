@@ -34,6 +34,7 @@ import {
   resolveMemberHoverAcrossFiles,
   resolveRenameAcrossFiles,
 } from "compiler/lsp/crossFileNavigation";
+import { collectDeprecatedSemanticTokenModifiers } from "compiler/lsp/deprecatedSemanticTokens";
 import { createSemanticTokens, VEXA_SEMANTIC_TOKENS_LEGEND } from "compiler/lsp/semanticTokens";
 import { createSignatureHelp } from "compiler/lsp/signatureHelp";
 import { createDocumentSymbols } from "compiler/lsp/symbols";
@@ -57,6 +58,7 @@ import { bundleModuleGraph } from "compiler/runtime/moduleGraph";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { buildPreviewDocument } from "./previewDocument";
 import { completionInsertText, markerToDiagnostic } from "./monaco/providerConversions";
+import { shouldKeepValueSuggestions, shouldTriggerValueSuggestions } from "./monaco/suggestTrigger";
 import { WorkspaceVfs } from "./monaco/workspaceVfs";
 import { createCachedWorkspaceSessionResolver } from "./monaco/workspaceSessions";
 import {
@@ -601,7 +603,7 @@ function toMonacoPos(position: { line: number; character: number }): monaco.IPos
 
 function registerCompletionProvider(): void {
   monaco.languages.registerCompletionItemProvider("vexa", {
-    triggerCharacters: ["."],
+    triggerCharacters: [".", ":"],
     async provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position);
       const fallbackRange = new monaco.Range(
@@ -1072,10 +1074,16 @@ function registerSemanticTokensProviders(): void {
     getLegend: () => VEXA_SEMANTIC_TOKENS_LEGEND,
     async provideDocumentSemanticTokens(model) {
       const session = await getSessionForModel(model);
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+      const tokenModifiersByRangeKey = await collectDeprecatedSemanticTokenModifiers({
+        ...resolverContext(model, workspaceContext),
+        session,
+      });
       const tokens = createSemanticTokens({
         text: model.getValue(),
         ast: session.ast,
         analysis: session.analysis,
+        tokenModifiersByRangeKey,
       });
       return tokens?.data ? { data: new Uint32Array(tokens.data) } : null;
     },
@@ -1086,11 +1094,17 @@ function registerSemanticTokensProviders(): void {
     getLegend: () => VEXA_SEMANTIC_TOKENS_LEGEND,
     async provideDocumentRangeSemanticTokens(model, range) {
       const session = await getSessionForModel(model);
+      const workspaceContext = embedWorkspaceContextsByUri.get(model.uri.toString());
+      const tokenModifiersByRangeKey = await collectDeprecatedSemanticTokenModifiers({
+        ...resolverContext(model, workspaceContext),
+        session,
+      });
       const tokens = createSemanticTokens({
         text: model.getValue(),
         ast: session.ast,
         analysis: session.analysis,
         range: toLspRange(range),
+        tokenModifiersByRangeKey,
       });
       return tokens?.data ? { data: new Uint32Array(tokens.data) } : { data: new Uint32Array() };
     },
@@ -1480,6 +1494,37 @@ function createEditor(
     void Promise.resolve().then(() => {
       editor.trigger("vexa", "editor.action.triggerSuggest", {});
     });
+  });
+  let valueSuggestionsArmed = false;
+  editor.onDidChangeModelContent((event) => {
+    if (shouldTriggerValueSuggestions(event.changes)) {
+      valueSuggestionsArmed = true;
+      void Promise.resolve().then(() => {
+        editor.trigger("vexa", "editor.action.triggerSuggest", {});
+      });
+      return;
+    }
+    if (shouldKeepValueSuggestions(event.changes, valueSuggestionsArmed)) {
+      void Promise.resolve().then(() => {
+        editor.trigger("vexa", "editor.action.triggerSuggest", {});
+      });
+      return;
+    }
+  });
+  editor.onDidChangeCursorPosition((event) => {
+    const model = editor.getModel();
+    if (!model) {
+      valueSuggestionsArmed = false;
+      return;
+    }
+    const currentLine = model.getLineContent(event.position.lineNumber);
+    if (event.position.column - 1 > currentLine.length) {
+      valueSuggestionsArmed = false;
+      return;
+    }
+    if (!/:\s*$/u.test(currentLine.slice(0, event.position.column - 1))) {
+      valueSuggestionsArmed = false;
+    }
   });
   return editor;
 }

@@ -44,7 +44,7 @@ export function findMemberAccessDot(
   text: string | undefined,
   line: number,
   character: number
-): { dotCharacter: number; receiverEndCharacter: number; prefix: string } | null {
+): { dotCharacter: number; receiverEndCharacter: number | null; prefix: string } | null {
   if (!text) {
     return null;
   }
@@ -55,7 +55,7 @@ export function findMemberAccessDot(
   }
   const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
   const uptoCursor = lineText.slice(0, clampedCharacter);
-  const match = /(\?\.|!\.|\.)(?:\s*([A-Za-z_][A-Za-z0-9_]*))?$/.exec(uptoCursor);
+  const match = /(\?\.|!\.|\.\.|\.)(?:\s*([A-Za-z_][A-Za-z0-9_]*))?$/.exec(uptoCursor);
   if (!match) {
     return null;
   }
@@ -66,6 +66,12 @@ export function findMemberAccessDot(
   // A trailing-lambda call receiver ends at its closing brace (`xs.map { it }.`),
   // so `}` must be accepted here too.
   const beforeDot = uptoCursor.slice(0, match.index).replace(/\s+$/, "");
+  if (beforeDot.length === 0) {
+    if (!/^\s*$/.test(uptoCursor.slice(0, match.index))) {
+      return null;
+    }
+    return { dotCharacter, receiverEndCharacter: null, prefix: match[2] ?? "" };
+  }
   const lastChar = beforeDot[beforeDot.length - 1];
   if (!lastChar || !/[A-Za-z0-9_)\]"'`}!]/.test(lastChar)) {
     return null;
