@@ -493,6 +493,24 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves template literal types from literal unions and wide strings conservatively", () => {
+    const source = dedent`
+      type Prefix = "pre"
+      type Event = "click" | "focus"
+      type EventName = \`\${Prefix}:\${Event}\`
+      type DynamicEventName = \`\${string}:\${Event}\`
+
+      let click: EventName = "pre:click"
+      let focus: EventName = "pre:focus"
+      let dynamic: DynamicEventName = "anything:click"
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = dedent`
       interface PairStore<K, V> {

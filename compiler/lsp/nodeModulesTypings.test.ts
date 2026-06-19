@@ -1653,6 +1653,46 @@ describe("node_modules typings resolution", () => {
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves template literal types from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "template-box",
+      dedent`
+        export type Prefix = "pre";
+        export type Event = "click" | "focus";
+        export type EventName = \`\${Prefix}:\${Event}\`;
+        export type DynamicEventName = \`\${string}:\${Event}\`;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { EventName, DynamicEventName } from "template-box"
+
+      let click: EventName = "pre:click"
+      let focus: EventName = "pre:focus"
+      let dynamic: DynamicEventName = "anything:click"
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("does not expose external class names in extends clauses unless they are imported", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(

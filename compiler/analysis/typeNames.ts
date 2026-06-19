@@ -9,6 +9,11 @@ export interface OptionalTypeNameSuffix {
   optional: boolean;
 }
 
+export interface TemplateLiteralTypeSegment {
+  kind: "text" | "type";
+  value: string;
+}
+
 interface TypeTextDepths {
   angle: number;
   paren: number;
@@ -242,6 +247,54 @@ export function tupleElementTypeText(elementText: string): string {
     }
   }
   return trimmed;
+}
+
+export function parseTemplateLiteralTypeText(typeName: string): TemplateLiteralTypeSegment[] | null {
+  const trimmed = typeName.trim();
+  if (!trimmed.startsWith("`") || !trimmed.endsWith("`")) {
+    return null;
+  }
+
+  const body = trimmed.slice(1, -1);
+  const segments: TemplateLiteralTypeSegment[] = [];
+  let cursor = 0;
+  let textStart = 0;
+
+  while (cursor < body.length) {
+    if (body[cursor] === "$" && body[cursor + 1] === "{") {
+      if (textStart < cursor) {
+        segments.push({ kind: "text", value: body.slice(textStart, cursor) });
+      }
+      const typeStart = cursor + 2;
+      let depth = 1;
+      cursor = typeStart;
+      while (cursor < body.length && depth > 0) {
+        const character = body[cursor]!;
+        if (character === "{") {
+          depth += 1;
+        } else if (character === "}") {
+          depth -= 1;
+        }
+        cursor += 1;
+      }
+      if (depth !== 0) {
+        return null;
+      }
+      segments.push({
+        kind: "type",
+        value: body.slice(typeStart, cursor - 1).trim()
+      });
+      textStart = cursor;
+      continue;
+    }
+    cursor += 1;
+  }
+
+  if (textStart < body.length) {
+    segments.push({ kind: "text", value: body.slice(textStart) });
+  }
+
+  return segments.length > 0 ? segments : [{ kind: "text", value: "" }];
 }
 
 export interface FunctionTypeAnnotationParameter {

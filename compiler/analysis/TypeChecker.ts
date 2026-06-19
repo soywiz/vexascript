@@ -105,6 +105,7 @@ import {
   looksLikeFunctionTypeAnnotation,
   parseObjectTypeAnnotation,
   parseFunctionTypeAnnotation,
+  parseTemplateLiteralTypeText,
   parseTypeNameShape,
   splitArraySuffixTypeName,
   splitIndexedAccessTypeName,
@@ -5919,6 +5920,10 @@ export class TypeChecker {
     if (literal) {
       return literal;
     }
+    const templateLiteralType = this.templateLiteralTypeFromText(normalizedTypeName);
+    if (templateLiteralType) {
+      return templateLiteralType;
+    }
 
     const functionAnnotation = this.resolveFunctionTypeAnnotation(normalizedTypeName, node, scope);
     if (functionAnnotation) {
@@ -6137,6 +6142,10 @@ export class TypeChecker {
     const literal = resolveLiteralTypeName(normalizedTypeName);
     if (literal) {
       return literal;
+    }
+    const templateLiteralType = this.templateLiteralTypeFromText(normalizedTypeName);
+    if (templateLiteralType) {
+      return templateLiteralType;
     }
 
     if (normalizedTypeName.startsWith("keyof ")) {
@@ -9383,6 +9392,10 @@ export class TypeChecker {
     if (literal) {
       return literal;
     }
+    const templateLiteralType = this.templateLiteralTypeFromText(normalizedTypeName);
+    if (templateLiteralType) {
+      return templateLiteralType;
+    }
 
     const parsed = parseTypeNameShape(normalizedTypeName);
     let resolvedBase: AnalysisType;
@@ -9454,6 +9467,10 @@ export class TypeChecker {
     const literal = resolveLiteralTypeName(normalizedTypeName);
     if (literal) {
       return literal;
+    }
+    const templateLiteralType = this.templateLiteralTypeFromText(normalizedTypeName);
+    if (templateLiteralType) {
+      return templateLiteralType;
     }
 
     const parsed = parseTypeNameShape(normalizedTypeName);
@@ -9770,6 +9787,59 @@ export class TypeChecker {
         .map((member) => this.stringTransformUtilityType(member, transform))
         .filter((member): member is AnalysisType => member !== null);
       return members.length > 0 ? combineTypes(members) : null;
+    }
+    return null;
+  }
+
+  private templateLiteralTypeFromText(typeName: string): AnalysisType | null {
+    const segments = parseTemplateLiteralTypeText(typeName);
+    if (!segments) {
+      return null;
+    }
+
+    let variants = [""];
+    for (const segment of segments) {
+      if (segment.kind === "text") {
+        variants = variants.map((variant) => variant + segment.value);
+        continue;
+      }
+
+      const placeholderValues = this.stringifiableTemplateLiteralValues(
+        this.typeFromTypeNameLoose(segment.value)
+      );
+      if (!placeholderValues) {
+        return builtinType("string");
+      }
+
+      const nextVariants: string[] = [];
+      for (const variant of variants) {
+        for (const placeholderValue of placeholderValues) {
+          nextVariants.push(variant + placeholderValue);
+        }
+      }
+      variants = nextVariants;
+    }
+
+    return combineTypes(variants.map((variant) => literalType("string", variant)));
+  }
+
+  private stringifiableTemplateLiteralValues(type: AnalysisType): string[] | null {
+    if (type.kind === "literal") {
+      return [String(type.value)];
+    }
+    if (type.kind === "union") {
+      const values: string[] = [];
+      for (const member of type.types) {
+        const memberValues = this.stringifiableTemplateLiteralValues(member);
+        if (!memberValues) {
+          return null;
+        }
+        values.push(...memberValues);
+      }
+      return values;
+    }
+    if (type.kind === "builtin" && (type.name === "string" || type.name === "number" || type.name === "boolean" || type.name === "bigint" || type.name === "long")) {
+      return null;
     }
     return null;
   }

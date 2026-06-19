@@ -42,6 +42,7 @@ import {
 } from "compiler/analysis/types";
 import {
   findMatchingTypeDelimiter,
+  parseTemplateLiteralTypeText,
   findTopLevelTypeCharacter,
   parseFunctionTypeAnnotation,
   parseTypeNameShape,
@@ -1298,6 +1299,16 @@ function typeFromAmbientAnnotationText(
   if (/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(normalized)) {
     return literalType("number", Number(normalized));
   }
+  const templateLiteralType = ambientTemplateLiteralTypeFromText(
+    normalized,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+  if (templateLiteralType) {
+    return templateLiteralType;
+  }
 
   const indexedAccess = parseAmbientIndexedAccess(normalized);
   if (indexedAccess) {
@@ -1444,6 +1455,71 @@ function typeFromAmbientAnnotationText(
     resolved = arrayType(resolved);
   }
   return resolved;
+}
+
+function ambientTemplateLiteralTypeFromText(
+  typeName: string,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType | null {
+  const segments = parseTemplateLiteralTypeText(typeName);
+  if (!segments) {
+    return null;
+  }
+
+  let variants = [""];
+  for (const segment of segments) {
+    if (segment.kind === "text") {
+      variants = variants.map((variant) => variant + segment.value);
+      continue;
+    }
+
+    const placeholderValues = ambientStringifiableTemplateLiteralValues(
+      typeFromAmbientAnnotationText(
+        segment.value,
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      )
+    );
+    if (!placeholderValues) {
+      return builtinType("string");
+    }
+
+    const nextVariants: string[] = [];
+    for (const variant of variants) {
+      for (const placeholderValue of placeholderValues) {
+        nextVariants.push(variant + placeholderValue);
+      }
+    }
+    variants = nextVariants;
+  }
+
+  return unionIfNeeded(variants.map((variant) => literalType("string", variant)));
+}
+
+function ambientStringifiableTemplateLiteralValues(type: AnalysisType): string[] | null {
+  if (type.kind === "literal") {
+    return [String(type.value)];
+  }
+  if (type.kind === "union") {
+    const values: string[] = [];
+    for (const member of type.types) {
+      const memberValues = ambientStringifiableTemplateLiteralValues(member);
+      if (!memberValues) {
+        return null;
+      }
+      values.push(...memberValues);
+    }
+    return values;
+  }
+  if (type.kind === "builtin" && (type.name === "string" || type.name === "number" || type.name === "boolean" || type.name === "bigint" || type.name === "long")) {
+    return null;
+  }
+  return null;
 }
 
 function buildAmbientFunctionTypeFromStatement(
