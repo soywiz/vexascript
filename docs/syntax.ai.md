@@ -106,6 +106,17 @@ defer file.close()                 // runs at block exit, like finally
 if (x is Circle) { x.radius }     // smart cast; compiles to instanceof
 ```
 
+## Cascade operator
+
+`..` is a cascade operator: it evaluates a receiver once, applies following member operations to that same receiver, and returns the receiver.
+
+```vexa
+val badge = Graphics()
+  ..point = Vec2(centerX, centerY - 16)
+  ..beginFill(0xff6b35)
+  ..endFill()
+```
+
 ## JSX / type casts
 
 JSX is always enabled in `.vx` files. Use `value as Type` for casts — `<Type>value` is **not valid** in `.vx`.

@@ -415,6 +415,27 @@ if (shape instanceof Circle) {
 
 `is` compiles to JavaScript `instanceof`.
 
+### Cascade operator
+
+VexaScript adds the cascade operator `..`. It evaluates a receiver once, applies each following member operation to that receiver, and returns the receiver.
+
+```vexa
+val badge = Graphics()
+  ..point = Vec2(centerX, centerY - 16)
+  ..beginFill(0xff6b35)
+  ..endFill()
+```
+
+```typescript
+// TypeScript equivalent
+const badge = new Graphics();
+badge.point = Vec2(centerX, centerY - 16);
+badge.beginFill(0xff6b35);
+badge.endFill();
+```
+
+TypeScript has no cascade operator.
+
 ## Embedded XML / JSX
 
 In VexaScript `.vx` files, JSX is **always enabled**. A `<` in expression position starts an XML/JSX element. Consequently, the angle-bracket type cast `<Type>value` is **not available** in VexaScript—use `value as Type` instead.
