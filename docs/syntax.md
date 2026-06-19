@@ -975,9 +975,9 @@ Supported assignment operators:
 - `&&=`, `||=`
 - `??=`
 
-### Chain operator
+### Cascade operator
 
-The chain operator `..` evaluates a receiver once, applies each following member operation to that same receiver, and returns the receiver. It is useful for constructing and configuring objects without repeating the variable name.
+The cascade operator `..` evaluates a receiver once, applies each following member operation to that same receiver, and returns the receiver. It is useful for constructing and configuring objects without repeating the variable name.
 
 ```vexa
 val badge = Graphics()
@@ -987,7 +987,7 @@ val badge = Graphics()
   ..endFill()
 ```
 
-This is equivalent to creating the `Graphics()` value, assigning `point`, calling the listed methods on that value, and using the configured value as the initializer for `badge`. Chain operations currently support member assignments and member calls.
+This is equivalent to creating the `Graphics()` value, assigning `point`, calling the listed methods on that value, and using the configured value as the initializer for `badge`. Cascade operations currently support member assignments and member calls.
 
 ### Conditional and comma operators
 

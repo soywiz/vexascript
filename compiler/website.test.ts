@@ -66,7 +66,7 @@ describe("website project", () => {
     expect(playgroundPage.includes('return ${BACKTICK}(\\${point.x}, \\${point.y})${BACKTICK}')).toBe(true);
     expect(playgroundPage.includes("delay(pulseDelay / 100)")).toBe(true);
     expect(playgroundPage.includes("requestAnimationFrame")).toBe(false);
-    expect(samplesPage.includes("<h3>Chain operator</h3>")).toBe(true);
+    expect(samplesPage.includes("<h3>Cascade operator</h3>")).toBe(true);
     expect(samplesPage.includes("..drawRoundedRect(-110, -64, 220, 128, 28)")).toBe(true);
     expect(syntaxPage.includes('class="doc-shell"')).toBe(true);
     expect(cliPage.includes("<code>bundle</code>")).toBe(true);
