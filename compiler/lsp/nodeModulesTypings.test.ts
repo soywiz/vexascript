@@ -1561,6 +1561,98 @@ describe("node_modules typings resolution", () => {
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves constructor and this-parameter utility aliases from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "constructor-box",
+      dedent`
+        export class User {
+          constructor(name: string, age: number);
+        }
+        export type UserCtorArgs = ConstructorParameters<User>;
+        export type UserInstance = InstanceType<User>;
+        export type Method = (this: User, value: string) => boolean;
+        export type Receiver = ThisParameterType<Method>;
+        export type BoundMethod = OmitThisParameter<Method>;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { User } from "constructor-box"
+      import type { UserCtorArgs, UserInstance, Receiver, BoundMethod } from "constructor-box"
+
+      let ctorArgs: UserCtorArgs = ["Ada", 1]
+      let user: UserInstance = new User("Ada", 1)
+      let receiver: Receiver = user
+      let bound: BoundMethod = (value: string) => true
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves identity and string-transform utility aliases from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "string-box",
+      dedent`
+        export type Literal = "hello world";
+        export type Alias = NoInfer<Literal>;
+        export type Context = ThisType<{ name: string }>;
+        export type Loud = Uppercase<Literal>;
+        export type Quiet = Lowercase<"HELLO WORLD">;
+        export type Title = Capitalize<"hello">;
+        export type Camel = Uncapitalize<"Hello">;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { Alias, Context, Loud, Quiet, Title, Camel } from "string-box"
+
+      let alias: Alias = "hello world"
+      let context: Context = { name: "Ada" }
+      let loud: Loud = "HELLO WORLD"
+      let quiet: Quiet = "hello world"
+      let title: Title = "Hello"
+      let camel: Camel = "hello"
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("does not expose external class names in extends clauses unless they are imported", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(

@@ -9490,7 +9490,7 @@ export class TypeChecker {
         builtinType("undefined")
       ]);
     }
-    if (["Exclude", "Extract", "NonNullable", "Readonly", "Record", "ReturnType", "Parameters", "Awaited", "Omit", "OmitKeyof", "Pick", "Partial", "Required", "WithRequired"].includes(baseName) && typeArguments.length > 0) {
+    if (["Exclude", "Extract", "NonNullable", "Readonly", "Record", "ReturnType", "Parameters", "ConstructorParameters", "InstanceType", "ThisParameterType", "OmitThisParameter", "Awaited", "NoInfer", "ThisType", "Uppercase", "Lowercase", "Capitalize", "Uncapitalize", "Omit", "OmitKeyof", "Pick", "Partial", "Required", "WithRequired"].includes(baseName) && typeArguments.length > 0) {
       const resolvedSpecial = this.resolveSpecialNamedType(
         baseName,
         typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
@@ -9578,8 +9578,44 @@ export class TypeChecker {
     if (baseName === "Parameters") {
       return this.parametersUtilityType(typeArguments[0]!);
     }
+    if (baseName === "ConstructorParameters") {
+      return this.constructorParametersUtilityType(typeArguments[0]!);
+    }
+    if (baseName === "InstanceType") {
+      return this.instanceTypeUtilityType(typeArguments[0]!);
+    }
+    if (baseName === "ThisParameterType") {
+      return this.thisParameterTypeUtilityType(typeArguments[0]!);
+    }
+    if (baseName === "OmitThisParameter") {
+      return this.omitThisParameterUtilityType(typeArguments[0]!);
+    }
     if (baseName === "Awaited") {
       return this.awaitedUtilityType(typeArguments[0]!);
+    }
+    if (baseName === "NoInfer") {
+      return typeArguments[0]!;
+    }
+    if (baseName === "ThisType") {
+      return typeArguments[0]!;
+    }
+    if (baseName === "Uppercase") {
+      return this.stringTransformUtilityType(typeArguments[0]!, (value) => value.toUpperCase());
+    }
+    if (baseName === "Lowercase") {
+      return this.stringTransformUtilityType(typeArguments[0]!, (value) => value.toLowerCase());
+    }
+    if (baseName === "Capitalize") {
+      return this.stringTransformUtilityType(
+        typeArguments[0]!,
+        (value) => value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1)
+      );
+    }
+    if (baseName === "Uncapitalize") {
+      return this.stringTransformUtilityType(
+        typeArguments[0]!,
+        (value) => value.length === 0 ? value : value[0]!.toLowerCase() + value.slice(1)
+      );
     }
     return null;
   }
@@ -9663,6 +9699,79 @@ export class TypeChecker {
     const unwrapped = unwrapPromiseType(sourceType)
       ?? (sourceType.kind === "named" && sourceType.name === "PromiseLike" ? sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE : null);
     return unwrapped ? this.awaitedUtilityType(unwrapped) : sourceType;
+  }
+
+  private constructorParametersUtilityType(sourceType: AnalysisType): AnalysisType | null {
+    const constructorType = this.constructSignatureForUtility(sourceType);
+    return constructorType ? tupleType(constructorType.parameters.map((parameter) => parameter.type)) : null;
+  }
+
+  private instanceTypeUtilityType(sourceType: AnalysisType): AnalysisType | null {
+    const constructorType = this.constructSignatureForUtility(sourceType);
+    return constructorType?.returnType ?? null;
+  }
+
+  private thisParameterTypeUtilityType(sourceType: AnalysisType): AnalysisType {
+    if (sourceType.kind === "union") {
+      const thisTypes = sourceType.types.map((member) => this.thisParameterTypeUtilityType(member));
+      return combineTypes(thisTypes);
+    }
+    if (sourceType.kind !== "function") {
+      return UNKNOWN_TYPE;
+    }
+    const firstParameter = sourceType.parameters[0];
+    return firstParameter?.name === "this" ? firstParameter.type : UNKNOWN_TYPE;
+  }
+
+  private omitThisParameterUtilityType(sourceType: AnalysisType): AnalysisType | null {
+    if (sourceType.kind === "union") {
+      const members = sourceType.types
+        .map((member) => this.omitThisParameterUtilityType(member))
+        .filter((member): member is AnalysisType => member !== null);
+      return members.length > 0 ? combineTypes(members) : null;
+    }
+    if (sourceType.kind !== "function") {
+      return null;
+    }
+    if (sourceType.parameters[0]?.name !== "this") {
+      return sourceType;
+    }
+    return functionType(
+      sourceType.parameters.slice(1),
+      sourceType.returnType,
+      sourceType.typeParameters,
+      sourceType.typeParameterConstraints,
+      sourceType.typeParameterDefaults
+    );
+  }
+
+  private constructSignatureForUtility(sourceType: AnalysisType): (AnalysisType & { kind: "function" }) | null {
+    if (sourceType.kind === "named") {
+      const classStatement = this.classStatementsByName.get(sourceType.name);
+      if (classStatement) {
+        return this.classCallableTypeForNamedType(sourceType);
+      }
+    }
+    return this.constructableTypeFrom(sourceType);
+  }
+
+  private stringTransformUtilityType(
+    sourceType: AnalysisType,
+    transform: (value: string) => string
+  ): AnalysisType | null {
+    if (sourceType.kind === "literal" && sourceType.base === "string") {
+      return literalType("string", transform(String(sourceType.value)));
+    }
+    if (sourceType.kind === "builtin" && sourceType.name === "string") {
+      return builtinType("string");
+    }
+    if (sourceType.kind === "union") {
+      const members = sourceType.types
+        .map((member) => this.stringTransformUtilityType(member, transform))
+        .filter((member): member is AnalysisType => member !== null);
+      return members.length > 0 ? combineTypes(members) : null;
+    }
+    return null;
   }
 
   private stringLiteralKeysFromType(type: AnalysisType): string[] {

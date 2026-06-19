@@ -683,9 +683,79 @@ function applyAmbientUtilityType(
     );
   }
 
+  if (utilityTypeName === "ConstructorParameters") {
+    return ambientConstructorParametersUtility(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      declarations,
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations,
+      visited
+    );
+  }
+
+  if (utilityTypeName === "InstanceType") {
+    return ambientInstanceTypeUtility(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      declarations,
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations,
+      visited
+    );
+  }
+
+  if (utilityTypeName === "ThisParameterType") {
+    return ambientThisParameterTypeUtility(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    );
+  }
+
+  if (utilityTypeName === "OmitThisParameter") {
+    return ambientOmitThisParameterUtility(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    );
+  }
+
   if (utilityTypeName === "Awaited") {
     return ambientAwaitedUtilityType(
       typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    );
+  }
+
+  if (utilityTypeName === "NoInfer" || utilityTypeName === "ThisType") {
+    return typeFromAmbientAnnotationText(
+      typeArguments[0],
+      declarations,
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations,
+      visited
+    );
+  }
+
+  if (utilityTypeName === "Uppercase") {
+    return ambientStringTransformUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      (value) => value.toUpperCase()
+    );
+  }
+
+  if (utilityTypeName === "Lowercase") {
+    return ambientStringTransformUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      (value) => value.toLowerCase()
+    );
+  }
+
+  if (utilityTypeName === "Capitalize") {
+    return ambientStringTransformUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      (value) => value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1)
+    );
+  }
+
+  if (utilityTypeName === "Uncapitalize") {
+    return ambientStringTransformUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      (value) => value.length === 0 ? value : value[0]!.toLowerCase() + value.slice(1)
     );
   }
 
@@ -886,6 +956,185 @@ function ambientAwaitedUtilityType(sourceType: AnalysisType): AnalysisType {
   const unwrapped = unwrapPromiseType(sourceType)
     ?? (sourceType.kind === "named" && sourceType.name === "PromiseLike" ? sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE : null);
   return unwrapped ? ambientAwaitedUtilityType(unwrapped) : sourceType;
+}
+
+function ambientStringTransformUtilityType(
+  sourceType: AnalysisType,
+  transform: (value: string) => string
+): AnalysisType | null {
+  if (sourceType.kind === "literal" && sourceType.base === "string") {
+    return literalType("string", transform(String(sourceType.value)));
+  }
+  if (sourceType.kind === "builtin" && sourceType.name === "string") {
+    return builtinType("string");
+  }
+  if (sourceType.kind === "union") {
+    const members = sourceType.types
+      .map((member) => ambientStringTransformUtilityType(member, transform))
+      .filter((member): member is AnalysisType => member !== null);
+    return members.length > 0 ? combineTypes(members) : null;
+  }
+  return null;
+}
+
+function ambientConstructorParametersUtility(
+  sourceType: AnalysisType,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType | null {
+  const constructorType = ambientConstructSignatureForUtility(
+    sourceType,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+  return constructorType
+    ? { kind: "tuple", elements: constructorType.parameters.map((parameter) => parameter.type) }
+    : null;
+}
+
+function ambientInstanceTypeUtility(
+  sourceType: AnalysisType,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType | null {
+  return ambientConstructSignatureForUtility(
+    sourceType,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  )?.returnType ?? null;
+}
+
+function ambientThisParameterTypeUtility(sourceType: AnalysisType): AnalysisType {
+  if (sourceType.kind === "union") {
+    return combineTypes(sourceType.types.map((member) => ambientThisParameterTypeUtility(member)));
+  }
+  if (sourceType.kind !== "function") {
+    return UNKNOWN_TYPE;
+  }
+  return sourceType.parameters[0]?.name === "this"
+    ? sourceType.parameters[0]!.type
+    : UNKNOWN_TYPE;
+}
+
+function ambientOmitThisParameterUtility(sourceType: AnalysisType): AnalysisType | null {
+  if (sourceType.kind === "union") {
+    const members = sourceType.types
+      .map((member) => ambientOmitThisParameterUtility(member))
+      .filter((member): member is AnalysisType => member !== null);
+    return members.length > 0 ? combineTypes(members) : null;
+  }
+  if (sourceType.kind !== "function") {
+    return null;
+  }
+  if (sourceType.parameters[0]?.name !== "this") {
+    return sourceType;
+  }
+  return functionType(
+    sourceType.parameters.slice(1),
+    sourceType.returnType,
+    sourceType.typeParameters
+  );
+}
+
+function ambientConstructSignatureForUtility(
+  sourceType: AnalysisType,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): (AnalysisType & { kind: "function" }) | null {
+  if (sourceType.kind === "named") {
+    const classStatement =
+      findAmbientClassStatement(declarations, sourceType.name)
+      ?? findAmbientClassStatement(ambientGlobalDeclarations, sourceType.name);
+    if (!classStatement) {
+      return null;
+    }
+    const constructorMember = classStatement.members.find(
+      (member): member is ClassStatement["members"][number] & { kind: "ClassMethodMember" } =>
+        member.kind === "ClassMethodMember" && member.name.name === "constructor"
+    );
+    const parameters = constructorMember
+      ? constructorMember.parameters
+          .filter((parameter) => parameter.thisParameter !== true)
+          .map((parameter) => ({
+            name: parameter.name,
+            typeAnnotation: parameter.typeAnnotation,
+            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            rest: parameter.rest === true
+          }))
+      : (classStatement.primaryConstructorParameters ?? []).map((parameter) => ({
+          name: parameter.name,
+          typeAnnotation: parameter.typeAnnotation,
+          optional: parameter.defaultValue !== undefined,
+          rest: false
+        }));
+    return functionType(
+      parameters.map((parameter) => {
+        const rawType = typeFromAmbientAnnotationText(
+          parameter.typeAnnotation?.name,
+          declarations,
+          ambientModuleDeclarations,
+          ambientGlobalDeclarations,
+          visited
+        );
+        const isRest = parameter.rest === true;
+        return {
+          name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+          type: isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType,
+          optional: parameter.optional === true || isRest,
+          rest: isRest
+        };
+      }),
+      namedType(classStatement.name.name)
+    );
+  }
+  if (sourceType.kind === "function") {
+    return sourceType;
+  }
+  if (sourceType.kind === "object") {
+    const constructorType = sourceType.properties["constructor"];
+    return constructorType?.kind === "function" ? constructorType : null;
+  }
+  if (sourceType.kind === "union") {
+    for (const member of sourceType.types) {
+      const constructorType = ambientConstructSignatureForUtility(
+        member,
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      );
+      if (constructorType) {
+        return constructorType;
+      }
+    }
+  }
+  return null;
+}
+
+function findAmbientClassStatement(
+  declarations: readonly Statement[],
+  name: string
+): ClassStatement | null {
+  for (const statement of declarations) {
+    const declaration =
+      statement.kind === "ExportStatement"
+        ? (statement as { declaration?: Statement }).declaration ?? statement
+        : statement;
+    if (declaration.kind === "ClassStatement" && (declaration as ClassStatement).name.name === name) {
+      return declaration as ClassStatement;
+    }
+  }
+  return null;
 }
 
 function hasAmbientNamedTypeDeclaration(

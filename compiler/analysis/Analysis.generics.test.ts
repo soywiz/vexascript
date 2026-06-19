@@ -445,6 +445,54 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves constructor and this-parameter utility aliases", () => {
+    const source = dedent`
+      class User {
+        constructor(name: string, age: int) {}
+      }
+
+      type UserCtorArgs = ConstructorParameters<User>
+      type UserInstance = InstanceType<User>
+      type Method = (this: User, value: string) => boolean
+      type Receiver = ThisParameterType<Method>
+      type BoundMethod = OmitThisParameter<Method>
+
+      let ctorArgs: UserCtorArgs = ["Ada", 1]
+      let user: UserInstance = new User("Ada", 1)
+      let receiver: Receiver = user
+      let bound: BoundMethod = (value: string) => true
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves identity and string-transform utility aliases", () => {
+    const source = dedent`
+      type Literal = "hello world"
+      type Alias = NoInfer<Literal>
+      type Context = ThisType<{ name: string }>
+      type Loud = Uppercase<Literal>
+      type Quiet = Lowercase<"HELLO WORLD">
+      type Title = Capitalize<"hello">
+      type Camel = Uncapitalize<"Hello">
+
+      let alias: Alias = "hello world"
+      let context: Context = { name: "Ada" }
+      let loud: Loud = "HELLO WORLD"
+      let quiet: Quiet = "hello world"
+      let title: Title = "Hello"
+      let camel: Camel = "hello"
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = dedent`
       interface PairStore<K, V> {
