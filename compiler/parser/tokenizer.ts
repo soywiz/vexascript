@@ -65,6 +65,7 @@ const CODE_O_UPPER = 79; // O
 const CODE_X_UPPER = 88; // X
 const CODE_Z_UPPER = 90; // Z
 const CODE_BACKSLASH = 92; // \
+const CODE_CARET = 94; // ^
 const CODE_UNDERSCORE = 95; // _
 const CODE_BACKTICK = 96; // `
 const CODE_A_LOWER = 97; // a
@@ -113,6 +114,11 @@ function isIdentifierStartCode(code: number): boolean {
 
 function isIdentifierPartCode(code: number): boolean {
   return isIdentifierStartCode(code) || isDigitCode(code);
+}
+
+function isTrailingDecimalPointFollower(code: number): boolean {
+  return Number.isNaN(code)
+    || (!isDigitCode(code) && !isIdentifierStartCode(code) && code !== CODE_DOT);
 }
 
 function isHexDigitCode(code: number): boolean {
@@ -216,6 +222,7 @@ function tokenAllowsRegExpLiteral(previousToken: Token | undefined): boolean {
       "instanceof",
       "is",
       "new",
+      "default",
       "else",
       "do"
     ].includes(previousToken.value);
@@ -382,13 +389,14 @@ function readNumber(reader: StrReader): string {
     readDigitRun(reader, startPosition, isDigitCode, "Invalid number literal", false, true);
   }
 
-  if (
-    reader.hasMore &&
-    reader.peekCode() === CODE_DOT &&
-    isDigitCode(reader.str.charCodeAt(reader.offset + 1))
-  ) {
-    advanceCode(reader);
-    readDigitRun(reader, startPosition, isDigitCode, "Invalid number literal", true);
+  if (reader.hasMore && reader.peekCode() === CODE_DOT) {
+    const nextCode = reader.str.charCodeAt(reader.offset + 1);
+    if (isDigitCode(nextCode)) {
+      advanceCode(reader);
+      readDigitRun(reader, startPosition, isDigitCode, "Invalid number literal", true);
+    } else if (isTrailingDecimalPointFollower(nextCode)) {
+      advanceCode(reader);
+    }
   }
 
   if (reader.hasMore && (reader.peekCode() === CODE_E_LOWER || reader.peekCode() === CODE_E_UPPER)) {
@@ -809,6 +817,11 @@ function readSymbol(reader: StrReader): string {
   if (ch === CODE_AMPERSAND && next === CODE_EQUALS) {
     advanceCode(reader);
     return "&=";
+  }
+
+  if (ch === CODE_CARET && next === CODE_EQUALS) {
+    advanceCode(reader);
+    return "^=";
   }
 
   if (ch === CODE_PLUS && next === CODE_EQUALS) {

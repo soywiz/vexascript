@@ -19,6 +19,7 @@ import {
     CatchClause,
     ChainExpression,
     ClassDelegate,
+    ClassExpression,
     ClassFieldMember,
     ClassMember,
     ClassMethodMember,
@@ -104,7 +105,7 @@ type OverloadableOperator = BinaryExpression["operator"];
 type BinaryAssoc = "left" | "right";
 type InfixOperator = BinaryOperator | "..." | "..<";
 
-const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="];
+const ASSIGNMENT_OPERATORS: readonly AssignmentOperator[] = ["=", "+=", "-=", "%=", "*=", "/=", "&=", "|=", "^=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="];
 const VARIABLE_DECLARATION_KEYWORDS: readonly VariableDeclarationKind[] = ["let", "var", "val", "const"];
 const FUNCTION_DECLARATION_KEYWORDS: readonly FunctionDeclarationKind[] = ["fun", "function"];
 
@@ -2347,6 +2348,187 @@ export class Parser {
         );
     }
 
+    private parseClassLike(options: {
+        declared?: boolean;
+        expression?: boolean;
+        classKeyword?: Token;
+    } = {}): ClassStatement | ClassExpression {
+        const declared = options.declared ?? false;
+        const expression = options.expression ?? false;
+        let classKeyword = options.classKeyword ?? this.tokens.read();
+        let isAbstractClass = false;
+        const startToken = classKeyword;
+        if (!options.classKeyword && classKeyword?.type === "identifier" && classKeyword.value === "abstract") {
+            isAbstractClass = true;
+            classKeyword = this.tokens.read();
+        }
+        if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
+            this.fail("Expected class declaration statement", this.tokenAt(classKeyword));
+        }
+
+        let className: Identifier | undefined;
+        const classNameToken = this.tokens.peek();
+        if (
+            classNameToken?.type === "identifier" &&
+            classNameToken.value !== "extends" &&
+            classNameToken.value !== "implements"
+        ) {
+            this.tokens.skip();
+            className = this.buildIdentifierFromToken(classNameToken);
+        } else if (!expression) {
+            this.fail("Expected class name after 'class'", this.tokenAt(classNameToken));
+        }
+
+        const typeParameters = this.parseTypeParameterList();
+
+        let primaryConstructorParameters: ClassPrimaryConstructorParameter[] | undefined;
+        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
+            if (this.language !== "vexa") {
+                this.fail("Class primary constructor syntax is only available in VexaScript mode", this.tokenAt());
+            }
+
+            this.tokens.skip();
+            primaryConstructorParameters = this.parseClassPrimaryConstructorParameters();
+
+            const closeParen = this.tokens.read();
+            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
+                this.fail("Expected ')' after class primary constructor parameters", this.tokenAt(closeParen));
+            }
+        }
+
+        let extendsType: Identifier | undefined;
+        let implementsTypes: Identifier[] | undefined;
+        const classDelegates: ClassDelegate[] = [];
+
+        if (this.language === "vexa" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
+            this.tokens.skip();
+            const colonTypes: Identifier[] = [];
+            while (this.tokens.hasMore) {
+                const typeAnnotation = this.parseTypeAnnotationNode();
+                if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
+                    const byToken = this.tokens.read()!;
+                    const delegateExpression = this.parseClassDelegateExpression();
+                    classDelegates.push(this.attachNodeBounds({
+                        kind: "ClassDelegate",
+                        typeAnnotation,
+                        expression: delegateExpression
+                    } as ClassDelegate, typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
+                }
+                colonTypes.push(typeAnnotation);
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && separator.value === ",") {
+                    this.tokens.skip();
+                    continue;
+                }
+                break;
+            }
+            if (colonTypes.length > 0) {
+                extendsType = colonTypes[0];
+                if (colonTypes.length > 1) {
+                    implementsTypes = colonTypes.slice(1);
+                }
+            }
+        }
+
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
+            this.tokens.skip();
+            extendsType = this.parseTypeAnnotationNode();
+        }
+
+        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "implements") {
+            this.tokens.skip();
+            implementsTypes = [];
+            while (this.tokens.hasMore) {
+                const typeAnnotation = this.parseTypeAnnotationNode();
+                if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
+                    const byToken = this.tokens.read()!;
+                    const delegateExpression = this.parseClassDelegateExpression();
+                    classDelegates.push(this.attachNodeBounds({
+                        kind: "ClassDelegate",
+                        typeAnnotation,
+                        expression: delegateExpression
+                    } as ClassDelegate, typeAnnotation.firstToken, delegateExpression.lastToken ?? this.getLastReadToken() ?? byToken));
+                }
+                implementsTypes.push(typeAnnotation);
+
+                const separator = this.tokens.peek();
+                if (separator?.type === "symbol" && separator.value === ",") {
+                    this.tokens.skip();
+                    continue;
+                }
+                break;
+            }
+        }
+
+        const buildClassLike = (members: ClassMember[]): ClassStatement | ClassExpression => {
+            const classLike = expression
+                ? { kind: "ClassExpression", members } as ClassExpression
+                : { kind: "ClassStatement", members } as ClassStatement;
+            if (declared) {
+                (classLike as ClassStatement).declared = true;
+            }
+            if (isAbstractClass) {
+                classLike.abstract = true;
+            }
+            if (className) {
+                classLike.name = className;
+            }
+            if (typeParameters.length > 0) {
+                classLike.typeParameters = typeParameters;
+            }
+            if (extendsType) {
+                classLike.extendsType = extendsType;
+            }
+            if (implementsTypes && implementsTypes.length > 0) {
+                classLike.implementsTypes = implementsTypes;
+            }
+            if (classDelegates.length > 0) {
+                classLike.classDelegates = classDelegates;
+            }
+            if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
+                classLike.primaryConstructorParameters = primaryConstructorParameters;
+            }
+            return classLike;
+        };
+
+        const openBrace = this.tokens.peek();
+        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
+            if (this.language === "vexa" && !expression) {
+                return this.attachNodeBounds(buildClassLike([]), startToken, this.getLastReadToken() ?? classKeyword);
+            }
+
+            this.fail("Expected '{' to start class body", this.tokenAt(openBrace));
+        }
+        this.tokens.skip();
+
+        const members: ClassMember[] = [];
+        while (this.tokens.hasMore) {
+            const token = this.tokens.peek();
+            if (isEofToken(token)) {
+                this.fail("Expected '}' to close class body", this.tokenAt(openBrace), "block");
+            }
+            if (token?.type === "symbol" && token.value === "}") {
+                this.tokens.skip();
+                return this.attachNodeBounds(buildClassLike(members), startToken, this.getLastReadToken() ?? classKeyword);
+            }
+
+            if (token?.type === "symbol" && token.value === ";") {
+                this.tokens.skip();
+                continue;
+            }
+
+            const parsedMembers = this.parseClassMember(declared);
+            members.push(...parsedMembers);
+            this.consumeStatementSeparator("block", this.getLastReadToken());
+        }
+
+        this.fail("Expected '}' to close class body", this.tokenAt(openBrace), "block");
+    }
+
+    private parseClassExpression(classKeyword: Token): ClassExpression {
+        return this.parseClassLike({ expression: true, classKeyword }) as ClassExpression;
+    }
+
     private parseArrowFunctionBody(): Expr | BlockStatement {
         const maybeBlock = this.tokens.peek();
         if (maybeBlock?.type === "symbol" && maybeBlock.value === "{") {
@@ -2837,6 +3019,9 @@ export class Parser {
             }
             if (token.value === "undefined") {
                 return this.attachNodeBounds({ kind: "UndefinedLiteral" } as UndefinedLiteral, token, token);
+            }
+            if (token.value === "class") {
+                return this.parseClassExpression(token);
             }
             return this.buildIdentifierFromToken(token);
         }
@@ -4274,6 +4459,39 @@ export class Parser {
     }
 
 
+    private hasNamedDefaultFunctionDeclaration(): boolean {
+        let offset = 0;
+        const first = this.peekToken(offset);
+        if (first?.type === "identifier" && (first.value === "async" || first.value === "sync")) {
+            offset += 1;
+        }
+        const functionKeyword = this.peekToken(offset);
+        if (!(functionKeyword?.type === "identifier" && functionKeyword.value === "function")) {
+            return false;
+        }
+        offset += 1;
+        if (this.peekToken(offset)?.type === "symbol" && this.peekToken(offset)?.value === "*") {
+            offset += 1;
+        }
+        return this.peekToken(offset)?.type === "identifier";
+    }
+
+    private hasNamedDefaultClassDeclaration(): boolean {
+        let offset = 0;
+        const first = this.peekToken(offset);
+        if (first?.type === "identifier" && first.value === "abstract") {
+            offset += 1;
+        }
+        const classKeyword = this.peekToken(offset);
+        if (!(classKeyword?.type === "identifier" && classKeyword.value === "class")) {
+            return false;
+        }
+        const nameToken = this.peekToken(offset + 1);
+        return nameToken?.type === "identifier"
+            && nameToken.value !== "extends"
+            && nameToken.value !== "implements";
+    }
+
     private parseExportStatement(): ExportStatement {
         const exportKeyword = this.tokens.read();
         if (exportKeyword?.type !== "identifier" || exportKeyword.value !== "export") {
@@ -4311,9 +4529,17 @@ export class Parser {
             this.tokens.skip();
             const next = this.tokens.peek();
             let declaration: Statement | undefined;
-            if (next?.type === "identifier" && (this.isFunctionDeclarationKeyword(next.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart())) {
+            if (
+                next?.type === "identifier" &&
+                (this.isFunctionDeclarationKeyword(next.value) || this.isAsyncFunctionDeclarationStart() || this.isSyncFunctionDeclarationStart()) &&
+                this.hasNamedDefaultFunctionDeclaration()
+            ) {
                 declaration = this.parseFunctionStatement();
-            } else if (next?.type === "identifier" && (next.value === "class" || this.isAbstractClassStart())) {
+            } else if (
+                next?.type === "identifier" &&
+                (next.value === "class" || this.isAbstractClassStart()) &&
+                this.hasNamedDefaultClassDeclaration()
+            ) {
                 declaration = this.parseClassStatement();
             } else {
                 const expression = this.parseExpressionOrThrow();
@@ -5637,10 +5863,6 @@ export class Parser {
             return [this.attachNodeBounds(methodMember, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
         }
 
-        if (computedMemberKey) {
-            this.fail("Computed class fields are not supported; computed class members must be methods", this.tokenAt(computedMemberKey.firstToken));
-        }
-
         if (accessorKind) {
             this.fail("Expected '(' after accessor name", this.tokenAt(this.tokens.peek()));
         }
@@ -5806,6 +6028,10 @@ export class Parser {
         if (readonlyToken) {
             this.attachNonEnumerableToken(fieldMember, "readonlyToken", readonlyToken);
         }
+        if (computedMemberKey) {
+            fieldMember.computed = true;
+            fieldMember.computedKey = computedMemberKey;
+        }
         if (optional) {
             fieldMember.optional = true;
         }
@@ -5924,187 +6150,7 @@ export class Parser {
     }
 
     private parseClassStatement(declared: boolean = false): ClassStatement {
-        let classKeyword = this.tokens.read();
-        let isAbstractClass = false;
-        const startToken = classKeyword;
-        if (classKeyword?.type === "identifier" && classKeyword.value === "abstract") {
-            isAbstractClass = true;
-            classKeyword = this.tokens.read();
-        }
-        if (classKeyword?.type !== "identifier" || classKeyword.value !== "class") {
-            this.fail("Expected class declaration statement", this.tokenAt(classKeyword));
-        }
-
-        const classNameToken = this.tokens.read();
-        if (classNameToken?.type !== "identifier") {
-            this.fail("Expected class name after 'class'", this.tokenAt(classNameToken));
-        }
-
-        const typeParameters = this.parseTypeParameterList();
-
-        let primaryConstructorParameters: ClassPrimaryConstructorParameter[] | undefined;
-        if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
-            if (this.language !== "vexa") {
-                this.fail("Class primary constructor syntax is only available in VexaScript mode", this.tokenAt());
-            }
-
-            this.tokens.skip();
-            primaryConstructorParameters = this.parseClassPrimaryConstructorParameters();
-
-            const closeParen = this.tokens.read();
-            if (closeParen?.type !== "symbol" || closeParen.value !== ")") {
-                this.fail("Expected ')' after class primary constructor parameters", this.tokenAt(closeParen));
-            }
-        }
-
-        let extendsType: Identifier | undefined;
-        let implementsTypes: Identifier[] | undefined;
-        const classDelegates: ClassDelegate[] = [];
-
-        if (this.language === "vexa" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
-            this.tokens.skip();
-            const colonTypes: Identifier[] = [];
-            while (this.tokens.hasMore) {
-                const typeAnnotation = this.parseTypeAnnotationNode();
-                if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
-                    const byToken = this.tokens.read()!;
-                    const expression = this.parseClassDelegateExpression();
-                    classDelegates.push(this.attachNodeBounds({
-                        kind: "ClassDelegate",
-                        typeAnnotation,
-                        expression
-                    } as ClassDelegate, typeAnnotation.firstToken, expression.lastToken ?? this.getLastReadToken() ?? byToken));
-                }
-                colonTypes.push(typeAnnotation);
-                const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
-                    this.tokens.skip();
-                    continue;
-                }
-                break;
-            }
-            if (colonTypes.length > 0) {
-                extendsType = colonTypes[0];
-                if (colonTypes.length > 1) {
-                    implementsTypes = colonTypes.slice(1);
-                }
-            }
-        }
-
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "extends") {
-            this.tokens.skip();
-            extendsType = this.parseTypeAnnotationNode();
-        }
-
-        if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "implements") {
-            this.tokens.skip();
-            implementsTypes = [];
-            while (this.tokens.hasMore) {
-                const typeAnnotation = this.parseTypeAnnotationNode();
-                if (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "by") {
-                    const byToken = this.tokens.read()!;
-                    const expression = this.parseClassDelegateExpression();
-                    classDelegates.push(this.attachNodeBounds({
-                        kind: "ClassDelegate",
-                        typeAnnotation,
-                        expression
-                    } as ClassDelegate, typeAnnotation.firstToken, expression.lastToken ?? this.getLastReadToken() ?? byToken));
-                }
-                implementsTypes.push(typeAnnotation);
-
-                const separator = this.tokens.peek();
-                if (separator?.type === "symbol" && separator.value === ",") {
-                    this.tokens.skip();
-                    continue;
-                }
-                break;
-            }
-        }
-
-        const openBrace = this.tokens.peek();
-        if (openBrace?.type !== "symbol" || openBrace.value !== "{") {
-            if (this.language === "vexa") {
-                const statement: ClassStatement = {
-                    kind: "ClassStatement",
-                    name: this.buildIdentifierFromToken(classNameToken),
-                    members: []
-                };
-                if (declared) {
-                    statement.declared = true;
-                }
-                if (isAbstractClass) {
-                    statement.abstract = true;
-                }
-                if (typeParameters.length > 0) {
-                    statement.typeParameters = typeParameters;
-                }
-                if (extendsType) {
-                    statement.extendsType = extendsType;
-                }
-                if (implementsTypes && implementsTypes.length > 0) {
-                    statement.implementsTypes = implementsTypes;
-                }
-                if (classDelegates.length > 0) {
-                    statement.classDelegates = classDelegates;
-                }
-                if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
-                    statement.primaryConstructorParameters = primaryConstructorParameters;
-                }
-                return this.attachNodeBounds(statement, startToken, this.getLastReadToken() ?? classKeyword);
-            }
-
-            this.fail("Expected '{' to start class body", this.tokenAt(openBrace));
-        }
-        this.tokens.skip();
-
-        const members: ClassMember[] = [];
-        while (this.tokens.hasMore) {
-            const token = this.tokens.peek();
-            if (isEofToken(token)) {
-                this.fail("Expected '}' to close class body", this.tokenAt(openBrace), "block");
-            }
-            if (token?.type === "symbol" && token.value === "}") {
-                this.tokens.skip();
-                const statement: ClassStatement = {
-                    kind: "ClassStatement",
-                    name: this.buildIdentifierFromToken(classNameToken),
-                    members
-                };
-                if (declared) {
-                    statement.declared = true;
-                }
-                if (isAbstractClass) {
-                    statement.abstract = true;
-                }
-                if (typeParameters.length > 0) {
-                    statement.typeParameters = typeParameters;
-                }
-                if (extendsType) {
-                    statement.extendsType = extendsType;
-                }
-                if (implementsTypes && implementsTypes.length > 0) {
-                    statement.implementsTypes = implementsTypes;
-                }
-                if (classDelegates.length > 0) {
-                    statement.classDelegates = classDelegates;
-                }
-                if (primaryConstructorParameters && primaryConstructorParameters.length > 0) {
-                    statement.primaryConstructorParameters = primaryConstructorParameters;
-                }
-                return this.attachNodeBounds(statement, startToken, this.getLastReadToken() ?? classKeyword);
-            }
-
-            if (token?.type === "symbol" && token.value === ";") {
-                this.tokens.skip();
-                continue;
-            }
-
-            const parsedMembers = this.parseClassMember(declared);
-            members.push(...parsedMembers);
-            this.consumeStatementSeparator("block", this.getLastReadToken());
-        }
-
-        this.fail("Expected '}' to close class body", this.tokenAt(openBrace), "block");
+        return this.parseClassLike({ declared }) as ClassStatement;
     }
 
     private parseInterfaceStatement(declared: boolean = false): InterfaceStatement {

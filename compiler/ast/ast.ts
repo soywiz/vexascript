@@ -121,7 +121,7 @@ export interface ChainExpression extends Node {
 
 export interface AssignmentExpression extends Node {
     kind: "AssignmentExpression"
-    operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "&&=" | "||=" | "??=" | "<<=" | ">>=" | ">>>="
+    operator: "=" | "+=" | "-=" | "%=" | "*=" | "/=" | "&=" | "|=" | "^=" | "&&=" | "||=" | "??=" | "<<=" | ">>=" | ">>>="
     left: Expr
     right: Expr
 }
@@ -182,6 +182,18 @@ export interface FunctionExpression extends Node {
     parametersCloseParen?: Token
     returnType?: Identifier
     body: BlockStatement
+}
+
+export interface ClassExpression extends Node {
+    kind: "ClassExpression"
+    abstract?: boolean
+    name?: Identifier
+    typeParameters?: TypeParameter[]
+    extendsType?: Identifier
+    implementsTypes?: Identifier[]
+    classDelegates?: ClassDelegate[]
+    primaryConstructorParameters?: ClassPrimaryConstructorParameter[]
+    members: ClassMember[]
 }
 
 export interface NewExpression extends Node {
@@ -400,6 +412,8 @@ export interface ClassFieldMember extends Node, ClassMemberModifiers {
     declarationKind?: VariableDeclarationKind
     readonlyToken?: Token
     name: Identifier
+    computed?: boolean
+    computedKey?: Expr
     override?: boolean
     optional?: boolean
     definiteAssignment?: boolean

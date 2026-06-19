@@ -162,6 +162,42 @@ describe("transpileModuleSource", () => {
     expect(result.exportNames).toContain("widgets");
   });
 
+  it("handles anonymous default function exports via the emitter path", () => {
+    const esm = "export default function () { return 7; }\n";
+    const result = transpileModuleSource(esm, "/lib/render.mjs");
+    expect(result.code).toContain("exports.default = function()");
+    expect(result.code).toContain("exports.__esModule = true");
+  });
+
+  it("handles anonymous default class exports via the emitter path", () => {
+    const esm = "export default class extends Base {}\n";
+    const result = transpileModuleSource(esm, "/lib/render.mjs");
+    expect(result.code).toContain("exports.default = class extends Base");
+    expect(result.code).toContain("exports.__esModule = true");
+  });
+
+  it("handles named class expressions via the emitter path", () => {
+    const esm = "const Widget = class Widget extends Base {};\nexport default Widget;\n";
+    const result = transpileModuleSource(esm, "/lib/render.mjs");
+    expect(result.code).toContain("const Widget = class Widget extends Base");
+    expect(result.code).toContain("exports.default = Widget");
+  });
+
+  it("handles computed class fields via the emitter path", () => {
+    const esm = "export default class Browser {\n  [PropertySymbol.exceptionObserver] = null;\n}\n";
+    const result = transpileModuleSource(esm, "/lib/render.mjs");
+    expect(result.code).toContain("[PropertySymbol.exceptionObserver] = null;");
+    expect(result.code).toContain("class Browser");
+    expect(result.code).toContain("exports.default = Browser");
+  });
+
+  it("handles regular expression default exports via the emitter path", () => {
+    const esm = "export default /[\\0-\\x1F\\x7F-\\x9F]/;\n";
+    const result = transpileModuleSource(esm, "/lib/regex.mjs");
+    expect(result.code).toContain("exports.default = /[\\0-\\x1F\\x7F-\\x9F]/");
+    expect(result.code).toContain("exports.__esModule = true");
+  });
+
   it("wraps destructuring assignment expression statements from bundled JavaScript modules", () => {
     const source = '({ sizeLods: this._sizeLods, lodPlanes: this._lodPlanes } = createPlanes());\n';
     const result = transpileModuleSource(source, "/lib/render.js");
@@ -252,7 +288,7 @@ describe("bundleNodeModuleGraph", () => {
     );
   });
 
-  it("parses JavaScript ESM default function exports through the shared emitter path before falling back", async () => {
+  it("parses JavaScript ESM default function exports through the shared emitter path", async () => {
     await withTempProject(
       {
         "entry.js": 'import render from "pkg/render"; export const value = render();\n',

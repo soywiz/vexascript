@@ -405,114 +405,6 @@ export function shouldPreserveCommonJsSource(source: string, filePath: string): 
   return hasCommonJsMarkers && !hasEsmMarkers;
 }
 
-function transformImportClauseToCommonJs(clause: string, specifier: string, tempName: string): string {
-  const trimmed = clause.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    const bindings = trimmed.slice(1, -1).trim();
-    const commonJsBindings = bindings.replace(/\bas\b/g, ":");
-    return `const { ${commonJsBindings} } = require(${JSON.stringify(specifier)});`;
-  }
-  if (trimmed.startsWith("* as ")) {
-    return `const ${trimmed.slice(5).trim()} = require(${JSON.stringify(specifier)});`;
-  }
-  const commaIndex = trimmed.indexOf(",");
-  if (commaIndex >= 0) {
-    const defaultImport = trimmed.slice(0, commaIndex).trim();
-    const rest = trimmed.slice(commaIndex + 1).trim();
-    const lines = [
-      `const ${tempName} = require(${JSON.stringify(specifier)});`,
-      `const ${defaultImport} = ${tempName} && ${tempName}.__esModule ? ${tempName}.default : ${tempName};`
-    ];
-    if (rest.startsWith("{") && rest.endsWith("}")) {
-      const bindings = rest.slice(1, -1).trim().replace(/\bas\b/g, ":");
-      lines.push(`const { ${bindings} } = ${tempName};`);
-    } else if (rest.startsWith("* as ")) {
-      lines.push(`const ${rest.slice(5).trim()} = ${tempName};`);
-    }
-    return lines.join("\n");
-  }
-  return [
-    `const ${tempName} = require(${JSON.stringify(specifier)});`,
-    `const ${trimmed} = ${tempName} && ${tempName}.__esModule ? ${tempName}.default : ${tempName};`
-  ].join("\n");
-}
-
-function transformJavaScriptModuleSource(source: string): string {
-  let tempIndex = 0;
-  let usesEsmExports = false;
-  const appendedExports: string[] = [];
-  let transformed = source;
-
-  transformed = transformed.replace(/(^|[\n;])\s*import\s+(['"])([^"'`]+)\2\s*;?/g, (_match, prefix, _quote, specifier) => {
-    return `${prefix}require(${JSON.stringify(specifier)});`;
-  });
-
-  transformed = transformed.replace(/(^|[\n;])\s*import\s*([^;'"]+?)\s*from\s*(['"])([^"'`]+)\3\s*;?/g, (_match, prefix, clause, _quote, specifier) => {
-    const tempName = `__vexa_import_${tempIndex++}`;
-    return `${prefix}${transformImportClauseToCommonJs(clause, specifier, tempName)}`;
-  });
-
-  transformed = transformed.replace(/export\s+default\s+([^;]+);?/g, (_match, expression) => {
-    usesEsmExports = true;
-    return `exports.default = ${expression};`;
-  });
-
-  transformed = transformed.replace(/export\s*\{([^}]+)\}(?:\s+from\s+(['"])([^"'`]+)\2)?\s*;?/g, (_match, specifiersText, _quote, fromSpecifier) => {
-    usesEsmExports = true;
-    const specifiers = specifiersText
-      .split(",")
-      .map((part: string) => part.trim())
-      .filter((part: string) => part.length > 0);
-    if (fromSpecifier) {
-      const tempName = `__vexa_export_${tempIndex++}`;
-      const lines = [`const ${tempName} = require(${JSON.stringify(fromSpecifier)});`];
-      for (const specifier of specifiers) {
-        const aliasParts = specifier.split(/\s+as\s+/);
-        const localName = aliasParts[0]!.trim();
-        const exportedName = (aliasParts[1] ?? aliasParts[0])!.trim();
-        lines.push(`exports.${exportedName} = ${tempName}.${localName};`);
-      }
-      return lines.join("\n");
-    }
-    return specifiers.map((specifier: string) => {
-      const aliasParts = specifier.split(/\s+as\s+/);
-      const localName = aliasParts[0]!.trim();
-      const exportedName = (aliasParts[1] ?? aliasParts[0])!.trim();
-      return `exports.${exportedName} = ${localName};`;
-    }).join("\n");
-  });
-
-  transformed = transformed.replace(/export\s+(const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([^;]+);?/g, (_match, kind, name, initializer) => {
-    usesEsmExports = true;
-    return `${kind} ${name} = ${initializer};\nexports.${name} = ${name};`;
-  });
-
-  transformed = transformed.replace(/export\s+((?:async\s+)?function(?:\s*\*)?)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g, (_match, prefix, name) => {
-    usesEsmExports = true;
-    appendedExports.push(`exports.${name} = ${name};`);
-    return `${prefix} ${name}(`;
-  });
-
-  transformed = transformed.replace(/export\s+class\s+([A-Za-z_$][A-Za-z0-9_$]*)/g, (_match, name) => {
-    usesEsmExports = true;
-    appendedExports.push(`exports.${name} = ${name};`);
-    return `class ${name}`;
-  });
-
-  if (appendedExports.length > 0) {
-    transformed = `${transformed}\n${appendedExports.join("\n")}`;
-  }
-  if (usesEsmExports) {
-    transformed = `${transformed}\nexports.__esModule = true;`;
-  }
-  return transformed;
-}
-
-function isJavaScriptLikeModulePath(filePath: string): boolean {
-  const extension = extname(filePath).toLowerCase();
-  return extension === ".js" || extension === ".mjs" || extension === ".cjs" || extension === ".jsx";
-}
-
 export function transpileModuleSource(source: string, filePath: string): { code: string; exportNames: string[] | null } {
   if (shouldPreserveCommonJsSource(source, filePath)) {
     return {
@@ -521,18 +413,11 @@ export function transpileModuleSource(source: string, filePath: string): { code:
     };
   }
   const extension = extname(filePath).toLowerCase();
-  const javascriptLikeModule = isJavaScriptLikeModulePath(filePath);
   const parsed = parseSource(source, {
     language: "typescript",
     jsx: extension === ".tsx" || extension === ".jsx"
   });
   if (!parsed.ast) {
-    if (javascriptLikeModule) {
-      return {
-        code: transformJavaScriptModuleSource(source),
-        exportNames: null
-      };
-    }
     const detail = parsed.fatalError
       ?? parsed.tokenizeError?.message
       ?? parsed.parserIssues[0]?.message
@@ -540,12 +425,6 @@ export function transpileModuleSource(source: string, filePath: string): { code:
     throw new Error(`Unable to parse bundled module '${filePath}': ${detail}`);
   }
   if (parsed.parserIssues.length > 0) {
-    if (javascriptLikeModule) {
-      return {
-        code: transformJavaScriptModuleSource(source),
-        exportNames: null
-      };
-    }
     const issue = parsed.parserIssues[0]!;
     throw new Error(`Unable to parse bundled module '${filePath}': ${issue.message}`);
   }

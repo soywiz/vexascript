@@ -17,6 +17,9 @@ describe("parseExpression", () => {
         expect(parseExpression(tokenizeReader("10e-3"))).toEqual(
             { kind: "FloatLiteral", value: 0.01 }
         );
+        expect(parseExpression(tokenizeReader("0."))).toEqual(
+            { kind: "FloatLiteral", value: 0 }
+        );
     });
 
     it("builds an AST for bigint and long literals", () => {
@@ -92,6 +95,62 @@ describe("parseExpression", () => {
                 { kind: "ArrayHole" },
                 { kind: "IntLiteral", value: 3 }
             ]
+        });
+    });
+
+    it("parses named class expressions", () => {
+        expect(parseExpression(tokenizeReader("class Widget extends Base {}"), { language: "typescript" })).toMatchObject({
+            kind: "ClassExpression",
+            name: { kind: "Identifier", name: "Widget" },
+            extendsType: { kind: "Identifier", name: "Base" },
+            members: []
+        });
+    });
+
+    it("parses computed class fields in class expressions", () => {
+        expect(parseExpression(tokenizeReader("class Browser { [PropertySymbol.exceptionObserver] = null; }"), { language: "typescript" })).toMatchObject({
+            kind: "ClassExpression",
+            members: [
+                {
+                    kind: "ClassFieldMember",
+                    computed: true,
+                    computedKey: {
+                        kind: "MemberExpression"
+                    },
+                    initializer: { kind: "NullLiteral" }
+                }
+            ]
+        });
+    });
+
+    it("parses anonymous export default function and class expressions in TypeScript mode", () => {
+        const functionAst = parseFile(tokenizeReader("export default function () { return 7; }"), { language: "typescript" });
+        expect(functionAst.body[0]).toMatchObject({
+            kind: "ExportStatement",
+            default: true,
+            declaration: {
+                kind: "ExprStatement",
+                expression: {
+                    kind: "FunctionExpression",
+                    body: {
+                        kind: "BlockStatement"
+                    }
+                }
+            }
+        });
+
+        const classAst = parseFile(tokenizeReader("export default class extends Base {}"), { language: "typescript" });
+        expect(classAst.body[0]).toMatchObject({
+            kind: "ExportStatement",
+            default: true,
+            declaration: {
+                kind: "ExprStatement",
+                expression: {
+                    kind: "ClassExpression",
+                    extendsType: { kind: "Identifier", name: "Base" },
+                    members: []
+                }
+            }
         });
     });
 
@@ -1494,7 +1553,7 @@ describe("parseExpression", () => {
     });
 
     it("parses all requested compound assignment operators", () => {
-        const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="] as const;
+        const operators = ["+=", "-=", "%=", "*=", "/=", "&=", "|=", "^=", "&&=", "||=", "??=", "<<=", ">>=", ">>>="] as const;
 
         for (const operator of operators) {
             expect(parseExpression(tokenizeReader(`a ${operator} 1

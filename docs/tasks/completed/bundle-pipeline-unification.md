@@ -62,7 +62,7 @@ The goal is not to force everything through one giant path. The goal is to make 
 * [x] Consolidate export-planning rules so implicit/runtime/public export behavior has one obvious source of truth.
   - `compiler/runtime/implicitExports.ts` now centralizes the implicit Vexa export plan used by both `appendImplicitVexaExports(...)` and `appendImplicitVexaCommonJsExports(...)` inside `moduleGraph.ts`.
 * [x] Reduce the number of format-conversion strategies used during bundling where practical.
-  - JavaScript ESM from `node_modules` now goes through the shared parser/emitter path for more cases, including `export * as ns from "..."` namespace re-exports. The CLI fallback remains intentionally available as a safety net for still-unhandled third-party JavaScript edge cases, but the main path is more unified than before.
+  - JavaScript ESM from `node_modules` now goes through the shared parser/emitter path, including real-world package forms such as anonymous default exports, class expressions, computed class fields, regular-expression exports, and `^=` compound assignments. The old CLI fallback helpers were removed.
 * [x] Add focused tests that pin each bundling phase independently, not only end-to-end bundle output.
   - Exported `shouldPreserveCommonJsSource`, `detectStaticRequires`, `collectCommonJsExports`, and `transpileModuleSource` from `cli/nodeModuleBundle.ts`. Added 22 unit tests covering each helper directly in `compiler/runtime/nodeModuleBundle.test.ts`.
 * [x] Revisit whether some wrapper-generation logic should move to a dedicated bundling module instead of staying in mixed CLI/runtime files.

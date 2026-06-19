@@ -58,6 +58,7 @@ import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { buildPreviewDocument } from "./previewDocument";
 import { completionInsertText, markerToDiagnostic } from "./monaco/providerConversions";
 import { WorkspaceVfs } from "./monaco/workspaceVfs";
+import { createCachedWorkspaceSessionResolver } from "./monaco/workspaceSessions";
 import {
   createFileInWorkspace,
   createFileEntry,
@@ -1822,16 +1823,13 @@ function createWorkbenchEditor(container: HTMLElement | string, options: Workben
   });
   setVfs(workspaceVfs);
 
-  const getWorkspaceSessionForFilePath = async (filePath: string): Promise<ReturnType<typeof createAnalysisSession> | null> => {
-    const uri = pathToUri(filePath);
-    const source = getWorkspaceFileSource(uri);
-    if (source === null) {
-      return null;
-    }
-    return isRuntimeDeclarationPath(filePath)
-      ? createAnalysisSession(source)
-      : createAnalysisSession(source, [], new Map(), await getDomAmbientDeclarations());
-  };
+  const getWorkspaceSessionForFilePath = createCachedWorkspaceSessionResolver({
+    getAmbientDeclarations: getDomAmbientDeclarations,
+    getWorkspaceFileSource,
+    getWorkspaceRevision: () => workspaceRevision,
+    isRuntimeDeclarationPath,
+    pathToUri,
+  });
 
   const getWorkspaceExportedSymbols = async (): Promise<SymbolExport[]> => {
     const symbols: SymbolExport[] = [];

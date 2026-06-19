@@ -69,11 +69,11 @@ This section is the fast onboarding map for agents and contributors.
   - Transpile tests: `compiler/runtime/transpile.test.ts`
   - Runtime integration tests: `compiler/runtime/runtime.integration.test.ts`
 - Runnable samples and sample-test harness: `samples/`, `samples/samples.test.ts`
-  - Each sample directory is discovered when it contains expected.txt; the harness runs main.vx with runFile and compares captured console.log output to expected.txt.
+  - Each sample directory is discovered either as a runnable console sample with `expected.txt` or as a configured bundle sample with a sample-local VexaScript config entrypoint; the harness runs `main.vx` with `runFile` for console samples and at minimum validates bundling of configured entrypoints for browser-oriented samples that do not ship a `main.vx`/`expected.txt` pair.
   - Sample-local package.json files are installed with pnpm install before execution when node_modules is missing, so samples can demonstrate npm package declarations and runtime dependencies.
   - Sample-local VexaScript config files are loaded by `compiler/project.ts`; they can set JSX factories/import sources, `compilerOptions.lib` entries such as `dom` for DOM ambient declarations, `compilerOptions.types` entries such as `node` for loading ambient declarations from runtime packages or `@types` packages, and `serveMappings` aliases that expose files or directories under different served paths. TypeScript config files remain a fallback for compatibility.
   - Browser canvas sample: `samples/pixi/` mirrors the `samples/preact/` browser shape with `samples/pixi/html.vx`, `samples/pixi/index.html`, and `samples/pixi/vexascript.json`, validating normal module imports from the PIXI npm package directly inside VexaScript browser code.
-  - THREE.js browser sample: `samples/threejs/` pairs deterministic Node-safe math output in `samples/threejs/main.vx` with a served `samples/threejs/html.vx` scene and `samples/threejs/vexascript.json`, validating normal module imports from the Three npm package directly inside VexaScript browser code.
+  - THREE.js browser sample: `samples/threejs/` uses `samples/threejs/html.vx` together with `samples/threejs/vexascript.json` and supporting modules such as `scene-data.vx`/`extensions.vx`, validating normal module imports from the Three npm package directly inside VexaScript browser code.
   - DOM-emulation sample: `samples/virtual-dom/` uses a lightweight local DOM shim plus `samples/virtual-dom/vexascript.json` with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types without a heavy third-party runtime.
   - DefinitelyTyped sample: `samples/minimist/` uses the runtime-only `minimist` package together with `@types/minimist` to validate fallback resolution for npm packages that keep declarations in `node_modules/@types`.
   - Delegated-state sample: `samples/delegated-state/` validates end-to-end execution of Kotlin-style delegated variables backed by function and object delegates.
@@ -118,6 +118,7 @@ This section is the fast onboarding map for agents and contributors.
 - Monaco editor support for the website embeds (project folder: `website/src/assets/monaco/`):
   - Browser-only virtual-workspace and persistence helpers (workspace tabs, folders, runtime declarations, `localStorage`): `website/src/assets/monaco/workspace.ts`
   - Monaco virtual file-system adapter that exposes workspace files through the compiler's async VFS interface: `website/src/assets/monaco/workspaceVfs.ts`
+  - Cached analysis-session resolver for browser workspace files so hover/definition/completion can reuse imported-file sessions across repeated requests: `website/src/assets/monaco/workspaceSessions.ts`
   - Virtual-workspace path helpers (leading-slash normalization, no dot-segment resolution): `website/src/assets/monaco/workspacePaths.ts`
   - Monaco provider conversion helpers for preserving LSP diagnostic metadata such as `source`/`code` when adapting Monaco markers to compiler quick-fix inputs: `website/src/assets/monaco/providerConversions.ts`
   - Workspace-wide diagnostics collection over the compiler's single-file and cross-file diagnostic passes: `website/src/assets/monaco/workspaceDiagnostics.ts`

@@ -8,6 +8,7 @@ import type {
   BooleanLiteral,
   BlockStatement,
   CallExpression,
+  ClassExpression,
   ClassFieldMember,
   ClassMethodMember,
   ClassPrimaryConstructorParameter,
@@ -815,6 +816,7 @@ function compoundAssignmentBinaryOperator(operator: AssignmentExpression["operat
     case "%=": return "%";
     case "&=": return "&";
     case "|=": return "|";
+    case "^=": return "^";
     case "&&=": return "&&";
     case "||=": return "||";
     case "??=": return "??";
@@ -1448,6 +1450,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           () => `${asyncEmitPrefix(fn)}function${fn.generator === true ? "*" : ""}${name}(${emitFunctionParameters(fn.parameters)}) ${emitScopedBlock(fn.body)}`
         );
       }
+      case "ClassExpression":
+        return emitClassLike(expression as ClassExpression);
       case "JsxElement":
         return emitJsxElement(expression as JsxElement);
       case "JsxFragment":
@@ -1745,10 +1749,13 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
   const staticPrefix = member.static === true ? "static " : "";
   if (member.kind === "ClassFieldMember") {
     const field = member as ClassFieldMember;
+    const fieldName = field.computed === true
+      ? `[${emitExpression(field.computedKey!)}]`
+      : field.name.name;
     if (field.initializer) {
-      return `${staticPrefix}${field.name.name} = ${emitListElement(field.initializer)};`;
+      return `${staticPrefix}${fieldName} = ${emitListElement(field.initializer)};`;
     }
-    return `${staticPrefix}${field.name.name};`;
+    return `${staticPrefix}${fieldName};`;
   }
 
   const method = member as ClassMethodMember;
@@ -1764,6 +1771,22 @@ function emitClassMember(member: ClassFieldMember | ClassMethodMember): string {
     const body = methodName === "constructor" ? emitConstructorBlock(method) : emitScopedBlock(method.body);
     return `${staticPrefix}${asyncPrefix}${accessorPrefix}${generatorPrefix}${methodName}(${emitFunctionParameters(method.parameters)}) ${body}`;
   });
+}
+
+function emitClassLike(classLike: ClassStatement | ClassExpression, resolvedName?: string): string {
+  const members = [...classLike.members];
+  const syntheticConstructor = emitClassPrimaryConstructor(classLike.primaryConstructorParameters, members);
+  const memberLines = [
+    ...(syntheticConstructor ? [syntheticConstructor] : []),
+    ...members.map((member) => emitClassMember(member)),
+    ...emitClassDelegateMembers(classLike as ClassStatement, members)
+  ];
+  const extendsClause = classLike.extendsType &&
+    (!activeState.interfaceNames.has(classLike.extendsType.name) || activeState.classNames.has(classLike.extendsType.name))
+    ? ` extends ${eraseTypeArguments(classLike.extendsType.name)}`
+    : "";
+  const name = resolvedName ?? classLike.name?.name ?? "";
+  return `class${name.length > 0 ? ` ${name}` : ""}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
 }
 
 function isAsyncFor(statement: ForStatement): boolean {
@@ -2219,18 +2242,7 @@ export function emitStatement(statement: Statement): string {
       if (classStatement.declared) {
         return "";
       }
-      const members = [...classStatement.members];
-      const syntheticConstructor = emitClassPrimaryConstructor(classStatement.primaryConstructorParameters, members);
-      const memberLines = [
-        ...(syntheticConstructor ? [syntheticConstructor] : []),
-        ...members.map((member) => emitClassMember(member)),
-        ...emitClassDelegateMembers(classStatement, members)
-      ];
-      const extendsClause = classStatement.extendsType &&
-        (!activeState.interfaceNames.has(classStatement.extendsType.name) || activeState.classNames.has(classStatement.extendsType.name))
-        ? ` extends ${eraseTypeArguments(classStatement.extendsType.name)}`
-        : "";
-      return `class ${resolveJsName(classStatement.name.name)}${extendsClause} {${memberLines.length > 0 ? `\n${memberLines.join("\n")}\n` : ""}}`;
+      return emitClassLike(classStatement, resolveJsName(classStatement.name.name));
     }
     case "NamespaceStatement":
       return emitNamespaceStatement(statement as NamespaceStatement);

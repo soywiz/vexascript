@@ -5,6 +5,7 @@ import type {
   BigIntLiteral, BinaryExpression, BindingElement, BindingName,
   BlockStatement, BooleanLiteral, BreakStatement, CallExpression,
   ChainExpression,
+  ClassExpression,
   ClassFieldMember, ClassMethodMember, ClassPrimaryConstructorParameter,
   ClassStatement, CommaExpression, ConditionalExpression,
   ContinueStatement, DeferStatement, DoWhileStatement,
@@ -91,7 +92,7 @@ const BINARY_OPERATORS_LEGACY = new Set([
   "==", "!=", "===", "!==",
   "=>", "->",
   "&", "|", "^", "&&", "||",
-  "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=", "&=", "|=", "&&=", "||="
+  "=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||="
   , "??="
   , "??"
 ]);
@@ -1996,6 +1997,32 @@ class AstFormatter {
     this.tok("}");
   }
 
+  private emitClassExpr(expr: ClassExpression): void {
+    if (expr.abstract) { this.tok("abstract"); this.sp(); }
+    this.tok("class");
+    if (expr.name) {
+      this.sp();
+      this.write(expr.name.name);
+    }
+    if (expr.typeParameters?.length) this.emitTypeParams(expr.typeParameters);
+    if (expr.extendsType) { this.sp(); this.write("extends"); this.sp(); this.emitTypeAnno(expr.extendsType as Node); }
+    if (expr.implementsTypes?.length) {
+      this.sp(); this.write("implements"); this.sp();
+      expr.implementsTypes.forEach((t, i) => {
+        if (i > 0) { this.write(","); this.sp(); }
+        this.emitTypeAnno(t as Node);
+      });
+    }
+    this.sp();
+    this.tok("{");
+    this.nl();
+    this.indentLvl++;
+    this.emitClassMembers(expr.members);
+    this.indentLvl--;
+    if (!this.atLineStart) this.nl();
+    this.tok("}");
+  }
+
   private hasBraceInSource(stmt: ClassStatement): boolean {
     const lt = ltok(stmt as Node);
     if (!lt) return false;
@@ -2080,7 +2107,13 @@ class AstFormatter {
         this.tok("readonly"); this.sp();
       }
       if (m.declarationKind) { this.tok(m.declarationKind); this.sp(); }
-      this.write(m.name.name);
+      if (m.computed && m.computedKey) {
+        this.write("[");
+        this.emitExpr(m.computedKey);
+        this.write("]");
+      } else {
+        this.write(m.name.name);
+      }
       if (m.optional) this.write("?");
       if (m.definiteAssignment) this.write("!");
       if (m.typeAnnotation) { this.write(":"); this.sp(); this.emitTypeAnno(m.typeAnnotation as Node); }
@@ -2542,6 +2575,7 @@ class AstFormatter {
       case "ConditionalExpression": this.emitCondExpr(expr as ConditionalExpression); break;
       case "ArrowFunctionExpression": this.emitArrowFnExpr(expr as ArrowFunctionExpression); break;
       case "FunctionExpression": this.emitFunctionExpr(expr as FunctionExpression); break;
+      case "ClassExpression": this.emitClassExpr(expr as ClassExpression); break;
       case "ArrayLiteral": this.emitArrayLiteral(expr as ArrayLiteral); break;
       case "ObjectLiteral": this.emitObjectLiteral(expr as ObjectLiteral); break;
       case "SpreadExpression": {

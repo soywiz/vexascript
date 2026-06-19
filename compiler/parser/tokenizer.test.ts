@@ -42,6 +42,14 @@ describe("tokenizer", () => {
         ])
     })
 
+    it("tokenizes trailing-dot decimal numbers", () => {
+        expect(simplifyTokens("0. 1.;")).toStrictEqual([
+            { type: "number", value: "0." },
+            { type: "number", value: "1." },
+            { type: "symbol", value: ";" }
+        ])
+    })
+
     it("tokenizes bigint and long suffix literals", () => {
         expect(simplifyTokens("10n + 20L")).toStrictEqual([
             { type: "number", value: "10n" },
@@ -204,7 +212,7 @@ describe("tokenizer", () => {
     })
 
     it("tokenizes compound assignment operators", () => {
-        expect(simplifyTokens("a += b -= c %= d *= e /= f &= g |= h &&= i ||= j <<= k >>= l >>>= m")).toStrictEqual([
+        expect(simplifyTokens("a += b -= c %= d *= e /= f &= g |= h ^= i &&= j ||= k <<= l >>= m >>>= n")).toStrictEqual([
             { type: "identifier", value: "a" },
             { type: "symbol", value: "+=" },
             { type: "identifier", value: "b" },
@@ -220,16 +228,18 @@ describe("tokenizer", () => {
             { type: "identifier", value: "g" },
             { type: "symbol", value: "|=" },
             { type: "identifier", value: "h" },
-            { type: "symbol", value: "&&=" },
+            { type: "symbol", value: "^=" },
             { type: "identifier", value: "i" },
-            { type: "symbol", value: "||=" },
+            { type: "symbol", value: "&&=" },
             { type: "identifier", value: "j" },
-            { type: "symbol", value: "<<=" },
+            { type: "symbol", value: "||=" },
             { type: "identifier", value: "k" },
-            { type: "symbol", value: ">>=" },
+            { type: "symbol", value: "<<=" },
             { type: "identifier", value: "l" },
+            { type: "symbol", value: ">>=" },
+            { type: "identifier", value: "m" },
             { type: "symbol", value: ">>>=" },
-            { type: "identifier", value: "m" }
+            { type: "identifier", value: "n" }
         ])
     })
 
@@ -449,6 +459,14 @@ describe("tokenizer", () => {
             { type: "identifier", value: "total" },
             { type: "symbol", value: "/" },
             { type: "identifier", value: "count" }
+        ]);
+    })
+
+    it("tokenizes regular expression literals after export default", () => {
+        expect(simplifyTokens("export default /[\\0-\\x1F]/g")).toStrictEqual([
+            { type: "identifier", value: "export" },
+            { type: "identifier", value: "default" },
+            { type: "regexp", value: "/[\\0-\\x1F]/g" }
         ]);
     })
 
