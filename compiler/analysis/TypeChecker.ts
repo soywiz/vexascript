@@ -3428,7 +3428,8 @@ export class TypeChecker {
       })),
       returnType,
       typeParameters.map((parameter) => parameter.name.name),
-      this.typeParameterConstraintMap(typeParameters, scope)
+      this.typeParameterConstraintMap(typeParameters, scope),
+      this.typeParameterDefaultMap(typeParameters, scope)
     );
   }
 
@@ -3500,6 +3501,20 @@ export class TypeChecker {
       constraints[typeParameter.name.name] = this.resolveTypeAnnotation(typeParameter.constraint, scope) ?? UNKNOWN_TYPE;
     }
     return Object.keys(constraints).length > 0 ? constraints : undefined;
+  }
+
+  private typeParameterDefaultMap(
+    typeParameters: TypeParameter[],
+    scope: Scope
+  ): Record<string, AnalysisType> | undefined {
+    const defaults: Record<string, AnalysisType> = {};
+    for (const typeParameter of typeParameters) {
+      if (!typeParameter.defaultType) {
+        continue;
+      }
+      defaults[typeParameter.name.name] = this.resolveTypeAnnotation(typeParameter.defaultType, scope) ?? UNKNOWN_TYPE;
+    }
+    return Object.keys(defaults).length > 0 ? defaults : undefined;
   }
 
   private typeFromAnnotationLooseWithTypeParameters(
@@ -3639,6 +3654,23 @@ export class TypeChecker {
       ) ?? UNKNOWN_TYPE;
     }
     return Object.keys(constraints).length > 0 ? constraints : undefined;
+  }
+
+  private typeParameterDefaultMapLoose(
+    typeParameters: TypeParameter[],
+    localTypeParameterNames: readonly string[]
+  ): Record<string, AnalysisType> | undefined {
+    const defaults: Record<string, AnalysisType> = {};
+    for (const typeParameter of typeParameters) {
+      if (!typeParameter.defaultType) {
+        continue;
+      }
+      defaults[typeParameter.name.name] = this.typeFromAnnotationLooseWithTypeParameters(
+        typeParameter.defaultType,
+        localTypeParameterNames
+      ) ?? UNKNOWN_TYPE;
+    }
+    return Object.keys(defaults).length > 0 ? defaults : undefined;
   }
 
   private applyCallArgumentContext(
@@ -3891,7 +3923,10 @@ export class TypeChecker {
 
     for (const typeParameter of typeParameters) {
       if (!substitutions.has(typeParameter)) {
-        substitutions.set(typeParameter, namedType(typeParameter));
+        substitutions.set(
+          typeParameter,
+          calleeType.typeParameterDefaults?.[typeParameter] ?? namedType(typeParameter)
+        );
       }
     }
 
@@ -3905,7 +3940,8 @@ export class TypeChecker {
       })),
       substituted.returnType,
       substituted.typeParameters,
-      substituted.typeParameterConstraints
+      substituted.typeParameterConstraints,
+      substituted.typeParameterDefaults
     );
   }
 
@@ -4463,7 +4499,8 @@ export class TypeChecker {
             interfaceStatement.name.name
           ) ?? builtinType("void"),
           methodTypeParameterNames,
-          this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
+          this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames),
+          this.typeParameterDefaultMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
         );
       });
       overloads.push(this.substituteTypeParameters(methodType, substitutions) as AnalysisType & { kind: "function" });
@@ -5146,7 +5183,8 @@ export class TypeChecker {
         })),
         this.typeFromAnnotationLooseWithTypeParameters(constructorMember.returnType, typeParameterNames) ?? UNKNOWN_TYPE,
         typeParameterNames,
-        this.typeParameterConstraintMapLoose(constructorMember.typeParameters ?? [], typeParameterNames)
+        this.typeParameterConstraintMapLoose(constructorMember.typeParameters ?? [], typeParameterNames),
+        this.typeParameterDefaultMapLoose(constructorMember.typeParameters ?? [], typeParameterNames)
       );
     });
     return result;
@@ -8670,7 +8708,8 @@ export class TypeChecker {
             interfaceStatement.name.name
           ) ?? builtinType("void"),
           methodTypeParameterNames,
-          this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
+          this.typeParameterConstraintMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames),
+          this.typeParameterDefaultMapLoose(interfaceMember.typeParameters ?? [], availableTypeParameterNames)
         );
       });
       if (!preferExistingMembers || !members.has(interfaceMember.name.name)) {
@@ -8863,7 +8902,8 @@ export class TypeChecker {
             })),
             returnType,
             methodTypeParameterNames,
-            this.typeParameterConstraintMapLoose(classMember.typeParameters ?? [], availableTypeParameterNames)
+            this.typeParameterConstraintMapLoose(classMember.typeParameters ?? [], availableTypeParameterNames),
+            this.typeParameterDefaultMapLoose(classMember.typeParameters ?? [], availableTypeParameterNames)
           );
         });
         this.addResolvedMemberType(
@@ -9518,7 +9558,15 @@ export class TypeChecker {
         })),
         this.substituteTypeParameters(sourceType.returnType, substitutions),
         sourceType.typeParameters,
-        substitutedConstraints
+        substitutedConstraints,
+        sourceType.typeParameterDefaults
+          ? Object.fromEntries(
+              Object.entries(sourceType.typeParameterDefaults).map(([name, defaultType]) => [
+                name,
+                this.substituteTypeParameters(defaultType, substitutions)
+              ])
+            )
+          : undefined
       );
     }
 

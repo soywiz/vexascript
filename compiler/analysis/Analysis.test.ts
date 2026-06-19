@@ -3,6 +3,8 @@ import { Parser, parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { Analysis } from "./Analysis";
 import type { AnalysisSymbol } from "./Analysis";
+import { typeToString } from "./types";
+import type { VarStatement } from "compiler/ast/ast";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import dedent from "compiler/utils/dedent";
 
@@ -240,6 +242,24 @@ describe("Analysis", () => {
     const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("uses default generic DOM type arguments for querySelector when none are inferred", async () => {
+    const source = 'val app = document.querySelector("#app")\n';
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
+    const initializer = (ast.body[0] as VarStatement).initializer!;
+
+    expect(typeToString(analysis.getExpressionTypes().get(initializer)!)).toBe("Element | null");
+  });
+
+  it("preserves explicit generic DOM type arguments for querySelector", async () => {
+    const source = 'val app = document.querySelector<HTMLDivElement>("#app")\n';
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: (await ensureDomProgram()).body });
+    const initializer = (ast.body[0] as VarStatement).initializer!;
+
+    expect(typeToString(analysis.getExpressionTypes().get(initializer)!)).toBe("HTMLDivElement | null");
   });
 
   it("resolves constrained DOM members after non-null assertions on generic calls", async () => {

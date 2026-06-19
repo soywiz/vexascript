@@ -58,6 +58,7 @@ export interface FunctionType {
   kind: "function";
   typeParameters?: string[];
   typeParameterConstraints?: Record<string, AnalysisType>;
+  typeParameterDefaults?: Record<string, AnalysisType>;
   parameters: Array<{ name: string; type: AnalysisType; optional?: boolean; rest?: boolean }>;
   returnType: AnalysisType;
 }
@@ -147,13 +148,17 @@ export function functionType(
   parameters: Array<{ name: string; type: AnalysisType; optional?: boolean; rest?: boolean }>,
   returnType: AnalysisType,
   typeParameters?: string[],
-  typeParameterConstraints?: Record<string, AnalysisType>
+  typeParameterConstraints?: Record<string, AnalysisType>,
+  typeParameterDefaults?: Record<string, AnalysisType>
 ): FunctionType {
   return {
     kind: "function",
     ...(typeParameters && typeParameters.length > 0 ? { typeParameters } : {}),
     ...(typeParameterConstraints && Object.keys(typeParameterConstraints).length > 0
       ? { typeParameterConstraints }
+      : {}),
+    ...(typeParameterDefaults && Object.keys(typeParameterDefaults).length > 0
+      ? { typeParameterDefaults }
       : {}),
     parameters,
     returnType

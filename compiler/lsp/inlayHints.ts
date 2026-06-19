@@ -132,6 +132,13 @@ function selectedCallableReturnTypeNameFromValueType(
   return callableReturnTypeNameFromValueType(selected);
 }
 
+function typeNameReferencesAnyTypeParameter(typeName: string, typeParameters: readonly string[] | undefined): boolean {
+  if (!typeParameters || typeParameters.length === 0) {
+    return false;
+  }
+  return typeParameters.some((typeParameter) => new RegExp(`\\b${typeParameter}\\b`).test(typeName));
+}
+
 async function resolveVariableInlayTypeName(
   expression: Expr,
   analysis: Analysis,
@@ -151,11 +158,26 @@ async function resolveVariableInlayTypeName(
           calleeToken.range.start.line,
           calleeToken.range.start.column
         )?.symbol;
+        const analyzedExpressionType = analysis.getExpressionTypes().get(expression);
+        const analyzedDisplayTypeName = analyzedExpressionType
+          ? typeToString(
+              analysis.getAutoAwaitExpressions().has(expression)
+                ? unwrapPromiseTypeForDisplay(analyzedExpressionType)
+                : analyzedExpressionType
+            )
+          : null;
         const selectedReturnTypeName = selectedCallableReturnTypeNameFromValueType(
           symbol?.valueType,
           resolution.overloadIndex
         );
         if (selectedReturnTypeName) {
+          if (
+            analyzedDisplayTypeName &&
+            analyzedDisplayTypeName !== "unknown" &&
+            typeNameReferencesAnyTypeParameter(selectedReturnTypeName, resolution.overload.typeParameters)
+          ) {
+            return analyzedDisplayTypeName;
+          }
           return analysis.getAutoAwaitExpressions().has(expression)
             ? unwrapPromiseTypeNameForDisplay(selectedReturnTypeName)
             : selectedReturnTypeName;
@@ -163,7 +185,15 @@ async function resolveVariableInlayTypeName(
         const returnType = analysis.getAutoAwaitExpressions().has(expression)
           ? unwrapPromiseTypeForDisplay(resolution.overload.returnType)
           : resolution.overload.returnType;
-        return typeToString(returnType);
+        const resolvedReturnTypeName = typeToString(returnType);
+        if (
+          analyzedDisplayTypeName &&
+          analyzedDisplayTypeName !== "unknown" &&
+          typeNameReferencesAnyTypeParameter(resolvedReturnTypeName, resolution.overload.typeParameters)
+        ) {
+          return analyzedDisplayTypeName;
+        }
+        return resolvedReturnTypeName;
       }
     }
     if (callExpression.callee.kind === "Identifier" && callExpression.callee.firstToken) {

@@ -5,6 +5,7 @@ import { createInlayHints } from "./inlayHints";
 import { builtinType, functionType, namedType } from "compiler/analysis/types";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
+import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 
 describe("inlay hints", () => {
   it("provides inferred type hints and parameter name hints", async () => {
@@ -226,6 +227,65 @@ dedent`
 
     expect(labels).toContain(": BufferAlias");
     expect(labels.some((label) => label.includes("length:"))).toBe(false);
+  });
+
+  it("uses resolved DOM element types for createElement variable inlay hints", async () => {
+    const source = dedent`
+      sync fun main() {
+        val canvas = document.createElement("canvas")
+      }
+      `;
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": HTMLCanvasElement");
+    expect(labels).not.toContain(": HTMLElementTagNameMap[K]");
+  });
+
+  it("uses default generic DOM type arguments for querySelector variable inlay hints", async () => {
+    const source = dedent`
+      sync fun main() {
+        val app = document.querySelector("#app")
+      }
+      `;
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": Element | null");
+    expect(labels).not.toContain(": E | null");
+  });
+
+  it("preserves explicit generic DOM type arguments for querySelector variable inlay hints", async () => {
+    const source = dedent`
+      sync fun main() {
+        val app = document.querySelector<HTMLDivElement>("#app")
+      }
+      `;
+    const ambientDeclarations = (await ensureDomProgram()).body;
+    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+
+    const hints = await createInlayHints(
+      session.ast!,
+      session.analysis!,
+      { start: { line: 0, character: 0 }, end: { line: 20, character: 0 } }
+    );
+    const labels = hints.map((hint) => (typeof hint.label === "string" ? hint.label : ""));
+
+    expect(labels).toContain(": HTMLDivElement | null");
   });
 
   it("uses the selected ambient overload return type for variable inlay hints", async () => {
