@@ -1,24 +1,10 @@
 import { demo } from "./demo.vx"
 import { sample } from "./sample.vx"
+import { QueryClient, useQuery } from "./react-query-runtime.jsx"
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "./react-router-runtime.jsx"
 
-val ReactQuery = (globalThis as any).ReactQuery
-val ReactRouterDOM = (globalThis as any).ReactRouterDOM
-val useQuery = ReactQuery.useQuery
-val QueryClient = ReactQuery.QueryClient
-val QueryClientProvider = ReactQuery.QueryClientProvider
-val MemoryRouter = ReactRouterDOM.MemoryRouter
-val NavLink = ReactRouterDOM.NavLink
-val Route = ReactRouterDOM.Route
-val Routes = ReactRouterDOM.Routes
 type RoadmapData = { headline: string; checks: string[] }
-val queryClient = new QueryClient({
-    defaultOptions: {
-        queries: {
-            retry: false,
-            staleTime: 60_000
-        }
-    }
-})
+val queryClient = new QueryClient()
 val todoIdeas = [
     "Review the JSX output",
     "Wire the next sample module",
@@ -35,7 +21,8 @@ fun Metric({ label: string, value: number }) {
 }
 
 fun RouteTabs() {
-    val location = ReactRouterDOM.useLocation()
+    val location = useLocation()
+    val navigate = useNavigate()
 
     return (
         <section className="route-shell">
@@ -47,13 +34,14 @@ fun RouteTabs() {
             <div className="route-toolbar">
                 <div className="route-pills">
                     {routeCards.map({ route ->
-                        <NavLink
+                        <button
                             key={route.path}
-                            className={({ isActive }) => isActive ? "route-pill route-pill-active" : "route-pill"}
-                            to={route.path}
+                            className={location.pathname == route.path ? "route-pill route-pill-active" : "route-pill"}
+                            onClick={{ navigate(route.path as any) }}
+                            type="button"
                         >
                             {route.label}
-                        </NavLink>
+                        </button>
                     })}
                 </div>
                 <span className="route-path">Path: <code>{location.pathname}</code></span>
@@ -139,7 +127,7 @@ fun RoadmapPanel() {
                 ]
             }
         }
-    })
+    }, queryClient)
     val roadmapData = roadmapQuery.data as any
     val checks = roadmapData?.checks ?? []
 
@@ -207,11 +195,9 @@ if (container == null) {
 }
 
 ReactDOM.render(
-    <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/"]}>
-            <App />
-        </MemoryRouter>
-    </QueryClientProvider>,
+    <MemoryRouter>
+        <App />
+    </MemoryRouter>,
     container!
 )
 console.log("react-sample-ready")

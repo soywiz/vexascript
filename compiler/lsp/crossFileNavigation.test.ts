@@ -3620,7 +3620,7 @@ describe("cross-file navigation", () => {
       });
     });
 
-    it("navigates and hovers imported class names inside extends clauses for merged preact-style declarations", async () => {
+  it("navigates and hovers imported class names inside extends clauses for merged preact-style declarations", async () => {
       const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
       const pkgDir = join(root, "node_modules", "preact");
       const mainPath = join(root, "main.vx");
@@ -3701,6 +3701,87 @@ describe("cross-file navigation", () => {
       expect(location).not.toBeNull();
       expect(location?.uri.endsWith("/node_modules/preact/src/index.d.ts")).toBe(true);
       expect((hover?.contents as { value?: string } | undefined)?.value).toContain("Component");
+    });
+
+    it("navigates ambient global namespace receivers and their members loaded from compilerOptions.types", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-react-ambient-navigation-"));
+      const reactTypesDir = join(root, "node_modules", "@types", "react");
+      const mainPath = join(root, "main.vx");
+      const reactMarked = sourceWithCursor(dedent`
+        fun demo() {
+          var count by Rea^^^ct.useState<number>(0)
+        }
+      `);
+      const memberMarked = sourceWithCursor(dedent`
+        fun demo() {
+          var count by React.useSt^^^ate<number>(0)
+        }
+      `);
+
+      await mkdir(reactTypesDir, { recursive: true });
+      await writeFile(
+        join(reactTypesDir, "package.json"),
+        JSON.stringify({
+          name: "@types/react",
+          types: "index.d.ts"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(reactTypesDir, "index.d.ts"),
+        dedent`
+          export as namespace React
+
+          declare namespace React {
+            function useState<S>(initialState: S): [S, (value: S) => void]
+          }
+
+          declare module "react" {
+            export = React
+          }
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, reactMarked.source, "utf8");
+
+      const ambient = await loadAmbientTypesForProject(mainPath, ["react"]);
+      const sessionFor = (source: string) => createAnalysisSession(
+        source,
+        [],
+        new Map(),
+        ambient.globalDeclarations,
+        ambient.moduleDeclarations,
+        ambient.moduleDeclarationLocations,
+        new Map(),
+        new Set(),
+        ambient.globalDeclarationLocations
+      );
+
+      const reactLocation = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: reactMarked.line,
+        character: reactMarked.character,
+        session: sessionFor(reactMarked.source),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect(reactLocation).not.toBeNull();
+      expect(reactLocation?.uri.includes("/node_modules/%40types/react/index.d.ts")).toBe(true);
+      expect(reactLocation?.range.start.line).toBe(2);
+
+      const memberLocation = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: memberMarked.line,
+        character: memberMarked.character,
+        session: sessionFor(memberMarked.source),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect(memberLocation).not.toBeNull();
+      expect(memberLocation?.uri.includes("/node_modules/%40types/react/index.d.ts")).toBe(true);
+      expect(memberLocation?.range.start.line).toBe(3);
     });
 
     it("navigates contextual node_modules object literal properties to the reexported source declaration", async () => {

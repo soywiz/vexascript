@@ -5,6 +5,8 @@ import { pathToUri } from "./importFixes";
 import {
   ambientDeclarationLocationForSymbol,
   collectAmbientFunctionStatements,
+  findAmbientNamespaceLocation,
+  findAmbientNamespaceMemberRange,
   findAmbientModuleReceiverCandidates,
   findAmbientNamedExportRange,
   findImportForSymbolNode,
@@ -114,7 +116,20 @@ export async function resolveAmbientModuleObjectMemberDefinition(
   const receiverName = (memberExpression.object as Identifier).name;
   const moduleCandidates = findAmbientModuleReceiverCandidates(context.session.ast, receiverName);
   if (!moduleCandidates) {
-    return null;
+    const receiverLocation = findAmbientNamespaceLocation(context.session, receiverName);
+    const declarations = receiverLocation?.filePath
+      ? (context.session.ambientDeclarations ?? []).filter((statement) =>
+          context.session.ambientDeclarationLocations?.get(statement)?.filePath === receiverLocation.filePath
+        )
+      : (context.session.ambientDeclarations ?? []);
+    const range = findAmbientNamespaceMemberRange(declarations, receiverName, memberName);
+    if (!range) {
+      return null;
+    }
+    return {
+      uri: pathToUri(receiverLocation?.filePath ?? ""),
+      range
+    };
   }
 
   for (const moduleName of moduleCandidates) {

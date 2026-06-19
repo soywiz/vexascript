@@ -454,6 +454,13 @@ export async function resolveCanonicalSymbol(context: ResolveContext): Promise<C
           filePath: await preferVirtualRuntimeDeclarationFilePath(ambientLocation.filePath, context)
         };
       }
+      const ambientNamespaceLocation = findAmbientNamespaceLocation(context.session, symbolAt.symbol.name);
+      if (ambientNamespaceLocation) {
+        return {
+          ...ambientNamespaceLocation,
+          filePath: await preferVirtualRuntimeDeclarationFilePath(ambientNamespaceLocation.filePath, context)
+        };
+      }
     // Symbols resolved through external (imported) declarations - e.g. a
     // cross-file operator overload reached from a `a + b` usage - carry a node
     // that belongs to the imported file, not the current document. Locate the
@@ -635,6 +642,87 @@ export function findAmbientNamespaceBody(
     }
   }
   return null;
+}
+
+export function findAmbientNamespaceMemberRange(
+  declarations: readonly Statement[],
+  namespaceName: string,
+  memberName: string
+): Range | null {
+  const namespaceBody = findAmbientNamespaceBody(declarations, namespaceName);
+  if (!namespaceBody) {
+    return null;
+  }
+
+  const directDeclaration =
+    namespaceBody.find(
+      (statement) => topLevelDeclarationNames(statement).includes(memberName)
+    ) ?? null;
+  const directRange = directDeclaration
+    ? declarationRangeForName(directDeclaration, memberName)
+    : null;
+  if (directRange) {
+    return directRange;
+  }
+
+  for (const statement of namespaceBody) {
+    const candidate =
+      statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration ?? statement
+        : statement;
+    if (candidate.kind !== "InterfaceStatement") {
+      continue;
+    }
+    const interfaceStatement = candidate as InterfaceStatement;
+    const member = interfaceStatement.members.find((item) => item.name.name === memberName);
+    if (member) {
+      return nodeRange(member.name);
+    }
+  }
+
+  return null;
+}
+
+export function findAmbientNamespaceLocation(
+  session: SessionLike,
+  namespaceName: string,
+  preferredFilePath?: string
+): CanonicalSymbol | null {
+  const ambientDeclarations = session.ambientDeclarations ?? [];
+  const ambientDeclarationLocations = session.ambientDeclarationLocations;
+  let fallback: CanonicalSymbol | null = null;
+
+  for (const statement of ambientDeclarations) {
+    const candidate =
+      statement.kind === "ExportStatement"
+        ? (statement as ExportStatement).declaration ?? statement
+        : statement;
+    if (candidate.kind !== "NamespaceStatement") {
+      continue;
+    }
+    const namespaceStatement = candidate as NamespaceStatement;
+    if (namespaceStatement.names?.[0]?.name !== namespaceName) {
+      continue;
+    }
+
+    const range = nodeRange(namespaceStatement.names[0]);
+    const location = ambientDeclarationLocations?.get(statement) ?? ambientDeclarationLocations?.get(candidate);
+    if (!range || !location) {
+      continue;
+    }
+
+    const resolved = {
+      name: namespaceName,
+      filePath: location.filePath,
+      range
+    };
+    if (preferredFilePath && location.filePath === preferredFilePath) {
+      return resolved;
+    }
+    fallback ??= resolved;
+  }
+
+  return fallback;
 }
 
 /**

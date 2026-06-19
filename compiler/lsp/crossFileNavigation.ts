@@ -54,6 +54,7 @@ import {
   resolveImportPathHover,
   resolveImportSpecifierDefinition
 } from "./importPathNavigation";
+import { findAmbientNamespaceLocation } from "./crossFileContext";
 import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
 
 function collectNodeModulesReceiverTypeNames(objectType: AnalysisType): string[] {
@@ -242,17 +243,38 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
     }
   }
 
-  const ambientImportedSymbolDefinition = await resolveAmbientImportedSymbolDefinition(context);
-  if (ambientImportedSymbolDefinition) {
-    return ambientImportedSymbolDefinition;
+  for (const character of candidateCharacters(context.character)) {
+    const ambientImportedSymbolDefinition = await resolveAmbientImportedSymbolDefinition({ ...context, character });
+    if (ambientImportedSymbolDefinition) {
+      return ambientImportedSymbolDefinition;
+    }
   }
 
-  const symbol = await resolveCanonicalSymbol(context);
-  if (symbol) {
-    return {
-      uri: pathToUri(symbol.filePath),
-      range: symbol.range
-    };
+  for (const character of candidateCharacters(context.character)) {
+    const symbol = await resolveCanonicalSymbol({ ...context, character });
+    if (symbol) {
+      return {
+        uri: pathToUri(symbol.filePath),
+        range: symbol.range
+      };
+    }
+  }
+
+  if (context.session.analysis) {
+    for (const character of candidateCharacters(context.character)) {
+      const symbolAt =
+        context.session.analysis.getSymbolAt(context.line, character) ??
+        context.session.analysis.getOperatorSymbolAt(context.line, character);
+      const ambientNamespaceLocation = symbolAt
+        ? findAmbientNamespaceLocation(context.session, symbolAt.symbol.name)
+        : null;
+      if (ambientNamespaceLocation) {
+        return {
+          uri: pathToUri(ambientNamespaceLocation.filePath),
+          range: ambientNamespaceLocation.range
+        };
+      }
+    }
   }
   return null;
 }
