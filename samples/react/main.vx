@@ -1,0 +1,9 @@
+import { demo } from "./demo.vx"
+import { sample } from "./sample.vx"
+
+fun renderPage(name: string) {
+    return `<!doctype html><html><body><h1>Hello ${name} ${demo()} ${sample()}</h1></body></html>`
+}
+
+val html = renderPage("Carlos")
+console.log(html)

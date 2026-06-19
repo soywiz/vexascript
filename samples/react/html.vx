@@ -1,0 +1,84 @@
+import type ReactModule from "react"
+import type ReactDOMModule from "react-dom"
+
+import { demo } from "./demo.vx"
+import { sample } from "./sample.vx"
+
+val React = (globalThis as any as { React: ReactModule }).React
+val ReactDOM = (globalThis as any as { ReactDOM: ReactDOMModule }).ReactDOM
+val useState = React.useState
+val todoIdeas = [
+    "Review the JSX output",
+    "Wire the next sample module",
+    "Share the browser demo"
+]
+
+fun Metric({ label: string, value: number }) {
+    return <span className="metric"><strong>{label}</strong>: {value}</span>
+}
+
+fun DemoBoard() {
+    var count by useState(demo() + sample())
+    var todos by useState([
+        "Render a typed React sample",
+        "Confirm browser output"
+    ])
+    var nextTodoIndex by React.useState(0)
+
+    fun addTodo() {
+        val nextTodo = todoIdeas[nextTodoIndex] ?? `Document follow-up #${nextTodoIndex + 1}`
+        todos = [...todos, nextTodo]
+        nextTodoIndex++
+    }
+
+    return (
+        <section className="demo-board">
+            <div className="section-heading">
+                <span className="eyebrow">Sandbox</span>
+                <h2>Interactive Demo</h2>
+                <p>The counter starts from the shared sample metrics.</p>
+            </div>
+            <div className="counter">
+                <button className="counter-button" onClick={{ count-- }}>-</button>
+                <strong className="counter-value">Count: {count}</strong>
+                <button className="counter-button" onClick={{ count++ }}>+</button>
+            </div>
+            <div className="todo-panel">
+                <div className="todo-toolbar">
+                    <span className="todo-title">Mini task list</span>
+                    <button className="action-button" onClick={{ addTodo() }}>Add task</button>
+                </div>
+                <ul>
+                    {todos.map({ todo, index ->
+                        <li key={index}>{todo}</li>
+                    })}
+                </ul>
+            </div>
+        </section>
+    )
+}
+
+fun App() {
+    return (
+        <main className="app">
+            <div className="hero">
+                <span className="eyebrow">Sample App</span>
+                <h1>React + VexaScript</h1>
+                <p>Browser sample rendered with the classic React JSX runtime.</p>
+            </div>
+            <section className="metrics">
+                <Metric label="demo" value={demo()} />
+                <Metric label="sample" value={sample()} />
+            </section>
+            <DemoBoard />
+        </main>
+    )
+}
+
+val container = document.getElementById("app")
+if (container == null) {
+    throw Error("Missing #app root")
+}
+
+ReactDOM.render(<App />, container!)
+console.log("react-sample-ready")
