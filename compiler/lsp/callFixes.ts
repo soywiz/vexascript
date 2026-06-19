@@ -1,4 +1,4 @@
-import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
+import { bindingElementPropertyName, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import { splitOptionalTypeSuffix, splitTopLevelTypeText } from "compiler/analysis/typeNames";
 import { findNode } from "compiler/ast/traversal";
 import type { Analysis } from "compiler/analysis/Analysis";
@@ -175,7 +175,7 @@ function requiredPropsFromObjectBinding(binding: ObjectBindingPattern): Required
     if (element.rest === true || element.initializer) {
       continue;
     }
-    const name = element.propertyName?.name ?? bindingIdentifiers(element.name)[0]?.name;
+    const name = bindingElementPropertyName(element) ?? bindingIdentifiers(element.name)[0]?.name;
     if (!name || name === "children") {
       continue;
     }

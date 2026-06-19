@@ -2801,6 +2801,7 @@ export class Parser {
         let async = false;
         let sync = false;
         let first = this.tokens.peek();
+        let arrowParameterToken: Token | undefined;
         if (first?.type === "identifier" && first.value === "async" && this.peekToken(1)?.type === "symbol" && this.peekToken(1)?.value === "(") {
             async = true;
             this.tokens.skip();
@@ -2809,6 +2810,16 @@ export class Parser {
             sync = true;
             this.tokens.skip();
             first = this.tokens.peek();
+        } else if (first?.type === "identifier" && first.value === "async" && this.peekToken(1)?.type === "identifier" && this.peekToken(2)?.type === "symbol" && this.peekToken(2)?.value === "=>") {
+            async = true;
+            this.tokens.skip();
+            first = this.tokens.peek();
+            arrowParameterToken = first ?? undefined;
+        } else if (first?.type === "identifier" && first.value === "sync" && this.peekToken(1)?.type === "identifier" && this.peekToken(2)?.type === "symbol" && this.peekToken(2)?.value === "=>") {
+            sync = true;
+            this.tokens.skip();
+            first = this.tokens.peek();
+            arrowParameterToken = first ?? undefined;
         }
         if (!first) {
             return null;
@@ -2833,11 +2844,13 @@ export class Parser {
             return this.attachNodeBounds(
                 {
                     kind: "ArrowFunctionExpression",
+                    ...(async ? { async: true } : {}),
+                    ...(sync ? { sync: true } : {}),
                     parameters: [parameter],
                     body
                 } as ArrowFunctionExpression,
-                first,
-                body.lastToken ?? this.getLastReadToken() ?? first
+                arrowParameterToken ?? first,
+                body.lastToken ?? this.getLastReadToken() ?? arrowParameterToken ?? first
             );
         }
 
@@ -4388,27 +4401,48 @@ export class Parser {
     private parseBindingElement(allowPropertyName: boolean): BindingElement {
         const firstToken = this.tokens.peek();
         let rest = false;
+        let shorthand = false;
         if (firstToken?.type === "symbol" && firstToken.value === "...") {
             this.tokens.skip();
             rest = true;
         }
-        const firstName = this.parseBindingName();
-        let propertyName: Identifier | undefined;
-        let name = firstName;
-        let typeAnnotation: Identifier | undefined;
-        let shorthand = false;
-        const nextToken = this.tokens.peek();
-        if (allowPropertyName && firstName.kind === "Identifier" && nextToken?.type === "symbol" && nextToken.value === "::") {
+        let propertyName: BindingElement["propertyName"];
+        let name: BindingName;
+        const propertyLiteralToken = this.tokens.peek();
+        if (
+            allowPropertyName
+            && this.language === "typescript"
+            && propertyLiteralToken?.type === "string"
+        ) {
             this.tokens.skip();
-            propertyName = firstName;
-            name = this.parseBindingName();
-        } else if (allowPropertyName && firstName.kind === "Identifier" && nextToken?.type === "symbol" && nextToken.value === ":" && this.language === "typescript") {
+            const separatorToken = this.tokens.peek();
+            if (!(separatorToken?.type === "symbol" && separatorToken.value === ":")) {
+                this.fail("Expected ':' after string literal property name in binding pattern", this.tokenAt(separatorToken));
+            }
             this.tokens.skip();
-            propertyName = firstName;
+            propertyName = this.attachNodeBounds(
+                { kind: "StringLiteral", value: propertyLiteralToken.value } as StringLiteral,
+                propertyLiteralToken,
+                propertyLiteralToken
+            );
             name = this.parseBindingName();
-        } else if (allowPropertyName && firstName.kind === "Identifier") {
-            shorthand = true;
+        } else {
+            const firstName = this.parseBindingName();
+            name = firstName;
+            const nextToken = this.tokens.peek();
+            if (allowPropertyName && firstName.kind === "Identifier" && nextToken?.type === "symbol" && nextToken.value === "::") {
+                this.tokens.skip();
+                propertyName = firstName;
+                name = this.parseBindingName();
+            } else if (allowPropertyName && firstName.kind === "Identifier" && nextToken?.type === "symbol" && nextToken.value === ":" && this.language === "typescript") {
+                this.tokens.skip();
+                propertyName = firstName;
+                name = this.parseBindingName();
+            } else if (allowPropertyName && firstName.kind === "Identifier") {
+                shorthand = true;
+            }
         }
+        let typeAnnotation: Identifier | undefined;
         if (!rest && this.language === "vexa" && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ":") {
             this.tokens.skip();
             typeAnnotation = this.parseTypeAnnotationNode();

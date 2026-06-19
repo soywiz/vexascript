@@ -18,6 +18,19 @@ export function bindingElements(binding: BindingName): BindingElement[] {
   );
 }
 
+export function bindingElementPropertyName(element: BindingElement): string | undefined {
+  if (element.propertyName?.kind === "Identifier") {
+    return element.propertyName.name;
+  }
+  if (element.propertyName?.kind === "StringLiteral") {
+    return element.propertyName.value;
+  }
+  if (element.name.kind === "Identifier") {
+    return element.name.name;
+  }
+  return undefined;
+}
+
 export function bindingNameText(binding: BindingName): string {
   if (binding.kind === "Identifier") return binding.name;
   const names = bindingIdentifiers(binding).map((identifier) => identifier.name).join(", ");

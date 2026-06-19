@@ -20,6 +20,7 @@ import { vfs } from "compiler/vfs";
 import { dirname, extname, resolve } from "compiler/utils/path";
 import { nodeRange } from "./ranges";
 import type { Range } from "vscode-languageserver";
+import { splitTopLevelTypeText } from "compiler/analysis/typeNames";
 
 export interface NodeModuleTypings {
   /** All top-level declarations from the .d.ts (for externalDeclarations). */
@@ -77,8 +78,8 @@ async function resolveRelativeTypingsPath(
       ]
     : [];
   const candidates = [
-    basePath,
     ...declarationSiblingCandidates,
+    basePath,
     extname(basePath) === "" ? `${basePath}.d.ts` : "",
     extname(basePath) === "" ? `${basePath}.ts` : "",
     resolve(basePath, "index.d.ts"),
@@ -139,6 +140,23 @@ function extractImportedTypingsSpecifiers(ast: Program): string[] {
   return [...specifiers];
 }
 
+function asExportedTypingsEntry(entry: NodeModuleDeclarationEntry): NodeModuleDeclarationEntry {
+  return entry.statement.kind === "ExportStatement"
+    ? entry
+    : {
+        statement: { kind: "ExportStatement", declaration: entry.statement } as ExportStatement,
+        typingsPath: entry.typingsPath
+      };
+}
+
+function nodeModuleDeclarationName(entry: NodeModuleDeclarationEntry): string | null {
+  const statement = entry.statement.kind === "ExportStatement"
+    ? (entry.statement as ExportStatement).declaration ?? entry.statement
+    : entry.statement;
+  const named = statement as { name?: { kind?: string; name?: string } };
+  return named.name?.kind === "Identifier" ? named.name.name ?? null : null;
+}
+
 async function collectTypingsDeclarations(
   typingsPath: string,
   options: ModuleResolutionOptions,
@@ -184,50 +202,27 @@ async function collectTypingsDeclarations(
     }
     const reexportedDeclarations = await collectTypingsDeclarations(targetTypingsPath, options, visited);
     if (exportStatement.exportAll) {
-      declarations.push(...reexportedDeclarations);
+      declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
       continue;
     }
-    const exportedNames = new Set(exportStatement.specifiers?.map((specifier) => specifier.local?.name ?? specifier.exported.name) ?? []);
-    for (const declaration of reexportedDeclarations) {
-      const name = declarationMemberName(declaration.statement);
-      if (name && exportedNames.has(name)) {
-        declarations.push(declaration);
+    const exportedNames = new Set<string>();
+    for (const specifier of exportStatement.specifiers ?? []) {
+      exportedNames.add(specifier.exported.name);
+      if (specifier.local?.name) {
+        exportedNames.add(specifier.local.name);
       }
+    }
+    for (const entry of reexportedDeclarations) {
+      const declarationName = nodeModuleDeclarationName(entry);
+      if (declarationName && exportedNames.has(declarationName)) {
+        declarations.push(asExportedTypingsEntry(entry));
+        continue;
+      }
+      declarations.push(entry);
     }
   }
 
   return declarations;
-}
-
-function declarationMemberName(statement: Statement): string | null {
-  const declaration =
-    statement.kind === "ExportStatement"
-      ? (statement as { declaration?: Statement }).declaration ?? statement
-      : statement;
-
-  if (declaration.kind === "FunctionStatement") {
-    return (declaration as FunctionStatement).name?.name ?? null;
-  }
-  if (declaration.kind === "InterfaceStatement") {
-    return (declaration as InterfaceStatement).name.name;
-  }
-  if (declaration.kind === "ClassStatement") {
-    return (declaration as ClassStatement).name.name;
-  }
-  if (declaration.kind === "EnumStatement") {
-    return (declaration as EnumStatement).name.name;
-  }
-  if (declaration.kind === "TypeAliasStatement") {
-    return (declaration as TypeAliasStatement).name.name;
-  }
-  if (declaration.kind === "VarStatement") {
-    const identifiers = bindingIdentifiers((declaration as VarStatement).name);
-    return identifiers[0]?.name ?? null;
-  }
-  if (declaration.kind === "NamespaceStatement") {
-    return (declaration as NamespaceStatement).names?.[0]?.name ?? null;
-  }
-  return null;
 }
 
 /**
@@ -466,6 +461,31 @@ function findQualifiedMemberLocationInDeclarationEntries(
           }
         }
       }
+
+      if (candidate.kind === "TypeAliasStatement") {
+        const typeAlias = candidate as TypeAliasStatement;
+        if (typeAlias.name.name !== targetPart) {
+          continue;
+        }
+        for (const referencedTypeName of referencedTypeNames(typeAlias.targetType.name)) {
+          const inherited = referencedTypeName.includes(".")
+            ? findQualifiedMemberLocationInDeclarationEntries(
+              declarationEntries,
+              referencedTypeName,
+              memberName,
+              new Set(visitedQualifiedTypeNames)
+            )
+            : findMemberLocationInDeclarationEntries(
+              declarationEntries,
+              referencedTypeName,
+              memberName,
+              new Set(visitedQualifiedTypeNames)
+            );
+          if (inherited) {
+            return inherited;
+          }
+        }
+      }
     }
 
     return null;
@@ -587,6 +607,29 @@ function findMemberLocationInDeclarationEntries(
             if (inherited) {
               return inherited;
             }
+          }
+        }
+      }
+
+      if (candidate.kind === "TypeAliasStatement") {
+        const typeAlias = candidate as TypeAliasStatement;
+        if (typeAlias.name.name !== candidateTypeName) {
+          continue;
+        }
+        if (visitedTypeNames.has(candidateTypeName)) {
+          continue;
+        }
+        const nextVisitedTypeNames = new Set(visitedTypeNames);
+        nextVisitedTypeNames.add(candidateTypeName);
+        for (const referencedTypeName of referencedTypeNames(typeAlias.targetType.name)) {
+          const inherited = findMemberLocationInDeclarationEntries(
+            declarationEntries,
+            referencedTypeName,
+            memberName,
+            nextVisitedTypeNames
+          );
+          if (inherited) {
+            return inherited;
           }
         }
       }
@@ -779,6 +822,26 @@ function findQualifiedMemberRangeInStatements(
           }
         }
       }
+
+      if (candidate.kind === "TypeAliasStatement") {
+        const typeAlias = candidate as TypeAliasStatement;
+        if (typeAlias.name.name !== targetPart) {
+          continue;
+        }
+        for (const referencedTypeName of referencedTypeNames(typeAlias.targetType.name)) {
+          const inherited = referencedTypeName.includes(".")
+            ? findQualifiedMemberRangeInStatements(
+              statements,
+              referencedTypeName,
+              memberName,
+              new Set(visitedQualifiedTypeNames)
+            )
+            : findMemberRangeInStatements(statements, referencedTypeName, memberName);
+          if (inherited) {
+            return inherited;
+          }
+        }
+      }
     }
 
     return null;
@@ -899,6 +962,29 @@ function findMemberRangeInStatements(
           }
         }
       }
+
+      if (candidate.kind === "TypeAliasStatement") {
+        const typeAlias = candidate as TypeAliasStatement;
+        if (typeAlias.name.name !== candidateTypeName) {
+          continue;
+        }
+        if (visitedTypeNames.has(candidateTypeName)) {
+          continue;
+        }
+        const nextVisitedTypeNames = new Set(visitedTypeNames);
+        nextVisitedTypeNames.add(candidateTypeName);
+        for (const referencedTypeName of referencedTypeNames(typeAlias.targetType.name)) {
+          const inherited = findMemberRangeInStatements(
+            statements,
+            referencedTypeName,
+            memberName,
+            nextVisitedTypeNames
+          );
+          if (inherited) {
+            return inherited;
+          }
+        }
+      }
     }
   }
   return null;
@@ -915,6 +1001,18 @@ function candidateTypeNames(typeName: string): string[] {
     names.push(typeName.slice(lastQualifierIndex + 1));
   }
   return names;
+}
+
+function referencedTypeNames(typeName: string): string[] {
+  const unionParts = splitTopLevelTypeText(typeName, "|");
+  if (unionParts.length > 1) {
+    return unionParts.flatMap((part) => referencedTypeNames(part.trim()));
+  }
+  const intersectionParts = splitTopLevelTypeText(typeName, "&");
+  if (intersectionParts.length > 1) {
+    return intersectionParts.flatMap((part) => referencedTypeNames(part.trim()));
+  }
+  return candidateTypeNames(baseTypeName(typeName.trim())).filter(Boolean);
 }
 
 function nestedTypeNameForNamespace(typeName: string, namespaceName: string): string {

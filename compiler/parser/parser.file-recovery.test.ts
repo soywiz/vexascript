@@ -631,6 +631,32 @@ describe("destructured parameters", () => {
             ]
         });
     });
+
+    it("parses string literal property names in TypeScript object binding patterns", () => {
+        const program = parseFile(
+            tokenizeReader('function unpack({ "aria-current": ariaCurrentProp = "page" }) { return ariaCurrentProp }'),
+            { language: "typescript" }
+        );
+
+        expect(program.body[0]).toMatchObject({
+            kind: "FunctionStatement",
+            parameters: [
+                {
+                    name: {
+                        kind: "ObjectBindingPattern",
+                        elements: [
+                            {
+                                kind: "BindingElement",
+                                propertyName: { kind: "StringLiteral", value: "aria-current" },
+                                name: { kind: "Identifier", name: "ariaCurrentProp" },
+                                initializer: { kind: "StringLiteral", value: "page" }
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+    });
 });
 
 describe("JavaScript implementation annotations", () => {

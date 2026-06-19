@@ -1,12 +1,16 @@
 import type { ParserOptions } from "compiler/parser/parser";
 import type {
+  ClassStatement,
+  EnumStatement,
   ExportStatement,
   FunctionStatement,
   Identifier,
   ImportStatement,
+  InterfaceStatement,
   NamespaceStatement,
   Program,
   Statement,
+  TypeAliasStatement,
   VarStatement,
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
@@ -15,6 +19,7 @@ import { parseSource, type ParseArtifacts } from "compiler/pipeline/parse";
 import { compileParsedSource, compileSource } from "compiler/pipeline/compile";
 import type { Analysis } from "compiler/analysis/Analysis";
 import {
+  type FunctionType,
   arrayType,
   builtinType,
   BUILTIN_TYPE_NAMES,
@@ -22,6 +27,7 @@ import {
   intersectionType,
   namedType,
   objectTypeWithProperties,
+  typeToString,
   UNKNOWN_TYPE,
   unionType,
   tupleType,
@@ -57,6 +63,72 @@ const TYPE_DECLARATION_KINDS = new Set<Statement["kind"]>([
   "TypeAliasStatement"
 ]);
 
+function importedTypeParameterConstraintMap(typeParameters: readonly { name: Identifier; constraint?: { name?: string } }[] | undefined): Record<string, AnalysisType> | undefined {
+  const entries = (typeParameters ?? [])
+    .map((parameter) => {
+      const constraintName = parameter.constraint?.name;
+      return constraintName ? [parameter.name.name, externalTypeFromAnnotationText(constraintName)] as const : null;
+    })
+    .filter((entry): entry is readonly [string, AnalysisType] => entry !== null);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function importedTypeParameterDefaultMap(typeParameters: readonly { name: Identifier; defaultType?: { name?: string } }[] | undefined): Record<string, AnalysisType> | undefined {
+  const entries = (typeParameters ?? [])
+    .map((parameter) => {
+      const defaultName = parameter.defaultType?.name;
+      return defaultName ? [parameter.name.name, externalTypeFromAnnotationText(defaultName)] as const : null;
+    })
+    .filter((entry): entry is readonly [string, AnalysisType] => entry !== null);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function dedupeAnalysisTypes(types: AnalysisType[]): AnalysisType[] {
+  const seen = new Set<string>();
+  const result: AnalysisType[] = [];
+  for (const type of types) {
+    const key = typeToString(type);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(type);
+  }
+  return result;
+}
+
+function unionIfNeeded(types: AnalysisType[]): AnalysisType {
+  const unique = dedupeAnalysisTypes(types);
+  if (unique.length === 0) {
+    return UNKNOWN_TYPE;
+  }
+  if (unique.length === 1) {
+    return unique[0]!;
+  }
+  return unionType(unique);
+}
+
+function collapseFunctionOverloads(overloads: FunctionType[]): FunctionType {
+  const first = overloads[0]!;
+  const maxParameterCount = Math.max(...overloads.map((overload) => overload.parameters.length));
+  const parameters = Array.from({ length: maxParameterCount }, (_, index) => {
+    const candidates = overloads
+      .map((overload) => overload.parameters[index])
+      .filter((parameter): parameter is FunctionType["parameters"][number] => parameter != null);
+    return {
+      name: candidates[0]?.name ?? `arg${index}`,
+      type: unionIfNeeded(candidates.map((parameter) => parameter.type)),
+      optional: candidates.every((parameter) => parameter.optional === true) || candidates.length < overloads.length,
+      rest: candidates.some((parameter) => parameter.rest === true)
+    };
+  });
+  return functionType(
+    parameters,
+    unionIfNeeded(overloads.map((overload) => overload.returnType)),
+    first.typeParameters
+  );
+}
+
 const typingsCacheByPath = new Map<string, CachedTypingsData>();
 
 async function parseTypingsProgram(typingsPath: string, vfs: Vfs): Promise<Program | null> {
@@ -85,8 +157,8 @@ async function resolveRelativeTypingsPath(importerTypingsPath: string, specifier
       ]
     : [];
   const candidates = [
-    basePath,
     ...declarationSiblingCandidates,
+    basePath,
     extname(basePath) === "" ? `${basePath}.d.ts` : "",
     extname(basePath) === "" ? `${basePath}.ts` : "",
     resolve(basePath, "index.d.ts"),
@@ -143,6 +215,13 @@ function extractImportedTypingsSpecifiers(ast: Program): string[] {
   return [...specifiers];
 }
 
+function asExportedTypingsStatement(statement: Statement): Statement {
+  return statement.kind === "ExportStatement"
+    ? statement
+    : { kind: "ExportStatement", declaration: statement } as ExportStatement;
+}
+
+
 async function collectTypingsDeclarations(
   typingsPath: string,
   vfs: Vfs,
@@ -185,18 +264,24 @@ async function collectTypingsDeclarations(
     }
     const reexportedDeclarations = await collectTypingsDeclarations(targetTypingsPath, vfs, visited);
     if (exportStatement.exportAll) {
-      declarations.push(...reexportedDeclarations);
+      declarations.push(...reexportedDeclarations.map(asExportedTypingsStatement));
       continue;
     }
-    const exportedNames = new Set(exportStatement.specifiers?.map((specifier) => {
+    const exportedNames = new Set<string>();
+    for (const specifier of exportStatement.specifiers ?? []) {
       const exportSpecifier = specifier as { local?: { name: string }; exported: { name: string } };
-      return exportSpecifier.local?.name ?? exportSpecifier.exported.name;
-    }) ?? []);
+      exportedNames.add(exportSpecifier.exported.name);
+      if (exportSpecifier.local?.name) {
+        exportedNames.add(exportSpecifier.local.name);
+      }
+    }
     for (const declaration of reexportedDeclarations) {
       const name = declarationName(declaration);
       if (name && exportedNames.has(name)) {
-        declarations.push(declaration);
+        declarations.push(asExportedTypingsStatement(declaration));
+        continue;
       }
+      declarations.push(declaration);
     }
   }
 
@@ -369,15 +454,45 @@ function externalTypeFromAnnotationText(typeName: string | undefined): AnalysisT
   return resolvedBase;
 }
 
-function callableTypeFromNamedExportedFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
-  const overloads: AnalysisType[] = [];
+function namedExportedFunctionOverloads(declarations: readonly Statement[], name: string): FunctionType[] {
+  const locallyExportedNames = new Set<string>();
   for (const statement of declarations) {
-    const declaration = unwrapExportedDeclaration(statement);
-    if (declaration?.kind !== "FunctionStatement") {
+    if (statement.kind !== "ExportStatement") {
       continue;
     }
-    const fn = declaration as FunctionStatement;
-    if (fn.name.name !== name) {
+    const exportStatement = statement as { specifiers?: Array<{ exported: Identifier; local?: Identifier }> };
+    for (const specifier of exportStatement.specifiers ?? []) {
+      if (specifier.exported.name !== name) {
+        continue;
+      }
+      locallyExportedNames.add(specifier.local?.name ?? specifier.exported.name);
+    }
+  }
+  const overloads: FunctionType[] = [];
+  for (const statement of declarations) {
+    const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : undefined;
+    if (declaration?.kind === "FunctionStatement" && (declaration as FunctionStatement).name.name === name) {
+      const fn = declaration as FunctionStatement;
+      overloads.push(functionType(
+        fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+          name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+          type: externalTypeFromAnnotationText(parameter.typeAnnotation?.name),
+          optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+          rest: parameter.rest === true
+        })),
+        externalTypeFromAnnotationText(fn.returnType?.name),
+        fn.typeParameters?.map((parameter) => parameter.name.name),
+        importedTypeParameterConstraintMap(fn.typeParameters),
+        importedTypeParameterDefaultMap(fn.typeParameters)
+      ));
+      continue;
+    }
+
+    if (statement.kind !== "FunctionStatement") {
+      continue;
+    }
+    const fn = statement as FunctionStatement;
+    if (!locallyExportedNames.has(fn.name.name)) {
       continue;
     }
     overloads.push(functionType(
@@ -388,13 +503,20 @@ function callableTypeFromNamedExportedFunction(declarations: readonly Statement[
         rest: parameter.rest === true
       })),
       externalTypeFromAnnotationText(fn.returnType?.name),
-      fn.typeParameters?.map((parameter) => parameter.name.name)
+      fn.typeParameters?.map((parameter) => parameter.name.name),
+      importedTypeParameterConstraintMap(fn.typeParameters),
+      importedTypeParameterDefaultMap(fn.typeParameters)
     ));
   }
+  return overloads;
+}
+
+function callableTypeFromNamedExportedFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
+  const overloads = namedExportedFunctionOverloads(declarations, name);
   if (overloads.length === 0) {
     return null;
   }
-  return overloads.length === 1 ? overloads[0]! : unionType(overloads);
+  return overloads.length === 1 ? overloads[0]! : collapseFunctionOverloads(overloads);
 }
 
 function externalNamedImportType(declarations: readonly Statement[], importedName: string): AnalysisType | null {
@@ -403,29 +525,61 @@ function externalNamedImportType(declarations: readonly Statement[], importedNam
     return callableType;
   }
 
+  const locallyExportedNames = new Set<string>();
   for (const statement of declarations) {
-    const declaration = unwrapExportedDeclaration(statement);
-    if (!declaration) {
+    if (statement.kind !== "ExportStatement") {
       continue;
     }
-    const namedDeclaration = declaration as { name?: { name?: string } };
-    const declarationName = namedDeclaration.name?.name;
-    if (declaration.kind === "ClassStatement" && declarationName === importedName) {
+    const exportStatement = statement as { specifiers?: Array<{ exported: Identifier; local?: Identifier }> };
+    for (const specifier of exportStatement.specifiers ?? []) {
+      if (specifier.exported.name !== importedName) {
+        continue;
+      }
+      locallyExportedNames.add(specifier.local?.name ?? specifier.exported.name);
+    }
+  }
+
+  for (const statement of declarations) {
+    const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : undefined;
+    if (declaration) {
+      const namedDeclaration = declaration as { name?: { name?: string } };
+      const declarationName = namedDeclaration.name?.name;
+      if (declaration.kind === "ClassStatement" && declarationName === importedName) {
+        return namedType(importedName);
+      }
+      if (declaration.kind === "InterfaceStatement" && declarationName === importedName) {
+        return namedType(importedName);
+      }
+      if (declaration.kind === "EnumStatement" && declarationName === importedName) {
+        return namedType(importedName);
+      }
+      if (declaration.kind === "TypeAliasStatement" && declarationName === importedName) {
+        return namedType(importedName);
+      }
+      if (declaration.kind === "VarStatement") {
+        const identifiers = bindingIdentifiers((declaration as VarStatement).name);
+        if (identifiers[0]?.name === importedName) {
+          return externalTypeFromAnnotationText((declaration as VarStatement).typeAnnotation?.name);
+        }
+      }
+      continue;
+    }
+    if (statement.kind === "ClassStatement" && locallyExportedNames.has((statement as ClassStatement).name.name)) {
       return namedType(importedName);
     }
-    if (declaration.kind === "InterfaceStatement" && declarationName === importedName) {
+    if (statement.kind === "InterfaceStatement" && locallyExportedNames.has((statement as InterfaceStatement).name.name)) {
       return namedType(importedName);
     }
-    if (declaration.kind === "EnumStatement" && declarationName === importedName) {
+    if (statement.kind === "EnumStatement" && locallyExportedNames.has((statement as EnumStatement).name.name)) {
       return namedType(importedName);
     }
-    if (declaration.kind === "TypeAliasStatement" && declarationName === importedName) {
+    if (statement.kind === "TypeAliasStatement" && locallyExportedNames.has((statement as TypeAliasStatement).name.name)) {
       return namedType(importedName);
     }
-    if (declaration.kind === "VarStatement") {
-      const identifiers = bindingIdentifiers((declaration as VarStatement).name);
-      if (identifiers[0]?.name === importedName) {
-        return externalTypeFromAnnotationText((declaration as VarStatement).typeAnnotation?.name);
+    if (statement.kind === "VarStatement") {
+      const identifiers = bindingIdentifiers((statement as VarStatement).name);
+      if (identifiers[0]?.name && locallyExportedNames.has(identifiers[0].name)) {
+        return externalTypeFromAnnotationText((statement as VarStatement).typeAnnotation?.name);
       }
     }
   }

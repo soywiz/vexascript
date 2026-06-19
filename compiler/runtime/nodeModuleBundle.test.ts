@@ -210,6 +210,13 @@ describe("transpileModuleSource", () => {
     const result = transpileModuleSource(source, "/lib/render.js");
     expect(result.code).toContain('({sizeLods: this._sizeLods, lodPlanes: this._lodPlanes} = createPlanes());');
   });
+
+  it("transpiles string literal property names in JavaScript object binding patterns", () => {
+    const source = 'export function linkProps(_ref8) {\n  let {\n    "aria-current": ariaCurrentProp = "page",\n    caseSensitive = false\n  } = _ref8;\n  return ariaCurrentProp ?? caseSensitive;\n}\n';
+    const result = transpileModuleSource(source, "/lib/render.js");
+    expect(result.code).toContain('let { "aria-current": ariaCurrentProp = "page", caseSensitive = false } = _ref8;');
+    expect(result.exportNames).toContain("linkProps");
+  });
 });
 
 describe("bundleNodeModuleGraph", () => {

@@ -318,7 +318,7 @@ export interface FunctionParameter extends Node {
 export interface BindingElement extends Node {
     kind: "BindingElement"
     name: BindingName
-    propertyName?: Identifier
+    propertyName?: Identifier | StringLiteral
     typeAnnotation?: Identifier
     shorthand?: boolean
     rest?: boolean

@@ -1,19 +1,19 @@
 import { demo } from "./demo.vx"
 import { sample } from "./sample.vx"
-import { QueryClient, useQuery } from "./react-query-runtime.jsx"
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "./react-router-runtime.jsx"
+import { QueryClient, useQuery } from "@tanstack/react-query"
+import { Link, MemoryRouter, useLocation } from "react-router-dom"
 
 type RoadmapData = { headline: string; checks: string[] }
+type RouteTarget = { pathname: string; search: string; hash: string }
 val queryClient = new QueryClient()
+val roadmapQueryKey: ReadonlyArray<string> = ["react-sample", "roadmap"]
+val overviewRoute: RouteTarget = { pathname: "/", search: "", hash: "" }
+val tasksRoute: RouteTarget = { pathname: "/tasks", search: "", hash: "" }
+val roadmapRoute: RouteTarget = { pathname: "/roadmap", search: "", hash: "" }
 val todoIdeas = [
     "Review the JSX output",
     "Wire the next sample module",
     "Share the browser demo"
-]
-val routeCards = [
-    { path: "/", label: "Overview" },
-    { path: "/tasks", label: "Tasks" },
-    { path: "/roadmap", label: "Roadmap" }
 ]
 
 fun Metric({ label: string, value: number }) {
@@ -22,7 +22,6 @@ fun Metric({ label: string, value: number }) {
 
 fun RouteTabs() {
     val location = useLocation()
-    val navigate = useNavigate()
 
     return (
         <section className="route-shell">
@@ -33,25 +32,29 @@ fun RouteTabs() {
             </div>
             <div className="route-toolbar">
                 <div className="route-pills">
-                    {routeCards.map({ route ->
-                        <button
-                            key={route.path}
-                            className={location.pathname == route.path ? "route-pill route-pill-active" : "route-pill"}
-                            onClick={{ navigate(route.path as any) }}
-                            type="button"
-                        >
-                            {route.label}
-                        </button>
-                    })}
+                    <Link
+                        className={location.pathname == "/" ? "route-pill route-pill-active" : "route-pill"}
+                        to={overviewRoute}
+                    >
+                        Overview
+                    </Link>
+                    <Link
+                        className={location.pathname == "/tasks" ? "route-pill route-pill-active" : "route-pill"}
+                        to={tasksRoute}
+                    >
+                        Tasks
+                    </Link>
+                    <Link
+                        className={location.pathname == "/roadmap" ? "route-pill route-pill-active" : "route-pill"}
+                        to={roadmapRoute}
+                    >
+                        Roadmap
+                    </Link>
                 </div>
                 <span className="route-path">Path: <code>{location.pathname}</code></span>
             </div>
             <div className="route-view">
-                <Routes>
-                    <Route element={<OverviewPanel />} path="/" />
-                    <Route element={<DemoBoard />} path="/tasks" />
-                    <Route element={<RoadmapPanel />} path="/roadmap" />
-                </Routes>
+                <RouteView />
             </div>
         </section>
     )
@@ -74,7 +77,7 @@ fun OverviewPanel() {
 }
 
 fun DemoBoard() {
-    var count by React.useState<number>((demo() as number) + (sample() as number))
+    var count by React.useState<number>(demo() + sample())
     var todos by React.useState<string[]>([
         "Render a typed React sample",
         "Confirm browser output"
@@ -115,11 +118,11 @@ fun DemoBoard() {
 }
 
 fun RoadmapPanel() {
-    val roadmapQuery = useQuery({
-        queryKey: ["react-sample", "roadmap"],
-        queryFn: async () => {
+    val roadmapQuery = useQuery<RoadmapData, unknown, RoadmapData, ReadonlyArray<string>>({
+        queryKey: roadmapQueryKey,
+        queryFn: async (context) => {
             return {
-                headline: "Router + Query integration works",
+                headline: `Router + Query integration works for ${String(context.queryKey[0])}`,
                 checks: [
                     "MemoryRouter navigation updates the visible route",
                     "useQuery resolves async data into JSX",
@@ -128,8 +131,7 @@ fun RoadmapPanel() {
             }
         }
     }, queryClient)
-    val roadmapData = roadmapQuery.data as any
-    val checks = roadmapData?.checks ?? []
+    val roadmapData = roadmapQuery.data
 
     if (roadmapQuery.isLoading) {
         return (
@@ -157,6 +159,21 @@ fun RoadmapPanel() {
         )
     }
 
+    if (!roadmapData) {
+        return (
+            <article className="content-card query-card">
+                <div className="section-heading">
+                    <span className="eyebrow">Data Fetching</span>
+                    <h2>React Query route</h2>
+                    <p>This panel resolves a small async query to exercise typed options and result access.</p>
+                </div>
+                <p className="query-state">Roadmap data is temporarily unavailable.</p>
+            </article>
+        )
+    }
+
+    val checks = roadmapData.checks
+
     return (
         <article className="content-card query-card">
             <div className="section-heading">
@@ -174,6 +191,20 @@ fun RoadmapPanel() {
             </div>
         </article>
     )
+}
+
+fun RouteView() {
+    val location = useLocation()
+
+    if (location.pathname == "/tasks") {
+        return <DemoBoard />
+    }
+
+    if (location.pathname == "/roadmap") {
+        return <RoadmapPanel />
+    }
+
+    return <OverviewPanel />
 }
 
 fun App() {

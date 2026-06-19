@@ -142,6 +142,23 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses async single-parameter arrow functions without parentheses", () => {
+        expect(parseExpression(tokenizeReader("async f => f + 1"), { language: "typescript" })).toMatchObject({
+            kind: "ArrowFunctionExpression",
+            async: true,
+            parameters: [
+                {
+                    kind: "FunctionParameter",
+                    name: { kind: "Identifier", name: "f" }
+                }
+            ],
+            body: {
+                kind: "BinaryExpression",
+                operator: "+"
+            }
+        });
+    });
+
     it("parses computed class fields in class expressions", () => {
         expect(parseExpression(tokenizeReader("class Browser { [PropertySymbol.exceptionObserver] = null; }"), { language: "typescript" })).toMatchObject({
             kind: "ClassExpression",

@@ -2497,7 +2497,7 @@ class AstFormatter {
   private emitBindingElement(el: BindingElement): void {
     if (el.rest) this.write("...");
     if (el.propertyName && !el.shorthand) {
-      this.write(el.propertyName.name);
+      this.write(el.propertyName.kind === "Identifier" ? el.propertyName.name : JSON.stringify(el.propertyName.value));
       this.write(":");
       this.sp();
     }

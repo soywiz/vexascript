@@ -1528,7 +1528,9 @@ function emitFunctionParameters(parameters: FunctionParameter[]): string {
 function emitBindingElement(element: BindingElement, objectPattern: boolean): string {
   const rest = element.rest ? "..." : "";
   const name = emitBindingName(element.name);
-  const property = objectPattern && element.propertyName ? `${element.propertyName.name}: ` : "";
+  const property = objectPattern && element.propertyName
+    ? `${element.propertyName.kind === "Identifier" ? element.propertyName.name : JSON.stringify(element.propertyName.value)}: `
+    : "";
   const initializer = element.initializer ? ` = ${emitListElement(element.initializer)}` : "";
   return `${rest}${property}${name}${initializer}`;
 }

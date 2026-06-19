@@ -98,7 +98,7 @@ export function isAsyncIteratorType(type: AnalysisType): boolean {
  * literal) into its corresponding AnalysisType. Returns null for all other names.
  */
 export function resolveLiteralTypeName(typeName: string): AnalysisType | null {
-  if ((typeName.startsWith('"') && typeName.endsWith('"')) || (typeName.startsWith("'") && typeName.endsWith("'"))) {
+  if (/^"(?:[^"\\]|\\.)*"$/.test(typeName) || /^'(?:[^'\\]|\\.)*'$/.test(typeName)) {
     return literalType("string", typeName.slice(1, -1));
   }
   if (typeName === "true") {

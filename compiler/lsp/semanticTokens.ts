@@ -316,7 +316,9 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   const visitVarDeclarator = (declaration: VarDeclarator): void => {
     for (const identifier of bindingIdentifiers(declaration.name)) markIdentifier(kinds, identifier, "variable");
     for (const element of bindingElements(declaration.name)) {
-      markIdentifier(kinds, element.propertyName, "property");
+      if (element.propertyName?.kind === "Identifier") {
+        markIdentifier(kinds, element.propertyName, "property");
+      }
       if (element.initializer) visitExpression(element.initializer);
     }
     markTypeAnnotation(kinds, declaration.typeAnnotation);
@@ -328,7 +330,9 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
   const visitParameter = (parameter: FunctionParameter): void => {
     for (const identifier of bindingIdentifiers(parameter.name)) markIdentifier(kinds, identifier, "parameter");
     for (const element of bindingElements(parameter.name)) {
-      markIdentifier(kinds, element.propertyName, "property");
+      if (element.propertyName?.kind === "Identifier") {
+        markIdentifier(kinds, element.propertyName, "property");
+      }
       if (element.initializer) visitExpression(element.initializer);
     }
     markTypeAnnotation(kinds, parameter.typeAnnotation);
@@ -432,7 +436,9 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         } else {
           for (const identifier of bindingIdentifiers(variableStatement.name)) markIdentifier(kinds, identifier, "variable");
           for (const element of bindingElements(variableStatement.name)) {
-            markIdentifier(kinds, element.propertyName, "property");
+            if (element.propertyName?.kind === "Identifier") {
+              markIdentifier(kinds, element.propertyName, "property");
+            }
             if (element.initializer) visitExpression(element.initializer);
           }
           markTypeAnnotation(kinds, variableStatement.typeAnnotation);

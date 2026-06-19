@@ -25,11 +25,12 @@ import {
   renderAmbientInterfaceMemberDisplay,
   renderAmbientTypeAnnotationText
 } from "./ambientDisplay";
-import type { AnalysisType, ArrayType } from "compiler/analysis/types";
+import type { AnalysisType, ArrayType, ObjectType } from "compiler/analysis/types";
 import {
   BUILTIN_TYPE_NAMES,
   arrayType,
   builtinType,
+  FunctionType,
   functionType,
   intersectionType,
   literalType,
@@ -68,6 +69,92 @@ type NamedTypeDeclaration =
   | TypeAliasStatement;
 
 type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement | VarStatement;
+
+function dedupeAnalysisTypes(types: AnalysisType[]): AnalysisType[] {
+  const seen = new Set<string>();
+  const result: AnalysisType[] = [];
+  for (const type of types) {
+    const key = typeToString(type);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(type);
+  }
+  return result;
+}
+
+function unionIfNeeded(types: AnalysisType[]): AnalysisType {
+  const unique = dedupeAnalysisTypes(types);
+  if (unique.length === 0) {
+    return UNKNOWN_TYPE;
+  }
+  if (unique.length === 1) {
+    return unique[0]!;
+  }
+  return unionType(unique);
+}
+
+function importedTypeParameterConstraintMap(typeParameters: readonly { name: Identifier; constraint?: { name?: string } }[] | undefined): Record<string, AnalysisType> | undefined {
+  const entries = (typeParameters ?? [])
+    .map((parameter) => {
+      const constraintName = parameter.constraint?.name;
+      return constraintName ? [parameter.name.name, typeFromAnnotationText(constraintName)] as const : null;
+    })
+    .filter((entry): entry is readonly [string, AnalysisType] => entry !== null);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function importedTypeParameterDefaultMap(typeParameters: readonly { name: Identifier; defaultType?: { name?: string } }[] | undefined): Record<string, AnalysisType> | undefined {
+  const entries = (typeParameters ?? [])
+    .map((parameter) => {
+      const defaultName = parameter.defaultType?.name;
+      return defaultName ? [parameter.name.name, typeFromAnnotationText(defaultName)] as const : null;
+    })
+    .filter((entry): entry is readonly [string, AnalysisType] => entry !== null);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function collapseFunctionOverloads(overloads: FunctionType[]): FunctionType {
+  const first = overloads[0]!;
+  const maxParameterCount = Math.max(...overloads.map((overload) => overload.parameters.length));
+  const parameters = Array.from({ length: maxParameterCount }, (_, index) => {
+    const candidates = overloads
+      .map((overload) => overload.parameters[index])
+      .filter((parameter): parameter is FunctionType["parameters"][number] => parameter != null);
+    return {
+      name: candidates[0]?.name ?? `arg${index}`,
+      type: unionIfNeeded(candidates.map((parameter) => parameter.type)),
+      optional: candidates.every((parameter) => parameter.optional === true) || candidates.length < overloads.length,
+      rest: candidates.some((parameter) => parameter.rest === true)
+    };
+  });
+  return functionType(
+    parameters,
+    unionIfNeeded(overloads.map((overload) => overload.returnType)),
+    first.typeParameters
+  );
+}
+
+function localExportBindingNamesForExportedName(
+  declarations: readonly Statement[],
+  exportedName: string
+): Set<string> {
+  const localNames = new Set<string>();
+  for (const statement of declarations) {
+    if (statement.kind !== "ExportStatement") {
+      continue;
+    }
+    const exportStatement = statement as { specifiers?: Array<{ exported: Identifier; local?: Identifier }> };
+    for (const specifier of exportStatement.specifiers ?? []) {
+      if (specifier.exported.name !== exportedName) {
+        continue;
+      }
+      localNames.add(specifier.local?.name ?? specifier.exported.name);
+    }
+  }
+  return localNames;
+}
 
 function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
   if (!typeName) {
@@ -117,18 +204,38 @@ function typeFromAnnotationText(typeName: string | undefined): AnalysisType {
   return resolvedBase;
 }
 
-function callableTypeFromExternalFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
-  const overloads: AnalysisType[] = [];
+function externalFunctionOverloads(declarations: readonly Statement[], name: string): FunctionType[] {
+  const locallyExportedNames = localExportBindingNamesForExportedName(declarations, name);
+  const overloads: FunctionType[] = [];
   for (const statement of declarations) {
-    if (statement.kind !== "ExportStatement") {
+    const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : undefined;
+    if (declaration?.kind === "FunctionStatement" && (declaration as FunctionStatement).name.name === name) {
+      const fn = declaration as FunctionStatement;
+      overloads.push(functionType(
+        fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => {
+          const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name);
+          const isRest = parameter.rest === true;
+          const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
+          return {
+            name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
+            type,
+            optional: parameter.optional === true || parameter.defaultValue !== undefined || isRest,
+            rest: isRest
+          };
+        }),
+        typeFromAnnotationText(fn.returnType?.name),
+        fn.typeParameters?.map((parameter) => parameter.name.name),
+        importedTypeParameterConstraintMap(fn.typeParameters),
+        importedTypeParameterDefaultMap(fn.typeParameters)
+      ));
       continue;
     }
-    const declaration = unwrapExportedDeclaration(statement);
-    if (declaration?.kind !== "FunctionStatement") {
+
+    if (statement.kind !== "FunctionStatement") {
       continue;
     }
-    const fn = declaration as FunctionStatement;
-    if (fn.name.name !== name) {
+    const fn = statement as FunctionStatement;
+    if (!locallyExportedNames.has(fn.name.name)) {
       continue;
     }
     overloads.push(functionType(
@@ -144,13 +251,31 @@ function callableTypeFromExternalFunction(declarations: readonly Statement[], na
         };
       }),
       typeFromAnnotationText(fn.returnType?.name),
-      fn.typeParameters?.map((parameter) => parameter.name.name)
+      fn.typeParameters?.map((parameter) => parameter.name.name),
+      importedTypeParameterConstraintMap(fn.typeParameters),
+      importedTypeParameterDefaultMap(fn.typeParameters)
     ));
   }
+  return overloads;
+}
+
+function callableTypeFromExternalFunction(declarations: readonly Statement[], name: string): AnalysisType | null {
+  const overloads = externalFunctionOverloads(declarations, name);
   if (overloads.length === 0) {
     return null;
   }
-  return overloads.length === 1 ? overloads[0]! : unionType(overloads);
+  return overloads.length === 1 ? overloads[0]! : collapseFunctionOverloads(overloads);
+}
+
+function displayTypeForExternalFunction(declarations: readonly Statement[], name: string): string | null {
+  const overloads = externalFunctionOverloads(declarations, name);
+  if (overloads.length === 0) {
+    return null;
+  }
+  if (overloads.length === 1) {
+    return typeToString(overloads[0]!);
+  }
+  return overloads.map((overload) => typeToString(overload)).join(" | ");
 }
 
 function resolveNodeModuleNamedImportType(
@@ -162,26 +287,46 @@ function resolveNodeModuleNamedImportType(
     return callableType;
   }
 
+  const locallyExportedNames = localExportBindingNamesForExportedName(declarations, importedName);
   for (const statement of declarations) {
-    const declaration = unwrapExportedDeclaration(statement);
-    if (!declaration) {
+    const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : undefined;
+    if (declaration) {
+      if (declaration.kind === "ClassStatement" && (declaration as ClassStatement).name.name === importedName) {
+        return namedType(importedName);
+      }
+      if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === importedName) {
+        return namedType(importedName);
+      }
+      if (declaration.kind === "EnumStatement" && (declaration as EnumStatement).name.name === importedName) {
+        return namedType(importedName);
+      }
+      if (declaration.kind === "TypeAliasStatement" && (declaration as TypeAliasStatement).name.name === importedName) {
+        return namedType(importedName);
+      }
+      if (declaration.kind === "VarStatement") {
+        const varStatement = declaration as VarStatement;
+        if (varStatement.name.kind === "Identifier" && varStatement.name.name === importedName) {
+          return typeFromAnnotationText(varStatement.typeAnnotation?.name);
+        }
+      }
       continue;
     }
-    if (declaration.kind === "ClassStatement" && (declaration as ClassStatement).name.name === importedName) {
+
+    if (statement.kind === "ClassStatement" && locallyExportedNames.has((statement as ClassStatement).name.name)) {
       return namedType(importedName);
     }
-    if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === importedName) {
+    if (statement.kind === "InterfaceStatement" && locallyExportedNames.has((statement as InterfaceStatement).name.name)) {
       return namedType(importedName);
     }
-    if (declaration.kind === "EnumStatement" && (declaration as EnumStatement).name.name === importedName) {
+    if (statement.kind === "EnumStatement" && locallyExportedNames.has((statement as EnumStatement).name.name)) {
       return namedType(importedName);
     }
-    if (declaration.kind === "TypeAliasStatement" && (declaration as TypeAliasStatement).name.name === importedName) {
+    if (statement.kind === "TypeAliasStatement" && locallyExportedNames.has((statement as TypeAliasStatement).name.name)) {
       return namedType(importedName);
     }
-    if (declaration.kind === "VarStatement") {
-      const varStatement = declaration as VarStatement;
-      if (varStatement.name.kind === "Identifier" && varStatement.name.name === importedName) {
+    if (statement.kind === "VarStatement") {
+      const varStatement = statement as VarStatement;
+      if (varStatement.name.kind === "Identifier" && locallyExportedNames.has(varStatement.name.name)) {
         return typeFromAnnotationText(varStatement.typeAnnotation?.name);
       }
     }
@@ -204,9 +349,11 @@ export function buildFunctionTypeFromStatement(fn: FunctionStatement): AnalysisT
           optional: p.optional === true || p.defaultValue !== undefined || isRest,
           rest: isRest
         };
-      }),
+    }),
     typeFromAnnotationText(fn.returnType?.name),
-    fn.typeParameters?.map((tp) => tp.name.name)
+    fn.typeParameters?.map((tp) => tp.name.name),
+    importedTypeParameterConstraintMap(fn.typeParameters),
+    importedTypeParameterDefaultMap(fn.typeParameters)
   );
 }
 
@@ -296,6 +443,81 @@ function parseAmbientObjectTypeAnnotation(
   return parsedMembers;
 }
 
+function mergeAmbientObjectProperties(
+  target: Record<string, AnalysisType>,
+  source: Record<string, AnalysisType>
+): void {
+  for (const [name, type] of Object.entries(source)) {
+    target[name] = type;
+  }
+}
+
+function ambientObjectProperties(type: AnalysisType): Record<string, AnalysisType> | null {
+  if (type.kind === "object") {
+    return (type as ObjectType).properties;
+  }
+  if (type.kind === "intersection") {
+    const merged: Record<string, AnalysisType> = {};
+    let foundObject = false;
+    for (const memberType of type.types) {
+      const properties = ambientObjectProperties(memberType);
+      if (!properties) {
+        continue;
+      }
+      foundObject = true;
+      mergeAmbientObjectProperties(merged, properties);
+    }
+    return foundObject ? merged : null;
+  }
+  return null;
+}
+
+function ambientStringLiteralKeys(type: AnalysisType): string[] {
+  if (type.kind === "literal" && type.base === "string") {
+    return [String(type.value)];
+  }
+  if (type.kind === "union") {
+    return type.types.flatMap((member) => ambientStringLiteralKeys(member));
+  }
+  return [];
+}
+
+function ambientPropertyTypeWithUndefined(type: AnalysisType): AnalysisType {
+  return type.kind === "union" && type.types.some((member) => member.kind === "builtin" && member.name === "undefined")
+    ? type
+    : unionType([type, builtinType("undefined")]);
+}
+
+function ambientPropertyTypeWithoutUndefined(type: AnalysisType): AnalysisType {
+  if (type.kind !== "union") {
+    return type;
+  }
+  const definedMembers = type.types.filter(
+    (member) => !(member.kind === "builtin" && member.name === "undefined")
+  );
+  if (definedMembers.length === 0 || definedMembers.length === type.types.length) {
+    return type;
+  }
+  return definedMembers.length === 1 ? definedMembers[0]! : unionType(definedMembers);
+}
+
+function parseAmbientIndexedAccess(typeName: string): { baseTypeName: string; indexTypeName: string } | null {
+  const trimmed = typeName.trim();
+  if (!trimmed.endsWith("]")) {
+    return null;
+  }
+  const bracketStart = findTopLevelTypeCharacter(trimmed, "[");
+  if (bracketStart <= 0) {
+    return null;
+  }
+  const baseTypeName = trimmed.slice(0, bracketStart).trim();
+  const indexTypeName = trimmed.slice(bracketStart + 1, -1).trim();
+  if (!baseTypeName || !indexTypeName) {
+    return null;
+  }
+  return { baseTypeName, indexTypeName };
+}
+
 function objectTypeFromAmbientAnnotationText(
   typeName: string,
   declarations: readonly Statement[],
@@ -337,6 +559,19 @@ function objectTypeFromAmbientInterfaceStatement(
   visited.add(visitKey);
   const properties: Record<string, AnalysisType> = {};
   try {
+    for (const extendsType of interfaceStatement.extendsTypes ?? []) {
+      const parentType = typeFromAmbientAnnotationText(
+        extendsType.name,
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      );
+      const parentProperties = ambientObjectProperties(parentType);
+      if (parentProperties) {
+        mergeAmbientObjectProperties(properties, parentProperties);
+      }
+    }
     for (const member of interfaceStatement.members) {
       const memberType = typeFromAmbientInterfaceMember(
         member,
@@ -354,6 +589,133 @@ function objectTypeFromAmbientInterfaceStatement(
     visited.delete(visitKey);
   }
   return objectTypeWithProperties(properties);
+}
+
+function resolveAmbientQualifiedImportedType(
+  qualifiedTypeName: string,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType | null {
+  const dotIndex = qualifiedTypeName.indexOf(".");
+  if (dotIndex <= 0) {
+    return null;
+  }
+  const localNamespaceName = qualifiedTypeName.slice(0, dotIndex).trim();
+  const nestedTypeName = qualifiedTypeName.slice(dotIndex + 1).trim();
+  if (!localNamespaceName || !nestedTypeName) {
+    return null;
+  }
+
+  for (const statement of declarations) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+    const importStatement = statement as ImportStatement;
+    if (importStatement.namespaceImport?.name !== localNamespaceName) {
+      continue;
+    }
+    return resolveAmbientTypeReference(
+      importStatement.from.value,
+      nestedTypeName,
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations,
+      visited
+    );
+  }
+
+  return null;
+}
+
+function applyAmbientUtilityType(
+  utilityTypeName: string,
+  typeArguments: readonly string[],
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType | null {
+  if (typeArguments.length === 0) {
+    return null;
+  }
+
+  const sourceType = typeFromAmbientAnnotationText(
+    typeArguments[0],
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+  const sourceProperties = ambientObjectProperties(sourceType);
+  if (!sourceProperties) {
+    return null;
+  }
+
+  if (utilityTypeName === "Partial") {
+    return objectTypeWithProperties(
+      Object.fromEntries(
+        Object.entries(sourceProperties).map(([name, type]) => [name, ambientPropertyTypeWithUndefined(type)])
+      )
+    );
+  }
+
+  if (utilityTypeName === "Required") {
+    return objectTypeWithProperties(
+      Object.fromEntries(
+        Object.entries(sourceProperties).map(([name, type]) => [name, ambientPropertyTypeWithoutUndefined(type)])
+      )
+    );
+  }
+
+  if (typeArguments.length < 2) {
+    return utilityTypeName === "WithRequired"
+      ? objectTypeWithProperties(
+          Object.fromEntries(
+            Object.entries(sourceProperties).map(([name, type]) => [name, ambientPropertyTypeWithoutUndefined(type)])
+          )
+        )
+      : null;
+  }
+
+  const selectedKeys = new Set(
+    ambientStringLiteralKeys(
+      typeFromAmbientAnnotationText(
+        typeArguments[1],
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      )
+    )
+  );
+
+  if (utilityTypeName === "WithRequired") {
+    return objectTypeWithProperties(
+      Object.fromEntries(
+        Object.entries(sourceProperties).map(([name, type]) => [
+          name,
+          selectedKeys.has(name) ? ambientPropertyTypeWithoutUndefined(type) : type
+        ])
+      )
+    );
+  }
+
+  if (utilityTypeName === "OmitKeyof" || utilityTypeName === "Omit") {
+    const nextProperties = Object.fromEntries(
+      Object.entries(sourceProperties).filter(([name]) => !selectedKeys.has(name))
+    );
+    return objectTypeWithProperties(nextProperties);
+  }
+
+  if (utilityTypeName === "Pick") {
+    const nextProperties = Object.fromEntries(
+      Object.entries(sourceProperties).filter(([name]) => selectedKeys.has(name))
+    );
+    return objectTypeWithProperties(nextProperties);
+  }
+
+  return null;
 }
 
 function hasAmbientNamedTypeDeclaration(
@@ -494,6 +856,33 @@ function typeFromAmbientAnnotationText(
     return literalType("number", Number(normalized));
   }
 
+  const indexedAccess = parseAmbientIndexedAccess(normalized);
+  if (indexedAccess) {
+    const baseType = typeFromAmbientAnnotationText(
+      indexedAccess.baseTypeName,
+      declarations,
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations,
+      visited
+    );
+    const baseProperties = ambientObjectProperties(baseType);
+    if (baseProperties) {
+      const keyType = typeFromAmbientAnnotationText(
+        indexedAccess.indexTypeName,
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      );
+      const resolvedMembers = ambientStringLiteralKeys(keyType)
+        .map((keyName) => baseProperties[keyName])
+        .filter((memberType): memberType is AnalysisType => memberType != null);
+      if (resolvedMembers.length > 0) {
+        return unionIfNeeded(resolvedMembers);
+      }
+    }
+  }
+
   const parsed = parseTypeNameShape(normalized);
   const resolvedTypeArguments = parsed.typeArguments.map((argument) =>
     typeFromAmbientAnnotationText(argument, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
@@ -503,6 +892,41 @@ function typeFromAmbientAnnotationText(
   if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
     resolvedBase = builtinType(parsed.baseName as Parameters<typeof builtinType>[0]);
   } else {
+    const utilityType = applyAmbientUtilityType(
+      parsed.baseName,
+      parsed.typeArguments,
+      declarations,
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations,
+      visited
+    );
+    if (utilityType) {
+      resolvedBase = utilityType;
+      let resolved: AnalysisType = resolvedBase;
+      for (let depth = 0; depth < parsed.arrayDepth; depth += 1) {
+        resolved = arrayType(resolved);
+      }
+      return resolved;
+    }
+
+    const qualifiedImportedType = resolveAmbientQualifiedImportedType(
+      parsed.baseName,
+      declarations,
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations,
+      visited
+    );
+    if (qualifiedImportedType) {
+      resolvedBase = qualifiedImportedType;
+      let resolved: AnalysisType = resolvedBase.kind === "named" && resolvedTypeArguments.length > 0
+        ? namedType(resolvedBase.name, resolvedTypeArguments)
+        : resolvedBase;
+      for (let depth = 0; depth < parsed.arrayDepth; depth += 1) {
+        resolved = arrayType(resolved);
+      }
+      return resolved;
+    }
+
     const visitKey = parsed.baseName;
     const typeAlias = findAmbientTypeAliasStatement(declarations, parsed.baseName);
     if (typeAlias && !visited.has(visitKey)) {
@@ -1335,6 +1759,7 @@ function collectTypeQueryDependencyNamesFromText(typeText: string | undefined, c
   if (!typeText) {
     return;
   }
+  const stripped = typeText.replace(/"[^"]*"|'[^']*'/g, " ");
   for (const match of typeText.matchAll(/typeof\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)/g)) {
     const fullName = match[1];
     if (!fullName) {
@@ -1343,6 +1768,33 @@ function collectTypeQueryDependencyNamesFromText(typeText: string | undefined, c
     collected.add(fullName);
     const leafName = fullName.split(".").pop();
     if (leafName) {
+      collected.add(leafName);
+    }
+  }
+  for (const match of stripped.matchAll(/\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\b/g)) {
+    const fullName = match[1];
+    if (!fullName) {
+      continue;
+    }
+    if (
+      BUILTIN_TYPE_NAMES.has(fullName)
+      || [
+        "typeof",
+        "keyof",
+        "infer",
+        "extends",
+        "readonly",
+        "in",
+        "as",
+        "true",
+        "false"
+      ].includes(fullName)
+    ) {
+      continue;
+    }
+    collected.add(fullName);
+    const leafName = fullName.split(".").pop();
+    if (leafName && !BUILTIN_TYPE_NAMES.has(leafName)) {
       collected.add(leafName);
     }
   }
@@ -1477,9 +1929,7 @@ export async function collectAllImportedDeclarations(
                 ? (targetStatement as { declaration?: Statement }).declaration ?? targetStatement
                 : targetStatement;
             importedNodeModuleDeclarations.push(rawDeclaration);
-            if (rawDeclaration.kind !== "VarStatement") {
-              collectTypeQueryDependencyNames(targetStatement, supportingDeclarationNames);
-            }
+            collectTypeQueryDependencyNames(targetStatement, supportingDeclarationNames);
             return;
           }
           if (seen.has(declaration)) {
@@ -1488,9 +1938,7 @@ export async function collectAllImportedDeclarations(
           seen.add(declaration);
           seenNodeModuleStatements.add(targetStatement);
           importedNodeModuleDeclarations.push(declaration);
-          if (declaration.kind !== "VarStatement") {
-            collectTypeQueryDependencyNames(declaration, supportingDeclarationNames);
-          }
+          collectTypeQueryDependencyNames(declaration, supportingDeclarationNames);
         };
         // For node_modules .d.ts files, include all top-level declarations so
         // imported symbols can still resolve helper types and members without
@@ -1526,6 +1974,10 @@ export async function collectAllImportedDeclarations(
           const defaultImportType = callableTypeFromExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName) ?? exportType;
           if (importStatement.defaultImport) {
             importedSymbolTypes.set(importStatement.defaultImport.name, defaultImportType);
+            const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName);
+            if (displayType) {
+              importedSymbolDisplayTypes.set(importStatement.defaultImport.name, displayType);
+            }
           }
           if (importStatement.namespaceImport) {
             importedSymbolTypes.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType);
@@ -1535,6 +1987,10 @@ export async function collectAllImportedDeclarations(
             const importedType = resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, specifier.imported.name);
             if (importedType) {
               importedSymbolTypes.set(localName, importedType);
+              const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, specifier.imported.name);
+              if (displayType) {
+                importedSymbolDisplayTypes.set(localName, displayType);
+              }
             }
           }
         } else if (importStatement.defaultImport) {
@@ -1548,6 +2004,10 @@ export async function collectAllImportedDeclarations(
           const importedType = resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, specifier.imported.name);
           if (importedType) {
             importedSymbolTypes.set(localName, importedType);
+            const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, specifier.imported.name);
+            if (displayType) {
+              importedSymbolDisplayTypes.set(localName, displayType);
+            }
           } else {
             invalidImportedBindings.add(localName);
           }
@@ -1805,7 +2265,7 @@ export async function collectImportedSymbolTypes(
           const importedTypeName = specifier.imported.name;
           result.set(
             localName,
-            callableTypeFromExternalFunction(nodeModuleTypings.declarations, importedTypeName) ?? namedType(importedTypeName)
+            resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, importedTypeName) ?? namedType(importedTypeName)
           );
         }
       } else {

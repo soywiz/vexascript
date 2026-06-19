@@ -225,6 +225,152 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves node_modules named imports exported through local export specifiers in sidecar d.ts files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export { useThing } from "./useThing.js";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "useThing.d.ts"),
+      dedent`
+        declare function useThing<T>(value: T): T;
+        export { useThing };
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { useThing } from "pkg"
+
+      val answer = useThing(42)
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(typeToString(collected.importedSymbolTypes.get("useThing")!)).toBe("<T>(value: T) => T");
+    expect(collected.invalidImportedBindings.has("useThing")).toBe(false);
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("prefers sidecar declaration files over sibling javascript when following .js reexports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export { useThing } from "./useThing.js";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "useThing.d.ts"),
+      dedent`
+        declare function useThing<T>(value: T): T;
+        export { useThing };
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "useThing.js"),
+      dedent`
+        function useThing(value) {
+          return value;
+        }
+
+        export { useThing };
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { useThing } from "pkg"
+
+      val answer = useThing(42)
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+
+    expect(typeToString(collected.importedSymbolTypes.get("useThing")!)).toBe("<T>(value: T) => T");
+    expect(collected.invalidImportedBindings.has("useThing")).toBe(false);
+  });
+
+  it("resolves members from imported generic type aliases returned by node_modules functions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        interface QueryState<T> {
+          data: T;
+          isLoading: boolean;
+        }
+
+        type UseThingResult<T> = QueryState<T>;
+
+        export function useThing<T = unknown>(): UseThingResult<T>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { useThing } from "pkg"
+
+      type Payload = { title: string }
+
+      val result = useThing<Payload>()
+      val title = result.data.title
+      if (result.isLoading) {
+      }
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("accepts node_modules hook callbacks and dependency arrays that use local sibling aliases", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");
@@ -403,6 +549,38 @@ describe("node_modules typings resolution", () => {
       statement.kind === "ExportStatement"
       && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "ClassStatement"
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "TextStyle"
+    )).toBe(true);
+  });
+
+  it("follows bare renamed reexports when collecting node_modules typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    const depDir = join(root, "node_modules", "dep");
+    await mkdir(join(pkgDir, "lib"), { recursive: true });
+    await mkdir(join(depDir, "lib"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./lib/index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "lib", "index.d.ts"), 'export { b as QueryClient } from "dep";\n', "utf8");
+    await writeFile(
+      join(depDir, "package.json"),
+      JSON.stringify({ name: "dep", types: "./lib/index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(depDir, "lib", "index.d.ts"),
+      'declare class QueryClient {}\nexport { QueryClient as b };\n',
+      "utf8"
+    );
+
+    const typings = await getNodeModuleTypings(join(root, "main.vx"), "pkg");
+
+    expect(typings?.declarations.some((statement) =>
+      statement.kind === "ExportStatement"
+      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "ClassStatement"
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "QueryClient"
     )).toBe(true);
   });
 
@@ -1260,6 +1438,50 @@ describe("node_modules typings resolution", () => {
           this.setState({ time: Date.now() })
         }
       }
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("treats imported Partial utility properties as optional for object literal arguments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "partial-pkg",
+      dedent`
+        export interface MaterialOptions {
+          color: string;
+          roughness: number;
+          metalness: number;
+        }
+
+        export function makeMaterial(options: Partial<MaterialOptions>): void;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { makeMaterial } from "partial-pkg"
+
+      makeMaterial({
+        color: "#fff",
+        roughness: 0.3
+      })
     `;
     await writeFile(mainPath, source, "utf8");
 
