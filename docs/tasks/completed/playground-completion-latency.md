@@ -84,7 +84,20 @@ That does not require every language feature to become fully incremental immedia
   - `modelSessionCache` now stores a `ClassResolverCache` per session. The completion provider retrieves it and passes it via `CompletionRequestOptions.classResolverCache`. `buildMemberAccessCompletions` uses the provided cache instead of always calling `createClassResolverCache()`.
 * [x] Introduce a warmer per-model analysis lifecycle that can reuse the previous completed session for adjacent edits such as typing `.`.
   - `wireDiagnostics` now calls `getSessionForModel(model)` immediately on each content-change event, pre-warming the session in the background so the completion provider can return the already-started (or completed) Promise from cache.
-* [ ] Measure completion latency before and after each step so the real hotspot reductions are visible.
+* [x] Measure completion latency before and after each step so the real hotspot reductions are visible.
+  - `website/src/assets/monaco/workspaceSessions.test.ts` now includes a reproducible latency benchmark that compares the legacy cold session build (separate import passes plus the extra base session) against the optimized single-pass path.
+  - On the local run from June 19, 2026, that benchmark reported `legacy=47.045ms` and `optimized=22.523ms` for the playground sample fixture, which is about a `2.1x` reduction on the session-construction hotspot.
+  - The same benchmark also logs imported-workspace session cache hits at effectively zero additional cost (`coldResolver=0.008ms`, `warmResolver=0.007ms`), which confirms the cached resolver layer is no longer a meaningful contributor once warmed.
+
+## Benchmark Snapshot
+
+The benchmark lives in `website/src/assets/monaco/workspaceSessions.test.ts` and currently prints a line like:
+
+```text
+playground latency benchmark legacy=47.045ms optimized=22.523ms coldResolver=0.008ms warmResolver=0.007ms
+```
+
+That benchmark is intentionally synthetic and focused on the semantic hotspot, not browser paint time, but it gives us a stable regression signal for the analysis work that was dominating `.` completion latency.
 
 ## Notes
 

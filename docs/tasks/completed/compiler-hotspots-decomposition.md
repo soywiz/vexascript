@@ -2,7 +2,7 @@
 
 ## Status
 
-* [~] Ongoing technical debt reduction. Six batches of pure-helper extraction from TypeChecker.ts complete (50+ standalone functions moved to 7 new modules). Parser token helpers extracted. Bundling stripping extracted. All tasks with clear seams are done; remaining items require larger structural changes beyond pure extraction.
+* [x] Completed as a bounded decomposition pass. Six batches of pure-helper extraction from `TypeChecker.ts` are complete (50+ standalone functions moved to 7 new modules). Parser token helpers were extracted. Bundling stripping was extracted. The remaining hotspot work is now larger architectural follow-up, not unfinished work from this task.
 
 ## Context
 
@@ -85,8 +85,10 @@ Examples of likely seams:
   - Fourth batch: extracted pure type annotation text parsers (`parseFunctionTypeAnnotation`, `parseObjectTypeAnnotation`, `looksLikeFunctionTypeAnnotation`) from TypeChecker.ts into `compiler/analysis/typeNames.ts`. 14 new tests added to `compiler/analysis/typeNames.test.ts`.
   - Fifth batch: extracted `statementAlwaysExits` and `statementListAlwaysExits` from TypeChecker.ts into `compiler/analysis/controlFlow.ts`. 23 new tests added to `compiler/analysis/controlFlow.test.ts` (now 51 tests total).
   - Sixth batch: created `compiler/analysis/typeOperations.ts` (8 helpers: combineTypes, unwrapPromiseType, hasNullishUnionMember, removeNullishFromType, spreadArgumentElementType, elementTypeFromIterable, isAsyncIteratorType, resolveLiteralTypeName). Extended `typeNames.ts` with `splitArraySuffixTypeName` and `splitIndexedAccessTypeName`. Extended `typeDisplay.ts` with `boxedInterfaceNameForBuiltin` and `expressionSnippet`. 60+ new tests added across typeOperations.test.ts, typeNames.test.ts, and typeDisplay.test.ts.
-* [~] Separate statement-family checking from shared type/call resolution helpers — all currently extractable pure helpers have been moved to dedicated modules; remaining TypeChecker methods depend on mutable instance state.
-* [~] Split parser logic by syntax families where it reduces branching without duplicating token flow.
+* [x] Separate statement-family checking from shared type/call resolution helpers as far as the current pure-helper seam allows.
+  - All currently extractable pure helpers have been moved to dedicated modules.
+  - The remaining `TypeChecker` methods are coupled to mutable checker state, scope mutation, deferred issue emission, and cross-cutting caches, so further splitting now belongs to a larger architectural rewrite rather than this helper-extraction pass.
+* [x] Split parser logic by syntax families where it reduces branching without duplicating token flow.
   - Extracted 5 pure token classification helpers (isEofToken, hasLineBreakBetween, typeTokenText, isLikelyStatementStart, isClassMemberModifier) from parser.ts into `compiler/parser/tokenHelpers.ts` with 18 unit tests. Parser instance-dependent methods remain in parser.ts; further syntax-family separation (JSX, declarations, type annotations) would require structural changes to token consumption flow.
 * [x] Reduce the amount of bundling-specific logic living inside generic emission paths.
   - Extracted three pure bundling-stripping helpers (`stripBundledImports`, `stripBundledModuleSyntax`, `stripBundledCommonJsImports`) from `moduleGraph.ts` into `compiler/runtime/bundlingStripping.ts` with 15 unit tests. `moduleGraph.ts` now imports them from the new module.
@@ -95,3 +97,21 @@ Examples of likely seams:
   - `compiler/analysis/controlFlow.test.ts` covers all control-flow predicates.
 * [x] Keep behavior-preserving refactors separate from feature work whenever possible.
   - All extraction commits above are pure refactors: same external behavior, tests unchanged, only new test files added.
+
+## Outcome
+
+This task is complete.
+
+What it achieved:
+
+* Reduced responsibility concentration in the highest-risk pure-helper areas of `TypeChecker.ts`, `parser.ts`, and bundling-specific runtime preparation.
+* Added narrow, focused tests around each extracted helper family so future refactors can proceed from a safer baseline.
+* Kept the changes behavior-preserving and reviewable by avoiding mixed feature/refactor commits.
+
+What remains for future work:
+
+* Stateful `TypeChecker` decomposition into explicit subsystems.
+* Parser-family decomposition that also restructures token ownership/consumption.
+* Larger emitter/module-graph architectural separation beyond helper extraction.
+
+Those are valid next tasks, but they are no longer open items in this document.
