@@ -5939,11 +5939,14 @@ export class TypeChecker {
     const resolvedTypeArguments = parsed.typeArguments.map((typeArgument) =>
       this.resolveTypeNameText(typeArgument, node, scope, false)
     );
+    const specialResolved = this.resolveSpecialNamedType(parsed.baseName, resolvedTypeArguments);
 
     if (BUILTIN_TYPE_NAMES.has(parsed.baseName)) {
       resolvedBase = builtinType(
         parsed.baseName as BuiltinTypeName
       );
+    } else if (specialResolved) {
+      resolvedBase = specialResolved;
     } else if (this.isActiveTypeParameter(parsed.baseName)) {
       resolvedBase = namedType(parsed.baseName);
     } else {
@@ -5960,12 +5963,7 @@ export class TypeChecker {
             });
           }
         }
-        this.validateNamedTypeArgumentConstraints(
-          parsed.baseName,
-          resolvedTypeArguments,
-          node,
-          scope
-        );
+        this.validateNamedTypeArgumentConstraints(parsed.baseName, resolvedTypeArguments, node, scope);
         if (typeAlias) {
           resolvedBase = this.resolveTypeAliasTarget(typeAlias, resolvedTypeArguments, scope);
         } else {
@@ -9492,7 +9490,14 @@ export class TypeChecker {
         builtinType("undefined")
       ]);
     }
-    if (["Omit", "OmitKeyof", "Pick", "Partial", "Required", "WithRequired"].includes(baseName) && typeArguments.length > 0) {
+    if (["Exclude", "Extract", "NonNullable", "Readonly", "Record", "ReturnType", "Parameters", "Awaited", "Omit", "OmitKeyof", "Pick", "Partial", "Required", "WithRequired"].includes(baseName) && typeArguments.length > 0) {
+      const resolvedSpecial = this.resolveSpecialNamedType(
+        baseName,
+        typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
+      );
+      if (resolvedSpecial) {
+        return resolvedSpecial;
+      }
       const sourceType = this.typeFromTypeNameLoose(typeArguments[0]!);
       const sourceMembers = this.membersForType(sourceType);
       if (!sourceMembers) {
@@ -9548,8 +9553,116 @@ export class TypeChecker {
     return this.resolveExtractRendererOptionsType(typeArguments[0]!);
   }
 
+  private resolveSpecialNamedType(baseName: string, typeArguments: AnalysisType[]): AnalysisType | null {
+    if (baseName === "Exclude" && typeArguments.length >= 2) {
+      return this.filterUtilityTypeMembers(typeArguments[0]!, typeArguments[1]!, false);
+    }
+    if (baseName === "Extract" && typeArguments.length >= 2) {
+      return this.filterUtilityTypeMembers(typeArguments[0]!, typeArguments[1]!, true);
+    }
+    if (baseName === "NonNullable") {
+      return this.nonNullableUtilityType(typeArguments[0]!);
+    }
+    if (baseName === "Readonly") {
+      const readonlyMembers = this.membersForType(typeArguments[0]!);
+      return readonlyMembers
+        ? objectTypeWithProperties(Object.fromEntries(readonlyMembers.entries()))
+        : typeArguments[0]!;
+    }
+    if (baseName === "Record" && typeArguments.length >= 2) {
+      return this.recordUtilityType(typeArguments[0]!, typeArguments[1]!);
+    }
+    if (baseName === "ReturnType") {
+      return this.returnTypeUtilityType(typeArguments[0]!);
+    }
+    if (baseName === "Parameters") {
+      return this.parametersUtilityType(typeArguments[0]!);
+    }
+    if (baseName === "Awaited") {
+      return this.awaitedUtilityType(typeArguments[0]!);
+    }
+    return null;
+  }
+
   private propertyTypeWithUndefined(type: AnalysisType): AnalysisType {
     return propertyTypeAllowsUndefined(type) ? type : unionType([type, builtinType("undefined")]);
+  }
+
+  private filterUtilityTypeMembers(
+    sourceType: AnalysisType,
+    targetType: AnalysisType,
+    keepAssignable: boolean
+  ): AnalysisType {
+    if (sourceType.kind === "union") {
+      const filtered = sourceType.types.filter((member) => this.isTypeAssignable(member, targetType) === keepAssignable);
+      return combineTypes(filtered.length > 0 ? filtered : [builtinType("never")]);
+    }
+    return this.isTypeAssignable(sourceType, targetType) === keepAssignable
+      ? sourceType
+      : builtinType("never");
+  }
+
+  private nonNullableUtilityType(sourceType: AnalysisType): AnalysisType {
+    if (sourceType.kind === "builtin" && (sourceType.name === "null" || sourceType.name === "undefined")) {
+      return builtinType("never");
+    }
+    return removeNullishFromType(sourceType);
+  }
+
+  private recordUtilityType(keyType: AnalysisType, valueType: AnalysisType): AnalysisType {
+    const properties: Record<string, AnalysisType> = {};
+    for (const key of this.stringLiteralKeysFromType(keyType)) {
+      properties[key] = valueType;
+    }
+    if (keyType.kind === "builtin" && (keyType.name === "string" || keyType.name === "number" || keyType.name === "symbol")) {
+      properties[`[${keyType.name}]`] = valueType;
+    }
+    if (keyType.kind === "union") {
+      for (const member of keyType.types) {
+        if (member.kind === "builtin" && (member.name === "string" || member.name === "number" || member.name === "symbol")) {
+          properties[`[${member.name}]`] = valueType;
+        }
+      }
+    }
+    return objectTypeWithProperties(properties);
+  }
+
+  private returnTypeUtilityType(sourceType: AnalysisType): AnalysisType | null {
+    if (sourceType.kind === "function") {
+      return sourceType.returnType;
+    }
+    if (sourceType.kind === "union") {
+      const returnTypes = sourceType.types
+        .filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function")
+        .map((member) => member.returnType);
+      return returnTypes.length > 0 ? combineTypes(returnTypes) : null;
+    }
+    return null;
+  }
+
+  private parametersUtilityType(sourceType: AnalysisType): AnalysisType | null {
+    if (sourceType.kind === "function") {
+      return tupleType(sourceType.parameters.map((parameter) => parameter.type));
+    }
+    if (sourceType.kind === "union") {
+      const tuples = sourceType.types
+        .filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function")
+        .map((member) => tupleType(member.parameters.map((parameter) => parameter.type)));
+      return tuples.length > 0 ? combineTypes(tuples) : null;
+    }
+    return null;
+  }
+
+  private awaitedUtilityType(sourceType: AnalysisType): AnalysisType {
+    if (sourceType.kind === "union") {
+      return combineTypes(sourceType.types.map((member) => this.awaitedUtilityType(member)));
+    }
+    if (sourceType.kind === "builtin" && (sourceType.name === "any" || sourceType.name === "unknown" || sourceType.name === "null" || sourceType.name === "undefined")) {
+      return sourceType;
+    }
+    const unwrapped = unwrapPromiseType(sourceType)
+      ?? (sourceType.kind === "named" && sourceType.name === "PromiseLike" ? sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE : null);
+    return unwrapped ? this.awaitedUtilityType(unwrapped) : sourceType;
   }
 
   private stringLiteralKeysFromType(type: AnalysisType): string[] {
@@ -9669,6 +9782,13 @@ export class TypeChecker {
           return namedType("Awaited", [innerExpanded]);
         }
         return this.evaluateAwaitedType(innerExpanded);
+      }
+      if (type.typeArguments && type.typeArguments.length > 0) {
+        const expandedArguments = type.typeArguments.map((typeArgument) => this.expandTypeAliases(typeArgument));
+        const specialResolved = this.resolveSpecialNamedType(type.name, expandedArguments);
+        if (specialResolved) {
+          return this.expandTypeAliases(specialResolved);
+        }
       }
       const typeAlias = this.typeAliasStatementsByName.get(type.name);
       if (!typeAlias || this.activeTypeAliasNames.has(type.name)) {

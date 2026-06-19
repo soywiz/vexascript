@@ -1502,6 +1502,65 @@ describe("node_modules typings resolution", () => {
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves broader built-in utility aliases from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "utility-box",
+      dedent`
+        export type PublicState = Exclude<"idle" | "loading" | "done", "idle">;
+        export type StableState = Extract<"idle" | "loading" | "done", "done" | "error">;
+        export type UserName = NonNullable<string | null | undefined>;
+        export type Labels = Record<"title" | "subtitle", string>;
+        export type ThemeConfig = Readonly<{ theme: string; retries: number }>;
+        export type Settled = Awaited<Promise<Promise<string>>>;
+        export type UseFlag = (name: string, count: number) => boolean;
+        export type UseFlagReturn = ReturnType<UseFlag>;
+        export type UseFlagParameters = Parameters<UseFlag>;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type {
+        PublicState,
+        StableState,
+        UserName,
+        Labels,
+        ThemeConfig,
+        Settled,
+        UseFlagReturn,
+        UseFlagParameters
+      } from "utility-box"
+
+      let publicState: PublicState = "loading"
+      let stableState: StableState = "done"
+      let userName: UserName = "Ada"
+      let labels: Labels = { title: "Hello", subtitle: "World" }
+      let config: ThemeConfig = { theme: "light", retries: 3 }
+      let settled: Settled = "ok"
+      let fnReturn: UseFlagReturn = true
+      let fnParameters: UseFlagParameters = ["Ada", 1]
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("does not expose external class names in extends clauses unless they are imported", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(

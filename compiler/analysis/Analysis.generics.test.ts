@@ -417,6 +417,34 @@ describe("Analysis", () => {
     expect(messages).toEqual([]);
   });
 
+  it("resolves common TypeScript utility aliases beyond Partial and Pick", () => {
+    const source = dedent`
+      type WithoutNulls = NonNullable<string | null | undefined>
+      type LoadingState = Exclude<"idle" | "loading" | "done", "idle">
+      type FinalState = Extract<"idle" | "loading" | "done", "done" | "error">
+      type Labels = Record<"title" | "subtitle", string>
+      type Config = Readonly<{ theme: string, retries: int }>
+      type Settled = Awaited<Promise<Promise<string>>>
+      type Fn = (name: string, count: int) => boolean
+      type FnReturn = ReturnType<Fn>
+      type FnParameters = Parameters<Fn>
+
+      let withoutNulls: WithoutNulls = "Ada"
+      let loading: LoadingState = "loading"
+      let final: FinalState = "done"
+      let labels: Labels = { title: "Hello", subtitle: "World" }
+      let config: Config = { theme: "light", retries: 3 }
+      let settled: Settled = "ok"
+      let fnReturn: FnReturn = true
+      let fnParameters: FnParameters = ["Ada", 1]
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = dedent`
       interface PairStore<K, V> {

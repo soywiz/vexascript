@@ -43,11 +43,13 @@ import {
 import {
   findMatchingTypeDelimiter,
   findTopLevelTypeCharacter,
+  parseFunctionTypeAnnotation,
   parseTypeNameShape,
   splitTopLevelDelimitedTypeText,
   splitTopLevelTypeText,
   stripEnclosingTypeParens
 } from "compiler/analysis/typeNames";
+import { combineTypes, removeNullishFromType, unwrapPromiseType } from "compiler/analysis/typeOperations";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
 
 /**
@@ -640,6 +642,53 @@ function applyAmbientUtilityType(
     return null;
   }
 
+  if (utilityTypeName === "Exclude") {
+    return ambientFilterUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      typeFromAmbientAnnotationText(typeArguments[1] ?? "never", declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      false
+    );
+  }
+
+  if (utilityTypeName === "Extract") {
+    return ambientFilterUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      typeFromAmbientAnnotationText(typeArguments[1] ?? "never", declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      true
+    );
+  }
+
+  if (utilityTypeName === "NonNullable") {
+    return ambientNonNullableUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    );
+  }
+
+  if (utilityTypeName === "Record" && typeArguments.length >= 2) {
+    return ambientRecordUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited),
+      typeFromAmbientAnnotationText(typeArguments[1], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    );
+  }
+
+  if (utilityTypeName === "ReturnType") {
+    return ambientReturnTypeUtility(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    );
+  }
+
+  if (utilityTypeName === "Parameters") {
+    return ambientParametersUtility(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    );
+  }
+
+  if (utilityTypeName === "Awaited") {
+    return ambientAwaitedUtilityType(
+      typeFromAmbientAnnotationText(typeArguments[0], declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    );
+  }
+
   const sourceType = typeFromAmbientAnnotationText(
     typeArguments[0],
     declarations,
@@ -666,6 +715,10 @@ function applyAmbientUtilityType(
         Object.entries(sourceProperties).map(([name, type]) => [name, ambientPropertyTypeWithoutUndefined(type)])
       )
     );
+  }
+
+  if (utilityTypeName === "Readonly") {
+    return objectTypeWithProperties(sourceProperties);
   }
 
   if (typeArguments.length < 2) {
@@ -716,6 +769,123 @@ function applyAmbientUtilityType(
   }
 
   return null;
+}
+
+function ambientTypeAssignableForUtility(sourceType: AnalysisType, targetType: AnalysisType): boolean {
+  if (typeToString(sourceType) === typeToString(targetType)) {
+    return true;
+  }
+  if (targetType.kind === "builtin" && targetType.name === "any") {
+    return true;
+  }
+  if (sourceType.kind === "builtin" && sourceType.name === "never") {
+    return true;
+  }
+  if (targetType.kind === "builtin" && targetType.name === "unknown") {
+    return true;
+  }
+  if (targetType.kind === "union") {
+    return targetType.types.some((member) => ambientTypeAssignableForUtility(sourceType, member));
+  }
+  if (sourceType.kind === "union") {
+    return sourceType.types.every((member) => ambientTypeAssignableForUtility(member, targetType));
+  }
+  if (sourceType.kind === "literal") {
+    if (targetType.kind === "literal") {
+      return sourceType.base === targetType.base && sourceType.value === targetType.value;
+    }
+    if (targetType.kind === "builtin" && targetType.name === sourceType.base) {
+      return true;
+    }
+    if (
+      targetType.kind === "builtin" &&
+      targetType.name === "int" &&
+      sourceType.base === "number" &&
+      Number.isInteger(sourceType.value)
+    ) {
+      return true;
+    }
+  }
+  if (sourceType.kind === "named" && targetType.kind === "named") {
+    return sourceType.name === targetType.name;
+  }
+  return false;
+}
+
+function ambientFilterUtilityType(sourceType: AnalysisType, targetType: AnalysisType, keepAssignable: boolean): AnalysisType {
+  if (sourceType.kind === "union") {
+    const filtered = sourceType.types.filter((member) => ambientTypeAssignableForUtility(member, targetType) === keepAssignable);
+    return combineTypes(filtered.length > 0 ? filtered : [builtinType("never")]);
+  }
+  return ambientTypeAssignableForUtility(sourceType, targetType) === keepAssignable
+    ? sourceType
+    : builtinType("never");
+}
+
+function ambientNonNullableUtilityType(sourceType: AnalysisType): AnalysisType {
+  if (sourceType.kind === "builtin" && (sourceType.name === "null" || sourceType.name === "undefined")) {
+    return builtinType("never");
+  }
+  return removeNullishFromType(sourceType);
+}
+
+function ambientRecordUtilityType(keyType: AnalysisType, valueType: AnalysisType): AnalysisType {
+  const properties: Record<string, AnalysisType> = {};
+  for (const key of ambientStringLiteralKeys(keyType)) {
+    properties[key] = valueType;
+  }
+  if (keyType.kind === "builtin" && (keyType.name === "string" || keyType.name === "number" || keyType.name === "symbol")) {
+    properties[`[${keyType.name}]`] = valueType;
+  }
+  if (keyType.kind === "union") {
+    for (const member of keyType.types) {
+      if (member.kind === "builtin" && (member.name === "string" || member.name === "number" || member.name === "symbol")) {
+        properties[`[${member.name}]`] = valueType;
+      }
+    }
+  }
+  return objectTypeWithProperties(properties);
+}
+
+function ambientReturnTypeUtility(sourceType: AnalysisType): AnalysisType | null {
+  if (sourceType.kind === "function") {
+    return sourceType.returnType;
+  }
+  if (sourceType.kind === "union") {
+    const returnTypes = sourceType.types
+      .filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function")
+      .map((member) => member.returnType);
+    return returnTypes.length > 0 ? combineTypes(returnTypes) : null;
+  }
+  return null;
+}
+
+function ambientParametersUtility(sourceType: AnalysisType): AnalysisType | null {
+  if (sourceType.kind === "function") {
+    return {
+      kind: "tuple",
+      elements: sourceType.parameters.map((parameter) => parameter.type)
+    };
+  }
+  if (sourceType.kind === "union") {
+    const tuples = sourceType.types
+      .filter((member): member is AnalysisType & { kind: "function" } => member.kind === "function")
+      .map((member) => ({ kind: "tuple", elements: member.parameters.map((parameter) => parameter.type) } as const));
+    return tuples.length > 0 ? combineTypes(tuples) : null;
+  }
+  return null;
+}
+
+function ambientAwaitedUtilityType(sourceType: AnalysisType): AnalysisType {
+  if (sourceType.kind === "union") {
+    return combineTypes(sourceType.types.map((member) => ambientAwaitedUtilityType(member)));
+  }
+  if (sourceType.kind === "builtin" && (sourceType.name === "any" || sourceType.name === "unknown" || sourceType.name === "null" || sourceType.name === "undefined")) {
+    return sourceType;
+  }
+  const unwrapped = unwrapPromiseType(sourceType)
+    ?? (sourceType.kind === "named" && sourceType.name === "PromiseLike" ? sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE : null);
+  return unwrapped ? ambientAwaitedUtilityType(unwrapped) : sourceType;
 }
 
 function hasAmbientNamedTypeDeclaration(
@@ -839,6 +1009,30 @@ function typeFromAmbientAnnotationText(
   );
   if (objectType) {
     return objectType;
+  }
+  const parsedFunctionType = parseFunctionTypeAnnotation(normalized);
+  if (parsedFunctionType) {
+    return functionType(
+      parsedFunctionType.parameters.map((parameter) => ({
+        name: parameter.name,
+        type: typeFromAmbientAnnotationText(
+          parameter.typeName,
+          declarations,
+          ambientModuleDeclarations,
+          ambientGlobalDeclarations,
+          visited
+        ),
+        ...(parameter.optional ? { optional: true } : {}),
+        ...(parameter.rest ? { rest: true } : {})
+      })),
+      typeFromAmbientAnnotationText(
+        parsedFunctionType.returnTypeName,
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      )
+    );
   }
   if (
     (normalized.startsWith("\"") && normalized.endsWith("\""))

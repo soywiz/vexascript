@@ -886,7 +886,7 @@ let name: Text = "Ada"
 let boxed: Boxed<Text> = new Box<string>()
 ```
 
-`type` declarations are type-only and are omitted from emitted JavaScript output. Mapped and conditional types are preserved structurally by the parser; semantic analysis resolves the portions it understands and otherwise treats them conservatively as `unknown`.
+`type` declarations are type-only and are omitted from emitted JavaScript output. Mapped and conditional types are preserved structurally by the parser; semantic analysis resolves the portions it understands and otherwise treats them conservatively as `unknown`. Common TypeScript utility aliases such as `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Exclude`, `Extract`, `NonNullable`, `Record`, `Awaited`, `ReturnType`, and `Parameters` are also resolved when their inputs fit the currently supported type forms.
 
 ### Type annotation forms
 
