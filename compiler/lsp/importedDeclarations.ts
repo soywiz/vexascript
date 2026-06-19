@@ -42,6 +42,7 @@ import {
 } from "compiler/analysis/types";
 import {
   findMatchingTypeDelimiter,
+  parseConditionalTypeText,
   parseTemplateLiteralTypeText,
   findTopLevelTypeCharacter,
   parseFunctionTypeAnnotation,
@@ -1337,6 +1338,17 @@ function typeFromAmbientAnnotationText(
     }
   }
 
+  const conditionalType = ambientConditionalTypeFromText(
+    normalized,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+  if (conditionalType) {
+    return conditionalType;
+  }
+
   const parsed = parseTypeNameShape(normalized);
   const resolvedTypeArguments = parsed.typeArguments.map((argument) =>
     typeFromAmbientAnnotationText(argument, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
@@ -1520,6 +1532,152 @@ function ambientStringifiableTemplateLiteralValues(type: AnalysisType): string[]
     return null;
   }
   return null;
+}
+
+function ambientConditionalTypeFromText(
+  typeName: string,
+  declarations: readonly Statement[],
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[],
+  visited: Set<string>
+): AnalysisType | null {
+  const conditional = parseConditionalTypeText(typeName);
+  if (!conditional) {
+    return null;
+  }
+
+  const checkType = typeFromAmbientAnnotationText(
+    conditional.checkTypeText,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+  const inferSubstitutions = ambientInferConditionalPatternSubstitutions(checkType, conditional.extendsTypeText);
+  const selectedBranch = inferSubstitutions
+    ? substituteAmbientTypeNames(conditional.trueTypeText, inferSubstitutions)
+    : ambientTypeAssignableForUtility(
+      checkType,
+      typeFromAmbientAnnotationText(
+        conditional.extendsTypeText,
+        declarations,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
+      )
+    )
+      ? conditional.trueTypeText
+      : conditional.falseTypeText;
+
+  return typeFromAmbientAnnotationText(
+    selectedBranch,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+}
+
+function ambientInferConditionalPatternSubstitutions(
+  sourceType: AnalysisType,
+  patternText: string
+): Map<string, AnalysisType> | null {
+  const trimmed = patternText.trim();
+  const arrayMatch = /^\(?infer\s+([A-Za-z_$][\w$]*)\)?\[\]$/.exec(trimmed);
+  if (arrayMatch?.[1]) {
+    const elementType = ambientArrayElementTypeForInferPattern(sourceType);
+    return elementType ? new Map([[arrayMatch[1], elementType]]) : null;
+  }
+
+  const genericInferMatch = /^([A-Za-z_$][\w$.]*)<\s*infer\s+([A-Za-z_$][\w$]*)\s*>$/.exec(trimmed);
+  if (genericInferMatch?.[1] && genericInferMatch[2]) {
+    const inferred = ambientGenericInferTypeArgument(sourceType, genericInferMatch[1]);
+    return inferred ? new Map([[genericInferMatch[2], inferred]]) : null;
+  }
+
+  const functionArgsInferMatch = /^\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(trimmed);
+  if (functionArgsInferMatch?.[1] && sourceType.kind === "function") {
+    return new Map([[functionArgsInferMatch[1], { kind: "tuple", elements: sourceType.parameters.map((parameter) => parameter.type) }]]);
+  }
+
+  const functionReturnInferMatch = /^\(\s*\.\.\.[^:]+:\s*any\s*\)\s*=>\s*infer\s+([A-Za-z_$][\w$]*)$/.exec(trimmed);
+  if (functionReturnInferMatch?.[1] && sourceType.kind === "function") {
+    return new Map([[functionReturnInferMatch[1], sourceType.returnType]]);
+  }
+
+  const functionInferMatch = parseFunctionTypeAnnotation(trimmed);
+  if (functionInferMatch && sourceType.kind === "function") {
+    const result = new Map<string, AnalysisType>();
+    if (functionInferMatch.parameters.length === 1 && functionInferMatch.parameters[0]?.rest === true) {
+      const parameterTypeName = functionInferMatch.parameters[0].typeName.trim();
+      const restInferMatch = /^infer\s+([A-Za-z_$][\w$]*)$/.exec(parameterTypeName);
+      if (restInferMatch?.[1]) {
+        result.set(restInferMatch[1], { kind: "tuple", elements: sourceType.parameters.map((parameter) => parameter.type) });
+      } else if (parameterTypeName !== "any") {
+        return null;
+      }
+    }
+    const returnInferMatch = /^infer\s+([A-Za-z_$][\w$]*)$/.exec(functionInferMatch.returnTypeName.trim());
+    if (returnInferMatch?.[1]) {
+      result.set(returnInferMatch[1], sourceType.returnType);
+    } else if (functionInferMatch.returnTypeName.trim() !== "any") {
+      return null;
+    }
+    return result.size > 0 ? result : null;
+  }
+
+  const constructorParamsMatch = /^(?:abstract\s+)?new\s*\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(trimmed);
+  if (constructorParamsMatch?.[1]) {
+    const constructorType = sourceType.kind === "function" ? sourceType : null;
+    return constructorType
+      ? new Map([[constructorParamsMatch[1], { kind: "tuple", elements: constructorType.parameters.map((parameter) => parameter.type) }]])
+      : null;
+  }
+
+  const constructorReturnMatch = /^(?:abstract\s+)?new\s*\(\s*\.\.\.[^:]+:\s*any\s*\)\s*=>\s*infer\s+([A-Za-z_$][\w$]*)$/.exec(trimmed);
+  if (constructorReturnMatch?.[1]) {
+    const constructorType = sourceType.kind === "function" ? sourceType : null;
+    return constructorType
+      ? new Map([[constructorReturnMatch[1], constructorType.returnType]])
+      : null;
+  }
+
+  return null;
+}
+
+function ambientArrayElementTypeForInferPattern(sourceType: AnalysisType): AnalysisType | null {
+  if (sourceType.kind === "array") {
+    return sourceType.elementType;
+  }
+  if (sourceType.kind === "tuple") {
+    return sourceType.elements.length === 1 ? sourceType.elements[0]! : unionIfNeeded(sourceType.elements);
+  }
+  if (sourceType.kind === "named" && (sourceType.name === "Array" || sourceType.name === "ReadonlyArray")) {
+    return sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE;
+  }
+  return null;
+}
+
+function ambientGenericInferTypeArgument(sourceType: AnalysisType, genericName: string): AnalysisType | null {
+  if (sourceType.kind === "array" && (genericName === "Array" || genericName === "ReadonlyArray")) {
+    return sourceType.elementType;
+  }
+  if (sourceType.kind === "tuple" && (genericName === "Array" || genericName === "ReadonlyArray")) {
+    return sourceType.elements.length === 1 ? sourceType.elements[0]! : unionIfNeeded(sourceType.elements);
+  }
+  if (sourceType.kind !== "named" || sourceType.name !== genericName) {
+    return null;
+  }
+  return sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE;
+}
+
+function substituteAmbientTypeNames(typeName: string, substitutions: Map<string, AnalysisType>): string {
+  let result = typeName;
+  for (const [name, substitution] of substitutions.entries()) {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    result = result.replace(new RegExp(`\\b${escapedName}\\b`, "g"), typeToString(substitution));
+  }
+  return result;
 }
 
 function buildAmbientFunctionTypeFromStatement(

@@ -105,6 +105,7 @@ import {
   looksLikeFunctionTypeAnnotation,
   parseObjectTypeAnnotation,
   parseFunctionTypeAnnotation,
+  parseConditionalTypeText,
   parseTemplateLiteralTypeText,
   parseTypeNameShape,
   splitArraySuffixTypeName,
@@ -6431,6 +6432,11 @@ export class TypeChecker {
       return mappedUtilityTarget;
     }
 
+    const conditionalTarget = this.resolveConditionalTypeAliasTarget(typeAlias, substitutions, scope);
+    if (conditionalTarget) {
+      return conditionalTarget;
+    }
+
     this.activeTypeAliasNames.add(typeAlias.name.name);
     let targetType: AnalysisType = UNKNOWN_TYPE;
     this.withTypeParameters(typeParameters.map((parameter) => parameter.name.name), () => {
@@ -6439,6 +6445,49 @@ export class TypeChecker {
     this.activeTypeAliasNames.delete(typeAlias.name.name);
 
     return this.substituteTypeParameters(targetType, substitutions);
+  }
+
+  private resolveConditionalTypeAliasTarget(
+    typeAlias: TypeAliasStatement,
+    substitutions: Map<string, AnalysisType>,
+    scope: Scope
+  ): AnalysisType | null {
+    const conditional = parseConditionalTypeText(stripEnclosingTypeParens(typeAlias.targetType.name.trim()));
+    if (!conditional) {
+      return null;
+    }
+
+    const checkType = this.typeFromTypeNameLoose(
+      this.substituteTypeParametersInComputedName(conditional.checkTypeText, substitutions)
+    );
+    const inferSubstitutions = this.inferConditionalPatternSubstitutions(
+      checkType,
+      conditional.extendsTypeText,
+      substitutions
+    );
+    const branchSubstitutions = inferSubstitutions
+      ?? (this.isTypeAssignable(
+        checkType,
+        this.typeFromTypeNameLoose(
+          this.substituteTypeParametersInComputedName(conditional.extendsTypeText, substitutions)
+        )
+      ) ? new Map<string, AnalysisType>() : null);
+
+    const selectedBranch = branchSubstitutions !== null
+      ? conditional.trueTypeText
+      : conditional.falseTypeText;
+    const finalSubstitutions = new Map(substitutions);
+    if (branchSubstitutions) {
+      for (const [name, type] of branchSubstitutions.entries()) {
+        finalSubstitutions.set(name, type);
+      }
+    }
+    return this.resolveTypeNameText(
+      this.substituteTypeParametersInComputedName(selectedBranch, finalSubstitutions),
+      typeAlias.targetType,
+      scope,
+      false
+    );
   }
 
   private resolveMappedUtilityAliasTarget(
@@ -6616,6 +6665,117 @@ export class TypeChecker {
       return names;
     }
     return null;
+  }
+
+  private inferConditionalPatternSubstitutions(
+    sourceType: AnalysisType,
+    patternText: string,
+    substitutions: Map<string, AnalysisType>
+  ): Map<string, AnalysisType> | null {
+    const substitutedPattern = this.substituteTypeParametersInComputedName(patternText, substitutions).trim();
+
+    const arrayMatch = /^\(?infer\s+([A-Za-z_$][\w$]*)\)?\[\]$/.exec(substitutedPattern);
+    if (arrayMatch?.[1]) {
+      const elementType = this.arrayElementTypeForInferPattern(sourceType);
+      return elementType ? new Map([[arrayMatch[1], elementType]]) : null;
+    }
+
+    const genericInferMatch = /^([A-Za-z_$][\w$.]*)<\s*infer\s+([A-Za-z_$][\w$]*)\s*>$/.exec(substitutedPattern);
+    if (genericInferMatch?.[1] && genericInferMatch[2]) {
+      const inferred = this.genericInferTypeArgument(sourceType, genericInferMatch[1]);
+      return inferred ? new Map([[genericInferMatch[2], inferred]]) : null;
+    }
+
+    const functionArgsInferMatch = /^\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(substitutedPattern);
+    if (functionArgsInferMatch?.[1] && sourceType.kind === "function") {
+      return new Map([[functionArgsInferMatch[1], tupleType(sourceType.parameters.map((parameter) => parameter.type))]]);
+    }
+
+    const functionReturnInferMatch = /^\(\s*\.\.\.[^:]+:\s*any\s*\)\s*=>\s*infer\s+([A-Za-z_$][\w$]*)$/.exec(substitutedPattern);
+    if (functionReturnInferMatch?.[1] && sourceType.kind === "function") {
+      return new Map([[functionReturnInferMatch[1], sourceType.returnType]]);
+    }
+
+    const functionInferMatch = parseFunctionTypeAnnotation(substitutedPattern);
+    if (functionInferMatch && sourceType.kind === "function") {
+      return this.inferFunctionConditionalPatternSubstitutions(sourceType, functionInferMatch);
+    }
+
+    const constructorParamsMatch = /^(?:abstract\s+)?new\s*\(\s*\.\.\.[^:]+:\s*infer\s+([A-Za-z_$][\w$]*)\s*\)\s*=>\s*any$/.exec(substitutedPattern);
+    if (constructorParamsMatch?.[1]) {
+      const constructSignature = this.constructSignatureForUtility(sourceType);
+      return constructSignature
+        ? new Map([[constructorParamsMatch[1], tupleType(constructSignature.parameters.map((parameter) => parameter.type))]])
+        : null;
+    }
+
+    const constructorReturnMatch = /^(?:abstract\s+)?new\s*\(\s*\.\.\.[^:]+:\s*any\s*\)\s*=>\s*infer\s+([A-Za-z_$][\w$]*)$/.exec(substitutedPattern);
+    if (constructorReturnMatch?.[1]) {
+      const constructSignature = this.constructSignatureForUtility(sourceType);
+      return constructSignature
+        ? new Map([[constructorReturnMatch[1], constructSignature.returnType]])
+        : null;
+    }
+
+    return null;
+  }
+
+  private inferFunctionConditionalPatternSubstitutions(
+    sourceType: AnalysisType & { kind: "function" },
+    pattern: ReturnType<typeof parseFunctionTypeAnnotation>
+  ): Map<string, AnalysisType> | null {
+    if (!pattern) {
+      return null;
+    }
+    const result = new Map<string, AnalysisType>();
+
+    if (pattern.parameters.length === 1 && pattern.parameters[0]?.rest === true) {
+      const parameterTypeName = pattern.parameters[0].typeName.trim();
+      const restInferMatch = /^infer\s+([A-Za-z_$][\w$]*)$/.exec(parameterTypeName);
+      if (restInferMatch?.[1]) {
+        result.set(restInferMatch[1], tupleType(sourceType.parameters.map((parameter) => parameter.type)));
+      } else if (parameterTypeName !== "any") {
+        return null;
+      }
+    }
+
+    const returnInferMatch = /^infer\s+([A-Za-z_$][\w$]*)$/.exec(pattern.returnTypeName.trim());
+    if (returnInferMatch?.[1]) {
+      result.set(returnInferMatch[1], sourceType.returnType);
+    } else if (pattern.returnTypeName.trim() !== "any") {
+      const expectedReturnType = this.typeFromTypeNameLoose(pattern.returnTypeName);
+      if (!this.isTypeAssignable(sourceType.returnType, expectedReturnType)) {
+        return null;
+      }
+    }
+
+    return result.size > 0 ? result : null;
+  }
+
+  private arrayElementTypeForInferPattern(sourceType: AnalysisType): AnalysisType | null {
+    if (sourceType.kind === "array") {
+      return sourceType.elementType;
+    }
+    if (sourceType.kind === "tuple") {
+      return sourceType.elements.length === 1 ? sourceType.elements[0]! : combineTypes(sourceType.elements);
+    }
+    if (sourceType.kind === "named" && (sourceType.name === "Array" || sourceType.name === "ReadonlyArray")) {
+      return sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE;
+    }
+    return null;
+  }
+
+  private genericInferTypeArgument(sourceType: AnalysisType, genericName: string): AnalysisType | null {
+    if (sourceType.kind === "array" && (genericName === "Array" || genericName === "ReadonlyArray")) {
+      return sourceType.elementType;
+    }
+    if (sourceType.kind === "tuple" && (genericName === "Array" || genericName === "ReadonlyArray")) {
+      return sourceType.elements.length === 1 ? sourceType.elements[0]! : combineTypes(sourceType.elements);
+    }
+    if (sourceType.kind !== "named" || sourceType.name !== genericName) {
+      return null;
+    }
+    return sourceType.typeArguments?.[0] ?? UNKNOWN_TYPE;
   }
 
   private withTypeParameters(

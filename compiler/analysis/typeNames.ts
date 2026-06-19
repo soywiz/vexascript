@@ -14,6 +14,13 @@ export interface TemplateLiteralTypeSegment {
   value: string;
 }
 
+export interface ConditionalTypeText {
+  checkTypeText: string;
+  extendsTypeText: string;
+  trueTypeText: string;
+  falseTypeText: string;
+}
+
 interface TypeTextDepths {
   angle: number;
   paren: number;
@@ -295,6 +302,59 @@ export function parseTemplateLiteralTypeText(typeName: string): TemplateLiteralT
   }
 
   return segments.length > 0 ? segments : [{ kind: "text", value: "" }];
+}
+
+export function parseConditionalTypeText(typeName: string): ConditionalTypeText | null {
+  const trimmed = typeName.trim();
+  const questionIndex = findTopLevelTypeCharacter(trimmed, "?");
+  if (questionIndex < 0) {
+    return null;
+  }
+  const falseBranchSeparator = findTopLevelTypeCharacter(trimmed.slice(questionIndex + 1), ":");
+  if (falseBranchSeparator < 0) {
+    return null;
+  }
+
+  const conditionText = trimmed.slice(0, questionIndex).trim();
+  const trueTypeText = trimmed.slice(questionIndex + 1, questionIndex + 1 + falseBranchSeparator).trim();
+  const falseTypeText = trimmed.slice(questionIndex + 1 + falseBranchSeparator + 1).trim();
+  const extendsIndex = findTopLevelExtendsKeyword(conditionText);
+  if (extendsIndex < 0) {
+    return null;
+  }
+
+  const checkTypeText = conditionText.slice(0, extendsIndex).trim();
+  const extendsTypeText = conditionText.slice(extendsIndex + "extends".length).trim();
+  if (!checkTypeText || !extendsTypeText || !trueTypeText || !falseTypeText) {
+    return null;
+  }
+
+  return {
+    checkTypeText,
+    extendsTypeText,
+    trueTypeText,
+    falseTypeText
+  };
+}
+
+function findTopLevelExtendsKeyword(text: string): number {
+  let foundIndex = -1;
+  scanTypeText(text, (_character, index, isTopLevel) => {
+    if (!isTopLevel) {
+      return;
+    }
+    if (text.slice(index, index + "extends".length) !== "extends") {
+      return;
+    }
+    const before = index === 0 ? " " : text[index - 1]!;
+    const after = index + "extends".length >= text.length ? " " : text[index + "extends".length]!;
+    if (/\w/.test(before) || /\w/.test(after)) {
+      return;
+    }
+    foundIndex = index;
+    return false;
+  });
+  return foundIndex;
 }
 
 export interface FunctionTypeAnnotationParameter {

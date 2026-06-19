@@ -511,6 +511,25 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves top-level conditional aliases that use common infer patterns", () => {
+    const source = dedent`
+      type Element<T> = T extends (infer U)[] ? U : T
+      type AwaitedValue<T> = T extends Promise<infer U> ? U : T
+      type Result<T> = T extends (...args: any) => infer R ? R : never
+
+      type Handler = (name: string, count: int) => boolean
+
+      let element: Element<string[]> = "Ada"
+      let awaitedValue: AwaitedValue<Promise<int>> = 1
+      let result: Result<Handler> = true
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("supports generic type annotations in classes and interfaces", () => {
     const source = dedent`
       interface PairStore<K, V> {

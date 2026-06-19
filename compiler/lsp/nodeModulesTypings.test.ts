@@ -1693,6 +1693,49 @@ describe("node_modules typings resolution", () => {
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves top-level conditional infer aliases from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "infer-box",
+      dedent`
+        export type Element<T> = T extends (infer U)[] ? U : T;
+        export type AwaitedValue<T> = T extends Promise<infer U> ? U : T;
+        export type Result<T> = T extends (...args: any) => infer R ? R : never;
+        export type Handler = (name: string, count: number) => boolean;
+        export type ElementValue = Element<string[]>;
+        export type AwaitedInt = AwaitedValue<Promise<number>>;
+        export type HandlerResult = Result<Handler>;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { ElementValue, AwaitedInt, HandlerResult } from "infer-box"
+
+      let element: ElementValue = "Ada"
+      let awaitedValue: AwaitedInt = 1
+      let result: HandlerResult = true
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("does not expose external class names in extends clauses unless they are imported", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(
