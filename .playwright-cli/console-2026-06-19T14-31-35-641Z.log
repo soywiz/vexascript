@@ -1,0 +1,5 @@
+[     382ms] [LOG] react-sample-ready @ http://127.0.0.1:4175/__vexa_bundle__.js:91
+[     436ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:4175/favicon.ico:0
+[  526777ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://127.0.0.1:4175/__vexa_live_reload:0
+[  529779ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4175/__vexa_live_reload:0
+[  532782ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4175/__vexa_live_reload:0

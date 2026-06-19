@@ -180,6 +180,14 @@ export class Binder {
       existing.valueType = typeToString(mergedType);
       return;
     }
+    if (
+      existing?.kind === "function" &&
+      symbol.kind === "class" &&
+      symbol.type?.kind === "named" &&
+      symbol.type.name === symbol.name
+    ) {
+      return;
+    }
     scope.symbols.set(symbol.name, {
       ...symbol,
       declaredOffset
@@ -203,6 +211,16 @@ export class Binder {
     scope: Scope,
     declaredOffsetOverride?: number
   ): void {
+    for (const facade of this.collectAmbientNamespaceExportFacades(statements)) {
+      this.declare(scope, {
+        name: facade.name.name,
+        kind: facade.type.kind === "function" ? "function" : "variable",
+        node: facade.name,
+        type: facade.type,
+        valueType: typeToString(facade.type)
+      }, declaredOffsetOverride);
+    }
+
     for (const statement of declarationIndexForStatements(statements).globalDeclarations) {
       if (statement.kind === "ExportStatement") {
         const exportStatement = statement as ExportStatement;
@@ -383,6 +401,114 @@ export class Binder {
         }, declaredOffsetOverride);
       }
     }
+  }
+
+  private collectAmbientNamespaceExportFacades(
+    statements: readonly Statement[]
+  ): Array<{ name: Identifier; type: AnalysisType }> {
+    const facades = [] as Array<{ name: Identifier; type: AnalysisType }>;
+    const namespaceNames = new Set(
+      declarationIndexForStatements([...statements]).namespaces
+        .map((namespaceStatement) => namespaceStatement.names?.[0]?.name)
+        .filter((name): name is string => !!name)
+    );
+
+    for (const statement of statements) {
+      if (statement.kind !== "ExportStatement") {
+        continue;
+      }
+      const exportStatement = statement as ExportStatement;
+      if (!exportStatement.namespaceExport || exportStatement.from || exportStatement.typeOnly) {
+        continue;
+      }
+
+      const facadeType = namespaceNames.has(exportStatement.namespaceExport.name)
+        ? namedType(exportStatement.namespaceExport.name)
+        : objectTypeWithProperties(this.collectAmbientNamespaceFacadeProperties(statements));
+      facades.push({
+        name: exportStatement.namespaceExport,
+        type: facadeType
+      });
+    }
+
+    return facades;
+  }
+
+  private collectAmbientNamespaceFacadeProperties(
+    statements: readonly Statement[]
+  ): Record<string, AnalysisType> {
+    const properties: Record<string, AnalysisType> = {};
+
+    for (const statement of statements) {
+      if (statement.kind !== "ExportStatement") {
+        continue;
+      }
+      const exportStatement = statement as ExportStatement;
+      if (exportStatement.typeOnly || !exportStatement.declaration) {
+        continue;
+      }
+
+      const declaration = exportStatement.declaration;
+      if (declaration.kind === "FunctionStatement") {
+        const functionStatement = declaration as FunctionStatement;
+        const fnIsAsyncLike = functionStatement.async === true || functionStatement.sync === true;
+        const fnIsGenerator = functionStatement.generator === true;
+        properties[functionStatement.name.name] = functionType(
+          functionStatement.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
+            name: bindingNameText(parameter.name),
+            type: this.typeFromAnnotationLoose(parameter.typeAnnotation) ?? UNKNOWN_TYPE,
+            optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+            rest: parameter.rest === true
+          })),
+          this.effectiveReturnType(this.typeFromAnnotationLoose(functionStatement.returnType) ?? UNKNOWN_TYPE, fnIsAsyncLike, fnIsGenerator),
+          functionStatement.typeParameters?.map((parameter) => parameter.name.name)
+        );
+        continue;
+      }
+
+      if (declaration.kind === "VarStatement") {
+        const variableStatement = declaration as VarStatement;
+        const declarations = variableStatement.declarations && variableStatement.declarations.length > 0
+          ? variableStatement.declarations
+          : [{ name: variableStatement.name, typeAnnotation: variableStatement.typeAnnotation }];
+        for (const variableDeclaration of declarations) {
+          const symbolType = this.typeFromAnnotationLoose(variableDeclaration.typeAnnotation) ?? UNKNOWN_TYPE;
+          for (const binding of bindingIdentifiers(variableDeclaration.name)) {
+            properties[binding.name] = symbolType;
+          }
+        }
+        continue;
+      }
+
+      if (declaration.kind === "ClassStatement") {
+        properties[(declaration as ClassStatement).name.name] = namedType((declaration as ClassStatement).name.name);
+        continue;
+      }
+
+      if (declaration.kind === "InterfaceStatement") {
+        properties[(declaration as InterfaceStatement).name.name] = namedType((declaration as InterfaceStatement).name.name);
+        continue;
+      }
+
+      if (declaration.kind === "TypeAliasStatement") {
+        properties[(declaration as TypeAliasStatement).name.name] = namedType((declaration as TypeAliasStatement).name.name);
+        continue;
+      }
+
+      if (declaration.kind === "EnumStatement") {
+        properties[(declaration as EnumStatement).name.name] = namedType((declaration as EnumStatement).name.name);
+        continue;
+      }
+
+      if (declaration.kind === "NamespaceStatement") {
+        const namespaceName = (declaration as NamespaceStatement).names?.[0]?.name;
+        if (namespaceName) {
+          properties[namespaceName] = namedType(namespaceName);
+        }
+      }
+    }
+
+    return properties;
   }
 
   private bindStatements(statements: Statement[], scope: Scope): void {

@@ -1,0 +1,31 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: Sample App
+    - heading "React + VexaScript" [level=1] [ref=e6]
+    - paragraph [ref=e7]: Browser sample rendered with the classic React JSX runtime plus router and query integrations.
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: Routing
+      - heading "React Router in the sample" [level=2] [ref=e11]
+      - paragraph [ref=e12]: Switch views without leaving the page and keep the current route visible.
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - link "Overview" [ref=e15] [cursor=pointer]:
+          - /url: /
+        - link "Tasks" [ref=e16] [cursor=pointer]:
+          - /url: /tasks
+        - link "Roadmap" [ref=e17] [cursor=pointer]:
+          - /url: /roadmap
+      - generic [ref=e18]:
+        - text: "Path:"
+        - code [ref=e19]: /
+    - article [ref=e21]:
+      - heading "Overview" [level=3] [ref=e22]
+      - paragraph [ref=e23]: This route mixes React, React Router, and VexaScript JSX while keeping the screen small enough to read as a sample.
+      - generic [ref=e24]:
+        - generic [ref=e25]:
+          - strong [ref=e26]: demo
+          - text: ": 11"
+        - generic [ref=e27]:
+          - strong [ref=e28]: sample
+          - text: ": 4"

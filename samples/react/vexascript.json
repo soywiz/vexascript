@@ -5,6 +5,9 @@
             "es2025",
             "dom"
         ],
-        "types": []
+        "types": [
+            "react",
+            "react-dom"
+        ]
     }
 }

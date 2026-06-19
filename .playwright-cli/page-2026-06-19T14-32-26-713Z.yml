@@ -1,0 +1,37 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: Sample App
+    - heading "React + VexaScript" [level=1] [ref=e6]
+    - paragraph [ref=e7]: Browser sample rendered with the classic React JSX runtime plus router and query integrations.
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: Routing
+      - heading "React Router in the sample" [level=2] [ref=e11]
+      - paragraph [ref=e12]: Switch views without leaving the page and keep the current route visible.
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - link "Overview" [ref=e15] [cursor=pointer]:
+          - /url: /
+        - link "Tasks" [active] [ref=e16] [cursor=pointer]:
+          - /url: /tasks
+        - link "Roadmap" [ref=e17] [cursor=pointer]:
+          - /url: /roadmap
+      - generic [ref=e18]:
+        - text: "Path:"
+        - code [ref=e19]: /tasks
+    - article [ref=e56]:
+      - generic [ref=e57]:
+        - generic [ref=e58]: Sandbox
+        - heading "Interactive Demo" [level=2] [ref=e59]
+        - paragraph [ref=e60]: The counter starts from the shared sample metrics.
+      - generic [ref=e61]:
+        - button "-" [ref=e62] [cursor=pointer]
+        - strong [ref=e63]: "Count: 15"
+        - button "+" [ref=e64] [cursor=pointer]
+      - generic [ref=e65]:
+        - generic [ref=e66]:
+          - generic [ref=e67]: Mini task list
+          - button "Add task" [ref=e68] [cursor=pointer]
+        - list [ref=e69]:
+          - listitem [ref=e70]: Render a typed React sample
+          - listitem [ref=e71]: Confirm browser output

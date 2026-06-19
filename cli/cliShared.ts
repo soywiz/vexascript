@@ -1,17 +1,25 @@
+import type { Statement } from "../compiler/ast/ast";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { dirname, resolve } from "../compiler/utils/path";
 import { loadProject, type VexaProject } from "../compiler/project";
 import { vfs } from "../compiler/vfs";
 import { ensureDependencies } from "./deps";
 
-export async function ambientDeclarationsForProject(project: VexaProject | null) {
+export async function ambientDeclarationsForProject(sourcePath: string, project: VexaProject | null) {
+  const declarations: Statement[] = [];
   const requested = new Set((project?.libs ?? []).map((lib) => lib.toLowerCase()));
-  if (!requested.has("dom")) {
-    return [];
+  if (requested.has("dom")) {
+    const { ensureDomProgram } = await import("../compiler/runtime/domDeclarations");
+    declarations.push(...(await ensureDomProgram()).body);
   }
 
-  const { ensureDomProgram } = await import("../compiler/runtime/domDeclarations");
-  return (await ensureDomProgram()).body;
+  if ((project?.types ?? []).length > 0) {
+    const { loadAmbientTypesForProject } = await import("../compiler/lsp/ambientTypesLoader");
+    const ambientTypes = await loadAmbientTypesForProject(sourcePath, project?.types ?? []);
+    declarations.push(...ambientTypes.globalDeclarations);
+  }
+
+  return declarations;
 }
 
 export async function ensureCompilerRuntimePrograms(): Promise<void> {
@@ -64,7 +72,7 @@ export async function createBundledModuleArtifacts(
   jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {},
   options: { externalDependencyStrategy?: "runtime-error" | "node-require" } = {}
 ): Promise<BundledModuleArtifacts> {
-  const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const { bundleModuleGraphAsModules } = await import("../compiler/runtime/moduleGraph");
   const result = await bundleModuleGraphAsModules(sourcePath, target, {
     ambientDeclarations,

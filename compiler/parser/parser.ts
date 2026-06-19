@@ -6217,12 +6217,9 @@ export class Parser {
                 continue;
             }
 
-            if (this.isUnsupportedInterfaceMemberStart()) {
-                this.skipUnsupportedInterfaceMember();
-                this.consumeOptionalTypeMemberSeparator();
-                continue;
-            }
-
+            const anonymousCallTypeParameters = this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "<"
+                ? this.parseTypeParameterList()
+                : [];
             if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "(") {
                 const openParen = this.tokens.read()!;
                 const parameters = this.parseFunctionParameters();
@@ -6247,6 +6244,9 @@ export class Parser {
                     name: memberName,
                     parameters
                 };
+                if (anonymousCallTypeParameters.length > 0) {
+                    member.typeParameters = anonymousCallTypeParameters;
+                }
                 if (returnType) {
                     member.returnType = returnType;
                 }
@@ -6254,12 +6254,24 @@ export class Parser {
                 this.consumeStatementSeparator("block", this.getLastReadToken());
                 continue;
             }
+            if (anonymousCallTypeParameters.length > 0) {
+                this.fail("Expected '(' after interface call signature type parameters", this.tokenAt(this.tokens.peek()));
+            }
+
+            if (this.isUnsupportedInterfaceMemberStart()) {
+                this.skipUnsupportedInterfaceMember();
+                this.consumeOptionalTypeMemberSeparator();
+                continue;
+            }
 
             if (
                 this.tokens.peek()?.type === "identifier" &&
                 this.tokens.peek()?.value === "readonly" &&
                 this.peekToken(1) &&
-                ["identifier", "string", "number"].includes(this.peekToken(1)!.type)
+                (
+                    ["identifier", "string", "number"].includes(this.peekToken(1)!.type)
+                    || (this.peekToken(1)!.type === "symbol" && this.peekToken(1)!.value === "[")
+                )
             ) {
                 this.tokens.skip();
             }
@@ -6279,11 +6291,29 @@ export class Parser {
             let memberNameToken = this.tokens.read();
             let computedMemberKey: Expr | undefined;
             let computedMemberCloseBracket: Token | undefined;
+            let interfaceIndexSignatureType: Identifier | undefined;
+            const interfaceMemberStartToken = memberNameToken;
             if (memberNameToken?.type === "symbol" && memberNameToken.value === "[") {
-                computedMemberKey = this.parseExpressionOrThrow();
-                computedMemberCloseBracket = this.tokens.read();
-                if (computedMemberCloseBracket?.type !== "symbol" || computedMemberCloseBracket.value !== "]") {
-                    this.fail("Expected ']' after computed interface member name", this.tokenAt(computedMemberCloseBracket));
+                const indexParameterToken = this.tokens.peek();
+                const indexColonToken = this.peekToken(1);
+                if (
+                    indexParameterToken?.type === "identifier" &&
+                    indexColonToken?.type === "symbol" &&
+                    indexColonToken.value === ":"
+                ) {
+                    this.tokens.skip();
+                    this.tokens.skip();
+                    interfaceIndexSignatureType = this.parseTypeAnnotationNode();
+                    computedMemberCloseBracket = this.tokens.read();
+                    if (computedMemberCloseBracket?.type !== "symbol" || computedMemberCloseBracket.value !== "]") {
+                        this.fail("Expected ']' after interface index signature", this.tokenAt(computedMemberCloseBracket));
+                    }
+                } else {
+                    computedMemberKey = this.parseExpressionOrThrow();
+                    computedMemberCloseBracket = this.tokens.read();
+                    if (computedMemberCloseBracket?.type !== "symbol" || computedMemberCloseBracket.value !== "]") {
+                        this.fail("Expected ']' after computed interface member name", this.tokenAt(computedMemberCloseBracket));
+                    }
                 }
                 memberNameToken = undefined;
             }
@@ -6296,12 +6326,21 @@ export class Parser {
                 accessorKind = memberNameToken.value as "get" | "set";
                 memberNameToken = this.tokens.read();
             }
-            if (!computedMemberKey && (!memberNameToken || !["identifier", "string", "number"].includes(memberNameToken.type))) {
-                this.fail("Expected interface member name", this.tokenAt(memberNameToken));
-            }
-            let memberName = computedMemberKey ? `[${this.computedMemberKeyText(computedMemberKey)}]` : typeTokenText(memberNameToken!);
             if (
                 !computedMemberKey &&
+                !interfaceIndexSignatureType &&
+                (!memberNameToken || !["identifier", "string", "number"].includes(memberNameToken.type))
+            ) {
+                this.fail("Expected interface member name", this.tokenAt(memberNameToken));
+            }
+            let memberName = interfaceIndexSignatureType
+                ? `[${interfaceIndexSignatureType.name}]`
+                : computedMemberKey
+                    ? `[${this.computedMemberKeyText(computedMemberKey)}]`
+                    : typeTokenText(memberNameToken!);
+            if (
+                !computedMemberKey &&
+                !interfaceIndexSignatureType &&
                 memberNameToken?.type === "identifier" &&
                 memberNameToken.value === "abstract" &&
                 this.tokens.peek()?.type === "identifier" &&
@@ -6309,7 +6348,7 @@ export class Parser {
             ) {
                 memberNameToken = this.tokens.read()!;
                 memberName = "constructor";
-            } else if (!computedMemberKey && memberNameToken?.type === "identifier" && memberNameToken.value === "new") {
+            } else if (!computedMemberKey && !interfaceIndexSignatureType && memberNameToken?.type === "identifier" && memberNameToken.value === "new") {
                 memberName = "constructor";
             }
             let optionalMember = false;
@@ -6380,7 +6419,11 @@ export class Parser {
             const propertyType = this.parseTypeAnnotationNode();
             const propertyMember: InterfacePropertyMember = {
                 kind: "InterfacePropertyMember",
-                name: this.attachNodeBounds({ kind: "Identifier", name: memberName } as Identifier, memberNameToken, memberNameToken),
+                name: this.attachNodeBounds(
+                    { kind: "Identifier", name: memberName } as Identifier,
+                    interfaceIndexSignatureType?.firstToken ?? memberNameToken,
+                    interfaceIndexSignatureType?.lastToken ?? memberNameToken
+                ),
                 typeAnnotation: propertyType
             };
             if (propertyDeclarationKind) {
@@ -6389,7 +6432,13 @@ export class Parser {
             if (optionalMember) {
                 propertyMember.optional = true;
             }
-            members.push(this.attachNodeBounds(propertyMember, memberNameToken, this.getLastReadToken() ?? memberNameToken));
+            members.push(
+                this.attachNodeBounds(
+                    propertyMember,
+                    interfaceMemberStartToken ?? interfaceIndexSignatureType?.firstToken ?? memberNameToken,
+                    this.getLastReadToken() ?? interfaceMemberStartToken ?? interfaceIndexSignatureType?.lastToken ?? memberNameToken
+                )
+            );
             this.consumeStatementSeparator("block", this.getLastReadToken());
         }
 
@@ -6406,12 +6455,18 @@ export class Parser {
             return true;
         }
         if (token.type === "symbol" && token.value === "[") {
-            return !this.isComputedInterfaceMethodStart();
+            return !(this.isComputedInterfaceMethodStart() || this.isInterfaceIndexSignatureStart(0));
         }
         if (token.type === "identifier" && token.value === "readonly" && next?.type === "symbol" && next.value === "[") {
-            return true;
+            return !this.isInterfaceIndexSignatureStart(1);
         }
         return false;
+    }
+
+    private isInterfaceIndexSignatureStart(bracketOffset: number): boolean {
+        const identifierToken = this.peekToken(bracketOffset + 1);
+        const colonToken = this.peekToken(bracketOffset + 2);
+        return identifierToken?.type === "identifier" && colonToken?.type === "symbol" && colonToken.value === ":";
     }
 
     private isComputedInterfaceMethodStart(): boolean {

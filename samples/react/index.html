@@ -83,8 +83,8 @@
             }
 
             .hero,
-            .demo-board,
-            .metrics {
+            .route-shell,
+            .content-card {
                 border-radius: var(--radius-lg);
             }
 
@@ -127,7 +127,7 @@
                 background: rgba(13, 138, 107, 0.12);
             }
 
-            .metrics {
+            .metric-grid {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 14px;
@@ -152,7 +152,8 @@
                 font-weight: 700;
             }
 
-            .demo-board {
+            .route-shell,
+            .content-card {
                 display: grid;
                 gap: 18px;
                 padding: 22px;
@@ -160,6 +161,49 @@
                 background:
                     linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.8)),
                     var(--card-strong);
+            }
+
+            .route-toolbar {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                flex-wrap: wrap;
+            }
+
+            .route-pills {
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+
+            .route-pill {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 110px;
+                padding: 11px 16px;
+                border-radius: 999px;
+                text-decoration: none;
+                color: var(--text);
+                background: rgba(13, 138, 107, 0.08);
+                border: 1px solid rgba(13, 138, 107, 0.12);
+                transition: transform 120ms ease, background 120ms ease, color 120ms ease;
+            }
+
+            .route-pill-active {
+                color: white;
+                background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+                box-shadow: 0 10px 20px rgba(13, 138, 107, 0.18);
+            }
+
+            .route-path {
+                color: var(--muted);
+                font-size: 0.95rem;
+            }
+
+            .route-path code {
+                font-family: "IBM Plex Mono", monospace;
             }
 
             .counter {
@@ -260,6 +304,23 @@
                 box-shadow: 0 0 0 5px rgba(13, 138, 107, 0.08);
             }
 
+            .query-state,
+            .query-result strong {
+                font-size: 1rem;
+            }
+
+            .query-error {
+                color: #b4432f;
+            }
+
+            .query-result ul {
+                margin: 14px 0 0;
+                padding-left: 18px;
+                display: grid;
+                gap: 10px;
+                color: var(--muted);
+            }
+
             @media (max-width: 640px) {
                 #app {
                     width: min(100vw - 20px, 760px);
@@ -271,12 +332,13 @@
                     gap: 16px;
                 }
 
-                .metrics {
+                .metric-grid {
                     grid-template-columns: 1fr;
                 }
 
                 .counter,
-                .todo-toolbar {
+                .todo-toolbar,
+                .route-toolbar {
                     flex-direction: column;
                     align-items: stretch;
                 }
@@ -294,8 +356,18 @@
     </head>
     <body>
         <div id="app"></div>
-        <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
-        <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
-        <script src="%VEXA_ENTRYPOINT%" type="module"></script>
+        <script type="module">
+            import * as React from "https://esm.sh/react@18.3.1"
+            import * as ReactDOM from "https://esm.sh/react-dom@18.3.1"
+            import * as ReactQuery from "https://esm.sh/@tanstack/react-query@5.59.20?deps=react@18.3.1,react-dom@18.3.1"
+            import * as ReactRouterDOM from "https://esm.sh/react-router-dom@6.30.1?deps=react@18.3.1,react-dom@18.3.1"
+
+            globalThis.React = React
+            globalThis.ReactDOM = ReactDOM
+            globalThis.ReactQuery = ReactQuery
+            globalThis.ReactRouterDOM = ReactRouterDOM
+
+            await import("%VEXA_ENTRYPOINT%")
+        </script>
     </body>
 </html>

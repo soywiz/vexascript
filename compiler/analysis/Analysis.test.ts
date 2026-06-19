@@ -39,6 +39,62 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("binds export-as-namespace ambient globals from package typings", () => {
+    const ambientSource = dedent`
+      export as namespace ReactDOM
+      export interface Renderer {
+        (element: string, container: Root): void
+      }
+      export const render: Renderer
+      declare interface Root {}
+      declare var root: Root
+    `;
+    const source = `ReactDOM.render("hello", root)`;
+    const ambientProgram = parseFile(tokenizeReader(ambientSource), { language: "typescript" });
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: ambientProgram.body });
+
+    expect(analysis.getVisibleSymbolsAt(0, 0).map((symbol) => symbol.name)).toContain("ReactDOM");
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("keeps ambient function declarations callable when a merged namespace follows", () => {
+    const ambientSource = dedent`
+      declare function setTimeout(callback: (_: void) => void, delay?: number): number
+      declare namespace setTimeout {
+        export const __promisify__: string
+      }
+    `;
+    const source = `setTimeout(() => {}, 1)`;
+    const ambientProgram = parseFile(tokenizeReader(ambientSource), { language: "typescript" });
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: ambientProgram.body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("uses string index signatures from ambient interfaces for property access", () => {
+    const ambientSource = dedent`
+      declare namespace minimist {
+        interface ParsedArgs {
+          [arg: string]: any
+          _: string[]
+        }
+      }
+      declare function minimist(args?: string[]): minimist.ParsedArgs
+    `;
+    const source = dedent`
+      const args = minimist()
+      const name = args.name
+      const first = args._[0]
+    `;
+    const ambientProgram = parseFile(tokenizeReader(ambientSource), { language: "typescript" });
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast, { ambientDeclarations: ambientProgram.body });
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("uses ambient function signatures and exported ambient declarations during analysis", () => {
     const source = dedent`
       declare type Id = string

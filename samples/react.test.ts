@@ -21,5 +21,6 @@ describe("react sample", () => {
     expect(result.code).toContain("react-sample-ready");
     expect(result.code).toContain("React + VexaScript");
     expect(result.code).not.toContain("\"react-dom/client\":null");
+    expect(result.code).not.toContain("(globalThis as any");
   });
 });

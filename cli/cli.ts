@@ -95,7 +95,7 @@ async function buildFile(
   const project = await loadProject(sourcePath);
   const outputPath = resolve(process.cwd(), out ?? replaceLanguageExtension(input, ".js"));
   await ensureCompilerRuntimePrograms();
-  const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const { transpile } = await import("../compiler/runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,
@@ -172,7 +172,7 @@ async function executeSource(source: string, sourcePath: string, target: Transpi
   const outputPath = replaceLanguageExtension(sourcePath, ".js");
   const project = await loadProject(sourcePath);
   await ensureCompilerRuntimePrograms();
-  const ambientDeclarations = await ambientDeclarationsForProject(project);
+  const ambientDeclarations = await ambientDeclarationsForProject(sourcePath, project);
   const { transpile } = await import("../compiler/runtime/transpile");
   const result = transpile(source, {
     sourceFilePath: sourcePath,

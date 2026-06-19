@@ -17,6 +17,9 @@ Compared with ordinary TypeScript React projects, the current VexaScript experie
 * typed access to runtime globals such as `globalThis.React` and `globalThis.ReactDOM` required manual bridging,
 * browser bundling of React and ReactDOM surfaced runtime issues such as `React.createElement is not a function` and `process is not defined`,
 * newer React entry points such as `react-dom/client` were not as straightforward to use as in a standard TypeScript setup.
+* adding `compilerOptions.types` for `react` and `react-dom` did not make `React` or `ReactDOM` available as value globals in `.vx`, and in this sample it also regressed `document` lookup from the DOM lib surface.
+* `new` on member-expression constructors such as `new ReactQuery.QueryClient(...)` was emitted incorrectly during bundling unless the constructor was first assigned to a plain local alias.
+* `import type * as ...` namespace imports combined with runtime global bridges for packages such as `react-router-dom` caused bundled output to reference generated helpers like `ReactRouterDOMTypes$$MemoryRouter`, breaking runtime execution.
 
 The result is that VexaScript can feel more pleasant than TypeScript for the UI code itself, while still feeling worse than TypeScript for React ecosystem interop. That is the gap this task should close.
 

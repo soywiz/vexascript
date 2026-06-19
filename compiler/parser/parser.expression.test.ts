@@ -56,6 +56,41 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses generic anonymous interface call signatures in TypeScript declarations", () => {
+        const ast = parseFile(
+            tokenizeReader("interface Renderer {\n  <P>(element: ReactElement<P>, container: Container | null): P | void;\n}"),
+            { language: "typescript" }
+        );
+
+        expect(ast.body[0]).toMatchObject({
+            kind: "InterfaceStatement",
+            name: { name: "Renderer" },
+            members: [
+                {
+                    kind: "InterfaceMethodMember",
+                    name: { name: "call" },
+                    typeParameters: [
+                        {
+                            kind: "TypeParameter",
+                            name: { kind: "Identifier", name: "P" }
+                        }
+                    ],
+                    parameters: [
+                        {
+                            name: { kind: "Identifier", name: "element" },
+                            typeAnnotation: { name: "ReactElement<P>" }
+                        },
+                        {
+                            name: { kind: "Identifier", name: "container" },
+                            typeAnnotation: { name: "Container | null" }
+                        }
+                    ],
+                    returnType: { kind: "Identifier", name: "P | void" }
+                }
+            ]
+        });
+    });
+
     it("builds an AST for numeric separators and non-decimal literals", () => {
         expect(parseExpression(tokenizeReader("1_000"))).toEqual(
             { kind: "IntLiteral", value: 1000 }

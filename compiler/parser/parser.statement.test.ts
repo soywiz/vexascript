@@ -1853,6 +1853,30 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses interface index signatures in TypeScript declarations", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("interface ParsedArgs {\n  [arg: string]: any\n  _: string[]\n}"),
+                { language: "typescript" }
+            )
+        ).toEqual({
+            kind: "InterfaceStatement",
+            name: { kind: "Identifier", name: "ParsedArgs" },
+            members: [
+                {
+                    kind: "InterfacePropertyMember",
+                    name: { kind: "Identifier", name: "[string]" },
+                    typeAnnotation: { kind: "Identifier", name: "any" }
+                },
+                {
+                    kind: "InterfacePropertyMember",
+                    name: { kind: "Identifier", name: "_" },
+                    typeAnnotation: { kind: "Identifier", name: "string[]" }
+                }
+            ]
+        });
+    });
+
     it("parses class statement without braces in vexa mode", () => {
         expect(parseStatement(tokenizeReader("class Point"))).toEqual({
             kind: "ClassStatement",

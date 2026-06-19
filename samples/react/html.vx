@@ -1,29 +1,97 @@
-import type ReactModule from "react"
-import type ReactDOMModule from "react-dom"
-
 import { demo } from "./demo.vx"
 import { sample } from "./sample.vx"
 
-val React = (globalThis as any as { React: ReactModule }).React
-val ReactDOM = (globalThis as any as { ReactDOM: ReactDOMModule }).ReactDOM
-val useState = React.useState
+val ReactQuery = (globalThis as any).ReactQuery
+val ReactRouterDOM = (globalThis as any).ReactRouterDOM
+val useQuery = ReactQuery.useQuery
+val QueryClient = ReactQuery.QueryClient
+val QueryClientProvider = ReactQuery.QueryClientProvider
+val MemoryRouter = ReactRouterDOM.MemoryRouter
+val NavLink = ReactRouterDOM.NavLink
+val Route = ReactRouterDOM.Route
+val Routes = ReactRouterDOM.Routes
+type RoadmapData = { headline: string; checks: string[] }
+val queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            retry: false,
+            staleTime: 60_000
+        }
+    }
+})
 val todoIdeas = [
     "Review the JSX output",
     "Wire the next sample module",
     "Share the browser demo"
+]
+val routeCards = [
+    { path: "/", label: "Overview" },
+    { path: "/tasks", label: "Tasks" },
+    { path: "/roadmap", label: "Roadmap" }
 ]
 
 fun Metric({ label: string, value: number }) {
     return <span className="metric"><strong>{label}</strong>: {value}</span>
 }
 
+fun RouteTabs() {
+    val location = ReactRouterDOM.useLocation()
+
+    return (
+        <section className="route-shell">
+            <div className="section-heading">
+                <span className="eyebrow">Routing</span>
+                <h2>React Router in the sample</h2>
+                <p>Switch views without leaving the page and keep the current route visible.</p>
+            </div>
+            <div className="route-toolbar">
+                <div className="route-pills">
+                    {routeCards.map({ route ->
+                        <NavLink
+                            key={route.path}
+                            className={({ isActive }) => isActive ? "route-pill route-pill-active" : "route-pill"}
+                            to={route.path}
+                        >
+                            {route.label}
+                        </NavLink>
+                    })}
+                </div>
+                <span className="route-path">Path: <code>{location.pathname}</code></span>
+            </div>
+            <div className="route-view">
+                <Routes>
+                    <Route element={<OverviewPanel />} path="/" />
+                    <Route element={<DemoBoard />} path="/tasks" />
+                    <Route element={<RoadmapPanel />} path="/roadmap" />
+                </Routes>
+            </div>
+        </section>
+    )
+}
+
+fun OverviewPanel() {
+    return (
+        <article className="content-card overview-card">
+            <h3>Overview</h3>
+            <p>
+                This route mixes React, React Router, and VexaScript JSX while keeping the
+                screen small enough to read as a sample.
+            </p>
+            <div className="metric-grid">
+                <Metric label="demo" value={demo()} />
+                <Metric label="sample" value={sample()} />
+            </div>
+        </article>
+    )
+}
+
 fun DemoBoard() {
-    var count by useState(demo() + sample())
-    var todos by useState([
+    var count by React.useState<number>((demo() as number) + (sample() as number))
+    var todos by React.useState<string[]>([
         "Render a typed React sample",
         "Confirm browser output"
     ])
-    var nextTodoIndex by React.useState(0)
+    var nextTodoIndex by React.useState<number>(0)
 
     fun addTodo() {
         val nextTodo = todoIdeas[nextTodoIndex] ?? `Document follow-up #${nextTodoIndex + 1}`
@@ -32,7 +100,7 @@ fun DemoBoard() {
     }
 
     return (
-        <section className="demo-board">
+        <article className="content-card demo-board">
             <div className="section-heading">
                 <span className="eyebrow">Sandbox</span>
                 <h2>Interactive Demo</h2>
@@ -54,7 +122,69 @@ fun DemoBoard() {
                     })}
                 </ul>
             </div>
-        </section>
+        </article>
+    )
+}
+
+fun RoadmapPanel() {
+    val roadmapQuery = useQuery({
+        queryKey: ["react-sample", "roadmap"],
+        queryFn: async () => {
+            return {
+                headline: "Router + Query integration works",
+                checks: [
+                    "MemoryRouter navigation updates the visible route",
+                    "useQuery resolves async data into JSX",
+                    "The sample keeps browser-only runtime wiring readable"
+                ]
+            }
+        }
+    })
+    val roadmapData = roadmapQuery.data as any
+    val checks = roadmapData?.checks ?? []
+
+    if (roadmapQuery.isLoading) {
+        return (
+            <article className="content-card query-card">
+                <div className="section-heading">
+                    <span className="eyebrow">Data Fetching</span>
+                    <h2>React Query route</h2>
+                    <p>This panel resolves a small async query to exercise typed options and result access.</p>
+                </div>
+                <p className="query-state">Loading roadmap…</p>
+            </article>
+        )
+    }
+
+    if (roadmapQuery.error) {
+        return (
+            <article className="content-card query-card">
+                <div className="section-heading">
+                    <span className="eyebrow">Data Fetching</span>
+                    <h2>React Query route</h2>
+                    <p>This panel resolves a small async query to exercise typed options and result access.</p>
+                </div>
+                <p className="query-state query-error">Could not load roadmap.</p>
+            </article>
+        )
+    }
+
+    return (
+        <article className="content-card query-card">
+            <div className="section-heading">
+                <span className="eyebrow">Data Fetching</span>
+                <h2>React Query route</h2>
+                <p>This panel resolves a small async query to exercise typed options and result access.</p>
+            </div>
+            <div className="query-result">
+                <strong>{roadmapData?.headline}</strong>
+                <ul>
+                    {checks.map({ check, index ->
+                        <li key={index}>{check}</li>
+                    })}
+                </ul>
+            </div>
+        </article>
     )
 }
 
@@ -64,13 +194,9 @@ fun App() {
             <div className="hero">
                 <span className="eyebrow">Sample App</span>
                 <h1>React + VexaScript</h1>
-                <p>Browser sample rendered with the classic React JSX runtime.</p>
+                <p>Browser sample rendered with the classic React JSX runtime plus router and query integrations.</p>
             </div>
-            <section className="metrics">
-                <Metric label="demo" value={demo()} />
-                <Metric label="sample" value={sample()} />
-            </section>
-            <DemoBoard />
+            <RouteTabs />
         </main>
     )
 }
@@ -80,5 +206,12 @@ if (container == null) {
     throw Error("Missing #app root")
 }
 
-ReactDOM.render(<App />, container!)
+ReactDOM.render(
+    <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/"]}>
+            <App />
+        </MemoryRouter>
+    </QueryClientProvider>,
+    container!
+)
 console.log("react-sample-ready")

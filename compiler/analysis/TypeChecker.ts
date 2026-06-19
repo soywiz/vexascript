@@ -6188,7 +6188,7 @@ export class TypeChecker {
   private memberTypeFromObjectType(type: AnalysisType, propertyName: string): AnalysisType | null {
     propertyName = normalizePropertyName(propertyName);
     if (type.kind === "object") {
-      return type.properties[propertyName] ?? null;
+      return this.memberTypeFromProperties(type.properties, propertyName);
     }
     if (type.kind === "named") {
       const expanded = this.expandTypeAliases(type);
@@ -6198,7 +6198,7 @@ export class TypeChecker {
       if (!isSameType(expanded, type)) {
         return this.memberTypeFromObjectType(expanded, propertyName);
       }
-      return this.resolveNamedTypeMembers(expanded)?.get(propertyName) ?? null;
+      return this.memberTypeFromProperties(this.resolveNamedTypeMembers(expanded) ?? new Map(), propertyName);
     }
     if (type.kind === "tuple" && /^\d+$/.test(propertyName)) {
       return type.elements[Number(propertyName)] ?? null;
@@ -6216,6 +6216,24 @@ export class TypeChecker {
       }
     }
     return null;
+  }
+
+  private memberTypeFromProperties(
+    properties: Record<string, AnalysisType> | ReadonlyMap<string, AnalysisType>,
+    propertyName: string
+  ): AnalysisType | null {
+    const direct = propertyTypeFrom(properties, propertyName);
+    if (direct !== undefined) {
+      return direct;
+    }
+
+    if (/^\d+$/.test(propertyName)) {
+      return propertyTypeFrom(properties, "[number]")
+        ?? propertyTypeFrom(properties, "[string]")
+        ?? null;
+    }
+
+    return propertyTypeFrom(properties, "[string]") ?? null;
   }
 
   private objectRestBindingType(sourceType: AnalysisType, excludedNames: ReadonlySet<string>): AnalysisType {
@@ -7774,6 +7792,10 @@ export class TypeChecker {
       return;
     }
 
+    if (this.memberTypeFromObjectType(resolvedObjectType, propertyName) !== null) {
+      return;
+    }
+
     const displayType = resolvedObjectType.kind === "named" ? resolvedObjectType.name : typeToString(resolvedObjectType);
     this.issues.push({
       message: `Property '${propertyName}' does not exist on type '${displayType}'`,
@@ -8562,17 +8584,39 @@ export class TypeChecker {
 
     if (candidate.kind === "FunctionStatement") {
       const fn = candidate as FunctionStatement;
-      const returnType = this.typeFromAnnotationLoose(fn.returnType, fn.receiverType?.name) ?? UNKNOWN_TYPE;
-      const params = (fn.parameters ?? []).map((p) => ({
-        name: typeof p.name === "object" && "name" in p.name ? (p.name as { name: string }).name : memberName,
-        type: this.typeFromAnnotationLoose(p.typeAnnotation) ?? UNKNOWN_TYPE,
-        optional: p.optional ?? false,
-        rest: p.rest ?? false,
-      }));
-      return functionType(params, returnType);
+      const typeParameterNames = (fn.typeParameters ?? []).map((parameter) => parameter.name.name);
+      const availableTypeParameterNames = [...typeParameterNames];
+      let functionMemberType: AnalysisType = functionType([], builtinType("void"));
+      this.withTypeParameters(typeParameterNames, () => {
+        const params = (fn.parameters ?? []).filter((parameter) => parameter.thisParameter !== true).map((p) => ({
+          name: typeof p.name === "object" && "name" in p.name ? (p.name as { name: string }).name : memberName,
+          type: this.typeFromAnnotationLooseWithTypeParameters(
+            p.typeAnnotation,
+            availableTypeParameterNames,
+            fn.receiverType?.name
+          ) ?? UNKNOWN_TYPE,
+          optional: p.optional === true || p.defaultValue !== undefined || p.rest === true,
+          rest: p.rest === true,
+        }));
+        functionMemberType = functionType(
+          params,
+          this.typeFromAnnotationLooseWithTypeParameters(
+            fn.returnType,
+            availableTypeParameterNames,
+            fn.receiverType?.name
+          ) ?? UNKNOWN_TYPE,
+          typeParameterNames,
+          this.typeParameterConstraintMapLoose(fn.typeParameters ?? [], availableTypeParameterNames),
+          this.typeParameterDefaultMapLoose(fn.typeParameters ?? [], availableTypeParameterNames)
+        );
+      });
+      return functionMemberType;
     }
     if (candidate.kind === "VarStatement") {
       const v = candidate as VarStatement;
+      if (v.declarations?.length) {
+        return this.typeFromAnnotationLoose(v.declarations[0]?.typeAnnotation) ?? this.typeFromAnnotationLoose(v.typeAnnotation) ?? UNKNOWN_TYPE;
+      }
       return this.typeFromAnnotationLoose(v.typeAnnotation) ?? UNKNOWN_TYPE;
     }
     if (candidate.kind === "ClassStatement") {
@@ -8786,10 +8830,10 @@ export class TypeChecker {
           const memberType = this.memberTypeFromExternalDeclaration(declaration, "");
           if (memberType.kind === "unknown") continue;
           const name = this.declarationMemberName(declaration);
-          if (name) members.set(name, memberType);
+          if (name) this.addResolvedMemberType(members, name, memberType);
           if (child.kind === "ExportStatement") {
             for (const specifier of (child as ExportStatement).specifiers ?? []) {
-              members.set(specifier.exported.name, UNKNOWN_TYPE);
+              this.addResolvedMemberType(members, specifier.exported.name, UNKNOWN_TYPE);
             }
           }
         }

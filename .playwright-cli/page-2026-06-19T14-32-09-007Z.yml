@@ -1,0 +1,32 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: Sample App
+    - heading "React + VexaScript" [level=1] [ref=e6]
+    - paragraph [ref=e7]: Browser sample rendered with the classic React JSX runtime plus router and query integrations.
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: Routing
+      - heading "React Router in the sample" [level=2] [ref=e11]
+      - paragraph [ref=e12]: Switch views without leaving the page and keep the current route visible.
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - link "Overview" [ref=e15] [cursor=pointer]:
+          - /url: /
+        - link "Tasks" [ref=e16] [cursor=pointer]:
+          - /url: /tasks
+        - link "Roadmap" [active] [ref=e17] [cursor=pointer]:
+          - /url: /roadmap
+      - generic [ref=e18]:
+        - text: "Path:"
+        - code [ref=e19]: /roadmap
+    - article [ref=e45]:
+      - generic [ref=e46]:
+        - generic [ref=e47]: Data Fetching
+        - heading "React Query route" [level=2] [ref=e48]
+        - paragraph [ref=e49]: This panel resolves a small async query to exercise typed options and result access.
+      - generic [ref=e50]:
+        - strong [ref=e51]: Router + Query integration works
+        - list [ref=e52]:
+          - listitem [ref=e53]: MemoryRouter navigation updates the visible route
+          - listitem [ref=e54]: useQuery resolves async data into JSX
+          - listitem [ref=e55]: The sample keeps browser-only runtime wiring readable
