@@ -8,9 +8,7 @@ interface SampleEntrypoint {
   entrypoint: string;
 }
 
-const skippedSamples = new Set([
-  "syntax-tour"
-]);
+const skippedSamples = new Set<string>();
 
 async function resolveSampleEntrypoints(rootDir: string): Promise<SampleEntrypoint[]> {
   const sampleDirs = await readdir(rootDir);

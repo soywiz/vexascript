@@ -273,6 +273,45 @@ fun demo(items: Token[]) {
     );
   });
 
+  it("does not let a foreign class shadow a local enum for workspace member diagnostics", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
+    const foreignFile = join(root, "sample.vx");
+    const localFile = join(root, "hello.vx");
+
+    const foreignSource = dedent`
+      class Demo {
+        value: string
+      }
+    `;
+    const localSource = dedent`
+      enum Demo {
+        HELLO = 1,
+        WORLD = 2,
+        HELLO_AND_WORLD = HELLO | WORLD;
+      }
+
+      const value = Demo.WORLD
+      const label = Demo[Demo.HELLO_AND_WORLD]
+    `;
+
+    await writeFile(foreignFile, foreignSource, "utf8");
+    await writeFile(localFile, localSource, "utf8");
+
+    const session = createAnalysisSession(localSource);
+    const diagnostics = await collectCrossFileMemberDiagnostics({
+      uri: pathToFileURL(localFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'WORLD' does not exist on type 'Demo'"
+    );
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'HELLO_AND_WORLD' does not exist on type 'Demo'"
+    );
+  });
+
   it("does not report imported extension methods declared on a base class for subclass receivers from node_modules typings", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
     const packageDir = join(root, "node_modules", "pixi.js");

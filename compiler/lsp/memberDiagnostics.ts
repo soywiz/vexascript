@@ -1,6 +1,6 @@
 import { baseTypeName } from "compiler/analysis/typeNames";
 import { arrayType, builtinType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
-import type { Identifier } from "compiler/ast/ast";
+import type { EnumStatement, Identifier } from "compiler/ast/ast";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
 import type { AnalysisSession } from "./analysisSession";
@@ -15,6 +15,7 @@ import {
 import { resolveExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberDefinitionSources";
 import { collectMemberExpressions } from "./crossFileTypeResolution";
 import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
+import { findTopLevelDeclarationInProgram } from "./declarationResolver";
 import { uriToFilePath } from "./importFixes";
 import { parseTypeNameShape } from "compiler/analysis/typeNames";
 
@@ -73,6 +74,14 @@ export async function collectCrossFileMemberDiagnostics(
     }
 
     const resolvedObjectTypeName = arrayTypeNameToArrayAlias(boxedCompletionTypeName(objectTypeName)) ?? objectTypeName;
+    const localEnum = findTopLevelDeclarationInProgram(
+      session.ast,
+      baseTypeName(resolvedObjectTypeName),
+      (statement): statement is EnumStatement => statement.kind === "EnumStatement"
+    );
+    if (localEnum) {
+      continue;
+    }
     const classResolution = await resolveClassStatementAcrossFiles(
       session.ast,
       baseTypeName(resolvedObjectTypeName),

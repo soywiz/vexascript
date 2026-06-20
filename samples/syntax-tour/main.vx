@@ -1,6 +1,6 @@
 import "./side-effects.vx"
 import { CompassDirection, Direction, Status, collect, defaultFormatter, describe, fetchLabel, fetchNumber, identity, joinWords, runtimeBoxValue, toolLabel, upper } from "./toolkit.vx"
-import { Point, Rectangle, operator+, px, scale, isOrigin } from "./geometry.vx"
+import { Point, Rectangle, px, scale, isOrigin } from "./geometry.vx"
 import type { Described, MaybeArray, MutablePair, NameKey, NameValue, Pair } from "./types.vx"
 
 /*
