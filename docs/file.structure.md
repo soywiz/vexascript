@@ -64,6 +64,7 @@ This section is the fast onboarding map for agents and contributors.
   - Emission tests: `compiler/runtime/emitter.test.ts`
   - Transpile orchestration: `compiler/runtime/transpile.ts`
   - Local module-graph bundling for execution and CLI ESM bundle preparation (resolves and inlines a `.vx` entry file together with its transitively imported local `.vx` and `.ts` modules so cross-file classes/operators/extension properties and TypeScript runtime declarations resolve before the CLI hands the emitted JavaScript to the Node-side package bundler): `compiler/runtime/moduleGraph.ts`
+  - Shared node_modules import-resolution bridge used by the runtime bundler to reuse the richer declaration/type import pipeline without making core runtime modules depend directly on LSP-layer paths: `compiler/nodeModuleImportResolution.ts`
   - Module-graph bundling tests: `compiler/runtime/moduleGraph.test.ts`
   - Runtime tooling helpers: `compiler/runtime/tooling.ts`
   - Transpile tests: `compiler/runtime/transpile.test.ts`
@@ -76,6 +77,8 @@ This section is the fast onboarding map for agents and contributors.
   - React browser sample: `samples/react/` mirrors the `samples/preact/` browser shape with React + ReactDOM, validating the default classic React JSX runtime for both server-rendered sample output (`main.vx`) and browser rendering (`html.vx`).
   - Focused React Query browser sample: `samples/react-query/` isolates `@tanstack/react-query` hook options, async result typing, and JSX result rendering behind a minimal React + ReactDOM browser shell.
   - Focused React Router browser sample: `samples/react-router/` isolates `react-router-dom` MemoryRouter, Link navigation, and location-driven JSX output behind a minimal React + ReactDOM browser shell.
+  - Focused Zod sample: `samples/zod/` validates real `zod` package imports, runtime schema parsing, and imported namespace type extraction through `z.infer<typeof Schema>`.
+  - Focused date-fns sample: `samples/date-fns/` validates named-export barrels and date utility typing/runtime against the real `date-fns` package.
   - THREE.js browser sample: `samples/threejs/` uses `samples/threejs/html.vx` together with `samples/threejs/vexascript.json` and supporting modules such as `scene-data.vx`/`extensions.vx`, validating normal module imports from the Three npm package directly inside VexaScript browser code.
   - DOM-emulation sample: `samples/virtual-dom/` uses a lightweight local DOM shim plus `samples/virtual-dom/vexascript.json` with `lib: ["es2025", "dom"]` to validate DOM globals and DOM element types without a heavy third-party runtime.
   - DefinitelyTyped sample: `samples/minimist/` uses the runtime-only `minimist` package together with `@types/minimist` to validate fallback resolution for npm packages that keep declarations in `node_modules/@types`.

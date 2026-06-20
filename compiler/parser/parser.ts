@@ -3277,13 +3277,37 @@ export class Parser {
         return expr;
     }
 
-    private parseNewTarget(): {
+    private parseNewTarget(newKeyword?: Token): {
         callee: Expr;
         arguments?: Expr[];
         typeArguments?: Identifier[];
         lastToken?: Token;
     } {
-        let expr = this.parsePrimary();
+        let expr: Expr;
+        if (newKeyword && this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === ".") {
+            const dotToken = this.tokens.read();
+            const propertyToken = this.tokens.read();
+            if (propertyToken?.type !== "identifier" || propertyToken.value !== "target") {
+                this.fail("Expected 'target' after 'new.'", this.tokenAt(propertyToken ?? dotToken));
+            }
+            const metaObject = this.attachNodeBounds(
+                { kind: "Identifier", name: "new" } as Identifier,
+                newKeyword,
+                newKeyword
+            );
+            expr = this.attachNodeBounds(
+                {
+                    kind: "MemberExpression",
+                    object: metaObject,
+                    property: this.buildIdentifierFromToken(propertyToken),
+                    computed: false
+                } as MemberExpression,
+                newKeyword,
+                propertyToken
+            );
+        } else {
+            expr = this.parsePrimary();
+        }
         let pendingTypeArguments: Identifier[] | undefined;
 
         while (this.tokens.hasMore) {
@@ -3507,7 +3531,7 @@ export class Parser {
         const token = this.tokens.peek();
         if (token?.type === "identifier" && token.value === "new") {
             const newKeyword = this.tokens.read();
-            const constructorTarget = this.parseNewTarget();
+            const constructorTarget = this.parseNewTarget(newKeyword);
 
             const statement: NewExpression = {
                 kind: "NewExpression",
@@ -5668,6 +5692,9 @@ export class Parser {
                 (this.peekToken(1)?.value === ":" || this.peekToken(1)?.value === "?")) {
                 break;
             }
+            if (this.classMemberModifierLooksLikeName(peekValue)) {
+                break;
+            }
             const modifierToken = this.tokens.read()!;
             memberStartToken ??= modifierToken;
             if (modifierToken.value === "override") {
@@ -6116,6 +6143,24 @@ export class Parser {
             fieldMember.initializer = initializer;
         }
         return [this.attachNodeBounds(fieldMember, memberStartToken, this.getLastReadToken() ?? memberNameToken)];
+    }
+
+    private classMemberModifierLooksLikeName(modifier: string): boolean {
+        const nextValue = this.peekToken(1)?.value;
+        if (!nextValue) {
+            return false;
+        }
+
+        if (modifier === "async" || modifier === "sync") {
+            return nextValue === ":" || nextValue === "?";
+        }
+
+        return nextValue === "(" ||
+            nextValue === "<" ||
+            nextValue === ":" ||
+            nextValue === "?" ||
+            nextValue === "!" ||
+            nextValue === ";";
     }
 
     private applyClassMemberModifiers(

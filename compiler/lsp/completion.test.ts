@@ -457,6 +457,63 @@ describe("createCompletionItemsForPosition", () => {
     );
   });
 
+  it("offers zod-style namespace type member completions from imported node_modules packages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-zod-"));
+    const packageDir = join(root, "node_modules", "zod");
+    const libDir = join(packageDir, "lib");
+    const consumerFile = join(root, "consumer.vx");
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { z } from "zod"
+
+      val schema: z.inf^^^ = z.string()
+    `);
+
+    await mkdir(libDir, { recursive: true });
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: "zod", types: "index.d.ts" }), "utf8");
+    await writeFile(join(packageDir, "index.d.ts"), 'export * from "./lib";\nexport as namespace Zod;\n', "utf8");
+    await writeFile(
+      join(libDir, "index.d.ts"),
+      dedent`
+        import * as z from "./external";
+        export * from "./external";
+        export { z };
+        export default z;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "external.d.ts"),
+      dedent`
+        export interface ZString {
+          min(size: number): ZString;
+        }
+
+        export type infer<T extends ZString = ZString> = T;
+        declare const stringType: () => ZString;
+        export { stringType as string };
+      `,
+      "utf8"
+    );
+    await writeFile(consumerFile, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: pathToFileURL(consumerFile).toString(),
+        sourceRoots: [root]
+      }
+    );
+    const inferItems = items.filter((item) => item.label === "infer");
+
+    expect(inferItems.length).toBeGreaterThan(0);
+  });
+
   it("shows all auto-import completion candidates when multiple modules export the same name", async () => {
     const { source, line, character } = sourceWithCursor("fun demo() {\n  return gre^^^\n}\n");
     const ast = parseFile(tokenizeReader(source));

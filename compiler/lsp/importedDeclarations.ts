@@ -444,9 +444,23 @@ function typeFromAnnotationText(
         ...(parameter.rest ? { rest: true } : {})
       })),
       typeFromAnnotationText(parsedFunctionType.returnTypeName, declarations, resolvingImportTypes),
-      undefined,
-      undefined,
-      undefined,
+      parsedFunctionType.typeParameters,
+      parsedFunctionType.typeParameterConstraints
+        ? Object.fromEntries(
+            Object.entries(parsedFunctionType.typeParameterConstraints).map(([name, constraintTypeName]) => [
+              name,
+              typeFromAnnotationText(constraintTypeName, declarations, resolvingImportTypes)
+            ])
+          )
+        : undefined,
+      parsedFunctionType.typeParameterDefaults
+        ? Object.fromEntries(
+            Object.entries(parsedFunctionType.typeParameterDefaults).map(([name, defaultTypeName]) => [
+              name,
+              typeFromAnnotationText(defaultTypeName, declarations, resolvingImportTypes)
+            ])
+          )
+        : undefined,
       importedAssertionTypeFromText(parsedFunctionType.returnTypeName, declarations, resolvingImportTypes)
     );
   }
@@ -630,6 +644,9 @@ function resolveNodeModuleNamedImportType(
     for (const specifier of importStatement.specifiers) {
       const localName = (specifier.local ?? specifier.imported).name;
       if (localName !== importedName) {
+        continue;
+      }
+      if (specifier.imported.name === importedName) {
         continue;
       }
       const resolved = resolveNodeModuleNamedImportType(declarations, specifier.imported.name, resolvingImportTypes);
@@ -1622,9 +1639,35 @@ function typeFromAmbientAnnotationText(
         ambientGlobalDeclarations,
         visited
       ),
-      undefined,
-      undefined,
-      undefined,
+      parsedFunctionType.typeParameters,
+      parsedFunctionType.typeParameterConstraints
+        ? Object.fromEntries(
+            Object.entries(parsedFunctionType.typeParameterConstraints).map(([name, constraintTypeName]) => [
+              name,
+              typeFromAmbientAnnotationText(
+                constraintTypeName,
+                declarations,
+                ambientModuleDeclarations,
+                ambientGlobalDeclarations,
+                visited
+              )
+            ])
+          )
+        : undefined,
+      parsedFunctionType.typeParameterDefaults
+        ? Object.fromEntries(
+            Object.entries(parsedFunctionType.typeParameterDefaults).map(([name, defaultTypeName]) => [
+              name,
+              typeFromAmbientAnnotationText(
+                defaultTypeName,
+                declarations,
+                ambientModuleDeclarations,
+                ambientGlobalDeclarations,
+                visited
+              )
+            ])
+          )
+        : undefined,
       importedAssertionTypeFromText(
         parsedFunctionType.returnTypeName,
         declarations,
@@ -2423,6 +2466,20 @@ function collectNodeModuleNamespaceExportedProperties(
       statement.kind === "ExportStatement"
         ? (statement as { declaration?: Statement }).declaration ?? statement
         : statement;
+
+    if (statement.kind === "ExportStatement") {
+      const exportStatement = statement as ExportStatement;
+      for (const specifier of exportStatement.specifiers ?? []) {
+        const localName = specifier.local?.name ?? specifier.exported.name;
+        if (localName === specifier.exported.name) {
+          continue;
+        }
+        const resolved = resolveNodeModuleNamedImportType(statements, localName);
+        if (resolved) {
+          properties[specifier.exported.name] = resolved;
+        }
+      }
+    }
 
     if (declaration.kind === "FunctionStatement") {
       const fn = declaration as FunctionStatement;

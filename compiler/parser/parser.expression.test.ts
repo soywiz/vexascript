@@ -175,6 +175,21 @@ describe("parseExpression", () => {
         });
     });
 
+    it("parses new.target member access chains", () => {
+        expect(parseExpression(tokenizeReader("new.target.prototype"), { language: "typescript" })).toMatchObject({
+            kind: "NewExpression",
+            callee: {
+                kind: "MemberExpression",
+                property: { kind: "Identifier", name: "prototype" },
+                object: {
+                    kind: "MemberExpression",
+                    property: { kind: "Identifier", name: "target" },
+                    object: { kind: "Identifier", name: "new" }
+                }
+            }
+        });
+    });
+
     it("parses anonymous export default function and class expressions in TypeScript mode", () => {
         const functionAst = parseFile(tokenizeReader("export default function () { return 7; }"), { language: "typescript" });
         expect(functionAst.body[0]).toMatchObject({

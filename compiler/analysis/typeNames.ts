@@ -564,7 +564,49 @@ export interface FunctionTypeAnnotationParameter {
 export interface FunctionTypeAnnotationShape {
   parameters: FunctionTypeAnnotationParameter[];
   returnTypeName: string;
+  typeParameters?: string[];
+  typeParameterConstraints?: Record<string, string>;
+  typeParameterDefaults?: Record<string, string>;
   constructor?: boolean;
+}
+
+function parseFunctionTypeParameterText(typeParameterText: string): {
+  name: string;
+  constraintTypeName?: string;
+  defaultTypeName?: string;
+} | null {
+  const trimmed = typeParameterText.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const defaultIndex = findTopLevelTypeCharacter(trimmed, "=");
+  const beforeDefault = defaultIndex >= 0 ? trimmed.slice(0, defaultIndex).trim() : trimmed;
+  const defaultTypeName = defaultIndex >= 0 ? trimmed.slice(defaultIndex + 1).trim() : "";
+  let extendsIndex = findTopLevelExtendsKeyword(beforeDefault);
+  if (extendsIndex < 0) {
+    const compactExtendsIndex = beforeDefault.indexOf("extends");
+    if (
+      compactExtendsIndex > 0 &&
+      /^[A-Za-z_$][\w$]*$/.test(beforeDefault.slice(0, compactExtendsIndex))
+    ) {
+      extendsIndex = compactExtendsIndex;
+    }
+  }
+  const name = (extendsIndex >= 0 ? beforeDefault.slice(0, extendsIndex) : beforeDefault).trim();
+  const constraintTypeName = extendsIndex >= 0
+    ? beforeDefault.slice(extendsIndex + "extends".length).trim()
+    : "";
+
+  if (!name) {
+    return null;
+  }
+
+  return {
+    name,
+    ...(constraintTypeName ? { constraintTypeName } : {}),
+    ...(defaultTypeName ? { defaultTypeName } : {})
+  };
 }
 
 export interface ObjectTypeAnnotationMember {
@@ -589,6 +631,31 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
   if (working.startsWith("new")) {
     constructor = true;
     working = working.slice("new".length).trimStart();
+  }
+
+  const typeParameters: string[] = [];
+  const typeParameterConstraints: Record<string, string> = {};
+  const typeParameterDefaults: Record<string, string> = {};
+  if (working.startsWith("<")) {
+    const closeTypeParameterIndex = findMatchingTypeDelimiter(working, 0, "<", ">");
+    if (closeTypeParameterIndex < 0) {
+      return null;
+    }
+    const typeParameterBody = working.slice(1, closeTypeParameterIndex).trim();
+    for (const part of splitTypeArgumentText(typeParameterBody)) {
+      const parsedTypeParameter = parseFunctionTypeParameterText(part);
+      if (!parsedTypeParameter) {
+        continue;
+      }
+      typeParameters.push(parsedTypeParameter.name);
+      if (parsedTypeParameter.constraintTypeName) {
+        typeParameterConstraints[parsedTypeParameter.name] = parsedTypeParameter.constraintTypeName;
+      }
+      if (parsedTypeParameter.defaultTypeName) {
+        typeParameterDefaults[parsedTypeParameter.name] = parsedTypeParameter.defaultTypeName;
+      }
+    }
+    working = working.slice(closeTypeParameterIndex + 1).trimStart();
   }
 
   if (!working.startsWith("(")) {
@@ -643,6 +710,9 @@ export function parseFunctionTypeAnnotation(typeName: string): FunctionTypeAnnot
   return {
     parameters,
     returnTypeName: afterParameters.slice(2).trim(),
+    ...(typeParameters.length > 0 ? { typeParameters } : {}),
+    ...(Object.keys(typeParameterConstraints).length > 0 ? { typeParameterConstraints } : {}),
+    ...(Object.keys(typeParameterDefaults).length > 0 ? { typeParameterDefaults } : {}),
     ...(constructor ? { constructor: true } : {})
   };
 }

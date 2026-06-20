@@ -1,0 +1,15 @@
+import { z } from "zod"
+
+const UserSchema = z.object({
+  name: z.string().min(1),
+  age: z.number().int()
+})
+
+type User = z.infer<typeof UserSchema>
+
+const user: User = UserSchema.parse({
+  name: "Ada",
+  age: 42
+})
+
+console.log(`${user.name}:${user.age}`)

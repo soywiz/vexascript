@@ -102,6 +102,20 @@ describe("parseFunctionTypeAnnotation", () => {
     });
   });
 
+  it("parses compact generic constraints from imported declaration text", () => {
+    const result = parseFunctionTypeAnnotation("<TextendsZodRawShape>(shape: T) => ZodObject<T>");
+    expect(result).toEqual({
+      parameters: [
+        { name: "shape", typeName: "T" }
+      ],
+      returnTypeName: "ZodObject<T>",
+      typeParameters: ["T"],
+      typeParameterConstraints: {
+        T: "ZodRawShape"
+      }
+    });
+  });
+
   it("returns null for a non-function type text", () => {
     expect(parseFunctionTypeAnnotation("string")).toBeNull();
     expect(parseFunctionTypeAnnotation("{ x: number }")).toBeNull();

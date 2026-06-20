@@ -441,6 +441,7 @@ describe("node_modules typings resolution", () => {
       join(libDir, "index.d.ts"),
       dedent`
         import * as z from "./external";
+        export * from "./external";
         export { z };
       `,
       "utf8"
@@ -452,7 +453,8 @@ describe("node_modules typings resolution", () => {
           min(size: number): ZString;
         }
 
-        export function string(): ZString;
+        declare const stringType: () => ZString;
+        export { stringType as string };
       `,
       "utf8"
     );
@@ -481,6 +483,106 @@ describe("node_modules typings resolution", () => {
 
     expect(typeToString(collected.importedSymbolTypes.get("z")!)).toContain("string");
     expect(collected.invalidImportedBindings.has("z")).toBe(false);
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("supports zod-style namespace builders and z.infer type extraction", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "zod");
+    const libDir = join(pkgDir, "lib");
+    await mkdir(libDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "zod", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export * from "./lib";
+        export as namespace Zod;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "index.d.ts"),
+      dedent`
+        import * as z from "./external";
+        export * from "./external";
+        export { z };
+        export default z;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "external.d.ts"),
+      dedent`
+        export interface ZType<Output> {
+          parse(value: unknown): Output;
+          _output: Output;
+        }
+
+        export interface ZString extends ZType<string> {
+          min(size: number): ZString;
+        }
+
+        export interface ZNumber extends ZType<number> {
+          int(): ZNumber;
+        }
+
+        export type output<T extends ZType<any>> = T["_output"];
+        export type infer<T extends ZType<any>> = output<T>;
+        export type ZRawShape = { [key: string]: ZType<any> };
+        export type objectOutput<TShape extends ZRawShape> = {
+          [K in keyof TShape]: output<TShape[K]>;
+        };
+
+        export interface ZObject<TShape extends ZRawShape> extends ZType<objectOutput<TShape>> {
+          shape: TShape;
+        }
+
+        declare const stringType: () => ZString;
+        declare const numberType: () => ZNumber;
+        declare function object<TShape extends ZRawShape>(shape: TShape): ZObject<TShape>;
+
+        export { stringType as string, numberType as number, object };
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { z } from "zod"
+
+      val schema = z.object({
+        name: z.string(),
+        age: z.number()
+      })
+      val parsed: z.inf^^^er<typeof schema> = schema.parse({
+        name: "Ada",
+        age: 42
+      })
+      val upper = parsed.name.toUpperCase()
+      val fixed = parsed.age.toFixed()
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(collected.invalidImportedBindings.has("z")).toBe(false);
+    expect(typeToString(collected.importedSymbolTypes.get("z")!)).toContain("infer");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 

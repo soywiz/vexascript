@@ -181,6 +181,7 @@ export class TypeChecker {
   private readonly activeTypeParameterScopes: Array<Set<string>> = [];
   private readonly activeTypeParameterConstraintScopes: Array<Map<string, AnalysisType>> = [];
   private readonly namedTypeMembersCache: Map<string, Map<string, AnalysisType> | null> = new Map();
+  private readonly resolvingNamedTypeMembers: Set<string> = new Set();
   private readonly setterOnlyMembersCache: Map<string, Set<string>> = new Map();
   private readonly pureWriteTargetNodes = new WeakSet<Node>();
   private readonly activeTypeAliasNames: Set<string> = new Set();
@@ -324,6 +325,71 @@ export class TypeChecker {
       || this.classStatementsByName.has(name)
       || this.enumStatementsByName.has(name)
       || this.namespaceStatementsByName.has(name);
+  }
+
+  private resolveQualifiedTypeMemberType(type: AnalysisType, memberName: string): AnalysisType | null {
+    if (type.kind === "union") {
+      const memberTypes = type.types
+        .map((memberType) => this.resolveQualifiedTypeMemberType(memberType, memberName))
+        .filter((memberType): memberType is AnalysisType => memberType !== null);
+      if (memberTypes.length === 0) {
+        return null;
+      }
+      return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
+    }
+    if (type.kind === "intersection") {
+      const memberTypes = type.types
+        .map((memberType) => this.resolveQualifiedTypeMemberType(memberType, memberName))
+        .filter((memberType): memberType is AnalysisType => memberType !== null);
+      if (memberTypes.length === 0) {
+        return null;
+      }
+      return memberTypes.length === 1 ? memberTypes[0]! : unionType(memberTypes);
+    }
+    if (type.kind === "object") {
+      return type.properties[memberName] ?? null;
+    }
+    if (type.kind === "named") {
+      const members = this.resolveNamedTypeMembers(type);
+      return members?.get(memberName) ?? null;
+    }
+    return null;
+  }
+
+  private resolveQualifiedTypeName(
+    qualifiedTypeName: string,
+    resolvedTypeArguments: AnalysisType[],
+    node: Node,
+    scope: Scope
+  ): AnalysisType | null {
+    const path = qualifiedTypeName.split(".").map((segment) => segment.trim()).filter(Boolean);
+    if (path.length < 2) {
+      return null;
+    }
+
+    const usageOffset = node.firstToken?.range.start.offset;
+    const symbol = this.resolve(path[0]!, scope, usageOffset);
+    let currentType = symbol?.type ?? null;
+    if (!currentType) {
+      return null;
+    }
+
+    for (const memberName of path.slice(1)) {
+      currentType = this.resolveQualifiedTypeMemberType(currentType, memberName);
+      if (!currentType) {
+        return null;
+      }
+    }
+
+    if (currentType.kind === "named" && resolvedTypeArguments.length > 0) {
+      this.validateNamedTypeArgumentConstraints(currentType.name, resolvedTypeArguments, node, scope);
+      const typeAlias = this.typeAliasStatementsByName.get(currentType.name);
+      return typeAlias
+        ? this.resolveTypeAliasTarget(typeAlias, resolvedTypeArguments, scope)
+        : namedType(currentType.name, resolvedTypeArguments);
+    }
+
+    return currentType;
   }
 
   private isNameVisibleFromExternalDeclarations(name: string, node: Node): boolean {
@@ -6613,6 +6679,20 @@ export class TypeChecker {
     } else if (this.isActiveTypeParameter(parsed.baseName)) {
       resolvedBase = namedType(parsed.baseName);
     } else {
+      const qualifiedImportedType = this.resolveQualifiedTypeName(
+        parsed.baseName,
+        resolvedTypeArguments,
+        node,
+        scope
+      );
+      if (qualifiedImportedType) {
+        let resolved: AnalysisType = qualifiedImportedType;
+        for (let i = 0; i < parsed.arrayDepth; i += 1) {
+          resolved = arrayType(resolved);
+        }
+        return resolved;
+      }
+
       const symbol = this.resolve(parsed.baseName, scope, undefined);
       const typeAlias = this.typeAliasStatementsByName.get(parsed.baseName);
       const hasKnownNamedType = this.knownNamedTypeExists(parsed.baseName)
@@ -6946,6 +7026,13 @@ export class TypeChecker {
       return this.memberTypeFromProperties(type.properties, propertyName);
     }
     if (type.kind === "named") {
+      const constraint = this.activeTypeParameterConstraint(type.name);
+      if (constraint) {
+        const constrainedMember = this.memberTypeFromObjectType(constraint, propertyName);
+        if (constrainedMember) {
+          return constrainedMember;
+        }
+      }
       const expanded = this.expandTypeAliases(type);
       if (expanded.kind !== "named") {
         return this.memberTypeFromObjectType(expanded, propertyName);
@@ -7118,9 +7205,13 @@ export class TypeChecker {
 
     this.activeTypeAliasNames.add(typeAlias.name.name);
     let targetType: AnalysisType = UNKNOWN_TYPE;
-    this.withTypeParameters(typeParameters.map((parameter) => parameter.name.name), () => {
-      targetType = this.resolveTypeNameText(typeAlias.targetType.name, typeAlias.targetType, scope, false);
-    });
+    this.withTypeParameters(
+      typeParameters.map((parameter) => parameter.name.name),
+      () => {
+        targetType = this.resolveTypeNameText(typeAlias.targetType.name, typeAlias.targetType, scope, false);
+      },
+      this.typeParameterConstraintMap(typeParameters, scope)
+    );
     this.activeTypeAliasNames.delete(typeAlias.name.name);
 
     return this.substituteTypeParameters(targetType, substitutions);
@@ -9832,10 +9923,18 @@ export class TypeChecker {
     if (this.namedTypeMembersCache.has(cacheKey)) {
       return this.namedTypeMembersCache.get(cacheKey) ?? null;
     }
+    if (this.resolvingNamedTypeMembers.has(cacheKey)) {
+      return null;
+    }
 
-    const resolved = this.resolveNamedTypeMembersInternal(type, new Set<string>());
-    this.namedTypeMembersCache.set(cacheKey, resolved);
-    return resolved;
+    this.resolvingNamedTypeMembers.add(cacheKey);
+    try {
+      const resolved = this.resolveNamedTypeMembersInternal(type, new Set<string>());
+      this.namedTypeMembersCache.set(cacheKey, resolved);
+      return resolved;
+    } finally {
+      this.resolvingNamedTypeMembers.delete(cacheKey);
+    }
   }
 
   private addResolvedMemberType(

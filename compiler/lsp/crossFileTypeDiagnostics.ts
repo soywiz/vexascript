@@ -1,6 +1,7 @@
 import type {
   AssignmentExpression,
   CallExpression,
+  Expr,
   ImportStatement,
   Identifier,
   MemberExpression,
@@ -175,6 +176,100 @@ export async function collectCrossFileTypeDiagnostics(
   };
   const resolverCache = options.classResolverCache;
   const currentFilePath = uriToFilePath(params.uri);
+  const expressionTypeNameCache = new WeakMap<Expr, Promise<string | null>>();
+  const constructorSignatureCache = new WeakMap<Expr, Promise<Awaited<ReturnType<typeof resolveConstructorSignature>>>>();
+  const exportedNamesByTargetFilePath = new Map<string, Promise<Set<string>>>();
+  const classResolutionByTypeName = new Map<string, Promise<Awaited<ReturnType<typeof resolveClassStatementAcrossFiles>>>>();
+  const classMemberByKey = new Map<string, Promise<Awaited<ReturnType<typeof resolveClassMember>>>>();
+
+  const resolveExpressionTypeNameCached = (expression: Expr): Promise<string | null> => {
+    const cached = expressionTypeNameCache.get(expression);
+    if (cached) {
+      return cached;
+    }
+    const pending = resolveExpressionTypeName(expression, session.analysis!, session.ast!, options);
+    expressionTypeNameCache.set(expression, pending);
+    return pending;
+  };
+
+  const resolveConstructorSignatureCached = (
+    callee: Expr,
+    callNode: CallExpression | NewExpression
+  ): Promise<Awaited<ReturnType<typeof resolveConstructorSignature>>> => {
+    const cached = constructorSignatureCache.get(callNode);
+    if (cached) {
+      return cached;
+    }
+    const pending = resolveConstructorSignature(
+      callee,
+      session.analysis!,
+      session.ast!,
+      options,
+      callNode
+    );
+    constructorSignatureCache.set(callNode, pending);
+    return pending;
+  };
+
+  const exportedNamesForTarget = async (
+    targetFilePath: string
+  ): Promise<Set<string>> => {
+    const cached = exportedNamesByTargetFilePath.get(targetFilePath);
+    if (cached) {
+      return cached;
+    }
+    const pending = (async () => {
+      const targetSession = await getProjectSessionForFilePath(targetFilePath, options);
+      const exportedNames = new Set<string>();
+      for (const statement of targetSession?.ast?.body ?? []) {
+        for (const name of importableTopLevelDeclarationNames(statement, targetFilePath)) {
+          exportedNames.add(name);
+        }
+      }
+      return exportedNames;
+    })();
+    exportedNamesByTargetFilePath.set(targetFilePath, pending);
+    return pending;
+  };
+
+  const resolveClassStatementAcrossFilesCached = (
+    typeName: string
+  ): Promise<Awaited<ReturnType<typeof resolveClassStatementAcrossFiles>>> => {
+    const cacheKey = baseTypeName(typeName);
+    const cached = classResolutionByTypeName.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const pending = resolveClassStatementAcrossFiles(
+      session.ast!,
+      cacheKey,
+      options,
+      resolverCache
+    );
+    classResolutionByTypeName.set(cacheKey, pending);
+    return pending;
+  };
+
+  const resolveClassMemberCached = (
+    className: string,
+    memberName: string,
+    objectTypeName: string,
+    classStatement: NonNullable<Awaited<ReturnType<typeof resolveClassStatementAcrossFiles>>>["classStatement"]
+  ): Promise<Awaited<ReturnType<typeof resolveClassMember>>> => {
+    const cacheKey = `${className}\0${memberName}\0${objectTypeName}`;
+    const cached = classMemberByKey.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const pending = resolveClassMember(classStatement, memberName, objectTypeName, {
+      ast: session.ast!,
+      options,
+      cache: resolverCache,
+      analysis: session.analysis!
+    });
+    classMemberByKey.set(cacheKey, pending);
+    return pending;
+  };
 
   const pushDiagnostic = (diagnostic: Diagnostic | null): void => {
     if (!diagnostic) {
@@ -257,16 +352,7 @@ export async function collectCrossFileTypeDiagnostics(
         );
       }
     }
-    const targetSession = await getProjectSessionForFilePath(targetFilePath, options);
-    if (!targetSession?.ast) {
-      continue;
-    }
-    const exportedNames = new Set<string>();
-    for (const statement of targetSession.ast.body) {
-      for (const name of importableTopLevelDeclarationNames(statement, targetFilePath)) {
-        exportedNames.add(name);
-      }
-    }
+    const exportedNames = await exportedNamesForTarget(targetFilePath);
     for (const specifier of importStatement.specifiers) {
       const localName = (specifier.local ?? specifier.imported).name;
       if (
@@ -289,13 +375,7 @@ export async function collectCrossFileTypeDiagnostics(
   }
 
   for (const call of collectCallExpressions(session.ast)) {
-    const constructorSignature = await resolveConstructorSignature(
-      call.callee,
-      session.analysis,
-      session.ast,
-      options,
-      call
-    );
+    const constructorSignature = await resolveConstructorSignatureCached(call.callee, call);
     if (constructorSignature) {
       const providedCount = call.arguments.length;
       const requiredCount = constructorSignature.parameters.filter((parameter) => !parameter.optional).length;
@@ -347,17 +427,12 @@ export async function collectCrossFileTypeDiagnostics(
       continue;
     }
 
-    const objectTypeName = await resolveExpressionTypeName(callee.object, session.analysis, session.ast, options);
+    const objectTypeName = await resolveExpressionTypeNameCached(callee.object);
     if (!objectTypeName) {
       continue;
     }
 
-    const classResolution = await resolveClassStatementAcrossFiles(
-      session.ast,
-      baseTypeName(objectTypeName),
-      options,
-      resolverCache
-    );
+    const classResolution = await resolveClassStatementAcrossFilesCached(objectTypeName);
     if (!classResolution) {
       continue;
     }
@@ -366,12 +441,12 @@ export async function collectCrossFileTypeDiagnostics(
     }
 
     const memberName = (callee.property as Identifier).name;
-    const member = await resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
-      ast: session.ast,
-      options,
-      cache: resolverCache,
-      analysis: session.analysis
-    });
+    const member = await resolveClassMemberCached(
+      classResolution.classStatement.name.name,
+      memberName,
+      objectTypeName,
+      classResolution.classStatement
+    );
     if (!member) {
       continue;
     }
@@ -429,7 +504,7 @@ export async function collectCrossFileTypeDiagnostics(
       if (!parameter || !argument) {
         continue;
       }
-      const argumentTypeName = await resolveExpressionTypeName(argument, session.analysis, session.ast, options);
+      const argumentTypeName = await resolveExpressionTypeNameCached(argument);
       if (!argumentTypeName || argumentTypeName === "unknown") {
         continue;
       }
@@ -447,13 +522,7 @@ export async function collectCrossFileTypeDiagnostics(
   }
 
   for (const node of walkCallLikeNewExpressions(session.ast)) {
-    const constructorSignature = await resolveConstructorSignature(
-      node.callee,
-      session.analysis,
-      session.ast,
-      options,
-      node
-    );
+    const constructorSignature = await resolveConstructorSignatureCached(node.callee, node);
     if (!constructorSignature) {
       continue;
     }
@@ -509,17 +578,12 @@ export async function collectCrossFileTypeDiagnostics(
       continue;
     }
 
-    const objectTypeName = await resolveExpressionTypeName(leftMember.object, session.analysis, session.ast, options);
+    const objectTypeName = await resolveExpressionTypeNameCached(leftMember.object);
     if (!objectTypeName) {
       continue;
     }
 
-    const classResolution = await resolveClassStatementAcrossFiles(
-      session.ast,
-      baseTypeName(objectTypeName),
-      options,
-      resolverCache
-    );
+    const classResolution = await resolveClassStatementAcrossFilesCached(objectTypeName);
     if (!classResolution) {
       continue;
     }
@@ -528,12 +592,12 @@ export async function collectCrossFileTypeDiagnostics(
     }
 
     const memberName = (leftMember.property as Identifier).name;
-    const member = await resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
-      ast: session.ast,
-      options,
-      cache: resolverCache,
-      analysis: session.analysis
-    });
+    const member = await resolveClassMemberCached(
+      classResolution.classStatement.name.name,
+      memberName,
+      objectTypeName,
+      classResolution.classStatement
+    );
     if (!member) {
       continue;
     }
@@ -543,7 +607,7 @@ export async function collectCrossFileTypeDiagnostics(
         ? `(${member.signature.parameters.map((parameter) => `${parameter.name}: ${parameter.typeName}`).join(", ")}) => ${member.signature.returnTypeName}`
         : member.typeName)
       : member.typeName;
-    const rightTypeName = await resolveExpressionTypeName(assignment.right, session.analysis, session.ast, options);
+    const rightTypeName = await resolveExpressionTypeNameCached(assignment.right);
     if (!rightTypeName || rightTypeName === "unknown" || leftTypeName === "unknown") {
       continue;
     }

@@ -1,0 +1,7 @@
+import { differenceInCalendarDays, format } from "date-fns"
+
+const start = new Date(2024, 0, 1)
+const finish = new Date(2024, 0, 11)
+
+console.log(format(start, "yyyy-MM-dd"))
+console.log(differenceInCalendarDays(finish, start))
