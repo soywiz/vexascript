@@ -113,3 +113,36 @@ open path, and `all sample LSP sessions` stayed around 17.1 seconds.
 - If a cross-file helper is called once per member expression, check whether the
   result can be reused per resolved receiver type/member pair instead of per
   syntax occurrence.
+
+## Follow-up: node workspace cold-open profiling
+
+After the deprecated-member work, the `node` sample was still one of the slower
+LSP-open cases. A first coarse profile misleadingly suggested
+`workspace/diagnostic` was still expensive, but timing the real handler path
+showed the actual split was different:
+
+- `textDocument/diagnostic::analysisSession`: about 646-726ms
+- `workspace/diagnostic`: about 100ms
+
+That changed the optimization target back to cold analysis-session setup, not
+workspace diagnostics.
+
+Two follow-up improvements helped:
+
+- preserve diagnostic/session caches across configuration changes that only
+  toggle editor features such as inlay hints, code lens, and timing logs
+- cache more node-module typing work, including per-declaration dependency/name
+  indexes in `collectAllImportedDeclarations` and parsed/source `.d.ts` file
+  reuse in `nodeModulesTypings.ts`
+
+The micro-profile for `samples/node/main.vx` stayed noisy across runs, but the
+real sample suite improved in the user-visible metric:
+
+- `opens node without LSP error diagnostics`: about 1209ms -> about 1069ms in a
+  focused run
+- `all sample LSP sessions`: about 7856ms -> about 7052ms in a focused run
+
+The important lesson is that the synthetic open burst can over-attribute time
+to later requests when the real cold cost was already paid inside the first
+document diagnostic. When timings look surprising, add phase timing inside the
+actual LSP handlers before optimizing the wrong request surface.

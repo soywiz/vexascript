@@ -715,6 +715,36 @@ describe("LSP server core", () => {
     assert.equal(server.fakeConnection.inlayHintRefreshes(), 2, "no refresh when config is unchanged");
   });
 
+  it("preserves diagnostic caches across configuration changes that only affect editor features", async () => {
+    const server = startServer(false);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: {
+        enableLspTimings: true,
+        enableLspTimingCacheEvents: true
+      }
+    });
+    const document = openedDocument(server, "val answer = 42\n");
+
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+
+    server.fakeConnection.setConfiguration({
+      inlayHints: { parameters: false, types: true },
+      referenceCodeLens: { enabled: true },
+      lsp: { timings: { enabled: true, cacheEvents: { enabled: true } } }
+    });
+    await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+
+    await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    });
+
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      message.startsWith("[Timing] textDocument/diagnostic cache hit v1")
+    ), true);
+  });
+
   it("derives completion prefixes and candidate characters consistently", () => {
     assert.equal(completionPrefixAt("val to = tot", 12), "tot");
     assert.equal(completionPrefixAt("a.b", 2), "");

@@ -893,7 +893,6 @@ export function startLspServer(options: LspServerOptions): void {
   );
 
   connection.onDidChangeConfiguration((() => logTimedOperation("workspace/didChangeConfiguration", async () => {
-    invalidateAllCaches();
     const config = await connection.workspace.getConfiguration("vexa");
     const newParameters = config?.inlayHints?.parameters !== false;
     const newTypes = config?.inlayHints?.types !== false;

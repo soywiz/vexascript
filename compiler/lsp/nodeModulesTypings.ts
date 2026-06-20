@@ -47,17 +47,49 @@ interface CacheEntry {
   result: NodeModuleTypings;
 }
 
+interface SourceCacheEntry {
+  mtimeMs: number;
+  result: string | null;
+}
+
+interface ProgramCacheEntry {
+  mtimeMs: number;
+  result: Program | null;
+}
+
 const cache = new Map<string, CacheEntry>();
+const sourceCache = new Map<string, SourceCacheEntry>();
+const programCache = new Map<string, ProgramCacheEntry>();
 
 async function parseTypingsProgram(typingsPath: string, options: ModuleResolutionOptions): Promise<Program | null> {
-  const source = await (options.vfs ?? vfs()).readFile(typingsPath);
+  const activeVfs = options.vfs ?? vfs();
+  const stat = await activeVfs.stat(typingsPath);
+  const mtimeMs = stat?.mtimeMs ?? -1;
+  const cached = programCache.get(typingsPath);
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return cached.result;
+  }
+
+  const source = await activeVfs.readFile(typingsPath);
   if (source === null) return null;
   const parsed = parseSource(source, { language: "typescript" });
-  return parsed.ast ?? null;
+  const result = parsed.ast ?? null;
+  programCache.set(typingsPath, { mtimeMs, result });
+  return result;
 }
 
 async function readTypingsSource(typingsPath: string, options: ModuleResolutionOptions): Promise<string | null> {
-  return await (options.vfs ?? vfs()).readFile(typingsPath);
+  const activeVfs = options.vfs ?? vfs();
+  const stat = await activeVfs.stat(typingsPath);
+  const mtimeMs = stat?.mtimeMs ?? -1;
+  const cached = sourceCache.get(typingsPath);
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return cached.result;
+  }
+
+  const result = await activeVfs.readFile(typingsPath);
+  sourceCache.set(typingsPath, { mtimeMs, result });
+  return result;
 }
 
 async function resolveRelativeTypingsPath(

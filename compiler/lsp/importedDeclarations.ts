@@ -86,6 +86,13 @@ interface NodeModuleResolutionCache {
 
 const nodeModuleResolutionCaches = new WeakMap<readonly Statement[], NodeModuleResolutionCache>();
 
+interface NodeModuleDeclarationIndex {
+  declarationsByName: Map<string, Statement[]>;
+  dependencyNamesByStatement: WeakMap<Statement, readonly string[]>;
+}
+
+const nodeModuleDeclarationIndexes = new WeakMap<readonly Statement[], NodeModuleDeclarationIndex>();
+
 function getNodeModuleResolutionCache(declarations: readonly Statement[]): NodeModuleResolutionCache {
   const cached = nodeModuleResolutionCaches.get(declarations);
   if (cached) {
@@ -98,6 +105,39 @@ function getNodeModuleResolutionCache(declarations: readonly Statement[]): NodeM
     defaultImportTypes: new Map()
   };
   nodeModuleResolutionCaches.set(declarations, created);
+  return created;
+}
+
+function getNodeModuleDeclarationIndex(declarations: readonly Statement[]): NodeModuleDeclarationIndex {
+  const cached = nodeModuleDeclarationIndexes.get(declarations);
+  if (cached) {
+    return cached;
+  }
+
+  const declarationsByName = new Map<string, Statement[]>();
+  const dependencyNamesByStatement = new WeakMap<Statement, readonly string[]>();
+
+  for (const declaration of declarations) {
+    const declarationName = importableDeclarationName(declaration);
+    if (declarationName) {
+      const existing = declarationsByName.get(declarationName);
+      if (existing) {
+        existing.push(declaration);
+      } else {
+        declarationsByName.set(declarationName, [declaration]);
+      }
+    }
+
+    const dependencyNames = new Set<string>();
+    collectTypeQueryDependencyNames(declaration, dependencyNames);
+    dependencyNamesByStatement.set(declaration, [...dependencyNames]);
+  }
+
+  const created: NodeModuleDeclarationIndex = {
+    declarationsByName,
+    dependencyNamesByStatement
+  };
+  nodeModuleDeclarationIndexes.set(declarations, created);
   return created;
 }
 
@@ -3122,12 +3162,28 @@ export async function collectAllImportedDeclarations(
     if (!targetFilePath) {
       const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
       if (nodeModuleTypings) {
+        const nodeModuleIndex = getNodeModuleDeclarationIndex(nodeModuleTypings.declarations);
         if (nodeModuleTypings.defaultExportName && (importStatement.defaultImport || importStatement.namespaceImport)) {
           wantedNames.add(nodeModuleTypings.defaultExportName);
         }
         const importedNodeModuleDeclarations: Statement[] = [];
         const supportingDeclarationNames = new Set<string>();
+        const pendingSupportingDeclarationNames: string[] = [];
         const seenNodeModuleStatements = new Set<Statement>();
+        const queuedSupportingDeclarationNames = new Set<string>();
+        const queueSupportingDependencyNames = (targetStatement: Statement): void => {
+          for (const dependencyName of nodeModuleIndex.dependencyNamesByStatement.get(targetStatement) ?? []) {
+            if (supportingDeclarationNames.has(dependencyName)) {
+              continue;
+            }
+            supportingDeclarationNames.add(dependencyName);
+            if (queuedSupportingDeclarationNames.has(dependencyName)) {
+              continue;
+            }
+            queuedSupportingDeclarationNames.add(dependencyName);
+            pendingSupportingDeclarationNames.push(dependencyName);
+          }
+        };
         const includeNodeModuleDeclaration = (targetStatement: Statement): void => {
           if (seenNodeModuleStatements.has(targetStatement)) {
             return;
@@ -3140,7 +3196,7 @@ export async function collectAllImportedDeclarations(
                 ? (targetStatement as { declaration?: Statement }).declaration ?? targetStatement
                 : targetStatement;
             importedNodeModuleDeclarations.push(rawDeclaration);
-            collectTypeQueryDependencyNames(targetStatement, supportingDeclarationNames);
+            queueSupportingDependencyNames(targetStatement);
             return;
           }
           if (seen.has(declaration)) {
@@ -3149,7 +3205,7 @@ export async function collectAllImportedDeclarations(
           seen.add(declaration);
           seenNodeModuleStatements.add(targetStatement);
           importedNodeModuleDeclarations.push(declaration);
-          collectTypeQueryDependencyNames(declaration, supportingDeclarationNames);
+          queueSupportingDependencyNames(targetStatement);
         };
         // For node_modules .d.ts files, include all top-level declarations so
         // imported symbols can still resolve helper types and members without
@@ -3160,19 +3216,16 @@ export async function collectAllImportedDeclarations(
           }
           includeNodeModuleDeclaration(targetStatement);
         }
-        let addedSupportDeclaration = true;
-        while (addedSupportDeclaration) {
-          addedSupportDeclaration = false;
-          for (const targetStatement of nodeModuleTypings.declarations) {
-            const declarationName = importableDeclarationName(targetStatement);
-            if (!declarationName || !supportingDeclarationNames.has(declarationName)) {
-              continue;
-            }
+        while (pendingSupportingDeclarationNames.length > 0) {
+          const declarationName = pendingSupportingDeclarationNames.pop();
+          if (!declarationName) {
+            continue;
+          }
+          for (const targetStatement of nodeModuleIndex.declarationsByName.get(declarationName) ?? []) {
             if (seenNodeModuleStatements.has(targetStatement)) {
               continue;
             }
             includeNodeModuleDeclaration(targetStatement);
-            addedSupportDeclaration = true;
           }
         }
         externalDeclarations.push(...importedNodeModuleDeclarations);
