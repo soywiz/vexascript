@@ -76,6 +76,31 @@ type NamedTypeDeclaration =
 
 type ImportableDeclaration = NamedTypeDeclaration | FunctionStatement | VarStatement;
 
+interface NodeModuleResolutionCache {
+  namedImportTypes: Map<string, AnalysisType | null>;
+  namedImportDisplayTypes: Map<string, string | null>;
+  functionDisplayTypes: Map<string, string | null>;
+  defaultImportTypes: Map<string, AnalysisType>;
+  namespaceExportProperties?: Record<string, AnalysisType>;
+}
+
+const nodeModuleResolutionCaches = new WeakMap<readonly Statement[], NodeModuleResolutionCache>();
+
+function getNodeModuleResolutionCache(declarations: readonly Statement[]): NodeModuleResolutionCache {
+  const cached = nodeModuleResolutionCaches.get(declarations);
+  if (cached) {
+    return cached;
+  }
+  const created: NodeModuleResolutionCache = {
+    namedImportTypes: new Map(),
+    namedImportDisplayTypes: new Map(),
+    functionDisplayTypes: new Map(),
+    defaultImportTypes: new Map()
+  };
+  nodeModuleResolutionCaches.set(declarations, created);
+  return created;
+}
+
 function dedupeAnalysisTypes(types: AnalysisType[]): AnalysisType[] {
   const seen = new Set<string>();
   const result: AnalysisType[] = [];
@@ -451,14 +476,24 @@ function callableTypeFromExternalFunction(
 }
 
 function displayTypeForExternalFunction(declarations: readonly Statement[], name: string): string | null {
+  const resolutionCache = getNodeModuleResolutionCache(declarations);
+  const cached = resolutionCache.functionDisplayTypes.get(name);
+  if (cached !== undefined) {
+    return cached;
+  }
   const overloads = externalFunctionOverloads(declarations, name);
   if (overloads.length === 0) {
+    resolutionCache.functionDisplayTypes.set(name, null);
     return null;
   }
   if (overloads.length === 1) {
-    return typeToString(overloads[0]!);
+    const display = typeToString(overloads[0]!);
+    resolutionCache.functionDisplayTypes.set(name, display);
+    return display;
   }
-  return overloads.map((overload) => typeToString(overload)).join(" | ");
+  const display = overloads.map((overload) => typeToString(overload)).join(" | ");
+  resolutionCache.functionDisplayTypes.set(name, display);
+  return display;
 }
 
 function resolveNodeModuleNamedImportType(
@@ -466,8 +501,14 @@ function resolveNodeModuleNamedImportType(
   importedName: string,
   resolvingImportTypes: Set<string> = new Set()
 ): AnalysisType | null {
+  const resolutionCache = getNodeModuleResolutionCache(declarations);
+  const cached = resolutionCache.namedImportTypes.get(importedName);
+  if (cached !== undefined) {
+    return cached;
+  }
   const callableType = callableTypeFromExternalFunction(declarations, importedName, resolvingImportTypes);
   if (callableType) {
+    resolutionCache.namedImportTypes.set(importedName, callableType);
     return callableType;
   }
 
@@ -476,46 +517,67 @@ function resolveNodeModuleNamedImportType(
     const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : undefined;
     if (declaration) {
       if (declaration.kind === "ClassStatement" && (declaration as ClassStatement).name.name === importedName) {
-        return namedType(importedName);
+        const resolved = namedType(importedName);
+        resolutionCache.namedImportTypes.set(importedName, resolved);
+        return resolved;
       }
       if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === importedName) {
-        return namedType(importedName);
+        const resolved = namedType(importedName);
+        resolutionCache.namedImportTypes.set(importedName, resolved);
+        return resolved;
       }
       if (declaration.kind === "EnumStatement" && (declaration as EnumStatement).name.name === importedName) {
-        return namedType(importedName);
+        const resolved = namedType(importedName);
+        resolutionCache.namedImportTypes.set(importedName, resolved);
+        return resolved;
       }
       if (declaration.kind === "TypeAliasStatement" && (declaration as TypeAliasStatement).name.name === importedName) {
-        return namedType(importedName);
+        const resolved = namedType(importedName);
+        resolutionCache.namedImportTypes.set(importedName, resolved);
+        return resolved;
       }
       if (declaration.kind === "VarStatement") {
         const varStatement = declaration as VarStatement;
         if (varStatement.name.kind === "Identifier" && varStatement.name.name === importedName) {
-          return typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
+          const resolved = typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
+          resolutionCache.namedImportTypes.set(importedName, resolved);
+          return resolved;
         }
       }
       continue;
     }
 
     if (statement.kind === "ClassStatement" && locallyExportedNames.has((statement as ClassStatement).name.name)) {
-      return namedType(importedName);
+      const resolved = namedType(importedName);
+      resolutionCache.namedImportTypes.set(importedName, resolved);
+      return resolved;
     }
     if (statement.kind === "InterfaceStatement" && locallyExportedNames.has((statement as InterfaceStatement).name.name)) {
-      return namedType(importedName);
+      const resolved = namedType(importedName);
+      resolutionCache.namedImportTypes.set(importedName, resolved);
+      return resolved;
     }
     if (statement.kind === "EnumStatement" && locallyExportedNames.has((statement as EnumStatement).name.name)) {
-      return namedType(importedName);
+      const resolved = namedType(importedName);
+      resolutionCache.namedImportTypes.set(importedName, resolved);
+      return resolved;
     }
     if (statement.kind === "TypeAliasStatement" && locallyExportedNames.has((statement as TypeAliasStatement).name.name)) {
-      return namedType(importedName);
+      const resolved = namedType(importedName);
+      resolutionCache.namedImportTypes.set(importedName, resolved);
+      return resolved;
     }
     if (statement.kind === "VarStatement") {
       const varStatement = statement as VarStatement;
       if (varStatement.name.kind === "Identifier" && locallyExportedNames.has(varStatement.name.name)) {
-        return typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
+        const resolved = typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
+        resolutionCache.namedImportTypes.set(importedName, resolved);
+        return resolved;
       }
     }
   }
 
+  resolutionCache.namedImportTypes.set(importedName, null);
   return null;
 }
 
@@ -2275,6 +2337,10 @@ function collectAmbientNamespaceExportedProperties(
 function collectNodeModuleNamespaceExportedProperties(
   statements: readonly Statement[]
 ): Record<string, AnalysisType> {
+  const resolutionCache = getNodeModuleResolutionCache(statements);
+  if (resolutionCache.namespaceExportProperties) {
+    return resolutionCache.namespaceExportProperties;
+  }
   const properties: Record<string, AnalysisType> = {};
   const functionOverloads = new Map<string, FunctionType[]>();
   for (const statement of statements) {
@@ -2327,6 +2393,7 @@ function collectNodeModuleNamespaceExportedProperties(
     // union-like collapsed callable that can degrade downstream inference.
     properties[name] = overloads[0]!;
   }
+  resolutionCache.namespaceExportProperties = properties;
   return properties;
 }
 
@@ -2335,6 +2402,11 @@ function resolveNodeModuleDefaultImportType(
   defaultExportName: string,
   resolvingImportTypes: Set<string> = new Set()
 ): AnalysisType {
+  const resolutionCache = getNodeModuleResolutionCache(declarations);
+  const cached = resolutionCache.defaultImportTypes.get(defaultExportName);
+  if (cached) {
+    return cached;
+  }
   const exportType = namedType(defaultExportName);
   const callableExport = callableTypeFromExternalFunction(declarations, defaultExportName, resolvingImportTypes);
   const namespaceBody = findAmbientNamespaceBody(declarations, defaultExportName);
@@ -2342,12 +2414,16 @@ function resolveNodeModuleDefaultImportType(
     const namespaceExports = collectNodeModuleNamespaceExportedProperties(namespaceBody);
     if (Object.keys(namespaceExports).length > 0) {
       const namespaceType = objectTypeWithProperties(namespaceExports);
-      return callableExport
+      const resolved = callableExport
         ? intersectionType([callableExport, namespaceType])
         : namespaceType;
+      resolutionCache.defaultImportTypes.set(defaultExportName, resolved);
+      return resolved;
     }
   }
-  return callableExport ?? exportType;
+  const resolved = callableExport ?? exportType;
+  resolutionCache.defaultImportTypes.set(defaultExportName, resolved);
+  return resolved;
 }
 
 function resolveAmbientDefaultImportType(
