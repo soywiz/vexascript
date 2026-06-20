@@ -61,6 +61,12 @@ const cache = new Map<string, CacheEntry>();
 const sourceCache = new Map<string, SourceCacheEntry>();
 const programCache = new Map<string, ProgramCacheEntry>();
 
+export function clearNodeModuleTypingsCache(): void {
+  cache.clear();
+  sourceCache.clear();
+  programCache.clear();
+}
+
 async function parseTypingsProgram(typingsPath: string, options: ModuleResolutionOptions): Promise<Program | null> {
   const activeVfs = options.vfs ?? vfs();
   const stat = await activeVfs.stat(typingsPath);

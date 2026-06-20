@@ -1,5 +1,5 @@
 import { describe, expect, it, join, mkdir, mkdtemp, tmpdir, writeFile } from "../test/expect";
-import { loadAmbientTypesForProject } from "./ambientTypesLoader";
+import { clearAmbientTypesCache, loadAmbientTypesForProject } from "./ambientTypesLoader";
 
 describe("loadAmbientTypesForProject", () => {
   it("returns empty result when types list is empty", async () => {
@@ -160,5 +160,62 @@ describe("loadAmbientTypesForProject", () => {
     const loc = result.moduleDeclarationLocations.get("mymod")!;
     expect(loc.filePath).toBe(dtsPath);
     expect(loc.line).toBe(0);
+  });
+
+  it("clears cached ambient type packages when requested", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
+    const pkgDir = join(root, "node_modules", "@types", "mylib");
+    await mkdir(pkgDir, { recursive: true });
+    const dtsPath = join(pkgDir, "index.d.ts");
+    await writeFile(
+      dtsPath,
+      `declare module "mylib" {\n  export function oldVersion(): void;\n}\n`,
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "package.json"), JSON.stringify({ name: "@types/mylib", types: "index.d.ts" }), "utf8");
+
+    const first = await loadAmbientTypesForProject(join(root, "main.vx"), ["mylib"]);
+    expect(first.moduleDeclarations.get("mylib")?.some((statement) =>
+      statement.kind === "ExportStatement"
+      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "oldVersion"
+    )).toBe(true);
+
+    await writeFile(
+      dtsPath,
+      `declare module "mylib" {\n  export function newVersion(): void;\n}\n`,
+      "utf8"
+    );
+    clearAmbientTypesCache();
+
+    const second = await loadAmbientTypesForProject(join(root, "main.vx"), ["mylib"]);
+    expect(second.moduleDeclarations.get("mylib")?.some((statement) =>
+      statement.kind === "ExportStatement"
+      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "newVersion"
+    )).toBe(true);
+  });
+
+  it("reuses merged project ambient results until the ambient cache is cleared", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ambient-"));
+    const pkgDir = join(root, "node_modules", "@types", "mylib");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      `declare module "mylib" {\n  export function hello(): void;\n}\n`,
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "package.json"), JSON.stringify({ name: "@types/mylib", types: "index.d.ts" }), "utf8");
+
+    const importerPath = join(root, "main.vx");
+    const first = await loadAmbientTypesForProject(importerPath, ["mylib"]);
+    const second = await loadAmbientTypesForProject(importerPath, ["mylib"]);
+    expect(first).toBe(second);
+
+    clearAmbientTypesCache();
+
+    const third = await loadAmbientTypesForProject(importerPath, ["mylib"]);
+    expect(third).not.toBe(first);
+    expect(third.moduleDeclarations.get("mylib")?.length).toBeGreaterThan(0);
   });
 });

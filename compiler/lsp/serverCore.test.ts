@@ -1,10 +1,24 @@
-import { assert, describe, it } from "../test/expect";
+import {
+  assert,
+  describe,
+  fileURLToPath,
+  it,
+  join,
+  mkdir,
+  mkdtemp,
+  pathToFileURL,
+  tmpdir,
+  writeFile
+} from "../test/expect";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import type { Connection, TextDocuments } from "vscode-languageserver/node.js";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import { sourceWithCursor } from "compiler/test/sourceWithCursor";
 import { VEXA_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
+import { getProjectIndex, type ProjectIndex } from "./projectAnalysis";
+import { resolve as resolvePath } from "compiler/utils/path";
 import {
   candidateCharacters,
   completionPrefixAt,
@@ -250,6 +264,99 @@ function decodeSemanticTokenModifierBits(data: number[]): Array<{ line: number; 
     });
   }
   return decoded;
+}
+
+async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promise<{
+  analysisSessions: AnalysisSessionCache;
+  projectIndex: ProjectIndex;
+  getSessionForFilePath: (filePath: string) => Promise<Awaited<ReturnType<ProjectIndex["getSessionForFilePath"]>>>;
+}> {
+  const projectIndex = getProjectIndex([workspaceRoot]);
+
+  async function getSessionForFilePath(filePath: string) {
+    return projectIndex.getSessionForFilePath(resolvePath(filePath));
+  }
+
+  const analysisSessions = new AnalysisSessionCache(async (document, baseSession) => {
+    if (!baseSession.ast) {
+      return {
+        externalDeclarations: [],
+        importedSymbolTypes: new Map(),
+        importedSymbolDisplayTypes: new Map(),
+        ambientDeclarations: [],
+        ambientModuleDeclarations: new Map()
+      };
+    }
+
+    const { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes, invalidImportedBindings } =
+      await collectAllImportedDeclarations(baseSession.ast, {
+        uri: document.uri,
+        sourceRoots: [workspaceRoot],
+        getSessionForFilePath,
+        ambientModuleDeclarations: new Map(),
+        ambientGlobalDeclarations: []
+      });
+
+    return {
+      externalDeclarations,
+      importedSymbolTypes,
+      importedSymbolDisplayTypes,
+      invalidImportedBindings,
+      ambientDeclarations: [],
+      ambientDeclarationLocations: new Map(),
+      ambientModuleDeclarations: new Map(),
+      ambientModuleLocations: new Map()
+    };
+  });
+
+  return {
+    analysisSessions,
+    projectIndex,
+    getSessionForFilePath
+  };
+}
+
+async function startWorkspaceBackedServer(workspaceRoot: string): Promise<StartedServer> {
+  const fakeConnection = createFakeConnection();
+  const fakeDocuments = createFakeDocuments();
+  const environmentEvents: string[] = [];
+  const { analysisSessions, projectIndex, getSessionForFilePath } = await createWorkspaceAnalysisSessionCache(workspaceRoot);
+
+  const environment: LspServerEnvironment = {
+    getSourceRoots: () => [workspaceRoot],
+    getSessionForFilePath,
+    onDocumentOpenedOrChanged: (document) => {
+      environmentEvents.push(`open-or-change:${document.uri}`);
+      const filePath = document.uri.startsWith("file:") ? fileURLToPath(document.uri) : null;
+      if (filePath) {
+        projectIndex.upsertOpenDocument(filePath, document.getText()).catch(() => undefined);
+      }
+    },
+    onDocumentClosed: (document) => {
+      environmentEvents.push(`close:${document.uri}`);
+      const filePath = document.uri.startsWith("file:") ? fileURLToPath(document.uri) : null;
+      if (filePath) {
+        projectIndex.clearOpenDocument(filePath);
+        projectIndex.invalidateFile(filePath);
+      }
+    },
+    workspace: {
+      refreshDiagnosticsCommand: "vexa.refreshDiagnostics",
+      onWatchedFileChanged: (filePath: string) => {
+        environmentEvents.push(`watched:${filePath}`);
+        projectIndex.invalidateFile(filePath);
+      }
+    }
+  };
+
+  startLspServer({
+    connection: fakeConnection.connection,
+    documents: fakeDocuments.documents,
+    analysisSessions,
+    environment
+  });
+
+  return { fakeConnection, fakeDocuments, environmentEvents };
 }
 
 describe("LSP server core", () => {
@@ -602,6 +709,78 @@ describe("LSP server core", () => {
     });
     assert.deepEqual(server.environmentEvents, ["watched:/workspace/util.vx"]);
     assert.equal(server.fakeConnection.diagnosticsRefreshes(), before + 2);
+  });
+
+  it("clears analysis sessions when watched workspace files change", () => {
+    const fakeConnection = createFakeConnection();
+    const fakeDocuments = createFakeDocuments();
+    let clears = 0;
+    const analysisSessions = {
+      clear: () => {
+        clears += 1;
+      },
+      delete: () => undefined,
+      getForDocument: () => createAnalysisSession(""),
+      getForDocumentAsync: async () => createAnalysisSession("")
+    } as unknown as AnalysisSessionCache;
+
+    startLspServer({
+      connection: fakeConnection.connection,
+      documents: fakeDocuments.documents,
+      analysisSessions,
+      environment: {
+        getSourceRoots: () => [],
+        getSessionForFilePath: () => null,
+        workspace: {
+          refreshDiagnosticsCommand: "vexa.refreshDiagnostics",
+          onWatchedFileChanged: () => undefined
+        }
+      }
+    });
+
+    fakeConnection.handlers.get("didChangeWatchedFiles")!({
+      changes: [{ uri: "file:///workspace/dependency.vx" }]
+    });
+
+    assert.equal(clears, 1);
+  });
+
+  it("invalidates cross-file diagnostics after watched dependency edits without reopening the document", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vexa-lsp-workspace-"));
+    const depPath = join(workspaceRoot, "dep.vx");
+    const mainPath = join(workspaceRoot, "main.vx");
+    await mkdir(workspaceRoot, { recursive: true });
+    await writeFile(depPath, "export function takesValue(value: number) {}\n", "utf8");
+    await writeFile(mainPath, "import { takesValue } from \"./dep\"\ntakesValue(1)\n", "utf8");
+
+    const server = await startWorkspaceBackedServer(workspaceRoot);
+    const mainUri = pathToFileURL(mainPath).href;
+    const initialSource = "import { takesValue } from \"./dep\"\ntakesValue(1)\n";
+    const document = TextDocument.create(mainUri, "vexa", 1, initialSource);
+    server.fakeDocuments.open(document);
+
+    const initialReport = await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    }) as { kind: string; items: Array<{ message: string }> };
+    assert.equal(initialReport.kind, "full");
+    assert.deepEqual(initialReport.items, []);
+
+    await writeFile(depPath, "export function takesValue(value: string) {}\n", "utf8");
+    server.fakeConnection.handlers.get("didChangeWatchedFiles")!({
+      changes: [{ uri: pathToFileURL(depPath).href }]
+    });
+
+    const updatedReport = await server.fakeConnection.handlers.get("diagnostics")!({
+      textDocument: { uri: document.uri }
+    }) as { kind: string; items: Array<{ message: string }> };
+    assert.equal(updatedReport.kind, "full");
+    assert.equal(
+      updatedReport.items.some((item) =>
+        item.message.includes("string")
+        && (item.message.includes("not assignable") || item.message.includes("expected"))
+      ),
+      true
+    );
   });
 
   it("applies inlay hint and code lens configuration changes on both transports", async () => {

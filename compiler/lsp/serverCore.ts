@@ -51,6 +51,7 @@ import {
 } from "./navigation";
 import { createSignatureHelp } from "./signatureHelp";
 import { createInlayHints } from "./inlayHints";
+import { clearAmbientTypesCache } from "./ambientTypesLoader";
 import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
 import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 export { candidateCharacters } from "./navigation";
@@ -59,6 +60,7 @@ import {
   VEXA_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
 import { collectDeprecatedSemanticTokenModifiers } from "./deprecatedSemanticTokens";
+import { clearNodeModuleTypingsCache } from "./nodeModulesTypings";
 import {
   createDocumentHighlights,
   createFoldingRanges,
@@ -915,6 +917,9 @@ export function startLspServer(options: LspServerOptions): void {
     connection.onDidChangeWatchedFiles((params) => {
       return logTimedOperationSync("workspace/didChangeWatchedFiles", () => {
         invalidateAllCaches();
+        analysisSessions.clear();
+        clearNodeModuleTypingsCache();
+        clearAmbientTypesCache();
         for (const change of params.changes) {
           const filePath = uriToFilePath(change.uri);
           if (filePath) workspace.onWatchedFileChanged(filePath);

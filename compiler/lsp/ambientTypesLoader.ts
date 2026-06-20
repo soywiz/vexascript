@@ -31,6 +31,12 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
+const projectCache = new Map<string, AmbientTypesResult>();
+
+export function clearAmbientTypesCache(): void {
+  cache.clear();
+  projectCache.clear();
+}
 
 function extractReferencePaths(source: string): string[] {
   const paths: string[] = [];
@@ -236,6 +242,7 @@ export async function loadAmbientTypesForProject(
     return { globalDeclarations, globalDeclarationLocations, moduleDeclarations, moduleDeclarationLocations };
   }
 
+  const resolvedEntries: Array<{ entryPath: string; result: AmbientTypesResult }> = [];
   for (const typePkg of types) {
     const entryPath = await resolveAmbientTypeEntryPath(importerFilePath, typePkg, activeVfs);
     if (!entryPath) {
@@ -251,7 +258,19 @@ export async function loadAmbientTypesForProject(
           cache.set(entryPath, { entryPath, mtimeMs, result: r });
           return r;
         })();
+    resolvedEntries.push({ entryPath, result });
+  }
 
+  const projectCacheKey = [
+    dirname(importerFilePath),
+    ...resolvedEntries.map(({ entryPath }) => entryPath)
+  ].join("\0");
+  const cachedProject = projectCache.get(projectCacheKey);
+  if (cachedProject) {
+    return cachedProject;
+  }
+
+  for (const { result } of resolvedEntries) {
     for (const stmt of result.globalDeclarations) {
       globalDeclarations.push(stmt);
     }
@@ -275,5 +294,7 @@ export async function loadAmbientTypesForProject(
     }
   }
 
-  return { globalDeclarations, globalDeclarationLocations, moduleDeclarations, moduleDeclarationLocations };
+  const projectResult = { globalDeclarations, globalDeclarationLocations, moduleDeclarations, moduleDeclarationLocations };
+  projectCache.set(projectCacheKey, projectResult);
+  return projectResult;
 }

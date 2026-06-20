@@ -1,5 +1,5 @@
 import { describe, expect, it, join, mkdir, mkdtemp, tmpdir, writeFile } from "../test/expect";
-import { getNodeModuleTypings, findNodeModuleExportLocation, findNodeModuleMemberLocation } from "./nodeModulesTypings";
+import { clearNodeModuleTypingsCache, getNodeModuleTypings, findNodeModuleExportLocation, findNodeModuleMemberLocation } from "./nodeModulesTypings";
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes, collectAllImportedDeclarations } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
@@ -61,6 +61,29 @@ describe("node_modules typings resolution", () => {
     const typings = await getNodeModuleTypings(importerPath, "pkg");
     expect(typings).not.toBeNull();
     expect(typings?.defaultExportName).toBe("pkg");
+  });
+
+  it("clears cached node_modules typings when requested", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const dtsPath = await makePackageWithTypings(root, "pkg", `export function oldVersion(): void;\n`);
+    const importerPath = join(root, "main.vx");
+
+    const first = await getNodeModuleTypings(importerPath, "pkg");
+    expect(first?.declarations.some((statement) =>
+      statement.kind === "ExportStatement"
+      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "oldVersion"
+    )).toBe(true);
+
+    await writeFile(dtsPath, `export function newVersion(): void;\n`, "utf8");
+    clearNodeModuleTypingsCache();
+
+    const second = await getNodeModuleTypings(importerPath, "pkg");
+    expect(second?.declarations.some((statement) =>
+      statement.kind === "ExportStatement"
+      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "newVersion"
+    )).toBe(true);
   });
 
   it("collectImportedTypeDeclarations loads node_modules declarations for default import", async () => {
