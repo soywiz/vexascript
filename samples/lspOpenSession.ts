@@ -309,26 +309,38 @@ export async function openEntrypointInLspSession(
 
   const range = fullDocumentRange(changedDocument);
 
-  await server.fakeConnection.handlers.get("request:vexa/autoAwaitDecorations")!({
+  const autoAwaitPromise = server.fakeConnection.handlers.get("request:vexa/autoAwaitDecorations")!({
     textDocument: { uri },
     range
   });
-  await server.fakeConnection.handlers.get("inlayHint")!({
+  const inlayHintsPromise = server.fakeConnection.handlers.get("inlayHint")!({
     textDocument: { uri },
     range
   });
-  await server.fakeConnection.handlers.get("foldingRanges")!({
+  const foldingRangesPromise = server.fakeConnection.handlers.get("foldingRanges")!({
     textDocument: { uri }
   });
-  await server.fakeConnection.handlers.get("documentSymbol")!({
+  const documentSymbolsPromise = server.fakeConnection.handlers.get("documentSymbol")!({
     textDocument: { uri }
   });
-
-  const documentDiagnosticReport = await server.fakeConnection.handlers.get("diagnostics")!({
+  const documentDiagnosticsPromise = server.fakeConnection.handlers.get("diagnostics")!({
     textDocument: { uri }
-  }) as { items: Diagnostic[] };
+  }) as Promise<{ items: Diagnostic[] }>;
+  const semanticTokensPromise = server.fakeConnection.handlers.get("semanticTokens")!({
+    textDocument: { uri }
+  });
+  const semanticTokensRangePromise = server.fakeConnection.handlers.get("semanticTokensRange")!({
+    textDocument: { uri },
+    range
+  });
+  const workspaceDiagnosticsPromise = server.fakeConnection.handlers.get("workspaceDiagnostics")!({}) as Promise<{
+    items: Array<{ uri: string; items: Diagnostic[] }>;
+  }>;
 
-  await server.fakeConnection.handlers.get("codeAction")!({
+  const documentDiagnosticReport = await documentDiagnosticsPromise;
+  // Keep the full VS Code-like open burst, but let independent requests overlap
+  // so shared analysis/cache work can dedupe through the real server paths.
+  const codeActionsPromise = server.fakeConnection.handlers.get("codeAction")!({
     textDocument: { uri },
     range,
     context: {
@@ -337,17 +349,25 @@ export async function openEntrypointInLspSession(
     }
   });
 
-  await server.fakeConnection.handlers.get("semanticTokens")!({
-    textDocument: { uri }
-  });
-  await server.fakeConnection.handlers.get("semanticTokensRange")!({
-    textDocument: { uri },
-    range
-  });
-
-  const workspaceDiagnosticReport = await server.fakeConnection.handlers.get("workspaceDiagnostics")!({}) as {
-    items: Array<{ uri: string; items: Diagnostic[] }>;
-  };
+  const [
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    ,
+    workspaceDiagnosticReport
+  ] = await Promise.all([
+    autoAwaitPromise,
+    inlayHintsPromise,
+    foldingRangesPromise,
+    documentSymbolsPromise,
+    codeActionsPromise,
+    semanticTokensPromise,
+    semanticTokensRangePromise,
+    workspaceDiagnosticsPromise
+  ]);
 
   return {
     documentDiagnostics: documentDiagnosticReport.items,

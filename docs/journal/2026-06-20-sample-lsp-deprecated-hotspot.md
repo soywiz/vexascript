@@ -146,3 +146,36 @@ The important lesson is that the synthetic open burst can over-attribute time
 to later requests when the real cold cost was already paid inside the first
 document diagnostic. When timings look surprising, add phase timing inside the
 actual LSP handlers before optimizing the wrong request surface.
+
+## Follow-up: keep the full open burst, but overlap it
+
+Another useful optimization was in the test harness itself, without removing
+any requests. The original `openEntrypointInLspSession` helper serialized most
+of the editor-open burst:
+
+- inlay hints
+- folding ranges
+- document symbols
+- diagnostics
+- semantic tokens
+- workspace diagnostics
+
+That was more conservative than VS Code and also prevented the server from
+sharing in-flight work across request surfaces as effectively as it does under a
+real burst.
+
+The safer change was:
+
+- keep the exact same request set
+- await document diagnostics before code actions, because code actions depend on
+  those diagnostics
+- let the other independent requests run concurrently
+
+This preserved the value of the sample suite as a detector for hangs,
+exceptions, and cache-invalidating regressions, while reducing wall-clock time
+through shared pending promises inside the real server caches.
+
+After that harness change, focused sample-LSP runs improved again:
+
+- `all sample LSP sessions`: about 7052ms -> about 6791ms
+- full `pnpm test`: about 14.7s -> about 13.4s

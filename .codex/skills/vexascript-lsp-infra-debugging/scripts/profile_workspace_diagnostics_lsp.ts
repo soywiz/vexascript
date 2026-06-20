@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve as resolveNodePath } from "node:path";
 import "cli/localVfs";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import type { Connection, TextDocuments } from "vscode-languageserver/node.js";
+import type { Connection, Range, TextDocuments } from "vscode-languageserver/node.js";
 import { AnalysisSessionCache } from "compiler/lsp/analysisSession";
 import { collectAllImportedDeclarations } from "compiler/lsp/importedDeclarations";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
@@ -229,6 +229,15 @@ function toFileUri(filePath: string): string {
   return `file://${filePath}`;
 }
 
+function fullDocumentRange(document: TextDocument): Range {
+  const lines = document.getText().split(/\r?\n/);
+  const lastLine = Math.max(lines.length - 1, 0);
+  return {
+    start: { line: 0, character: 0 },
+    end: { line: lastLine, character: lines[lastLine]?.length ?? 0 }
+  };
+}
+
 async function main(): Promise<void> {
   const workspaceRoot = resolveNodePath(process.cwd(), "samples/pixi");
   const entrypoint = resolveNodePath(workspaceRoot, "html.vx");
@@ -280,6 +289,7 @@ async function main(): Promise<void> {
   const changedDocument = TextDocument.create(uri, "vexa", 2, source);
   fakeDocuments.change(changedDocument);
   await projectIndex.upsertOpenDocument(entrypoint, source);
+  const range = fullDocumentRange(changedDocument);
 
   fakeConnection.setConfiguration({
     inlayHints: { parameters: true, types: true },
@@ -289,6 +299,17 @@ async function main(): Promise<void> {
 
   await fakeConnection.handlers.get("diagnostics")!({
     textDocument: { uri }
+  });
+  await fakeConnection.handlers.get("inlayHint")!({
+    textDocument: { uri },
+    range
+  });
+  await fakeConnection.handlers.get("semanticTokens")!({
+    textDocument: { uri }
+  });
+  await fakeConnection.handlers.get("semanticTokensRange")!({
+    textDocument: { uri },
+    range
   });
   await fakeConnection.handlers.get("workspaceDiagnostics")!({});
 
