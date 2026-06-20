@@ -1942,6 +1942,12 @@ export async function resolveConstructorSignature(
     identifier.firstToken.range.start.line,
     identifier.firstToken.range.start.column
   )?.symbol;
+  if (symbol?.type?.kind === "function") {
+    return null;
+  }
+  if (symbol?.valueType?.includes("=>")) {
+    return null;
+  }
   const symbolConstructorInterfaceName = symbol?.kind === "class"
     ? null
     : symbol?.valueType

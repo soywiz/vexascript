@@ -336,6 +336,16 @@ export async function collectCrossFileTypeDiagnostics(
       continue;
     }
 
+    const objectType = session.analysis.getExpressionTypes().get(callee.object);
+    if (
+      objectType &&
+      objectType.kind !== "array" &&
+      objectType.kind !== "named" &&
+      objectType.kind !== "builtin"
+    ) {
+      continue;
+    }
+
     const objectTypeName = await resolveExpressionTypeName(callee.object, session.analysis, session.ast, options);
     if (!objectTypeName) {
       continue;
@@ -485,6 +495,16 @@ export async function collectCrossFileTypeDiagnostics(
     }
     const leftMember = assignment.left as MemberExpression;
     if (leftMember.computed || leftMember.property.kind !== "Identifier") {
+      continue;
+    }
+
+    const objectType = session.analysis.getExpressionTypes().get(leftMember.object);
+    if (
+      objectType &&
+      objectType.kind !== "array" &&
+      objectType.kind !== "named" &&
+      objectType.kind !== "builtin"
+    ) {
       continue;
     }
 
