@@ -97,6 +97,10 @@ async function declarationPathInPackage(pkgDir: string, vfs: Vfs): Promise<strin
       return null;
     }
     const pkg = JSON.parse(pkgText) as Record<string, unknown>;
+    const exportsTypingsPath = await declarationPathFromExports(pkgDir, pkg, null, vfs);
+    if (exportsTypingsPath) {
+      return exportsTypingsPath;
+    }
     const typingsField = (pkg["typings"] ?? pkg["types"]) as string | undefined;
     if (typingsField) {
       const typingsPath = resolve(pkgDir, typingsField);
@@ -117,13 +121,26 @@ async function declarationPathInPackage(pkgDir: string, vfs: Vfs): Promise<strin
 
 function declarationExportTarget(value: unknown): string | null {
   if (typeof value === "string") {
-    return value;
+    return /\.(d\.(ts|mts|cts))$/i.test(value) ? value : null;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const target = declarationExportTarget(entry);
+      if (target) {
+        return target;
+      }
+    }
+    return null;
+  }
+  if (!value || typeof value !== "object") {
     return null;
   }
   const record = value as Record<string, unknown>;
-  for (const key of ["types", "default", "import", "require", "browser", "node"]) {
+  const directTypesTarget = declarationExportTarget(record["types"]);
+  if (directTypesTarget) {
+    return directTypesTarget;
+  }
+  for (const key of ["default", "import", "require", "browser", "node"]) {
     const target = declarationExportTarget(record[key]);
     if (target) {
       return target;
@@ -216,7 +233,7 @@ export async function resolveNodeModulesTypingsPath(
     const nodeModulesDir = resolve(dir, "node_modules");
     const pkgDir = resolve(nodeModulesDir, rootPackageName);
     let packageTypings: string | null = null;
-    if (exportSubpath) {
+    if (exportSubpath || await activeVfs.fileExists(resolve(pkgDir, "package.json"))) {
       try {
         const pkgText = await activeVfs.readFile(resolve(pkgDir, "package.json"));
         if (pkgText !== null) {

@@ -37,6 +37,7 @@ import {
   literalType,
   namedType,
   objectTypeWithProperties,
+  tupleType,
   unionType,
   typeToString,
   UNKNOWN_TYPE
@@ -52,7 +53,8 @@ import {
   parseTypeNameShape,
   splitTopLevelDelimitedTypeText,
   splitTopLevelTypeText,
-  stripEnclosingTypeParens
+  stripEnclosingTypeParens,
+  tupleElementTypeText
 } from "compiler/analysis/typeNames";
 import { combineTypes, removeNullishFromType, unwrapPromiseType } from "compiler/analysis/typeOperations";
 import { getNodeModuleTypings, getNodeModuleTypingsForImportNames } from "./nodeModulesTypings";
@@ -421,14 +423,28 @@ function typeFromAnnotationText(
   if (normalized.startsWith("asserts ")) {
     return builtinType("void");
   }
+  const readonlyContainer = parseReadonlyContainerTypeText(normalized);
+  if (readonlyContainer?.kind === "tuple") {
+    return tupleType(
+      (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
+        typeFromAnnotationText(tupleElementTypeText(part), declarations, resolvingImportTypes)
+      ),
+      true
+    );
+  }
+  if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
+    return arrayType(
+      typeFromAnnotationText(readonlyContainer.elementTypeText, declarations, resolvingImportTypes),
+      true
+    );
+  }
   if (normalized.startsWith("[") && normalized.endsWith("]")) {
     const members = splitTopLevelDelimitedTypeText(normalized.slice(1, -1), new Set([","]));
-    return {
-      kind: "tuple",
-      elements: members
-        .map((member) => typeFromAnnotationText(member.trim(), declarations, resolvingImportTypes))
+    return tupleType(
+      members
+        .map((member) => typeFromAnnotationText(tupleElementTypeText(member.trim()), declarations, resolvingImportTypes))
         .filter((member) => member !== UNKNOWN_TYPE)
-    };
+    );
   }
   const parsedFunctionType = parseFunctionTypeAnnotation(normalized);
   if (parsedFunctionType) {

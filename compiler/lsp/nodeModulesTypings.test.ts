@@ -258,6 +258,203 @@ describe("node_modules typings resolution", () => {
     expect(typeToString(symbolTypes.get("defaultOptions")!)).toBe("FormatterOptions");
   });
 
+  it("preserves support declarations for rxjs-style named reexports from sibling files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "streamy");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "streamy", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export { Observable } from "./Observable";
+        export { of } from "./of";
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "Observable.d.ts"),
+      dedent`
+        export declare class Observable<T> {
+          pipe(): Observable<T>;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "of.d.ts"),
+      dedent`
+        import { Observable } from "./Observable";
+        export declare function of<T>(value: T): Observable<T>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { of } from "streamy"
+      val piped = of(1).pipe()
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, collected.externalDeclarations, collected.importedSymbolTypes);
+
+    expect(collected.externalDeclarations.some((statement) => {
+      const declaration = statement.kind === "ExportStatement"
+        ? (statement as { declaration?: Statement }).declaration ?? statement
+        : statement;
+      return declaration.kind === "ClassStatement"
+        && (declaration as { name?: { name?: string } }).name?.name === "Observable";
+    })).toBe(true);
+    expect(typeToString(collected.importedSymbolTypes.get("of")!)).toBe("<T>(value: T) => Observable<T>");
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
+      "Property 'pipe' does not exist on type 'unknown'"
+    );
+  });
+
+  it("supports rxjs-style imported variadic tuple overloads that return helper generic classes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "streamy");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "streamy", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export { Observable } from "./Observable";
+        export { of } from "./of";
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "Observable.d.ts"),
+      dedent`
+        export declare class Observable<T> {
+          pipe(): Observable<T>;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "types.d.ts"),
+      dedent`
+        export type ValueFromArray<A extends readonly unknown[]> =
+          A extends readonly (infer T)[] ? T : never;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "of.d.ts"),
+      dedent`
+        import { Observable } from "./Observable";
+        import { ValueFromArray } from "./types";
+        export declare function of<A extends readonly unknown[]>(...values: A): Observable<ValueFromArray<A>>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { of } from "streamy"
+      val piped = of(1, 2, 3).pipe()
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, collected.externalDeclarations, collected.importedSymbolTypes);
+
+    expect(collected.externalDeclarations.some((statement) => {
+      const declaration = statement.kind === "ExportStatement"
+        ? (statement as { declaration?: Statement }).declaration ?? statement
+        : statement;
+      return declaration.kind === "ClassStatement"
+        && (declaration as { name?: { name?: string } }).name?.name === "Observable";
+    })).toBe(true);
+    expect(typeToString(collected.importedSymbolTypes.get("of")!)).toBe(
+      "<A extends readonly unknown[]>(...values: A) => Observable<ValueFromArray<A>>"
+    );
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
+      "Property 'pipe' does not exist on type 'unknown'"
+    );
+  });
+
+  it("supports imported class members whose signatures depend on sibling helper type aliases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "streamy");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "streamy", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export { Observable } from "./Observable";
+        export { of } from "./of";
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "types.d.ts"),
+      dedent`
+        export type OperatorFunction<T, R> = (value: T) => R;
+        export type ValueFromArray<A extends readonly unknown[]> =
+          A extends readonly (infer T)[] ? T : never;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "Observable.d.ts"),
+      dedent`
+        import { OperatorFunction } from "./types";
+        export declare class Observable<T> {
+          pipe<A>(op1: OperatorFunction<T, A>): Observable<A>;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "of.d.ts"),
+      dedent`
+        import { Observable } from "./Observable";
+        import { ValueFromArray } from "./types";
+        export declare function of<A extends readonly unknown[]>(...values: A): Observable<ValueFromArray<A>>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { of } from "streamy"
+      val piped = of(1, 2, 3).pipe({ value -> value * 2 })
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, collected.externalDeclarations, collected.importedSymbolTypes);
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
+      "Property 'pipe' does not exist on type 'unknown'"
+    );
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
+      "Operator '*' is not defined for types 'T' and 'int'"
+    );
+  });
+
   it("assigns callable generic named imports from package exports subpath typings such as preact/hooks", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");
@@ -2573,6 +2770,42 @@ describe("node_modules typings resolution", () => {
       let element: ElementValue = "Ada"
       let awaitedValue: AwaitedInt = 1
       let result: HandlerResult = true
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves readonly array conditional infer aliases from imported declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "infer-box",
+      dedent`
+        export type ReadonlyElement<T> = T extends readonly (infer U)[] ? U : T;
+        export type ReadonlyElementValue = ReadonlyElement<readonly string[]>;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { ReadonlyElementValue } from "infer-box"
+
+      let element: ReadonlyElementValue = "Ada"
     `;
     await writeFile(mainPath, source, "utf8");
 

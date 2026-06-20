@@ -3402,6 +3402,13 @@ export class TypeChecker {
       if (sourceType.readonly === true && targetType.readonly !== true) {
         return false;
       }
+      const targetElementType = targetType.elementType;
+      if (
+        isUnknownType(targetElementType)
+        || (targetElementType.kind === "builtin" && targetElementType.name === "unknown")
+      ) {
+        return true;
+      }
       return sourceType.elements.every((element) => this.isTypeAssignable(element, targetType.elementType));
     }
 
@@ -3559,6 +3566,12 @@ export class TypeChecker {
         return false;
       }
       const targetElementType = targetType.typeArguments?.[0] ?? UNKNOWN_TYPE;
+      if (
+        isUnknownType(targetElementType)
+        || (targetElementType.kind === "builtin" && targetElementType.name === "unknown")
+      ) {
+        return true;
+      }
       return sourceType.elements.every((element) => this.isTypeAssignable(element, targetElementType));
     }
 
@@ -4349,11 +4362,10 @@ export class TypeChecker {
       return undefined;
     }
     const expandedExpectedType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
-    if (expandedExpectedType.kind === "function") {
-      return expandedExpectedType;
-    }
     if (expandedExpectedType.kind !== "union") {
-      return undefined;
+      return expandedExpectedType.kind === "function"
+        ? expandedExpectedType
+        : undefined;
     }
 
     const nonNullishMembers = expandedExpectedType.types.filter((member) => !isNullishType(member));
@@ -4991,7 +5003,9 @@ export class TypeChecker {
       if (typeArgument.kind === "named" && typeParameters.includes(typeArgument.name)) {
         continue;
       }
-      if (!this.isTypeAssignable(typeArgument, this.substituteTypeParameters(constraint, substitutions))) {
+      const substitutedConstraint = this.substituteTypeParameters(constraint, substitutions);
+      const assignable = this.isTypeAssignable(typeArgument, substitutedConstraint);
+      if (!assignable) {
         return false;
       }
     }
@@ -7554,6 +7568,14 @@ export class TypeChecker {
       const elementType = this.arrayElementTypeForInferPattern(sourceType);
       return elementType
         ? this.constrainedInferSubstitution(arrayMatch[1], elementType, arrayMatch[2]?.trim())
+        : null;
+    }
+
+    const readonlyArrayMatch = /^readonly\s+\(?infer\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+(.+?))?\)?\s*\[\]$/.exec(substitutedPattern);
+    if (readonlyArrayMatch?.[1]) {
+      const elementType = this.arrayElementTypeForInferPattern(sourceType);
+      return elementType
+        ? this.constrainedInferSubstitution(readonlyArrayMatch[1], elementType, readonlyArrayMatch[2]?.trim())
         : null;
     }
 

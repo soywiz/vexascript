@@ -199,6 +199,25 @@ describe("resolveNodeModulesTypingsPath", () => {
     expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "preact/hooks")).toBe(dtsPath);
   });
 
+  it("prefers root package exports typings when the types field points at a missing file", async () => {
+    const packageDir = join(root, "node_modules", "rxjs-like");
+    await mkdir(join(packageDir, "dist", "types"), { recursive: true });
+    const dtsPath = join(packageDir, "dist", "types", "index.d.ts");
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({
+      name: "rxjs-like",
+      types: "./index.d.ts",
+      exports: {
+        ".": {
+          types: "./dist/types/index.d.ts",
+          default: "./dist/index.js"
+        }
+      }
+    }), "utf8");
+    await writeFile(dtsPath, "export declare const root: number;", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "rxjs-like")).toBe(dtsPath);
+  });
+
   it("clears cached typings paths when requested", async () => {
     const importerPath = join(root, "main.vx");
     const initialTypesDir = join(root, "node_modules", "@types", "minimist");
