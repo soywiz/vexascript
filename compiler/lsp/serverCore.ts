@@ -57,6 +57,7 @@ import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 export { candidateCharacters } from "./navigation";
 import {
   createSemanticTokens,
+  sliceSemanticTokensByRange,
   VEXA_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
 import { collectDeprecatedSemanticTokenModifiers } from "./deprecatedSemanticTokens";
@@ -910,7 +911,6 @@ export function startLspServer(options: LspServerOptions): void {
     }
     lspTimingsEnabled = config?.lsp?.timings?.enabled === true;
     lspTimingCacheEventsEnabled = lspTimingsEnabled && config?.lsp?.timings?.cacheEvents?.enabled === true;
-    refreshDiagnostics();
   })) as () => void);
 
   if (workspace) {
@@ -992,6 +992,14 @@ export function startLspServer(options: LspServerOptions): void {
     if (cached && cached.version === doc.version) {
       logCacheState("textDocument/semanticTokens/range", "hit", doc.version);
       return cached.promise;
+    }
+    const fullCacheKey = `${doc.uri}|full`;
+    const cachedFull = semanticTokensCache.get(fullCacheKey);
+    if (cachedFull && cachedFull.version === doc.version) {
+      logCacheState("textDocument/semanticTokens/range", "hit", doc.version);
+      const promise = cachedFull.promise.then((tokens) => sliceSemanticTokensByRange(tokens, params.range));
+      semanticTokensCache.set(cacheKey, { version: doc.version, promise });
+      return promise;
     }
     logCacheState("textDocument/semanticTokens/range", "miss", doc.version);
     const promise = logTimedOperation("textDocument/semanticTokens/range", async () => {

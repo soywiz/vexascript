@@ -3116,7 +3116,7 @@ function shouldIncludeNodeModuleExternalDeclaration(
       ? (statement as { declaration?: Statement }).declaration ?? statement
       : statement;
   if (rawDeclaration.kind === "ImportStatement") {
-    return true;
+    return false;
   }
   if (rawDeclaration.kind === "NamespaceStatement") {
     return true;

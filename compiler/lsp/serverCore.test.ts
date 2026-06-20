@@ -594,6 +594,41 @@ describe("LSP server core", () => {
     assert.equal((beginFillToken?.modifierBits ?? 0) & deprecatedBit, deprecatedBit);
   });
 
+  it("derives semantic token ranges from the cached full result for the same document version", async () => {
+    const server = startServer(false);
+    server.fakeConnection.handlers.get("initialize")!({
+      initializationOptions: {
+        enableLspTimings: true,
+        enableLspTimingCacheEvents: true
+      }
+    });
+    const document = openedDocument(server, [
+      "val answer = 42",
+      "val total = answer + 1",
+      ""
+    ].join("\n"));
+
+    const full = await server.fakeConnection.handlers.get("semanticTokens")!({
+      textDocument: { uri: document.uri }
+    }) as { data: number[] };
+    const range = {
+      start: { line: 1, character: 0 },
+      end: { line: 2, character: 0 }
+    };
+    const ranged = await server.fakeConnection.handlers.get("semanticTokensRange")!({
+      textDocument: { uri: document.uri },
+      range
+    }) as { data: number[] };
+
+    assert.equal(full.data.length > ranged.data.length, true);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      /^\[Timing\] textDocument\/semanticTokens\/range::analysisSession took \d+(?:\.\d+)?ms$/.test(message)
+    ), false);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      message.startsWith("[Timing] textDocument/semanticTokens/range cache hit v1")
+    ), true);
+  });
+
   it("keeps cache hit/miss logs disabled when only timings are enabled", async () => {
     const server = startServer(false);
     server.fakeConnection.handlers.get("initialize")!({
@@ -908,12 +943,14 @@ describe("LSP server core", () => {
       textDocument: { uri: document.uri }
     });
 
+    const refreshesBeforeConfig = server.fakeConnection.diagnosticsRefreshes();
     server.fakeConnection.setConfiguration({
       inlayHints: { parameters: false, types: true },
       referenceCodeLens: { enabled: true },
       lsp: { timings: { enabled: true, cacheEvents: { enabled: true } } }
     });
     await server.fakeConnection.handlers.get("didChangeConfiguration")!({});
+    assert.equal(server.fakeConnection.diagnosticsRefreshes(), refreshesBeforeConfig);
 
     await server.fakeConnection.handlers.get("diagnostics")!({
       textDocument: { uri: document.uri }

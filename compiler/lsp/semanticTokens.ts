@@ -939,3 +939,28 @@ export function createSemanticTokens(params: SemanticTokenParams): SemanticToken
 
   return builder.build();
 }
+
+export function sliceSemanticTokensByRange(tokens: SemanticTokens, range: DocumentRange): SemanticTokens {
+  const builder = new SimpleSemanticTokensBuilder();
+  let line = 0;
+  let character = 0;
+  for (let index = 0; index + 4 < tokens.data.length; index += 5) {
+    const deltaLine = tokens.data[index]!;
+    const deltaCharacter = tokens.data[index + 1]!;
+    const length = tokens.data[index + 2]!;
+    const tokenType = tokens.data[index + 3]!;
+    const tokenModifiers = tokens.data[index + 4]!;
+    line += deltaLine;
+    character = deltaLine === 0 ? character + deltaCharacter : deltaCharacter;
+    const tokenStart = { line, character };
+    const tokenEnd = { line, character: character + length };
+    if (comparePosition(tokenEnd, range.start) <= 0) {
+      continue;
+    }
+    if (comparePosition(tokenStart, range.end) >= 0) {
+      continue;
+    }
+    builder.push(line, character, length, tokenType, tokenModifiers);
+  }
+  return builder.build();
+}
