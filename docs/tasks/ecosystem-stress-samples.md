@@ -27,7 +27,7 @@ The first wave should prioritize libraries that cover distinct failure modes rat
 
 * [x] `@tanstack/react-query` for hook-heavy generic APIs, options objects, and inferred async data flows.
 * [x] `react-router` or `@tanstack/react-router` for typed routing, nested config objects, and React ecosystem entry points.
-* [ ] `zod` for fluent builder chains, inferred schema types, unions, and strongly type-driven APIs.
+* [x] `zod` for fluent builder chains, inferred schema types, unions, and strongly type-driven APIs.
 * [ ] `rxjs` for chained operators, overloads, generics, and functional composition.
 * [ ] `hono` for server routing, handler typing, context objects, and modern Node/web runtime interop.
 
@@ -55,8 +55,9 @@ Possible follow-up wave:
 
 * [x] Added a focused `samples/react-query/` browser sample that keeps React Query options/result typing isolated from the broader `samples/react/` kitchen-sink sample.
 * [x] Added a focused `samples/react-router/` browser sample that keeps MemoryRouter navigation and location-driven JSX isolated from the broader `samples/react/` sample.
-* [ ] `zod` is still blocked on namespace-style exported local bindings (`export { z }` backed by `import * as z`) plus deeper schema-builder result typing.
+* [x] Added a focused `samples/zod/` console sample that validates namespace-style package APIs plus imported schema-driven type extraction through `z.infer`.
 * [ ] `rxjs` is still blocked on richer imported generic/variadic observable/operator typing than the current focused regressions cover.
+* [ ] `zustand` is still blocked on curried store-factory inference and imported higher-order callback typing.
 * [ ] `hono` is still blocked on imported handler/context typing and overlapping DOM/runtime declaration behavior in its modern web-API-heavy `.d.ts` surface.
 
 ## Acceptance Criteria

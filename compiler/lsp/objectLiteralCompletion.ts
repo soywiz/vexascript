@@ -13,12 +13,15 @@ import type {
   ObjectLiteral,
   ObjectProperty,
   Program,
-  StringLiteral
+  Statement,
+  StringLiteral,
+  TypeAliasStatement
 } from "compiler/ast/ast";
 import { typeToString } from "compiler/analysis/types";
-import { baseTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
+import { baseTypeName, findMatchingTypeDelimiter, findTopLevelTypeCharacter, parseTypeNameShape, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens, substituteTypeNameText } from "compiler/analysis/typeNames";
 import { Analysis } from "compiler/analysis/Analysis";
-import { walkAst } from "compiler/ast/traversal";
+import { getProjectSessionForFilePath } from "compiler/analysis/projectIndex";
+import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import {
   createClassResolverCache,
   type ResolvedFunctionSignature,
@@ -49,7 +52,7 @@ import {
 import { formatFunctionTypeLabel } from "./functionTypeDisplay";
 import { containsPosition, nodeRange } from "./ranges";
 import { fileURLToPath } from "compiler/utils/path";
-import { findNodeModuleMemberLocation, findNodeModuleStructuralMemberLocation } from "./nodeModulesTypings";
+import { findNodeModuleMemberLocation, findNodeModuleStructuralMemberLocation, getNodeModuleTypings } from "./nodeModulesTypings";
 
 interface ObjectLiteralCompletionContext {
   kind: "call" | "new";
@@ -72,6 +75,7 @@ interface ObjectLiteralPropertyValueContext {
 interface ObjectLiteralMemberInfo {
   name: string;
   typeName: string;
+  declarationFilePath?: string;
 }
 
 interface ResolvedObjectLiteralShape {
@@ -84,6 +88,27 @@ interface ObjectLiteralValueCandidate {
   insertText: string;
   detail: string;
   kind: CompletionItemKind;
+}
+
+function nodeModulePackageNameForFilePath(filePath: string): string | null {
+  const marker = "/node_modules/";
+  const markerIndex = filePath.lastIndexOf(marker);
+  if (markerIndex < 0) {
+    return null;
+  }
+  const remainder = filePath.slice(markerIndex + marker.length);
+  const segments = remainder.split("/").filter((segment) => segment.length > 0);
+  if (segments.length === 0) {
+    return null;
+  }
+  if (segments[0]!.startsWith("@")) {
+    return segments.length >= 2 ? `${segments[0]!}/${segments[1]!}` : null;
+  }
+  return segments[0] ?? null;
+}
+
+function isTypeAliasStatement(statement: Statement | undefined | null): statement is TypeAliasStatement {
+  return (statement as { kind?: string }).kind === "TypeAliasStatement";
 }
 
 function formatResolvedFunctionSignature(signature: ResolvedFunctionSignature): string {
@@ -446,6 +471,12 @@ async function resolveObjectLiteralShape(
     cache
   );
   if (interfaceResolution) {
+    const resolverContext = {
+      ast,
+      analysis,
+      options: resolverOptions,
+      cache
+    };
     const names = await resolveInterfaceMemberNames(interfaceResolution.interfaceStatement, trimmed, {
       ast,
       analysis,
@@ -460,8 +491,15 @@ async function resolveObjectLiteralShape(
         options: resolverOptions,
         cache
       });
+      const memberDeclaration = await resolveInterfaceMemberDeclaration(
+        interfaceResolution,
+        name,
+        trimmed,
+        resolverContext
+      );
       members.push({
         name,
+        declarationFilePath: memberDeclaration?.filePath ?? interfaceResolution.filePath,
         typeName: member?.signature
           ? formatResolvedFunctionSignature(member.signature)
           : member?.typeName ?? "unknown"
@@ -477,6 +515,12 @@ async function resolveObjectLiteralShape(
     cache
   );
   if (classResolution) {
+    const resolverContext = {
+      ast,
+      analysis,
+      options: resolverOptions,
+      cache
+    };
     const names = await resolveClassMemberNames(classResolution.classStatement, trimmed, {
       ast,
       analysis,
@@ -491,8 +535,15 @@ async function resolveObjectLiteralShape(
         options: resolverOptions,
         cache
       });
+      const memberDeclaration = await resolveClassMemberDeclaration(
+        classResolution,
+        name,
+        trimmed,
+        resolverContext
+      );
       members.push({
         name,
+        declarationFilePath: memberDeclaration?.filePath ?? classResolution.filePath,
         typeName: member?.signature
           ? formatResolvedFunctionSignature(member.signature)
           : member?.typeName ?? "unknown"
@@ -526,7 +577,11 @@ async function resolveExpectedArgumentTypeName(
   const resolverOptions = classResolverOptionsFromCompletionOptions(options);
   if (context.kind === "call") {
     const signature = await resolveCallableSignature(context.callee, analysis, ast, resolverOptions);
-    return signature?.parameters[context.argumentIndex]?.typeName ?? null;
+    if (signature?.parameters[context.argumentIndex]?.typeName) {
+      return signature.parameters[context.argumentIndex]?.typeName ?? null;
+    }
+    const constructorSignature = await resolveConstructorSignature(context.callee, analysis, ast, resolverOptions);
+    return constructorSignature?.parameters[context.argumentIndex]?.typeName ?? null;
   }
   const signature = await resolveConstructorSignature(context.callee, analysis, ast, resolverOptions);
   return signature?.parameters[context.argumentIndex]?.typeName ?? null;
@@ -604,7 +659,9 @@ async function enumValueCandidatesFromTypeText(
 async function collectObjectLiteralValueCandidates(
   typeName: string,
   ast: Program,
-  options: CompletionRequestOptions
+  options: CompletionRequestOptions,
+  visitedAliases = new Set<string>(),
+  currentFilePath = options.uri ? uriToFilePath(options.uri) : null
 ): Promise<ObjectLiteralValueCandidate[]> {
   const members = splitTopLevelTypeText(unwrapOptionalTypeText(typeName), "|");
   const seen = new Set<string>();
@@ -631,9 +688,125 @@ async function collectObjectLiteralValueCandidates(
         candidates.push(enumCandidate);
       }
     }
+    if (candidates.length > 0) {
+      continue;
+    }
+    const aliasTargetTypeText = await resolveTypeAliasTargetTypeText(
+      trimmed,
+      ast,
+      options,
+      visitedAliases,
+      currentFilePath
+    );
+    if (!aliasTargetTypeText) {
+      continue;
+    }
+    for (const aliasCandidate of await collectObjectLiteralValueCandidates(
+      aliasTargetTypeText,
+      ast,
+      options,
+      visitedAliases,
+      currentFilePath
+    )) {
+      const key = `${aliasCandidate.kind}:${aliasCandidate.insertText}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        candidates.push(aliasCandidate);
+      }
+    }
   }
 
   return candidates;
+}
+
+async function resolveTypeAliasTargetTypeText(
+  typeName: string,
+  ast: Program,
+  options: CompletionRequestOptions,
+  visitedAliases: Set<string>,
+  currentFilePath: string | null
+): Promise<string | null> {
+  const trimmed = stripEnclosingTypeParens(typeName);
+  if (trimmed.length === 0 || visitedAliases.has(trimmed)) {
+    return null;
+  }
+  if (!currentFilePath) {
+    return null;
+  }
+  visitedAliases.add(trimmed);
+  let resolutionAst = ast;
+  const documentFilePath = options.uri ? uriToFilePath(options.uri) : null;
+  if (documentFilePath !== currentFilePath) {
+    const session = await getProjectSessionForFilePath(currentFilePath, {
+      sourceRoots: options.sourceRoots ?? [],
+      ...(options.vfs ? { vfs: options.vfs } : {}),
+      ...(options.getSessionForFilePath ? { getSessionForFilePath: options.getSessionForFilePath } : {})
+    });
+    if (session?.ast) {
+      resolutionAst = session.ast;
+    }
+  }
+  const parsedType = parseTypeNameShape(trimmed);
+  const resolved = await resolveTopLevelDeclarationAcrossFiles<TypeAliasStatement>({
+    ast: resolutionAst,
+    name: parsedType.baseName,
+    currentFilePath,
+    predicate: (statement): statement is TypeAliasStatement => statement.kind === "TypeAliasStatement",
+    includeRuntime: true,
+    ...(options.sourceRoots ? { sourceRoots: options.sourceRoots } : {}),
+    ...(options.vfs ? { vfs: options.vfs } : {}),
+    ...(options.getSessionForFilePath
+      ? { getSessionForFilePath: options.getSessionForFilePath }
+      : {})
+  });
+  if (resolved) {
+    const substitutions = new Map<string, string>();
+    for (let index = 0; index < (resolved.declaration.typeParameters?.length ?? 0); index += 1) {
+      const parameter = resolved.declaration.typeParameters?.[index];
+      const parameterName = parameter?.name.name;
+      if (!parameterName) {
+        continue;
+      }
+      substitutions.set(
+        parameterName,
+        parsedType.typeArguments[index] ?? parameter.defaultType?.name ?? parameterName
+      );
+    }
+    return substituteTypeNameText(resolved.declaration.targetType.name, substitutions);
+  }
+
+  const packageName = nodeModulePackageNameForFilePath(currentFilePath);
+  if (!packageName) {
+    return null;
+  }
+  const importerFilePath = documentFilePath ?? currentFilePath;
+  const typings = await getNodeModuleTypings(importerFilePath, packageName, {
+    ...(options.vfs ? { vfs: options.vfs } : {})
+  });
+  const declarationEntry = typings?.declarationEntries.find((entry) => {
+    const candidate = unwrapExportedDeclaration(entry.statement) ?? entry.statement;
+    return isTypeAliasStatement(candidate) && candidate.name.name === parsedType.baseName;
+  });
+  const declarationCandidate = declarationEntry
+    ? (unwrapExportedDeclaration(declarationEntry.statement) ?? declarationEntry.statement)
+    : null;
+  if (!isTypeAliasStatement(declarationCandidate)) {
+    return null;
+  }
+  const declaration = declarationCandidate;
+  const substitutions = new Map<string, string>();
+  for (let index = 0; index < (declaration.typeParameters?.length ?? 0); index += 1) {
+    const parameter = declaration.typeParameters?.[index];
+    const parameterName = parameter?.name.name;
+    if (!parameterName) {
+      continue;
+    }
+    substitutions.set(
+      parameterName,
+      parsedType.typeArguments[index] ?? parameter.defaultType?.name ?? parameterName
+    );
+  }
+  return substituteTypeNameText(declaration.targetType.name, substitutions);
 }
 
 async function resolveObjectLiteralPropertyTypeName(
@@ -642,7 +815,7 @@ async function resolveObjectLiteralPropertyTypeName(
   context: ObjectLiteralCompletionContext,
   propertyName: string,
   options: CompletionRequestOptions
-): Promise<string | null> {
+): Promise<ObjectLiteralMemberInfo | null> {
   const expectedType = resolveExpectedArgumentType(analysis, context);
   const expectedTypeName = expectedType
     ? typeToString(expectedType)
@@ -652,8 +825,7 @@ async function resolveObjectLiteralPropertyTypeName(
   }
 
   const shape = await resolveObjectLiteralShape(expectedTypeName, ast, analysis, options);
-  const member = shape?.members.find((candidate) => candidate.name === propertyName);
-  return member?.typeName ?? null;
+  return shape?.members.find((candidate) => candidate.name === propertyName) ?? null;
 }
 
 function resolveExpectedArgumentType(
@@ -1108,7 +1280,7 @@ export async function buildContextualObjectLiteralValueCompletionItems(
     return [];
   }
 
-  const propertyTypeName = await resolveObjectLiteralPropertyTypeName(
+  const property = await resolveObjectLiteralPropertyTypeName(
     resolvedAst,
     resolvedAnalysis,
     propertyContext.completionContext,
@@ -1118,11 +1290,17 @@ export async function buildContextualObjectLiteralValueCompletionItems(
       ...(resolvedText !== undefined ? { text: resolvedText } : {})
     }
   );
-  if (!propertyTypeName) {
+  if (!property) {
     return [];
   }
 
-  const candidates = await collectObjectLiteralValueCandidates(propertyTypeName, resolvedAst, options);
+  const candidates = await collectObjectLiteralValueCandidates(
+    property.typeName,
+    resolvedAst,
+    options,
+    undefined,
+    property.declarationFilePath ?? (options.uri ? uriToFilePath(options.uri) : null)
+  );
   return candidates.map((candidate, index) => ({
     label: candidate.label,
     kind: candidate.kind,

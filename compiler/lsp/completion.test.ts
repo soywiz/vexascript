@@ -1833,6 +1833,91 @@ describe("createCompletionItemsForPosition", () => {
     expect(byLabel.get("WebGPU")?.insertText).toBe("Renderer.WebGPU");
   });
 
+  it("offers imported type-alias literal values inside object literal property values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-completion-imported-literal-values-"));
+    const pkgDir = join(root, "node_modules", "pixi-like");
+    const libDir = join(pkgDir, "lib");
+    const sceneDir = join(libDir, "scene");
+    const textDir = join(sceneDir, "text");
+    const mainPath = join(root, "main.vx");
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { TextStyle } from "pixi-like"
+
+      val style = TextStyle({
+        align: ^^^
+      })
+    `);
+    const textStyleSource = dedent`
+      export type TextStyleAlign = 'left' | 'center' | 'right' | 'justify';
+
+      export interface TextStyleOptions {
+        align?: TextStyleAlign;
+      }
+
+      export declare class TextStyle {
+        constructor(options?: Partial<TextStyleOptions>);
+      }
+    `;
+
+    await mkdir(textDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "pixi-like",
+        types: "lib/index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(libDir, "index.d.ts"), "export * from './scene';\n", "utf8");
+    await writeFile(join(sceneDir, "index.d.ts"), "export * from './text/TextStyle';\n", "utf8");
+    await writeFile(join(textDir, "TextStyle.d.ts"), textStyleSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
+      text: source,
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null,
+      recoverAnalysisSession: (recoveredSource) =>
+        createAnalysisSession(
+          recoveredSource,
+          session.externalDeclarations,
+          session.importedSymbolTypes,
+          [],
+          new Map(),
+          new Map(),
+          session.importedSymbolDisplayTypes,
+          session.invalidImportedBindings
+        )
+    });
+    const byLabel = new Map(items.map((item) => [item.label, item]));
+
+    expect(items.map((item) => item.label)).toContain("left");
+    expect(items.map((item) => item.label)).toContain("center");
+    expect(items.map((item) => item.label)).toContain("right");
+    expect(items.map((item) => item.label)).toContain("justify");
+    expect(byLabel.get("left")?.insertText).toBe("\"left\"");
+    expect(byLabel.get("center")?.insertText).toBe("\"center\"");
+    expect(byLabel.get("right")?.insertText).toBe("\"right\"");
+    expect(byLabel.get("justify")?.insertText).toBe("\"justify\"");
+  });
+
   it("resolves go-to-definition for DOM members from ambient declarations with an absolute project root", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-completion-dom-definition-"));
     const file = join(root, "main.vx");

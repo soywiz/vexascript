@@ -21,6 +21,12 @@ These failures usually mean one or more of the following:
 * property optionality and readonly semantics are not preserved accurately enough,
 * or object-literal assignability is stricter than it should be once real `.d.ts` shapes are involved.
 
+Recent follow-up experiments also suggest that some remaining ecosystem failures are adjacent rather than identical:
+
+* `date-fns` exposed imported intersection-heavy parameter types such as `DateArg<Date> & {}`.
+* `rxjs` exposed higher-order imported members and overload-heavy generic observable APIs that degrade before assignability gets a fair structural input.
+* `zustand` exposed curried store-factory return typing that collapses to `unknown` before member assignability is even reached.
+
 ## Goal
 
 Make assignability against imported package typings behave much closer to TypeScript for real-world library option objects, hook options, config shapes, and parameter bags.
@@ -34,6 +40,7 @@ Make assignability against imported package typings behave much closer to TypeSc
 * [ ] Preserve optional-property behavior accurately enough that partial config objects do not get rejected spuriously.
 * [ ] Revisit readonly and array-like compatibility where imported APIs expect readonly collections.
 * [ ] Reduce cases where imported parameter or result types surface as `unknown` after successful symbol resolution.
+* [ ] Keep this task focused on assignability once the imported structural type exists; move namespace, declaration-graph, and higher-order inference gaps into dedicated linked tasks.
 * [ ] Use ecosystem samples as regression drivers rather than one-off fixes.
 * [ ] Update `docs/tasks/ecosystem-stress-samples.md` if new sample-specific follow-ups are discovered.
 
@@ -65,3 +72,6 @@ Make assignability against imported package typings behave much closer to TypeSc
 * `compiler/lsp/nodeModulesTypings.ts`
 * `compiler/lsp/nodeModulesTypings.test.ts`
 * `docs/tasks/ecosystem-stress-samples.md`
+* `docs/tasks/imported-namespace-and-qualified-type-interop.md`
+* `docs/tasks/higher-order-generic-and-variadic-inference.md`
+* `docs/tasks/declaration-graph-edge-cases.md`
