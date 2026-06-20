@@ -1,5 +1,11 @@
 import { describe, expect, it, join, mkdir, mkdtemp, tmpdir, writeFile } from "../test/expect";
-import { clearNodeModuleTypingsCache, getNodeModuleTypings, findNodeModuleExportLocation, findNodeModuleMemberLocation } from "./nodeModulesTypings";
+import {
+  clearNodeModuleTypingsCache,
+  getNodeModuleTypings,
+  getNodeModuleTypingsForImportNames,
+  findNodeModuleExportLocation,
+  findNodeModuleMemberLocation
+} from "./nodeModulesTypings";
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes, collectAllImportedDeclarations } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
@@ -84,6 +90,33 @@ describe("node_modules typings resolution", () => {
       && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "FunctionStatement"
       && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "newVersion"
     )).toBe(true);
+  });
+
+  it("selectively follows only the needed export-star branches for imported names", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(join(pkgDir, "feature"), { recursive: true });
+    await mkdir(join(pkgDir, "unused"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), `export * from "./feature";\nexport * from "./unused";\n`, "utf8");
+    await writeFile(join(pkgDir, "feature", "index.d.ts"), `export interface Needed { value: string; }\n`, "utf8");
+    await writeFile(join(pkgDir, "unused", "index.d.ts"), `export interface Unused { ignored: number; }\n`, "utf8");
+
+    const typings = await getNodeModuleTypingsForImportNames(join(root, "main.vx"), "pkg", new Set(["Needed"]));
+
+    expect(typings?.declarations.some((statement) =>
+      statement.kind === "ExportStatement"
+      && (statement as { declaration?: { kind?: string; name?: { name?: string } } }).declaration?.kind === "InterfaceStatement"
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "Needed"
+    )).toBe(true);
+    expect(typings?.declarations.some((statement) =>
+      statement.kind === "ExportStatement"
+      && (statement as { declaration?: { name?: { name?: string } } }).declaration?.name?.name === "Unused"
+    )).toBe(false);
   });
 
   it("collectImportedTypeDeclarations loads node_modules declarations for default import", async () => {

@@ -61,14 +61,23 @@ interface ProgramCacheEntry {
   result: Program | null;
 }
 
+interface SelectiveCacheEntry {
+  typingsPath: string;
+  mtimeMs: number;
+  cacheKey: string;
+  result: NodeModuleTypings;
+}
+
 const cache = new Map<string, CacheEntry>();
 const sourceCache = new Map<string, SourceCacheEntry>();
 const programCache = new Map<string, ProgramCacheEntry>();
+const selectiveCache = new Map<string, SelectiveCacheEntry>();
 
 export function clearNodeModuleTypingsCache(): void {
   cache.clear();
   sourceCache.clear();
   programCache.clear();
+  selectiveCache.clear();
   clearNodeModulesTypingsPathCache();
 }
 
@@ -268,6 +277,122 @@ async function collectTypingsDeclarations(
   return declarations;
 }
 
+async function collectSelectiveTypingsDeclarations(
+  typingsPath: string,
+  exportedNamesWanted: ReadonlySet<string>,
+  options: ModuleResolutionOptions,
+  visited: Set<string>,
+  includeAllTopLevel = false
+): Promise<NodeModuleDeclarationEntry[]> {
+  const visitKey = includeAllTopLevel
+    ? `${typingsPath}\0support`
+    : `${typingsPath}\0wanted:${[...exportedNamesWanted].sort().join(",")}`;
+  if (visited.has(visitKey)) {
+    return [];
+  }
+  visited.add(visitKey);
+
+  const ast = await parseTypingsProgram(typingsPath, options);
+  if (!ast) {
+    return [];
+  }
+  const source = await readTypingsSource(typingsPath, options);
+  const declarations: NodeModuleDeclarationEntry[] = [];
+  const directNamedEntries = ast.body.map((statement) => ({
+    statement,
+    typingsPath
+  }));
+  const fileDirectlyDefinesWantedName = directNamedEntries.some((entry) => {
+    const declarationName = nodeModuleDeclarationName(entry);
+    return declarationName ? exportedNamesWanted.has(declarationName) : false;
+  });
+  const followAllNamedReexports = includeAllTopLevel || fileDirectlyDefinesWantedName;
+
+  if (includeAllTopLevel || fileDirectlyDefinesWantedName) {
+    declarations.push(...directNamedEntries);
+  } else {
+    for (const entry of directNamedEntries) {
+      const declarationName = nodeModuleDeclarationName(entry);
+      if (declarationName && exportedNamesWanted.has(declarationName)) {
+        declarations.push(entry);
+      }
+    }
+  }
+
+  const supportSpecifiers = new Set<string>([
+    ...(source ? extractReferencedTypingsSpecifiers(source) : []),
+    ...extractImportedTypingsSpecifiers(ast)
+  ]);
+  for (const specifier of supportSpecifiers) {
+    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, specifier, options);
+    if (!targetTypingsPath) {
+      continue;
+    }
+    declarations.push(
+      ...await collectSelectiveTypingsDeclarations(
+        targetTypingsPath,
+        exportedNamesWanted,
+        options,
+        visited,
+        true
+      )
+    );
+  }
+
+  for (const statement of ast.body) {
+    if (statement.kind !== "ExportStatement") {
+      continue;
+    }
+    const exportStatement = statement as ExportStatement;
+    if (!exportStatement.from?.value) {
+      continue;
+    }
+    const targetTypingsPath = await resolveReexportedTypingsPath(typingsPath, exportStatement.from.value, options);
+    if (!targetTypingsPath) {
+      continue;
+    }
+
+    if (exportStatement.exportAll) {
+      const reexportedDeclarations = await collectSelectiveTypingsDeclarations(
+        targetTypingsPath,
+        exportedNamesWanted,
+        options,
+        visited
+      );
+      declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
+      continue;
+    }
+
+    const targetWantedLocalNames = new Set<string>();
+    for (const specifier of exportStatement.specifiers ?? []) {
+      if (!followAllNamedReexports && !exportedNamesWanted.has(specifier.exported.name)) {
+        continue;
+      }
+      targetWantedLocalNames.add(specifier.local?.name ?? specifier.exported.name);
+    }
+    if (targetWantedLocalNames.size === 0) {
+      continue;
+    }
+
+    const reexportedDeclarations = await collectSelectiveTypingsDeclarations(
+      targetTypingsPath,
+      targetWantedLocalNames,
+      options,
+      visited
+    );
+    for (const entry of reexportedDeclarations) {
+      const declarationName = nodeModuleDeclarationName(entry);
+      if (declarationName && targetWantedLocalNames.has(declarationName)) {
+        declarations.push(asExportedTypingsEntry(entry));
+        continue;
+      }
+      declarations.push(entry);
+    }
+  }
+
+  return declarations;
+}
+
 /**
  * Detect the `export = X` name from a TypeScript declaration file. The
  * vexa parser represents `export = moment` as a top-level `ExprStatement`
@@ -359,6 +484,53 @@ export async function getNodeModuleTypings(
   };
 
   cache.set(typingsPath, { typingsPath, mtimeMs, result });
+  return result;
+}
+
+export async function getNodeModuleTypingsForImportNames(
+  importerFilePath: string,
+  packageName: string,
+  wantedNames: ReadonlySet<string>,
+  options: ModuleResolutionOptions = {}
+): Promise<NodeModuleTypings | null> {
+  const activeVfs = options.vfs ?? vfs();
+  const typingsPath = await resolveNodeModulesTypingsPath(importerFilePath, packageName, { vfs: activeVfs });
+  if (!typingsPath) {
+    return null;
+  }
+  const typingsStat = await activeVfs.stat(typingsPath);
+  if (!typingsStat || typingsStat.isFile === false) {
+    return null;
+  }
+  const mtimeMs = typingsStat.mtimeMs;
+  const cacheKey = [...wantedNames].sort().join("\0");
+  const selectiveKey = `${typingsPath}\0${cacheKey}`;
+  const cached = selectiveCache.get(selectiveKey);
+  if (cached && cached.mtimeMs === mtimeMs && cached.cacheKey === cacheKey) {
+    return cached.result;
+  }
+
+  const ast = await parseTypingsProgram(typingsPath, { vfs: activeVfs });
+  if (!ast) {
+    return null;
+  }
+  const declarationEntries = await collectSelectiveTypingsDeclarations(
+    typingsPath,
+    wantedNames,
+    { vfs: activeVfs },
+    new Set<string>()
+  );
+  const declarations = declarationEntries.map((entry) => entry.statement);
+  const defaultExportName =
+    detectExportEqualsName(ast) ??
+    detectNamespaceName(ast) ??
+    packageName;
+  const result: NodeModuleTypings = {
+    declarations,
+    declarationEntries,
+    defaultExportName
+  };
+  selectiveCache.set(selectiveKey, { typingsPath, mtimeMs, cacheKey, result });
   return result;
 }
 

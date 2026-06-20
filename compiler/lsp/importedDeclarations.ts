@@ -54,7 +54,7 @@ import {
   stripEnclosingTypeParens
 } from "compiler/analysis/typeNames";
 import { combineTypes, removeNullishFromType, unwrapPromiseType } from "compiler/analysis/typeOperations";
-import { getNodeModuleTypings } from "./nodeModulesTypings";
+import { getNodeModuleTypings, getNodeModuleTypingsForImportNames } from "./nodeModulesTypings";
 
 /**
  * Top-level declarations that contribute a named type and whose members the
@@ -3210,7 +3210,18 @@ export async function collectAllImportedDeclarations(
     const targetFilePath = await resolveImportTargetInContext(currentFilePath, importStatement.from.value, context);
 
     if (!targetFilePath) {
-      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
+      const nodeModuleTypings = importStatement.defaultImport || importStatement.namespaceImport
+        ? await getNodeModuleTypings(
+          currentFilePath,
+          importStatement.from.value,
+          { vfs: context.vfs }
+        )
+        : await getNodeModuleTypingsForImportNames(
+          currentFilePath,
+          importStatement.from.value,
+          wantedNames,
+          { vfs: context.vfs }
+        );
       if (nodeModuleTypings) {
         const nodeModuleIndex = getNodeModuleDeclarationIndex(nodeModuleTypings.declarations);
         if (nodeModuleTypings.defaultExportName && (importStatement.defaultImport || importStatement.namespaceImport)) {

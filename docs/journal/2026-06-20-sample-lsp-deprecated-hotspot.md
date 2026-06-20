@@ -179,3 +179,65 @@ After that harness change, focused sample-LSP runs improved again:
 
 - `all sample LSP sessions`: about 7052ms -> about 6791ms
 - full `pnpm test`: about 14.7s -> about 13.4s
+
+## Follow-up: Pixi barrel packages need selective `export *` walking, not fewer requests
+
+The next meaningful hotspot was still `samples/pixi`, especially the cold
+analysis-session work behind the first `textDocument/diagnostic`.
+
+Profiling showed the main remaining cost was not the test harness anymore. The
+hot path was loading `pixi.js` declarations:
+
+- `getNodeModuleTypings("pixi.js")`: roughly 550ms cold in focused runs
+- the package root fan-outs into thousands of `.d.ts` declarations through
+  `export *` barrels
+- `collectAllImportedDeclarations(...)` only needed a handful of named imports
+  for the sample, but the old path still traversed and injected essentially the
+  whole package surface
+
+The first attempted optimization was too aggressive:
+
+- collect only declarations whose exported names matched the current import
+- recurse only through matching `export *` branches
+
+That looked promising for Pixi, but it broke real packages such as
+`@tanstack/react-query` because imported symbols often depend on helper aliases,
+neighbor reexports, and support imports from the same selected file.
+
+The better shape was:
+
+- keep the optimization only for pure named-import node-module paths inside
+  `collectAllImportedDeclarations`
+- still prune unrelated `export *` branches
+- but once a selected branch lands in a file that directly defines a wanted
+  export, include that file's full top-level declarations
+- and follow that file's named reexports too, so helper aliases and sibling
+  exported types remain available
+- keep default-import and namespace-import node-module paths on the full-typing
+  route, because they need the broader export surface and `defaultExportName`
+  semantics
+
+That preserved behavior in the sample suite and unit tests while cutting the
+Pixi cold open enough to matter:
+
+- `opens pixi without LSP error diagnostics`: about 1936ms -> about 1521ms in
+  a focused sample-suite run
+- `opens node without LSP error diagnostics`: stayed roughly flat or slightly
+  better
+
+What did not help:
+
+- prewarming analysis sessions on `didOpen` / `didChange` added contention and
+  made both `node` and `pixi` slower
+- restricting declarations only by wanted names without keeping same-file
+  helpers caused widespread regressions in generic-heavy packages
+
+Regression guidance:
+
+- for large node-module barrel packages, optimize branch selection before
+  reducing request coverage
+- if a selected export comes from a file, keep that file's local helper surface
+  intact
+- use the focused breakdown script under
+  `.codex/skills/vexascript-lsp-infra-debugging/scripts/profile_pixi_analysis_session_breakdown.ts`
+  before changing node-module typing collection again
