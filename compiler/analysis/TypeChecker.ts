@@ -6391,6 +6391,10 @@ export class TypeChecker {
         true
       );
     }
+    const functionAnnotation = this.resolveFunctionTypeAnnotation(normalizedTypeName, node, scope);
+    if (functionAnnotation) {
+      return functionAnnotation;
+    }
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
     if (unionParts.length > 1) {
       return unionType(unionParts.map((part) =>
@@ -6453,11 +6457,6 @@ export class TypeChecker {
     const templateLiteralType = this.templateLiteralTypeFromText(normalizedTypeName);
     if (templateLiteralType) {
       return templateLiteralType;
-    }
-
-    const functionAnnotation = this.resolveFunctionTypeAnnotation(normalizedTypeName, node, scope);
-    if (functionAnnotation) {
-      return functionAnnotation;
     }
 
     const objectAnnotation = this.resolveObjectTypeAnnotation(normalizedTypeName, node, scope);
@@ -11208,7 +11207,7 @@ export class TypeChecker {
   }
 
   private functionTypeFromAnnotationText(typeName: string): AnalysisType | null {
-    const parsed = parseFunctionTypeAnnotation(typeName);
+    const parsed = parseFunctionTypeAnnotation(stripEnclosingTypeParens(typeName.trim()));
     if (!parsed) {
       return null;
     }
@@ -11236,7 +11235,7 @@ export class TypeChecker {
   }
 
   private objectTypeFromAnnotationText(typeName: string): AnalysisType | null {
-    const members = parseObjectTypeAnnotation(typeName);
+    const members = parseObjectTypeAnnotation(stripEnclosingTypeParens(typeName.trim()));
     if (!members) {
       return null;
     }

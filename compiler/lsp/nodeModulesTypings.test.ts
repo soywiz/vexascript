@@ -3,7 +3,7 @@ import { getNodeModuleTypings, findNodeModuleExportLocation, findNodeModuleMembe
 import { collectImportedTypeDeclarations, collectImportedSymbolTypes, collectAllImportedDeclarations } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
-import { namedType, typeToString } from "compiler/analysis/types";
+import { typeToString } from "compiler/analysis/types";
 import type { Identifier, Statement, VarStatement } from "compiler/ast/ast";
 import { sourceWithCursor } from "../test/sourceWithCursor";
 
@@ -85,7 +85,7 @@ describe("node_modules typings resolution", () => {
     expect(names).toContain("pkg");
   });
 
-  it("collectImportedSymbolTypes assigns named type to default import from node_modules", async () => {
+  it("collectImportedSymbolTypes assigns callable type to default imports backed by export-equals functions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
@@ -100,10 +100,10 @@ describe("node_modules typings resolution", () => {
       getSessionForFilePath: () => null
     });
 
-    expect(symbolTypes.get("pkg")).toEqual(namedType("pkg"));
+    expect(typeToString(symbolTypes.get("pkg")!)).toBe("(x: string) => pkg.Result & { Result: Result, helper: () => Result }");
   });
 
-  it("default import from node_modules gets named type instead of unknown in analysis", async () => {
+  it("default import from node_modules gets callable type instead of unknown in analysis", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
@@ -119,8 +119,24 @@ describe("node_modules typings resolution", () => {
     const richSession = createAnalysisSession(source, declarations, symbolTypes);
 
     const symbol = richSession.analysis?.getTopLevelSymbolType("pkg");
-    expect(symbol?.kind).toBe("named");
-    expect((symbol as { name?: string })?.name).toBe("pkg");
+    expect(typeToString(symbol!)).toBe("(x: string) => pkg.Result & { Result: Result, helper: () => Result }");
+  });
+
+  it("accepts calling default imports backed by export-equals function typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(root, "pkg", MINI_DTS);
+
+    const mainPath = join(root, "main.vx");
+    const source = `import pkg from "pkg"\nconst result = pkg("hello")\n`;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
+    const declarations = await collectImportedTypeDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, declarations, symbolTypes);
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain("Type 'pkg' is not callable");
   });
 
 
@@ -245,6 +261,66 @@ describe("node_modules typings resolution", () => {
 
     expect(typeToString(collected.importedSymbolTypes.get("useState")!)).toBe("<S>(initialState: S | () => S) => [S, Dispatch<StateUpdater<S>>]");
     expect(typeToString(collected.importedSymbolTypes.get("render")!)).toBe("(vnode: unknown, parent: unknown) => void");
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("preserves node_modules named import overloads so calls can select the matching signature", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "preact");
+    await mkdir(join(pkgDir, "hooks", "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "preact",
+        types: "./src/index.d.ts",
+        exports: {
+          ".": {
+            types: "./src/index.d.ts"
+          },
+          "./hooks": {
+            types: "./hooks/src/index.d.ts"
+          }
+        }
+      }),
+      "utf8"
+    );
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(join(pkgDir, "src", "index.d.ts"), "export {};\n", "utf8");
+    await writeFile(
+      join(pkgDir, "hooks", "src", "index.d.ts"),
+      dedent`
+        export type Dispatch<A> = (value: A) => void;
+        export type StateUpdater<S> = S | ((prevState: S) => S);
+        export function useState<S>(initialState: S | (() => S)): [S, Dispatch<StateUpdater<S>>];
+        export function useState<S = undefined>(): [S | undefined, Dispatch<StateUpdater<S | undefined>>];
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { useState } from "preact/hooks"
+
+      var count by useState(0)
+      count++
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(collected.importedSymbolTypes.get("useState")?.kind).toBe("union");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
@@ -708,6 +784,67 @@ describe("node_modules typings resolution", () => {
     );
 
     expect(typeToString(collected.importedSymbolTypes.get("useEffect")!)).toBe("(effect: EffectCallback, inputs: Inputs) => void");
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("accepts node_modules hook callbacks whose cleanup returns another function type", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "preact");
+    await mkdir(join(pkgDir, "hooks", "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "preact",
+        types: "./src/index.d.ts",
+        exports: {
+          ".": {
+            types: "./src/index.d.ts"
+          },
+          "./hooks": {
+            types: "./hooks/src/index.d.ts"
+          }
+        }
+      }),
+      "utf8"
+    );
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(join(pkgDir, "src", "index.d.ts"), "export {};\n", "utf8");
+    await writeFile(
+      join(pkgDir, "hooks", "src", "index.d.ts"),
+      dedent`
+        type Inputs = ReadonlyArray<unknown>;
+        type EffectCallback = () => void | (() => void);
+        export function useEffect(effect: EffectCallback, inputs?: Inputs): void;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { useEffect } from "preact/hooks"
+
+      fun App() {
+        useEffect(() => {
+          return () => {}
+        }, [])
+      }
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 

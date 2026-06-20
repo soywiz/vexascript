@@ -9,9 +9,8 @@ interface SampleEntrypoint {
 }
 
 const skippedSamples = new Set([
-  "minimist",
-  "pixi",
   "preact",
+  "react",
   "syntax-tour"
 ]);
 

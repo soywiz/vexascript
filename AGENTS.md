@@ -43,6 +43,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - We follow TDD (Test-Driven Development).
 - Every new feature must include tests in the same change.
 - The official test suite runs with node tests.
+- Do not modify repository samples just to make tests pass. Changing sample code is only acceptable when it reflects the real intended user-facing API or behavior. Sample-side workarounds that hide compiler, runtime, or LSP bugs do not satisfy project goals.
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
 - Before closing any task, the full test suite must pass.
 - In LSP/editor tests, prefer the `^^^` cursor-marker style with the shared helper in `compiler/test/sourceWithCursor.ts` instead of hardcoded line/column coordinates whenever practical.

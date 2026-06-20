@@ -16,10 +16,11 @@ import type { ResolveContext } from "./crossFileContext";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { uriToFilePath } from "./importFixes";
 import { findBestMatchAtPosition } from "./nodeSearch";
+import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { containsPosition, nodeRange } from "./ranges";
 import { formatFunctionTypeLabel } from "./functionTypeDisplay";
 import { findMatchingTypeDelimiter, findTopLevelTypeCharacter, splitOptionalTypeSuffix, splitTopLevelDelimitedTypeText, splitTopLevelTypeText, stripEnclosingTypeParens } from "compiler/analysis/typeNames";
-import type { ClassStatement, FunctionParameter, Identifier, InterfaceStatement, MemberExpression, Program, Statement, TypeAliasStatement } from "compiler/ast/ast";
+import type { ClassStatement, FunctionParameter, Identifier, ImportStatement, InterfaceStatement, MemberExpression, Program, Statement, TypeAliasStatement } from "compiler/ast/ast";
 import { bindingNameText } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
 import { getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
@@ -381,6 +382,11 @@ export async function resolveTypeDefinitionAcrossFiles(
   });
 
   if (!resolved) {
+    const nodeModuleResolved = await resolveImportedNodeModuleTypeDefinition(context, typeName);
+    if (nodeModuleResolved) {
+      return nodeModuleResolved;
+    }
+
     const ambientDeclaration = findAmbientTypeDeclaration(
       context.session.ambientDeclarations ?? [],
       typeName,
@@ -411,6 +417,59 @@ export async function resolveTypeDefinitionAcrossFiles(
     declaration: resolved.declaration,
     filePath: await preferVirtualRuntimeDeclarationFilePath(resolvedFilePath, context)
   };
+}
+
+async function resolveImportedNodeModuleTypeDefinition(
+  context: ResolveContext,
+  typeName: string
+): Promise<{ declaration: TypeLikeDeclaration; filePath: string } | null> {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath || !context.session.ast) {
+    return null;
+  }
+
+  for (const statement of context.session.ast.body) {
+    if (statement.kind !== "ImportStatement") {
+      continue;
+    }
+
+    const importStatement = statement as ImportStatement;
+    const importPath = importStatement.from.value;
+    if (importPath.startsWith(".") || importPath.startsWith("/")) {
+      continue;
+    }
+
+    const typings = await getNodeModuleTypings(currentFilePath, importPath, { vfs: context.vfs });
+    if (!typings) {
+      continue;
+    }
+
+    for (const entry of typings.declarationEntries) {
+      const declaration = unwrapExportedDeclaration(entry.statement) ?? entry.statement;
+      if (declaration.kind === "ClassStatement") {
+        const classDeclaration = declaration as ClassStatement;
+        if (classDeclaration.name.name !== typeName) {
+          continue;
+        }
+        return {
+          declaration: classDeclaration,
+          filePath: entry.typingsPath
+        };
+      }
+      if (declaration.kind === "InterfaceStatement") {
+        const interfaceDeclaration = declaration as InterfaceStatement;
+        if (interfaceDeclaration.name.name !== typeName) {
+          continue;
+        }
+        return {
+          declaration: interfaceDeclaration,
+          filePath: entry.typingsPath
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 export function findAmbientTypeDeclaration(

@@ -1,4 +1,5 @@
 import { baseTypeName } from "compiler/analysis/typeNames";
+import { arrayType, builtinType, namedType, UNKNOWN_TYPE } from "compiler/analysis/types";
 import type { Identifier } from "compiler/ast/ast";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
@@ -11,9 +12,24 @@ import {
   resolveClassStatementAcrossFiles,
   resolveExpressionTypeName as resolveCrossFileExpressionTypeName
 } from "./classResolver";
+import { resolveExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberDefinitionSources";
 import { collectMemberExpressions } from "./crossFileTypeResolution";
 import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
 import { uriToFilePath } from "./importFixes";
+import { parseTypeNameShape } from "compiler/analysis/typeNames";
+
+function analysisTypeFromTypeName(typeName: string) {
+  const normalized = arrayTypeNameToArrayAlias(boxedCompletionTypeName(typeName)) ?? typeName;
+  const shape = parseTypeNameShape(normalized);
+  if (shape.arrayDepth > 0) {
+    return arrayType(UNKNOWN_TYPE);
+  }
+  const baseName = shape.baseName;
+  if (baseName === "int" || baseName === "number" || baseName === "string" || baseName === "boolean" || baseName === "bigint" || baseName === "long" || baseName === "void" || baseName === "unknown") {
+    return builtinType(baseName);
+  }
+  return namedType(baseName);
+}
 
 interface CollectMemberDiagnosticsParams {
   uri: string;
@@ -87,6 +103,23 @@ export async function collectCrossFileMemberDiagnostics(
     if (resolvedMember) {
       continue;
     }
+    const resolvedExtensionMember = await resolveExtensionMemberDeclarationAcrossFiles(
+      {
+        uri,
+        line: firstTokenOrZero(member).line,
+        character: firstTokenOrZero(member).character,
+        session,
+        sourceRoots,
+        ...(params.getSessionForFilePath
+          ? { getSessionForFilePath: params.getSessionForFilePath }
+          : {})
+      },
+      analysisTypeFromTypeName(resolvedObjectTypeName),
+      memberName
+    );
+    if (resolvedExtensionMember) {
+      continue;
+    }
 
     const firstToken = member.property.firstToken;
     const lastToken = member.property.lastToken;
@@ -119,4 +152,11 @@ export async function collectCrossFileMemberDiagnostics(
   }
 
   return diagnostics;
+}
+
+function firstTokenOrZero(member: { firstToken?: { range: { start: { line: number; column: number } } } }): { line: number; character: number } {
+  return {
+    line: member.firstToken?.range.start.line ?? 0,
+    character: member.firstToken?.range.start.column ?? 0
+  };
 }

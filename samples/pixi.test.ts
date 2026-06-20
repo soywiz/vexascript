@@ -32,6 +32,9 @@ describe("pixi sample", () => {
 
     const result = await openEntrypointInLspSession(sourcePath);
 
-    expect(result.documentDiagnostics.filter((diagnostic) => diagnostic.severity === 1)).toEqual([]);
+    const errors = [...result.documentDiagnostics, ...result.workspaceDiagnostics]
+      .filter((diagnostic) => diagnostic.severity === 1);
+
+    expect(errors).toEqual([]);
   });
 });

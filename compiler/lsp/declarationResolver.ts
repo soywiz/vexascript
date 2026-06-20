@@ -26,6 +26,7 @@ import {
   scanProjectMyFiles,
   type ProjectContext
 } from "./projectAnalysis";
+import { getNodeModuleTypings } from "./nodeModulesTypings";
 
 export type NamedTopLevelDeclaration =
   | AnnotationStatement
@@ -170,6 +171,27 @@ function findImportableTopLevelDeclarationInProgram<T extends Statement>(
   return null;
 }
 
+function findImportableTopLevelDeclarationInTypings<T extends Statement>(
+  declarations: Array<{ statement: Statement; typingsPath: string }>,
+  name: string,
+  predicate: TopLevelDeclarationPredicate<T>
+): ResolvedTopLevelDeclaration<T> | null {
+  for (const entry of declarations) {
+    const declaration = unwrapExportedDeclaration(entry.statement) ?? entry.statement;
+    if (!predicate(declaration)) {
+      continue;
+    }
+    if (!importableTopLevelDeclarationNames(entry.statement, entry.typingsPath).includes(name)) {
+      continue;
+    }
+    return {
+      declaration,
+      filePath: entry.typingsPath
+    };
+  }
+  return null;
+}
+
 async function runtimeDeclarationsForCurrentFile(currentFilePath: string | null): Promise<Array<{
   ast: Program;
   filePath: string;
@@ -240,24 +262,42 @@ export async function resolveTopLevelDeclarationAcrossFiles<T extends Statement>
             : {})
         }
       );
-      if (!targetFilePath) {
+      if (targetFilePath) {
+        const targetSession = await getProjectSessionForFilePath(targetFilePath, options);
+        if (!targetSession?.ast) {
+          continue;
+        }
+        const targetDeclaration = findImportableTopLevelDeclarationInProgram(
+          targetSession.ast,
+          importedName,
+          targetFilePath,
+          options.predicate
+        );
+        if (targetDeclaration) {
+          return {
+            declaration: targetDeclaration,
+            filePath: targetFilePath
+          };
+        }
+      }
+
+      if (importStatement.from.value.startsWith(".") || importStatement.from.value.startsWith("/")) {
         continue;
       }
-      const targetSession = await getProjectSessionForFilePath(targetFilePath, options);
-      if (!targetSession?.ast) {
+
+      const typings = await getNodeModuleTypings(options.currentFilePath, importStatement.from.value, {
+        vfs: options.vfs
+      });
+      if (!typings) {
         continue;
       }
-      const targetDeclaration = findImportableTopLevelDeclarationInProgram(
-        targetSession.ast,
+      const targetDeclaration = findImportableTopLevelDeclarationInTypings(
+        typings.declarationEntries,
         importedName,
-        targetFilePath,
         options.predicate
       );
       if (targetDeclaration) {
-        return {
-          declaration: targetDeclaration,
-          filePath: targetFilePath
-        };
+        return targetDeclaration;
       }
     }
   }

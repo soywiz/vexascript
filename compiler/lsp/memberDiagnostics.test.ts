@@ -1,7 +1,8 @@
-import { describe, expect, it, join, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 
 describe("cross-file member diagnostics", () => {
   it("reports unknown class members for imported classes", async () => {
@@ -136,5 +137,150 @@ fun demo(items: Token[]) {
       "Property 'length' does not exist on type 'Token[]'"
     );
     expect(diagnostics).toEqual([]);
+  });
+
+  it("does not report imported extension methods declared on a base class for subclass receivers from d.ts files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
+    const runtimeFile = join(root, "pixi.d.ts");
+    const utilsFile = join(root, "utils.vx");
+    const helloFile = join(root, "hello.vx");
+
+    const runtimeSource = dedent`
+      export declare class Container {
+        addChild(child: unknown): void;
+      }
+      export declare class ViewContainer extends Container {}
+      export declare class Graphics extends ViewContainer {}
+      export declare class AbstractText extends ViewContainer {}
+      export declare class Text extends AbstractText {}
+    `;
+    const utilsSource = dedent`
+      import { Container } from "./pixi"
+      fun Container.addTo(other: Container) {
+        other.addChild(this)
+      }
+    `;
+    const helloSource = dedent`
+      import { Graphics, Text, Container } from "./pixi"
+      import { addTo } from "./utils"
+      fun demo() {
+        val stage = Container()
+        Graphics()
+          ..addTo(stage)
+        Text()
+          ..addTo(stage)
+      }
+    `;
+
+    await writeFile(runtimeFile, runtimeSource, "utf8");
+    await writeFile(utilsFile, utilsSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const baseSession = createAnalysisSession(helloSource);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(helloFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(
+      helloSource,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const diagnostics = await collectCrossFileMemberDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'addTo' does not exist on type 'Graphics'"
+    );
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'addTo' does not exist on type 'Text'"
+    );
+  });
+
+  it("does not report imported extension methods declared on a base class for subclass receivers from node_modules typings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
+    const packageDir = join(root, "node_modules", "pixi.js");
+    const utilsFile = join(root, "utils.vx");
+    const helloFile = join(root, "hello.vx");
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "pixi.js", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "index.d.ts"),
+      dedent`
+        export declare class Container {
+          addChild(child: unknown): void;
+        }
+        export declare class ViewContainer extends Container {}
+        export declare class Graphics extends ViewContainer {}
+        export declare class AbstractText extends ViewContainer {}
+        export declare class Text extends AbstractText {}
+      `,
+      "utf8"
+    );
+    await writeFile(
+      utilsFile,
+      dedent`
+        import { Container } from "pixi.js"
+        fun Container.addTo(other: Container) {
+          other.addChild(this)
+        }
+      `,
+      "utf8"
+    );
+    const helloSource = dedent`
+      import { Graphics, Text, Container } from "pixi.js"
+      import { addTo } from "./utils"
+      fun demo() {
+        val stage = Container()
+        Graphics()
+          ..addTo(stage)
+        Text()
+          ..addTo(stage)
+      }
+    `;
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const baseSession = createAnalysisSession(helloSource);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(helloFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(
+      helloSource,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const diagnostics = await collectCrossFileMemberDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'addTo' does not exist on type 'Graphics'"
+    );
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'addTo' does not exist on type 'Text'"
+    );
   });
 });

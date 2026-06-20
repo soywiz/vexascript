@@ -147,35 +147,14 @@ function importedTypeParameterDefaultMap(typeParameters: readonly { name: Identi
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
-function collapseFunctionOverloads(overloads: FunctionType[]): FunctionType {
-  const first = overloads[0]!;
-  const maxParameterCount = Math.max(...overloads.map((overload) => overload.parameters.length));
-  const parameters = Array.from({ length: maxParameterCount }, (_, index) => {
-    const candidates = overloads
-      .map((overload) => overload.parameters[index])
-      .filter((parameter): parameter is FunctionType["parameters"][number] => parameter != null);
-    return {
-      name: candidates[0]?.name ?? `arg${index}`,
-      type: unionIfNeeded(candidates.map((parameter) => parameter.type)),
-      optional: candidates.every((parameter) => parameter.optional === true) || candidates.length < overloads.length,
-      rest: candidates.some((parameter) => parameter.rest === true)
-    };
-  });
-  return functionType(
-    parameters,
-    unionIfNeeded(overloads.map((overload) => overload.returnType)),
-    first.typeParameters,
-    undefined,
-    undefined,
-    first.assertion
-  );
-}
-
 function localExportBindingNamesForExportedName(
   declarations: readonly Statement[],
   exportedName: string
 ): Set<string> {
   const localNames = new Set<string>();
+  if (detectAmbientExportEqualsName(declarations) === exportedName) {
+    localNames.add(exportedName);
+  }
   for (const statement of declarations) {
     if (statement.kind !== "ExportStatement") {
       continue;
@@ -354,6 +333,26 @@ function typeFromAnnotationText(
         .filter((member) => member !== UNKNOWN_TYPE)
     };
   }
+  const parsedFunctionType = parseFunctionTypeAnnotation(normalized);
+  if (parsedFunctionType) {
+    return functionType(
+      parsedFunctionType.parameters.map((parameter) => ({
+        name: parameter.name,
+        type: typeFromAnnotationText(
+          parameter.typeName,
+          declarations,
+          resolvingImportTypes
+        ),
+        ...(parameter.optional ? { optional: true } : {}),
+        ...(parameter.rest ? { rest: true } : {})
+      })),
+      typeFromAnnotationText(parsedFunctionType.returnTypeName, declarations, resolvingImportTypes),
+      undefined,
+      undefined,
+      undefined,
+      importedAssertionTypeFromText(parsedFunctionType.returnTypeName, declarations, resolvingImportTypes)
+    );
+  }
   const unionParts = splitTopLevelTypeText(normalized, "|");
   if (unionParts.length > 1) {
     return unionType(unionParts.map((part) => typeFromAnnotationText(part, declarations, resolvingImportTypes)));
@@ -361,31 +360,6 @@ function typeFromAnnotationText(
   const intersectionParts = splitTopLevelTypeText(normalized, "&");
   if (intersectionParts.length > 1) {
     return intersectionType(intersectionParts.map((part) => typeFromAnnotationText(part, declarations, resolvingImportTypes)));
-  }
-  const arrowIndex = normalized.indexOf("=>");
-  const parameterListEnd = normalized.startsWith("(")
-    ? findMatchingTypeDelimiter(normalized, 0, "(", ")")
-    : -1;
-  if (parameterListEnd > 0 && arrowIndex > parameterListEnd) {
-    const parameterText = normalized.slice(1, parameterListEnd).trim();
-    const returnText = normalized.slice(arrowIndex + 2).trim();
-    return functionType(
-      parameterText.length === 0
-        ? []
-        : splitTopLevelDelimitedTypeText(parameterText, new Set([","])).map((parameter, index) => ({
-            name: `arg${index}`,
-            type: typeFromAnnotationText(
-              parameter.split(":").slice(1).join(":").trim() || parameter.trim(),
-              declarations,
-              resolvingImportTypes
-            )
-          })),
-      typeFromAnnotationText(returnText, declarations, resolvingImportTypes),
-      undefined,
-      undefined,
-      undefined,
-      importedAssertionTypeFromText(returnText, declarations, resolvingImportTypes)
-    );
   }
   const parsed = parseTypeNameShape(normalized);
   const resolvedTypeArguments = parsed.typeArguments.map((argument) =>
@@ -470,7 +444,10 @@ function callableTypeFromExternalFunction(
   if (overloads.length === 0) {
     return null;
   }
-  return overloads.length === 1 ? overloads[0]! : collapseFunctionOverloads(overloads);
+  // Preserve external overloads as distinct callable candidates so the type
+  // checker can select the right signature at call sites instead of widening
+  // the return type into a single merged function.
+  return overloads.length === 1 ? overloads[0]! : unionType(overloads);
 }
 
 function displayTypeForExternalFunction(declarations: readonly Statement[], name: string): string | null {
@@ -1500,28 +1477,6 @@ function typeFromAmbientAnnotationText(
   if (normalized.startsWith("asserts ")) {
     return builtinType("void");
   }
-  const unionParts = splitTopLevelTypeText(normalized, "|");
-  if (unionParts.length > 1) {
-    return unionType(unionParts.map((part) =>
-      typeFromAmbientAnnotationText(part, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
-    ));
-  }
-  const intersectionParts = splitTopLevelTypeText(normalized, "&");
-  if (intersectionParts.length > 1) {
-    return intersectionType(intersectionParts.map((part) =>
-      typeFromAmbientAnnotationText(part, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
-    ));
-  }
-  const objectType = objectTypeFromAmbientAnnotationText(
-    normalized,
-    declarations,
-    ambientModuleDeclarations,
-    ambientGlobalDeclarations,
-    visited
-  );
-  if (objectType) {
-    return objectType;
-  }
   const parsedFunctionType = parseFunctionTypeAnnotation(normalized);
   if (parsedFunctionType) {
     return functionType(
@@ -1556,6 +1511,28 @@ function typeFromAmbientAnnotationText(
         visited
       )
     );
+  }
+  const unionParts = splitTopLevelTypeText(normalized, "|");
+  if (unionParts.length > 1) {
+    return unionType(unionParts.map((part) =>
+      typeFromAmbientAnnotationText(part, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    ));
+  }
+  const intersectionParts = splitTopLevelTypeText(normalized, "&");
+  if (intersectionParts.length > 1) {
+    return intersectionType(intersectionParts.map((part) =>
+      typeFromAmbientAnnotationText(part, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    ));
+  }
+  const objectType = objectTypeFromAmbientAnnotationText(
+    normalized,
+    declarations,
+    ambientModuleDeclarations,
+    ambientGlobalDeclarations,
+    visited
+  );
+  if (objectType) {
+    return objectType;
   }
   const readonlyContainer = parseReadonlyContainerTypeText(normalized);
   if (readonlyContainer?.kind === "tuple") {
@@ -2299,6 +2276,7 @@ function collectNodeModuleNamespaceExportedProperties(
   statements: readonly Statement[]
 ): Record<string, AnalysisType> {
   const properties: Record<string, AnalysisType> = {};
+  const functionOverloads = new Map<string, FunctionType[]>();
   for (const statement of statements) {
     const declaration =
       statement.kind === "ExportStatement"
@@ -2307,7 +2285,9 @@ function collectNodeModuleNamespaceExportedProperties(
 
     if (declaration.kind === "FunctionStatement") {
       const fn = declaration as FunctionStatement;
-      properties[fn.name.name] = buildFunctionTypeFromStatement(fn);
+      const overloads = functionOverloads.get(fn.name.name) ?? [];
+      overloads.push(buildFunctionTypeFromStatement(fn) as FunctionType);
+      functionOverloads.set(fn.name.name, overloads);
       continue;
     }
     if (declaration.kind === "VarStatement") {
@@ -2341,7 +2321,33 @@ function collectNodeModuleNamespaceExportedProperties(
       }
     }
   }
+  for (const [name, overloads] of functionOverloads) {
+    // Namespace-shaped object properties do not preserve call-site overload
+    // resolution well. Prefer the first declared signature over widening to a
+    // union-like collapsed callable that can degrade downstream inference.
+    properties[name] = overloads[0]!;
+  }
   return properties;
+}
+
+function resolveNodeModuleDefaultImportType(
+  declarations: readonly Statement[],
+  defaultExportName: string,
+  resolvingImportTypes: Set<string> = new Set()
+): AnalysisType {
+  const exportType = namedType(defaultExportName);
+  const callableExport = callableTypeFromExternalFunction(declarations, defaultExportName, resolvingImportTypes);
+  const namespaceBody = findAmbientNamespaceBody(declarations, defaultExportName);
+  if (namespaceBody) {
+    const namespaceExports = collectNodeModuleNamespaceExportedProperties(namespaceBody);
+    if (Object.keys(namespaceExports).length > 0) {
+      const namespaceType = objectTypeWithProperties(namespaceExports);
+      return callableExport
+        ? intersectionType([callableExport, namespaceType])
+        : namespaceType;
+    }
+  }
+  return callableExport ?? exportType;
 }
 
 function resolveAmbientDefaultImportType(
@@ -3100,7 +3106,10 @@ export async function collectAllImportedDeclarations(
           : null;
         if (nodeModuleTypings.defaultExportName) {
           const exportType = namedType(nodeModuleTypings.defaultExportName);
-          const defaultImportType = callableTypeFromExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName) ?? exportType;
+          const defaultImportType = resolveNodeModuleDefaultImportType(
+            nodeModuleTypings.declarations,
+            nodeModuleTypings.defaultExportName
+          );
           if (importStatement.defaultImport) {
             importedSymbolTypes.set(importStatement.defaultImport.name, defaultImportType);
             const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName);
@@ -3378,7 +3387,10 @@ export async function collectImportedSymbolTypes(
       const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
       if (nodeModuleTypings?.defaultExportName) {
         const exportType = namedType(nodeModuleTypings.defaultExportName);
-        const defaultImportType = callableTypeFromExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName) ?? exportType;
+        const defaultImportType = resolveNodeModuleDefaultImportType(
+          nodeModuleTypings.declarations,
+          nodeModuleTypings.defaultExportName
+        );
         const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
         const namespaceImportType = Object.keys(namespaceExportProperties).length > 0
           ? objectTypeWithProperties(namespaceExportProperties)

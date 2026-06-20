@@ -8,6 +8,7 @@ import type {
   ExportStatement,
   FunctionStatement,
   Identifier,
+  ImportStatement,
   MemberExpression,
   NewExpression,
   Node,
@@ -32,6 +33,8 @@ import {
   readDocumentationFromNamedNode
 } from "./documentation";
 import { formatParameterLabel } from "./functionTypeDisplay";
+import { uriToFilePath } from "./importFixes";
+import { getNodeModuleTypings } from "./nodeModulesTypings";
 import { findBestMatch } from "./nodeSearch";
 import { resolveCursorTarget, type CursorTarget } from "./navigation";
 import { comparePosition, containsPosition, nodeRange, rangeSize, type NodeRange, type Position } from "./ranges";
@@ -312,6 +315,42 @@ function ambientDefaultImportMemberSignatures(
   return [];
 }
 
+async function nodeModuleDefaultImportMemberSignatures(
+  program: Program,
+  callee: MemberExpression,
+  options: ClassResolverOptions
+): Promise<SignatureInformation[]> {
+  if (callee.object.kind !== "Identifier" || callee.property.kind !== "Identifier") {
+    return [];
+  }
+  const currentFilePath = options.uri ? uriToFilePath(options.uri) : null;
+  if (!currentFilePath) {
+    return [];
+  }
+
+  const receiverName = (callee.object as Identifier).name;
+  const memberName = (callee.property as Identifier).name;
+  const importStatement = program.body.find((statement) =>
+    statement.kind === "ImportStatement"
+    && (statement as ImportStatement).defaultImport?.name === receiverName
+  ) as ImportStatement | undefined;
+  if (!importStatement) {
+    return [];
+  }
+
+  const typings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: options.vfs });
+  const defaultExportName = typings?.defaultExportName;
+  if (!typings || !defaultExportName) {
+    return [];
+  }
+
+  const namespaceBody = findAmbientNamespaceBody(typings.declarations, defaultExportName);
+  if (!namespaceBody) {
+    return [];
+  }
+  return collectAmbientFunctionOverloads(namespaceBody, memberName);
+}
+
 function bestActiveSignature(signatures: SignatureInformation[], activeParameter: number, argumentCount: number): number {
   // Selects the best signature for display based on argument count.
   // The counterpart for definition navigation (jump-to-declaration) is
@@ -448,6 +487,17 @@ async function buildSignaturesFromSymbol(
     );
     if (displaySignatures.length > 0) {
       return displaySignatures;
+    }
+  }
+
+  if (context.callee.kind === "MemberExpression") {
+    const nodeModuleSignatures = await nodeModuleDefaultImportMemberSignatures(
+      program,
+      context.callee as MemberExpression,
+      options
+    );
+    if (nodeModuleSignatures.length > 0) {
+      return nodeModuleSignatures;
     }
   }
 
