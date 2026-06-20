@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, join, mkdir, mkdtemp, resolve, rm, tmpdir, writeFile } from "./test/expect";
-import { resolveImportTargetFilePath, resolveNodeModulesTypingsPath } from "./moduleResolution";
+import {
+  clearNodeModulesTypingsPathCache,
+  resolveImportTargetFilePath,
+  resolveNodeModulesTypingsPath
+} from "./moduleResolution";
 import { compileSource } from "./pipeline/compile";
 import { Vfs, VfsStat } from "./vfs";
 
@@ -118,9 +122,11 @@ describe("resolveNodeModulesTypingsPath", () => {
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vexa-node-modules-typings-"));
+    clearNodeModulesTypingsPathCache();
   });
 
   afterEach(async () => {
+    clearNodeModulesTypingsPathCache();
     await rm(root, { recursive: true, force: true });
   });
 
@@ -191,5 +197,32 @@ describe("resolveNodeModulesTypingsPath", () => {
     await writeFile(dtsPath, "export declare function useState<S>(value: S): [S, (value: S) => void];", "utf8");
 
     expect(await resolveNodeModulesTypingsPath(join(root, "main.vx"), "preact/hooks")).toBe(dtsPath);
+  });
+
+  it("clears cached typings paths when requested", async () => {
+    const importerPath = join(root, "main.vx");
+    const initialTypesDir = join(root, "node_modules", "@types", "minimist");
+    await mkdir(initialTypesDir, { recursive: true });
+    const initialPath = join(initialTypesDir, "index.d.ts");
+    await writeFile(join(initialTypesDir, "package.json"), JSON.stringify({ name: "@types/minimist" }), "utf8");
+    await writeFile(initialPath, "export declare const initial: number;\n", "utf8");
+
+    expect(await resolveNodeModulesTypingsPath(importerPath, "minimist")).toBe(initialPath);
+
+    await rm(join(root, "node_modules"), { recursive: true, force: true });
+
+    const replacementTypesDir = join(root, "node_modules", "@types", "minimist");
+    await mkdir(replacementTypesDir, { recursive: true });
+    const replacementPath = join(replacementTypesDir, "next.d.ts");
+    await writeFile(
+      join(replacementTypesDir, "package.json"),
+      JSON.stringify({ name: "@types/minimist", types: "next.d.ts" }),
+      "utf8"
+    );
+    await writeFile(replacementPath, "export declare const next: number;\n", "utf8");
+
+    clearNodeModulesTypingsPathCache();
+
+    expect(await resolveNodeModulesTypingsPath(importerPath, "minimist")).toBe(replacementPath);
   });
 });

@@ -84,11 +84,19 @@ interface NodeModuleResolutionCache {
   namespaceExportProperties?: Record<string, AnalysisType>;
 }
 
+interface AmbientModuleResolutionCache {
+  defaultImportTypes: Map<string, AnalysisType | null>;
+  namedImportTypes: Map<string, AnalysisType | null>;
+  namedImportDisplayTypes: Map<string, string | null>;
+}
+
 const nodeModuleResolutionCaches = new WeakMap<readonly Statement[], NodeModuleResolutionCache>();
+const ambientModuleResolutionCaches = new WeakMap<ReadonlyMap<string, Statement[]>, AmbientModuleResolutionCache>();
 
 interface NodeModuleDeclarationIndex {
   declarationsByName: Map<string, Statement[]>;
   dependencyNamesByStatement: WeakMap<Statement, readonly string[]>;
+  localExportBindingNamesByExportedName: Map<string, readonly string[]>;
 }
 
 const nodeModuleDeclarationIndexes = new WeakMap<readonly Statement[], NodeModuleDeclarationIndex>();
@@ -108,6 +116,22 @@ function getNodeModuleResolutionCache(declarations: readonly Statement[]): NodeM
   return created;
 }
 
+function getAmbientModuleResolutionCache(
+  ambientModuleDeclarations: ReadonlyMap<string, Statement[]>
+): AmbientModuleResolutionCache {
+  const cached = ambientModuleResolutionCaches.get(ambientModuleDeclarations);
+  if (cached) {
+    return cached;
+  }
+  const created: AmbientModuleResolutionCache = {
+    defaultImportTypes: new Map(),
+    namedImportTypes: new Map(),
+    namedImportDisplayTypes: new Map()
+  };
+  ambientModuleResolutionCaches.set(ambientModuleDeclarations, created);
+  return created;
+}
+
 function getNodeModuleDeclarationIndex(declarations: readonly Statement[]): NodeModuleDeclarationIndex {
   const cached = nodeModuleDeclarationIndexes.get(declarations);
   if (cached) {
@@ -116,6 +140,7 @@ function getNodeModuleDeclarationIndex(declarations: readonly Statement[]): Node
 
   const declarationsByName = new Map<string, Statement[]>();
   const dependencyNamesByStatement = new WeakMap<Statement, readonly string[]>();
+  const localExportBindingNamesByExportedName = new Map<string, string[]>();
 
   for (const declaration of declarations) {
     const declarationName = importableDeclarationName(declaration);
@@ -131,11 +156,31 @@ function getNodeModuleDeclarationIndex(declarations: readonly Statement[]): Node
     const dependencyNames = new Set<string>();
     collectTypeQueryDependencyNames(declaration, dependencyNames);
     dependencyNamesByStatement.set(declaration, [...dependencyNames]);
+
+    if (detectAmbientExportEqualsName([declaration])) {
+      const exportedName = detectAmbientExportEqualsName([declaration])!;
+      const existing = localExportBindingNamesByExportedName.get(exportedName) ?? [];
+      if (!existing.includes(exportedName)) {
+        localExportBindingNamesByExportedName.set(exportedName, [...existing, exportedName]);
+      }
+    }
+
+    if (declaration.kind === "ExportStatement") {
+      const exportStatement = declaration as { specifiers?: Array<{ exported: Identifier; local?: Identifier }> };
+      for (const specifier of exportStatement.specifiers ?? []) {
+        const existing = localExportBindingNamesByExportedName.get(specifier.exported.name) ?? [];
+        const localName = specifier.local?.name ?? specifier.exported.name;
+        if (!existing.includes(localName)) {
+          localExportBindingNamesByExportedName.set(specifier.exported.name, [...existing, localName]);
+        }
+      }
+    }
   }
 
   const created: NodeModuleDeclarationIndex = {
     declarationsByName,
-    dependencyNamesByStatement
+    dependencyNamesByStatement,
+    localExportBindingNamesByExportedName
   };
   nodeModuleDeclarationIndexes.set(declarations, created);
   return created;
@@ -216,23 +261,9 @@ function localExportBindingNamesForExportedName(
   declarations: readonly Statement[],
   exportedName: string
 ): Set<string> {
-  const localNames = new Set<string>();
-  if (detectAmbientExportEqualsName(declarations) === exportedName) {
-    localNames.add(exportedName);
-  }
-  for (const statement of declarations) {
-    if (statement.kind !== "ExportStatement") {
-      continue;
-    }
-    const exportStatement = statement as { specifiers?: Array<{ exported: Identifier; local?: Identifier }> };
-    for (const specifier of exportStatement.specifiers ?? []) {
-      if (specifier.exported.name !== exportedName) {
-        continue;
-      }
-      localNames.add(specifier.local?.name ?? specifier.exported.name);
-    }
-  }
-  return localNames;
+  return new Set(
+    getNodeModuleDeclarationIndex(declarations).localExportBindingNamesByExportedName.get(exportedName) ?? []
+  );
 }
 
 interface ImportTypeReferenceText {
@@ -444,11 +475,21 @@ function externalFunctionOverloads(
   name: string,
   resolvingImportTypes: Set<string> = new Set()
 ): FunctionType[] {
+  const declarationIndex = getNodeModuleDeclarationIndex(declarations);
   const locallyExportedNames = localExportBindingNamesForExportedName(declarations, name);
+  const candidateNames = new Set<string>([name, ...locallyExportedNames]);
   const overloads: FunctionType[] = [];
-  for (const statement of declarations) {
-    const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : undefined;
-    if (declaration?.kind === "FunctionStatement" && (declaration as FunctionStatement).name.name === name) {
+  const seenStatements = new Set<Statement>();
+  for (const candidateName of candidateNames) {
+    for (const statement of declarationIndex.declarationsByName.get(candidateName) ?? []) {
+      if (seenStatements.has(statement)) {
+        continue;
+      }
+      seenStatements.add(statement);
+      const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : statement;
+      if (declaration?.kind !== "FunctionStatement") {
+        continue;
+      }
       const fn = declaration as FunctionStatement;
       overloads.push(functionType(
         fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => {
@@ -468,34 +509,7 @@ function externalFunctionOverloads(
         importedTypeParameterDefaultMap(fn.typeParameters),
         importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes)
       ));
-      continue;
     }
-
-    if (statement.kind !== "FunctionStatement") {
-      continue;
-    }
-    const fn = statement as FunctionStatement;
-    if (!locallyExportedNames.has(fn.name.name)) {
-      continue;
-    }
-    overloads.push(functionType(
-      fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => {
-      const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name, declarations, resolvingImportTypes);
-      const isRest = parameter.rest === true;
-      const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
-      return {
-        name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
-        type,
-          optional: parameter.optional === true || parameter.defaultValue !== undefined || isRest,
-          rest: isRest
-        };
-      }),
-      typeFromAnnotationText(fn.returnType?.name, declarations, resolvingImportTypes),
-      fn.typeParameters?.map((parameter) => parameter.name.name),
-      importedTypeParameterConstraintMap(fn.typeParameters),
-      importedTypeParameterDefaultMap(fn.typeParameters),
-      importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes)
-    ));
   }
   return overloads;
 }
@@ -542,6 +556,7 @@ function resolveNodeModuleNamedImportType(
   resolvingImportTypes: Set<string> = new Set()
 ): AnalysisType | null {
   const resolutionCache = getNodeModuleResolutionCache(declarations);
+  const declarationIndex = getNodeModuleDeclarationIndex(declarations);
   const cached = resolutionCache.namedImportTypes.get(importedName);
   if (cached !== undefined) {
     return cached;
@@ -553,66 +568,44 @@ function resolveNodeModuleNamedImportType(
   }
 
   const locallyExportedNames = localExportBindingNamesForExportedName(declarations, importedName);
-  for (const statement of declarations) {
-    const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : undefined;
-    if (declaration) {
-      if (declaration.kind === "ClassStatement" && (declaration as ClassStatement).name.name === importedName) {
+  const candidateNames = new Set<string>([importedName, ...locallyExportedNames]);
+  const seenStatements = new Set<Statement>();
+  for (const candidateName of candidateNames) {
+    for (const statement of declarationIndex.declarationsByName.get(candidateName) ?? []) {
+      if (seenStatements.has(statement)) {
+        continue;
+      }
+      seenStatements.add(statement);
+      const declaration = statement.kind === "ExportStatement"
+        ? unwrapExportedDeclaration(statement) ?? statement
+        : statement;
+      if (declaration.kind === "ClassStatement") {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
       }
-      if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === importedName) {
+      if (declaration.kind === "InterfaceStatement") {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
       }
-      if (declaration.kind === "EnumStatement" && (declaration as EnumStatement).name.name === importedName) {
+      if (declaration.kind === "EnumStatement") {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
       }
-      if (declaration.kind === "TypeAliasStatement" && (declaration as TypeAliasStatement).name.name === importedName) {
+      if (declaration.kind === "TypeAliasStatement") {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
       }
       if (declaration.kind === "VarStatement") {
         const varStatement = declaration as VarStatement;
-        if (varStatement.name.kind === "Identifier" && varStatement.name.name === importedName) {
+        if (varStatement.name.kind === "Identifier") {
           const resolved = typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
           resolutionCache.namedImportTypes.set(importedName, resolved);
           return resolved;
         }
-      }
-      continue;
-    }
-
-    if (statement.kind === "ClassStatement" && locallyExportedNames.has((statement as ClassStatement).name.name)) {
-      const resolved = namedType(importedName);
-      resolutionCache.namedImportTypes.set(importedName, resolved);
-      return resolved;
-    }
-    if (statement.kind === "InterfaceStatement" && locallyExportedNames.has((statement as InterfaceStatement).name.name)) {
-      const resolved = namedType(importedName);
-      resolutionCache.namedImportTypes.set(importedName, resolved);
-      return resolved;
-    }
-    if (statement.kind === "EnumStatement" && locallyExportedNames.has((statement as EnumStatement).name.name)) {
-      const resolved = namedType(importedName);
-      resolutionCache.namedImportTypes.set(importedName, resolved);
-      return resolved;
-    }
-    if (statement.kind === "TypeAliasStatement" && locallyExportedNames.has((statement as TypeAliasStatement).name.name)) {
-      const resolved = namedType(importedName);
-      resolutionCache.namedImportTypes.set(importedName, resolved);
-      return resolved;
-    }
-    if (statement.kind === "VarStatement") {
-      const varStatement = statement as VarStatement;
-      if (varStatement.name.kind === "Identifier" && locallyExportedNames.has(varStatement.name.name)) {
-        const resolved = typeFromAnnotationText(varStatement.typeAnnotation?.name, declarations, resolvingImportTypes);
-        resolutionCache.namedImportTypes.set(importedName, resolved);
-        return resolved;
       }
     }
   }
@@ -2471,6 +2464,11 @@ function resolveAmbientDefaultImportType(
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
   ambientGlobalDeclarations: readonly Statement[] = []
 ): AnalysisType | null {
+  const resolutionCache = getAmbientModuleResolutionCache(ambientModuleDeclarations);
+  const cached = resolutionCache.defaultImportTypes.get(importName);
+  if (cached !== undefined) {
+    return cached;
+  }
   let fallbackNamedExport: AnalysisType | null = null;
   for (const decls of ambientModuleCandidates(importName, ambientModuleDeclarations)) {
     if (decls.length === 0) {
@@ -2485,12 +2483,14 @@ function resolveAmbientDefaultImportType(
       }
       const declaration = (statement as { declaration?: Statement }).declaration;
       if (declaration?.kind === "FunctionStatement") {
-        return buildAmbientFunctionTypeFromStatement(
+        const resolved = buildAmbientFunctionTypeFromStatement(
           declaration as FunctionStatement,
           decls,
           ambientModuleDeclarations,
           ambientGlobalDeclarations
         );
+        resolutionCache.defaultImportTypes.set(importName, resolved);
+        return resolved;
       }
     }
 
@@ -2506,7 +2506,9 @@ function resolveAmbientDefaultImportType(
       && directExportKeys[0] === exportEqualsName
       && findAmbientNamespaceBody(decls, exportEqualsName) !== null;
     if (directExportKeys.length > 0 && !isExportEqualsNamespaceFacade) {
-      return objectTypeWithProperties(directExports);
+      const resolved = objectTypeWithProperties(directExports);
+      resolutionCache.defaultImportTypes.set(importName, resolved);
+      return resolved;
     }
 
     if (!exportEqualsName) {
@@ -2544,17 +2546,21 @@ function resolveAmbientDefaultImportType(
         ambientGlobalDeclarations
       );
       if (resolvedType.kind !== "unknown") {
-        return callableExport?.kind === "function"
+        const resolved = callableExport?.kind === "function"
           ? intersectionType([callableExport, resolvedType])
           : resolvedType;
+        resolutionCache.defaultImportTypes.set(importName, resolved);
+        return resolved;
       }
     }
 
     if (callableExport) {
+      resolutionCache.defaultImportTypes.set(importName, callableExport);
       return callableExport;
     }
     fallbackNamedExport ??= namedType(exportEqualsName);
   }
+  resolutionCache.defaultImportTypes.set(importName, fallbackNamedExport);
   return fallbackNamedExport;
 }
 
@@ -2576,6 +2582,12 @@ export function resolveAmbientNamedImportType(
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>,
   ambientGlobalDeclarations: readonly Statement[] = []
 ): AnalysisType | null {
+  const resolutionCache = getAmbientModuleResolutionCache(ambientModuleDeclarations);
+  const cacheKey = `${importName}\0${symbolName}`;
+  const cached = resolutionCache.namedImportTypes.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
   const overloads: AnalysisType[] = [];
   const seenOverloads = new Set<string>();
   const pushOverload = (type: AnalysisType): void => {
@@ -2616,18 +2628,21 @@ export function resolveAmbientNamedImportType(
         const variable = declaration as VarStatement;
           const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
         if (varName === symbolName) {
-          return typeFromAmbientAnnotationText(
+          const resolved = typeFromAmbientAnnotationText(
             variable.typeAnnotation?.name,
             decls,
             ambientModuleDeclarations,
             ambientGlobalDeclarations
           );
+          resolutionCache.namedImportTypes.set(cacheKey, resolved);
+          return resolved;
         }
       }
     }
 
     const direct = extractDirectTypeForName(decls, symbolName);
     if (direct && direct.kind !== "function") {
+      resolutionCache.namedImportTypes.set(cacheKey, direct);
       return direct;
     }
 
@@ -2639,7 +2654,10 @@ export function resolveAmbientNamedImportType(
     const nsBody = findAmbientNamespaceBody(decls, exportEqualsName);
     if (nsBody) {
       const fromNs = extractDirectTypeForName(nsBody, symbolName);
-      if (fromNs) return fromNs;
+      if (fromNs) {
+        resolutionCache.namedImportTypes.set(cacheKey, fromNs);
+        return fromNs;
+      }
     }
 
     // 2b. Find the var statement for the export= name to get its type (e.g. `const path: path.PlatformPath`)
@@ -2681,11 +2699,16 @@ export function resolveAmbientNamedImportType(
   }
 
   if (overloads.length === 1) {
-    return overloads[0] ?? null;
+    const resolved = overloads[0] ?? null;
+    resolutionCache.namedImportTypes.set(cacheKey, resolved);
+    return resolved;
   }
   if (overloads.length > 1) {
-    return unionType(overloads);
+    const resolved = unionType(overloads);
+    resolutionCache.namedImportTypes.set(cacheKey, resolved);
+    return resolved;
   }
+  resolutionCache.namedImportTypes.set(cacheKey, null);
   return null;
 }
 
@@ -2694,6 +2717,12 @@ function resolveAmbientNamedImportDisplayType(
   symbolName: string,
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>
 ): string | null {
+  const resolutionCache = getAmbientModuleResolutionCache(ambientModuleDeclarations);
+  const cacheKey = `${importName}\0${symbolName}`;
+  const cached = resolutionCache.namedImportDisplayTypes.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
   const overloads: string[] = [];
   const seenOverloads = new Set<string>();
   const pushOverload = (display: string): void => {
@@ -2727,7 +2756,9 @@ function resolveAmbientNamedImportDisplayType(
         const variable = declaration as VarStatement;
         const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
         if (varName === symbolName) {
-          return renderAmbientTypeAnnotationText(variable.typeAnnotation?.name);
+          const resolved = renderAmbientTypeAnnotationText(variable.typeAnnotation?.name);
+          resolutionCache.namedImportDisplayTypes.set(cacheKey, resolved);
+          return resolved;
         }
       }
     }
@@ -2778,11 +2809,16 @@ function resolveAmbientNamedImportDisplayType(
   }
 
   if (overloads.length === 1) {
-    return overloads[0] ?? null;
+    const resolved = overloads[0] ?? null;
+    resolutionCache.namedImportDisplayTypes.set(cacheKey, resolved);
+    return resolved;
   }
   if (overloads.length > 1) {
-    return overloads.join(" | ");
+    const resolved = overloads.join(" | ");
+    resolutionCache.namedImportDisplayTypes.set(cacheKey, resolved);
+    return resolved;
   }
+  resolutionCache.namedImportDisplayTypes.set(cacheKey, null);
   return null;
 }
 
@@ -2938,6 +2974,20 @@ function importableDeclarationName(statement: Statement): string | null {
       statement.kind === "ExportStatement"
         ? (statement as { declaration?: Statement }).declaration ?? statement
         : statement;
+    if (
+      rawDeclaration.kind === "ClassStatement"
+      || rawDeclaration.kind === "InterfaceStatement"
+      || rawDeclaration.kind === "EnumStatement"
+      || rawDeclaration.kind === "TypeAliasStatement"
+      || rawDeclaration.kind === "FunctionStatement"
+    ) {
+      return (rawDeclaration as
+        | ClassStatement
+        | InterfaceStatement
+        | EnumStatement
+        | TypeAliasStatement
+        | FunctionStatement).name.name;
+    }
     if (rawDeclaration.kind === "VarStatement" && (rawDeclaration as VarStatement).name.kind === "Identifier") {
       return ((rawDeclaration as VarStatement).name as Identifier).name;
     }

@@ -48,6 +48,12 @@ export interface ModuleResolutionOptions {
   ) | undefined;
 }
 
+const nodeModulesTypingsPathCache = new Map<string, string | null>();
+
+export function clearNodeModulesTypingsPathCache(): void {
+  nodeModulesTypingsPathCache.clear();
+}
+
 async function hasImportTarget(
   candidate: string,
   vfs: Vfs,
@@ -194,6 +200,11 @@ export async function resolveNodeModulesTypingsPath(
   if (packageName.startsWith(".") || packageName.startsWith("/")) {
     return null;
   }
+  const cacheKey = `${dirname(importerFilePath)}\0${packageName}`;
+  const cached = nodeModulesTypingsPathCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
   const normalizedPackageName = normalizeNodeBuiltinSpecifier(packageName);
   const packagePathParts = normalizedPackageName.startsWith("@")
     ? normalizedPackageName.split("/").slice(0, 2)
@@ -220,16 +231,19 @@ export async function resolveNodeModulesTypingsPath(
       packageTypings = await declarationPathInPackage(pkgDir, activeVfs);
     }
     if (packageTypings) {
+      nodeModulesTypingsPathCache.set(cacheKey, packageTypings);
       return packageTypings;
     }
 
     const typesPkgDir = resolve(nodeModulesDir, typesPackageNameFor(rootPackageName));
     const definitelyTypedTypings = await declarationPathInPackage(typesPkgDir, activeVfs);
     if (definitelyTypedTypings) {
+      nodeModulesTypingsPathCache.set(cacheKey, definitelyTypedTypings);
       return definitelyTypedTypings;
     }
     const pnpmPackageTypings = await declarationPathInPnpmVirtualStore(nodeModulesDir, rootPackageName, activeVfs);
     if (pnpmPackageTypings) {
+      nodeModulesTypingsPathCache.set(cacheKey, pnpmPackageTypings);
       return pnpmPackageTypings;
     }
     const pnpmTypesTypings = await declarationPathInPnpmVirtualStore(
@@ -238,11 +252,13 @@ export async function resolveNodeModulesTypingsPath(
       activeVfs
     );
     if (pnpmTypesTypings) {
+      nodeModulesTypingsPathCache.set(cacheKey, pnpmTypesTypings);
       return pnpmTypesTypings;
     }
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
+  nodeModulesTypingsPathCache.set(cacheKey, null);
   return null;
 }

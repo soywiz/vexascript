@@ -15,7 +15,11 @@ import type {
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { parseSource } from "compiler/pipeline/parse";
-import { resolveNodeModulesTypingsPath, type ModuleResolutionOptions } from "compiler/moduleResolution";
+import {
+  clearNodeModulesTypingsPathCache,
+  resolveNodeModulesTypingsPath,
+  type ModuleResolutionOptions
+} from "compiler/moduleResolution";
 import { vfs } from "compiler/vfs";
 import { dirname, extname, resolve } from "compiler/utils/path";
 import { nodeRange } from "./ranges";
@@ -65,6 +69,7 @@ export function clearNodeModuleTypingsCache(): void {
   cache.clear();
   sourceCache.clear();
   programCache.clear();
+  clearNodeModulesTypingsPathCache();
 }
 
 async function parseTypingsProgram(typingsPath: string, options: ModuleResolutionOptions): Promise<Program | null> {
