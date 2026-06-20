@@ -3100,25 +3100,36 @@ export async function collectAllImportedDeclarations(
           }
         }
         externalDeclarations.push(...importedNodeModuleDeclarations);
-        const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
-        const namespaceImportType = Object.keys(namespaceExportProperties).length > 0
-          ? objectTypeWithProperties(namespaceExportProperties)
-          : null;
         if (nodeModuleTypings.defaultExportName) {
-          const exportType = namedType(nodeModuleTypings.defaultExportName);
-          const defaultImportType = resolveNodeModuleDefaultImportType(
-            nodeModuleTypings.declarations,
-            nodeModuleTypings.defaultExportName
-          );
+          const needsDefaultLikeImportType = importStatement.defaultImport || importStatement.namespaceImport;
+          const exportType = needsDefaultLikeImportType
+            ? namedType(nodeModuleTypings.defaultExportName)
+            : null;
+          const defaultImportType = needsDefaultLikeImportType
+            ? resolveNodeModuleDefaultImportType(
+              nodeModuleTypings.declarations,
+              nodeModuleTypings.defaultExportName
+            )
+            : null;
+          const namespaceImportType = importStatement.namespaceImport
+            ? (() => {
+              const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
+              return Object.keys(namespaceExportProperties).length > 0
+                ? objectTypeWithProperties(namespaceExportProperties)
+                : null;
+            })()
+            : null;
           if (importStatement.defaultImport) {
-            importedSymbolTypes.set(importStatement.defaultImport.name, defaultImportType);
-            const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName);
-            if (displayType) {
-              importedSymbolDisplayTypes.set(importStatement.defaultImport.name, displayType);
+            if (defaultImportType) {
+              importedSymbolTypes.set(importStatement.defaultImport.name, defaultImportType);
+              const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName);
+              if (displayType) {
+                importedSymbolDisplayTypes.set(importStatement.defaultImport.name, displayType);
+              }
             }
           }
           if (importStatement.namespaceImport) {
-            importedSymbolTypes.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType);
+            importedSymbolTypes.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType ?? namedType(nodeModuleTypings.defaultExportName));
           }
           for (const specifier of importStatement.specifiers) {
             const localName = (specifier.local ?? specifier.imported).name;
@@ -3386,20 +3397,31 @@ export async function collectImportedSymbolTypes(
       // default/namespace/named imports resolve their members in hover/completion.
       const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
       if (nodeModuleTypings?.defaultExportName) {
-        const exportType = namedType(nodeModuleTypings.defaultExportName);
-        const defaultImportType = resolveNodeModuleDefaultImportType(
-          nodeModuleTypings.declarations,
-          nodeModuleTypings.defaultExportName
-        );
-        const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
-        const namespaceImportType = Object.keys(namespaceExportProperties).length > 0
-          ? objectTypeWithProperties(namespaceExportProperties)
+        const needsDefaultLikeImportType = importStatement.defaultImport || importStatement.namespaceImport;
+        const exportType = needsDefaultLikeImportType
+          ? namedType(nodeModuleTypings.defaultExportName)
+          : null;
+        const defaultImportType = importStatement.defaultImport
+          ? resolveNodeModuleDefaultImportType(
+            nodeModuleTypings.declarations,
+            nodeModuleTypings.defaultExportName
+          )
+          : null;
+        const namespaceImportType = importStatement.namespaceImport
+          ? (() => {
+            const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
+            return Object.keys(namespaceExportProperties).length > 0
+              ? objectTypeWithProperties(namespaceExportProperties)
+              : null;
+          })()
           : null;
         if (importStatement.defaultImport) {
-          result.set(importStatement.defaultImport.name, defaultImportType);
+          if (defaultImportType) {
+            result.set(importStatement.defaultImport.name, defaultImportType);
+          }
         }
         if (importStatement.namespaceImport) {
-          result.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType);
+          result.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType ?? namedType(nodeModuleTypings.defaultExportName));
         }
         for (const specifier of importStatement.specifiers) {
           const localName = (specifier.local ?? specifier.imported).name;
