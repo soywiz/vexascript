@@ -1166,7 +1166,7 @@ export async function resolveContextualObjectLiteralPropertyHover(
     return null;
   }
 
-  const propertyTypeName = await resolveObjectLiteralPropertyTypeName(
+  const propertyInfo = await resolveObjectLiteralPropertyTypeName(
     context.session.ast,
     context.session.analysis,
     propertyContext.completionContext,
@@ -1179,7 +1179,7 @@ export async function resolveContextualObjectLiteralPropertyHover(
         : {})
     }
   );
-  if (!propertyTypeName) {
+  if (!propertyInfo) {
     return null;
   }
 
@@ -1192,7 +1192,7 @@ export async function resolveContextualObjectLiteralPropertyHover(
   return {
     contents: {
       kind: "plaintext",
-      value: `${propertyContext.propertyName}: ${propertyTypeName}`
+      value: `${propertyContext.propertyName}: ${propertyInfo.typeName}`
     },
     ...(keyRange ? { range: keyRange } : {})
   };
