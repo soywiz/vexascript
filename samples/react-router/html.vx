@@ -1,0 +1,67 @@
+import React from "react"
+import ReactDOM from "react-dom"
+import { Link, MemoryRouter, useLocation } from "react-router-dom"
+
+fun ActiveRouteCard() {
+  val location = useLocation()
+  val pathname = location.pathname
+  val title = pathname == "/docs"
+    ? "Docs"
+    : pathname == "/faq"
+      ? "FAQ"
+      : "Home"
+  val description = pathname == "/docs"
+    ? "The docs route shows the focused browser message."
+    : pathname == "/faq"
+      ? "The FAQ route proves route state can drive JSX output."
+      : "The sample booted with a typed in-memory router."
+
+  return (
+    <article className="card">
+      <span className="eyebrow">Active Route</span>
+      <h2>{title}</h2>
+      <p>{description}</p>
+      <code>{pathname}</code>
+    </article>
+  )
+}
+
+fun App() {
+  val location = useLocation()
+  val pathname = location.pathname
+
+  return (
+    <main className="shell">
+      <section className="hero">
+        <span className="eyebrow">Router Sample</span>
+        <h1>React Router + VexaScript</h1>
+        <p>MemoryRouter, typed route objects, and JSX rendering all stay in the normal React shape.</p>
+      </section>
+      <nav className="nav">
+        <Link className={pathname == "/" ? "pill pill-active" : "pill"} to="/">
+          Home
+        </Link>
+        <Link className={pathname == "/docs" ? "pill pill-active" : "pill"} to="/docs">
+          Docs
+        </Link>
+        <Link className={pathname == "/faq" ? "pill pill-active" : "pill"} to="/faq">
+          FAQ
+        </Link>
+      </nav>
+      <ActiveRouteCard />
+    </main>
+  )
+}
+
+val container = document.getElementById("app")
+if (container == null) {
+  throw Error("Missing #app root")
+}
+
+ReactDOM.render(
+  <MemoryRouter initialEntries={["/docs"]}>
+    <App />
+  </MemoryRouter>,
+  container!
+)
+console.log("react-router-sample-ready")

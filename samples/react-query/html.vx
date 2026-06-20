@@ -1,0 +1,87 @@
+import React from "react"
+import ReactDOM from "react-dom"
+import { QueryClient, useQuery } from "@tanstack/react-query"
+
+type Checklist = { title: string; checks: string[] }
+
+val queryClient = new QueryClient()
+val queryKey: ReadonlyArray<string> = ["react-query-sample", "checklist"]
+
+fun QueryCard() {
+  val result = useQuery({
+    queryKey: queryKey,
+    queryFn: async (context) => {
+      return {
+        title: `Loaded ${String(context.queryKey[0])}`,
+        checks: [
+          "The hook resolves async data into JSX",
+          "The result type stays useful for member access"
+        ]
+      }
+    }
+  }, queryClient)
+
+  if (result.isLoading) {
+    return (
+      <article className="card">
+        <span className="eyebrow">Loading</span>
+        <h2>React Query + VexaScript</h2>
+        <p>Waiting for the async sample data…</p>
+      </article>
+    )
+  }
+
+  if (result.error) {
+    return (
+      <article className="card">
+        <span className="eyebrow">Error</span>
+        <h2>React Query + VexaScript</h2>
+        <p>Could not resolve the sample query.</p>
+      </article>
+    )
+  }
+
+  val data = result.data
+  if (!data) {
+    return (
+      <article className="card">
+        <span className="eyebrow">Empty</span>
+        <h2>React Query + VexaScript</h2>
+        <p>The sample query returned no data.</p>
+      </article>
+    )
+  }
+
+  return (
+    <article className="card">
+      <span className="eyebrow">Resolved</span>
+      <h2>{data.title}</h2>
+      <ul>
+        {data.checks.map({ check, index ->
+          <li key={index}>{check}</li>
+        })}
+      </ul>
+    </article>
+  )
+}
+
+fun App() {
+  return (
+    <main className="shell">
+      <section className="hero">
+        <span className="eyebrow">Query Sample</span>
+        <h1>React Query + VexaScript</h1>
+        <p>Typed options objects and result access stay close to normal React Query authoring.</p>
+      </section>
+      <QueryCard />
+    </main>
+  )
+}
+
+val container = document.getElementById("app")
+if (container == null) {
+  throw Error("Missing #app root")
+}
+
+ReactDOM.render(<App />, container!)
+console.log("react-query-sample-ready")

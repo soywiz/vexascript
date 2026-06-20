@@ -1,0 +1,119 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            :root {
+                --bg: #f4f1e8;
+                --card: #fffdf8;
+                --text: #1f2723;
+                --muted: #5f6d65;
+                --line: rgba(31, 39, 35, 0.12);
+                --brand: #116466;
+                --brand-strong: #0a4b4c;
+                --shadow: 0 24px 60px rgba(24, 31, 28, 0.12);
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+                margin: 0;
+                min-height: 100vh;
+                font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+                color: var(--text);
+                background:
+                    radial-gradient(circle at top right, rgba(17, 100, 102, 0.12), transparent 25%),
+                    linear-gradient(135deg, var(--bg), #ebf5f0);
+            }
+
+            #app {
+                width: min(760px, calc(100vw - 32px));
+                margin: 40px auto;
+            }
+
+            .shell {
+                display: grid;
+                gap: 20px;
+                padding: 28px;
+                border-radius: 28px;
+                background: rgba(255, 253, 248, 0.9);
+                box-shadow: var(--shadow);
+                border: 1px solid rgba(255, 255, 255, 0.75);
+            }
+
+            .hero h1,
+            .card h2 {
+                margin: 0;
+                letter-spacing: -0.04em;
+            }
+
+            .hero h1 {
+                font-size: clamp(2.5rem, 8vw, 4.5rem);
+                line-height: 0.95;
+            }
+
+            .hero p,
+            .card p {
+                color: var(--muted);
+            }
+
+            .eyebrow {
+                display: inline-flex;
+                margin-bottom: 12px;
+                padding: 6px 11px;
+                border-radius: 999px;
+                background: rgba(17, 100, 102, 0.12);
+                color: var(--brand-strong);
+                text-transform: uppercase;
+                letter-spacing: 0.12em;
+                font-size: 0.74rem;
+                font-weight: 700;
+            }
+
+            .nav {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .pill {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 110px;
+                padding: 11px 16px;
+                border-radius: 999px;
+                border: 1px solid rgba(17, 100, 102, 0.14);
+                background: rgba(17, 100, 102, 0.08);
+                color: var(--text);
+                text-decoration: none;
+            }
+
+            .pill-active {
+                color: white;
+                background: linear-gradient(135deg, var(--brand), var(--brand-strong));
+            }
+
+            .card {
+                padding: 22px;
+                border-radius: 22px;
+                background: var(--card);
+                border: 1px solid var(--line);
+            }
+
+            code {
+                display: inline-flex;
+                margin-top: 8px;
+                padding: 6px 10px;
+                border-radius: 999px;
+                background: rgba(17, 100, 102, 0.08);
+            }
+        </style>
+    </head>
+    <body>
+        <div id="app"></div>
+        <script type="module" src="%VEXA_ENTRYPOINT%"></script>
+    </body>
+</html>

@@ -426,6 +426,64 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves node_modules named imports reexported from local namespace bindings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    const libDir = join(pkgDir, "lib");
+    await mkdir(libDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * from "./lib/index.d.ts";\n', "utf8");
+    await writeFile(
+      join(libDir, "index.d.ts"),
+      dedent`
+        import * as z from "./external";
+        export { z };
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "external.d.ts"),
+      dedent`
+        export interface ZString {
+          min(size: number): ZString;
+        }
+
+        export function string(): ZString;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { z } from "pkg"
+
+      val schema = z.string().min(2)
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(typeToString(collected.importedSymbolTypes.get("z")!)).toContain("string");
+    expect(collected.invalidImportedBindings.has("z")).toBe(false);
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("prefers sidecar declaration files over sibling javascript when following .js reexports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "pkg");

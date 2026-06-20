@@ -25,8 +25,8 @@ Expand `samples/` with a focused set of ecosystem stress samples that validate b
 
 The first wave should prioritize libraries that cover distinct failure modes rather than many variants of the same pattern.
 
-* [ ] `@tanstack/react-query` for hook-heavy generic APIs, options objects, and inferred async data flows.
-* [ ] `react-router` or `@tanstack/react-router` for typed routing, nested config objects, and React ecosystem entry points.
+* [x] `@tanstack/react-query` for hook-heavy generic APIs, options objects, and inferred async data flows.
+* [x] `react-router` or `@tanstack/react-router` for typed routing, nested config objects, and React ecosystem entry points.
 * [ ] `zod` for fluent builder chains, inferred schema types, unions, and strongly type-driven APIs.
 * [ ] `rxjs` for chained operators, overloads, generics, and functional composition.
 * [ ] `hono` for server routing, handler typing, context objects, and modern Node/web runtime interop.
@@ -50,6 +50,14 @@ Possible follow-up wave:
 * [ ] Document any ecosystem pain points discovered while building each sample so they can become follow-up compiler/LSP/bundler tasks.
 * [ ] Update `docs/file.structure.md` for each notable sample added.
 * [ ] Update `docs/syntax.md` if a sample requires or demonstrates newly supported syntax.
+
+## Current Progress
+
+* [x] Added a focused `samples/react-query/` browser sample that keeps React Query options/result typing isolated from the broader `samples/react/` kitchen-sink sample.
+* [x] Added a focused `samples/react-router/` browser sample that keeps MemoryRouter navigation and location-driven JSX isolated from the broader `samples/react/` sample.
+* [ ] `zod` is still blocked on namespace-style exported local bindings (`export { z }` backed by `import * as z`) plus deeper schema-builder result typing.
+* [ ] `rxjs` is still blocked on richer imported generic/variadic observable/operator typing than the current focused regressions cover.
+* [ ] `hono` is still blocked on imported handler/context typing and overlapping DOM/runtime declaration behavior in its modern web-API-heavy `.d.ts` surface.
 
 ## Acceptance Criteria
 

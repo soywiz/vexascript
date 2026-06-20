@@ -1,0 +1,2 @@
+const routeCount = 3
+console.log(`react-router routes:${routeCount}`)

@@ -209,6 +209,18 @@ function nodeModuleDeclarationName(entry: NodeModuleDeclarationEntry): string | 
   return named.name?.kind === "Identifier" ? named.name.name ?? null : null;
 }
 
+function nodeModuleExportedNames(entry: NodeModuleDeclarationEntry): string[] {
+  const directName = nodeModuleDeclarationName(entry);
+  if (directName) {
+    return [directName];
+  }
+  if (entry.statement.kind !== "ExportStatement") {
+    return [];
+  }
+  const exportStatement = entry.statement as ExportStatement;
+  return (exportStatement.specifiers ?? []).map((specifier) => specifier.exported.name);
+}
+
 async function collectTypingsDeclarations(
   typingsPath: string,
   options: ModuleResolutionOptions,
@@ -303,8 +315,8 @@ async function collectSelectiveTypingsDeclarations(
     typingsPath
   }));
   const fileDirectlyDefinesWantedName = directNamedEntries.some((entry) => {
-    const declarationName = nodeModuleDeclarationName(entry);
-    return declarationName ? exportedNamesWanted.has(declarationName) : false;
+    const exportedNames = nodeModuleExportedNames(entry);
+    return exportedNames.some((name) => exportedNamesWanted.has(name));
   });
   const followAllNamedReexports = includeAllTopLevel || fileDirectlyDefinesWantedName;
 
@@ -312,8 +324,8 @@ async function collectSelectiveTypingsDeclarations(
     declarations.push(...directNamedEntries);
   } else {
     for (const entry of directNamedEntries) {
-      const declarationName = nodeModuleDeclarationName(entry);
-      if (declarationName && exportedNamesWanted.has(declarationName)) {
+      const exportedNames = nodeModuleExportedNames(entry);
+      if (exportedNames.some((name) => exportedNamesWanted.has(name))) {
         declarations.push(entry);
       }
     }
@@ -357,7 +369,8 @@ async function collectSelectiveTypingsDeclarations(
         targetTypingsPath,
         exportedNamesWanted,
         options,
-        visited
+        visited,
+        includeAllTopLevel
       );
       declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
       continue;

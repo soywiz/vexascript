@@ -1,6 +1,7 @@
 import type {
   ClassStatement,
   EnumStatement,
+  ExportStatement,
   FunctionStatement,
   Identifier,
   ImportStatement,
@@ -607,6 +608,33 @@ function resolveNodeModuleNamedImportType(
           return resolved;
         }
       }
+    }
+  }
+
+  for (const statement of declarations) {
+    const importStatement = (
+      statement.kind === "ImportStatement"
+        ? statement
+        : statement.kind === "ExportStatement" && (statement as { declaration?: Statement }).declaration?.kind === "ImportStatement"
+          ? (statement as { declaration?: ImportStatement }).declaration!
+          : null
+    ) as ImportStatement | null;
+    if (!importStatement) {
+      continue;
+    }
+    if (importStatement.namespaceImport?.name === importedName) {
+      const resolved = objectTypeWithProperties(collectNodeModuleNamespaceExportedProperties(declarations));
+      resolutionCache.namedImportTypes.set(importedName, resolved);
+      return resolved;
+    }
+    for (const specifier of importStatement.specifiers) {
+      const localName = (specifier.local ?? specifier.imported).name;
+      if (localName !== importedName) {
+        continue;
+      }
+      const resolved = resolveNodeModuleNamedImportType(declarations, specifier.imported.name, resolvingImportTypes);
+      resolutionCache.namedImportTypes.set(importedName, resolved);
+      return resolved;
     }
   }
 
@@ -2321,6 +2349,20 @@ function collectAmbientNamespaceExportedProperties(
       statement.kind === "ExportStatement"
         ? (statement as { declaration?: Statement }).declaration ?? statement
         : statement;
+
+    if (statement.kind === "ExportStatement") {
+      const exportStatement = statement as ExportStatement;
+      for (const specifier of exportStatement.specifiers ?? []) {
+        const localName = specifier.local?.name ?? specifier.exported.name;
+        if (localName === specifier.exported.name) {
+          continue;
+        }
+        const resolved = resolveNodeModuleNamedImportType(statements, localName);
+        if (resolved) {
+          properties[specifier.exported.name] = resolved;
+        }
+      }
+    }
 
     if (declaration.kind === "FunctionStatement") {
       const fn = declaration as FunctionStatement;
