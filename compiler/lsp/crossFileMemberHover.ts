@@ -25,6 +25,10 @@ import { resolveExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberD
 import { inferExtensionReturnTypeName } from "./memberCompletionExtensions";
 import { nodeRange } from "./ranges";
 
+export interface ResolveMemberHoverOptions {
+  classResolverCache?: ReturnType<typeof createClassResolverCache>;
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -64,7 +68,10 @@ function extensionDocumentationValue(extensionMember: Awaited<ReturnType<typeof 
   return readDocumentationFromNamedNode(extensionMember.declaration);
 }
 
-export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Promise<Hover | null> {
+export async function resolveMemberHoverAcrossFiles(
+  context: ResolveContext,
+  options: ResolveMemberHoverOptions = {}
+): Promise<Hover | null> {
   if (!context.session.ast || !context.session.analysis) {
     return null;
   }
@@ -149,7 +156,7 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
     };
   }
 
-  const resolverCache = createClassResolverCache();
+  const resolverCache = options.classResolverCache ?? createClassResolverCache();
   const resolverOptions = {
     uri: context.uri,
     sourceRoots: context.sourceRoots,

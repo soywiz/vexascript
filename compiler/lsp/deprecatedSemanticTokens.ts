@@ -63,6 +63,21 @@ function memberPropertyPosition(member: MemberExpression): { line: number; chara
   };
 }
 
+function deprecatedMemberCacheKey(
+  context: Omit<ResolveContext, "line" | "character">,
+  member: MemberExpression
+): string | null {
+  if (member.computed || member.property.kind !== "Identifier" || !context.session.analysis) {
+    return null;
+  }
+  const property = member.property as Identifier;
+  const objectType = context.session.analysis.getExpressionTypes().get(member.object);
+  if (!objectType) {
+    return null;
+  }
+  return `${typeToString(objectType)}::${property.name}`;
+}
+
 async function hasDeprecatedResolvedDocumentation(
   context: Omit<ResolveContext, "line" | "character">,
   member: MemberExpression,
@@ -142,6 +157,7 @@ export async function collectDeprecatedMemberRanges(
     cache: createClassResolverCache()
   };
   const externalTypeDeclarations = new Map<string, ClassStatement | InterfaceStatement | null>();
+  const deprecatedStateByMemberKey = new Map<string, boolean>();
 
   const deprecatedMembers: DeprecatedMemberRange[] = [];
   const members: MemberExpression[] = [];
@@ -160,20 +176,34 @@ export async function collectDeprecatedMemberRanges(
     if (!position || !member.property.firstToken) {
       continue;
     }
-    const directDeprecated = await hasDeprecatedResolvedDocumentation(
-      context,
-      member,
-      sharedResolverContext,
-      externalTypeDeclarations
-    );
-    const hover = directDeprecated
-      ? null
-      : await resolveMemberHoverAcrossFiles({
-      ...context,
-      line: position.line,
-      character: position.character
-    });
-    if (!directDeprecated && !containsDeprecatedTag(hoverValue(hover))) {
+    const memberKey = deprecatedMemberCacheKey(context, member);
+    const cachedDeprecated = memberKey ? deprecatedStateByMemberKey.get(memberKey) : undefined;
+    const isDeprecated = cachedDeprecated ?? await (async () => {
+      const directDeprecated = await hasDeprecatedResolvedDocumentation(
+        context,
+        member,
+        sharedResolverContext,
+        externalTypeDeclarations
+      );
+      if (directDeprecated) {
+        return true;
+      }
+      const hover = await resolveMemberHoverAcrossFiles(
+        {
+          ...context,
+          line: position.line,
+          character: position.character
+        },
+        {
+          classResolverCache: sharedResolverContext.cache
+        }
+      );
+      return containsDeprecatedTag(hoverValue(hover));
+    })();
+    if (memberKey) {
+      deprecatedStateByMemberKey.set(memberKey, isDeprecated);
+    }
+    if (!isDeprecated) {
       continue;
     }
     deprecatedMembers.push({

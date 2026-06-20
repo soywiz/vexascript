@@ -119,4 +119,45 @@ describe("deprecated semantic token modifiers", () => {
     expect(modifiers.get(beginFillKey)).toBe(DEPRECATED_TOKEN_MODIFIER);
     expect(modifiers.size).toBe(1);
   });
+
+  it("marks every repeated deprecated member occurrence even when resolution is reused", async () => {
+    const source = dedent`
+      declare class Graphics {
+        /** @deprecated since 8.0.0 Use fill instead */
+        beginFill(color: number): Graphics
+        fill(color: number): Graphics
+      }
+
+      val first = Graphics()
+      first.beginFill(0xffb635)
+
+      val second = Graphics()
+      second.beginFill(0xffb635)
+      `;
+    const session = createAnalysisSession(source);
+    const modifiers = await collectDeprecatedSemanticTokenModifiers({
+      uri: "file:///sample.vx",
+      sourceRoots: [],
+      session
+    });
+    const beginFillOffsets = [...source.matchAll(/beginFill/g)]
+      .map((match) => match.index)
+      .filter((offset): offset is number => typeof offset === "number");
+
+    expect(beginFillOffsets.length).toBe(3);
+    const firstUseOffset = beginFillOffsets[1]!;
+    const secondUseOffset = beginFillOffsets[2]!;
+    const firstUseKey = semanticTokenRangeKey({
+      start: { offset: firstUseOffset, line: 7, column: 6 },
+      end: { offset: firstUseOffset + "beginFill".length, line: 7, column: 15 }
+    });
+    const secondUseKey = semanticTokenRangeKey({
+      start: { offset: secondUseOffset, line: 10, column: 7 },
+      end: { offset: secondUseOffset + "beginFill".length, line: 10, column: 16 }
+    });
+
+    expect(modifiers.get(firstUseKey)).toBe(DEPRECATED_TOKEN_MODIFIER);
+    expect(modifiers.get(secondUseKey)).toBe(DEPRECATED_TOKEN_MODIFIER);
+    expect(modifiers.size).toBe(2);
+  });
 });
