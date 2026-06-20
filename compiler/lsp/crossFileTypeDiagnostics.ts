@@ -358,7 +358,8 @@ export async function collectCrossFileTypeDiagnostics(
     const member = await resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
       ast: session.ast,
       options,
-      cache: resolverCache
+      cache: resolverCache,
+      analysis: session.analysis
     });
     if (!member) {
       continue;
@@ -509,7 +510,8 @@ export async function collectCrossFileTypeDiagnostics(
     const member = await resolveClassMember(classResolution.classStatement, memberName, objectTypeName, {
       ast: session.ast,
       options,
-      cache: resolverCache
+      cache: resolverCache,
+      analysis: session.analysis
     });
     if (!member) {
       continue;

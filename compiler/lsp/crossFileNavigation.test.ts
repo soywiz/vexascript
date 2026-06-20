@@ -3720,7 +3720,7 @@ describe("cross-file navigation", () => {
         getSessionForFilePath: () => null
       });
 
-      expect((hover?.contents as { value?: string } | undefined)?.value).toContain("data: { title: string }?");
+      expect((hover?.contents as { value?: string } | undefined)?.value).toContain("data: { title: string } | undefined");
       expect(location?.uri.endsWith("/node_modules/pkg/index.d.ts")).toBe(true);
       expect(location?.range.start.line).toBe(18);
     });

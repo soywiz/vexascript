@@ -660,6 +660,83 @@ describe("cross-file type diagnostics", () => {
     expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
   });
 
+  it("specializes inherited node_modules class state from subclass field initializers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
+    const packageDir = join(root, "node_modules", "preact-like");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Component } from "preact-like"
+
+      class Clock extends Component {
+        var state = { time: Date.now() }
+
+        fun componentDidMount() {
+          this.setState({ time: Date.now() })
+        }
+
+        fun render() {
+          return null
+        }
+      }
+    `;
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "preact-like", types: "index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(packageDir, "index.d.ts"),
+      dedent`
+        export interface Component<P = {}, S = {}> {
+          state: Readonly<S>;
+        }
+
+        export abstract class Component<P, S> {
+          constructor(props?: P, context?: any);
+          state: Readonly<S>;
+          setState<K extends keyof S>(
+            state:
+              | ((prevState: Readonly<S>, props: Readonly<P>) => Pick<S, K> | Partial<S> | null)
+              | (Pick<S, K> | Partial<S> | null),
+            callback?: () => void
+          ): void;
+          abstract render(): any;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const imported = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      source,
+      imported.externalDeclarations,
+      imported.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      imported.importedSymbolDisplayTypes,
+      imported.invalidImportedBindings
+    );
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+  });
+
   it("accepts ambient imported overloads selected by an options object argument", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-cross-types-"));
     const nodeTypesDir = join(root, "node_modules", "@types", "node");

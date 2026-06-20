@@ -2695,6 +2695,125 @@ describe("node_modules typings resolution", () => {
     expect(hover?.contents).toContain("Component");
   });
 
+  it("uses merged interface generic defaults for imported classes when the class omits them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "preact-like",
+      dedent`
+        export interface Component<P = {}, S = {}> {
+          state: Readonly<S>;
+        }
+
+        export abstract class Component<P, S> {
+          constructor(props?: P, context?: any);
+          state: Readonly<S>;
+          setState<K extends keyof S>(
+            state:
+              | ((
+                  prevState: Readonly<S>,
+                  props: Readonly<P>
+                ) => Pick<S, K> | Partial<S> | null)
+              | (Pick<S, K> | Partial<S> | null),
+            callback?: () => void
+          ): void;
+        }
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Component } from "preact-like"
+
+      class Clock extends Component {
+        state: { time: number }
+
+        constructor() {
+          super()
+          this.state = { time: Date.now() }
+        }
+
+        componentDidMount() {
+          this.setState({ time: Date.now() })
+        }
+      }
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("uses inferred subclass state when merged imported classes omit explicit generic arguments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "preact-like",
+      dedent`
+        export interface Component<P = {}, S = {}> {
+          state: Readonly<S>;
+        }
+
+        export abstract class Component<P, S> {
+          constructor(props?: P, context?: any);
+          state: Readonly<S>;
+          setState<K extends keyof S>(
+            state:
+              | ((
+                  prevState: Readonly<S>,
+                  props: Readonly<P>
+                ) => Pick<S, K> | Partial<S> | null)
+              | (Pick<S, K> | Partial<S> | null),
+            callback?: () => void
+          ): void;
+        }
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Component } from "preact-like"
+
+      class Clock extends Component {
+        var state = { time: Date.now() }
+
+        componentDidMount() {
+          this.setState({ time: Date.now() })
+        }
+      }
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
   it("treats DOM nodes as structurally assignable to preact ContainerNode", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(

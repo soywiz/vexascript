@@ -237,6 +237,73 @@ export function boxedPrimitiveTypeName(typeName: string): string {
 }
 
 export function substituteTypeNameText(typeName: string, substitutions: Map<string, string>): string {
+  const substituteIdentifierTokens = (text: string): string => {
+    let result = "";
+    let index = 0;
+    let quote: string | null = null;
+
+    const previousNonWhitespaceCharacter = (start: number): string | null => {
+      for (let cursor = start - 1; cursor >= 0; cursor -= 1) {
+        const character = text[cursor]!;
+        if (!/\s/.test(character)) {
+          return character;
+        }
+      }
+      return null;
+    };
+    const nextNonWhitespaceCharacter = (start: number): string | null => {
+      for (let cursor = start; cursor < text.length; cursor += 1) {
+        const character = text[cursor]!;
+        if (!/\s/.test(character)) {
+          return character;
+        }
+      }
+      return null;
+    };
+
+    while (index < text.length) {
+      const character = text[index]!;
+      const previous = index > 0 ? text[index - 1] : "";
+
+      if (quote) {
+        result += character;
+        if (character === quote && previous !== "\\") {
+          quote = null;
+        }
+        index += 1;
+        continue;
+      }
+      if (character === '"' || character === "'") {
+        quote = character;
+        result += character;
+        index += 1;
+        continue;
+      }
+
+      if (/[A-Za-z_$]/.test(character)) {
+        let end = index + 1;
+        while (end < text.length && /[\w$]/.test(text[end]!)) {
+          end += 1;
+        }
+        const identifier = text.slice(index, end);
+        const replacement = substitutions.get(identifier);
+        const previousSignificant = previousNonWhitespaceCharacter(index);
+        const nextSignificant = nextNonWhitespaceCharacter(end);
+        const canReplace = replacement
+          && previousSignificant !== "."
+          && nextSignificant !== ":";
+        result += canReplace ? replacement : identifier;
+        index = end;
+        continue;
+      }
+
+      result += character;
+      index += 1;
+    }
+
+    return result;
+  };
+
   const trimmed = typeName.trim();
   if (trimmed.endsWith("?")) {
     return `${substituteTypeNameText(stripEnclosingTypeParens(trimmed.slice(0, -1).trim()), substitutions)}?`;
@@ -255,7 +322,7 @@ export function substituteTypeNameText(typeName: string, substitutions: Map<stri
   for (let i = 0; i < parsed.arrayDepth; i += 1) {
     substituted += "[]";
   }
-  return substituted;
+  return substituteIdentifierTokens(substituted);
 }
 
 export function splitTopLevelTypeText(typeName: string, separator: "|" | "&" | ","): string[] {

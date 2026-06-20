@@ -9,7 +9,6 @@ interface SampleEntrypoint {
 }
 
 const skippedSamples = new Set([
-  "preact",
   "syntax-tour"
 ]);
 

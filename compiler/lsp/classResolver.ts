@@ -3,6 +3,7 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import {
   baseTypeName,
   boxedPrimitiveTypeName,
+  parseObjectTypeAnnotation,
   parseTypeNameShape,
   splitTopLevelTypeText,
   stripEnclosingTypeParens,
@@ -199,6 +200,155 @@ function typeParameterSubstitutions(
   }
 
   return substitutions;
+}
+
+function identityTypeParameterSubstitutions(
+  typeParameters: Array<{ name: Identifier }> | undefined
+): Map<string, string> {
+  const substitutions = new Map<string, string>();
+  for (const parameter of typeParameters ?? []) {
+    substitutions.set(parameter.name.name, parameter.name.name);
+  }
+  return substitutions;
+}
+
+function unwrapSingleTypeArgument(typeName: string, wrapperName: string): string | null {
+  if (baseTypeName(typeName) !== wrapperName) {
+    return null;
+  }
+  const parsed = parseTypeNameShape(typeName);
+  return parsed.typeArguments.length === 1 ? parsed.typeArguments[0] ?? null : null;
+}
+
+function inferTypeParameterFromMemberTypes(
+  parameterName: string,
+  parentMemberTypeName: string,
+  childMemberTypeName: string
+): string | null {
+  const normalizedParentTypeName = stripEnclosingTypeParens(parentMemberTypeName.trim());
+  if (normalizedParentTypeName === parameterName) {
+    return childMemberTypeName;
+  }
+  for (const wrapperName of ["Readonly", "Partial"]) {
+    const wrappedArgument = unwrapSingleTypeArgument(normalizedParentTypeName, wrapperName);
+    if (wrappedArgument === parameterName) {
+      return childMemberTypeName;
+    }
+  }
+  return null;
+}
+
+async function parentMemberTemplateTypeName(
+  parentClassStatement: ClassStatement,
+  parentInterfaceStatement: InterfaceStatement | null,
+  memberName: string
+): Promise<string | null> {
+  if (parentInterfaceStatement) {
+    const interfaceMember = resolveInterfaceOwnMember(
+      parentInterfaceStatement,
+      memberName,
+      identityTypeParameterSubstitutions(parentInterfaceStatement.typeParameters ?? [])
+    );
+    if (interfaceMember?.typeName && interfaceMember.typeName !== "unknown") {
+      return interfaceMember.typeName;
+    }
+  }
+
+  const classMember = resolveClassOwnMember(
+    parentClassStatement,
+    memberName,
+    identityTypeParameterSubstitutions(parentClassStatement.typeParameters ?? []),
+    classPropertyParameters
+  );
+  return classMember?.typeName && classMember.typeName !== "unknown" ? classMember.typeName : null;
+}
+
+async function specializeInheritedParentTypeFromChild(
+  childClassStatement: ClassStatement,
+  parentTypeName: string,
+  parentClassStatement: ClassStatement,
+  context: ResolutionContext
+): Promise<string> {
+  const parsedParentType = parseTypeNameShape(parentTypeName);
+  if (parsedParentType.typeArguments.length > 0) {
+    return parentTypeName;
+  }
+
+  const parentTypeParameters = parentClassStatement.typeParameters ?? [];
+  if (parentTypeParameters.length === 0) {
+    return parentTypeName;
+  }
+
+  const parentInterfaceResolution = await resolveInterfaceStatementAcrossFiles(
+    context.ast,
+    parentClassStatement.name.name,
+    context.options,
+    context.cache
+  );
+  const parentInterfaceStatement = parentInterfaceResolution?.interfaceStatement ?? null;
+
+  const defaults = new Map<string, string>();
+  for (let index = 0; index < parentTypeParameters.length; index += 1) {
+    const parameter = parentTypeParameters[index];
+    const interfaceParameter = parentInterfaceStatement?.typeParameters?.[index];
+    const defaultTypeName = parameter?.defaultType?.name ?? interfaceParameter?.defaultType?.name;
+    if (parameter && defaultTypeName) {
+      defaults.set(parameter.name.name, defaultTypeName);
+    }
+  }
+
+  const inferred = new Map<string, string>();
+  const ownFieldNames = new Set<string>(classPropertyParameters(childClassStatement).map((parameter) => bindingNameText(parameter.name)));
+  for (const member of childClassStatement.members) {
+    if (member.kind === "ClassFieldMember") {
+      ownFieldNames.add(member.name.name);
+    }
+  }
+
+  for (const childMemberName of ownFieldNames) {
+    const childMember = await resolveClassMember(childClassStatement, childMemberName, childClassStatement.name.name, {
+      ast: context.ast,
+      options: context.options,
+      cache: context.cache,
+      ...(context.analysis ? { analysis: context.analysis } : {})
+    });
+    if (!childMember || childMember.kind !== "field" || childMember.typeName === "unknown") {
+      continue;
+    }
+
+    const parentMemberTypeName = await parentMemberTemplateTypeName(
+      parentClassStatement,
+      parentInterfaceStatement,
+      childMemberName
+    );
+    if (!parentMemberTypeName) {
+      continue;
+    }
+
+    for (const parameter of parentTypeParameters) {
+      const parameterName = parameter.name.name;
+      if (inferred.has(parameterName)) {
+        continue;
+      }
+      const inferredTypeName = inferTypeParameterFromMemberTypes(
+        parameterName,
+        parentMemberTypeName,
+        childMember.typeName
+      );
+      if (inferredTypeName) {
+        inferred.set(parameterName, inferredTypeName);
+      }
+    }
+  }
+
+  const resolvedTypeArguments = parentTypeParameters.map((parameter) =>
+    inferred.get(parameter.name.name) ?? defaults.get(parameter.name.name) ?? parameter.name.name
+  );
+  const changed = resolvedTypeArguments.some((typeArgument, index) => typeArgument !== parentTypeParameters[index]?.name.name);
+  if (!changed) {
+    return parentTypeName;
+  }
+  return `${baseTypeName(parentTypeName)}<${resolvedTypeArguments.join(", ")}>`;
 }
 
 function classMemberCacheKey(
@@ -732,14 +882,20 @@ async function resolveClassMemberRecursive(
   }
 
   if (classStatement.extendsType) {
-    const specializedParentType = substituteTypeNameText(classStatement.extendsType.name, substitutions);
+    const parentTypeName = substituteTypeNameText(classStatement.extendsType.name, substitutions);
     const parentResolution = await resolveClassStatementAcrossFiles(
       context.ast,
-      baseTypeName(specializedParentType),
+      baseTypeName(parentTypeName),
       context.options,
       context.cache
     );
     if (parentResolution) {
+      const specializedParentType = await specializeInheritedParentTypeFromChild(
+        classStatement,
+        parentTypeName,
+        parentResolution.classStatement,
+        context
+      );
       const resolved = await resolveClassMemberRecursive(
         parentResolution.classStatement,
         memberName,
@@ -1227,6 +1383,19 @@ export function isTypeAssignableByName(sourceType: string, targetType: string): 
   }
   const sourceShape = parseTypeNameShape(normalizedSourceType);
   const targetShape = parseTypeNameShape(normalizedTargetType);
+  if (targetShape.baseName === "Readonly" && targetShape.typeArguments.length === 1) {
+    return isTypeAssignableByName(normalizedSourceType, targetShape.typeArguments[0]!);
+  }
+  if (targetShape.baseName === "Partial" && targetShape.typeArguments.length === 1) {
+    const sourceMembers = parseObjectTypeAnnotation(normalizedSourceType);
+    const targetMembers = parseObjectTypeAnnotation(targetShape.typeArguments[0]!);
+    if (sourceMembers && targetMembers) {
+      return sourceMembers.every((sourceMember) => {
+        const targetMember = targetMembers.find((member) => member.name === sourceMember.name);
+        return !!targetMember && isTypeAssignableByName(sourceMember.typeName, targetMember.typeName);
+      });
+    }
+  }
   if (
     sourceShape.baseName === targetShape.baseName &&
     sourceShape.arrayDepth === targetShape.arrayDepth &&

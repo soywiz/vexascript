@@ -49,12 +49,15 @@ export function resolveClassOwnMember(
       continue;
     }
     if (member.kind === "ClassFieldMember") {
+      const inferredTypeName = !member.typeAnnotation && member.initializer && context?.analysis
+        ? typeNameFromAnalysisType(context.analysis.getExpressionTypes().get(member.initializer))
+        : null;
       const documentation = readDocumentationFromNamedNode(member);
       const result: ResolvedClassMember = {
         className: classStatement.name.name,
         memberName,
         kind: "field",
-        typeName: substituteTypeNameText(member.typeAnnotation?.name ?? "unknown", substitutions)
+        typeName: substituteTypeNameText(member.typeAnnotation?.name ?? inferredTypeName ?? "unknown", substitutions)
       };
       if (documentation) {
         result.documentation = documentation;

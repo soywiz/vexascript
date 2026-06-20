@@ -190,9 +190,11 @@ This section is the fast onboarding map for agents and contributors.
 - VexaScript vs TypeScript syntax differences: `docs/syntax.differences.md`
 - VexaScript AI syntax reference for the website `/syntax/ai` page: `docs/syntax.ai.md`
 - Compact VexaScript reference for AI agents, including the AGENTS.md-friendly version used by the website `/syntax/ai` page: `docs/syntax.ai.md`
-- Engineering journal notes, regression history, and recurring failure patterns captured after completed tasks: `docs/journal/` (index: `docs/journal/README.md`)
+- Engineering journal notes, regression history, recurring failure patterns, and noteworthy failed investigation branches captured after completed tasks: `docs/journal/` (index: `docs/journal/README.md`)
+- Processed journal notes that have already been ingested into actionable architecture or follow-up tasks: `docs/journal/processed/`
 - Repo-local Codex skills: `.codex/skills/`
   - Sample-creation workflow skill for browser and Node samples: `.codex/skills/create-vexascript-samples/SKILL.md`
+  - Journal-ingestion workflow skill for turning engineering notes into actionable follow-up tasks and moving processed notes aside: `.codex/skills/ingest-vexascript-journal/SKILL.md`
   - Task-management workflow skill for creating, updating, and completing repository task docs: `.codex/skills/manage-vexascript-tasks/SKILL.md`
 - LSP services status: `docs/lsp.services.md`
 - Completed LSP unification task list: `docs/tasks/completed/lsp.unifications.md`

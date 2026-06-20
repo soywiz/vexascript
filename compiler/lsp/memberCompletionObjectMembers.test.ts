@@ -54,7 +54,7 @@ describe("memberCompletionObjectMembers", () => {
       {
         name: "map",
         kind: CompletionItemKind.Method,
-        detail: "Type alias method: (transform: string) => T"
+        detail: "Type alias method: (transform: string) => int"
       }
     ]);
   });

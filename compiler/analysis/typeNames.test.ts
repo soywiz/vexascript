@@ -11,6 +11,7 @@ import {
   splitArraySuffixTypeName,
   splitIndexedAccessTypeName,
   splitOptionalTypeSuffix,
+  substituteTypeNameText,
   splitTopLevelDelimitedTypeText,
   splitTopLevelTypeText,
   splitTypeArgumentText
@@ -220,6 +221,30 @@ describe("splitIndexedAccessTypeName", () => {
 
   it("returns null when the index part is empty", () => {
     expect(splitIndexedAccessTypeName("T[]")).toBeNull();
+  });
+});
+
+describe("substituteTypeNameText", () => {
+  it("substitutes type parameters nested inside function and union type text", () => {
+    const substitutions = new Map<string, string>([
+      ["P", "{}"],
+      ["S", "{ time: number }"]
+    ]);
+
+    expect(substituteTypeNameText(
+      "((prevState: Readonly<S>, props: Readonly<P>) => Pick<S, K> | Partial<S> | null) | (Pick<S, K> | Partial<S> | null)",
+      substitutions
+    )).toBe(
+      "((prevState: Readonly<{ time: number }>, props: Readonly<{}>) => Pick<{ time: number }, K> | Partial<{ time: number }> | null) | (Pick<{ time: number }, K> | Partial<{ time: number }> | null)"
+    );
+  });
+
+  it("does not rewrite parameter labels while substituting their type annotations", () => {
+    const substitutions = new Map<string, string>([["T", "string"]]);
+
+    expect(substituteTypeNameText("(value: T, next?: T) => T", substitutions)).toBe(
+      "(value: string, next?: string) => string"
+    );
   });
 });
 

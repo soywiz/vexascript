@@ -63,7 +63,9 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Supported language syntax documentation lives in `docs/syntax.md`. Every time new language syntax support is added it must be updated in the same change.
 - Technical/reference documentation lives in `docs/`.
 - Engineering journal notes and regression history live in `docs/journal/`. After each completed task, add or update a journal entry when you found a bug pattern, regression risk, infrastructure weakness, confusing workflow, or recurring failure mode worth preserving.
+- Unprocessed journal notes stay in `docs/journal/`. After they are mined into concrete follow-up work, move them to `docs/journal/processed/` instead of deleting them.
 - Prefer documenting lessons that help reduce legacy, avoid future regressions, or reveal infrastructure gaps. If something fails repeatedly or is especially costly when it fails, document it.
+- Journal entries should not only record the final successful fix. They should also record meaningful investigation branches that did not work, why they were explored, and what evidence ruled them out. We want the journal to preserve dead ends and their motivation so future debugging can skip already-proven-unhelpful directions.
 - Active task documents live in `docs/tasks/`.
 - Completed task documents live in `docs/tasks/completed/`.
 
