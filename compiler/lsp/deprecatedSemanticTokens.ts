@@ -1,56 +1,22 @@
 import { boxedPrimitiveTypeName } from "compiler/analysis/typeNames";
 import { typeToString } from "compiler/analysis/types";
-import type { ClassStatement, Identifier, InterfaceStatement, MemberExpression, Program, Statement } from "compiler/ast/ast";
+import type { Identifier, MemberExpression, Program } from "compiler/ast/ast";
 import type { SourceRange } from "compiler/parser/tokenizer";
-import { unwrapExportedDeclaration, walkAst } from "compiler/ast/traversal";
-import type { Hover } from "vscode-languageserver/node.js";
+import { walkAst } from "compiler/ast/traversal";
 import {
   createClassResolverCache,
   resolveClassMember,
   resolveInterfaceMember,
+  resolveClassStatementAcrossFiles,
+  resolveInterfaceStatementAcrossFiles,
   type ClassResolverOptions
 } from "./classResolver";
 import type { ResolveContext } from "./crossFileContext";
-import { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 import { DEPRECATED_TOKEN_MODIFIER, semanticTokenRangeKey } from "./semanticTokens";
 
 export interface DeprecatedMemberRange {
   memberName: string;
   range: SourceRange;
-}
-
-function hoverValue(hover: Hover | null): string {
-  const contents = hover?.contents;
-  if (!contents) {
-    return "";
-  }
-  if (typeof contents === "string") {
-    return contents;
-  }
-  if (Array.isArray(contents)) {
-    return contents.map((item) => typeof item === "string" ? item : item.value).join("\n");
-  }
-  return contents.value;
-}
-
-function containsDeprecatedTag(text: string): boolean {
-  return /(^|\n)\s*@deprecated\b/.test(text);
-}
-
-function findExternalTypeDeclaration(
-  statements: readonly Statement[] | undefined,
-  typeName: string
-): ClassStatement | InterfaceStatement | null {
-  for (const statement of statements ?? []) {
-    const declaration = unwrapExportedDeclaration(statement) ?? statement;
-    if (declaration.kind === "ClassStatement" || declaration.kind === "InterfaceStatement") {
-      const typeDeclaration = declaration as ClassStatement | InterfaceStatement;
-      if (typeDeclaration.name.name === typeName) {
-        return typeDeclaration;
-      }
-    }
-  }
-  return null;
 }
 
 function memberPropertyPosition(member: MemberExpression): { line: number; character: number } | null {
@@ -86,8 +52,7 @@ async function hasDeprecatedResolvedDocumentation(
     options: ClassResolverOptions;
     analysis: NonNullable<ResolveContext["session"]["analysis"]>;
     cache: ReturnType<typeof createClassResolverCache>;
-  },
-  externalTypeDeclarations: Map<string, ClassStatement | InterfaceStatement | null>
+  }
 ): Promise<boolean> {
   if (member.computed || member.property.kind !== "Identifier" || !context.session.analysis || !context.session.ast) {
     return false;
@@ -102,25 +67,47 @@ async function hasDeprecatedResolvedDocumentation(
     : objectType.kind === "named" || objectType.kind === "builtin"
       ? boxedPrimitiveTypeName(objectType.name)
       : null;
-  const declaration = !typeName
-    ? null
-    : externalTypeDeclarations.has(typeName)
-      ? externalTypeDeclarations.get(typeName) ?? null
-      : (() => {
-          const resolved = findExternalTypeDeclaration(context.session.externalDeclarations, typeName);
-          externalTypeDeclarations.set(typeName, resolved);
-          return resolved;
-        })();
-  if (!declaration) {
-    return false;
-  }
   const property = member.property as Identifier;
   const memberName = property.name;
   const objectTypeName = typeToString(objectType);
-  const resolved = declaration.kind === "ClassStatement"
-    ? await resolveClassMember(declaration, memberName, objectTypeName, resolverContext)
-    : await resolveInterfaceMember(declaration, memberName, objectTypeName, resolverContext);
-  return containsDeprecatedTag(resolved?.documentation ?? "");
+  if (!typeName) {
+    return false;
+  }
+
+  const classResolution = await resolveClassStatementAcrossFiles(
+    resolverContext.ast,
+    typeName,
+    resolverContext.options,
+    resolverContext.cache
+  );
+  if (classResolution) {
+    const resolved = await resolveClassMember(
+      classResolution.classStatement,
+      memberName,
+      objectTypeName,
+      resolverContext
+    );
+    if (resolved?.deprecated) {
+      return true;
+    }
+  }
+
+  const interfaceResolution = await resolveInterfaceStatementAcrossFiles(
+    resolverContext.ast,
+    typeName,
+    resolverContext.options,
+    resolverContext.cache
+  );
+  if (!interfaceResolution) {
+    return false;
+  }
+  const resolved = await resolveInterfaceMember(
+    interfaceResolution.interfaceStatement,
+    memberName,
+    objectTypeName,
+    resolverContext
+  );
+  return resolved?.deprecated === true;
 }
 
 export async function collectDeprecatedSemanticTokenModifiers(
@@ -156,7 +143,6 @@ export async function collectDeprecatedMemberRanges(
     analysis: context.session.analysis,
     cache: createClassResolverCache()
   };
-  const externalTypeDeclarations = new Map<string, ClassStatement | InterfaceStatement | null>();
   const deprecatedStateByMemberKey = new Map<string, boolean>();
 
   const deprecatedMembers: DeprecatedMemberRange[] = [];
@@ -178,28 +164,11 @@ export async function collectDeprecatedMemberRanges(
     }
     const memberKey = deprecatedMemberCacheKey(context, member);
     const cachedDeprecated = memberKey ? deprecatedStateByMemberKey.get(memberKey) : undefined;
-    const isDeprecated = cachedDeprecated ?? await (async () => {
-      const directDeprecated = await hasDeprecatedResolvedDocumentation(
-        context,
-        member,
-        sharedResolverContext,
-        externalTypeDeclarations
-      );
-      if (directDeprecated) {
-        return true;
-      }
-      const hover = await resolveMemberHoverAcrossFiles(
-        {
-          ...context,
-          line: position.line,
-          character: position.character
-        },
-        {
-          classResolverCache: sharedResolverContext.cache
-        }
-      );
-      return containsDeprecatedTag(hoverValue(hover));
-    })();
+    const isDeprecated = cachedDeprecated ?? await hasDeprecatedResolvedDocumentation(
+      context,
+      member,
+      sharedResolverContext
+    );
     if (memberKey) {
       deprecatedStateByMemberKey.set(memberKey, isDeprecated);
     }

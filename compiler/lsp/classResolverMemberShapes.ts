@@ -7,7 +7,7 @@ import type {
   ReturnStatement
 } from "compiler/ast/ast";
 import { substituteTypeNameText } from "compiler/analysis/typeNames";
-import { readDocumentationFromNamedNode, readDocumentationFromParameterLike } from "./documentation";
+import { readDocumentationInfoFromNamedNode, readDocumentationInfoFromParameterLike } from "./documentation";
 import { formatFunctionTypeLabel } from "./functionTypeDisplay";
 import { typeNameFromAnalysisType } from "./classResolverTypeNames";
 import type {
@@ -18,6 +18,16 @@ import type {
 } from "./classResolver";
 
 type ClassPropertyParameter = FunctionParameter | ClassPrimaryConstructorParameter;
+
+function documentationFields(documentation: { text: string; deprecated: boolean } | undefined): { documentation: string; deprecated?: true } | {} {
+  if (!documentation) {
+    return {};
+  }
+  return {
+    documentation: documentation.text,
+    ...(documentation.deprecated ? { deprecated: true as const } : {})
+  };
+}
 
 export function resolveClassOwnMember(
   classStatement: ClassStatement,
@@ -31,16 +41,14 @@ export function resolveClassOwnMember(
       continue;
     }
     const typeName = substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions);
-    const documentation = readDocumentationFromParameterLike(parameter);
+    const documentation = readDocumentationInfoFromParameterLike(parameter);
     const result: ResolvedClassMember = {
       className: classStatement.name.name,
       memberName,
       kind: "field",
-      typeName
+      typeName,
+      ...documentationFields(documentation)
     };
-    if (documentation) {
-      result.documentation = documentation;
-    }
     return result;
   }
 
@@ -52,16 +60,14 @@ export function resolveClassOwnMember(
       const inferredTypeName = !member.typeAnnotation && member.initializer && context?.analysis
         ? typeNameFromAnalysisType(context.analysis.getExpressionTypes().get(member.initializer))
         : null;
-      const documentation = readDocumentationFromNamedNode(member);
+      const documentation = readDocumentationInfoFromNamedNode(member);
       const result: ResolvedClassMember = {
         className: classStatement.name.name,
         memberName,
         kind: "field",
-        typeName: substituteTypeNameText(member.typeAnnotation?.name ?? inferredTypeName ?? "unknown", substitutions)
+        typeName: substituteTypeNameText(member.typeAnnotation?.name ?? inferredTypeName ?? "unknown", substitutions),
+        ...documentationFields(documentation)
       };
-      if (documentation) {
-        result.documentation = documentation;
-      }
       return result;
     }
 
@@ -73,30 +79,26 @@ export function resolveClassOwnMember(
       const inferredTypeName = !member.returnType && getterExpression && context?.analysis
         ? typeNameFromAnalysisType(context.analysis.getExpressionTypes().get(getterExpression))
         : null;
-      const documentation = readDocumentationFromNamedNode(member);
+      const documentation = readDocumentationInfoFromNamedNode(member);
       const result: ResolvedClassMember = {
         className: classStatement.name.name,
         memberName,
         kind: "field",
-        typeName: substituteTypeNameText(member.returnType?.name ?? inferredTypeName ?? "unknown", substitutions)
+        typeName: substituteTypeNameText(member.returnType?.name ?? inferredTypeName ?? "unknown", substitutions),
+        ...documentationFields(documentation)
       };
-      if (documentation) {
-        result.documentation = documentation;
-      }
       return result;
     }
 
     if (member.accessorKind === "set") {
-      const documentation = readDocumentationFromNamedNode(member);
+      const documentation = readDocumentationInfoFromNamedNode(member);
       const result: ResolvedClassMember = {
         className: classStatement.name.name,
         memberName,
         kind: "field",
-        typeName: substituteTypeNameText(member.parameters[0]?.typeAnnotation?.name ?? "unknown", substitutions)
+        typeName: substituteTypeNameText(member.parameters[0]?.typeAnnotation?.name ?? "unknown", substitutions),
+        ...documentationFields(documentation)
       };
-      if (documentation) {
-        result.documentation = documentation;
-      }
       return result;
     }
 
@@ -107,12 +109,12 @@ export function resolveClassOwnMember(
       rest: parameter.rest === true
     }));
     const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "void", substitutions);
-    const documentation = readDocumentationFromNamedNode(member);
+    const documentation = readDocumentationInfoFromNamedNode(member);
     const signature: ResolvedFunctionSignature = {
       name: member.name.name,
       parameters,
       returnTypeName,
-      ...(documentation ? { documentation } : {})
+      ...documentationFields(documentation)
     };
     return {
       className: classStatement.name.name,
@@ -120,7 +122,7 @@ export function resolveClassOwnMember(
       kind: "method",
       typeName: formatFunctionTypeLabel(parameters, returnTypeName),
       signature,
-      ...(documentation ? { documentation } : {})
+      ...documentationFields(documentation)
     };
   }
 
@@ -166,16 +168,14 @@ export function resolveInterfaceOwnSignatures(
     }
 
     if (member.kind === "InterfacePropertyMember") {
-      const documentation = readDocumentationFromNamedNode(member);
+      const documentation = readDocumentationInfoFromNamedNode(member);
       const resolved: ResolvedClassMember = {
         className: interfaceStatement.name.name,
         memberName,
         kind: "field",
-        typeName: substituteTypeNameText(member.typeAnnotation?.name ?? "unknown", substitutions)
+        typeName: substituteTypeNameText(member.typeAnnotation?.name ?? "unknown", substitutions),
+        ...documentationFields(documentation)
       };
-      if (documentation) {
-        resolved.documentation = documentation;
-      }
       const sig: ResolvedFunctionSignature = {
         name: memberName,
         parameters: [],
@@ -192,12 +192,12 @@ export function resolveInterfaceOwnSignatures(
       rest: parameter.rest === true
     }));
     const returnTypeName = substituteTypeNameText(member.returnType?.name ?? "void", substitutions);
-    const documentation = readDocumentationFromNamedNode(member);
+    const documentation = readDocumentationInfoFromNamedNode(member);
     const signature: ResolvedFunctionSignature = {
       name: member.name.name,
       parameters,
       returnTypeName,
-      ...(documentation ? { documentation } : {})
+      ...documentationFields(documentation)
     };
     const resolved: ResolvedClassMember = {
       className: interfaceStatement.name.name,
@@ -205,7 +205,7 @@ export function resolveInterfaceOwnSignatures(
       kind: "method",
       typeName: formatFunctionTypeLabel(parameters, returnTypeName),
       signature,
-      ...(documentation ? { documentation } : {})
+      ...documentationFields(documentation)
     };
     results.push({ member: resolved, signature });
   }

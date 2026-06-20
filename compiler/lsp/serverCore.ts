@@ -31,7 +31,6 @@ import { collectCodeActions } from "./codeActionsAggregate";
 import { deferCodeActions, resolveDeferredCodeAction } from "./codeActions";
 import { createFullDocumentFormatEdit, createRangeFormatEdit } from "./formatting";
 import { collectDiagnosticsFromSession } from "./diagnostics";
-import { createDeprecatedDiagnosticsFromRanges } from "./deprecatedDiagnostics";
 import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
 import { buildAmbientModuleSymbolExports, buildAutoImportSuggestions, buildSymbolExports, uriToFilePath } from "./importFixes";
@@ -57,12 +56,9 @@ import { createDocumentSymbols, createWorkspaceSymbols } from "./symbols";
 export { candidateCharacters } from "./navigation";
 import {
   createSemanticTokens,
-  DEPRECATED_TOKEN_MODIFIER,
-  semanticTokenRangeKey,
   VEXA_SEMANTIC_TOKENS_LEGEND
 } from "./semanticTokens";
-import { collectDeprecatedMemberRanges } from "./deprecatedSemanticTokens";
-import type { DeprecatedMemberRange } from "./deprecatedSemanticTokens";
+import { collectDeprecatedSemanticTokenModifiers } from "./deprecatedSemanticTokens";
 import {
   createDocumentHighlights,
   createFoldingRanges,
@@ -135,7 +131,6 @@ export function startLspServer(options: LspServerOptions): void {
   const documentDiagnosticCache = new Map<string, { version: number; promise: Promise<{ items: Diagnostic[]; resultId: string }> }>();
   const workspaceDiagnosticCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
   const crossFileTypeDiagnosticsCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
-  const deprecatedMemberRangesCache = new Map<string, { version: number; promise: Promise<DeprecatedMemberRange[]> }>();
   const deprecatedSemanticTokenModifiersCache = new Map<string, { version: number; promise: Promise<Map<string, number>> }>();
   const workspaceMemberDiagnosticsCache = new Map<string, { version: number; promise: Promise<Diagnostic[]> }>();
   const semanticTokensCache = new Map<string, { version: number; promise: Promise<SemanticTokens> }>();
@@ -198,7 +193,6 @@ export function startLspServer(options: LspServerOptions): void {
     documentDiagnosticCache.delete(uri);
     workspaceDiagnosticCache.delete(uri);
     crossFileTypeDiagnosticsCache.delete(uri);
-    deprecatedMemberRangesCache.delete(uri);
     deprecatedSemanticTokenModifiersCache.delete(uri);
     workspaceMemberDiagnosticsCache.delete(uri);
     for (const key of codeActionCache.keys()) {
@@ -217,7 +211,6 @@ export function startLspServer(options: LspServerOptions): void {
     documentDiagnosticCache.clear();
     workspaceDiagnosticCache.clear();
     crossFileTypeDiagnosticsCache.clear();
-    deprecatedMemberRangesCache.clear();
     deprecatedSemanticTokenModifiersCache.clear();
     workspaceMemberDiagnosticsCache.clear();
     semanticTokensCache.clear();
@@ -244,10 +237,9 @@ export function startLspServer(options: LspServerOptions): void {
 
   async function collectWorkspaceDiagnosticsForDocument(doc: TextDocument): Promise<Diagnostic[]> {
     const session = await analysisSessions.getForDocumentAsync(doc);
-    const [crossFileDiagnostics, crossFileTypeDiagnostics, deprecatedDiagnostics] = await Promise.all([
+    const [crossFileDiagnostics, crossFileTypeDiagnostics] = await Promise.all([
       getWorkspaceMemberDiagnosticsForDocument(doc, session),
-      getCrossFileTypeDiagnosticsForDocument(doc, session),
-      getDeprecatedDiagnosticsForDocument(doc, session)
+      getCrossFileTypeDiagnosticsForDocument(doc, session)
     ]);
     const sameFileKeys = new Set(
       session.semanticIssues.map((issue) => {
@@ -258,7 +250,7 @@ export function startLspServer(options: LspServerOptions): void {
         return `${token.range.start.line}:${token.range.start.column}:${issue.message}`;
       })
     );
-    return [...crossFileDiagnostics, ...crossFileTypeDiagnostics, ...deprecatedDiagnostics].filter((diagnostic) => {
+    return [...crossFileDiagnostics, ...crossFileTypeDiagnostics].filter((diagnostic) => {
       const key = `${diagnostic.range.start.line}:${diagnostic.range.start.character}:${diagnostic.message}`;
       return !sameFileKeys.has(key);
     });
@@ -289,40 +281,6 @@ export function startLspServer(options: LspServerOptions): void {
     return promise;
   }
 
-  async function getDeprecatedMemberRangesForDocument(
-    doc: TextDocument,
-    session?: AnalysisSession
-  ): Promise<DeprecatedMemberRange[]> {
-    const cached = deprecatedMemberRangesCache.get(doc.uri);
-    if (cached && cached.version === doc.version) {
-      logCacheState("deprecatedMemberRanges", "hit", doc.version);
-      return cached.promise;
-    }
-    logCacheState("deprecatedMemberRanges", "miss", doc.version);
-    const promise = (async () => {
-      const resolvedSession = session ?? await logTimedPhase("deprecatedMemberRanges", "analysisSession", () =>
-        analysisSessions.getForDocumentAsync(doc)
-      );
-      return logTimedPhase("deprecatedMemberRanges", "collect", () =>
-        collectDeprecatedMemberRanges({
-          ...featureContext(doc.uri),
-          session: resolvedSession
-        })
-      );
-    })();
-    deprecatedMemberRangesCache.set(doc.uri, { version: doc.version, promise });
-    return promise;
-  }
-
-  async function getDeprecatedDiagnosticsForDocument(
-    doc: TextDocument,
-    session?: AnalysisSession
-  ): Promise<Diagnostic[]> {
-    return createDeprecatedDiagnosticsFromRanges(
-      await getDeprecatedMemberRangesForDocument(doc, session)
-    );
-  }
-
   async function getWorkspaceMemberDiagnosticsForDocument(
     doc: TextDocument,
     session?: AnalysisSession
@@ -348,6 +306,31 @@ export function startLspServer(options: LspServerOptions): void {
     return promise;
   }
 
+  async function getDeprecatedSemanticTokenModifiers(
+    doc: TextDocument,
+    session?: AnalysisSession
+  ): Promise<Map<string, number>> {
+    const cached = deprecatedSemanticTokenModifiersCache.get(doc.uri);
+    if (cached && cached.version === doc.version) {
+      logCacheState("deprecatedSemanticTokenModifiers", "hit", doc.version);
+      return cached.promise;
+    }
+    logCacheState("deprecatedSemanticTokenModifiers", "miss", doc.version);
+    const promise = (async () => {
+      const resolvedSession = session ?? await logTimedPhase("deprecatedSemanticTokenModifiers", "analysisSession", () =>
+        analysisSessions.getForDocumentAsync(doc)
+      );
+      return logTimedPhase("deprecatedSemanticTokenModifiers", "collect", () =>
+        collectDeprecatedSemanticTokenModifiers({
+          ...featureContext(doc.uri),
+          session: resolvedSession
+        })
+      );
+    })();
+    deprecatedSemanticTokenModifiersCache.set(doc.uri, { version: doc.version, promise });
+    return promise;
+  }
+
   async function getDocumentDiagnosticArtifacts(doc: TextDocument): Promise<{ items: Diagnostic[]; resultId: string }> {
     const cached = documentDiagnosticCache.get(doc.uri);
     if (cached && cached.version === doc.version) {
@@ -359,7 +342,7 @@ export function startLspServer(options: LspServerOptions): void {
       const session = await logTimedPhase("textDocument/diagnostic", "analysisSession", () =>
         analysisSessions.getForDocumentAsync(doc)
       );
-      const [moduleNotFoundDiagnostics, crossFileTypeDiagnostics, deprecatedDiagnostics] = await Promise.all([
+      const [moduleNotFoundDiagnostics, crossFileTypeDiagnostics] = await Promise.all([
         logTimedPhase("textDocument/diagnostic", "moduleNotFoundDiagnostics", () =>
           collectModuleNotFoundDiagnostics({
             uri: doc.uri,
@@ -369,16 +352,13 @@ export function startLspServer(options: LspServerOptions): void {
         ),
         logTimedPhase("textDocument/diagnostic", "crossFileTypeDiagnostics", () =>
           getCrossFileTypeDiagnosticsForDocument(doc, session)
-        ),
-        logTimedPhase("textDocument/diagnostic", "deprecatedDiagnostics", () =>
-          getDeprecatedDiagnosticsForDocument(doc, session)
         )
       ]);
       const syncDiagnostics = await logTimedPhase("textDocument/diagnostic", "localDiagnostics", () =>
         collectDiagnosticsFromSession(session, doc.getText(), (offset) => doc.positionAt(offset))
       );
       return {
-        items: [...syncDiagnostics, ...moduleNotFoundDiagnostics, ...crossFileTypeDiagnostics, ...deprecatedDiagnostics],
+        items: [...syncDiagnostics, ...moduleNotFoundDiagnostics, ...crossFileTypeDiagnostics],
         resultId: String(doc.version)
       };
     });
@@ -395,30 +375,6 @@ export function startLspServer(options: LspServerOptions): void {
     logCacheState("workspace/diagnostic", "miss", doc.version);
     const promise = collectWorkspaceDiagnosticsForDocument(doc);
     workspaceDiagnosticCache.set(doc.uri, { version: doc.version, promise });
-    return promise;
-  }
-
-  async function getDeprecatedSemanticTokenModifiers(doc: TextDocument): Promise<Map<string, number>> {
-    const cached = deprecatedSemanticTokenModifiersCache.get(doc.uri);
-    if (cached && cached.version === doc.version) {
-      logCacheState("deprecatedSemanticTokenModifiers", "hit", doc.version);
-      return cached.promise;
-    }
-    logCacheState("deprecatedSemanticTokenModifiers", "miss", doc.version);
-    const promise = (async () => {
-      const ranges = await logTimedPhase("deprecatedSemanticTokenModifiers", "deprecatedMemberRanges", () =>
-        getDeprecatedMemberRangesForDocument(doc)
-      );
-      return logTimedPhase("deprecatedSemanticTokenModifiers", "buildMap", () => {
-        const tokenModifiers = new Map<string, number>();
-        for (const member of ranges) {
-          const key = semanticTokenRangeKey(member.range);
-          tokenModifiers.set(key, (tokenModifiers.get(key) ?? 0) | DEPRECATED_TOKEN_MODIFIER);
-        }
-        return tokenModifiers;
-      });
-    })();
-    deprecatedSemanticTokenModifiersCache.set(doc.uri, { version: doc.version, promise });
     return promise;
   }
 
@@ -1007,7 +963,7 @@ export function startLspServer(options: LspServerOptions): void {
         analysisSessions.getForDocumentAsync(doc)
       );
       const tokenModifiersByRangeKey = await logTimedPhase("textDocument/semanticTokens/full", "deprecatedSemanticTokenModifiers", () =>
-        getDeprecatedSemanticTokenModifiers(doc)
+        getDeprecatedSemanticTokenModifiers(doc, session)
       );
       return logTimedPhase("textDocument/semanticTokens/full", "buildTokens", () =>
         createSemanticTokens({
@@ -1039,7 +995,7 @@ export function startLspServer(options: LspServerOptions): void {
         analysisSessions.getForDocumentAsync(doc)
       );
       const tokenModifiersByRangeKey = await logTimedPhase("textDocument/semanticTokens/range", "deprecatedSemanticTokenModifiers", () =>
-        getDeprecatedSemanticTokenModifiers(doc)
+        getDeprecatedSemanticTokenModifiers(doc, session)
       );
       return logTimedPhase("textDocument/semanticTokens/range", "buildTokens", () =>
         createSemanticTokens({

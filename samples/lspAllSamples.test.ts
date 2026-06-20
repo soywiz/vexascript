@@ -42,6 +42,9 @@ describe("all sample LSP sessions", async () => {
       const project = await resolveProjectForSource(entrypoint);
       await ensureRuntimeDependencies(entrypoint, project);
 
+      // Keep the full fake-VS Code request burst in this test. The extra calls
+      // intentionally emulate what the editor asks for on open, so this suite
+      // can catch hangs, infinite loops, and thrown errors a real user would see.
       const result = await openEntrypointInLspSession(entrypoint, workspaceRoot);
       const errors = [...result.documentDiagnostics, ...result.workspaceDiagnostics]
         .filter((diagnostic) => diagnostic.severity === 1)

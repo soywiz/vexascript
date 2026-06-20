@@ -49,12 +49,60 @@ After the cache change, the Pixi latency script dropped roughly from:
 The full `all sample LSP sessions` suite also dropped from roughly 24 seconds
 to about 20 seconds.
 
+## Final decision for active editor flows
+
+After profiling the remaining hotspots, deprecated-member analysis was still one
+of the most expensive parts of the Pixi open burst, and it was not providing
+reliable user value in practice. We removed it from active editor-facing flows:
+
+- LSP pull diagnostics
+- LSP workspace diagnostics
+- LSP semantic tokens
+- Monaco/embed workspace diagnostics
+- Monaco/embed semantic tokens
+
+The helper code and its focused tests can remain for future rehabilitation, but
+the active request paths no longer pay that runtime cost.
+
+With that removal, the real sample-session timings improved again. In focused
+runs, `samples/pixi.test.ts` dropped its LSP-open path to roughly 3.0 seconds,
+and `all sample LSP sessions` dropped to about 16 seconds.
+
+## Follow-up: cheap deprecated semantic tokens
+
+The original deprecated-member path was slow mostly because it rediscovered
+deprecation from the outside:
+
+- resolve the member,
+- read string documentation,
+- regex-scan `@deprecated`,
+- and in some cases fall back to hover text.
+
+That was the wrong abstraction boundary. The cheaper shape is to parse
+documentation once, carry structured metadata on resolved declarations, and let
+semantic tokens read a `deprecated` boolean directly from the resolved member.
+
+The follow-up implementation now does that:
+
+- `documentation.ts` exposes structured documentation metadata
+- resolved class/interface members carry `deprecated?: boolean`
+- deprecated semantic token collection resolves the member directly through the
+  class/interface resolver cache, with no hover fallback
+
+After that rewrite, deprecated semantic tokens were re-enabled for the active
+LSP/embed semantic-token paths without bringing back the old latency spike. In
+focused reruns, `samples/pixi.test.ts` stayed around 3.2 seconds for the LSP
+open path, and `all sample LSP sessions` stayed around 17.1 seconds.
+
 ## What did not help
 
 - Simplifying the fake open-session helper by removing the synthetic change,
   config refresh, and code-action request did not produce a stable improvement
   in the suite-level runtime. The total time regressed on reruns because the
   main bottleneck was not there.
+- Reusing one fake server across all samples also did not help reliably. The
+  dominant costs were still inside per-sample LSP work, and the added lifecycle
+  complexity did not buy a stable speedup.
 
 ## Regression guidance
 

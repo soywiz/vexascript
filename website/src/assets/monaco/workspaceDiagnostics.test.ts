@@ -4,7 +4,7 @@ import { createAnalysisSession } from "compiler/lsp/analysisSession";
 import { collectWorkspaceDiagnostics } from "./workspaceDiagnostics";
 
 describe("workspace diagnostics", () => {
-  it("includes deprecated member diagnostics with deprecated tags", async () => {
+  it("does not add deprecated-member diagnostics from the removed deprecated analysis", async () => {
     const source = dedent`
       declare class Graphics {
         /** @deprecated since 8.0.0 Use fill instead */
@@ -32,10 +32,6 @@ describe("workspace diagnostics", () => {
     const diagnostics = await collectWorkspaceDiagnostics(model, session);
     const deprecated = diagnostics.find((diagnostic) => diagnostic.code === "MYL3003");
 
-    expect(deprecated?.tags).toEqual([2]);
-    expect(deprecated?.range).toEqual({
-      start: { line: 7, character: 6 },
-      end: { line: 7, character: 15 }
-    });
+    expect(deprecated).toBeUndefined();
   });
 });

@@ -12,6 +12,11 @@ import type {
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { TokenComment, SourcePosition, SourceRange } from "compiler/parser/tokenizer";
 
+export interface DocumentationInfo {
+  text: string;
+  deprecated: boolean;
+}
+
 export interface DocumentationParameterReference {
   parameter: FunctionParameter;
   referenceName: string;
@@ -24,7 +29,25 @@ interface ParameterDocumentationContext {
   comments: TokenComment[] | undefined;
 }
 
+export function documentationContainsDeprecatedTag(text: string): boolean {
+  return /(^|\n)\s*@deprecated\b/.test(text);
+}
+
+function documentationInfoFromText(text: string | undefined): DocumentationInfo | undefined {
+  if (!text) {
+    return undefined;
+  }
+  return {
+    text,
+    deprecated: documentationContainsDeprecatedTag(text)
+  };
+}
+
 export function readDocumentationFromIdentifier(identifier: Identifier): string | undefined {
+  return readDocumentationInfoFromIdentifier(identifier)?.text;
+}
+
+export function readDocumentationInfoFromIdentifier(identifier: Identifier): DocumentationInfo | undefined {
   const comments = identifier.firstToken?.leadingComments;
   if (!comments || comments.length === 0) {
     return undefined;
@@ -45,7 +68,7 @@ export function readDocumentationFromIdentifier(identifier: Identifier): string 
 
   const normalizedLineDocumentation = lineDocumentation.join("\n").trim();
   if (normalizedLineDocumentation.length > 0) {
-    return normalizedLineDocumentation;
+    return documentationInfoFromText(normalizedLineDocumentation);
   }
 
   for (let index = comments.length - 1; index >= 0; index -= 1) {
@@ -62,7 +85,7 @@ export function readDocumentationFromIdentifier(identifier: Identifier): string 
       .map((line) => line.replace(/^\s*\*\s?/, "").trimEnd());
     const normalized = lines.join("\n").trim();
     if (normalized.length > 0) {
-      return normalized;
+      return documentationInfoFromText(normalized);
     }
   }
 
@@ -75,30 +98,45 @@ type NamedDocumentationNode = {
 };
 
 export function readDocumentationFromNamedNode(node: NamedDocumentationNode): string | undefined {
-  return readDocumentationFromNodeFirstToken(node) ?? (node.name ? readDocumentationFromIdentifier(node.name) : undefined);
+  return readDocumentationInfoFromNamedNode(node)?.text;
+}
+
+export function readDocumentationInfoFromNamedNode(node: NamedDocumentationNode): DocumentationInfo | undefined {
+  return readDocumentationInfoFromNodeFirstToken(node) ?? (node.name ? readDocumentationInfoFromIdentifier(node.name) : undefined);
 }
 
 export function readDocumentationFromFunctionParameter(parameter: FunctionParameter): string | undefined {
+  return readDocumentationInfoFromFunctionParameter(parameter)?.text;
+}
+
+export function readDocumentationInfoFromFunctionParameter(parameter: FunctionParameter): DocumentationInfo | undefined {
   if (parameter.name.kind === "Identifier") {
-    return readDocumentationFromNamedNode({
+    return readDocumentationInfoFromNamedNode({
       firstToken: parameter.firstToken,
       name: parameter.name
     });
   }
-  return readDocumentationFromNodeFirstToken(parameter);
+  return readDocumentationInfoFromNodeFirstToken(parameter);
 }
 
 export function readDocumentationFromParameterLike(parameter: {
   firstToken?: Identifier["firstToken"];
   name: FunctionParameter["name"] | Identifier;
 }): string | undefined {
+  return readDocumentationInfoFromParameterLike(parameter)?.text;
+}
+
+export function readDocumentationInfoFromParameterLike(parameter: {
+  firstToken?: Identifier["firstToken"];
+  name: FunctionParameter["name"] | Identifier;
+}): DocumentationInfo | undefined {
   if (parameter.name.kind === "Identifier") {
-    return readDocumentationFromNamedNode({
+    return readDocumentationInfoFromNamedNode({
       firstToken: parameter.firstToken,
       name: parameter.name
     });
   }
-  return readDocumentationFromNodeFirstToken(parameter);
+  return readDocumentationInfoFromNodeFirstToken(parameter);
 }
 
 function identifiersMatch(left: Identifier, right: Identifier): boolean {
@@ -129,12 +167,12 @@ function parameterIdentifierMatches(parameter: FunctionParameter, identifier: Id
   return bindingIdentifiers(parameter.name).find((candidate) => identifiersMatch(candidate, identifier)) ?? null;
 }
 
-function readDocumentationFromNodeFirstToken(node: { firstToken?: Identifier["firstToken"] }): string | undefined {
+function readDocumentationInfoFromNodeFirstToken(node: { firstToken?: Identifier["firstToken"] }): DocumentationInfo | undefined {
   const firstToken = node.firstToken;
   if (!firstToken) {
     return undefined;
   }
-  return readDocumentationFromIdentifier({
+  return readDocumentationInfoFromIdentifier({
     kind: "Identifier",
     name: "",
     firstToken,
@@ -142,22 +180,22 @@ function readDocumentationFromNodeFirstToken(node: { firstToken?: Identifier["fi
   } as Identifier);
 }
 
-function readDocumentationFromStatement(
+function readDocumentationInfoFromStatement(
   statement: Statement,
   identifier: Identifier
-): string | undefined {
+): DocumentationInfo | undefined {
   if (statement.kind === "FunctionStatement" && identifiersMatch((statement as FunctionStatement).name, identifier)) {
-    return readDocumentationFromNodeFirstToken(statement) ?? readDocumentationFromIdentifier((statement as FunctionStatement).name);
+    return readDocumentationInfoFromNodeFirstToken(statement) ?? readDocumentationInfoFromIdentifier((statement as FunctionStatement).name);
   }
 
   if (statement.kind === "ClassStatement") {
     const classStatement = statement as ClassStatement;
     if (identifiersMatch(classStatement.name, identifier)) {
-      return readDocumentationFromNodeFirstToken(classStatement) ?? readDocumentationFromIdentifier(classStatement.name);
+      return readDocumentationInfoFromNodeFirstToken(classStatement) ?? readDocumentationInfoFromIdentifier(classStatement.name);
     }
     for (const member of classStatement.members) {
       if (identifiersMatch(member.name, identifier)) {
-        return readDocumentationFromNodeFirstToken(member) ?? readDocumentationFromIdentifier(member.name);
+        return readDocumentationInfoFromNodeFirstToken(member) ?? readDocumentationInfoFromIdentifier(member.name);
       }
     }
   }
@@ -165,11 +203,11 @@ function readDocumentationFromStatement(
   if (statement.kind === "InterfaceStatement") {
     const interfaceStatement = statement as InterfaceStatement;
     if (identifiersMatch(interfaceStatement.name, identifier)) {
-      return readDocumentationFromNodeFirstToken(interfaceStatement) ?? readDocumentationFromIdentifier(interfaceStatement.name);
+      return readDocumentationInfoFromNodeFirstToken(interfaceStatement) ?? readDocumentationInfoFromIdentifier(interfaceStatement.name);
     }
     for (const member of interfaceStatement.members) {
       if (identifiersMatch(member.name, identifier)) {
-        return readDocumentationFromNodeFirstToken(member) ?? readDocumentationFromIdentifier(member.name);
+        return readDocumentationInfoFromNodeFirstToken(member) ?? readDocumentationInfoFromIdentifier(member.name);
       }
     }
   }
@@ -178,20 +216,20 @@ function readDocumentationFromStatement(
     const namespaceStatement = statement as NamespaceStatement;
     if (namespaceStatement.body.kind === "BlockStatement") {
       for (const child of namespaceStatement.body.body) {
-        const documentation = readDocumentationFromStatement(child, identifier);
+        const documentation = readDocumentationInfoFromStatement(child, identifier);
         if (documentation) {
           return documentation;
         }
       }
       return undefined;
     }
-    return readDocumentationFromStatement(namespaceStatement.body, identifier);
+    return readDocumentationInfoFromStatement(namespaceStatement.body, identifier);
   }
 
   if (statement.kind === "ExportStatement") {
     const exported = statement as ExportStatement;
     if (exported.declaration) {
-      const declarationDocumentation = readDocumentationFromStatement(exported.declaration, identifier);
+      const declarationDocumentation = readDocumentationInfoFromStatement(exported.declaration, identifier);
       if (declarationDocumentation) {
         return declarationDocumentation;
       }
@@ -199,21 +237,21 @@ function readDocumentationFromStatement(
       if (exported.declaration.kind === "FunctionStatement") {
         const functionStatement = exported.declaration as FunctionStatement;
         if (identifiersMatch(functionStatement.name, identifier)) {
-          return readDocumentationFromNodeFirstToken(exported);
+          return readDocumentationInfoFromNodeFirstToken(exported);
         }
       }
 
       if (exported.declaration.kind === "ClassStatement") {
         const classStatement = exported.declaration as ClassStatement;
         if (identifiersMatch(classStatement.name, identifier)) {
-          return readDocumentationFromNodeFirstToken(exported);
+          return readDocumentationInfoFromNodeFirstToken(exported);
         }
       }
 
       if (exported.declaration.kind === "InterfaceStatement") {
         const interfaceStatement = exported.declaration as InterfaceStatement;
         if (identifiersMatch(interfaceStatement.name, identifier)) {
-          return readDocumentationFromNodeFirstToken(exported);
+          return readDocumentationInfoFromNodeFirstToken(exported);
         }
       }
     }
@@ -226,13 +264,20 @@ export function readDocumentationFromProgramDeclaration(
   program: Program,
   identifier: Identifier
 ): string | undefined {
+  return readDocumentationInfoFromProgramDeclaration(program, identifier)?.text;
+}
+
+export function readDocumentationInfoFromProgramDeclaration(
+  program: Program,
+  identifier: Identifier
+): DocumentationInfo | undefined {
   for (const statement of program.body) {
-    const documentation = readDocumentationFromStatement(statement, identifier);
+    const documentation = readDocumentationInfoFromStatement(statement, identifier);
     if (documentation) {
       return documentation;
     }
   }
-  return readDocumentationFromIdentifier(identifier);
+  return readDocumentationInfoFromIdentifier(identifier);
 }
 
 function importedDocumentationCandidates(
@@ -260,11 +305,11 @@ function importedDocumentationCandidates(
   return matches;
 }
 
-function readDocumentationFromStatementsByName(
+function readDocumentationInfoFromStatementsByName(
   statements: readonly Statement[],
   name: string
-): string | undefined {
-  return readDocumentationFromProgramDeclaration(
+): DocumentationInfo | undefined {
+  return readDocumentationInfoFromProgramDeclaration(
     { kind: "Program", body: [...statements] },
     {
       kind: "Identifier",
@@ -281,14 +326,25 @@ export function readDocumentationForSymbol(
     ambientModuleDeclarations?: ReadonlyMap<string, Statement[]> | undefined;
   } = {}
 ): string | undefined {
-  const localDocumentation = readDocumentationFromProgramDeclaration(program, identifier);
+  return readDocumentationInfoForSymbol(program, identifier, options)?.text;
+}
+
+export function readDocumentationInfoForSymbol(
+  program: Program,
+  identifier: Identifier,
+  options: {
+    externalDeclarations?: readonly Statement[] | undefined;
+    ambientModuleDeclarations?: ReadonlyMap<string, Statement[]> | undefined;
+  } = {}
+): DocumentationInfo | undefined {
+  const localDocumentation = readDocumentationInfoFromProgramDeclaration(program, identifier);
   if (localDocumentation) {
     return localDocumentation;
   }
 
   for (const candidate of importedDocumentationCandidates(program, identifier)) {
     const externalDocumentation = options.externalDeclarations
-      ? readDocumentationFromStatementsByName(options.externalDeclarations, candidate.importedName)
+      ? readDocumentationInfoFromStatementsByName(options.externalDeclarations, candidate.importedName)
       : undefined;
     if (externalDocumentation) {
       return externalDocumentation;
@@ -303,7 +359,7 @@ export function readDocumentationForSymbol(
       if (!ambientDeclarations) {
         continue;
       }
-      const ambientDocumentation = readDocumentationFromStatementsByName(
+      const ambientDocumentation = readDocumentationInfoFromStatementsByName(
         ambientDeclarations,
         candidate.importedName
       );
@@ -313,7 +369,7 @@ export function readDocumentationForSymbol(
     }
   }
 
-  return readDocumentationFromIdentifier(identifier);
+  return readDocumentationInfoFromIdentifier(identifier);
 }
 
 function positionWithinRange(range: SourceRange, line: number, character: number): boolean {

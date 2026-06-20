@@ -106,6 +106,7 @@ export interface ResolvedFunctionSignature {
   parameters: ResolvedParameter[];
   returnTypeName: string;
   documentation?: string;
+  deprecated?: boolean;
 }
 
 export interface ResolvedClassMember {
@@ -115,6 +116,7 @@ export interface ResolvedClassMember {
   typeName: string;
   signature?: ResolvedFunctionSignature;
   documentation?: string;
+  deprecated?: boolean;
 }
 
 export interface ResolvedClassMemberDeclaration {

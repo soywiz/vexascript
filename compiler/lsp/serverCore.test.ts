@@ -4,6 +4,7 @@ import type { Connection, TextDocuments } from "vscode-languageserver/node.js";
 import { COMPILER_VERSION } from "compiler/compilerVersion";
 import { AnalysisSessionCache, createAnalysisSession } from "./analysisSession";
 import { sourceWithCursor } from "compiler/test/sourceWithCursor";
+import { VEXA_SEMANTIC_TOKENS_LEGEND } from "./semanticTokens";
 import {
   candidateCharacters,
   completionPrefixAt,
@@ -234,6 +235,23 @@ function openedDocument(server: StartedServer, source: string, uri = "file:///wo
   return document;
 }
 
+function decodeSemanticTokenModifierBits(data: number[]): Array<{ line: number; character: number; length: number; modifierBits: number }> {
+  const decoded: Array<{ line: number; character: number; length: number; modifierBits: number }> = [];
+  let line = 0;
+  let character = 0;
+  for (let index = 0; index + 4 < data.length; index += 5) {
+    line += data[index]!;
+    character = data[index] === 0 ? character + data[index + 1]! : data[index + 1]!;
+    decoded.push({
+      line,
+      character,
+      length: data[index + 2]!,
+      modifierBits: data[index + 4]!
+    });
+  }
+  return decoded;
+}
+
 describe("LSP server core", () => {
   it("registers the same shared handler set for both server environments", () => {
     const node = startServer(true);
@@ -337,32 +355,6 @@ describe("LSP server core", () => {
     assert.equal(report.items.length > 0, true);
   });
 
-  it("reports deprecated member diagnostics through pull diagnostics", async () => {
-    const server = startServer(false);
-    const document = openedDocument(server, [
-      "declare class Graphics {",
-      "  /** @deprecated since 8.0.0 Use fill instead */",
-      "  beginFill(color: number): Graphics",
-      "  fill(color: number): Graphics",
-      "}",
-      "val badge = Graphics()",
-      "badge.beginFill(1)",
-      ""
-    ].join("\n"));
-
-    const report = await server.fakeConnection.handlers.get("diagnostics")!({
-      textDocument: { uri: document.uri }
-    }) as { kind: string; items: Array<{ code?: string; tags?: number[]; range: { start: { line: number; character: number }; end: { line: number; character: number } } }> };
-
-    const deprecated = report.items.find((item) => item.code === "MYL3003");
-    assert.equal(report.kind, "full");
-    assert.deepEqual(deprecated?.tags, [2]);
-    assert.deepEqual(deprecated?.range, {
-      start: { line: 6, character: 6 },
-      end: { line: 6, character: 15 }
-    });
-  });
-
   it("logs the compiler version when the LSP client finishes initialization", () => {
     const server = startServer(false);
 
@@ -464,8 +456,35 @@ describe("LSP server core", () => {
       /^\[Timing\] textDocument\/diagnostic::analysisSession took \d+(?:\.\d+)?ms$/.test(message)
     ), true);
     assert.equal(server.fakeConnection.infoMessages.some((message) =>
+      /^\[Timing\] textDocument\/semanticTokens\/full::buildTokens took \d+(?:\.\d+)?ms$/.test(message)
+    ), true);
+    assert.equal(server.fakeConnection.infoMessages.some((message) =>
       /^\[Timing\] textDocument\/semanticTokens\/full::deprecatedSemanticTokenModifiers took \d+(?:\.\d+)?ms$/.test(message)
     ), true);
+  });
+
+  it("marks deprecated members in semantic tokens through the LSP route", async () => {
+    const server = startServer(false);
+    const document = openedDocument(server, [
+      "declare class Graphics {",
+      "  /** @deprecated since 8.0.0 Use fill instead */",
+      "  beginFill(color: number): Graphics",
+      "  fill(color: number): Graphics",
+      "}",
+      "val badge = Graphics()",
+      "badge.beginFill(1)",
+      ""
+    ].join("\n"));
+
+    const semantic = await server.fakeConnection.handlers.get("semanticTokens")!({
+      textDocument: { uri: document.uri }
+    }) as { data: number[] };
+    const deprecatedBit = 1 << VEXA_SEMANTIC_TOKENS_LEGEND.tokenModifiers.indexOf("deprecated");
+    const beginFillToken = decodeSemanticTokenModifierBits(semantic.data).find((token) =>
+      token.line === 6 && token.character === 6 && token.length === "beginFill".length
+    );
+
+    assert.equal((beginFillToken?.modifierBits ?? 0) & deprecatedBit, deprecatedBit);
   });
 
   it("keeps cache hit/miss logs disabled when only timings are enabled", async () => {

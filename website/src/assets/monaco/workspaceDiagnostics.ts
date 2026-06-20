@@ -1,6 +1,5 @@
 import type { AnalysisSession } from "compiler/lsp/analysisSession";
 import { collectDiagnosticsFromSession } from "compiler/lsp/diagnostics";
-import { collectDeprecatedDiagnostics } from "compiler/lsp/deprecatedDiagnostics";
 import { collectCrossFileMemberDiagnostics } from "compiler/lsp/memberDiagnostics";
 import { collectCrossFileTypeDiagnostics } from "compiler/lsp/crossFileTypeDiagnostics";
 import type { Diagnostic } from "vscode-languageserver/node.js";
@@ -60,14 +59,6 @@ export async function collectWorkspaceDiagnostics(
         : {}),
     }),
     collectCrossFileTypeDiagnostics({
-      uri: model.uri.toString(),
-      session,
-      sourceRoots: [],
-      ...(workspaceContext?.getSessionForFilePath
-        ? { getSessionForFilePath: workspaceContext.getSessionForFilePath }
-        : {}),
-    }),
-    collectDeprecatedDiagnostics({
       uri: model.uri.toString(),
       session,
       sourceRoots: [],
