@@ -1596,6 +1596,25 @@ describe("Analysis", () => {
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("narrows identifiers after an early-return falsy guard", () => {
+    const source = dedent`
+      interface Payload {
+        title: string
+      }
+      fun headline(payload: Payload | undefined): string {
+        if (!payload) {
+          return "missing"
+        }
+        return payload.title
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("reports unknown members inside optional chains after a nullable access narrows to unknown", () => {
     const source = dedent`
       interface NodeLike {

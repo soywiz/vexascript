@@ -139,7 +139,7 @@ import {
   toReadonlyPropertyName
 } from "./propertyNames";
 import { isBigIntType, isIntType, isLongType, isNullishType, isNumberType, isNumericFamilyType, isNumericType, isPrimitiveLikeOperatorType, isStringLikeType } from "./typeClassifiers";
-import { isAsyncLike, statementAllowsLabeledContinue, statementListAlwaysExits, statementListPreventsSwitchFallthrough } from "./controlFlow";
+import { isAsyncLike, statementAllowsLabeledContinue, statementAlwaysExits, statementListAlwaysExits, statementListPreventsSwitchFallthrough } from "./controlFlow";
 import { combineTypes, elementTypeFromIterable, hasNullishUnionMember, isAsyncIteratorType, removeNullishFromType, resolveLiteralTypeName, spreadArgumentElementType, unwrapPromiseType } from "./typeOperations";
 
 type EnumResolvedValue =
@@ -1723,19 +1723,46 @@ export class TypeChecker {
 
   private visitIfStatement(statement: IfStatement, scope: Scope, flow: FlowContext): void {
     this.visitExpression(statement.condition, scope);
+    const truthyNarrowings = this.conditionNarrowings(statement.condition, scope, true);
+    const truthyExpressionNarrowings = this.conditionExpressionNarrowings(statement.condition, scope, true);
     const thenScope = this.scopeWithNarrowings(
       this.scopeFor(statement.thenBranch, scope),
-      this.conditionNarrowings(statement.condition, scope, true),
-      this.conditionExpressionNarrowings(statement.condition, scope, true)
+      truthyNarrowings,
+      truthyExpressionNarrowings
     );
     this.visitStatement(statement.thenBranch, thenScope, flow);
+
+    const falsyNarrowings = this.conditionNarrowings(statement.condition, scope, false);
+    const falsyExpressionNarrowings = this.conditionExpressionNarrowings(statement.condition, scope, false);
     if (statement.elseBranch) {
       const elseScope = this.scopeWithNarrowings(
         this.scopeFor(statement.elseBranch, scope),
-        this.conditionNarrowings(statement.condition, scope, false),
-        this.conditionExpressionNarrowings(statement.condition, scope, false)
+        falsyNarrowings,
+        falsyExpressionNarrowings
       );
       this.visitStatement(statement.elseBranch, elseScope, flow);
+      if (statementAlwaysExits(statement.thenBranch) && !statementAlwaysExits(statement.elseBranch)) {
+        this.applyFlowNarrowings(scope, falsyNarrowings, falsyExpressionNarrowings);
+      } else if (!statementAlwaysExits(statement.thenBranch) && statementAlwaysExits(statement.elseBranch)) {
+        this.applyFlowNarrowings(scope, truthyNarrowings, truthyExpressionNarrowings);
+      }
+      return;
+    }
+
+    if (statementAlwaysExits(statement.thenBranch)) {
+      this.applyFlowNarrowings(scope, falsyNarrowings, falsyExpressionNarrowings);
+    }
+  }
+
+  private applyFlowNarrowings(
+    scope: Scope,
+    narrowings: Map<string, AnalysisType>,
+    expressionNarrowings: Map<string, AnalysisType>
+  ): void {
+    const narrowedScope = this.scopeWithNarrowings(scope, narrowings, expressionNarrowings);
+    scope.symbols = narrowedScope.symbols;
+    if (narrowedScope.narrowedExpressionTypes) {
+      scope.narrowedExpressionTypes = narrowedScope.narrowedExpressionTypes;
     }
   }
 
@@ -1770,6 +1797,15 @@ export class TypeChecker {
   private conditionNarrowings(condition: Expr, scope: Scope, truthy: boolean): Map<string, AnalysisType> {
     if (condition.kind === "UnaryExpression" && (condition as UnaryExpression).operator === "!") {
       return this.conditionNarrowings((condition as UnaryExpression).argument, scope, !truthy);
+    }
+    if (condition.kind === "Identifier") {
+      const identifier = condition as Identifier;
+      const originalType = this.resolve(identifier.name, scope, identifier.firstToken?.range.start.offset)?.type ?? UNKNOWN_TYPE;
+      const narrowedType = this.truthinessNarrowedType(originalType, truthy);
+      if (!narrowedType || isSameType(narrowedType, originalType)) {
+        return new Map();
+      }
+      return new Map([[identifier.name, narrowedType]]);
     }
     if (condition.kind !== "BinaryExpression") return new Map();
     const binary = condition as BinaryExpression;
@@ -4414,6 +4450,34 @@ export class TypeChecker {
       return;
     }
 
+    const expandedParameterType = parameterType.kind === "named"
+      ? this.expandTypeAliases(this.normalizeLooseNamedType(parameterType))
+      : parameterType;
+    if (!isSameType(expandedParameterType, parameterType)) {
+      this.inferTypeParameterSubstitutions(
+        expandedParameterType,
+        argumentType,
+        typeParameters,
+        explicitlyProvidedTypeParameters,
+        substitutions
+      );
+      return;
+    }
+
+    const expandedArgumentType = argumentType.kind === "named"
+      ? this.expandTypeAliases(this.normalizeLooseNamedType(argumentType))
+      : argumentType;
+    if (!isSameType(expandedArgumentType, argumentType)) {
+      this.inferTypeParameterSubstitutions(
+        parameterType,
+        expandedArgumentType,
+        typeParameters,
+        explicitlyProvidedTypeParameters,
+        substitutions
+      );
+      return;
+    }
+
     if (parameterType.kind === "union") {
       if (argumentType.kind === "union") {
         for (let index = 0; index < parameterType.types.length && index < argumentType.types.length; index += 1) {
@@ -4427,7 +4491,16 @@ export class TypeChecker {
         }
         return;
       }
-      for (const branch of parameterType.types) {
+      const branchesWithTypeParameters = parameterType.types.filter((branch) =>
+        this.typeContainsTypeParameterReference(branch, typeParameters)
+      );
+      const structurallyMatchingBranches = branchesWithTypeParameters.filter((branch) =>
+        this.inferenceBranchCanMatchArgument(branch, argumentType, typeParameters)
+      );
+      const candidateBranches = structurallyMatchingBranches.length > 0
+        ? structurallyMatchingBranches
+        : branchesWithTypeParameters;
+      for (const branch of candidateBranches) {
         if (!this.typeContainsTypeParameterReference(branch, typeParameters)) {
           continue;
         }
@@ -4608,6 +4681,62 @@ export class TypeChecker {
         );
       }
     }
+  }
+
+  private inferenceBranchCanMatchArgument(
+    parameterType: AnalysisType,
+    argumentType: AnalysisType,
+    typeParameters: Set<string>
+  ): boolean {
+    if (parameterType.kind === "named" && typeParameters.has(parameterType.name)) {
+      return false;
+    }
+
+    const expandedParameterType = parameterType.kind === "named"
+      ? this.expandTypeAliases(this.normalizeLooseNamedType(parameterType))
+      : parameterType;
+    const expandedArgumentType = argumentType.kind === "named"
+      ? this.expandTypeAliases(this.normalizeLooseNamedType(argumentType))
+      : argumentType;
+
+    if (!isSameType(expandedParameterType, parameterType)) {
+      return this.inferenceBranchCanMatchArgument(expandedParameterType, expandedArgumentType, typeParameters);
+    }
+    if (!isSameType(expandedArgumentType, argumentType)) {
+      return this.inferenceBranchCanMatchArgument(expandedParameterType, expandedArgumentType, typeParameters);
+    }
+
+    if (expandedParameterType.kind === "named" && expandedArgumentType.kind === "named") {
+      if (expandedParameterType.name !== expandedArgumentType.name) {
+        return false;
+      }
+      const parameterTypeArguments = expandedParameterType.typeArguments ?? [];
+      const argumentTypeArguments = expandedArgumentType.typeArguments ?? [];
+      return parameterTypeArguments.length === argumentTypeArguments.length;
+    }
+
+    if (expandedParameterType.kind === "array" && expandedArgumentType.kind === "array") {
+      return true;
+    }
+    if (expandedParameterType.kind === "range" && expandedArgumentType.kind === "range") {
+      return true;
+    }
+    if (expandedParameterType.kind === "tuple" && expandedArgumentType.kind === "tuple") {
+      return true;
+    }
+    if (expandedParameterType.kind === "function" && expandedArgumentType.kind === "function") {
+      return true;
+    }
+    if (expandedParameterType.kind === "object" && expandedArgumentType.kind === "object") {
+      return true;
+    }
+    if (expandedParameterType.kind === "named" && expandedArgumentType.kind === "object") {
+      return this.resolveNamedTypeMembers(expandedParameterType) !== null;
+    }
+    if (expandedParameterType.kind === "object" && expandedArgumentType.kind === "named") {
+      return this.resolveNamedTypeMembers(expandedArgumentType) !== null;
+    }
+    return false;
   }
 
   private typeContainsUnresolvedNamedReference(

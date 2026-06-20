@@ -726,6 +726,101 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
   });
 
+  it("infers imported generic result typing when a callback property uses a function type alias", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export type QueryKey = ReadonlyArray<unknown>;
+
+        export type QueryFunctionContext<TQueryKey extends QueryKey = QueryKey> = {
+          queryKey: TQueryKey;
+        };
+
+        export type QueryFunction<T = unknown, TQueryKey extends QueryKey = QueryKey> = (
+          context: QueryFunctionContext<TQueryKey>
+        ) => T | Promise<T>;
+
+        export class QueryClient {
+        }
+
+        export interface UseQueryOptions<
+          TQueryFnData = unknown,
+          TError = Error,
+          TData = TQueryFnData,
+          TQueryKey extends QueryKey = QueryKey
+        > {
+          queryKey: TQueryKey;
+          queryFn?: QueryFunction<TQueryFnData, TQueryKey>;
+        }
+
+        export interface UseQueryResult<TData = unknown, TError = Error> {
+          data: TData | undefined;
+          isLoading: boolean;
+          error: TError | null;
+        }
+
+        export function useQuery<
+          TQueryFnData = unknown,
+          TError = Error,
+          TData = TQueryFnData,
+          TQueryKey extends QueryKey = QueryKey
+        >(
+          options: UseQueryOptions<TQueryFnData, TError, TData, TQueryKey>,
+          queryClient?: QueryClient
+        ): UseQueryResult<TData, TError>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { QueryClient, useQuery } from "pkg"
+
+      val queryClient = QueryClient()
+      val roadmapQueryKey: ReadonlyArray<string> = ["react-sample", "roadmap"]
+
+      val result = useQuery({
+        queryKey: roadmapQueryKey,
+        queryFn: async (context) => {
+          return {
+            headline: String(context.queryKey[0]),
+            checks: ["ready"]
+          }
+        }
+      }, queryClient)
+
+      if (result.data) {
+        val title = result.data.head^^^line
+      }
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
   it("accepts node_modules hook callbacks and dependency arrays that use local sibling aliases", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");
