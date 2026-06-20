@@ -10,6 +10,7 @@ export interface VexaProject {
   libs: string[];
   types: string[];
   bundleEntrypoint?: string;
+  buildOutputDir?: string;
   serveMappings: VexaServeMapping[];
 }
 
@@ -49,6 +50,8 @@ interface CompilerOptionsConfig {
 
 interface VexaScriptConfigJson extends CompilerOptionsConfig {
   entrypoint?: unknown;
+  outDir?: unknown;
+  outputDir?: unknown;
   serveMappings?: unknown;
 }
 
@@ -259,6 +262,12 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
   const config = mergeCompilerOptionsConfigs(tsconfig, vexaConfig);
   const configDir = resolve(vexaConfigDir ?? startDir);
   const bundleEntrypoint = typeof vexaConfig?.entrypoint === "string" ? resolve(configDir, vexaConfig.entrypoint) : undefined;
+  const configuredBuildOutputDir = typeof vexaConfig?.outDir === "string"
+    ? vexaConfig.outDir
+    : typeof vexaConfig?.outputDir === "string"
+      ? vexaConfig.outputDir
+      : undefined;
+  const buildOutputDir = configuredBuildOutputDir ? resolve(configDir, configuredBuildOutputDir) : undefined;
   const serveMappings = serveMappingsFromConfig(configDir, vexaConfig);
 
   return {
@@ -268,6 +277,7 @@ export async function loadProject(startPath: string): Promise<VexaProject | null
     types: typesFromConfig(config),
     serveMappings,
     ...(bundleEntrypoint ? { bundleEntrypoint } : {}),
+    ...(buildOutputDir ? { buildOutputDir } : {}),
     ...jsxOptionsFromConfig(config)
   };
 }

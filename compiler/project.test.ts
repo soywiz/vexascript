@@ -69,6 +69,26 @@ describe("project configuration", () => {
     });
   });
 
+  it("loads build output directory from vexascript.json", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
+    const input = join(dir, "main.vx");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({
+      entrypoint: "html.vx",
+      outDir: "dist/site"
+    }), "utf8");
+    await writeFile(input, "", "utf8");
+
+    expect(await loadProject(input)).toEqual({
+      projectDir: dir,
+      dependencies: {},
+      libs: [],
+      types: [],
+      serveMappings: [],
+      bundleEntrypoint: join(dir, "html.vx"),
+      buildOutputDir: join(dir, "dist/site")
+    });
+  });
+
   it("loads object-form serve mappings from vexascript.json", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-project-"));
     const input = join(dir, "main.vx");

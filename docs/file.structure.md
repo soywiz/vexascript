@@ -71,7 +71,7 @@ This section is the fast onboarding map for agents and contributors.
 - Runnable samples and sample-test harness: `samples/`, `samples/samples.test.ts`
   - Each sample directory is discovered either as a runnable console sample with `expected.txt` or as a configured bundle sample with a sample-local VexaScript config entrypoint; the harness runs `main.vx` with `runFile` for console samples and at minimum validates bundling of configured entrypoints for browser-oriented samples that do not ship a `main.vx`/`expected.txt` pair.
   - Sample-local package.json files are installed with pnpm install before execution when node_modules is missing, so samples can demonstrate npm package declarations and runtime dependencies.
-  - Sample-local VexaScript config files are loaded by `compiler/project.ts`; they can set JSX factories/import sources, `compilerOptions.lib` entries such as `dom` for DOM ambient declarations, `compilerOptions.types` entries such as `node` for loading ambient declarations from runtime packages or `@types` packages, and `serveMappings` aliases that expose files or directories under different served paths. TypeScript config files remain a fallback for compatibility.
+  - Sample-local VexaScript config files are loaded by `compiler/project.ts`; they can set JSX factories/import sources, `compilerOptions.lib` entries such as `dom` for DOM ambient declarations, `compilerOptions.types` entries such as `node` for loading ambient declarations from runtime packages or `@types` packages, `outDir` build output directories for static site generation, and `serveMappings` aliases that expose files or directories under different served paths. TypeScript config files remain a fallback for compatibility.
   - Browser canvas sample: `samples/pixi/` mirrors the `samples/preact/` browser shape with `samples/pixi/html.vx`, `samples/pixi/index.html`, and `samples/pixi/vexascript.json`, validating normal module imports from the PIXI npm package directly inside VexaScript browser code.
   - React browser sample: `samples/react/` mirrors the `samples/preact/` browser shape with React + ReactDOM, validating the default classic React JSX runtime for both server-rendered sample output (`main.vx`) and browser rendering (`html.vx`).
   - THREE.js browser sample: `samples/threejs/` uses `samples/threejs/html.vx` together with `samples/threejs/vexascript.json` and supporting modules such as `scene-data.vx`/`extensions.vx`, validating normal module imports from the Three npm package directly inside VexaScript browser code.
@@ -104,7 +104,7 @@ This section is the fast onboarding map for agents and contributors.
 - CLI (`cli/`):
   - Node-only local disk implementation of the shared VFS contract for CLI/LSP/test flows: `cli/localVfs.ts`
   - Lightweight bundled CLI bootstrap emitted to the build output and used for startup help/version requests without loading the full compiler graph: `cli/cli-bin.ts`
-  - CLI entrypoint and command implementation: `cli/cli.ts`
+  - CLI entrypoint and command implementation, including single-file transpilation plus directory-based static site builds that materialize the `serve` bundle and mapped assets into `dist`/`outDir`: `cli/cli.ts`
   - Node-only dependency installer helpers used by CLI bundle/run/serve flows: `cli/deps.ts`
   - Node-only child-process helper used by CLI dependency installation and sample test setup: `cli/io.ts`
   - Shared CLI build/runtime preparation helpers reused by `build`, `bundle`, `run`, and `serve`: `cli/cliShared.ts`

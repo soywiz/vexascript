@@ -265,6 +265,54 @@ describe("CLI", () => {
     expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain("Bundled:");
   });
 
+  it("build command turns a project directory into a static dist with copied assets and mappings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-build-dir-"));
+    await mkdir(join(dir, "public", "assets"), { recursive: true });
+    await mkdir(join(dir, "vendor"), { recursive: true });
+    await writeFile(join(dir, "main.vx"), 'console.log("built site")\n', "utf8");
+    await writeFile(join(dir, "index.html"), "<!doctype html><html><body><img src=\"assets/logo.svg\" /><script src=\"vendor/runtime.js\"></script><script type=\"module\" src=\"%VEXA_ENTRYPOINT%\"></script></body></html>", "utf8");
+    await writeFile(join(dir, "styles.css"), "body { color: red; }\n", "utf8");
+    await writeFile(join(dir, "public", "assets", "logo.svg"), "<svg>logo</svg>\n", "utf8");
+    await writeFile(join(dir, "vendor", "runtime.js"), "window.runtimeLoaded = true;\n", "utf8");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({
+      entrypoint: "main.vx",
+      serveMappings: {
+        "public/assets": "assets",
+        "vendor/runtime.js": "vendor/runtime.js"
+      }
+    }), "utf8");
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["node", "vexa", "build", dir]);
+
+    const distDir = join(dir, "dist");
+    expect(await readdir(distDir)).toContain("index.html");
+    expect(await readdir(distDir)).toContain("main.js");
+    expect(await readdir(distDir)).toContain("styles.css");
+    expect(await readFile(join(distDir, "index.html"), "utf8")).toContain('src="main.js"');
+    expect(await readFile(join(distDir, "styles.css"), "utf8")).toContain("body { color: red; }");
+    expect(await readFile(join(distDir, "main.js"), "utf8")).toContain('console.log("built site");');
+    expect(await readFile(join(distDir, "assets", "logo.svg"), "utf8")).toContain("<svg>logo</svg>");
+    expect(await readFile(join(distDir, "vendor", "runtime.js"), "utf8")).toContain("window.runtimeLoaded = true;");
+    expect(String(logSpy.mock.calls[0]?.[0] ?? "")).toContain(`Built: ${dir} -> ${distDir}`);
+  });
+
+  it("build command uses vexascript.json outDir when building a project directory", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vexa-cli-build-dir-outdir-"));
+    await writeFile(join(dir, "main.vx"), 'console.log("custom out dir")\n', "utf8");
+    await writeFile(join(dir, "index.html"), "<script type=\"module\" src=\"%VEXA_ENTRYPOINT%\"></script>", "utf8");
+    await writeFile(join(dir, "vexascript.json"), JSON.stringify({
+      entrypoint: "main.vx",
+      outDir: "site-output"
+    }), "utf8");
+
+    await runCli(["node", "vexa", "build", dir]);
+
+    expect(await readFile(join(dir, "site-output", "index.html"), "utf8")).toContain('src="main.js"');
+    expect(await readFile(join(dir, "site-output", "main.js"), "utf8")).toContain('console.log("custom out dir");');
+  });
+
   it("serve command serves HTML, injects the bundle, and emits reload events after source changes", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vexa-cli-serve-"));
     const entry = join(dir, "main.vx");

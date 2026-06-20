@@ -1,11 +1,12 @@
 import "./localVfs";
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import type { TranspileDiagnostic, TranspileTarget } from "../compiler/runtime/transpile";
 import { LANGUAGE_CLI_BIN, LANGUAGE_FILE_EXTENSION, replaceLanguageExtension } from "../compiler/language";
 import { loadProject } from "../compiler/project";
 import { renderSyntaxTarget, SYNTAX_TARGETS, type SyntaxTarget } from "../compiler/syntax";
 import { COMPILER_VERSION } from "../compiler/compilerVersion";
-import { basename, dirname, pathToFileURL, resolve } from "../compiler/utils/path";
+import { basename, dirname, extname, pathToFileURL, resolve } from "../compiler/utils/path";
 import { vfs } from "../compiler/vfs";
 import {
   ambientDeclarationsForProject,
@@ -150,6 +151,141 @@ async function bundleFile(
 
   await vfs().writeFile(outputPath, result.code);
   console.log(`Bundled: ${sourcePath} -> ${outputPath}`);
+  if (result.warnings.length > 0) {
+    for (const warning of result.warnings) {
+      console.warn(`warning: ${warning}`);
+    }
+  }
+}
+
+function buildOutputFileName(bundleInput: string): string {
+  return replaceLanguageExtension(basename(bundleInput), ".js");
+}
+
+function replaceBuildEntrypoint(html: string, bundleFileName: string): string {
+  return html.split("%VEXA_ENTRYPOINT%").join(bundleFileName);
+}
+
+function isWithinDirectory(rootDir: string, targetPath: string): boolean {
+  return targetPath === rootDir || targetPath.startsWith(`${rootDir}/`);
+}
+
+function shouldSkipRootEntry(outputDir: string, entryPath: string): boolean {
+  if (entryPath === outputDir || entryPath.startsWith(`${outputDir}/`)) {
+    return true;
+  }
+  const name = basename(entryPath);
+  if (name === "node_modules" || name === ".git" || name === "vexascript.json" || name === "tsconfig.json") {
+    return true;
+  }
+  const extension = extname(entryPath).toLowerCase();
+  return extension === LANGUAGE_FILE_EXTENSION || extension === ".ts" || extension === ".tsx";
+}
+
+async function copyBuildRootStaticFiles(
+  sourceDir: string,
+  outputDir: string,
+  bundleFileName: string
+): Promise<void> {
+  const entries = await readdir(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const sourcePath = resolve(sourceDir, entry.name);
+    if (shouldSkipRootEntry(outputDir, sourcePath)) {
+      continue;
+    }
+    const targetPath = resolve(outputDir, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirectoryContents(sourcePath, targetPath, { bundleFileName });
+      continue;
+    }
+    await copyBuildFile(sourcePath, targetPath, bundleFileName);
+  }
+}
+
+async function copyDirectoryContents(
+  sourceDir: string,
+  targetDir: string,
+  options: { bundleFileName?: string }
+): Promise<void> {
+  await mkdir(targetDir, { recursive: true });
+  const entries = await readdir(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const sourcePath = resolve(sourceDir, entry.name);
+    const targetPath = resolve(targetDir, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirectoryContents(sourcePath, targetPath, options);
+      continue;
+    }
+    await copyBuildFile(sourcePath, targetPath, options.bundleFileName);
+  }
+}
+
+async function copyBuildFile(sourcePath: string, targetPath: string, bundleFileName?: string): Promise<void> {
+  await mkdir(dirname(targetPath), { recursive: true });
+  if (extname(sourcePath).toLowerCase() === ".html") {
+    const html = await readFile(sourcePath, "utf8");
+    await writeFile(targetPath, replaceBuildEntrypoint(html, bundleFileName ?? "bundle.js"), "utf8");
+    return;
+  }
+  await copyFile(sourcePath, targetPath);
+}
+
+async function copyServeMappingsToBuildOutput(
+  outputDir: string,
+  mappings: readonly { from: string; to: string }[],
+  bundleFileName: string
+): Promise<void> {
+  for (const mapping of mappings) {
+    const sourceInfo = await stat(mapping.from).catch(() => null);
+    if (!sourceInfo) {
+      continue;
+    }
+    const targetPath = resolve(outputDir, mapping.to);
+    if (!isWithinDirectory(outputDir, targetPath)) {
+      throw new Error(`Mapped output path escapes build directory: ${mapping.to}`);
+    }
+    if (sourceInfo.isDirectory()) {
+      await copyDirectoryContents(mapping.from, targetPath, { bundleFileName });
+      continue;
+    }
+    await copyBuildFile(mapping.from, targetPath, bundleFileName);
+  }
+}
+
+async function buildDirectory(
+  input: string,
+  out?: string,
+  target: TranspileTarget = "optimized",
+  jsxOptions: { jsxFactory?: string; jsxFragmentFactory?: string } = {}
+): Promise<void> {
+  const rootDir = resolve(process.cwd(), input);
+  const project = await loadProject(rootDir);
+  const bundleInput = project?.bundleEntrypoint;
+  if (!bundleInput) {
+    throw new Error(`No bundle entrypoint provided. Add "entrypoint" to ${rootDir}/vexascript.json`);
+  }
+  await ensureRuntimeDependencies(bundleInput, project);
+  await ensureCompilerRuntimePrograms();
+  const outputDir = resolve(process.cwd(), out ?? project?.buildOutputDir ?? resolve(rootDir, "dist"));
+  if (outputDir === rootDir) {
+    throw new Error(`Build output directory must not be the project root: ${outputDir}`);
+  }
+
+  const bundleFileName = buildOutputFileName(bundleInput);
+  const bundleOutputPath = resolve(outputDir, bundleFileName);
+  const result = await createBundledModuleArtifacts(bundleInput, target, project, jsxOptions);
+  if (result.errors.length > 0) {
+    printDiagnostics(result, bundleInput);
+    throw new Error(`Compilation failed for ${bundleInput}`);
+  }
+
+  await rm(outputDir, { recursive: true, force: true });
+  await mkdir(outputDir, { recursive: true });
+  await copyBuildRootStaticFiles(rootDir, outputDir, bundleFileName);
+  await copyServeMappingsToBuildOutput(outputDir, project?.serveMappings ?? [], bundleFileName);
+  await vfs().writeFile(bundleOutputPath, result.code);
+
+  console.log(`Built: ${rootDir} -> ${outputDir}`);
   if (result.warnings.length > 0) {
     for (const warning of result.warnings) {
       console.warn(`warning: ${warning}`);
@@ -374,15 +510,21 @@ function createProgram(): Command {
 
   program
     .command("build")
-    .description("Compile a VexaScript file to JavaScript")
-    .argument("<input>", "Input file")
-    .option("-o, --out <file>", "Output file")
+    .description("Compile a VexaScript file to JavaScript, or build a static site from a project directory")
+    .argument("<input>", "Input file or project directory")
+    .option("-o, --out <path>", "Output file for file builds, or output directory for project builds")
     .option("--target <mode>", "Transpile target mode: conservative|optimized", "optimized")
     .option("--jsx-factory <factory>", "Callee used for embedded XML/JSX elements (default: React.createElement)")
     .option("--jsx-fragment-factory <factory>", "Expression used for JSX fragments (default: React.Fragment)")
     .option("--bundle", "Bundle the entry and all referenced VexaScript, TypeScript, JavaScript, and node_modules packages as ESM")
     .action(async (input: string, opts: { out?: string; target?: string; jsxFactory?: string; jsxFragmentFactory?: string; bundle?: boolean }) => {
       const { target, jsxOptions } = resolveBuildOptions(opts);
+      const inputPath = resolve(process.cwd(), input);
+      const inputStats = await vfs().stat(inputPath).catch(() => null);
+      if (inputStats?.isDirectory) {
+        await buildDirectory(input, opts.out, target, jsxOptions);
+        return;
+      }
       if (opts.bundle) {
         await bundleFile(input, opts.out, target, jsxOptions);
         return;
