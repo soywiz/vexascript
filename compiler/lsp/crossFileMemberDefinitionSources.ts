@@ -5,9 +5,10 @@ import type { Location } from "vscode-languageserver/node.js";
 import { resolveTypeDefinitionAcrossFiles } from "./crossFileTypeResolution";
 import type { ResolveContext } from "./crossFileContext";
 import { effectiveSourceRoots, findModuleReceiverImport } from "./crossFileContext";
-import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
+import { findTopLevelDeclarationInProgram, resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
 import { pathToUri, uriToFilePath } from "./importFixes";
 import { findNodeModuleExportLocation, findNodeModuleMemberLocation } from "./nodeModulesTypings";
+import { getProjectSessionForFilePath } from "./projectAnalysis";
 import { nodeRange } from "./ranges";
 
 export async function resolveNodeModulesMemberDefinition(
@@ -96,43 +97,87 @@ async function collectExtensionReceiverTypeNames(
   context: ResolveContext,
   objectType: AnalysisType
 ): Promise<string[]> {
-  const queue = [...directReceiverTypeNamesForObjectType(objectType)];
+  const queue = directReceiverTypeNamesForObjectType(objectType).map((typeName) => ({
+    typeName,
+    preferredFilePath: null as string | null
+  }));
   const collected: string[] = [];
   const visited = new Set<string>();
+  const currentFilePath = uriToFilePath(context.uri);
+  const roots = currentFilePath ? effectiveSourceRoots(context.sourceRoots, currentFilePath) : context.sourceRoots;
 
-  const enqueue = (typeName: string | undefined): void => {
+  const enqueue = (typeName: string | undefined, preferredFilePath: string | null = null): void => {
     const normalized = normalizeReceiverTypeName(typeName);
     if (!normalized || visited.has(normalized)) {
       return;
     }
-    queue.push(normalized);
+    queue.push({ typeName: normalized, preferredFilePath });
+  };
+
+  const resolveTypeFromPreferredFile = async (
+    typeName: string,
+    preferredFilePath: string | null
+  ): Promise<{ declaration: ClassStatement | InterfaceStatement; filePath: string } | null> => {
+    if (!preferredFilePath) {
+      return null;
+    }
+
+    const session = await getProjectSessionForFilePath(preferredFilePath, {
+      sourceRoots: roots,
+      ...(context.vfs
+        ? { vfs: context.vfs }
+        : {}),
+      ...(context.getSessionForFilePath
+        ? { getSessionForFilePath: context.getSessionForFilePath }
+        : {})
+    });
+    if (!session?.ast) {
+      return null;
+    }
+
+    const declaration = findTopLevelDeclarationInProgram(
+      session.ast,
+      typeName,
+      (statement): statement is ClassStatement | InterfaceStatement =>
+        statement.kind === "ClassStatement" || statement.kind === "InterfaceStatement"
+    );
+    if (!declaration) {
+      return null;
+    }
+
+    return {
+      declaration,
+      filePath: preferredFilePath
+    };
   };
 
   while (queue.length > 0) {
-    const next = normalizeReceiverTypeName(queue.shift());
+    const nextEntry = queue.shift();
+    const next = normalizeReceiverTypeName(nextEntry?.typeName);
     if (!next || visited.has(next)) {
       continue;
     }
     visited.add(next);
     collected.push(next);
 
-    const resolved = await resolveTypeDefinitionAcrossFiles(context, next);
+    const resolved = await resolveTypeFromPreferredFile(next, nextEntry?.preferredFilePath ?? null)
+      ?? await resolveTypeDefinitionAcrossFiles(context, next);
     if (!resolved) {
       continue;
     }
 
     if (resolved.declaration.kind === "ClassStatement") {
       const classStatement = resolved.declaration as ClassStatement;
-      enqueue(classStatement.extendsType?.name);
+      enqueue(classStatement.extendsType?.name, resolved.filePath);
       for (const implementedType of classStatement.implementsTypes ?? []) {
-        enqueue(implementedType.name);
+        enqueue(implementedType.name, resolved.filePath);
       }
       continue;
     }
 
     const interfaceStatement = resolved.declaration as InterfaceStatement;
     for (const parentType of interfaceStatement.extendsTypes ?? []) {
-      enqueue(parentType.name);
+      enqueue(parentType.name, resolved.filePath);
     }
   }
 

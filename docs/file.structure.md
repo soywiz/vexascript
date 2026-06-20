@@ -190,6 +190,7 @@ This section is the fast onboarding map for agents and contributors.
 - VexaScript vs TypeScript syntax differences: `docs/syntax.differences.md`
 - VexaScript AI syntax reference for the website `/syntax/ai` page: `docs/syntax.ai.md`
 - Compact VexaScript reference for AI agents, including the AGENTS.md-friendly version used by the website `/syntax/ai` page: `docs/syntax.ai.md`
+- Engineering journal notes, regression history, and recurring failure patterns captured after completed tasks: `docs/journal/` (index: `docs/journal/README.md`)
 - Repo-local Codex skills: `.codex/skills/`
   - Sample-creation workflow skill for browser and Node samples: `.codex/skills/create-vexascript-samples/SKILL.md`
   - Task-management workflow skill for creating, updating, and completing repository task docs: `.codex/skills/manage-vexascript-tasks/SKILL.md`

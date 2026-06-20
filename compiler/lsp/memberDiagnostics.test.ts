@@ -206,6 +206,73 @@ fun demo(items: Token[]) {
     );
   });
 
+  it("does not report imported extension methods declared on a transitive base from a local TypeScript module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
+    const runtimeFile = join(root, "pixi.ts");
+    const utilsFile = join(root, "utils.vx");
+    const helloFile = join(root, "hello.vx");
+
+    const runtimeSource = dedent`
+      export class Container {
+        addChild(child: unknown): void {}
+      }
+      export class ViewContainer extends Container {}
+      export class Graphics extends ViewContainer {}
+      export class AbstractText extends ViewContainer {}
+      export class Text extends AbstractText {}
+    `;
+    const utilsSource = dedent`
+      import { Container } from "./pixi"
+      fun Container.addTo(other: Container) {
+        other.addChild(this)
+      }
+    `;
+    const helloSource = dedent`
+      import { Graphics, Text } from "./pixi"
+      import { addTo } from "./utils"
+      fun demo() {
+        val stage = Graphics()
+        Graphics()
+          ..addTo(stage)
+        Text()
+          ..addTo(stage)
+      }
+    `;
+
+    await writeFile(runtimeFile, runtimeSource, "utf8");
+    await writeFile(utilsFile, utilsSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const baseSession = createAnalysisSession(helloSource);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(helloFile).toString(),
+      sourceRoots: [root]
+    });
+    const session = createAnalysisSession(
+      helloSource,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const diagnostics = await collectCrossFileMemberDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'addTo' does not exist on type 'Graphics'"
+    );
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'addTo' does not exist on type 'Text'"
+    );
+  });
+
   it("does not report imported extension methods declared on a base class for subclass receivers from node_modules typings", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
     const packageDir = join(root, "node_modules", "pixi.js");

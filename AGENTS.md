@@ -44,6 +44,7 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Every new feature must include tests in the same change.
 - The official test suite runs with node tests.
 - Do not modify repository samples just to make tests pass. Changing sample code is only acceptable when it reflects the real intended user-facing API or behavior. Sample-side workarounds that hide compiler, runtime, or LSP bugs do not satisfy project goals.
+- When a bug is first observed through a larger sample, reproduce it in a small, isolated, fast automated test in the same change whenever possible. The sample regression may remain as broader coverage, but the minimal test is required so the bug stays covered even if the sample later changes or is removed.
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
 - Before closing any task, the full test suite must pass.
 - In LSP/editor tests, prefer the `^^^` cursor-marker style with the shared helper in `compiler/test/sourceWithCursor.ts` instead of hardcoded line/column coordinates whenever practical.
@@ -61,6 +62,8 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 
 - Supported language syntax documentation lives in `docs/syntax.md`. Every time new language syntax support is added it must be updated in the same change.
 - Technical/reference documentation lives in `docs/`.
+- Engineering journal notes and regression history live in `docs/journal/`. After each completed task, add or update a journal entry when you found a bug pattern, regression risk, infrastructure weakness, confusing workflow, or recurring failure mode worth preserving.
+- Prefer documenting lessons that help reduce legacy, avoid future regressions, or reveal infrastructure gaps. If something fails repeatedly or is especially costly when it fails, document it.
 - Active task documents live in `docs/tasks/`.
 - Completed task documents live in `docs/tasks/completed/`.
 
