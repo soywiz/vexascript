@@ -3,6 +3,7 @@ import type { Identifier } from "compiler/ast/ast";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { DiagnosticSeverity } from "./diagnosticSeverity";
 import type { AnalysisSession } from "./analysisSession";
+import { arrayTypeNameToArrayAlias, boxedCompletionTypeName } from "./memberCompletionTypeNames";
 import {
   type ClassResolverSessionLike,
   createClassResolverCache,
@@ -55,9 +56,10 @@ export async function collectCrossFileMemberDiagnostics(
       continue;
     }
 
+    const resolvedObjectTypeName = arrayTypeNameToArrayAlias(boxedCompletionTypeName(objectTypeName)) ?? objectTypeName;
     const classResolution = await resolveClassStatementAcrossFiles(
       session.ast,
-      baseTypeName(objectTypeName),
+      baseTypeName(resolvedObjectTypeName),
       options,
       resolverCache
     );
@@ -75,7 +77,7 @@ export async function collectCrossFileMemberDiagnostics(
     const resolvedMember = await resolveClassMember(
       classResolution.classStatement,
       memberName,
-      objectTypeName,
+      resolvedObjectTypeName,
       {
         ast: session.ast,
         options,

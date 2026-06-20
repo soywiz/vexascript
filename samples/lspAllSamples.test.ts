@@ -9,8 +9,6 @@ interface SampleEntrypoint {
 }
 
 const skippedSamples = new Set([
-  "adler32",
-  "expression-lab",
   "minimist",
   "pixi",
   "preact",

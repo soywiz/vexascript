@@ -1,4 +1,5 @@
 import { describe, expect, it } from "compiler/test/expect";
+import { isTypeAssignableByName } from "./classResolver";
 import { formatFunctionTypeLabel, formatParameterLabel } from "./functionTypeDisplay";
 
 describe("formatParameterLabel", () => {
@@ -46,5 +47,16 @@ describe("formatFunctionTypeLabel", () => {
 
   it("renders an empty parameter list", () => {
     expect(formatFunctionTypeLabel([], "void")).toBe("() => void");
+  });
+});
+
+describe("isTypeAssignableByName", () => {
+  it("treats omitted generic arguments as compatible with explicit defaulted ones", () => {
+    expect(isTypeAssignableByName("Uint8Array<ArrayBuffer>", "Uint8Array")).toBe(true);
+  });
+
+  it("still compares explicit generic arguments when both sides provide them", () => {
+    expect(isTypeAssignableByName("Map<string, int>", "Map<string, int>")).toBe(true);
+    expect(isTypeAssignableByName("Map<string, int>", "Map<number, int>")).toBe(false);
   });
 });

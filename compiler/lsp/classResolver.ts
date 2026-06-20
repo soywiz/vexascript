@@ -1225,6 +1225,22 @@ export function isTypeAssignableByName(sourceType: string, targetType: string): 
   if (sourceType === targetType) {
     return true;
   }
+  const sourceShape = parseTypeNameShape(normalizedSourceType);
+  const targetShape = parseTypeNameShape(normalizedTargetType);
+  if (
+    sourceShape.baseName === targetShape.baseName &&
+    sourceShape.arrayDepth === targetShape.arrayDepth &&
+    (sourceShape.typeArguments.length > 0 || targetShape.typeArguments.length > 0)
+  ) {
+    if (sourceShape.typeArguments.length === 0 || targetShape.typeArguments.length === 0) {
+      return true;
+    }
+    if (sourceShape.typeArguments.length === targetShape.typeArguments.length) {
+      return sourceShape.typeArguments.every((argument, index) =>
+        isTypeAssignableByName(argument, targetShape.typeArguments[index]!)
+      );
+    }
+  }
   if (normalizedSourceType.endsWith("[]") && normalizedTargetType.endsWith("[]")) {
     return isTypeAssignableByName(
       normalizedSourceType.slice(0, -2).trim(),

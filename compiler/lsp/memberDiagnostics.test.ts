@@ -108,4 +108,33 @@ fun demo() {
       "Property 'missing' does not exist on type 'MyPoint'"
     );
   });
+
+  it("resolves array members even when the element type is imported from another file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-diag-"));
+    const worldFile = join(root, "world.vx");
+    const helloFile = join(root, "hello.vx");
+
+    const worldSource = `class Token(val text: string) { }
+`;
+    const helloSource = `import { Token } from "./world"
+fun demo(items: Token[]) {
+  items.length
+}
+`;
+
+    await writeFile(worldFile, worldSource, "utf8");
+    await writeFile(helloFile, helloSource, "utf8");
+
+    const session = createAnalysisSession(helloSource);
+    const diagnostics = await collectCrossFileMemberDiagnostics({
+      uri: pathToFileURL(helloFile).toString(),
+      session,
+      sourceRoots: [root]
+    });
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Property 'length' does not exist on type 'Token[]'"
+    );
+    expect(diagnostics).toEqual([]);
+  });
 });
