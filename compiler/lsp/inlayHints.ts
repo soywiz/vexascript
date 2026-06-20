@@ -41,6 +41,7 @@ import type {
 } from "compiler/ast/ast";
 import type { InlayHint, Range } from "vscode-languageserver/node.js";
 import {
+  createClassResolverCache,
   resolveCallableSignature,
   resolveConstructorSignature,
   resolveExpressionTypeName,
@@ -567,6 +568,10 @@ export async function createInlayHints(
   const hints: InlayHint[] = [];
   const showParameters = enabledOptions.parameters !== false;
   const showTypes = enabledOptions.types !== false;
+  const resolverOptions: ClassResolverOptions = {
+    ...options,
+    classResolverCache: options.classResolverCache ?? createClassResolverCache()
+  };
 
   const visitExpression = async (expression: Expr): Promise<void> => {
     switch (expression.kind) {
@@ -577,7 +582,7 @@ export async function createInlayHints(
           await visitExpression(argument);
         }
         if (showParameters) {
-          await pushParameterHintsForCall(call, analysis, ast, options, range, hints);
+          await pushParameterHintsForCall(call, analysis, ast, resolverOptions, range, hints);
         }
         return;
       }
@@ -591,7 +596,7 @@ export async function createInlayHints(
             expression as NewExpression,
             analysis,
             ast,
-            options,
+            resolverOptions,
             range,
             hints
           );
@@ -670,7 +675,7 @@ export async function createInlayHints(
     switch (statement.kind) {
       case "VarStatement":
         if (showTypes) {
-          await pushTypeHintForVarStatement(statement as VarStatement, analysis, ast, options, range, hints);
+          await pushTypeHintForVarStatement(statement as VarStatement, analysis, ast, resolverOptions, range, hints);
         }
         if ((statement as VarStatement).declarations && (statement as VarStatement).declarations!.length > 0) {
           for (const declaration of (statement as VarStatement).declarations!) {
@@ -704,7 +709,7 @@ export async function createInlayHints(
             (statement as FunctionStatement).parameters,
             analysis,
             ast,
-            options,
+            resolverOptions,
             range,
             hints
           );
@@ -715,7 +720,7 @@ export async function createInlayHints(
             (statement as FunctionStatement).async === true,
             analysis,
             ast,
-            options,
+            resolverOptions,
             range,
             hints
           );

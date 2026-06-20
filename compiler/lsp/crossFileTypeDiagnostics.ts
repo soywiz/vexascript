@@ -168,11 +168,12 @@ export async function collectCrossFileTypeDiagnostics(
   const options = {
     uri: params.uri,
     sourceRoots: params.sourceRoots,
+    classResolverCache: createClassResolverCache(),
     ...(params.getSessionForFilePath
       ? { getSessionForFilePath: params.getSessionForFilePath }
       : {})
   };
-  const resolverCache = createClassResolverCache();
+  const resolverCache = options.classResolverCache;
   const currentFilePath = uriToFilePath(params.uri);
 
   const pushDiagnostic = (diagnostic: Diagnostic | null): void => {

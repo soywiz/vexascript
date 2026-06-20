@@ -82,6 +82,7 @@ export type ClassResolverSessionLike = ProjectSessionLike;
 export interface ClassResolverOptions extends ProjectContext {
   uri?: string;
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
+  classResolverCache?: ClassResolverCache;
 }
 
 export interface ResolvedClassStatement {
@@ -1584,7 +1585,7 @@ export async function resolveExpressionTypeName(
     return null;
   }
 
-  const resolverCache = createClassResolverCache();
+  const resolverCache = options.classResolverCache ?? createClassResolverCache();
   const classResolution = await resolveClassStatementAcrossFiles(
     ast,
     parsedObjectType.baseName,
@@ -1717,7 +1718,7 @@ export async function resolveCallableSignature(
       ast,
       identifier.name,
       options,
-      createClassResolverCache()
+      options.classResolverCache ?? createClassResolverCache()
     );
     if (classResolution) {
       return {
@@ -1745,7 +1746,7 @@ export async function resolveCallableSignature(
   }
   const resolvedBaseTypeName = boxedPrimitiveTypeName(parsedObjectType.baseName);
 
-  const resolverCache = createClassResolverCache();
+  const resolverCache = options.classResolverCache ?? createClassResolverCache();
   const memberName = (member.property as Identifier).name;
   const memberContext = { ast, options, cache: resolverCache };
 
@@ -1860,7 +1861,7 @@ export async function resolveCallableSignatures(
       ast,
       identifier.name,
       options,
-      createClassResolverCache()
+      options.classResolverCache ?? createClassResolverCache()
     );
     if (classResolution) {
       return [{
@@ -1881,7 +1882,7 @@ export async function resolveCallableSignatures(
   if (!parsedObjectType) return [];
   const resolvedBaseTypeName = boxedPrimitiveTypeName(parsedObjectType.baseName);
 
-  const resolverCache = createClassResolverCache();
+  const resolverCache = options.classResolverCache ?? createClassResolverCache();
   const memberName = (member.property as Identifier).name;
   const memberContext = { ast, options, cache: resolverCache };
 
@@ -1977,7 +1978,7 @@ export async function resolveConstructorSignature(
       ast,
       symbolConstructorInterfaceName,
       options,
-      createClassResolverCache()
+      options.classResolverCache ?? createClassResolverCache()
     );
     if (symbolInterfaceResolution) {
       const interfaceConstructorSignature = await selectBestInterfaceConstructorSignature(
@@ -1997,7 +1998,7 @@ export async function resolveConstructorSignature(
     ast,
     identifier.name,
     options,
-    createClassResolverCache()
+    options.classResolverCache ?? createClassResolverCache()
   );
   if (classResolution) {
     return {
@@ -2027,7 +2028,7 @@ export async function resolveConstructorSignature(
     ast,
     `${identifier.name}Constructor`,
     options,
-    createClassResolverCache()
+    options.classResolverCache ?? createClassResolverCache()
   );
   if (directInterfaceResolution) {
     const interfaceConstructorSignature = await selectBestInterfaceConstructorSignature(
@@ -2057,7 +2058,7 @@ export async function resolveConstructorSignature(
     ast,
     className,
     options,
-    createClassResolverCache()
+    options.classResolverCache ?? createClassResolverCache()
   );
   if (resolvedClass) {
     return {
@@ -2084,7 +2085,7 @@ export async function resolveConstructorSignature(
     ast,
     className,
     options,
-    createClassResolverCache()
+    options.classResolverCache ?? createClassResolverCache()
   );
   if (!resolvedInterface) {
     return null;
