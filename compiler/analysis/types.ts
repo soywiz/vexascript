@@ -61,11 +61,13 @@ export interface FunctionType {
   typeParameterDefaults?: Record<string, AnalysisType>;
   parameters: Array<{ name: string; type: AnalysisType; optional?: boolean; rest?: boolean }>;
   returnType: AnalysisType;
+  assertion?: { target: string; type?: AnalysisType };
 }
 
 export interface ArrayType {
   kind: "array";
   elementType: AnalysisType;
+  readonly?: boolean;
 }
 
 export interface ObjectType {
@@ -97,6 +99,7 @@ export interface LiteralType {
 export interface TupleType {
   kind: "tuple";
   elements: AnalysisType[];
+  readonly?: boolean;
 }
 
 export type AnalysisType =
@@ -149,7 +152,8 @@ export function functionType(
   returnType: AnalysisType,
   typeParameters?: string[],
   typeParameterConstraints?: Record<string, AnalysisType>,
-  typeParameterDefaults?: Record<string, AnalysisType>
+  typeParameterDefaults?: Record<string, AnalysisType>,
+  assertion?: { target: string; type?: AnalysisType }
 ): FunctionType {
   return {
     kind: "function",
@@ -161,14 +165,16 @@ export function functionType(
       ? { typeParameterDefaults }
       : {}),
     parameters,
-    returnType
+    returnType,
+    ...(assertion ? { assertion } : {})
   };
 }
 
-export function arrayType(elementType: AnalysisType = UNKNOWN_TYPE): ArrayType {
+export function arrayType(elementType: AnalysisType = UNKNOWN_TYPE, isReadonly: boolean = false): ArrayType {
   return {
     kind: "array",
-    elementType
+    elementType,
+    ...(isReadonly ? { readonly: true } : {})
   };
 }
 
@@ -199,8 +205,8 @@ export function literalType(base: LiteralType["base"], value: LiteralType["value
   return { kind: "literal", base, value };
 }
 
-export function tupleType(elements: AnalysisType[]): TupleType {
-  return { kind: "tuple", elements };
+export function tupleType(elements: AnalysisType[], isReadonly: boolean = false): TupleType {
+  return { kind: "tuple", elements, ...(isReadonly ? { readonly: true } : {}) };
 }
 
 export function typeToString(type: AnalysisType): string {
@@ -237,12 +243,15 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
               return constraint ? `${parameter} extends ${typeToStringInternal(constraint, seen)}` : parameter;
             }).join(", ")}>`
           : "";
+        const renderedReturnType = type.assertion
+          ? `asserts ${type.assertion.target}${type.assertion.type ? ` is ${typeToStringInternal(type.assertion.type, seen)}` : ""}`
+          : typeToStringInternal(type.returnType, seen);
         return `${typeParameterPrefix}(${type.parameters
           .map((parameter) => `${parameter.rest ? "..." : ""}${parameter.name}: ${typeToStringInternal(parameter.type, seen)}`)
-          .join(", ")}) => ${typeToStringInternal(type.returnType, seen)}`;
+          .join(", ")}) => ${renderedReturnType}`;
       }
       case "array":
-        return `${typeToStringInternal(type.elementType, seen)}[]`;
+        return `${type.readonly === true ? "readonly " : ""}${typeToStringInternal(type.elementType, seen)}[]`;
       case "object":
         if (Object.keys(type.properties).length === 0) {
           return "object";
@@ -266,7 +275,7 @@ function typeToStringInternal(type: AnalysisType, seen: Set<object>): string {
       case "literal":
         return type.base === "string" ? JSON.stringify(type.value) : String(type.value);
       case "tuple":
-        return `[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
+        return `${type.readonly === true ? "readonly " : ""}[${type.elements.map((element) => typeToStringInternal(element, seen)).join(", ")}]`;
       default:
         return "unknown";
     }
@@ -374,7 +383,8 @@ function isSameTypeInternal(
   }
 
   if (a.kind === "array" && b.kind === "array") {
-    return isSameTypeInternal(a.elementType, b.elementType, seenPairs);
+    return (a.readonly ?? false) === (b.readonly ?? false)
+      && isSameTypeInternal(a.elementType, b.elementType, seenPairs);
   }
 
   if (a.kind === "range" && b.kind === "range") {
@@ -420,7 +430,7 @@ function isSameTypeInternal(
   }
 
   if (a.kind === "tuple" && b.kind === "tuple") {
-    if (a.elements.length !== b.elements.length) {
+    if ((a.readonly ?? false) !== (b.readonly ?? false) || a.elements.length !== b.elements.length) {
       return false;
     }
     return a.elements.every((element, index) => isSameTypeInternal(element, b.elements[index]!, seenPairs));
@@ -438,6 +448,17 @@ function isSameTypeInternal(
         return false;
       }
       if (!isSameTypeInternal(a.parameters[i]!.type, b.parameters[i]!.type, seenPairs)) {
+        return false;
+      }
+    }
+    if ((a.assertion?.target ?? null) !== (b.assertion?.target ?? null)) {
+      return false;
+    }
+    if (!!a.assertion !== !!b.assertion) {
+      return false;
+    }
+    if (a.assertion?.type || b.assertion?.type) {
+      if (!a.assertion?.type || !b.assertion?.type || !isSameTypeInternal(a.assertion.type, b.assertion.type, seenPairs)) {
         return false;
       }
     }

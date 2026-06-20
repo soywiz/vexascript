@@ -5,6 +5,7 @@ import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
 import { namedType, typeToString } from "compiler/analysis/types";
 import type { Identifier, Statement, VarStatement } from "compiler/ast/ast";
+import { sourceWithCursor } from "../test/sourceWithCursor";
 
 const MINI_DTS = dedent`
   declare function pkg(x: string): pkg.Result;
@@ -391,6 +392,262 @@ describe("node_modules typings resolution", () => {
     );
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("resolves members from node_modules functions reexported through .js with sibling generic declaration files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export { useThing } from "./useThing.js";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "useThing.d.ts"),
+      dedent`
+        interface QueryState<TData, TError> {
+          data: TData | undefined;
+          isLoading: boolean;
+          error: TError | null;
+        }
+
+        type UseThingResult<TData, TError> = QueryState<TData, TError>;
+
+        declare function useThing<TData = unknown, TError = Error>(): UseThingResult<TData, TError>;
+        export { useThing };
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "useThing.js"),
+      dedent`
+        function useThing() {
+          return { data: undefined, isLoading: false, error: null };
+        }
+
+        export { useThing };
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { useThing } from "pkg"
+
+      type Payload = { title: string }
+
+      val result = useThing<Payload, string>()
+      if (result.isLoading) {
+      }
+      if (result.error) {
+        val message = result.error
+      }
+      if (result.data) {
+        val title = result.data.tit^^^le
+      }
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(typeToString(collected.importedSymbolTypes.get("useThing")!)).toBe("<TData, TError>() => UseThingResult<TData, TError>");
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
+  it("preserves react-query-style imported generic option and result typing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export class QueryClient {
+        }
+
+        export interface QueryFunctionContext<TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>> {
+          queryKey: TQueryKey;
+        }
+
+        export interface UseQueryOptions<
+          TData = unknown,
+          TError = Error,
+          TSelected = TData,
+          TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>
+        > {
+          queryKey: TQueryKey;
+          queryFn: (context: QueryFunctionContext<TQueryKey>) => Promise<TData> | TData;
+          select?: (data: TData) => TSelected;
+        }
+
+        export interface UseQueryResult<TData = unknown, TError = Error> {
+          data: TData | undefined;
+          isLoading: boolean;
+          error: TError | null;
+        }
+
+        export function useQuery<
+          TData = unknown,
+          TError = Error,
+          TSelected = TData,
+          TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>
+        >(
+          options: UseQueryOptions<TData, TError, TSelected, TQueryKey>,
+          queryClient?: QueryClient
+        ): UseQueryResult<TSelected, TError>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { QueryClient, useQuery } from "pkg"
+
+      type Payload = { title: string }
+      val queryKey: ReadonlyArray<string> = ["roadmap"]
+
+      val result = useQuery<Payload, string, string, ReadonlyArray<string>>({
+        queryKey,
+        queryFn: async (context) => {
+          val first = String(context.queryKey[0])
+          return { title: fir^^^st }
+        },
+        select: (data) => data.title
+      })
+
+      if (result.isLoading) {
+      }
+      if (result.error) {
+        val message = result.error
+      }
+      val title = result.data
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
+  it("infers react-query-style imported generic option and result typing without explicit type arguments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export class QueryClient {
+        }
+
+        export interface QueryFunctionContext<TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>> {
+          queryKey: TQueryKey;
+        }
+
+        export interface UseQueryOptions<
+          TData = unknown,
+          TError = Error,
+          TSelected = TData,
+          TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>
+        > {
+          queryKey: TQueryKey;
+          queryFn: (context: QueryFunctionContext<TQueryKey>) => Promise<TData> | TData;
+          select?: (data: TData) => TSelected;
+        }
+
+        export interface UseQueryResult<TData = unknown, TError = Error> {
+          data: TData | undefined;
+          isLoading: boolean;
+          error: TError | null;
+        }
+
+        export function useQuery<
+          TData = unknown,
+          TError = Error,
+          TSelected = TData,
+          TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>
+        >(
+          options: UseQueryOptions<TData, TError, TSelected, TQueryKey>,
+          queryClient?: QueryClient
+        ): UseQueryResult<TSelected, TError>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { QueryClient, useQuery } from "pkg"
+
+      val queryKey: ReadonlyArray<string> = ["roadmap"]
+      val queryClient = QueryClient()
+
+      val result = useQuery({
+        queryKey,
+        queryFn: async (context) => {
+          val first = String(context.queryKey[0])
+          return { title: first }
+        },
+        select: (data) => data.tit^^^le
+      }, queryClient)
+
+      if (result.data) {
+        val title = result.data
+      }
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
   });
 
   it("accepts node_modules hook callbacks and dependency arrays that use local sibling aliases", async () => {
@@ -1723,16 +1980,18 @@ describe("node_modules typings resolution", () => {
       dedent`
         export type Names = readonly string[];
         export type Pair = readonly [name: string, count: number];
+        export type First<T extends ReadonlyArray<unknown>> = T[number];
       `
     );
 
     const mainPath = join(root, "main.vx");
     const source = dedent`
-      import type { Names, Pair } from "readonly-box"
+      import type { Names, Pair, First } from "readonly-box"
 
       let names: Names = ["Ada", "Grace"]
       let pair: Pair = ["Ada", 1]
       let arrayLike: ReadonlyArray<string> = names
+      let firstName: First<Names> = "Ada"
     `;
     await writeFile(mainPath, source, "utf8");
 
@@ -1751,6 +2010,96 @@ describe("node_modules typings resolution", () => {
     );
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("treats imported readonly arrays and tuples as non-mutable targets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "readonly-box",
+      dedent`
+        export type Names = readonly string[];
+        export type Pair = readonly [name: string, count: number];
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { Names, Pair } from "readonly-box"
+
+      let mutableNames: string[] = ["Ada"]
+      let readonlyNames: Names = mutableNames
+      let mutableFromReadonly: string[] = readonlyNames
+
+      let readonlyPair: Pair = ["Ada", 1]
+      readonlyNames[0] = "Grace"
+      readonlyPair[1]++
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([
+      "Type 'readonly string[]' is not assignable to type 'string[]'",
+      "Cannot assign through readonly index access",
+      "Cannot assign through readonly index access"
+    ]);
+  });
+
+  it("treats imported Readonly and mapped readonly object properties as non-mutable targets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "readonly-object-box",
+      dedent`
+        export type User = { id: number; name?: string };
+        export type FrozenUser = Readonly<User>;
+        export type Freeze<T> = { readonly [K in keyof T]: T[K] };
+        export type FrozenViaMapped = Freeze<User>;
+        export type MutableAgain = { -readonly [K in keyof FrozenViaMapped]-?: FrozenViaMapped[K] };
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import type { FrozenUser, FrozenViaMapped, MutableAgain } from "readonly-object-box"
+
+      let frozenUser: FrozenUser = { id: 1, name: "Ada" }
+      let frozenViaMapped: FrozenViaMapped = { id: 2 }
+      let mutableAgain: MutableAgain = { id: 3, name: "Grace" }
+      let exactUser: { id: int, name: string } = mutableAgain
+
+      frozenUser.id = 2
+      frozenViaMapped["id"] = 4
+      mutableAgain.id = 5
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([
+      "Cannot assign to readonly member 'id'",
+      "Cannot assign to readonly member 'id'"
+    ]);
   });
 
   it("resolves top-level conditional infer aliases from imported declaration files", async () => {
@@ -1914,6 +2263,80 @@ describe("node_modules typings resolution", () => {
       let assertString: AssertString = (value: unknown) => {}
       let args: UserCtorArgs = ["Ada", 1]
       let user: UserInstance = new User("Ada", 1)
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows values after imported assertion-signature calls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "guard-box",
+      dedent`
+        export function assertString(value: unknown): asserts value is string;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { assertString } from "guard-box"
+
+      let maybeName: unknown = "Ada"
+      assertString(maybeName)
+      let okName: string = maybeName
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows nullable values after imported generic bare assertion-signature calls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    await makePackageWithTypings(
+      root,
+      "guard-box",
+      dedent`
+        export function assertPresent<T>(value: T): asserts value;
+      `
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { assertPresent } from "guard-box"
+
+      let maybeHeadline: string? = "Ready"
+      assertPresent(maybeHeadline)
+      let okHeadline: string = maybeHeadline
     `;
     await writeFile(mainPath, source, "utf8");
 

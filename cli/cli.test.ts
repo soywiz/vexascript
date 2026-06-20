@@ -369,7 +369,10 @@ describe("CLI", () => {
         check();
       });
 
-      expect(/^http:\/\/localhost:\d+$/.test(openedUrl)).toBe(true);
+      const opened = new URL(openedUrl);
+      expect(opened.protocol).toBe("http:");
+      expect(opened.hostname).toBe("localhost");
+      expect(Number.parseInt(opened.port, 10) > 0).toBe(true);
       expect(stdout).toContain("Serving at http://localhost:");
     } finally {
       child.kill();

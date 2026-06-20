@@ -25,6 +25,22 @@ import { resolveExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberD
 import { inferExtensionReturnTypeName } from "./memberCompletionExtensions";
 import { nodeRange } from "./ranges";
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function referencesUnsubstitutedTypeParameter(
+  typeLabel: string | null | undefined,
+  declaration: ClassStatement | InterfaceStatement | null | undefined
+): boolean {
+  if (!typeLabel || !declaration?.typeParameters?.length) {
+    return false;
+  }
+  return declaration.typeParameters.some((parameter) =>
+    new RegExp(`\\b${escapeRegExp(parameter.name.name)}\\b`).test(typeLabel)
+  );
+}
+
 export function createMemberHoverContents(
   member: ClassMemberInfo
 ): string {
@@ -229,11 +245,22 @@ export async function resolveMemberHoverAcrossFiles(context: ResolveContext): Pr
     return null;
   }
 
-  const typeLabel = resolvedMember?.typeName
-    ?? fallbackMember?.typeLabel
-    ?? structuralMember?.typeLabel
-    ?? extensionTypeLabel
-    ?? inferredMemberTypeLabel!;
+  const resolvedTypeLabel = resolvedMember?.typeName ?? null;
+  const fallbackTypeLabel = fallbackMember?.typeLabel ?? null;
+  const shouldPreferInferredType =
+    inferredMemberTypeLabel !== null
+    && inferredMemberTypeLabel !== "unknown"
+    && (
+      referencesUnsubstitutedTypeParameter(resolvedTypeLabel, primaryResolution.declaration)
+      || referencesUnsubstitutedTypeParameter(fallbackTypeLabel, fallbackClassResolution?.classStatement ?? fallbackInterfaceResolution?.interfaceStatement ?? null)
+    );
+  const typeLabel = shouldPreferInferredType
+    ? inferredMemberTypeLabel
+    : resolvedTypeLabel
+      ?? fallbackTypeLabel
+      ?? structuralMember?.typeLabel
+      ?? extensionTypeLabel
+      ?? inferredMemberTypeLabel!;
   const documentation = resolvedMember?.documentation ?? extensionDocumentation;
   const hoverValue = documentation ? `${memberName}: ${typeLabel}\n\n${documentation}` : `${memberName}: ${typeLabel}`;
   return {

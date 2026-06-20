@@ -87,6 +87,18 @@ describe("rewriteStaticDynamicImports", () => {
   it("rewrites literal dynamic imports to the bundle helper", () => {
     expect(rewriteStaticDynamicImports('await import("./foo.mjs");')).toBe('await __vexaImport("./foo.mjs");');
   });
+
+  it("does not rewrite import examples that appear inside string literals", () => {
+    const source = [
+      'const warning = "lazy: Expected the result of a dynamic import() call. Your code should look like: lazy(() => import(\'./MyComponent\'))";',
+      'const mod = await import("./real.mjs");'
+    ].join("\n");
+
+    expect(rewriteStaticDynamicImports(source)).toBe([
+      'const warning = "lazy: Expected the result of a dynamic import() call. Your code should look like: lazy(() => import(\'./MyComponent\'))";',
+      'const mod = await __vexaImport("./real.mjs");'
+    ].join("\n"));
+  });
 });
 
 describe("collectCommonJsExports", () => {
@@ -383,6 +395,65 @@ describe("bundleNodeModuleGraph", () => {
         expect(result.code).toContain('__vexaImport("./inner.mjs")');
         expect(result.code).not.toContain('import("./inner.mjs")');
         expect(result.code).toContain("async function __vexaImportFrom(importerId, specifier)");
+      }
+    );
+  });
+
+  it("does not corrupt bundled warning strings that mention import() examples", async () => {
+    await withTempProject(
+      {
+        "entry.mjs": 'import { warning, loadInner } from "pkg/runtime"; export const value = warning; export async function load() { return loadInner(); }\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./runtime": {
+              import: "./runtime.js"
+            }
+          }
+        }),
+        "node_modules/pkg/runtime.js": [
+          'export const warning = "lazy: Expected the result of a dynamic import() call. Your code should look like: lazy(() => import(\'./MyComponent\'))";',
+          'export async function loadInner() {',
+          '  return import("./inner.js");',
+          '}'
+        ].join("\n"),
+        "node_modules/pkg/inner.js": "export const inner = 9;\n"
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import { warning, loadInner } from "pkg/runtime"; export const value = warning; export async function load() { return loadInner(); }\n',
+          join(dir, "entry.mjs")
+        );
+
+        expect(result.code).toContain('lazy(() => import(\'./MyComponent\'))');
+        expect(result.code).toContain('__vexaImport("./inner.js")');
+        expect(result.code).not.toContain('__vexaImport("./MyComponent")');
+      }
+    );
+  });
+
+  it("injects a browser-safe process shim for bundled CommonJS packages", async () => {
+    await withTempProject(
+      {
+        "entry.mjs": 'import { mode } from "pkg/runtime"; export const value = mode;\n',
+        "node_modules/pkg/package.json": JSON.stringify({
+          name: "pkg",
+          exports: {
+            "./runtime": {
+              import: "./runtime.js"
+            }
+          }
+        }),
+        "node_modules/pkg/runtime.js": "export const mode = process.env.NODE_ENV;\n"
+      },
+      async (dir) => {
+        const result = await bundleNodeModuleGraph(
+          'import { mode } from "pkg/runtime"; export const value = mode;\n',
+          join(dir, "entry.mjs")
+        );
+
+        expect(result.code).toContain('const process = globalThis.process ?? { env: { NODE_ENV: "production" } };');
+        expect(result.code).toContain("const mode = process.env.NODE_ENV;");
       }
     );
   });

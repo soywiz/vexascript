@@ -26,6 +26,7 @@ import type {
   NonNullExpression,
   ObjectLiteral,
   Program,
+  SatisfiesExpression,
   RangeExpression,
   ReturnStatement,
   Statement,
@@ -609,6 +610,9 @@ export async function createInlayHints(
         return;
       case "AsExpression":
         await visitExpression((expression as AsExpression).expression);
+        return;
+      case "SatisfiesExpression":
+        await visitExpression((expression as SatisfiesExpression).expression);
         return;
       case "NonNullExpression":
         await visitExpression((expression as NonNullExpression).expression);

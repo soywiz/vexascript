@@ -42,6 +42,7 @@ import {
 } from "compiler/analysis/types";
 import {
   findMatchingTypeDelimiter,
+  parseAssertionTypePredicateText,
   parseConditionalTypeText,
   parseReadonlyContainerTypeText,
   parseTemplateLiteralTypeText,
@@ -87,6 +88,32 @@ function dedupeAnalysisTypes(types: AnalysisType[]): AnalysisType[] {
     result.push(type);
   }
   return result;
+}
+
+function importedAssertionTypeFromText(
+  typeName: string | undefined,
+  declarations: readonly Statement[],
+  resolvingImportTypes: Set<string> = new Set(),
+  ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>,
+  ambientGlobalDeclarations: readonly Statement[] = [],
+  visited: Set<string> = new Set()
+): { target: string; type?: AnalysisType } | undefined {
+  if (!typeName) {
+    return undefined;
+  }
+  const parsed = parseAssertionTypePredicateText(typeName);
+  if (!parsed) {
+    return undefined;
+  }
+  const resolvedType = parsed.assertedTypeText
+    ? (ambientModuleDeclarations
+        ? typeFromAmbientAnnotationText(parsed.assertedTypeText, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+        : typeFromAnnotationText(parsed.assertedTypeText, declarations, resolvingImportTypes))
+    : undefined;
+  return {
+    target: parsed.targetText,
+    ...(resolvedType ? { type: resolvedType } : {})
+  };
 }
 
 function unionIfNeeded(types: AnalysisType[]): AnalysisType {
@@ -137,7 +164,10 @@ function collapseFunctionOverloads(overloads: FunctionType[]): FunctionType {
   return functionType(
     parameters,
     unionIfNeeded(overloads.map((overload) => overload.returnType)),
-    first.typeParameters
+    first.typeParameters,
+    undefined,
+    undefined,
+    first.assertion
   );
 }
 
@@ -350,7 +380,11 @@ function typeFromAnnotationText(
               resolvingImportTypes
             )
           })),
-      typeFromAnnotationText(returnText, declarations, resolvingImportTypes)
+      typeFromAnnotationText(returnText, declarations, resolvingImportTypes),
+      undefined,
+      undefined,
+      undefined,
+      importedAssertionTypeFromText(returnText, declarations, resolvingImportTypes)
     );
   }
   const parsed = parseTypeNameShape(normalized);
@@ -392,7 +426,8 @@ function externalFunctionOverloads(
         typeFromAnnotationText(fn.returnType?.name, declarations, resolvingImportTypes),
         fn.typeParameters?.map((parameter) => parameter.name.name),
         importedTypeParameterConstraintMap(fn.typeParameters),
-        importedTypeParameterDefaultMap(fn.typeParameters)
+        importedTypeParameterDefaultMap(fn.typeParameters),
+        importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes)
       ));
       continue;
     }
@@ -419,7 +454,8 @@ function externalFunctionOverloads(
       typeFromAnnotationText(fn.returnType?.name, declarations, resolvingImportTypes),
       fn.typeParameters?.map((parameter) => parameter.name.name),
       importedTypeParameterConstraintMap(fn.typeParameters),
-      importedTypeParameterDefaultMap(fn.typeParameters)
+      importedTypeParameterDefaultMap(fn.typeParameters),
+      importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes)
     ));
   }
   return overloads;
@@ -524,7 +560,8 @@ export function buildFunctionTypeFromStatement(fn: FunctionStatement): AnalysisT
     typeFromAnnotationText(fn.returnType?.name),
     fn.typeParameters?.map((tp) => tp.name.name),
     importedTypeParameterConstraintMap(fn.typeParameters),
-    importedTypeParameterDefaultMap(fn.typeParameters)
+    importedTypeParameterDefaultMap(fn.typeParameters),
+    importedAssertionTypeFromText(fn.returnType?.name, [])
   );
 }
 
@@ -1248,7 +1285,10 @@ function ambientOmitThisParameterUtility(sourceType: AnalysisType): AnalysisType
   return functionType(
     sourceType.parameters.slice(1),
     sourceType.returnType,
-    sourceType.typeParameters
+    sourceType.typeParameters,
+    undefined,
+    undefined,
+    sourceType.assertion
   );
 }
 
@@ -1503,6 +1543,17 @@ function typeFromAmbientAnnotationText(
         ambientModuleDeclarations,
         ambientGlobalDeclarations,
         visited
+      ),
+      undefined,
+      undefined,
+      undefined,
+      importedAssertionTypeFromText(
+        parsedFunctionType.returnTypeName,
+        declarations,
+        new Set(),
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        visited
       )
     );
   }
@@ -1510,21 +1561,23 @@ function typeFromAmbientAnnotationText(
   if (readonlyContainer?.kind === "tuple") {
     return {
       kind: "tuple",
+      readonly: true,
       elements: (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
         typeFromAmbientAnnotationText(part, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
       )
     };
   }
   if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
-    return namedType("ReadonlyArray", [
+    return arrayType(
       typeFromAmbientAnnotationText(
         readonlyContainer.elementTypeText,
         declarations,
         ambientModuleDeclarations,
         ambientGlobalDeclarations,
         visited
-      )
-    ]);
+      ),
+      true
+    );
   }
   if (
     (normalized.startsWith("\"") && normalized.endsWith("\""))
@@ -2062,7 +2115,16 @@ function buildAmbientFunctionTypeFromStatement(
         };
       }),
     typeFromAmbientAnnotationText(fn.returnType?.name, declarations, ambientModuleDeclarations, ambientGlobalDeclarations),
-    fn.typeParameters?.map((tp) => tp.name.name)
+    fn.typeParameters?.map((tp) => tp.name.name),
+    undefined,
+    undefined,
+    importedAssertionTypeFromText(
+      fn.returnType?.name,
+      declarations,
+      new Set(),
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations
+    )
   );
 }
 
@@ -2096,6 +2158,17 @@ function buildAmbientFunctionTypeFromInterfaceMember(
     typeFromAmbientAnnotationText(
       member.returnType?.name,
       declarations,
+      ambientModuleDeclarations,
+      ambientGlobalDeclarations,
+      visited
+    ),
+    undefined,
+    undefined,
+    undefined,
+    importedAssertionTypeFromText(
+      member.returnType?.name,
+      declarations,
+      new Set(),
       ambientModuleDeclarations,
       ambientGlobalDeclarations,
       visited

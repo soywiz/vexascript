@@ -52,6 +52,7 @@ import type {
   Program,
   RangeExpression,
   RegExpLiteral,
+  SatisfiesExpression,
   ReturnStatement,
   Statement,
   StringLiteral,
@@ -357,6 +358,7 @@ function expressionPrecedence(expression: Expr): number {
     case "AssignmentExpression":
       return PREC_ASSIGNMENT;
     case "AsExpression":
+    case "SatisfiesExpression":
       return PREC_RELATIONAL;
     case "NonNullExpression":
       return PREC_UPDATE;
@@ -1270,6 +1272,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
       }
       case "AsExpression":
         return emitExpression((expression as AsExpression).expression, parentPrecedence, side);
+      case "SatisfiesExpression":
+        return emitExpression((expression as SatisfiesExpression).expression, parentPrecedence, side);
       case "NonNullExpression":
         return emitExpression((expression as NonNullExpression).expression, parentPrecedence, side);
       case "ConditionalExpression": {

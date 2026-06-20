@@ -1,6 +1,8 @@
 import { demo } from "./demo.vx"
 import { sample } from "./sample.vx"
+import React from "react"
 import { QueryClient, useQuery } from "@tanstack/react-query"
+import ReactDOM from "react-dom"
 import { Link, MemoryRouter, useLocation } from "react-router-dom"
 
 type RoadmapData = { headline: string; checks: string[] }
@@ -118,7 +120,7 @@ fun DemoBoard() {
 }
 
 fun RoadmapPanel() {
-    val roadmapQuery = useQuery<RoadmapData, unknown, RoadmapData, ReadonlyArray<string>>({
+    val roadmapQuery = useQuery({
         queryKey: roadmapQueryKey,
         queryFn: async (context) => {
             return {

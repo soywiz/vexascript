@@ -830,6 +830,18 @@ let after = bind`));
     expect(messages).toContain("Type assertion from 'string' to 'number' may be unsafe because neither type is assignable to the other");
   });
 
+  it("checks TypeScript satisfies expressions without changing the expression type", () => {
+    const ast = parseFile(tokenizeReader(`let ok: string = "Ada" satisfies string
+let stillString: string = ("Ada" satisfies string)
+let bad = "Ada" satisfies number
+`, { jsx: false }), { language: "typescript" });
+    const analysis = new Analysis(ast);
+    const messages = analysis.getIssues().map((issue) => issue.message);
+
+    expect(messages).toContain("Type 'string' does not satisfy target type 'number'");
+    expect(messages).not.toContain("Type 'number' is not assignable to type 'string'");
+  });
+
   it("resolves keyof, typeof type queries, and indexed access types semantically", () => {
     const source = dedent`
       interface Person {

@@ -80,6 +80,7 @@ import {
     RangeExpression,
     ReturnStatement,
     RegExpLiteral,
+    SatisfiesExpression,
     Statement,
     StringLiteral,
     SpreadExpression,
@@ -3970,14 +3971,24 @@ export class Parser {
 
     private parseAsExpression(): Expr {
         let expression = this.parseBinaryExpression();
-        while (this.tokens.peek()?.type === "identifier" && this.tokens.peek()?.value === "as") {
+        while (
+            this.tokens.peek()?.type === "identifier"
+            && (this.tokens.peek()?.value === "as" || this.tokens.peek()?.value === "satisfies")
+        ) {
+            const operator = this.tokens.peek()?.value;
             this.tokens.skip();
             const typeAnnotation = this.parseTypeAnnotationNode();
-            expression = this.attachNodeBounds({
-                kind: "AsExpression",
-                expression,
-                typeAnnotation
-            } as AsExpression, expression.firstToken, typeAnnotation.lastToken ?? this.getLastReadToken());
+            expression = operator === "satisfies"
+                ? this.attachNodeBounds({
+                    kind: "SatisfiesExpression",
+                    expression,
+                    typeAnnotation
+                } as SatisfiesExpression, expression.firstToken, typeAnnotation.lastToken ?? this.getLastReadToken())
+                : this.attachNodeBounds({
+                    kind: "AsExpression",
+                    expression,
+                    typeAnnotation
+                } as AsExpression, expression.firstToken, typeAnnotation.lastToken ?? this.getLastReadToken());
         }
         return expression;
     }

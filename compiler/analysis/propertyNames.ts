@@ -7,6 +7,22 @@
 import type { AnalysisType } from "./types";
 import { unionType } from "./types";
 
+export function isReadonlyPropertyName(name: string): boolean {
+  return name.trim().startsWith("readonly ");
+}
+
+export function stripReadonlyPropertyPrefix(name: string): string {
+  const trimmed = name.trim();
+  return isReadonlyPropertyName(trimmed)
+    ? trimmed.slice("readonly ".length).trim()
+    : trimmed;
+}
+
+export function toReadonlyPropertyName(name: string): string {
+  const trimmed = name.trim();
+  return isReadonlyPropertyName(trimmed) ? trimmed : `readonly ${trimmed}`;
+}
+
 export function normalizeIndexSignaturePropertyName(name: string): string | null {
   const match = /^(?:readonly\s+)?\[\s*[^:]+\s*:\s*(.+)\]$/.exec(name);
   if (!match) {
@@ -20,7 +36,7 @@ export function normalizeIndexSignaturePropertyName(name: string): string | null
 }
 
 export function normalizePropertyName(name: string): string {
-  const trimmed = name.trim();
+  const trimmed = stripReadonlyPropertyPrefix(name);
   const normalizedIndexSignature = normalizeIndexSignaturePropertyName(trimmed);
   if (normalizedIndexSignature) {
     return normalizedIndexSignature;
@@ -39,7 +55,7 @@ export function normalizePropertyName(name: string): string {
 }
 
 export function isDynamicPropertyName(propertyName: string): boolean {
-  const trimmed = propertyName.trim();
+  const trimmed = stripReadonlyPropertyPrefix(propertyName);
   return trimmed.startsWith("[") || trimmed.startsWith("readonly [");
 }
 

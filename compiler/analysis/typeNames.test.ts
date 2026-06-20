@@ -4,6 +4,7 @@ import {
   findTopLevelTypeCharacter,
   looksLikeFunctionTypeAnnotation,
   parseMappedTypeMemberText,
+  parseAssertionTypePredicateText,
   parseReadonlyContainerTypeText,
   parseObjectTypeAnnotation,
   parseFunctionTypeAnnotation,
@@ -106,6 +107,25 @@ describe("parseFunctionTypeAnnotation", () => {
   });
 });
 
+describe("parseAssertionTypePredicateText", () => {
+  it("parses a typed assertion predicate", () => {
+    expect(parseAssertionTypePredicateText("asserts value is string")).toEqual({
+      targetText: "value",
+      assertedTypeText: "string"
+    });
+  });
+
+  it("parses a bare truthy assertion predicate", () => {
+    expect(parseAssertionTypePredicateText("asserts value")).toEqual({
+      targetText: "value"
+    });
+  });
+
+  it("returns null for non-assertion text", () => {
+    expect(parseAssertionTypePredicateText("string")).toBeNull();
+  });
+});
+
 describe("parseObjectTypeAnnotation", () => {
   it("parses a simple object type", () => {
     const result = parseObjectTypeAnnotation("{ name: string; age: number }");
@@ -125,9 +145,10 @@ describe("parseObjectTypeAnnotation", () => {
     expect(result?.[0]?.name).toBe("x");
   });
 
-  it("strips readonly from property names", () => {
+  it("preserves readonly on property members", () => {
     const result = parseObjectTypeAnnotation("{ readonly x: string }");
     expect(result?.[0]?.name).toBe("x");
+    expect(result?.[0]?.readonly).toBe(true);
   });
 
   it("returns null for a non-object type text", () => {

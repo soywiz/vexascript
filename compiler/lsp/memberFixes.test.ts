@@ -1,8 +1,9 @@
 import { describe, expect, it, join, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
+import { walkAst } from "compiler/ast/traversal";
+import type { Identifier, MemberExpression } from "compiler/ast/ast";
 import type { Diagnostic } from "vscode-languageserver/node.js";
 import { createAnalysisSession } from "./analysisSession";
 import { createCreateMemberCodeActions } from "./memberFixes";
-import { collectCrossFileMemberDiagnostics } from "./memberDiagnostics";
 
 function missingMemberDiagnostic(message: string): Diagnostic {
   return {
@@ -12,6 +13,50 @@ function missingMemberDiagnostic(message: string): Diagnostic {
     range: {
       start: { line: 0, character: 0 },
       end: { line: 0, character: 1 }
+    }
+  };
+}
+
+function missingMemberDiagnosticAtProperty(
+  session: ReturnType<typeof createAnalysisSession>,
+  memberName: string,
+  typeName: string
+): Diagnostic {
+  let property: Identifier | null = null;
+  if (session.ast) {
+    walkAst(session.ast, (node) => {
+      if (
+        !property &&
+        node.kind === "MemberExpression" &&
+        !(node as MemberExpression).computed &&
+        (node as MemberExpression).property.kind === "Identifier" &&
+        ((node as MemberExpression).property as Identifier).name === memberName
+      ) {
+        property = (node as MemberExpression).property as Identifier;
+      }
+    });
+  }
+
+  const resolvedProperty = property as Identifier | null;
+  const firstToken = resolvedProperty?.firstToken;
+  const lastToken = resolvedProperty?.lastToken;
+  if (!firstToken || !lastToken) {
+    return missingMemberDiagnostic(`Property '${memberName}' does not exist on type '${typeName}'`);
+  }
+
+  return {
+    severity: 1,
+    source: "vexa-sema",
+    message: `Property '${memberName}' does not exist on type '${typeName}'`,
+    range: {
+      start: {
+        line: firstToken.range.start.line,
+        character: firstToken.range.start.column
+      },
+      end: {
+        line: lastToken.range.end.line,
+        character: lastToken.range.end.column
+      }
     }
   };
 }
@@ -88,16 +133,13 @@ fun demo() {
     await writeFile(file, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const diagnostics = await collectCrossFileMemberDiagnostics({
-      uri: pathToFileURL(file).toString(),
-      session,
-      sourceRoots: [root]
-    });
     const actions = await createCreateMemberCodeActions({
       uri: pathToFileURL(file).toString(),
       ast: session.ast,
       analysis: session.analysis,
-      diagnostics,
+      diagnostics: [
+        missingMemberDiagnosticAtProperty(session, "zz", "MyPoint")
+      ],
       sourceRoots: [root]
     });
 

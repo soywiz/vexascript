@@ -139,6 +139,12 @@ export interface AsExpression extends Node {
     typeAnnotation: Identifier
 }
 
+export interface SatisfiesExpression extends Node {
+    kind: "SatisfiesExpression"
+    expression: Expr
+    typeAnnotation: Identifier
+}
+
 export interface NonNullExpression extends Node {
     kind: "NonNullExpression"
     expression: Expr

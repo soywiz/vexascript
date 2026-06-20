@@ -1,6 +1,7 @@
 import { builtinModules } from "node:module";
 import type { Program, Statement, VarStatement, FunctionStatement, ClassStatement, EnumStatement, ExportStatement } from "../compiler/ast/ast";
 import { parseSource } from "../compiler/pipeline/parse";
+import { tokenize } from "../compiler/parser/tokenizer";
 import { emitProgram } from "../compiler/runtime/emitter";
 import { basename, dirname, extname, relative, resolve } from "../compiler/utils/path";
 import { vfs, type Vfs } from "../compiler/vfs";
@@ -58,6 +59,12 @@ const NODE_BUILTIN_SET = new Set([
 const STATIC_REQUIRE_PATTERN = /\brequire\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
 const STATIC_DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*(['"])([^"'`]+)\1\s*\)/g;
 const bundledModuleArtifactCache = new Map<string, CachedBundledModuleArtifact>();
+
+interface StaticDynamicImportOccurrence {
+  specifier: string;
+  startOffset: number;
+  endOffset: number;
+}
 
 function createResolutionContext(): ResolutionContext {
   return {
@@ -462,8 +469,8 @@ export function detectStaticRequires(source: string): string[] {
 
 export function detectStaticDynamicImports(source: string): string[] {
   const specifiers = new Set<string>();
-  for (const match of source.matchAll(STATIC_DYNAMIC_IMPORT_PATTERN)) {
-    const specifier = match[2];
+  for (const occurrence of collectStaticDynamicImportOccurrences(source)) {
+    const specifier = occurrence.specifier;
     if (specifier) {
       specifiers.add(specifier);
     }
@@ -472,10 +479,64 @@ export function detectStaticDynamicImports(source: string): string[] {
 }
 
 export function rewriteStaticDynamicImports(source: string): string {
-  return source.replace(
-    STATIC_DYNAMIC_IMPORT_PATTERN,
-    (_match, _quote, specifier) => `__vexaImport(${JSON.stringify(specifier)})`
-  );
+  const occurrences = collectStaticDynamicImportOccurrences(source);
+  if (occurrences.length === 0) {
+    return source;
+  }
+
+  let rewritten = "";
+  let cursor = 0;
+  for (const occurrence of occurrences) {
+    rewritten += source.slice(cursor, occurrence.startOffset);
+    rewritten += `__vexaImport(${JSON.stringify(occurrence.specifier)})`;
+    cursor = occurrence.endOffset;
+  }
+  rewritten += source.slice(cursor);
+  return rewritten;
+}
+
+function collectStaticDynamicImportOccurrences(source: string): StaticDynamicImportOccurrence[] {
+  try {
+    const tokens = tokenize(source);
+    const occurrences: StaticDynamicImportOccurrence[] = [];
+    for (let index = 0; index <= tokens.length - 4; index += 1) {
+      const importToken = tokens[index];
+      const openParenToken = tokens[index + 1];
+      const specifierToken = tokens[index + 2];
+      const closeParenToken = tokens[index + 3];
+      if (
+        importToken?.type === "identifier"
+        && importToken.value === "import"
+        && openParenToken?.type === "symbol"
+        && openParenToken.value === "("
+        && specifierToken?.type === "string"
+        && closeParenToken?.type === "symbol"
+        && closeParenToken.value === ")"
+      ) {
+        occurrences.push({
+          specifier: specifierToken.value,
+          startOffset: importToken.range.start.offset,
+          endOffset: closeParenToken.range.end.offset
+        });
+      }
+    }
+    return occurrences;
+  } catch {
+    const occurrences: StaticDynamicImportOccurrence[] = [];
+    for (const match of source.matchAll(STATIC_DYNAMIC_IMPORT_PATTERN)) {
+      const specifier = match[2];
+      const startOffset = match.index;
+      if (!specifier || startOffset === undefined) {
+        continue;
+      }
+      occurrences.push({
+        specifier,
+        startOffset,
+        endOffset: startOffset + match[0].length
+      });
+    }
+    return occurrences;
+  }
 }
 
 function collectExportedDeclarationNames(statement: Statement): string[] {
@@ -787,6 +848,7 @@ export async function bundleNodeModuleGraph(
     moduleFactoriesLiteral,
     `};`,
     `const __vexaCache = Object.create(null);`,
+    `const process = globalThis.process ?? { env: { NODE_ENV: "production" } };`,
     `function __vexaMissingExternal(specifier) {`,
     `  throw new Error(\`Unbundled external dependency '\${specifier}' is not available in browser-safe Vexa bundles.\`);`,
     `}`,

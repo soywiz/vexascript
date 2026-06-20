@@ -51,6 +51,7 @@ import type {
   Program,
   RangeExpression,
   ReturnStatement,
+  SatisfiesExpression,
   Statement,
   SwitchStatement,
   ThrowStatement,
@@ -103,6 +104,7 @@ import {
 } from "./types";
 import {
   looksLikeFunctionTypeAnnotation,
+  parseAssertionTypePredicateText,
   parseReadonlyContainerTypeText,
   parseObjectTypeAnnotation,
   parseFunctionTypeAnnotation,
@@ -124,7 +126,18 @@ import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarat
 import { declarationIndexForStatements } from "./declarationIndex";
 import { walkAst } from "compiler/ast/traversal";
 import { boxedInterfaceNameForBuiltin, expressionSnippet, isNumberLikeType, typeToDiagnosticLabel } from "./typeDisplay";
-import { isDynamicPropertyName, normalizePropertyName, propertyEntries, propertyNamesMatch, propertyTypeAllowsUndefined, propertyTypeFrom, propertyTypeWithoutUndefined } from "./propertyNames";
+import {
+  isDynamicPropertyName,
+  isReadonlyPropertyName,
+  normalizePropertyName,
+  propertyEntries,
+  propertyNamesMatch,
+  propertyTypeAllowsUndefined,
+  propertyTypeFrom,
+  propertyTypeWithoutUndefined,
+  stripReadonlyPropertyPrefix,
+  toReadonlyPropertyName
+} from "./propertyNames";
 import { isBigIntType, isIntType, isLongType, isNullishType, isNumberType, isNumericFamilyType, isNumericType, isPrimitiveLikeOperatorType, isStringLikeType } from "./typeClassifiers";
 import { isAsyncLike, statementAllowsLabeledContinue, statementListAlwaysExits, statementListPreventsSwitchFallthrough } from "./controlFlow";
 import { combineTypes, elementTypeFromIterable, hasNullishUnionMember, isAsyncIteratorType, removeNullishFromType, resolveLiteralTypeName, spreadArgumentElementType, unwrapPromiseType } from "./typeOperations";
@@ -142,6 +155,7 @@ export class TypeChecker {
   private readonly jsxAttributeResolutions: JsxAttributeResolution[] = [];
   private readonly operatorResolutions: OperatorResolution[] = [];
   private readonly selectedCallResolutions: SelectedCallResolution[] = [];
+  private readonly assertionCallEffects: WeakMap<CallExpression, { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> }> = new WeakMap();
   private readonly expressionTypes: Map<Node, AnalysisType> = new Map();
   private readonly autoAwaitExpressions: Set<Node> = new Set();
   private readonly asyncForStatements: Set<Node> = new Set();
@@ -364,9 +378,13 @@ export class TypeChecker {
           ...(fallbackSymbol.valueType !== undefined ? { valueType: fallbackSymbol.valueType } : {})
         });
       }
+      const mergedNarrowedExpressionTypes = fallback.narrowedExpressionTypes
+        ? new Map(fallback.narrowedExpressionTypes)
+        : scope.narrowedExpressionTypes;
       return {
         ...scope,
-        symbols: mergedSymbols
+        symbols: mergedSymbols,
+        ...(mergedNarrowedExpressionTypes ? { narrowedExpressionTypes: mergedNarrowedExpressionTypes } : {})
       };
     };
     if (boundScope.parent && boundScope.parent !== fallback) {
@@ -481,7 +499,7 @@ export class TypeChecker {
       case "AnnotationStatement":
         return;
       case "ExprStatement":
-        this.visitExpression((statement as ExprStatement).expression, scope);
+        this.visitExprStatement(statement as ExprStatement, scope);
         return;
       case "BlockStatement":
         this.visitBlockStatement(statement as BlockStatement, scope, flow);
@@ -544,8 +562,9 @@ export class TypeChecker {
       case "ReturnStatement": {
         const returnStatement = statement as ReturnStatement;
         const expectedReturnType = flow.expectedReturnType;
+        const preservesInferredReturnType = this.preservesInferredContextualReturnType(expectedReturnType, scope);
         const asyncReturnValueType =
-          flow.inAsync === true && expectedReturnType
+          flow.inAsync === true && expectedReturnType && !preservesInferredReturnType
             ? this.getAsyncReturnValueType(expectedReturnType)
             : null;
         if (returnStatement.expression) {
@@ -554,11 +573,12 @@ export class TypeChecker {
           const actualReturnType = this.visitExpression(
             returnStatement.expression,
             scope,
-            asyncReturnValueType ?? expectedReturnType,
+            preservesInferredReturnType ? undefined : (asyncReturnValueType ?? expectedReturnType),
             true
           );
           if (
             expectedReturnType &&
+            !preservesInferredReturnType &&
             !isUnknownType(expectedReturnType) &&
             !isUnknownType(actualReturnType) &&
             !this.returnExpressionIsAssignable(actualReturnType, expectedReturnType, asyncReturnValueType, flow.inAsync === true)
@@ -637,6 +657,22 @@ export class TypeChecker {
       }
       default:
         return;
+    }
+  }
+
+  private visitExprStatement(statement: ExprStatement, scope: Scope): void {
+    this.visitExpression(statement.expression, scope);
+    if (statement.expression.kind !== "CallExpression") {
+      return;
+    }
+    const effect = this.assertionCallEffects.get(statement.expression as CallExpression);
+    if (!effect) {
+      return;
+    }
+    const narrowedScope = this.scopeWithNarrowings(scope, effect.narrowings, effect.expressionNarrowings);
+    scope.symbols = narrowedScope.symbols;
+    if (narrowedScope.narrowedExpressionTypes) {
+      scope.narrowedExpressionTypes = narrowedScope.narrowedExpressionTypes;
     }
   }
 
@@ -1311,7 +1347,7 @@ export class TypeChecker {
           this.validateAsyncReturnTypeAnnotation(declaredReturnType, statement.returnType ?? statement.name);
         }
         const returnType = declaredReturnType ?? UNKNOWN_TYPE;
-        const fnType = this.buildFunctionType(statement.parameters, returnType, scope, statement.typeParameters ?? []);
+        const fnType = this.buildFunctionType(statement.parameters, returnType, scope, statement.typeParameters ?? [], statement.returnType?.name);
         const existingSymbolType = scope.symbols.get(statement.name.name)?.type;
         if ((statement.missingBody !== true || statement.declared === true) && existingSymbolType?.kind !== "union") {
           this.updateSymbolType(scope, statement.name.name, fnType);
@@ -1354,7 +1390,7 @@ export class TypeChecker {
           this.updateSymbolType(
             scope,
             statement.name.name,
-            this.buildFunctionType(statement.parameters, resolvedReturnType, scope, statement.typeParameters ?? [])
+            this.buildFunctionType(statement.parameters, resolvedReturnType, scope, statement.typeParameters ?? [], statement.returnType?.name)
           );
         }
         if (statement.missingBody !== true) {
@@ -1558,7 +1594,8 @@ export class TypeChecker {
               method.parameters,
               declaredMethodReturnType ?? builtinType("void"),
               classScope,
-              method.typeParameters ?? []
+              method.typeParameters ?? [],
+              method.returnType?.name
             );
             this.updateSymbolType(classScope, method.name.name, methodType);
             this.namedTypeMembersCache.clear();
@@ -1598,14 +1635,15 @@ export class TypeChecker {
             );
             this.updateSymbolType(
               classScope,
-              method.name.name,
-              this.buildFunctionType(
-                method.parameters,
-                resolvedMethodReturnType,
-                classScope,
-                method.typeParameters ?? []
-              )
-            );
+                method.name.name,
+                this.buildFunctionType(
+                  method.parameters,
+                  resolvedMethodReturnType,
+                  classScope,
+                  method.typeParameters ?? [],
+                  method.returnType?.name
+                )
+              );
             this.namedTypeMembersCache.clear();
             if (statement.declared !== true && method.missingBody !== true && method.abstract !== true) {
               this.reportMissingReturnPath(method.body, resolvedMethodReturnType, method.name, methodIsAsyncLike, method.generator === true);
@@ -1687,30 +1725,44 @@ export class TypeChecker {
     this.visitExpression(statement.condition, scope);
     const thenScope = this.scopeWithNarrowings(
       this.scopeFor(statement.thenBranch, scope),
-      this.conditionNarrowings(statement.condition, scope, true)
+      this.conditionNarrowings(statement.condition, scope, true),
+      this.conditionExpressionNarrowings(statement.condition, scope, true)
     );
     this.visitStatement(statement.thenBranch, thenScope, flow);
     if (statement.elseBranch) {
       const elseScope = this.scopeWithNarrowings(
         this.scopeFor(statement.elseBranch, scope),
-        this.conditionNarrowings(statement.condition, scope, false)
+        this.conditionNarrowings(statement.condition, scope, false),
+        this.conditionExpressionNarrowings(statement.condition, scope, false)
       );
       this.visitStatement(statement.elseBranch, elseScope, flow);
     }
   }
 
-  private scopeWithNarrowings(scope: Scope, narrowings: Map<string, AnalysisType>): Scope {
-    if (narrowings.size === 0) return scope;
+  private scopeWithNarrowings(
+    scope: Scope,
+    narrowings: Map<string, AnalysisType>,
+    expressionNarrowings: Map<string, AnalysisType> = new Map()
+  ): Scope {
+    if (narrowings.size === 0 && expressionNarrowings.size === 0) return scope;
     const narrowedScope: Scope = {
       ...(scope.parent ? { parent: scope.parent } : {}),
       node: scope.node,
       symbols: new Map(scope.symbols),
+      ...(scope.narrowedExpressionTypes ? { narrowedExpressionTypes: new Map(scope.narrowedExpressionTypes) } : {}),
       children: scope.children
     };
     for (const [name, type] of narrowings) {
       const symbol = this.resolve(name, scope, undefined);
       if (!symbol) continue;
       narrowedScope.symbols.set(name, { ...symbol, type, valueType: typeToString(type) });
+    }
+    if (expressionNarrowings.size > 0) {
+      const narrowedExpressionTypes = narrowedScope.narrowedExpressionTypes ?? new Map<string, AnalysisType>();
+      for (const [key, type] of expressionNarrowings) {
+        narrowedExpressionTypes.set(key, type);
+      }
+      narrowedScope.narrowedExpressionTypes = narrowedExpressionTypes;
     }
     return narrowedScope;
   }
@@ -1742,6 +1794,172 @@ export class TypeChecker {
     if (originalType.kind !== "union") return new Map();
     const remaining = originalType.types.filter((member) => !this.isTypeAssignable(member, checkedType!));
     return new Map([[identifier.name, remaining.length === 1 ? remaining[0]! : unionType(remaining)]]);
+  }
+
+  private conditionExpressionNarrowings(condition: Expr, scope: Scope, truthy: boolean): Map<string, AnalysisType> {
+    if (condition.kind === "UnaryExpression" && (condition as UnaryExpression).operator === "!") {
+      return this.conditionExpressionNarrowings((condition as UnaryExpression).argument, scope, !truthy);
+    }
+    if (condition.kind === "BinaryExpression") {
+      const binary = condition as BinaryExpression;
+      if ((binary.operator === "&&" && truthy) || (binary.operator === "||" && !truthy)) {
+        return new Map([
+          ...this.conditionExpressionNarrowings(binary.left, scope, truthy),
+          ...this.conditionExpressionNarrowings(binary.right, scope, truthy)
+        ]);
+      }
+      return new Map();
+    }
+
+    const stableKey = this.stableExpressionKey(condition);
+    if (!stableKey) {
+      return new Map();
+    }
+    const originalType = this.expressionTypeForNarrowing(condition, scope);
+    const narrowedType = this.truthinessNarrowedType(originalType, truthy);
+    if (!narrowedType || isSameType(narrowedType, originalType)) {
+      return new Map();
+    }
+    return new Map([[stableKey, narrowedType]]);
+  }
+
+  private expressionTypeForNarrowing(expression: Expr, scope: Scope): AnalysisType {
+    const cached = this.expressionTypes.get(expression);
+    if (cached) {
+      return cached;
+    }
+    return this.visitExpression(expression, scope);
+  }
+
+  private truthinessNarrowedType(type: AnalysisType, truthy: boolean): AnalysisType | null {
+    if (!hasNullishUnionMember(type)) {
+      return null;
+    }
+    if (truthy) {
+      return removeNullishFromType(type);
+    }
+    if (type.kind !== "union") {
+      return null;
+    }
+    const nullishMembers = type.types.filter((member) => isNullishType(member));
+    if (nullishMembers.length === 0) {
+      return null;
+    }
+    return nullishMembers.length === 1 ? nullishMembers[0]! : unionType(nullishMembers);
+  }
+
+  private stableExpressionKey(expression: Expr): string | null {
+    switch (expression.kind) {
+      case "Identifier":
+        return (expression as Identifier).name;
+      case "MemberExpression": {
+        const member = expression as MemberExpression;
+        if (member.optional === true || member.computed) {
+          return null;
+        }
+        const objectKey = this.stableExpressionKey(member.object);
+        if (!objectKey) {
+          return null;
+        }
+        if (member.property.kind === "Identifier") {
+          return `${objectKey}.${(member.property as Identifier).name}`;
+        }
+        if (member.property.kind === "StringLiteral") {
+          return `${objectKey}.${(member.property as StringLiteral).value}`;
+        }
+        if (member.property.kind === "IntLiteral" || member.property.kind === "FloatLiteral") {
+          return `${objectKey}.${String((member.property as IntLiteral | FloatLiteral).value)}`;
+        }
+        return null;
+      }
+      case "NonNullExpression":
+        return this.stableExpressionKey((expression as NonNullExpression).expression);
+      case "AsExpression":
+        return this.stableExpressionKey((expression as AsExpression).expression);
+      case "SatisfiesExpression":
+        return this.stableExpressionKey((expression as SatisfiesExpression).expression);
+      default:
+        return null;
+    }
+  }
+
+  private narrowedExpressionType(scope: Scope, expression: Expr): AnalysisType | null {
+    const stableKey = this.stableExpressionKey(expression);
+    if (!stableKey) {
+      return null;
+    }
+    for (let current: Scope | undefined = scope; current; current = current.parent) {
+      const narrowed = current.narrowedExpressionTypes?.get(stableKey);
+      if (narrowed) {
+        return narrowed;
+      }
+    }
+    return null;
+  }
+
+  private assertionEffectForCall(
+    call: CallExpression,
+    calleeType: AnalysisType & { kind: "function" },
+    scope: Scope
+  ): { narrowings: Map<string, AnalysisType>; expressionNarrowings: Map<string, AnalysisType> } | null {
+    const assertion = calleeType.assertion;
+    if (!assertion) {
+      return null;
+    }
+    const targetExpression = this.assertionTargetExpression(call, calleeType, assertion.target);
+    if (!targetExpression) {
+      return null;
+    }
+    const originalType = this.expressionTypeForNarrowing(targetExpression, scope);
+    const narrowedType = assertion.type
+      ?? this.truthinessNarrowedType(originalType, true);
+    if (!narrowedType || isSameType(narrowedType, originalType)) {
+      return null;
+    }
+
+    const narrowings = new Map<string, AnalysisType>();
+    const expressionNarrowings = new Map<string, AnalysisType>();
+    if (targetExpression.kind === "Identifier") {
+      narrowings.set((targetExpression as Identifier).name, narrowedType);
+    }
+    const stableKey = this.stableExpressionKey(targetExpression);
+    if (stableKey) {
+      expressionNarrowings.set(stableKey, narrowedType);
+    }
+    return narrowings.size > 0 || expressionNarrowings.size > 0
+      ? { narrowings, expressionNarrowings }
+      : null;
+  }
+
+  private assertionTargetExpression(
+    call: CallExpression,
+    calleeType: AnalysisType & { kind: "function" },
+    targetName: string
+  ): Expr | null {
+    if (targetName === "this") {
+      return call.callee.kind === "MemberExpression"
+        ? (call.callee as MemberExpression).object
+        : null;
+    }
+
+    const parameterIndex = calleeType.parameters.findIndex((parameter) => parameter.name === targetName);
+    if (parameterIndex < 0) {
+      return null;
+    }
+    const parameter = calleeType.parameters[parameterIndex]!;
+    const argument = call.arguments.find((candidate, index) =>
+      candidate.kind === "NamedArgument"
+        ? ((candidate as NamedArgument).name.name === targetName)
+        : index === parameterIndex && !call.arguments.some((other) => other.kind === "NamedArgument")
+    );
+    if (!argument) {
+      return null;
+    }
+    return argument.kind === "NamedArgument"
+      ? (argument as NamedArgument).value
+      : parameter.rest === true && argument.kind === "SpreadExpression"
+        ? (argument as SpreadExpression).argument
+        : argument;
   }
 
   private visitSwitchStatement(statement: SwitchStatement, scope: Scope, flow: FlowContext): void {
@@ -1920,6 +2138,24 @@ export class TypeChecker {
         result = assertedType;
         break;
       }
+      case "SatisfiesExpression": {
+        const satisfies = expression as SatisfiesExpression;
+        const expressionType = this.visitExpression(satisfies.expression, scope);
+        const targetType = this.resolveTypeAnnotation(satisfies.typeAnnotation, scope) ?? UNKNOWN_TYPE;
+        if (
+          !isUnknownType(expressionType) &&
+          !isUnknownType(targetType) &&
+          !this.isTypeAssignable(expressionType, targetType)
+        ) {
+          this.issues.push({
+            message: `Type '${typeToDiagnosticLabel(expressionType)}' does not satisfy target type '${typeToDiagnosticLabel(targetType)}'`,
+            node: satisfies.typeAnnotation
+          });
+          this.reportNestedMismatchContext(expressionType, targetType, satisfies.expression);
+        }
+        result = expressionType;
+        break;
+      }
       case "NonNullExpression": {
         const nonNull = expression as NonNullExpression;
         result = removeNullishFromType(this.visitExpression(nonNull.expression, scope));
@@ -1981,6 +2217,7 @@ export class TypeChecker {
             }
           }
           result = this.resolveOptionalAccessType(this.resolveComputedMemberType(objectType, propertyType), member.optional === true);
+          result = this.narrowedExpressionType(scope, member) ?? result;
           break;
         }
         this.validateKnownMemberAccess(member, objectType, scope);
@@ -1992,6 +2229,7 @@ export class TypeChecker {
           });
         }
         result = this.resolveOptionalAccessType(this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE, member.optional === true);
+        result = this.narrowedExpressionType(scope, member) ?? result;
         break;
       }
       case "CallExpression": {
@@ -2084,7 +2322,8 @@ export class TypeChecker {
             bestCallableType,
             explicitTypeArguments,
             inferenceArgumentTypes,
-            expectedType
+            expectedType,
+            false
           );
           const contextualArgumentTypes = hasNamedArguments
             ? inferenceArgumentTypes
@@ -2107,6 +2346,10 @@ export class TypeChecker {
             this.validateCallArguments(call, instantiatedCalleeType, contextualArgumentTypes);
           }
           this.evolveArrayElementTypeFromMutation(call, scope, contextualArgumentTypes);
+          const assertionEffect = this.assertionEffectForCall(call, instantiatedCalleeType, scope);
+          if (assertionEffect) {
+            this.assertionCallEffects.set(call, assertionEffect);
+          }
           result = this.resolveOptionalAccessType(
             instantiatedCalleeType.returnType,
             call.optional === true || hasNullishUnionMember(calleeType)
@@ -2138,7 +2381,8 @@ export class TypeChecker {
               constructableOnlyType,
               explicitTypeArguments,
               inferenceArgumentTypes,
-              expectedType
+              expectedType,
+              false
             );
             const contextualArgumentTypes = this.applyCallArgumentContext(
               call,
@@ -2439,11 +2683,14 @@ export class TypeChecker {
         const arrow = expression as ArrowFunctionExpression;
         const arrowIsAsyncLike = isAsyncLike(arrow);
         this.withGeneratorFunction(false, () => this.withSyncFunction(arrow.sync === true, () => this.withAsyncLikeFunction(arrowIsAsyncLike, () => {
-          if (arrow.contextualObjectLiteral && expectedType && expectedType.kind !== "function") {
+          const expectedFunctionType = this.contextualFunctionTypeForExpression(
+            this.contextualFunctionExpectedType(expectedType),
+            scope
+          );
+          if (arrow.contextualObjectLiteral && expectedType && !expectedFunctionType) {
             result = this.inferObjectLiteralType(arrow.contextualObjectLiteral, scope, expectedType);
             return;
           }
-          const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
           const arrowScope = this.createFunctionLikeExpressionScope(scope, arrow, arrow.parameters, expectedFunctionType);
           let returnType: AnalysisType;
           if (arrow.body.kind === "BlockStatement") {
@@ -2459,8 +2706,12 @@ export class TypeChecker {
             for (const bodyStatement of (arrow.body as BlockStatement).body) {
               this.visitStatement(bodyStatement, arrowScope, arrowFlow);
             }
-            returnType = this.finalizeFunctionReturnType(
+            const preservesInferredReturnType = arrowIsAsyncLike || this.preservesInferredContextualReturnType(
               expectedFunctionType?.returnType,
+              arrowScope
+            );
+            returnType = this.finalizeFunctionReturnType(
+              preservesInferredReturnType ? undefined : expectedFunctionType?.returnType,
               arrow.body as BlockStatement,
               arrowIsAsyncLike
             );
@@ -2480,13 +2731,14 @@ export class TypeChecker {
               expectedFunctionType &&
               !isUnknownType(returnType) &&
               !isUnknownType(expectedFunctionType.returnType) &&
+              !(arrowIsAsyncLike || this.preservesInferredContextualReturnType(expectedFunctionType.returnType, arrowScope)) &&
               !this.isTypeAssignable(returnType, expectedFunctionType.returnType)
             ) {
               this.reportReturnTypeMismatch(returnType, expectedFunctionType.returnType, arrow.body as Expr);
               returnType = expectedFunctionType.returnType;
             }
           }
-          result = this.buildFunctionType(arrow.parameters, returnType, arrowScope);
+          result = this.buildFunctionType(arrow.parameters, returnType, arrowScope, [], arrow.returnType?.name);
         })));
         break;
       }
@@ -2494,7 +2746,10 @@ export class TypeChecker {
         const fn = expression as FunctionExpression;
         const fnIsAsyncLike = isAsyncLike(fn);
         this.withGeneratorFunction(fn.generator === true, () => this.withSyncFunction(fn.sync === true, () => this.withAsyncLikeFunction(fnIsAsyncLike, () => {
-          const expectedFunctionType = expectedType?.kind === "function" ? expectedType : undefined;
+          const expectedFunctionType = this.contextualFunctionTypeForExpression(
+            this.contextualFunctionExpectedType(expectedType),
+            scope
+          );
           const functionScope = this.createFunctionLikeExpressionScope(scope, fn, fn.parameters, expectedFunctionType);
           const declaredReturnType = this.resolveTypeAnnotation(fn.returnType, functionScope);
           if (fnIsAsyncLike) {
@@ -2513,14 +2768,19 @@ export class TypeChecker {
           for (const bodyStatement of fn.body.body) {
             this.visitStatement(bodyStatement, functionScope, functionFlow);
           }
+          const preservesInferredReturnType = declaredReturnType === undefined && (
+            fnIsAsyncLike || this.preservesInferredContextualReturnType(
+            expectedFunctionType?.returnType,
+            functionScope
+          ));
           const returnType = this.finalizeFunctionReturnType(
-            declaredReturnType ?? expectedFunctionType?.returnType,
+            declaredReturnType ?? (preservesInferredReturnType ? undefined : expectedFunctionType?.returnType),
             fn.body,
             fnIsAsyncLike,
             fn.generator === true
           );
           this.reportMissingReturnPath(fn.body, returnType, fn.name ?? fn, fnIsAsyncLike, fn.generator === true);
-          result = this.buildFunctionType(fn.parameters, returnType, functionScope);
+          result = this.buildFunctionType(fn.parameters, returnType, functionScope, [], fn.returnType?.name);
         })));
         break;
       }
@@ -3037,10 +3297,16 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "tuple" && targetType.kind === "array") {
+      if (sourceType.readonly === true && targetType.readonly !== true) {
+        return false;
+      }
       return sourceType.elements.every((element) => this.isTypeAssignable(element, targetType.elementType));
     }
 
     if (sourceType.kind === "tuple" && targetType.kind === "tuple") {
+      if (sourceType.readonly === true && targetType.readonly !== true) {
+        return false;
+      }
       if (sourceType.elements.length !== targetType.elements.length) {
         return false;
       }
@@ -3130,6 +3396,9 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "array" && targetType.kind === "array") {
+      if (sourceType.readonly === true && targetType.readonly !== true) {
+        return false;
+      }
       // An array whose element type is `unknown` (for example the empty array
       // literal `[]`, or an explicit `unknown[]`) is assignable to any array
       // type, mirroring how an empty array can be widened to any element type.
@@ -3179,9 +3448,22 @@ export class TypeChecker {
     }
 
     if (
+      sourceType.kind === "tuple"
+      && targetType.kind === "named"
+      && (sourceType.elements.length === 0 || targetType.typeArguments?.[0])
+      && (targetType.name === "Array" || targetType.name === "ReadonlyArray")
+    ) {
+      if (sourceType.readonly === true && targetType.name !== "ReadonlyArray") {
+        return false;
+      }
+      const targetElementType = targetType.typeArguments?.[0] ?? UNKNOWN_TYPE;
+      return sourceType.elements.every((element) => this.isTypeAssignable(element, targetElementType));
+    }
+
+    if (
       sourceType.kind === "named"
       && targetType.kind === "array"
-      && (sourceType.name === "Array" || sourceType.name === "ReadonlyArray")
+      && sourceType.name === "Array"
       && (sourceType.typeArguments?.length ?? 0) === 1
     ) {
       return this.isTypeAssignable(sourceType.typeArguments![0]!, targetType.elementType);
@@ -3438,7 +3720,8 @@ export class TypeChecker {
     parameters: FunctionParameter[],
     returnType: AnalysisType,
     scope: Scope,
-    typeParameters: TypeParameter[] = []
+    typeParameters: TypeParameter[] = [],
+    returnTypeText?: string
   ): AnalysisType {
     return functionType(
       parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => ({
@@ -3450,7 +3733,8 @@ export class TypeChecker {
       returnType,
       typeParameters.map((parameter) => parameter.name.name),
       this.typeParameterConstraintMap(typeParameters, scope),
-      this.typeParameterDefaultMap(typeParameters, scope)
+      this.typeParameterDefaultMap(typeParameters, scope),
+      this.assertionTypeFromText(returnTypeText, scope)
     );
   }
 
@@ -3463,6 +3747,25 @@ export class TypeChecker {
       return patternType;
     }
     return scope.symbols.get(bindingNameText(parameter.name))?.type ?? UNKNOWN_TYPE;
+  }
+
+  private assertionTypeFromText(
+    returnTypeText: string | undefined,
+    scope: Scope
+  ): { target: string; type?: AnalysisType } | undefined {
+    if (!returnTypeText) {
+      return undefined;
+    }
+    const parsed = parseAssertionTypePredicateText(returnTypeText);
+    if (!parsed) {
+      return undefined;
+    }
+    return {
+      target: parsed.targetText,
+      ...(parsed.assertedTypeText
+        ? { type: this.resolveTypeNameText(parsed.assertedTypeText, scope.node, scope, false) }
+        : {})
+    };
   }
 
   private bindingPatternAnnotationType(binding: BindingName, scope: Scope): AnalysisType | null {
@@ -3581,17 +3884,19 @@ export class TypeChecker {
       return tupleType(
         (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
           this.typeFromTypeNameLooseWithTypeParameters(part, localTypeParameterNames, contextualThisTypeName) ?? UNKNOWN_TYPE
-        )
+        ),
+        true
       );
     }
     if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
-      return namedType("ReadonlyArray", [
+      return arrayType(
         this.typeFromTypeNameLooseWithTypeParameters(
           readonlyContainer.elementTypeText,
           localTypeParameterNames,
           contextualThisTypeName
-        ) ?? UNKNOWN_TYPE
-      ]);
+        ) ?? UNKNOWN_TYPE,
+        true
+      );
     }
     const optionalSuffix = splitOptionalTypeSuffix(normalizedTypeName);
     if (optionalSuffix.optional) {
@@ -3898,7 +4203,7 @@ export class TypeChecker {
   ): AnalysisType | null {
     if (this.isFunctionLikeExpression(argument)) {
       const arrow = argument.kind === "ArrowFunctionExpression" ? argument as ArrowFunctionExpression : undefined;
-      return expectedType.kind === "function" || arrow?.contextualObjectLiteral ? expectedType : null;
+      return this.contextualFunctionExpectedType(expectedType) ?? (arrow?.contextualObjectLiteral ? expectedType : null);
     }
     if (argument.kind === "ObjectLiteral") {
       return this.contextualObjectLiteralExpectedType(expectedType);
@@ -3935,11 +4240,61 @@ export class TypeChecker {
     return null;
   }
 
+  private contextualFunctionExpectedType(
+    expectedType: AnalysisType | undefined
+  ): (AnalysisType & { kind: "function" }) | undefined {
+    if (!expectedType || isUnknownType(expectedType)) {
+      return undefined;
+    }
+    const expandedExpectedType = this.expandTypeAliases(this.normalizeLooseNamedType(expectedType));
+    if (expandedExpectedType.kind === "function") {
+      return expandedExpectedType;
+    }
+    if (expandedExpectedType.kind !== "union") {
+      return undefined;
+    }
+
+    const nonNullishMembers = expandedExpectedType.types.filter((member) => !isNullishType(member));
+    if (nonNullishMembers.length !== 1) {
+      return undefined;
+    }
+    const onlyMember = nonNullishMembers[0]!;
+    return onlyMember.kind === "function"
+      ? onlyMember
+      : undefined;
+  }
+
+  private preservesInferredContextualReturnType(
+    expectedReturnType: AnalysisType | undefined,
+    scope: Scope
+  ): boolean {
+    return !!expectedReturnType
+      && !isUnknownType(expectedReturnType)
+      && this.typeContainsUnresolvedNamedReference(expectedReturnType, scope, new Set<string>());
+  }
+
+  private contextualFunctionTypeForExpression(
+    expectedFunctionType: (AnalysisType & { kind: "function" }) | undefined,
+    scope: Scope
+  ): (AnalysisType & { kind: "function" }) | undefined {
+    if (!expectedFunctionType) {
+      return undefined;
+    }
+    if (!this.typeContainsUnresolvedNamedReference(expectedFunctionType.returnType, scope, new Set(expectedFunctionType.typeParameters ?? []))) {
+      return expectedFunctionType;
+    }
+    return {
+      ...expectedFunctionType,
+      returnType: UNKNOWN_TYPE
+    };
+  }
+
   private instantiateFunctionType(
     calleeType: AnalysisType & { kind: "function" },
     explicitTypeArguments: AnalysisType[],
     argumentTypes: AnalysisType[],
-    expectedReturnType?: AnalysisType
+    expectedReturnType?: AnalysisType,
+    resolveDependentSubstitutions: boolean = true
   ): AnalysisType & { kind: "function" } {
     const typeParameters = calleeType.typeParameters ?? [];
     if (typeParameters.length === 0) {
@@ -3997,6 +4352,9 @@ export class TypeChecker {
         );
       }
     }
+    if (resolveDependentSubstitutions) {
+      this.resolveSubstitutionDependencies(substitutions);
+    }
 
     const substituted = this.substituteTypeParameters(calleeType, substitutions) as AnalysisType & { kind: "function" };
     return functionType(
@@ -4009,8 +4367,26 @@ export class TypeChecker {
       substituted.returnType,
       substituted.typeParameters,
       substituted.typeParameterConstraints,
-      substituted.typeParameterDefaults
+      substituted.typeParameterDefaults,
+      substituted.assertion
     );
+  }
+
+  private resolveSubstitutionDependencies(substitutions: Map<string, AnalysisType>): void {
+    for (let pass = 0; pass < substitutions.size; pass += 1) {
+      let changed = false;
+      for (const [name, type] of substitutions) {
+        const resolved = this.substituteTypeParameters(type, substitutions);
+        if (typeToString(resolved) === typeToString(type)) {
+          continue;
+        }
+        substitutions.set(name, resolved);
+        changed = true;
+      }
+      if (!changed) {
+        break;
+      }
+    }
   }
 
   private validateExplicitTypeArgumentArity(
@@ -4137,6 +4513,48 @@ export class TypeChecker {
       return;
     }
 
+    if (parameterType.kind === "named" && argumentType.kind === "object") {
+      const parameterMembers = this.resolveNamedTypeMembers(parameterType);
+      if (!parameterMembers) {
+        return;
+      }
+      for (const [propertyName, nestedParameterType] of parameterMembers) {
+        const nestedArgumentType = argumentType.properties[propertyName];
+        if (!nestedArgumentType) {
+          continue;
+        }
+        this.inferTypeParameterSubstitutions(
+          nestedParameterType,
+          nestedArgumentType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      return;
+    }
+
+    if (parameterType.kind === "object" && argumentType.kind === "named") {
+      const argumentMembers = this.resolveNamedTypeMembers(argumentType);
+      if (!argumentMembers) {
+        return;
+      }
+      for (const [propertyName, nestedParameterType] of Object.entries(parameterType.properties)) {
+        const nestedArgumentType = argumentMembers.get(propertyName);
+        if (!nestedArgumentType) {
+          continue;
+        }
+        this.inferTypeParameterSubstitutions(
+          nestedParameterType,
+          nestedArgumentType,
+          typeParameters,
+          explicitlyProvidedTypeParameters,
+          substitutions
+        );
+      }
+      return;
+    }
+
     if (parameterType.kind === "named" && argumentType.kind === "named") {
       const parameterTypeArguments = parameterType.typeArguments ?? [];
       const argumentTypeArguments = argumentType.typeArguments ?? [];
@@ -4190,6 +4608,58 @@ export class TypeChecker {
         );
       }
     }
+  }
+
+  private typeContainsUnresolvedNamedReference(
+    type: AnalysisType,
+    scope: Scope,
+    localTypeParameters: ReadonlySet<string>
+  ): boolean {
+    if (isUnknownType(type)) {
+      return false;
+    }
+    if (type.kind === "named") {
+      if (
+        (type.typeArguments?.length ?? 0) === 0 &&
+        !localTypeParameters.has(type.name) &&
+        !BUILTIN_TYPE_NAMES.has(type.name as BuiltinTypeName) &&
+        !this.classStatementsByName.has(type.name) &&
+        !this.interfaceStatementsByName.has(type.name) &&
+        !this.typeAliasStatementsByName.has(type.name) &&
+        !this.enumStatementsByName.has(type.name) &&
+        !this.namespaceStatementsByName.has(type.name) &&
+        !this.varStatementsByName.has(type.name) &&
+        !this.resolve(type.name, scope, undefined)
+      ) {
+        return true;
+      }
+      return (type.typeArguments ?? []).some((argument) =>
+        this.typeContainsUnresolvedNamedReference(argument, scope, localTypeParameters)
+      );
+    }
+    if (type.kind === "array" || type.kind === "range") {
+      return this.typeContainsUnresolvedNamedReference(type.elementType, scope, localTypeParameters);
+    }
+    if (type.kind === "tuple") {
+      return type.elements.some((element) => this.typeContainsUnresolvedNamedReference(element, scope, localTypeParameters));
+    }
+    if (type.kind === "union" || type.kind === "intersection") {
+      return type.types.some((member) => this.typeContainsUnresolvedNamedReference(member, scope, localTypeParameters));
+    }
+    if (type.kind === "function") {
+      const nestedTypeParameters = new Set(localTypeParameters);
+      for (const typeParameter of type.typeParameters ?? []) {
+        nestedTypeParameters.add(typeParameter);
+      }
+      return type.parameters.some((parameter) => this.typeContainsUnresolvedNamedReference(parameter.type, scope, nestedTypeParameters)) ||
+        this.typeContainsUnresolvedNamedReference(type.returnType, scope, nestedTypeParameters);
+    }
+    if (type.kind === "object") {
+      return Object.values(type.properties).some((property) =>
+        this.typeContainsUnresolvedNamedReference(property, scope, localTypeParameters)
+      );
+    }
+    return false;
   }
 
   private typeContainsTypeParameterReference(
@@ -4463,7 +4933,7 @@ export class TypeChecker {
             call.arguments,
             baseInferenceArgumentTypes
           );
-      const firstPass = this.instantiateFunctionType(candidate, explicitTypeArguments, inferenceArgumentTypes, expectedType);
+      const firstPass = this.instantiateFunctionType(candidate, explicitTypeArguments, inferenceArgumentTypes, expectedType, false);
       const contextualArgumentTypes = hasNamedArguments
         ? inferenceArgumentTypes
         : this.applyCallArgumentContext(call, scope, firstPass, argumentTypes);
@@ -5628,6 +6098,9 @@ export class TypeChecker {
       case "AsExpression":
         this.collectYieldTypesFromExpression((expr as AsExpression).expression, collected);
         return;
+      case "SatisfiesExpression":
+        this.collectYieldTypesFromExpression((expr as SatisfiesExpression).expression, collected);
+        return;
       case "ArrowFunctionExpression": {
         const arrow = expr as ArrowFunctionExpression;
         if (arrow.body.kind === "BlockStatement") {
@@ -5764,6 +6237,22 @@ export class TypeChecker {
   }
 
   private getAsyncReturnValueType(returnType: AnalysisType): AnalysisType | null {
+    if (returnType.kind === "union") {
+      const asyncMemberTypes: AnalysisType[] = [];
+      let sawPromiseLikeMember = false;
+      for (const member of returnType.types) {
+        const unwrapped = unwrapPromiseType(member);
+        if (unwrapped !== null) {
+          asyncMemberTypes.push(unwrapped);
+          sawPromiseLikeMember = true;
+          continue;
+        }
+        asyncMemberTypes.push(member);
+      }
+      return sawPromiseLikeMember
+        ? combineTypes(asyncMemberTypes)
+        : null;
+    }
     return unwrapPromiseType(returnType);
   }
 
@@ -5892,13 +6381,15 @@ export class TypeChecker {
       return tupleType(
         (readonlyContainer.tupleElementTypeTexts ?? []).map((part) =>
           this.resolveTypeNameText(part, node, scope, false)
-        )
+        ),
+        true
       );
     }
     if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
-      return namedType("ReadonlyArray", [
-        this.resolveTypeNameText(readonlyContainer.elementTypeText, node, scope, false)
-      ]);
+      return arrayType(
+        this.resolveTypeNameText(readonlyContainer.elementTypeText, node, scope, false),
+        true
+      );
     }
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
     if (unionParts.length > 1) {
@@ -6160,11 +6651,12 @@ export class TypeChecker {
     const readonlyContainer = parseReadonlyContainerTypeText(normalizedTypeName);
     if (readonlyContainer?.kind === "tuple") {
       return tupleType(
-        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part))
+        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part)),
+        true
       );
     }
     if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
-      return namedType("ReadonlyArray", [this.typeFromTypeNameLoose(readonlyContainer.elementTypeText)]);
+      return arrayType(this.typeFromTypeNameLoose(readonlyContainer.elementTypeText), true);
     }
 
     const unionParts = splitTopLevelTypeText(normalizedTypeName, "|");
@@ -6272,6 +6764,10 @@ export class TypeChecker {
       if (objectType.kind === "tuple") {
         return objectType.elements.length === 0 ? UNKNOWN_TYPE : unionType(objectType.elements);
       }
+      const numericMemberType = this.memberTypeFromObjectType(objectType, "0");
+      if (numericMemberType) {
+        return numericMemberType;
+      }
     }
 
     if (indexType.kind === "builtin" && indexType.name === "int") {
@@ -6374,7 +6870,7 @@ export class TypeChecker {
     }
     const properties: Record<string, AnalysisType> = {};
     for (const [memberName, memberType] of members.entries()) {
-      if (excludedNames.has(memberName)) {
+      if (excludedNames.has(normalizePropertyName(memberName))) {
         continue;
       }
       properties[memberName] = memberType;
@@ -6595,6 +7091,7 @@ export class TypeChecker {
     const keyParameterName = mappedMember.keyParameterName;
     const keySourceText = mappedMember.keySourceText;
     const keyRemapText = mappedMember.keyRemapText;
+    const readonlyModifier = mappedMember.readonlyModifier;
     const optionalModifier = mappedMember.optionalModifier;
     const valueTypeText = mappedMember.valueTypeText;
     if (!keyParameterName || !keySourceText || !valueTypeText) {
@@ -6651,7 +7148,7 @@ export class TypeChecker {
       }
       const finalPropertyType = this.applyMappedUtilityOptionalModifier(mappedPropertyType, optionalModifier);
       for (const remappedKey of remappedKeys) {
-        properties[remappedKey] = finalPropertyType;
+        properties[this.applyMappedUtilityReadonlyModifier(remappedKey, propertyName, readonlyModifier)] = finalPropertyType;
       }
     }
     return objectTypeWithProperties(properties);
@@ -6668,7 +7165,7 @@ export class TypeChecker {
     }
 
     const remapSubstitutions = new Map(substitutions);
-    remapSubstitutions.set(keyParameterName, literalType("string", propertyName));
+    remapSubstitutions.set(keyParameterName, literalType("string", normalizePropertyName(propertyName)));
     const remappedKeyType = this.typeFromTypeNameLoose(
       this.substituteTypeParametersInComputedName(keyRemapText, remapSubstitutions)
     );
@@ -6690,6 +7187,22 @@ export class TypeChecker {
       return unionType([propertyType, builtinType("undefined")]);
     }
     return propertyType;
+  }
+
+  private applyMappedUtilityReadonlyModifier(
+    remappedKey: string,
+    sourcePropertyName: string,
+    readonlyModifier: "readonly" | "+readonly" | "-readonly" | undefined
+  ): string {
+    if (readonlyModifier === "readonly" || readonlyModifier === "+readonly") {
+      return toReadonlyPropertyName(remappedKey);
+    }
+    if (readonlyModifier === "-readonly") {
+      return stripReadonlyPropertyPrefix(remappedKey);
+    }
+    return isReadonlyPropertyName(sourcePropertyName)
+      ? toReadonlyPropertyName(remappedKey)
+      : stripReadonlyPropertyPrefix(remappedKey);
   }
 
   private resolveMappedUtilityPropertyType(
@@ -7048,17 +7561,53 @@ export class TypeChecker {
     }
 
     const member = expression as MemberExpression;
-    if (member.computed || member.property.kind !== "Identifier") {
+    if (member.computed) {
+      const objectType = this.visitExpression(member.object, scope);
+      const propertyType = this.visitExpression(member.property, scope);
+      if (this.isReadonlyIndexedAccess(objectType, propertyType)) {
+        this.issues.push({
+          message: "Cannot assign through readonly index access",
+          node: member.property
+        });
+      } else {
+        const readonlyPropertyName = this.readonlyPropertyNameFromComputedAccess(objectType, propertyType);
+        if (readonlyPropertyName) {
+          this.issues.push({
+            message: `Cannot assign to readonly member '${readonlyPropertyName}'`,
+            node: member.property
+          });
+        } else {
+          const staticPropertyName = this.staticComputedPropertyName(member.property);
+          if (staticPropertyName && this.hasReadonlyProperty(objectType, staticPropertyName)) {
+            this.issues.push({
+              message: `Cannot assign to readonly member '${staticPropertyName}'`,
+              node: member.property
+            });
+          }
+        }
+      }
       return;
     }
 
-    const objectType = this.inferSimpleObjectType(member.object, scope);
-    if (!objectType || objectType.kind !== "named") {
+    if (member.property.kind !== "Identifier") {
       return;
     }
 
     const propertyName = (member.property as Node & { kind: "Identifier"; name: string }).name;
-    const classStatement = this.classStatementsByName.get(objectType.name);
+    const receiverType = this.visitExpression(member.object, scope);
+    if (this.hasReadonlyProperty(receiverType, propertyName)) {
+      this.issues.push({
+        message: `Cannot assign to readonly member '${propertyName}'`,
+        node: member.property
+      });
+      return;
+    }
+
+    const simpleObjectType = this.inferSimpleObjectType(member.object, scope);
+    if (!simpleObjectType || simpleObjectType.kind !== "named") {
+      return;
+    }
+    const classStatement = this.classStatementsByName.get(simpleObjectType.name);
     const classField = classStatement?.members.find(
       (candidate): candidate is ClassFieldMember =>
         candidate.kind === "ClassFieldMember" && candidate.name.name === propertyName
@@ -7078,6 +7627,77 @@ export class TypeChecker {
       message: `Cannot assign to readonly member '${propertyName}'`,
       node: member.property
     });
+  }
+
+  private isReadonlyIndexedAccess(objectType: AnalysisType, propertyType: AnalysisType): boolean {
+    if (objectType.kind === "union") {
+      return objectType.types.some((member) =>
+        !isNullishType(member) && this.isReadonlyIndexedAccess(member, propertyType)
+      );
+    }
+    if (objectType.kind === "tuple" && isIntType(propertyType)) {
+      return objectType.readonly === true;
+    }
+    if (objectType.kind === "array" && isIntType(propertyType)) {
+      return objectType.readonly === true;
+    }
+    if (
+      objectType.kind === "named"
+      && objectType.name === "ReadonlyArray"
+      && isIntType(propertyType)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  private hasReadonlyProperty(type: AnalysisType, propertyName: string): boolean {
+    if (type.kind === "union") {
+      return type.types.some((member) =>
+        !isNullishType(member) && this.hasReadonlyProperty(member, propertyName)
+      );
+    }
+    if (type.kind === "intersection") {
+      return type.types.some((member) => this.hasReadonlyProperty(member, propertyName));
+    }
+    if (type.kind === "named") {
+      const expanded = this.expandTypeAliases(type);
+      if (expanded !== type) {
+        return this.hasReadonlyProperty(expanded, propertyName);
+      }
+      const members = this.resolveNamedTypeMembers(type);
+      if (!members) {
+        return false;
+      }
+      return Array.from(members.keys()).some((candidateName) =>
+        normalizePropertyName(candidateName) === propertyName && isReadonlyPropertyName(candidateName)
+      );
+    }
+    if (type.kind !== "object") {
+      return false;
+    }
+    return propertyEntries(type.properties).some(([candidateName]) =>
+      normalizePropertyName(candidateName) === propertyName && isReadonlyPropertyName(candidateName)
+    );
+  }
+
+  private readonlyPropertyNameFromComputedAccess(objectType: AnalysisType, propertyType: AnalysisType): string | null {
+    const propertyNames = this.literalPropertyNamesFromType(propertyType);
+    if (!propertyNames || propertyNames.length !== 1) {
+      return null;
+    }
+    const propertyName = propertyNames[0]!;
+    return this.hasReadonlyProperty(objectType, propertyName) ? propertyName : null;
+  }
+
+  private staticComputedPropertyName(propertyExpression: Expr): string | null {
+    if (propertyExpression.kind === "StringLiteral") {
+      return (propertyExpression as StringLiteral).value;
+    }
+    if (propertyExpression.kind === "Identifier") {
+      return (propertyExpression as Identifier).name;
+    }
+    return null;
   }
 
   private inferSimpleObjectType(expression: Expr, scope: Scope): AnalysisType | null {
@@ -7424,13 +8044,13 @@ export class TypeChecker {
       const propertyType = this.visitExpression(
         objectProperty.value,
         scope,
-        propertyName ? expectedProperties?.get(propertyName) : undefined
+        propertyName && expectedProperties ? propertyTypeFrom(expectedProperties, propertyName) : undefined
       );
       if (propertyName) {
         if (
           expectedProperties
           && canReportUnknownProperties
-          && !expectedProperties.has(propertyName)
+          && propertyTypeFrom(expectedProperties, propertyName) === undefined
           && !allowsAdditionalProperties
         ) {
           this.issues.push({
@@ -8246,6 +8866,8 @@ export class TypeChecker {
         return this.constraintSourceCallExpression((expression as NonNullExpression).expression);
       case "AsExpression":
         return this.constraintSourceCallExpression((expression as AsExpression).expression);
+      case "SatisfiesExpression":
+        return this.constraintSourceCallExpression((expression as SatisfiesExpression).expression);
       default:
         return null;
     }
@@ -9707,11 +10329,12 @@ export class TypeChecker {
     const readonlyContainer = parseReadonlyContainerTypeText(normalizedTypeName);
     if (readonlyContainer?.kind === "tuple") {
       return tupleType(
-        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part))
+        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part)),
+        true
       );
     }
     if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
-      return namedType("ReadonlyArray", [this.typeFromTypeNameLoose(readonlyContainer.elementTypeText)]);
+      return arrayType(this.typeFromTypeNameLoose(readonlyContainer.elementTypeText), true);
     }
 
     const optionalSuffix = splitOptionalTypeSuffix(normalizedTypeName);
@@ -9793,11 +10416,12 @@ export class TypeChecker {
     const readonlyContainer = parseReadonlyContainerTypeText(normalizedTypeName);
     if (readonlyContainer?.kind === "tuple") {
       return tupleType(
-        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part))
+        (readonlyContainer.tupleElementTypeTexts ?? []).map((part) => this.typeFromTypeNameLoose(part)),
+        true
       );
     }
     if (readonlyContainer?.kind === "array" && readonlyContainer.elementTypeText) {
-      return namedType("ReadonlyArray", [this.typeFromTypeNameLoose(readonlyContainer.elementTypeText)]);
+      return arrayType(this.typeFromTypeNameLoose(readonlyContainer.elementTypeText), true);
     }
 
     const optionalSuffix = splitOptionalTypeSuffix(normalizedTypeName);
@@ -9911,18 +10535,18 @@ export class TypeChecker {
           Object.fromEntries(
             Object.entries(sourceProperties).map(([name, type]) => [
               name,
-              selectedKeys.has(name) ? propertyTypeWithoutUndefined(type) ?? type : type
+              selectedKeys.has(normalizePropertyName(name)) ? propertyTypeWithoutUndefined(type) ?? type : type
             ])
           )
         );
       }
       if (baseName === "Pick") {
         return objectTypeWithProperties(
-          Object.fromEntries(Object.entries(sourceProperties).filter(([name]) => selectedKeys.has(name)))
+          Object.fromEntries(Object.entries(sourceProperties).filter(([name]) => selectedKeys.has(normalizePropertyName(name))))
         );
       }
       return objectTypeWithProperties(
-        Object.fromEntries(Object.entries(sourceProperties).filter(([name]) => !selectedKeys.has(name)))
+        Object.fromEntries(Object.entries(sourceProperties).filter(([name]) => !selectedKeys.has(normalizePropertyName(name))))
       );
     }
     if (baseName !== "ExtractRendererOptions" || typeArguments.length !== 1) {
@@ -9942,9 +10566,19 @@ export class TypeChecker {
       return this.nonNullableUtilityType(typeArguments[0]!);
     }
     if (baseName === "Readonly") {
+      if (typeArguments[0]!.kind === "array") {
+        return arrayType(typeArguments[0]!.elementType, true);
+      }
+      if (typeArguments[0]!.kind === "tuple") {
+        return tupleType(typeArguments[0]!.elements, true);
+      }
       const readonlyMembers = this.membersForType(typeArguments[0]!);
       return readonlyMembers
-        ? objectTypeWithProperties(Object.fromEntries(readonlyMembers.entries()))
+        ? objectTypeWithProperties(
+            Object.fromEntries(
+              Array.from(readonlyMembers.entries()).map(([name, type]) => [toReadonlyPropertyName(name), type])
+            )
+          )
         : typeArguments[0]!;
     }
     if (baseName === "Record" && typeArguments.length >= 2) {
@@ -10359,7 +10993,7 @@ export class TypeChecker {
     }
 
     if (type.kind === "array") {
-      return arrayType(this.expandTypeAliases(type.elementType));
+      return arrayType(this.expandTypeAliases(type.elementType), type.readonly === true);
     }
 
     if (type.kind === "range") {
@@ -10375,7 +11009,14 @@ export class TypeChecker {
         })),
         this.expandTypeAliases(type.returnType),
         type.typeParameters,
-        type.typeParameterConstraints
+        type.typeParameterConstraints,
+        undefined,
+        type.assertion
+          ? {
+              target: type.assertion.target,
+              ...(type.assertion.type ? { type: this.expandTypeAliases(type.assertion.type) } : {})
+            }
+          : undefined
       );
     }
 
@@ -10440,7 +11081,7 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "array") {
-      return arrayType(this.substituteTypeParameters(sourceType.elementType, substitutions));
+      return arrayType(this.substituteTypeParameters(sourceType.elementType, substitutions), sourceType.readonly === true);
     }
 
     if (sourceType.kind === "range") {
@@ -10481,6 +11122,14 @@ export class TypeChecker {
                 this.substituteTypeParameters(defaultType, substitutions)
               ])
             )
+          : undefined,
+        sourceType.assertion
+          ? {
+              target: sourceType.assertion.target,
+              ...(sourceType.assertion.type
+                ? { type: this.substituteTypeParameters(sourceType.assertion.type, substitutions) }
+                : {})
+            }
           : undefined
       );
     }
@@ -10494,7 +11143,10 @@ export class TypeChecker {
     }
 
     if (sourceType.kind === "tuple") {
-      return tupleType(sourceType.elements.map((element) => this.substituteTypeParameters(element, substitutions)));
+      return tupleType(
+        sourceType.elements.map((element) => this.substituteTypeParameters(element, substitutions)),
+        sourceType.readonly === true
+      );
     }
 
     return sourceType;
@@ -10531,7 +11183,11 @@ export class TypeChecker {
         ...(parameter.optional ? { optional: true } : {}),
         ...(parameter.rest ? { rest: true } : {})
       })),
-      this.resolveTypeNameText(parsed.returnTypeName, node, scope, false)
+      this.resolveTypeNameText(parsed.returnTypeName, node, scope, false),
+      undefined,
+      undefined,
+      undefined,
+      this.assertionTypeFromText(parsed.returnTypeName, scope)
     );
   }
 
@@ -10543,7 +11199,8 @@ export class TypeChecker {
     const properties: Record<string, AnalysisType> = {};
     for (const member of members) {
       const propertyType = this.resolveTypeNameText(member.typeName, node, scope, false);
-      properties[member.name] = member.optional
+      const propertyName = member.readonly ? toReadonlyPropertyName(member.name) : member.name;
+      properties[propertyName] = member.optional
         ? unionType([propertyType, builtinType("undefined")])
         : propertyType;
     }
@@ -10555,6 +11212,7 @@ export class TypeChecker {
     if (!parsed) {
       return null;
     }
+    const parsedAssertion = parseAssertionTypePredicateText(parsed.returnTypeName);
     return functionType(
       parsed.parameters.map((parameter) => ({
         name: parameter.name,
@@ -10562,7 +11220,18 @@ export class TypeChecker {
         ...(parameter.optional ? { optional: true } : {}),
         ...(parameter.rest ? { rest: true } : {})
       })),
-      this.typeFromTypeNameLoose(parsed.returnTypeName)
+      this.typeFromTypeNameLoose(parsed.returnTypeName),
+      undefined,
+      undefined,
+      undefined,
+      parsedAssertion
+        ? {
+            target: parsedAssertion.targetText,
+            ...(parsedAssertion.assertedTypeText
+              ? { type: this.typeFromTypeNameLoose(parsedAssertion.assertedTypeText) }
+              : {})
+          }
+        : undefined
     );
   }
 
@@ -10574,7 +11243,8 @@ export class TypeChecker {
     const properties: Record<string, AnalysisType> = {};
     for (const member of members) {
       const propertyType = this.typeFromTypeNameLoose(member.typeName);
-      properties[member.name] = member.optional
+      const propertyName = member.readonly ? toReadonlyPropertyName(member.name) : member.name;
+      properties[propertyName] = member.optional
         ? unionType([propertyType, builtinType("undefined")])
         : propertyType;
     }

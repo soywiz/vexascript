@@ -6,7 +6,7 @@ for (n in 1..<4) {
     console.log(n)
 }
 
-class Map<K, V> {
+class KeyValueStore<K, V> {
     a: K
     b: V
 
@@ -19,7 +19,7 @@ fun demoGenerics() {
     const array = []
     array.push(10)
 
-    const map = new Map<string, int>()
+    const map = new KeyValueStore<string, int>()
     map.a
     map.get("id")
 }

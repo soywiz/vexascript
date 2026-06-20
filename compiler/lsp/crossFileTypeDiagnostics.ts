@@ -292,7 +292,8 @@ export async function collectCrossFileTypeDiagnostics(
       call.callee,
       session.analysis,
       session.ast,
-      options
+      options,
+      call
     );
     if (constructorSignature) {
       const providedCount = call.arguments.length;
@@ -438,7 +439,8 @@ export async function collectCrossFileTypeDiagnostics(
       node.callee,
       session.analysis,
       session.ast,
-      options
+      options,
+      node
     );
     if (!constructorSignature) {
       continue;

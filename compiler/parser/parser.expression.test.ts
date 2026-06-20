@@ -535,6 +535,24 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for TypeScript satisfies expressions", () => {
+        expect(parseExpression(tokenizeReader("value satisfies string"))).toEqual({
+            kind: "SatisfiesExpression",
+            expression: { kind: "Identifier", name: "value" },
+            typeAnnotation: { kind: "Identifier", name: "string" }
+        });
+        expect(parseExpression(tokenizeReader("a + b satisfies number"))).toEqual({
+            kind: "SatisfiesExpression",
+            expression: {
+                kind: "BinaryExpression",
+                operator: "+",
+                left: { kind: "Identifier", name: "a" },
+                right: { kind: "Identifier", name: "b" }
+            },
+            typeAnnotation: { kind: "Identifier", name: "number" }
+        });
+    });
+
     it("builds an AST for TypeScript non-null assertions", () => {
         expect(parseExpression(tokenizeReader("value!"))).toEqual({
             kind: "NonNullExpression",

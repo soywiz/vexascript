@@ -36,6 +36,11 @@ export interface MappedTypeMemberText {
   valueTypeText: string;
 }
 
+export interface AssertionTypePredicateText {
+  targetText: string;
+  assertedTypeText?: string;
+}
+
 interface TypeTextDepths {
   angle: number;
   paren: number;
@@ -152,6 +157,18 @@ export function splitTypeArgumentText(argumentBody: string): string[] {
   return splitTopLevelDelimitedTypeText(argumentBody);
 }
 
+export function parseAssertionTypePredicateText(typeName: string): AssertionTypePredicateText | null {
+  const normalized = stripEnclosingTypeParens(typeName.trim());
+  const match = /^asserts\s+([A-Za-z_$][\w$]*|this)(?:\s+is\s+(.+))?$/.exec(normalized);
+  if (!match?.[1]) {
+    return null;
+  }
+  return {
+    targetText: match[1],
+    ...(match[2]?.trim() ? { assertedTypeText: match[2].trim() } : {})
+  };
+}
+
 export function splitOptionalTypeSuffix(typeName: string): OptionalTypeNameSuffix {
   const trimmed = typeName.trim();
   if (!trimmed.endsWith("?")) {
@@ -220,7 +237,12 @@ export function boxedPrimitiveTypeName(typeName: string): string {
 }
 
 export function substituteTypeNameText(typeName: string, substitutions: Map<string, string>): string {
-  const parsed = parseTypeNameShape(typeName);
+  const trimmed = typeName.trim();
+  if (trimmed.endsWith("?")) {
+    return `${substituteTypeNameText(stripEnclosingTypeParens(trimmed.slice(0, -1).trim()), substitutions)}?`;
+  }
+
+  const parsed = parseTypeNameShape(trimmed);
   const substitutedBase = substitutions.get(parsed.baseName) ?? parsed.baseName;
   const substitutedArgs = parsed.typeArguments.map((argument) =>
     substituteTypeNameText(argument, substitutions)
@@ -482,6 +504,7 @@ export interface ObjectTypeAnnotationMember {
   name: string;
   typeName: string;
   optional?: boolean;
+  readonly?: boolean;
 }
 
 /**
@@ -611,6 +634,7 @@ export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotatio
           return {
             name,
             typeName: `${parameterText} => ${returnTypeName}`,
+            ...(trimmedPart.slice(0, signatureParenIndex).trim().startsWith("readonly ") ? { readonly: true as const } : {}),
             ...(optional ? { optional: true as const } : {})
           };
         }
@@ -622,11 +646,13 @@ export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotatio
     let name = part.slice(0, colonIndex).trim();
     const memberTypeName = part.slice(colonIndex + 1).trim();
     let optional = false;
+    let readonly = false;
     if (name.endsWith("?")) {
       optional = true;
       name = name.slice(0, -1).trim();
     }
     if (name.startsWith("readonly ")) {
+      readonly = true;
       name = name.slice("readonly ".length).trim();
     }
     if ((name.startsWith('"') && name.endsWith('"')) || (name.startsWith("'") && name.endsWith("'"))) {
@@ -635,6 +661,7 @@ export function parseObjectTypeAnnotation(typeName: string): ObjectTypeAnnotatio
     return {
       name,
       typeName: memberTypeName.length > 0 ? memberTypeName : "unknown",
+      ...(readonly ? { readonly: true as const } : {}),
       ...(optional ? { optional: true as const } : {})
     };
   });

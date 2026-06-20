@@ -33,6 +33,7 @@ export interface Scope {
   parent?: Scope;
   node: Node;
   symbols: Map<string, AnalysisSymbol>;
+  narrowedExpressionTypes?: Map<string, AnalysisType>;
   children: Scope[];
 }
 

@@ -4,6 +4,7 @@ import { createAnalysisSession } from "./analysisSession";
 import { collectCrossFileTypeDiagnostics, collectModuleNotFoundDiagnostics } from "./crossFileTypeDiagnostics";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
+import { getEcmaScriptRuntimeProgram } from "compiler/runtime/ecmascriptDeclarations";
 
 describe("cross-file type diagnostics", () => {
   it("accepts implicit VexaScript exports for imported extension properties", async () => {
@@ -179,6 +180,28 @@ describe("cross-file type diagnostics", () => {
     expect(
       diagnostics.filter((diagnostic) => diagnostic.message === "Expected at least 2 argument(s), but got 0")
     ).toHaveLength(2);
+  });
+
+  it("accepts ambient constructor-interface globals when class-call syntax passes arguments", async () => {
+    const source = dedent`
+      const scores = Map<string, number>([["Ada", 3], ["Grace", 5]])
+      scores.set("Linus", 8)
+    `;
+
+    const session = createAnalysisSession(
+      source,
+      [],
+      new Map(),
+      getEcmaScriptRuntimeProgram().body
+    );
+    const diagnostics = await collectCrossFileTypeDiagnostics({
+      uri: "file:///map-constructor-call.vx",
+      session,
+      sourceRoots: []
+    });
+
+    expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
   });
 
   it("reports importing a symbol that the target module does not export", async () => {

@@ -12,6 +12,7 @@ import {
 } from "./classResolver";
 import { collectMemberExpressions } from "./crossFileTypeResolution";
 import { VEXA_DIAGNOSTIC_CODES } from "./diagnosticCodes";
+import { uriToFilePath } from "./importFixes";
 
 interface CollectMemberDiagnosticsParams {
   uri: string;
@@ -38,6 +39,7 @@ export async function collectCrossFileMemberDiagnostics(
       : {})
   };
   const resolverCache = createClassResolverCache();
+  const currentFilePath = uriToFilePath(uri);
 
   for (const member of collectMemberExpressions(session.ast)) {
     if (member.computed || member.property.kind !== "Identifier") {
@@ -60,6 +62,12 @@ export async function collectCrossFileMemberDiagnostics(
       resolverCache
     );
     if (!classResolution) {
+      continue;
+    }
+    if (classResolution.filePath === "") {
+      continue;
+    }
+    if (currentFilePath && classResolution.filePath === currentFilePath) {
       continue;
     }
 

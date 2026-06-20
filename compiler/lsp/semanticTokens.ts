@@ -36,6 +36,7 @@ import type {
   Program,
   RangeExpression,
   ReturnStatement,
+  SatisfiesExpression,
   Statement,
   SwitchStatement,
   ThrowStatement,
@@ -653,6 +654,12 @@ function collectIdentifierKindsFromAst(program: Program): Map<string, TokenTypeN
         const assertion = expression as AsExpression;
         visitExpression(assertion.expression);
         markTypeAnnotation(kinds, assertion.typeAnnotation);
+        return;
+      }
+      case "SatisfiesExpression": {
+        const satisfies = expression as SatisfiesExpression;
+        visitExpression(satisfies.expression);
+        markTypeAnnotation(kinds, satisfies.typeAnnotation);
         return;
       }
       case "NonNullExpression":

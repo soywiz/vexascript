@@ -61,6 +61,10 @@ describe("normalizePropertyName", () => {
     expect(normalizePropertyName("[K: string]")).toBe("[string]");
   });
 
+  it("strips readonly from property names", () => {
+    expect(normalizePropertyName("readonly foo")).toBe("foo");
+  });
+
   it("returns a plain identifier unchanged", () => {
     expect(normalizePropertyName("count")).toBe("count");
   });
@@ -98,6 +102,10 @@ describe("propertyNamesMatch", () => {
     expect(propertyNamesMatch("[K: string]", "[key: string]")).toBe(true);
   });
 
+  it("matches readonly and non-readonly versions of the same property name", () => {
+    expect(propertyNamesMatch("readonly foo", "foo")).toBe(true);
+  });
+
   it("does not match different plain names", () => {
     expect(propertyNamesMatch("foo", "bar")).toBe(false);
   });
@@ -130,6 +138,11 @@ describe("propertyTypeFrom", () => {
   it("finds a quoted property name via normalization", () => {
     const props = { foo: builtin("number") };
     expect(propertyTypeFrom(props, "\"foo\"")).toEqual(builtin("number"));
+  });
+
+  it("finds a readonly property via normalized access name", () => {
+    const props = { "readonly foo": builtin("number") };
+    expect(propertyTypeFrom(props, "foo")).toEqual(builtin("number"));
   });
 
   it("returns undefined for a missing property", () => {

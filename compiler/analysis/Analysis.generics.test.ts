@@ -515,16 +515,69 @@ describe("Analysis", () => {
     const source = dedent`
       type ReadonlyNames = readonly string[]
       type ReadonlyPair = readonly [name: string, count: int]
+      type First<T extends ReadonlyArray<unknown>> = T[number]
 
       let names: ReadonlyNames = ["Ada", "Grace"]
       let pair: ReadonlyPair = ["Ada", 1]
       let arrayLike: ReadonlyArray<string> = names
+      let firstName: First<ReadonlyNames> = "Ada"
     `;
 
     const ast = parseFile(tokenizeReader(source));
     const analysis = new Analysis(ast);
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("treats readonly arrays and tuples as non-mutable targets", () => {
+    const source = dedent`
+      type ReadonlyNames = readonly string[]
+      type ReadonlyPair = readonly [name: string, count: int]
+
+      let mutableNames: string[] = ["Ada"]
+      let readonlyNames: ReadonlyNames = mutableNames
+      let mutableFromReadonly: string[] = readonlyNames
+
+      let readonlyPair: ReadonlyPair = ["Ada", 1]
+      readonlyNames[0] = "Grace"
+      readonlyPair[1]++
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([
+      "Type 'readonly string[]' is not assignable to type 'string[]'",
+      "Cannot assign through readonly index access",
+      "Cannot assign through readonly index access"
+    ]);
+  });
+
+  it("treats Readonly and mapped readonly object properties as non-mutable targets", () => {
+    const source = dedent`
+      type User = { id: int, name?: string }
+      type FrozenUser = Readonly<User>
+      type Freeze<T> = { readonly [K in keyof T]: T[K] }
+      type FrozenViaMapped = Freeze<User>
+      type MutableAgain = { -readonly [K in keyof FrozenViaMapped]-?: FrozenViaMapped[K] }
+
+      let frozenUser: FrozenUser = { id: 1, name: "Ada" }
+      let frozenViaMapped: FrozenViaMapped = { id: 2 }
+      let mutableAgain: MutableAgain = { id: 3, name: "Grace" }
+      let exactUser: { id: int, name: string } = mutableAgain
+
+      frozenUser.id = 2
+      frozenViaMapped["id"] = 4
+      mutableAgain.id = 5
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([
+      "Cannot assign to readonly member 'id'",
+      "Cannot assign to readonly member 'id'"
+    ]);
   });
 
   it("resolves top-level conditional aliases that use common infer patterns", () => {
@@ -606,6 +659,51 @@ describe("Analysis", () => {
       let assertString: AssertString = (value: unknown) => {}
       let args: UserCtorArgs = ["Ada", 1]
       let user: UserInstance = new User("Ada", 1)
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows identifiers after local assertion-signature calls", () => {
+    const source = dedent`
+      fun assertString(value: unknown): asserts value is string {}
+
+      let maybe: unknown = "Ada"
+      assertString(maybe)
+      let ok: string = maybe
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows stable member expressions after local assertion-signature calls", () => {
+    const source = dedent`
+      fun assertPresent(value: string?): asserts value {}
+
+      let box: { item: string? } = { item: "Ada" }
+      assertPresent(box.item)
+      let ok: string = box.item
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("narrows nullable values after local generic bare assertion-signature calls", () => {
+    const source = dedent`
+      fun assertPresent<T>(value: T): asserts value {}
+
+      let maybeHeadline: string? = "Ready"
+      assertPresent(maybeHeadline)
+      let okHeadline: string = maybeHeadline
     `;
 
     const ast = parseFile(tokenizeReader(source));
@@ -1476,6 +1574,26 @@ describe("Analysis", () => {
 
     expect(messages).toContain("Object is possibly 'null' or 'undefined'. Use optional access '?.' or a non-null assertion '!'");
     expect(messages.filter((message) => message.includes("Object is possibly 'null' or 'undefined'"))).toHaveLength(1);
+  });
+
+  it("narrows stable member expressions after truthy checks", () => {
+    const source = dedent`
+      interface Payload {
+        title: string
+      }
+      interface QueryResult {
+        data: Payload | undefined
+      }
+      let result: QueryResult
+      if (result.data) {
+        let title = result.data.title
+      }
+    `;
+
+    const ast = parseFile(tokenizeReader(source));
+    const analysis = new Analysis(ast);
+
+    expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
   it("reports unknown members inside optional chains after a nullable access narrows to unknown", () => {

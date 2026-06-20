@@ -46,6 +46,17 @@ const FoldingRangeKind = {
   Region: "region"
 } as const;
 
+const foldableNodeKinds = new Set([
+  "ArrayLiteral",
+  "BlockStatement",
+  "ClassStatement",
+  "InterfaceStatement",
+  "JsxElement",
+  "JsxFragment",
+  "ObjectLiteral",
+  "SwitchStatement"
+]);
+
 function position(line: number, character: number): Position {
   return { line, character };
 }
@@ -83,8 +94,7 @@ export function createFoldingRanges(ast: Program): FoldingRange[] {
   const seenComments = new Set<TokenComment>();
   walkAst(ast, (node) => {
     const range = nodeRange(node);
-    if (range && range.start.line < range.end.line &&
-      ["BlockStatement", "ClassStatement", "InterfaceStatement", "SwitchStatement", "ObjectLiteral", "ArrayLiteral"].includes(node.kind)) {
+    if (range && range.start.line < range.end.line && foldableNodeKinds.has(node.kind)) {
       ranges.push({
         startLine: range.start.line,
         startCharacter: range.start.character,

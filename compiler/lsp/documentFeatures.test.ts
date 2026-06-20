@@ -4,7 +4,7 @@ import { tokenizeReader } from "compiler/parser/tokenizer";
 import { buildAnalysisForSource } from "./analysisSession";
 import { createDocumentHighlights, createFoldingRanges, createOnTypeFormattingEdits, createReferenceCodeLenses, createSelectionRanges, prepareCallHierarchy, createIncomingCalls, createOutgoingCalls } from "./documentFeatures";
 
-const parse = (source: string) => parseFile(tokenizeReader(source));
+const parse = (source: string) => parseFile(tokenizeReader(source, { jsx: true }));
 
 describe("LSP document features", () => {
   it("highlights a symbol declaration and its references", () => {
@@ -16,6 +16,13 @@ describe("LSP document features", () => {
     const ranges = createFoldingRanges(parse("class Box {\n  run() {\n    return 1\n  }\n}\n"));
     expect(ranges.map((range) => [range.startLine, range.endLine])).toContainEqual([0, 4]);
     expect(ranges.map((range) => [range.startLine, range.endLine])).toContainEqual([1, 3]);
+  });
+
+  it("creates folding ranges for multiline JSX tags and fragments", () => {
+    const ranges = createFoldingRanges(parse("fun view(props: any) {\n  val element = <section>\n    <header>\n      <span />\n    </header>\n  </section>\n  val fragment = <>\n    <span {...props}/>\n  </>\n}\n"));
+    expect(ranges.map((range) => [range.startLine, range.endLine])).toContainEqual([1, 5]);
+    expect(ranges.map((range) => [range.startLine, range.endLine])).toContainEqual([2, 4]);
+    expect(ranges.map((range) => [range.startLine, range.endLine])).toContainEqual([6, 8]);
   });
 
   it("creates nested selection ranges", () => {

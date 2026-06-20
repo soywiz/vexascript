@@ -19,6 +19,7 @@ import type {
   FunctionStatement,
   ImportStatement,
   InterfaceStatement,
+  InterfaceMethodMember,
   NamespaceStatement,
   ConditionalExpression,
   Expr,
@@ -27,6 +28,7 @@ import type {
   MemberExpression,
   NewExpression,
   NonNullExpression,
+  SatisfiesExpression,
   Statement,
   UnaryExpression,
   UpdateExpression,
@@ -531,6 +533,98 @@ function resolvedConstructorParameters(classStatement: ClassStatement): Resolved
     optional: ("optional" in parameter && parameter.optional === true) || parameter.defaultValue !== undefined || ("rest" in parameter && parameter.rest === true),
     rest: "rest" in parameter && parameter.rest === true
   }));
+}
+
+function resolvedInterfaceConstructorParameters(
+  interfaceStatement: InterfaceStatement,
+  constructorMember: InterfaceMethodMember
+): ResolvedParameter[] {
+  const substitutions = typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], undefined);
+  return constructorMember.parameters.map((parameter) => ({
+    name: bindingNameText(parameter.name),
+    typeName: substituteTypeNameText(parameter.typeAnnotation?.name ?? "unknown", substitutions),
+    optional: parameter.optional === true || parameter.defaultValue !== undefined || parameter.rest === true,
+    rest: parameter.rest === true
+  }));
+}
+
+async function selectBestInterfaceConstructorSignature(
+  interfaceStatement: InterfaceStatement,
+  callExpression: CallExpression | NewExpression | undefined,
+  analysis: Analysis,
+  ast: Program,
+  options: ClassResolverOptions
+): Promise<ResolvedConstructorSignature | null> {
+  const constructorMembers = interfaceStatement.members.filter(
+    (member): member is InterfaceMethodMember =>
+      member.kind === "InterfaceMethodMember" && member.name.name === "constructor"
+  );
+  if (constructorMembers.length === 0) {
+    return null;
+  }
+
+  if (!callExpression) {
+    const fallback = constructorMembers[constructorMembers.length - 1] ?? constructorMembers[0];
+    if (!fallback) {
+      return null;
+    }
+    return {
+      className: interfaceStatement.name.name,
+      parameters: resolvedInterfaceConstructorParameters(interfaceStatement, fallback)
+    };
+  }
+
+  const argumentTypeNames = await Promise.all(
+    (callExpression.arguments ?? []).map((argument) => resolveExpressionTypeName(argument, analysis, ast, options))
+  );
+  let arityMatchedFallback: ResolvedConstructorSignature | null = null;
+
+  for (const constructorMember of constructorMembers) {
+    const parameters = resolvedInterfaceConstructorParameters(interfaceStatement, constructorMember);
+    const lastParameter = parameters[parameters.length - 1];
+    const restParameter = lastParameter?.rest ? lastParameter : undefined;
+    const fixedParameters = restParameter ? parameters.slice(0, -1) : parameters;
+    const requiredCount = fixedParameters.filter((parameter) => !parameter.optional).length;
+    if (argumentTypeNames.length < requiredCount) {
+      continue;
+    }
+    if (!restParameter && argumentTypeNames.length > fixedParameters.length) {
+      continue;
+    }
+    arityMatchedFallback ??= {
+      className: interfaceStatement.name.name,
+      parameters
+    };
+
+    const allMatch = argumentTypeNames.every((argumentTypeName, index) => {
+      const parameter = fixedParameters[index] ?? restParameter;
+      if (!parameter || !argumentTypeName || argumentTypeName === "unknown") {
+        return true;
+      }
+      return isTypeAssignableByName(argumentTypeName, parameter.typeName);
+    });
+    if (!allMatch) {
+      continue;
+    }
+
+    return {
+      className: interfaceStatement.name.name,
+      parameters
+    };
+  }
+
+  if (arityMatchedFallback) {
+    return arityMatchedFallback;
+  }
+
+  const fallback = constructorMembers[0];
+  if (!fallback) {
+    return null;
+  }
+  return {
+    className: interfaceStatement.name.name,
+    parameters: resolvedInterfaceConstructorParameters(interfaceStatement, fallback)
+  };
 }
 
 async function resolveInterfaceMemberRecursive(
@@ -1175,6 +1269,12 @@ export async function resolveExpressionTypeName(
       ?? await resolveExpressionTypeName(assertion.expression, analysis, ast, options);
   }
 
+  if (expression.kind === "SatisfiesExpression") {
+    const satisfies = expression as SatisfiesExpression;
+    return typeNameFromAnalysisType(analysis.getExpressionTypes().get(satisfies))
+      ?? await resolveExpressionTypeName(satisfies.expression, analysis, ast, options);
+  }
+
   if (expression.kind === "NonNullExpression") {
     const nonNull = expression as NonNullExpression;
     return typeNameFromAnalysisType(analysis.getExpressionTypes().get(nonNull))
@@ -1639,7 +1739,8 @@ export async function resolveConstructorSignature(
   callee: Expr,
   analysis: Analysis,
   ast: Program,
-  options: ClassResolverOptions
+  options: ClassResolverOptions,
+  callExpression?: CallExpression | NewExpression
 ): Promise<ResolvedConstructorSignature | null> {
   if (callee.kind !== "Identifier") {
     return null;
@@ -1648,6 +1749,55 @@ export async function resolveConstructorSignature(
   const identifier = callee as Identifier;
   if (!identifier.firstToken) {
     return null;
+  }
+
+  const symbol = analysis.getSymbolAt(
+    identifier.firstToken.range.start.line,
+    identifier.firstToken.range.start.column
+  )?.symbol;
+  const symbolConstructorInterfaceName = symbol?.kind === "class"
+    ? null
+    : symbol?.valueType
+      ? baseTypeName(symbol.valueType)
+      : symbol?.type
+        ? baseTypeName(typeToString(symbol.type))
+        : null;
+  if (symbolConstructorInterfaceName) {
+    const runtimeSymbolInterface = findMergedInterfaceStatementInProgram(
+      getEcmaScriptRuntimeProgram(),
+      symbolConstructorInterfaceName
+    );
+    if (runtimeSymbolInterface) {
+      const interfaceConstructorSignature = await selectBestInterfaceConstructorSignature(
+        runtimeSymbolInterface,
+        callExpression,
+        analysis,
+        ast,
+        options
+      );
+      if (interfaceConstructorSignature) {
+        return interfaceConstructorSignature;
+      }
+    }
+
+    const symbolInterfaceResolution = await resolveInterfaceStatementAcrossFiles(
+      ast,
+      symbolConstructorInterfaceName,
+      options,
+      createClassResolverCache()
+    );
+    if (symbolInterfaceResolution) {
+      const interfaceConstructorSignature = await selectBestInterfaceConstructorSignature(
+        symbolInterfaceResolution.interfaceStatement,
+        callExpression,
+        analysis,
+        ast,
+        options
+      );
+      if (interfaceConstructorSignature) {
+        return interfaceConstructorSignature;
+      }
+    }
   }
 
   const classResolution = await resolveClassStatementAcrossFiles(
@@ -1663,10 +1813,42 @@ export async function resolveConstructorSignature(
     };
   }
 
-  const symbol = analysis.getSymbolAt(
-    identifier.firstToken.range.start.line,
-    identifier.firstToken.range.start.column
-  )?.symbol;
+  const runtimeConstructorInterface = findMergedInterfaceStatementInProgram(
+    getEcmaScriptRuntimeProgram(),
+    `${identifier.name}Constructor`
+  );
+  if (runtimeConstructorInterface) {
+    const interfaceConstructorSignature = await selectBestInterfaceConstructorSignature(
+      runtimeConstructorInterface,
+      callExpression,
+      analysis,
+      ast,
+      options
+    );
+    if (interfaceConstructorSignature) {
+      return interfaceConstructorSignature;
+    }
+  }
+
+  const directInterfaceResolution = await resolveInterfaceStatementAcrossFiles(
+    ast,
+    `${identifier.name}Constructor`,
+    options,
+    createClassResolverCache()
+  );
+  if (directInterfaceResolution) {
+    const interfaceConstructorSignature = await selectBestInterfaceConstructorSignature(
+      directInterfaceResolution.interfaceStatement,
+      callExpression,
+      analysis,
+      ast,
+      options
+    );
+    if (interfaceConstructorSignature) {
+      return interfaceConstructorSignature;
+    }
+  }
+
   const className = symbol?.kind === "class"
     ? symbol.name
     : symbol?.valueType
@@ -1684,12 +1866,42 @@ export async function resolveConstructorSignature(
     options,
     createClassResolverCache()
   );
-  if (!resolvedClass) {
+  if (resolvedClass) {
+    return {
+      className,
+      parameters: resolvedConstructorParameters(resolvedClass.classStatement)
+    };
+  }
+
+  const runtimeInterfaceStatement = findMergedInterfaceStatementInProgram(
+    getEcmaScriptRuntimeProgram(),
+    className
+  );
+  if (runtimeInterfaceStatement) {
+    return selectBestInterfaceConstructorSignature(
+      runtimeInterfaceStatement,
+      callExpression,
+      analysis,
+      ast,
+      options
+    );
+  }
+
+  const resolvedInterface = await resolveInterfaceStatementAcrossFiles(
+    ast,
+    className,
+    options,
+    createClassResolverCache()
+  );
+  if (!resolvedInterface) {
     return null;
   }
 
-  return {
-    className,
-    parameters: resolvedConstructorParameters(resolvedClass.classStatement)
-  };
+  return selectBestInterfaceConstructorSignature(
+    resolvedInterface.interfaceStatement,
+    callExpression,
+    analysis,
+    ast,
+    options
+  );
 }

@@ -5,6 +5,7 @@ import {
   ensureRuntimeDependencies,
   resolveProjectForSource
 } from "../cli/cliShared";
+import { openEntrypointInLspSession } from "./lspOpenSession";
 
 describe("threejs sample", () => {
   it("bundles the browser entry without diagnostics", async () => {
@@ -22,5 +23,17 @@ describe("threejs sample", () => {
     expect(result.code).toContain(".position.set(4, 3, 7)");
     expect(result.code).toContain(".rotation.set(");
     expect(result.code).not.toContain("declare class ThreeVector3");
+  });
+
+  it("opens the browser entry in an LSP session without document error diagnostics", async () => {
+    const sourcePath = resolve(process.cwd(), "samples/threejs/html.vx");
+    const project = await resolveProjectForSource(sourcePath);
+
+    await ensureRuntimeDependencies(sourcePath, project);
+    await ensureCompilerRuntimePrograms();
+
+    const result = await openEntrypointInLspSession(sourcePath);
+
+    expect(result.documentDiagnostics.filter((diagnostic) => diagnostic.severity === 1)).toEqual([]);
   });
 });

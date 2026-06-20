@@ -19,6 +19,7 @@ import type {
   NonNullExpression, ObjectBindingPattern,
   ObjectLiteral, ObjectProperty, ObjectSpreadProperty,
   Program, RangeExpression, RegExpLiteral, ReturnStatement,
+  SatisfiesExpression,
   SpreadExpression, Statement, StringLiteral, SwitchStatement,
   ThrowStatement, TryStatement, TypeAliasStatement, TypeParameter,
   TypeReference, ArrayTypeAnnotation,
@@ -2586,6 +2587,11 @@ class AstFormatter {
       case "AsExpression": {
         const a = expr as AsExpression;
         this.emitExpr(a.expression); this.sp(); this.write("as"); this.sp(); this.write(a.typeAnnotation.name);
+        break;
+      }
+      case "SatisfiesExpression": {
+        const s = expr as SatisfiesExpression;
+        this.emitExpr(s.expression); this.sp(); this.write("satisfies"); this.sp(); this.write(s.typeAnnotation.name);
         break;
       }
       case "NonNullExpression": {

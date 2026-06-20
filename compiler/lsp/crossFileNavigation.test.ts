@@ -3509,6 +3509,222 @@ describe("cross-file navigation", () => {
       expect(location?.range.start.line).toBe(1);
     });
 
+    it("navigates and hovers imported generic interface members specialized through node_modules function calls", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
+      const pkgDir = join(root, "node_modules", "pkg");
+      const mainPath = join(root, "main.vx");
+      const marked = sourceWithCursor(dedent`
+        import { QueryClient, useQuery } from "pkg"
+
+        val queryClient = QueryClient()
+        val result = useQuery({
+          queryKey: ["roadmap"],
+          queryFn: async (context) => {
+            return { title: String(context.queryKey[0]) }
+          }
+        }, queryClient)
+
+        if (result.isLoa^^^ding) {
+          log("loading")
+        }
+      `);
+
+      await mkdir(pkgDir, { recursive: true });
+      await writeFile(
+        join(pkgDir, "package.json"),
+        JSON.stringify({
+          name: "pkg",
+          types: "./index.d.ts"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "index.d.ts"),
+        dedent`
+          export class QueryClient {
+          }
+
+          export interface QueryFunctionContext<TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>> {
+            queryKey: TQueryKey;
+          }
+
+          export interface UseQueryOptions<
+            TData = unknown,
+            TError = Error,
+            TSelected = TData,
+            TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>
+          > {
+            queryKey: TQueryKey;
+            queryFn: (context: QueryFunctionContext<TQueryKey>) => Promise<TData> | TData;
+          }
+
+          export interface UseQueryResult<TData = unknown, TError = Error> {
+            data: TData | undefined;
+            isLoading: boolean;
+            error: TError | null;
+          }
+
+          export function useQuery<
+            TData = unknown,
+            TError = Error,
+            TSelected = TData,
+            TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>
+          >(
+            options: UseQueryOptions<TData, TError, TSelected, TQueryKey>,
+            queryClient?: QueryClient
+          ): UseQueryResult<TSelected, TError>;
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, marked.source, "utf8");
+
+      const baseSession = createAnalysisSession(marked.source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const session = createAnalysisSession(
+        marked.source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        new Map(),
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const hover = await resolveHoverWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect((hover?.contents as { value?: string } | undefined)?.value).toContain("isLoading: boolean");
+      expect(location?.uri.endsWith("/node_modules/pkg/index.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBe(19);
+    });
+
+    it("navigates imported generic result data members after node_modules specialization", async () => {
+      const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
+      const pkgDir = join(root, "node_modules", "pkg");
+      const mainPath = join(root, "main.vx");
+      const marked = sourceWithCursor(dedent`
+        import { QueryClient, useQuery } from "pkg"
+
+        val queryClient = QueryClient()
+        val result = useQuery({
+          queryKey: ["roadmap"],
+          queryFn: async (context) => {
+            return { title: String(context.queryKey[0]) }
+          }
+        }, queryClient)
+
+        if (result.da^^^ta) {
+          log(result.data.title)
+        }
+      `);
+
+      await mkdir(pkgDir, { recursive: true });
+      await writeFile(
+        join(pkgDir, "package.json"),
+        JSON.stringify({
+          name: "pkg",
+          types: "./index.d.ts"
+        }),
+        "utf8"
+      );
+      await writeFile(
+        join(pkgDir, "index.d.ts"),
+        dedent`
+          export class QueryClient {
+          }
+
+          export interface QueryFunctionContext<TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>> {
+            queryKey: TQueryKey;
+          }
+
+          export interface UseQueryOptions<
+            TData = unknown,
+            TError = Error,
+            TSelected = TData,
+            TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>
+          > {
+            queryKey: TQueryKey;
+            queryFn: (context: QueryFunctionContext<TQueryKey>) => Promise<TData> | TData;
+          }
+
+          export interface UseQueryResult<TData = unknown, TError = Error> {
+            data: TData | undefined;
+            isLoading: boolean;
+            error: TError | null;
+          }
+
+          export function useQuery<
+            TData = unknown,
+            TError = Error,
+            TSelected = TData,
+            TQueryKey extends ReadonlyArray<unknown> = ReadonlyArray<unknown>
+          >(
+            options: UseQueryOptions<TData, TError, TSelected, TQueryKey>,
+            queryClient?: QueryClient
+          ): UseQueryResult<TSelected, TError>;
+        `,
+        "utf8"
+      );
+      await writeFile(mainPath, marked.source, "utf8");
+
+      const baseSession = createAnalysisSession(marked.source);
+      const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+        uri: pathToFileURL(mainPath).toString(),
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const session = createAnalysisSession(
+        marked.source,
+        collected.externalDeclarations,
+        collected.importedSymbolTypes,
+        [],
+        new Map(),
+        new Map(),
+        collected.importedSymbolDisplayTypes,
+        collected.invalidImportedBindings
+      );
+
+      const hover = await resolveHoverWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+      const location = await resolveDefinitionWithLocalFallback({
+        uri: pathToFileURL(mainPath).toString(),
+        line: marked.line,
+        character: marked.character,
+        session,
+        sourceRoots: [root],
+        getSessionForFilePath: () => null
+      });
+
+      expect((hover?.contents as { value?: string } | undefined)?.value).toContain("data: { title: string }?");
+      expect(location?.uri.endsWith("/node_modules/pkg/index.d.ts")).toBe(true);
+      expect(location?.range.start.line).toBe(18);
+    });
+
     it("navigates type names and generic arguments inside extends clauses", async () => {
       const root = await mkdtemp(join(tmpdir(), "vexa-node-module-definition-"));
       const pkgDir = join(root, "node_modules", "preact");
