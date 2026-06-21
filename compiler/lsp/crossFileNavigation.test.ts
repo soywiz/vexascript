@@ -688,7 +688,7 @@ describe("cross-file navigation", () => {
     const libDir = join(pkgDir, "lib");
     const mainPath = join(root, "main.vx");
     const source = dedent`
-      import { z } from "zod"
+      import { z, defaultSchema } from "zod"
 
       const UserSchema = z.object({
         name: z.string(),
@@ -696,9 +696,11 @@ describe("cross-file navigation", () => {
       })
 
       type User = z.infer<typeof UserSchema>
+      type ImportedSchema = typeof defaultSchema
     `;
     const inferMarked = sourceWithCursor(source.replace("z.infer", "z.in^^^fer"));
     const schemaMarked = sourceWithCursor(source.replace("typeof UserSchema", "typeof Us^^^erSchema"));
+    const importedSchemaMarked = sourceWithCursor(source.replace("typeof defaultSchema", "typeof defaultSc^^^hema"));
     const packageSource = dedent`
       import * as z from "./external";
       export * from "./external";
@@ -727,6 +729,7 @@ describe("cross-file navigation", () => {
       declare const stringType: () => ZString;
       declare const numberType: () => ZNumber;
       declare function objectType<TShape extends ZRawShape>(shape: TShape): ZObject<TShape>;
+      export declare const defaultSchema: ZObject<{ title: ZString }>;
 
       export { stringType as string, numberType as number, objectType as object };
     `;
@@ -763,6 +766,7 @@ describe("cross-file navigation", () => {
 
     const externalLines = externalSource.split("\n");
     const inferLine = externalLines.findIndex((line) => line.includes("declare type TypeOf"));
+    const defaultSchemaLine = externalLines.findIndex((line) => line.includes("defaultSchema"));
     const schemaLine = source.split("\n").findIndex((line) => line.includes("const UserSchema"));
     const context = {
       uri: pathToFileURL(mainPath).toString(),
@@ -791,6 +795,16 @@ describe("cross-file navigation", () => {
       line: schemaMarked.line,
       character: schemaMarked.character
     });
+    const importedSchemaLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: importedSchemaMarked.line,
+      character: importedSchemaMarked.character
+    });
+    const importedSchemaHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: importedSchemaMarked.line,
+      character: importedSchemaMarked.character
+    });
 
     expect(inferLocation?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
     expect(inferLocation?.range.start.line).toBe(inferLine);
@@ -800,6 +814,12 @@ describe("cross-file navigation", () => {
     expect(schemaHover?.contents).toEqual({
       kind: "plaintext",
       value: "variable UserSchema: ZObject<{ name: ZString, age: ZNumber }>"
+    });
+    expect(importedSchemaLocation?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
+    expect(importedSchemaLocation?.range.start.line).toBe(defaultSchemaLine);
+    expect(importedSchemaHover?.contents).toEqual({
+      kind: "plaintext",
+      value: "variable defaultSchema: ZObject<{ title: ZString }>"
     });
   });
 

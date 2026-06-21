@@ -61,6 +61,26 @@ import { findAmbientNamespaceLocation } from "./crossFileContext";
 import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
 import { findNodeModuleExportLocation } from "./nodeModulesTypings";
 
+function resolveImportedSymbolDefinitionLocation(
+  context: ResolveContext,
+  localName: string
+): Location | null {
+  const origin = context.session.importedSymbols?.get(localName)?.declarationOrigin;
+  if (!origin) {
+    return null;
+  }
+
+  const range = declarationRangeForName(origin.statement, origin.exportedName) ?? nodeRange(origin.statement);
+  if (!range) {
+    return null;
+  }
+
+  return {
+    uri: pathToUri(origin.filePath),
+    range
+  };
+}
+
 function resolveImportedBindingDefinitionFromSession(
   context: ResolveContext,
   character: number
@@ -81,20 +101,7 @@ function resolveImportedBindingDefinitionFromSession(
     return null;
   }
 
-  const origin = context.session.importedSymbols?.get(importBinding.name)?.declarationOrigin;
-  if (!origin) {
-    return null;
-  }
-
-  const range = declarationRangeForName(origin.statement, origin.exportedName) ?? nodeRange(origin.statement);
-  if (!range) {
-    return null;
-  }
-
-  return {
-    uri: pathToUri(origin.filePath),
-    range
-  };
+  return resolveImportedSymbolDefinitionLocation(context, importBinding.localName);
 }
 
 function splitQualifiedTypeName(typeName: string): { receiverName: string; memberName: string } | null {
@@ -123,6 +130,15 @@ function visibleSymbolForTypeIdentifier(context: ResolveContext, identifier: Ide
 
 function resolveLocalTypeIdentifierDefinition(context: ResolveContext, identifier: Identifier): Location | null {
   const symbol = visibleSymbolForTypeIdentifier(context, identifier);
+  if (symbol && context.session.ast) {
+    const importBinding = findImportForSymbolNode(context.session.ast, symbol.node);
+    const importedDefinition = importBinding
+      ? resolveImportedSymbolDefinitionLocation(context, importBinding.localName)
+      : null;
+    if (importedDefinition) {
+      return importedDefinition;
+    }
+  }
   const symbolRange = symbol ? nodeRange(symbol.node) : null;
   if (!symbolRange) {
     return null;

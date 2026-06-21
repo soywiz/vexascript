@@ -1,0 +1,4 @@
+interface:
+  display_name: "Break VexaScript With Samples"
+  short_description: "Stress VexaScript with realistic samples and fix the compiler."
+  default_prompt: "Try to break VexaScript with realistic samples or library typings, then add a regression and fix the compiler or LSP path."

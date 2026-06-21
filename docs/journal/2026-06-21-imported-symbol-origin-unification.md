@@ -347,3 +347,14 @@ treated qualified type text such as `z.infer` as one opaque name. The fix was to
 let the shared type-identifier finder visit alias targets, return the qualified
 name with a segment range, and let hover/definition resolve that synthetic type
 identifier through the same node_modules export and local-symbol paths.
+
+## Imported value origins in type queries
+
+`typeof importedValue` exposed a second split in the same area. The imported
+symbol had a usable type, so hover could report the value shape, but
+go-to-definition could not jump to the package declaration because node_modules
+origin collection did not record inline value exports such as
+`export declare const value: Type`. The fix was to preserve the local import
+name when recognizing import bindings, reuse imported declaration origins from
+type-identifier navigation, and record inline value export names when building
+node_modules declaration origins.

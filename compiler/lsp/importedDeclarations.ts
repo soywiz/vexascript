@@ -3138,6 +3138,10 @@ function nodeModuleExportedNamesForStatement(statement: Statement): string[] {
     return [];
   }
   const exportStatement = statement as ExportStatement;
+  const inlineName = importableDeclarationName(exportStatement);
+  if (inlineName) {
+    return [inlineName];
+  }
   return (exportStatement.specifiers ?? []).map((specifier) => specifier.exported.name);
 }
 

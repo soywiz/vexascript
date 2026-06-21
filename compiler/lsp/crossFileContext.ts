@@ -105,7 +105,7 @@ export function localRenameWorkspaceEdit(context: ResolveContext, newName: strin
   );
 }
 
-export function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: string; name: string } | null {
+export function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: string; name: string; localName: string } | null {
   for (const statement of ast.body) {
     if (statement.kind !== "ImportStatement") {
       continue;
@@ -113,7 +113,11 @@ export function findImportForSymbolNode(ast: Program, symbolNode: unknown): { fr
     const importStatement = statement as ImportStatement;
     for (const specifier of importStatement.specifiers) {
       if (specifier.imported === symbolNode || specifier.local === symbolNode) {
-        return { from: importStatement.from.value, name: specifier.imported.name };
+        return {
+          from: importStatement.from.value,
+          name: specifier.imported.name,
+          localName: (specifier.local ?? specifier.imported).name
+        };
       }
     }
   }
