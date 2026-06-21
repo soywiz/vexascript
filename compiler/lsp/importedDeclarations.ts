@@ -3080,6 +3080,13 @@ export interface CollectedImportedDeclarations {
   importedSymbolTypes: Map<string, AnalysisType>;
   importedSymbolDisplayTypes: Map<string, string>;
   invalidImportedBindings: Set<string>;
+  importedSymbolDeclarationOrigins: Map<string, ImportedSymbolDeclarationOrigin>;
+}
+
+export interface ImportedSymbolDeclarationOrigin {
+  statement: Statement;
+  filePath: string;
+  exportedName: string;
 }
 
 function importableDeclarationName(statement: Statement): string | null {
@@ -3121,6 +3128,32 @@ function importableDeclarationName(statement: Statement): string | null {
     return declaration.name.name;
   }
   return null;
+}
+
+function nodeModuleExportedNamesForStatement(statement: Statement): string[] {
+  const declaration = unwrapDeclaration(statement);
+  if (declaration) {
+    const name = importableDeclarationName(declaration);
+    return name ? [name] : [];
+  }
+  if (statement.kind !== "ExportStatement") {
+    return [];
+  }
+  const exportStatement = statement as ExportStatement;
+  return (exportStatement.specifiers ?? []).map((specifier) => specifier.exported.name);
+}
+
+function setImportedSymbolDeclarationOrigin(
+  importedSymbolDeclarationOrigins: Map<string, ImportedSymbolDeclarationOrigin>,
+  localName: string,
+  statement: Statement,
+  filePath: string,
+  exportedName: string
+): void {
+  if (importedSymbolDeclarationOrigins.has(localName)) {
+    return;
+  }
+  importedSymbolDeclarationOrigins.set(localName, { statement, filePath, exportedName });
 }
 
 function shouldIncludeNodeModuleExternalDeclaration(
@@ -3304,7 +3337,8 @@ export async function collectAllImportedDeclarations(
       externalDeclarations: [],
       importedSymbolTypes: new Map(),
       importedSymbolDisplayTypes: new Map(),
-      invalidImportedBindings: new Set()
+      invalidImportedBindings: new Set(),
+      importedSymbolDeclarationOrigins: new Map()
     };
   }
 
@@ -3312,6 +3346,7 @@ export async function collectAllImportedDeclarations(
   const importedSymbolTypes = new Map<string, AnalysisType>();
   const importedSymbolDisplayTypes = new Map<string, string>();
   const invalidImportedBindings = new Set<string>();
+  const importedSymbolDeclarationOrigins = new Map<string, ImportedSymbolDeclarationOrigin>();
   const seen = new Set<ImportableDeclaration>();
 
   for (const statement of ast.body) {
@@ -3339,6 +3374,19 @@ export async function collectAllImportedDeclarations(
         );
       if (nodeModuleTypings) {
         const nodeModuleIndex = getNodeModuleDeclarationIndex(nodeModuleTypings.declarations);
+        const declarationOriginByExportedName = new Map<string, ImportedSymbolDeclarationOrigin>();
+        for (const entry of nodeModuleTypings.declarationEntries) {
+          for (const exportedName of nodeModuleExportedNamesForStatement(entry.statement)) {
+            if (declarationOriginByExportedName.has(exportedName)) {
+              continue;
+            }
+            declarationOriginByExportedName.set(exportedName, {
+              statement: entry.statement,
+              filePath: entry.typingsPath,
+              exportedName
+            });
+          }
+        }
         if (nodeModuleTypings.defaultExportName && (importStatement.defaultImport || importStatement.namespaceImport)) {
           wantedNames.add(nodeModuleTypings.defaultExportName);
         }
@@ -3431,10 +3479,30 @@ export async function collectAllImportedDeclarations(
               if (displayType) {
                 importedSymbolDisplayTypes.set(importStatement.defaultImport.name, displayType);
               }
+              const declarationOrigin = declarationOriginByExportedName.get(nodeModuleTypings.defaultExportName);
+              if (declarationOrigin) {
+                setImportedSymbolDeclarationOrigin(
+                  importedSymbolDeclarationOrigins,
+                  importStatement.defaultImport.name,
+                  declarationOrigin.statement,
+                  declarationOrigin.filePath,
+                  declarationOrigin.exportedName
+                );
+              }
             }
           }
           if (importStatement.namespaceImport) {
             importedSymbolTypes.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType ?? namedType(nodeModuleTypings.defaultExportName));
+            const declarationOrigin = declarationOriginByExportedName.get(nodeModuleTypings.defaultExportName);
+            if (declarationOrigin) {
+              setImportedSymbolDeclarationOrigin(
+                importedSymbolDeclarationOrigins,
+                importStatement.namespaceImport.name,
+                declarationOrigin.statement,
+                declarationOrigin.filePath,
+                declarationOrigin.exportedName
+              );
+            }
           }
           for (const specifier of importStatement.specifiers) {
             const localName = (specifier.local ?? specifier.imported).name;
@@ -3444,6 +3512,16 @@ export async function collectAllImportedDeclarations(
               const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, specifier.imported.name);
               if (displayType) {
                 importedSymbolDisplayTypes.set(localName, displayType);
+              }
+              const declarationOrigin = declarationOriginByExportedName.get(specifier.imported.name);
+              if (declarationOrigin) {
+                setImportedSymbolDeclarationOrigin(
+                  importedSymbolDeclarationOrigins,
+                  localName,
+                  declarationOrigin.statement,
+                  declarationOrigin.filePath,
+                  declarationOrigin.exportedName
+                );
               }
             }
           }
@@ -3461,6 +3539,16 @@ export async function collectAllImportedDeclarations(
             const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, specifier.imported.name);
             if (displayType) {
               importedSymbolDisplayTypes.set(localName, displayType);
+            }
+            const declarationOrigin = declarationOriginByExportedName.get(specifier.imported.name);
+            if (declarationOrigin) {
+              setImportedSymbolDeclarationOrigin(
+                importedSymbolDeclarationOrigins,
+                localName,
+                declarationOrigin.statement,
+                declarationOrigin.filePath,
+                declarationOrigin.exportedName
+              );
             }
           } else {
             invalidImportedBindings.add(localName);
@@ -3545,6 +3633,7 @@ export async function collectAllImportedDeclarations(
 
     const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
     const exportedNames = new Set<string>();
+    const declarationByExportedName = new Map<string, Statement>();
 
     if (targetSession?.ast && wantedNames.size > 0) {
       for (const targetStatement of targetSession.ast.body) {
@@ -3554,6 +3643,9 @@ export async function collectAllImportedDeclarations(
         }
         for (const name of importableTopLevelDeclarationNames(targetStatement, targetFilePath)) {
           exportedNames.add(name);
+          if (!declarationByExportedName.has(name)) {
+            declarationByExportedName.set(name, declaration);
+          }
         }
         const isHelperTypeDeclaration = TYPE_DECLARATION_KINDS.has(declaration.kind);
         if (!isHelperTypeDeclaration && !importableTopLevelDeclarationNames(targetStatement, targetFilePath).some((name) => wantedNames.has(name))) {
@@ -3570,6 +3662,16 @@ export async function collectAllImportedDeclarations(
         const importedType = targetSession.analysis.getTopLevelSymbolType(specifier.imported.name);
         if (importedType) {
           importedSymbolTypes.set(localName, importedType);
+          const declaration = declarationByExportedName.get(specifier.imported.name);
+          if (declaration) {
+            setImportedSymbolDeclarationOrigin(
+              importedSymbolDeclarationOrigins,
+              localName,
+              declaration,
+              targetFilePath,
+              specifier.imported.name
+            );
+          }
         } else if (!exportedNames.has(specifier.imported.name)) {
           invalidImportedBindings.add(localName);
         }
@@ -3578,6 +3680,16 @@ export async function collectAllImportedDeclarations(
     if (targetSession?.ast && wantedNames.size > 0) {
       for (const specifier of importStatement.specifiers) {
         const localName = (specifier.local ?? specifier.imported).name;
+        const declaration = declarationByExportedName.get(specifier.imported.name);
+        if (declaration) {
+          setImportedSymbolDeclarationOrigin(
+            importedSymbolDeclarationOrigins,
+            localName,
+            declaration,
+            targetFilePath,
+            specifier.imported.name
+          );
+        }
         if (importedSymbolTypes.has(localName)) {
           continue;
         }
@@ -3588,7 +3700,13 @@ export async function collectAllImportedDeclarations(
     }
   }
 
-  return { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes, invalidImportedBindings };
+  return {
+    externalDeclarations,
+    importedSymbolTypes,
+    importedSymbolDisplayTypes,
+    invalidImportedBindings,
+    importedSymbolDeclarationOrigins
+  };
 }
 
 /**
@@ -3605,72 +3723,7 @@ export async function collectImportedTypeDeclarations(
   ast: Program,
   context: CollectImportedDeclarationsContext
 ): Promise<Statement[]> {
-  const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
-  if (!currentFilePath) {
-    return [];
-  }
-
-  const result: Statement[] = [];
-  const seen = new Set<ImportableDeclaration>();
-
-  for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    const targetFilePath = await resolveImportTargetInContext(currentFilePath, importStatement.from.value, context);
-    if (!targetFilePath) {
-      const wantedNames = new Set(
-        importStatement.specifiers.map((specifier) => specifier.imported.name)
-      );
-      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
-      if (nodeModuleTypings) {
-        if (nodeModuleTypings.defaultExportName && (importStatement.defaultImport || importStatement.namespaceImport)) {
-          wantedNames.add(nodeModuleTypings.defaultExportName);
-        }
-        for (const targetStatement of nodeModuleTypings.declarations) {
-          if (!shouldIncludeNodeModuleExternalDeclaration(targetStatement, wantedNames)) {
-            continue;
-          }
-          const declaration = unwrapDeclaration(targetStatement);
-          if (!declaration) {
-            result.push(targetStatement);
-            continue;
-          }
-          if (!seen.has(declaration)) {
-            seen.add(declaration);
-            result.push(declaration);
-          }
-        }
-      }
-      continue;
-    }
-
-    const wantedNames = new Set(
-      importStatement.specifiers.map((specifier) => specifier.imported.name)
-    );
-    if (wantedNames.size === 0) {
-      continue;
-    }
-    const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
-    if (!targetSession?.ast) {
-      continue;
-    }
-
-    for (const targetStatement of targetSession.ast.body) {
-      const declaration = unwrapDeclaration(targetStatement);
-      if (!declaration || seen.has(declaration)) {
-        continue;
-      }
-      if (!importableTopLevelDeclarationNames(targetStatement, targetFilePath).some((name) => wantedNames.has(name))) {
-        continue;
-      }
-      seen.add(declaration);
-      result.push(declaration);
-    }
-  }
-
-  return result;
+  return (await collectAllImportedDeclarations(ast, context)).externalDeclarations;
 }
 
 /**
@@ -3685,92 +3738,5 @@ export async function collectImportedSymbolTypes(
   ast: Program,
   context: CollectImportedDeclarationsContext
 ): Promise<Map<string, AnalysisType>> {
-  const result = new Map<string, AnalysisType>();
-  const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
-  if (!currentFilePath) {
-    return result;
-  }
-
-  for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    const targetFilePath = await resolveImportTargetInContext(currentFilePath, importStatement.from.value, context);
-    if (!targetFilePath) {
-      // Bare specifier — assign a named type from node_modules typings so that
-      // default/namespace/named imports resolve their members in hover/completion.
-      const nodeModuleTypings = await getNodeModuleTypings(currentFilePath, importStatement.from.value, { vfs: context.vfs });
-      if (nodeModuleTypings?.defaultExportName) {
-        const needsDefaultLikeImportType = importStatement.defaultImport || importStatement.namespaceImport;
-        const exportType = needsDefaultLikeImportType
-          ? namedType(nodeModuleTypings.defaultExportName)
-          : null;
-        const defaultImportType = importStatement.defaultImport
-          ? resolveNodeModuleDefaultImportType(
-            nodeModuleTypings.declarations,
-            nodeModuleTypings.defaultExportName
-          )
-          : null;
-        const namespaceImportType = importStatement.namespaceImport
-          ? (() => {
-            const namespaceExportProperties = collectNodeModuleNamespaceExportedProperties(nodeModuleTypings.declarations);
-            return Object.keys(namespaceExportProperties).length > 0
-              ? objectTypeWithProperties(namespaceExportProperties)
-              : null;
-          })()
-          : null;
-        if (importStatement.defaultImport) {
-          if (defaultImportType) {
-            result.set(importStatement.defaultImport.name, defaultImportType);
-          }
-        }
-        if (importStatement.namespaceImport) {
-          result.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType ?? namedType(nodeModuleTypings.defaultExportName));
-        }
-        for (const specifier of importStatement.specifiers) {
-          const localName = (specifier.local ?? specifier.imported).name;
-          const importedTypeName = specifier.imported.name;
-          result.set(
-            localName,
-            resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, importedTypeName) ?? namedType(importedTypeName)
-          );
-        }
-      } else {
-        const ambientDefaultType = context.ambientModuleDeclarations
-          ? resolveAmbientDefaultImportType(
-            importStatement.from.value,
-            context.ambientModuleDeclarations,
-            context.ambientGlobalDeclarations ?? []
-          )
-          : null;
-        if (ambientDefaultType) {
-          if (importStatement.defaultImport) {
-            result.set(importStatement.defaultImport.name, ambientDefaultType);
-          }
-          if (importStatement.namespaceImport) {
-            result.set(importStatement.namespaceImport.name, ambientDefaultType);
-          }
-        }
-      }
-      continue;
-    }
-    if (importStatement.specifiers.length === 0) {
-      continue;
-    }
-    const targetSession = await getProjectSessionForFilePath(targetFilePath, context);
-    const targetAnalysis = targetSession?.analysis;
-    if (!targetAnalysis) {
-      continue;
-    }
-    for (const specifier of importStatement.specifiers) {
-      const localName = (specifier.local ?? specifier.imported).name;
-      const importedType = targetAnalysis.getTopLevelSymbolType(specifier.imported.name);
-      if (importedType) {
-        result.set(localName, importedType);
-      }
-    }
-  }
-
-  return result;
+  return (await collectAllImportedDeclarations(ast, context)).importedSymbolTypes;
 }

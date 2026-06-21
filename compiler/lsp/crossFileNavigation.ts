@@ -16,6 +16,8 @@ import type { Hover, Location } from "vscode-languageserver/node.js";
 import { pathToUri } from "./importFixes";
 import { nodeRange } from "./ranges";
 import {
+  declarationRangeForName,
+  findImportForSymbolNode,
   resolveCanonicalSymbol,
   type ResolveContext
 } from "./crossFileContext";
@@ -56,6 +58,42 @@ import {
 } from "./importPathNavigation";
 import { findAmbientNamespaceLocation } from "./crossFileContext";
 import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
+
+function resolveImportedBindingDefinitionFromSession(
+  context: ResolveContext,
+  character: number
+): Location | null {
+  if (!context.session.analysis || !context.session.ast) {
+    return null;
+  }
+
+  const symbolAt =
+    context.session.analysis.getSymbolAt(context.line, character) ??
+    context.session.analysis.getOperatorSymbolAt(context.line, character);
+  if (!symbolAt) {
+    return null;
+  }
+
+  const importBinding = findImportForSymbolNode(context.session.ast, symbolAt.symbol.node);
+  if (!importBinding) {
+    return null;
+  }
+
+  const origin = context.session.importedSymbolDeclarationOrigins?.get(importBinding.name);
+  if (!origin) {
+    return null;
+  }
+
+  const range = declarationRangeForName(origin.statement, origin.exportedName) ?? nodeRange(origin.statement);
+  if (!range) {
+    return null;
+  }
+
+  return {
+    uri: pathToUri(origin.filePath),
+    range
+  };
+}
 
 function collectNodeModulesReceiverTypeNames(objectType: AnalysisType): string[] {
   const names: string[] = [];
@@ -247,6 +285,13 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
     const ambientImportedSymbolDefinition = await resolveAmbientImportedSymbolDefinition({ ...context, character });
     if (ambientImportedSymbolDefinition) {
       return ambientImportedSymbolDefinition;
+    }
+  }
+
+  for (const character of candidateCharacters(context.character)) {
+    const importedBindingDefinition = resolveImportedBindingDefinitionFromSession(context, character);
+    if (importedBindingDefinition) {
+      return importedBindingDefinition;
     }
   }
 

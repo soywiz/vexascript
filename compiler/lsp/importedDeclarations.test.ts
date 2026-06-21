@@ -4,6 +4,7 @@ import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
 import { typeToString } from "compiler/analysis/types";
+import { readFile } from "node:fs/promises";
 
 function parseAmbientModule(src: string, moduleName: string): Statement[] {
   // Parse `declare module "<name>" { ... }` and return the body statements
@@ -451,10 +452,67 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     const ast = parseSource(source, {}).ast!;
     const imported = await collectAllImportedDeclarations(ast, {
       uri: pathToFileURL(consumerFile).toString(),
-      sourceRoots: [root]
+      sourceRoots: [root],
+      getSessionForFilePath: async (filePath) => {
+        const fileSource = await readFile(filePath, "utf8").catch(() => null);
+        return fileSource === null ? null : createAnalysisSession(fileSource);
+      }
     });
 
     expect(imported.importedSymbolTypes.has("h")).toBe(true);
     expect(imported.invalidImportedBindings.has("UNEXISTANT_SYMBOL")).toBe(true);
+  });
+
+  it("tracks declaration origins for imported local-module declarations in the shared collection result", async () => {
+    await import("../../cli/localVfs");
+    const root = await mkdtemp(join(tmpdir(), "vexa-imported-decl-origins-"));
+    const producerFile = join(root, "producer.vx");
+    const consumerFile = join(root, "consumer.vx");
+
+    await writeFile(
+      producerFile,
+      "export class Greeter { fun greet(): string => \"hi\" }\n",
+      "utf8"
+    );
+
+    const source = 'import { Greeter } from "./producer"\n';
+    const ast = parseSource(source, {}).ast!;
+    const imported = await collectAllImportedDeclarations(ast, {
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root]
+    });
+
+    const origin = imported.importedSymbolDeclarationOrigins.get("Greeter");
+    expect(origin).not.toBeNull();
+    expect(origin?.filePath).toBe(producerFile);
+    expect((origin?.statement as { kind?: string })?.kind).toBe("ClassStatement");
+  });
+
+  it("tracks declaration origins for aliased node_modules exports in the shared collection result", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-imported-node-origin-"));
+    const packageDir = join(root, "node_modules", "zod-like");
+    const libDir = join(packageDir, "lib");
+    const consumerFile = join(root, "consumer.vx");
+
+    await mkdir(libDir, { recursive: true });
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: "zod-like", types: "./index.d.ts" }), "utf8");
+    await writeFile(join(packageDir, "index.d.ts"), 'export * from "./lib";\n', "utf8");
+    await writeFile(join(libDir, "index.d.ts"), 'export * from "./types";\n', "utf8");
+    await writeFile(
+      join(libDir, "types.d.ts"),
+      "declare function objectType(shape: unknown): unknown;\nexport { objectType as object };\n",
+      "utf8"
+    );
+
+    const source = 'import { object } from "zod-like"\n';
+    const ast = parseSource(source, {}).ast!;
+    const imported = await collectAllImportedDeclarations(ast, {
+      uri: pathToFileURL(consumerFile).toString(),
+      sourceRoots: [root]
+    });
+
+    const origin = imported.importedSymbolDeclarationOrigins.get("object");
+    expect(origin).not.toBeNull();
+    expect(origin?.filePath).toBe(join(libDir, "types.d.ts"));
   });
 });

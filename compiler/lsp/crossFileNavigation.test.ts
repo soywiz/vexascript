@@ -298,7 +298,9 @@ describe("cross-file navigation", () => {
       new Map(),
       new Map(),
       collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
+      collected.invalidImportedBindings,
+      new Map(),
+      collected.importedSymbolDeclarationOrigins
     );
 
     const pkgLines = pkgSource.split("\n");

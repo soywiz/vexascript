@@ -25,11 +25,13 @@ import {
 } from "compiler/runtime/ecmascriptDeclarations";
 import { dirname, resolve } from "compiler/utils/path";
 import { vfs } from "compiler/vfs";
+import type { ImportedSymbolDeclarationOrigin } from "./importedDeclarations";
 
 export interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
   externalDeclarations?: Statement[];
+  importedSymbolDeclarationOrigins?: ReadonlyMap<string, ImportedSymbolDeclarationOrigin>;
   ambientDeclarations?: Statement[];
   ambientDeclarationLocations?: ReadonlyMap<Statement, { filePath: string; line: number; character: number }>;
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;

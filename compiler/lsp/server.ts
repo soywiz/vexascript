@@ -167,13 +167,20 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     ambientModuleDeclarations: ambientTypes.moduleDeclarations,
     ambientGlobalDeclarations: ambientTypes.globalDeclarations
   };
-  const { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes, invalidImportedBindings } =
+  const {
+    externalDeclarations,
+    importedSymbolTypes,
+    importedSymbolDisplayTypes,
+    importedSymbolDeclarationOrigins,
+    invalidImportedBindings
+  } =
     await collectAllImportedDeclarations(baseSession.ast, context);
 
   return {
     externalDeclarations,
     importedSymbolTypes,
     importedSymbolDisplayTypes,
+    importedSymbolDeclarationOrigins,
     invalidImportedBindings,
     ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
     ambientDeclarationLocations: new Map([
