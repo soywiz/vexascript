@@ -16,8 +16,6 @@ export interface ImportedSymbolResolution {
 
 export interface ImportedSymbolSources {
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution> | undefined;
-  importedSymbolTypes?: ReadonlyMap<string, AnalysisType> | undefined;
-  importedSymbolDisplayTypes?: ReadonlyMap<string, string> | undefined;
   invalidImportedBindings?: ReadonlySet<string> | undefined;
 }
 
@@ -72,12 +70,6 @@ export function normalizeImportedSymbolSources(sources: ImportedSymbolSources = 
     ? new Map(sources.importedSymbols)
     : new Map<string, ImportedSymbolResolution>();
 
-  for (const [localName, type] of sources.importedSymbolTypes ?? new Map()) {
-    getImportedSymbolResolution(importedSymbols, localName).type = type;
-  }
-  for (const [localName, displayType] of sources.importedSymbolDisplayTypes ?? new Map()) {
-    getImportedSymbolResolution(importedSymbols, localName).displayType = displayType;
-  }
   for (const localName of sources.invalidImportedBindings ?? new Set()) {
     const resolution = getImportedSymbolResolution(importedSymbols, localName);
     if (!resolution.type && !resolution.displayType && !resolution.declarationOrigin) {

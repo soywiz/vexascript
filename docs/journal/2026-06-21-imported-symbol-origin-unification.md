@@ -308,7 +308,7 @@ time. That broke the CLI bundler for untyped CommonJS packages such as the
 symbol as a tolerated JavaScript import while LSP diagnostics need explicit
 invalid-binding reporting.
 
-So the durable boundary is now:
+At that point, the durable boundary was:
 
 - LSP sessions are canonical and rich-only
 - lower compiler/transpile inputs still keep legacy narrow maps until the
@@ -316,3 +316,17 @@ So the durable boundary is now:
 
 This preserves the real CLI contract while still preventing new LSP code from
 reintroducing duplicated imported-symbol session state.
+
+## Lower imported-symbol input cleanup
+
+The lower compiler/transpile boundary now deletes the same type/display
+compatibility inputs too. `AnalysisOptions`, `TranspileOptions`, and
+`ImportedSymbolSources` accept `importedSymbols`, while the narrow
+`importedSymbolTypes` and `importedSymbolDisplayTypes` maps remain only as
+derived outputs where old consumers still need them.
+
+The guardrail from the failed attempt remains: keep `invalidImportedBindings`
+as the explicit semantic signal to `TypeChecker`. Do not infer semantic invalid
+imports merely from `importedSymbols.invalid`, because runtime bundling can
+still tolerate untyped JavaScript/CommonJS imports that LSP diagnostics should
+report only when the invalid-binding set says so.

@@ -110,12 +110,6 @@ export interface TranspileOptions {
    * globals. They affect type checking only and are not emitted.
    */
   ambientDeclarations?: Statement[];
-  /**
-   * Resolved imported value types, keyed by their local name. This remains a
-   * lower-level compiler input while higher-level LSP sessions use
-   * `importedSymbols` as the canonical shape.
-   */
-  importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
   /** Resolved imported values, keyed by their local name. */
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   /**

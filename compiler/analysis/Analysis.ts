@@ -59,8 +59,6 @@ export interface AnalysisOptions {
    * keeps type, display text, declaration origin, and invalid-binding state in
    * one canonical structure so analysis, hover, and definition agree.
    */
-  importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
-  importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   invalidImportedBindings?: ReadonlySet<string>;
 }
