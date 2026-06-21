@@ -1286,7 +1286,7 @@ function findMemberInNamespaceBody(
   return null;
 }
 
-function namedExportRangeFromStatement(statement: Statement, exportName: string): Range | null {
+function topLevelBindingRangeFromStatement(statement: Statement, bindingName: string): Range | null {
   const declaration =
     statement.kind === "ExportStatement"
       ? (statement as { declaration?: Statement }).declaration ?? statement
@@ -1304,24 +1304,70 @@ function namedExportRangeFromStatement(statement: Statement, exportName: string)
         | ClassStatement
         | EnumStatement
         | TypeAliasStatement;
-      return namedDeclaration.name.name === exportName ? nodeRange(namedDeclaration.name) : null;
+      return namedDeclaration.name.name === bindingName ? nodeRange(namedDeclaration.name) : null;
     }
     case "NamespaceStatement": {
       const namespace = declaration as NamespaceStatement;
       const nameNode = namespace.names?.[0];
-      return nameNode?.name === exportName ? nodeRange(nameNode as Parameters<typeof nodeRange>[0]) : null;
+      return nameNode?.name === bindingName ? nodeRange(nameNode as Parameters<typeof nodeRange>[0]) : null;
     }
     case "VarStatement": {
       const variable = declaration as VarStatement;
       const identifier = [
         ...bindingIdentifiers(variable.name),
         ...(variable.declarations ?? []).flatMap((item) => bindingIdentifiers(item.name))
-      ].find((candidate) => candidate.name === exportName);
+      ].find((candidate) => candidate.name === bindingName);
       return identifier ? nodeRange(identifier) : null;
+    }
+    case "ImportStatement": {
+      const importStatement = declaration as ImportStatement;
+      if (importStatement.defaultImport?.name === bindingName) {
+        return nodeRange(importStatement.defaultImport);
+      }
+      if (importStatement.namespaceImport?.name === bindingName) {
+        return nodeRange(importStatement.namespaceImport);
+      }
+      const specifier = importStatement.specifiers?.find((candidate) => (candidate.local ?? candidate.imported).name === bindingName);
+      return specifier ? nodeRange(specifier.local ?? specifier.imported) : null;
     }
     default:
       return null;
   }
+}
+
+function findTopLevelBindingRangeInEntries(
+  declarationEntries: readonly NodeModuleDeclarationEntry[],
+  typingsPath: string,
+  bindingName: string
+): Range | null {
+  for (const entry of declarationEntries) {
+    if (entry.typingsPath !== typingsPath) {
+      continue;
+    }
+    const range = topLevelBindingRangeFromStatement(entry.statement, bindingName);
+    if (range) {
+      return range;
+    }
+  }
+  return null;
+}
+
+function namedExportRangeFromStatement(
+  statement: Statement,
+  exportName: string,
+  declarationEntries: readonly NodeModuleDeclarationEntry[],
+  typingsPath: string
+): Range | null {
+  if (statement.kind === "ExportStatement") {
+    const exportStatement = statement as ExportStatement;
+    const matchingSpecifier = exportStatement.specifiers?.find((specifier) => specifier.exported.name === exportName);
+    if (matchingSpecifier) {
+      const localName = matchingSpecifier.local?.name ?? matchingSpecifier.exported.name;
+      return findTopLevelBindingRangeInEntries(declarationEntries, typingsPath, localName)
+        ?? nodeRange(matchingSpecifier.local ?? matchingSpecifier.exported);
+    }
+  }
+  return topLevelBindingRangeFromStatement(statement, exportName);
 }
 
 export async function findNodeModuleExportLocation(
@@ -1342,7 +1388,12 @@ export async function findNodeModuleExportLocation(
   }
 
   for (const entry of typings.declarationEntries) {
-    const range = namedExportRangeFromStatement(entry.statement, exportName);
+    const range = namedExportRangeFromStatement(
+      entry.statement,
+      exportName,
+      typings.declarationEntries,
+      entry.typingsPath
+    );
     if (range) {
       return { typingsPath: entry.typingsPath, range };
     }

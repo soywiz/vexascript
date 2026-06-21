@@ -132,7 +132,10 @@ export function findModuleReceiverImport(
     const namespaceImport = importStatement.namespaceImport as Identifier | undefined;
     const matchesDefault = defaultImport?.kind === "Identifier" && defaultImport.name === receiverName;
     const matchesNamespace = namespaceImport?.kind === "Identifier" && namespaceImport.name === receiverName;
-    if (matchesDefault || matchesNamespace) {
+    const matchesNamedSpecifier = importStatement.specifiers.some((specifier) =>
+      (specifier.local ?? specifier.imported).name === receiverName
+    );
+    if (matchesDefault || matchesNamespace || matchesNamedSpecifier) {
       return { from: importStatement.from.value };
     }
   }

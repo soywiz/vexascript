@@ -56,7 +56,7 @@ Possible follow-up wave:
 * [x] Added a focused `samples/react-query/` browser sample that keeps React Query options/result typing isolated from the broader `samples/react/` kitchen-sink sample.
 * [x] Added a focused `samples/react-router/` browser sample that keeps MemoryRouter navigation and location-driven JSX isolated from the broader `samples/react/` sample.
 * [x] Added a focused `samples/zod/` console sample that validates namespace-style package APIs plus imported schema-driven type extraction through `z.infer`.
-* [ ] `rxjs` is still blocked on richer imported generic/variadic observable/operator typing than the current focused regressions cover.
+* [ ] `rxjs` still does not have a checked-in sample, but it now has focused imported-typing regression coverage for `Observable.pipe(map(...), map(...))` style higher-order operator chains.
 * [ ] `zustand` is still blocked on curried store-factory inference and imported higher-order callback typing.
 * [ ] `hono` is still blocked on imported handler/context typing and overlapping DOM/runtime declaration behavior in its modern web-API-heavy `.d.ts` surface.
 

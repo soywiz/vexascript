@@ -20,6 +20,10 @@ This is separate from general conditional or mapped-type support. Even when the 
 
 Make imported namespace-shaped APIs and qualified imported type references behave consistently across analysis, hover/completion, diagnostics, assignability, and runtime-oriented sample coverage.
 
+This task focuses on namespace-shaped and qualified imported APIs as the user
+visible symptom family. The deeper shared-resolution work is tracked in
+`docs/tasks/unify-imported-symbol-resolution.md`.
+
 ## Scope
 
 * [ ] Tighten support for `export { x }` patterns backed by imported namespace bindings.
@@ -27,6 +31,7 @@ Make imported namespace-shaped APIs and qualified imported type references behav
 * [ ] Support more merged namespace/value export shapes for imported libraries.
 * [ ] Keep default, namespace, and named import handling aligned when they refer to the same underlying declaration graph.
 * [ ] Reduce cases where hover/completion know a namespace member but diagnostics or assignability still see `unknown`.
+* [ ] Reduce cases where imported namespace members have a usable type but still lack hover or go-to-definition.
 * [ ] Add focused regression tests for imported namespace value members and imported namespace-qualified type aliases.
 
 ## Acceptance Criteria
@@ -34,6 +39,7 @@ Make imported namespace-shaped APIs and qualified imported type references behav
 * [ ] Namespace-shaped package APIs like Zod stop depending on special-case regressions and resolve through the shared imported-declaration path.
 * [ ] Imported qualified type names remain structurally useful in analysis instead of degrading during later stages.
 * [ ] Hover, completion, and diagnostics agree on imported namespace members.
+* [ ] Hover and go to definition also agree on imported namespace members whenever the declaration graph exposes an origin.
 
 ## Tests
 
@@ -50,3 +56,4 @@ Make imported namespace-shaped APIs and qualified imported type references behav
 * `compiler/analysis/TypeChecker.ts`
 * `compiler/analysis/typeNames.ts`
 * `samples/zod/`
+* `docs/tasks/unify-imported-symbol-resolution.md`

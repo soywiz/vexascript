@@ -642,6 +642,100 @@ describe("cross-file navigation", () => {
     expect(location?.range.start.line).toBe(resizeLine);
   });
 
+  it("resolves go-to-definition for members on named-imported node_modules module objects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-named-module-object-nav-"));
+    const pkgDir = join(root, "node_modules", "zod");
+    const libDir = join(pkgDir, "lib");
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { z } from "zod"
+
+      val schema = z.obj^^^ect({
+        name: z.string(),
+        age: z.number()
+      })
+    `);
+    const packageSource = dedent`
+      import * as z from "./external";
+      export * from "./external";
+      export { z };
+      export default z;
+    `;
+    const externalSource = dedent`
+      export interface ZType<Output> {
+        parse(value: unknown): Output;
+        _output: Output;
+      }
+
+      export interface ZString extends ZType<string> {
+      }
+
+      export interface ZNumber extends ZType<number> {
+      }
+
+      export type ZRawShape = { [key: string]: ZType<any> };
+      export interface ZObject<TShape extends ZRawShape> extends ZType<any> {
+        shape: TShape;
+      }
+
+      declare const stringType: () => ZString;
+      declare const numberType: () => ZNumber;
+      declare function objectType<TShape extends ZRawShape>(shape: TShape): ZObject<TShape>;
+
+      export { stringType as string, numberType as number, objectType as object };
+    `;
+
+    await mkdir(libDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "zod",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      'export * from "./lib";\nexport as namespace Zod;\n',
+      "utf8"
+    );
+    await writeFile(join(libDir, "index.d.ts"), packageSource, "utf8");
+    await writeFile(join(libDir, "external.d.ts"), externalSource, "utf8");
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const baseSession = createAnalysisSession(marked.source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    const externalLines = externalSource.split("\n");
+    const objectLine = externalLines.findIndex((line) => line.includes("declare function objectType"));
+    const location = await resolveDefinitionWithLocalFallback({
+      uri: pathToFileURL(mainPath).toString(),
+      line: marked.line,
+      character: marked.character,
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+
+    expect(location).not.toBeNull();
+    expect(location?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
+    expect(location?.range.start.line).toBe(objectLine);
+  });
+
   it("resolves inherited node_modules accessor members to their base declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-node-module-accessor-member-nav-"));
     const pkgDir = join(root, "node_modules", "pixi-like");

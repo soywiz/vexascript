@@ -389,6 +389,107 @@ describe("node_modules typings resolution", () => {
     );
   });
 
+  it("preserves rxjs-style higher-order operator typing through imported pipe overloads", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "streamy");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "streamy", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export { Observable } from "./Observable";
+        export { of } from "./of";
+        export { map } from "./operators";
+        export type { OperatorFunction } from "./types";
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "Observable.d.ts"),
+      dedent`
+        import { OperatorFunction } from "./types";
+
+        export declare class Observable<T> {
+          pipe(): Observable<T>;
+          pipe<A>(op1: OperatorFunction<T, A>): Observable<A>;
+          pipe<A, B>(op1: OperatorFunction<T, A>, op2: OperatorFunction<A, B>): Observable<B>;
+          subscribe(next: (value: T) => void): void;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "types.d.ts"),
+      dedent`
+        import { Observable } from "./Observable";
+
+        export type OperatorFunction<T, R> = (source: Observable<T>) => Observable<R>;
+        export type ValueFromArray<A extends readonly unknown[]> =
+          A extends readonly (infer T)[] ? T : never;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "of.d.ts"),
+      dedent`
+        import { Observable } from "./Observable";
+        import { ValueFromArray } from "./types";
+
+        export declare function of<A extends readonly unknown[]>(...values: A): Observable<ValueFromArray<A>>;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "operators.d.ts"),
+      dedent`
+        import { OperatorFunction } from "./types";
+
+        export declare function map<T, R>(project: (value: T) => R): OperatorFunction<T, R>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { map, of } from "streamy"
+
+      val result = of(1, 2, 3).pipe(
+        map({ value ->
+          return { label: String(value) }
+        }),
+        map({ entry ->
+          return entry.lab^^^el
+        })
+      )
+
+      result.subscribe({ value ->
+        val ok: string = value
+      })
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("expression: string");
+  });
+
   it("supports imported class members whose signatures depend on sibling helper type aliases", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "streamy");
@@ -862,6 +963,108 @@ describe("node_modules typings resolution", () => {
     expect(collected.invalidImportedBindings.has("z")).toBe(false);
     expect(typeToString(collected.importedSymbolTypes.get("z")!)).toContain("infer");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("keeps zod inferred object properties specialized through a named type alias", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "zod");
+    const libDir = join(pkgDir, "lib");
+    await mkdir(libDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "zod", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export * from "./lib";
+        export as namespace Zod;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "index.d.ts"),
+      dedent`
+        import * as z from "./external";
+        export * from "./external";
+        export { z };
+        export default z;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "external.d.ts"),
+      dedent`
+        export interface ZType<Output> {
+          parse(value: unknown): Output;
+          _output: Output;
+        }
+
+        export interface ZString extends ZType<string> {
+          min(size: number): ZString;
+        }
+
+        export interface ZNumber extends ZType<number> {
+          int(): ZNumber;
+        }
+
+        export type output<T extends ZType<any>> = T["_output"];
+        export type infer<T extends ZType<any>> = output<T>;
+        export type ZRawShape = { [key: string]: ZType<any> };
+        export type objectOutput<TShape extends ZRawShape> = {
+          [K in keyof TShape]: output<TShape[K]>;
+        };
+
+        export interface ZObject<TShape extends ZRawShape> extends ZType<objectOutput<TShape>> {
+          shape: TShape;
+        }
+
+        declare const stringType: () => ZString;
+        declare const numberType: () => ZNumber;
+        declare function object<TShape extends ZRawShape>(shape: TShape): ZObject<TShape>;
+
+        export { stringType as string, numberType as number, object };
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { z } from "zod"
+
+      const UserSchema = z.object({
+        name: z.string().min(1),
+        age: z.number().int()
+      })
+
+      type User = z.infer<typeof UserSchema>
+
+      const user: User = UserSchema.parse({
+        name: "Ada",
+        age: 42
+      })
+
+      console.log(user.na^^^me)
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(
+      marked.source,
+      collected.externalDeclarations,
+      collected.importedSymbolTypes,
+      [],
+      new Map(),
+      new Map(),
+      collected.importedSymbolDisplayTypes,
+      collected.invalidImportedBindings
+    );
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
   });
 
   it("prefers sidecar declaration files over sibling javascript when following .js reexports", async () => {
@@ -2213,6 +2416,46 @@ describe("node_modules typings resolution", () => {
     expect(location).not.toBeNull();
     expect(location?.typingsPath).toContain("src/dom.d.ts");
     expect(location?.range.start.line).toBe(4);
+  });
+
+  it("findNodeModuleExportLocation resolves aliased export specifiers from export-star branches", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "zod-like");
+    const libDir = join(pkgDir, "lib");
+
+    await mkdir(libDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "zod-like",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * from "./lib";\n', "utf8");
+    await writeFile(
+      join(libDir, "index.d.ts"),
+      dedent`
+        export * from "./types";
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "types.d.ts"),
+      dedent`
+        declare const objectType: (shape: unknown) => { shape: unknown };
+        export { objectType as object };
+      `,
+      "utf8"
+    );
+
+    const importerPath = join(root, "main.vx");
+    const location = await findNodeModuleExportLocation(importerPath, "zod-like", "object");
+
+    expect(location).not.toBeNull();
+    expect(location?.typingsPath).toContain("lib/types.d.ts");
+    expect(location?.range.start.line).toBe(0);
+    expect(location?.range.start.character).toBe(14);
   });
 
   it("preserves imported interface type parameters when export-import aliases share the same name", async () => {

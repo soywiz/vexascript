@@ -18,6 +18,10 @@ This showed up with object-literal member navigation such as `TextStyle({ fontSi
 
 Introduce one shared declaration-origin model that carries both the AST node and the source file that owns that node. LSP features should consume that model instead of separately reconstructing paths or assuming that a declaration found through a barrel belongs to the barrel file.
 
+This task owns statement-to-file origin tracking. It is complementary to
+`docs/tasks/unify-imported-symbol-resolution.md`, which should unify the
+type/display/declaration result for imported bindings themselves.
+
 ## Proposed Shape
 
 Add a shared representation similar to:
@@ -37,6 +41,7 @@ The exact name and structure can change during implementation, but the important
 * [ ] Make package, ambient, and project declaration loaders return the same declaration-origin shape where practical.
 * [ ] Update definition, hover, object-literal completion, imported declaration collection, class/member resolution, and semantic diagnostics to preserve declaration origins instead of passing raw `Statement[]` where a source path may matter.
 * [ ] Remove feature-local fallback pairing of declaration ranges with module entry paths when the owning file is known.
+* [ ] Prefer consuming canonical declaration-origin records from shared imported-symbol resolution instead of recomputing owner paths inside each LSP feature.
 * [ ] Keep the implementation browser-compatible and asynchronous, following the repository I/O policy.
 
 ## Acceptance Criteria
@@ -52,6 +57,7 @@ The exact name and structure can change during implementation, but the important
 * [ ] Add LSP regression tests for object-literal property definition through a package export-star barrel.
 * [ ] Add regression coverage for member definition where the declaration statement comes from a different file than the package entry point.
 * [ ] Add a test proving hover and definition use the same declaration origin for imported object-literal members.
+* [ ] Add coverage proving the same declaration origin survives through both imported symbol typing and later navigation.
 * [ ] Run `pnpm test`.
 * [ ] Run `pnpm cli vexa testFixtures/sample.vx`.
 
@@ -63,3 +69,4 @@ The exact name and structure can change during implementation, but the important
 * `compiler/lsp/nodeModulesTypings.ts`
 * `compiler/lsp/crossFileTypeResolution.ts`
 * `compiler/lsp/classResolver.ts`
+* `docs/tasks/unify-imported-symbol-resolution.md`

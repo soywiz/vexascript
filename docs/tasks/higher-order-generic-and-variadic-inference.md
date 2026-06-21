@@ -28,10 +28,11 @@ Preserve useful generic specifics across higher-order imported APIs so more real
 * [ ] Support more variadic tuple and rest-parameter inference patterns used in public package typings.
 * [ ] Keep partially recoverable higher-order APIs structural rather than immediately widening to `unknown`.
 * [ ] Add realistic regressions derived from current `rxjs` and `zustand` failures before changing implementation.
+* [x] Added a focused imported-typing regression for an `rxjs`-style `Observable.pipe(map(...), map(...))` chain so higher-order operator typing no longer regresses silently.
 
 ## Acceptance Criteria
 
-* [ ] A focused `rxjs` regression keeps observable members and chained higher-order calls structurally typed farther than today.
+* [x] A focused `rxjs` regression keeps observable members and chained higher-order calls structurally typed farther than today.
 * [ ] A focused `zustand` regression keeps curried store factories and `getState()` result typing structurally useful farther than today.
 * [ ] Imported higher-order APIs no longer lose type precision merely because the generic flow spans more than one call.
 
