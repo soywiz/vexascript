@@ -24,6 +24,7 @@ import {
   classifySemanticDiagnosticMessage,
   mapAnalysisIssueCodeToDiagnosticCode
 } from "compiler/diagnosticCodes";
+import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
 
 export interface TranspileDiagnostic {
   file: string;
@@ -115,6 +116,7 @@ export interface TranspileOptions {
    * their body) participate in type resolution and pervasive auto-await.
    */
   importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
+  importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   /**
    * Callee used to lower embedded XML/JSX elements. Defaults to
    * `React.createElement`; set to `h` (Preact) or a custom factory as needed.
@@ -285,13 +287,13 @@ function parserOptionsForTranspile(options: TranspileOptions): ParserOptions {
 
 export function transpile(source: string, options: TranspileOptions = {}): TranspileResult {
   const externalDeclarations = options.externalDeclarations ?? [];
-  const importedSymbolTypes = options.importedSymbolTypes ?? new Map();
+  const { importedSymbols } = normalizeImportedSymbolSources(options);
   const ambientDeclarations = options.ambientDeclarations ?? [];
   const parserOptions = parserOptionsForTranspile(options);
   const artifacts = options.compilationArtifacts ?? compileSource(
     source,
     parserOptions,
-    { externalDeclarations, ambientDeclarations, importedSymbolTypes }
+    { externalDeclarations, ambientDeclarations, importedSymbols }
   );
   const errors: string[] = [];
   const diagnostics: TranspileDiagnostic[] = [];

@@ -15,6 +15,7 @@ import type { Analysis } from "compiler/analysis/Analysis";
 import type { AnnotationStatement, ArrowFunctionExpression, BlockStatement, CallExpression, ClassStatement, ExprStatement, ExportStatement, FunctionStatement, Identifier, ImportStatement, InterfaceStatement, NamespaceStatement, Program, Statement, VarStatement } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
+import type { ImportedSymbolResolution } from "compiler/importedSymbols";
 import { candidateImportTargetFilePaths, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { getDomDeclarationFilePath, isDomRuntimeNode } from "compiler/runtime/domDeclarations";
 import {
@@ -29,7 +30,7 @@ export interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
   externalDeclarations?: Statement[];
-  importedSymbols?: ReadonlyMap<string, import("./importedDeclarations").ImportedSymbolResolution>;
+  importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   ambientDeclarations?: Statement[];
   ambientDeclarationLocations?: ReadonlyMap<Statement, { filePath: string; line: number; character: number }>;
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;

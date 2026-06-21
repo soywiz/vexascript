@@ -12,13 +12,9 @@ import type {
 } from "./model";
 import { TypeChecker } from "./TypeChecker";
 import { type AnalysisType, typeToString } from "./types";
+import { normalizeImportedSymbolSources, type ImportedSymbolResolution } from "compiler/importedSymbols";
 
 export type { AnalysisIssue, AnalysisSymbol, AnalysisSymbolKind, AnalysisValueType } from "./model";
-
-interface ImportedAnalysisSymbolResolution {
-  type?: AnalysisType;
-  displayType?: string;
-}
 
 export interface AnalysisRange {
   start: { line: number; character: number };
@@ -66,7 +62,7 @@ export interface AnalysisOptions {
    */
   importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
   importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
-  importedSymbols?: ReadonlyMap<string, ImportedAnalysisSymbolResolution>;
+  importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   invalidImportedBindings?: ReadonlySet<string>;
 }
 
@@ -86,13 +82,12 @@ export class Analysis {
     this.program = program;
     const externalDeclarations = options.externalDeclarations ?? [];
     const ambientDeclarations = options.ambientDeclarations ?? [];
+    const { importedSymbols } = normalizeImportedSymbolSources(options);
     const bound = new Binder(
       program,
       externalDeclarations,
-      options.importedSymbolTypes,
       ambientDeclarations,
-      options.importedSymbolDisplayTypes,
-      options.importedSymbols
+      importedSymbols
     ).bind();
     this.rootScope = bound.rootScope;
 

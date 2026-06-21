@@ -9,7 +9,8 @@ import {
   buildAnalysisForSource,
   createAnalysisSession
 } from "./analysisSession";
-import { collectAllImportedDeclarations, type ImportedSymbolResolution } from "./importedDeclarations";
+import type { ImportedSymbolResolution } from "compiler/importedSymbols";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 
 describe("lsp analysis session", () => {
   it("builds analysis even when parser recovered from syntax errors", () => {

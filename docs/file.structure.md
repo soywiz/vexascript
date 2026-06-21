@@ -28,6 +28,7 @@ This section is the fast onboarding map for agents and contributors.
   - Shared abstract VFS contract used by compiler/runtime code across browser and Node hosts: `compiler/vfs.ts`
   - Shared local import-path resolution (`import ... from "<path>"` to an absolute `.vx` or `.ts` file), used by the semantic project index, runtime module graph, and LSP cross-file/member-completion features, parameterized by the selected VFS, and able to resolve LSP/editor open-document sessions before files are saved: `compiler/moduleResolution.ts`
   - Project configuration loading from package.json dependencies plus VexaScript/TypeScript project-config compiler-option defaults and `serveMappings` asset aliases used by CLI build/run/test/serve flows: `compiler/project.ts`
+  - Shared imported-binding normalization/view helpers that keep analysis, transpilation, and LSP import resolution converged on one canonical `importedSymbols` representation: `compiler/importedSymbols.ts`
   - Module resolution tests: `compiler/moduleResolution.test.ts`
 - Semantic analysis:
   - Public analysis API: `compiler/analysis/Analysis.ts`

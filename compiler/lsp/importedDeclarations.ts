@@ -58,6 +58,12 @@ import {
 } from "compiler/analysis/typeNames";
 import { combineTypes, removeNullishFromType, unwrapPromiseType } from "compiler/analysis/typeOperations";
 import { getNodeModuleTypings, getNodeModuleTypingsForImportNames } from "./nodeModulesTypings";
+import {
+  collectImportedSymbolViews,
+  getImportedSymbolResolution,
+  type ImportedSymbolDeclarationOrigin,
+  type ImportedSymbolResolution
+} from "compiler/importedSymbols";
 
 /**
  * Top-level declarations that contribute a named type and whose members the
@@ -3083,19 +3089,6 @@ export interface CollectedImportedDeclarations {
   invalidImportedBindings: Set<string>;
 }
 
-export interface ImportedSymbolDeclarationOrigin {
-  statement: Statement;
-  filePath: string;
-  exportedName: string;
-}
-
-export interface ImportedSymbolResolution {
-  type?: AnalysisType;
-  displayType?: string;
-  declarationOrigin?: ImportedSymbolDeclarationOrigin;
-  invalid?: boolean;
-}
-
 function importableDeclarationName(statement: Statement): string | null {
   const declaration = unwrapDeclaration(statement);
   if (!declaration) {
@@ -3150,25 +3143,12 @@ function nodeModuleExportedNamesForStatement(statement: Statement): string[] {
   return (exportStatement.specifiers ?? []).map((specifier) => specifier.exported.name);
 }
 
-function importedSymbolResolutionFor(
-  importedSymbols: Map<string, ImportedSymbolResolution>,
-  localName: string
-): ImportedSymbolResolution {
-  const existing = importedSymbols.get(localName);
-  if (existing) {
-    return existing;
-  }
-  const created: ImportedSymbolResolution = {};
-  importedSymbols.set(localName, created);
-  return created;
-}
-
 function setImportedSymbolType(
   importedSymbols: Map<string, ImportedSymbolResolution>,
   localName: string,
   type: AnalysisType
 ): void {
-  const resolution = importedSymbolResolutionFor(importedSymbols, localName);
+  const resolution = getImportedSymbolResolution(importedSymbols, localName);
   resolution.type = type;
   delete resolution.invalid;
 }
@@ -3178,7 +3158,7 @@ function setImportedSymbolDisplayType(
   localName: string,
   displayType: string
 ): void {
-  importedSymbolResolutionFor(importedSymbols, localName).displayType = displayType;
+  getImportedSymbolResolution(importedSymbols, localName).displayType = displayType;
 }
 
 function setImportedSymbolDeclarationOrigin(
@@ -3188,7 +3168,7 @@ function setImportedSymbolDeclarationOrigin(
   filePath: string,
   exportedName: string
 ): void {
-  const resolution = importedSymbolResolutionFor(importedSymbols, localName);
+  const resolution = getImportedSymbolResolution(importedSymbols, localName);
   if (resolution.declarationOrigin) {
     return;
   }
@@ -3199,37 +3179,11 @@ function markInvalidImportedBinding(
   importedSymbols: Map<string, ImportedSymbolResolution>,
   localName: string
 ): void {
-  const resolution = importedSymbolResolutionFor(importedSymbols, localName);
+  const resolution = getImportedSymbolResolution(importedSymbols, localName);
   if (resolution.type || resolution.displayType || resolution.declarationOrigin) {
     return;
   }
   resolution.invalid = true;
-}
-
-function collectedImportedDeclarationsViews(
-  importedSymbols: ReadonlyMap<string, ImportedSymbolResolution>
-): Omit<CollectedImportedDeclarations, "externalDeclarations" | "importedSymbols"> {
-  const importedSymbolTypes = new Map<string, AnalysisType>();
-  const importedSymbolDisplayTypes = new Map<string, string>();
-  const invalidImportedBindings = new Set<string>();
-
-  for (const [localName, resolution] of importedSymbols) {
-    if (resolution.type) {
-      importedSymbolTypes.set(localName, resolution.type);
-    }
-    if (resolution.displayType) {
-      importedSymbolDisplayTypes.set(localName, resolution.displayType);
-    }
-    if (resolution.invalid) {
-      invalidImportedBindings.add(localName);
-    }
-  }
-
-  return {
-    importedSymbolTypes,
-    importedSymbolDisplayTypes,
-    invalidImportedBindings
-  };
 }
 
 function shouldIncludeNodeModuleExternalDeclaration(
@@ -3413,7 +3367,7 @@ export async function collectAllImportedDeclarations(
     return {
       externalDeclarations: [],
       importedSymbols,
-      ...collectedImportedDeclarationsViews(importedSymbols)
+      ...collectImportedSymbolViews(importedSymbols)
     };
   }
 
@@ -3780,7 +3734,7 @@ export async function collectAllImportedDeclarations(
   return {
     externalDeclarations,
     importedSymbols,
-    ...collectedImportedDeclarationsViews(importedSymbols)
+    ...collectImportedSymbolViews(importedSymbols)
   };
 }
 

@@ -1,11 +1,11 @@
-import type { AnalysisType } from "compiler/analysis/types";
 import type { Program, Statement } from "compiler/ast/ast";
+import type { ImportedSymbolResolution } from "compiler/importedSymbols";
 import type { Vfs } from "compiler/vfs";
 import { pathToFileURL } from "compiler/utils/path";
 
 export interface ResolvedNodeModuleImports {
   externalDeclarations: Statement[];
-  importedSymbolTypes: Map<string, AnalysisType>;
+  importedSymbols: Map<string, ImportedSymbolResolution>;
 }
 
 export async function resolveNodeModuleImportsForRuntime(
@@ -27,6 +27,6 @@ export async function resolveNodeModuleImportsForRuntime(
   });
   return {
     externalDeclarations: imported.externalDeclarations,
-    importedSymbolTypes: imported.importedSymbolTypes
+    importedSymbols: imported.importedSymbols
   };
 }

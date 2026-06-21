@@ -433,17 +433,19 @@ async function getSessionForModel(model: monaco.editor.ITextModel): Promise<Retu
       getSessionForFilePath: workspaceContext.getSessionForFilePath,
       getExportedSymbols: workspaceContext.getExportedSymbols,
     };
-    const { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes, invalidImportedBindings } =
+    const { externalDeclarations, importedSymbols, invalidImportedBindings } =
       await collectAllImportedDeclarations(ast, resolverContext);
     return createAnalysisSession(
       source,
       externalDeclarations,
-      importedSymbolTypes,
+      new Map(),
       ambientDeclarations,
       new Map(),
       new Map(),
-      importedSymbolDisplayTypes,
-      invalidImportedBindings
+      new Map(),
+      invalidImportedBindings,
+      new Map(),
+      importedSymbols
     );
   })();
   const classResolverCache = createClassResolverCache();
@@ -644,8 +646,14 @@ function registerCompletionProvider(): void {
           recoverAnalysisSession: (source) => createAnalysisSession(
             source,
             session.externalDeclarations,
-            session.importedSymbolTypes,
-            session.ambientDeclarations
+            new Map(),
+            session.ambientDeclarations,
+            session.ambientModuleDeclarations,
+            session.ambientModuleLocations,
+            new Map(),
+            session.invalidImportedBindings,
+            session.ambientDeclarationLocations,
+            session.importedSymbols
           ),
           classResolverCache: cachedEntry?.classResolverCache,
         }

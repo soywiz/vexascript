@@ -184,6 +184,59 @@ This is a good example of the desired migration direction:
 - temporary compatibility may still exist at the construction boundary
 - but it should retreat out of persistent runtime state first
 
+## Binder boundary cleanup
+
+The next cleanup moved the same idea one boundary deeper:
+
+- `Binder` no longer accepts `importedSymbolTypes` and
+  `importedSymbolDisplayTypes` as separate constructor inputs
+
+Instead:
+
+- `Analysis` now normalizes any legacy imported-symbol maps into one
+  `importedSymbols` representation
+- `Binder` consumes only that canonical representation
+
+This is a better architecture cut than deleting every legacy option at once,
+because it removes duplication from the deeper semantic core first:
+
+- fewer live internal paths reach binding
+- imported symbol type/value display fallback logic is centralized at the
+  `Analysis` boundary
+- compatibility is pushed outward toward the edges instead of inward toward the
+  core
+
+## Shared normalization cleanup
+
+Another important cleanup was deleting the repeated local normalization logic
+for imported bindings that had quietly spread across:
+
+- `Analysis`
+- `AnalysisSession`
+- runtime transpilation
+- import collection helpers
+
+That duplication was especially risky because each copy was small enough to
+look harmless, but together they created several places where:
+
+- `type`
+- `displayType`
+- invalid-binding state
+- declaration origin
+
+could drift or be normalized slightly differently.
+
+The fix was to make one shared compiler-level module responsible for:
+
+- normalizing legacy imported-symbol inputs into canonical `importedSymbols`
+- deriving narrow compatibility views from that canonical map when still needed
+
+This is the kind of DRY that actually matters:
+
+- less live duplication in production code
+- fewer hidden differences between analysis/runtime/LSP paths
+- a clearer next step for deleting the remaining legacy narrow-map APIs
+
 ## Regression guidance
 
 - If an imported symbol has a stable resolved type, treat "no definition" as a

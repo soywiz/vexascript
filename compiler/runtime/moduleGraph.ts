@@ -211,21 +211,21 @@ function collectImportedDeclarations(dependencyAst: Program, importedNames: Set<
 
 /**
  * Loads the .d.ts typings for every bare-specifier import in `ast` and merges
- * their declarations into `externalDeclarations` and their default-export types
- * into `importedSymbolTypes`. This gives the CLI type-checker the same npm
+ * their declarations into `externalDeclarations` and their imported-binding
+ * resolutions into `importedSymbols`. This gives the CLI type-checker the same npm
  * package information the LSP already has.
  */
 async function collectNodeModulesTypings(
   ast: Program,
   importerFilePath: string,
   externalDeclarations: Statement[],
-  importedSymbolTypes: Map<string, AnalysisType>,
+  importedSymbols: Map<string, { type?: AnalysisType; displayType?: string }>,
   vfs: Vfs
 ): Promise<void> {
   const imported = await resolveNodeModuleImportsForRuntime(ast, importerFilePath, vfs);
   externalDeclarations.push(...imported.externalDeclarations);
-  for (const [name, type] of imported.importedSymbolTypes) {
-    importedSymbolTypes.set(name, type);
+  for (const [name, resolution] of imported.importedSymbols) {
+    importedSymbols.set(name, resolution);
   }
 }
 
@@ -340,10 +340,10 @@ export async function bundleModuleGraph(
     const ast = parsed?.ast ?? null;
 
     const externalDeclarations: Statement[] = [];
-    const importedSymbolTypes = new Map<string, AnalysisType>();
+    const importedSymbols = new Map<string, { type?: AnalysisType; displayType?: string }>();
     const bundledSpecifiers = new Set<string>();
     if (ast) {
-      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, activeVfs);
+      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
         bundledSpecifiers.add(statement.from.value);
         const assetSource = await loadSource(targetPath);
@@ -354,7 +354,9 @@ export async function bundleModuleGraph(
         try {
           const { importedType } = emitAssetImportBindings(statement, targetPath, assetSource);
           for (const bindingName of assetImportBindingNames(statement)) {
-            importedSymbolTypes.set(bindingName, importedType);
+            const existing = importedSymbols.get(bindingName) ?? {};
+            existing.type = importedType;
+            importedSymbols.set(bindingName, existing);
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -378,7 +380,10 @@ export async function bundleModuleGraph(
           for (const specifier of statement.specifiers) {
             const importedType = dependencyAnalysis.getTopLevelSymbolType(specifier.imported.name);
             if (importedType) {
-              importedSymbolTypes.set((specifier.local ?? specifier.imported).name, importedType);
+              const bindingName = (specifier.local ?? specifier.imported).name;
+              const existing = importedSymbols.get(bindingName) ?? {};
+              existing.type = importedType;
+              importedSymbols.set(bindingName, existing);
             }
           }
         }
@@ -388,15 +393,15 @@ export async function bundleModuleGraph(
     // Store this module's analysis (resolved with its own cross-file types) so
     // modules that import from it can read their imported value types.
     const compilationArtifacts = parsed
-      ? compileParsedSource(parsed, {
+        ? compileParsedSource(parsed, {
           externalDeclarations,
           ambientDeclarations,
-          importedSymbolTypes
+          importedSymbols
         })
       : compileSource(source, parserOptions, {
           externalDeclarations,
           ambientDeclarations,
-          importedSymbolTypes
+          importedSymbols
         });
     analysisByPath.set(filePath, compilationArtifacts.analysis);
 
@@ -407,7 +412,7 @@ export async function bundleModuleGraph(
       emitSourceMap: false,
       parserOptions,
       externalDeclarations,
-      importedSymbolTypes,
+      importedSymbols,
       ambientDeclarations,
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})
@@ -533,10 +538,10 @@ export async function bundleModuleGraphAsModules(
     const ast = parsed?.ast ?? null;
 
     const externalDeclarations: Statement[] = [];
-    const importedSymbolTypes = new Map<string, AnalysisType>();
+    const importedSymbols = new Map<string, { type?: AnalysisType; displayType?: string }>();
     const bundledAssetSpecifiers = new Set<string>();
     if (ast) {
-      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbolTypes, activeVfs);
+      await collectNodeModulesTypings(ast, filePath, externalDeclarations, importedSymbols, activeVfs);
       for (const { statement, targetPath } of await localAssetImportSpecifiers(ast, filePath, activeVfs)) {
         bundledAssetSpecifiers.add(statement.from.value);
         const assetSource = await loadSource(targetPath);
@@ -547,7 +552,9 @@ export async function bundleModuleGraphAsModules(
         try {
           const { importedType } = emitAssetImportBindings(statement, targetPath, assetSource);
           for (const bindingName of assetImportBindingNames(statement)) {
-            importedSymbolTypes.set(bindingName, importedType);
+            const existing = importedSymbols.get(bindingName) ?? {};
+            existing.type = importedType;
+            importedSymbols.set(bindingName, existing);
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -568,7 +575,10 @@ export async function bundleModuleGraphAsModules(
           for (const specifier of statement.specifiers) {
             const importedType = dependencyAnalysis.getTopLevelSymbolType(specifier.imported.name);
             if (importedType) {
-              importedSymbolTypes.set((specifier.local ?? specifier.imported).name, importedType);
+              const bindingName = (specifier.local ?? specifier.imported).name;
+              const existing = importedSymbols.get(bindingName) ?? {};
+              existing.type = importedType;
+              importedSymbols.set(bindingName, existing);
             }
           }
         }
@@ -576,15 +586,15 @@ export async function bundleModuleGraphAsModules(
     }
 
     const compilationArtifacts = parsed
-      ? compileParsedSource(parsed, {
+        ? compileParsedSource(parsed, {
           externalDeclarations,
           ambientDeclarations,
-          importedSymbolTypes
+          importedSymbols
         })
       : compileSource(source, parserOptions, {
           externalDeclarations,
           ambientDeclarations,
-          importedSymbolTypes
+          importedSymbols
         });
     analysisByPath.set(filePath, compilationArtifacts.analysis);
 
@@ -596,7 +606,7 @@ export async function bundleModuleGraphAsModules(
       moduleFormat,
       parserOptions,
       externalDeclarations,
-      importedSymbolTypes,
+      importedSymbols,
       ambientDeclarations,
       ...(options.jsxFactory ? { jsxFactory: options.jsxFactory } : {}),
       ...(options.jsxFragmentFactory ? { jsxFragmentFactory: options.jsxFragmentFactory } : {})

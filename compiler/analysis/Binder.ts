@@ -95,24 +95,18 @@ export class Binder {
   constructor(
     private readonly program: Program,
     private readonly externalDeclarations: Statement[] = [],
-    private readonly importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
     private readonly ambientDeclarations: Statement[] = [],
-    private readonly importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map(),
     private readonly importedSymbols: ReadonlyMap<string, ImportedAnalysisSymbolResolution> = new Map()
   ) {
     this.rootScope = this.createScope(undefined, program);
   }
 
   private importedSymbolType(localName: string): AnalysisType {
-    return this.importedSymbols.get(localName)?.type
-      ?? this.importedSymbolTypes.get(localName)
-      ?? UNKNOWN_TYPE;
+    return this.importedSymbols.get(localName)?.type ?? UNKNOWN_TYPE;
   }
 
   private importedSymbolValueType(localName: string, resolvedType: AnalysisType): string {
-    return this.importedSymbols.get(localName)?.displayType
-      ?? this.importedSymbolDisplayTypes.get(localName)
-      ?? typeToString(resolvedType);
+    return this.importedSymbols.get(localName)?.displayType ?? typeToString(resolvedType);
   }
 
   bind(): BoundAnalysis {

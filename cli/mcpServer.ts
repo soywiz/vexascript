@@ -228,9 +228,9 @@ export class VexaMcpCodebaseServer {
         sourceRoots,
         getSessionForFilePath: async (nextPath: string) => this.sessionForFile(nextPath, sourceRoots)
       };
-      const { externalDeclarations, importedSymbolTypes } = await collectAllImportedDeclarations(baseSession.ast, context);
-      return externalDeclarations.length > 0 || importedSymbolTypes.size > 0
-        ? createAnalysisSession(source, externalDeclarations, importedSymbolTypes)
+      const { externalDeclarations, importedSymbols } = await collectAllImportedDeclarations(baseSession.ast, context);
+      return externalDeclarations.length > 0 || importedSymbols.size > 0
+        ? createAnalysisSession(source, externalDeclarations, new Map(), [], new Map(), new Map(), new Map(), new Set(), new Map(), importedSymbols)
         : baseSession;
     })();
     this.sessionCache.set(resolvedPath, promise);

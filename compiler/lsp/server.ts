@@ -133,8 +133,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
   if (!baseSession.ast) {
     return {
       externalDeclarations: [],
-      importedSymbolTypes: new Map(),
-      importedSymbolDisplayTypes: new Map(),
+      importedSymbols: new Map(),
       ambientDeclarations: [],
       ambientModuleDeclarations: new Map()
     };
@@ -170,8 +169,6 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
   const {
     externalDeclarations,
     importedSymbols,
-    importedSymbolTypes,
-    importedSymbolDisplayTypes,
     invalidImportedBindings
   } =
     await collectAllImportedDeclarations(baseSession.ast, context);
@@ -179,8 +176,6 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
   return {
     externalDeclarations,
     importedSymbols,
-    importedSymbolTypes,
-    importedSymbolDisplayTypes,
     invalidImportedBindings,
     ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
     ambientDeclarationLocations: new Map([
