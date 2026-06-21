@@ -511,18 +511,7 @@ export function startLspServer(options: LspServerOptions): void {
         text,
         ...featureContext(doc.uri),
         ambientModuleDeclarations: session.ambientModuleDeclarations,
-        recoverAnalysisSession: (source) => createAnalysisSession(
-          source,
-          session.externalDeclarations,
-          new Map(),
-          session.ambientDeclarations,
-          session.ambientModuleDeclarations,
-          session.ambientModuleLocations,
-          new Map(),
-          session.invalidImportedBindings,
-          session.ambientDeclarationLocations,
-          session.importedSymbols
-        )
+        recoverAnalysisSession: (source) => createAnalysisSession(source, { externalDeclarations: session.externalDeclarations, ambientDeclarations: session.ambientDeclarations, ambientModuleDeclarations: session.ambientModuleDeclarations, ambientModuleLocations: session.ambientModuleLocations, invalidImportedBindings: session.invalidImportedBindings, ambientDeclarationLocations: session.ambientDeclarationLocations, importedSymbols: session.importedSymbols })
       }
     );
   }));

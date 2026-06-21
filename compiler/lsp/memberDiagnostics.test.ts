@@ -181,16 +181,7 @@ fun demo(items: Token[]) {
       uri: pathToFileURL(helloFile).toString(),
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(
-      helloSource,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(helloSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const diagnostics = await collectCrossFileMemberDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
@@ -248,16 +239,7 @@ fun demo(items: Token[]) {
       uri: pathToFileURL(helloFile).toString(),
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(
-      helloSource,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(helloSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const diagnostics = await collectCrossFileMemberDiagnostics({
       uri: pathToFileURL(helloFile).toString(),
@@ -365,16 +347,7 @@ fun demo(items: Token[]) {
       uri: pathToFileURL(helloFile).toString(),
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(
-      helloSource,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(helloSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const diagnostics = await collectCrossFileMemberDiagnostics({
       uri: pathToFileURL(helloFile).toString(),

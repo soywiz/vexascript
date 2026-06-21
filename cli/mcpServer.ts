@@ -230,7 +230,7 @@ export class VexaMcpCodebaseServer {
       };
       const { externalDeclarations, importedSymbols } = await collectAllImportedDeclarations(baseSession.ast, context);
       return externalDeclarations.length > 0 || importedSymbols.size > 0
-        ? createAnalysisSession(source, externalDeclarations, new Map(), [], new Map(), new Map(), new Map(), new Set(), new Map(), importedSymbols)
+        ? createAnalysisSession(source, { externalDeclarations, importedSymbols })
         : baseSession;
     })();
     this.sessionCache.set(resolvedPath, promise);

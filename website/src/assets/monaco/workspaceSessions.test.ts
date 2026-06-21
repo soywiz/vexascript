@@ -1,10 +1,6 @@
 import { describe, expect, it } from "compiler/test/expect";
 import { createAnalysisSession } from "compiler/lsp/analysisSession";
-import {
-  collectAllImportedDeclarations,
-  collectImportedSymbolTypes,
-  collectImportedTypeDeclarations,
-} from "compiler/lsp/importedDeclarations";
+import { collectAllImportedDeclarations } from "compiler/lsp/importedDeclarations";
 import { resolveDefinitionWithLocalFallback, resolveMemberHoverAcrossFiles } from "compiler/lsp/crossFileNavigation";
 import { ensureDomProgram } from "compiler/runtime/domDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
@@ -233,16 +229,7 @@ async function buildOptimizedPlaygroundSession(
   },
 ) {
   const collected = await collectAllImportedDeclarations(mainAst, resolverContext);
-  return createAnalysisSession(
-    mainSource,
-    collected.externalDeclarations,
-    collected.importedSymbolTypes,
-    ambientDeclarations,
-    new Map(),
-    new Map(),
-    collected.importedSymbolDisplayTypes,
-    collected.invalidImportedBindings,
-  );
+  return createAnalysisSession(mainSource, { externalDeclarations: collected.externalDeclarations, ambientDeclarations, importedSymbols: collected.importedSymbols });
 }
 
 async function buildLegacyPlaygroundSession(
@@ -256,21 +243,13 @@ async function buildLegacyPlaygroundSession(
     getExportedSymbols(): Promise<never[]>;
   },
 ) {
-  const baseSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+  const baseSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
   const ast = baseSession.ast;
   if (!ast) {
-    return createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    return createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
   }
-  const [externalDeclarations, importedSymbolTypes] = await Promise.all([
-    collectImportedTypeDeclarations(ast, resolverContext),
-    collectImportedSymbolTypes(ast, resolverContext),
-  ]);
-  return createAnalysisSession(
-    mainSource,
-    externalDeclarations,
-    importedSymbolTypes,
-    ambientDeclarations,
-  );
+  const collected = await collectAllImportedDeclarations(ast, resolverContext);
+  return createAnalysisSession(mainSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols, ambientDeclarations: ambientDeclarations });
 }
 
 describe("workspace session cache", () => {

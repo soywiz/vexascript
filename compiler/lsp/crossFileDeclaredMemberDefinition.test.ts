@@ -4,7 +4,7 @@ import type { Identifier } from "compiler/ast/ast";
 import { createAnalysisSession } from "./analysisSession";
 import { resolveDeclaredMemberDefinitionAcrossFiles } from "./crossFileDeclaredMemberDefinition";
 import { findMemberExpressionAtPosition } from "./crossFileTypeResolution";
-import { collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 
 async function resolveDeclaredMemberDefinitionFromSource(args: {
   root: string;
@@ -15,15 +15,11 @@ async function resolveDeclaredMemberDefinitionFromSource(args: {
 }) {
   const uri = pathToFileURL(args.filePath).toString();
   const baseSession = createAnalysisSession(args.source);
-  const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+  const collected = await collectAllImportedDeclarations(baseSession.ast!, {
     uri,
     sourceRoots: [args.root]
   });
-  const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-    uri,
-    sourceRoots: [args.root]
-  });
-  const session = createAnalysisSession(args.source, externalDeclarations, importedSymbolTypes);
+  const session = createAnalysisSession(args.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
   const memberExpression = findMemberExpressionAtPosition(session.ast!, args.line, args.character);
   expect(memberExpression?.property.kind).toBe("Identifier");
 

@@ -2,7 +2,7 @@ import { describe, expect, it, join, mkdtemp, pathToFileURL, tmpdir, writeFile }
 import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createAutoAwaitDecorations } from "./autoAwaitDecorations";
-import { collectImportedSymbolTypes } from "./importedDeclarations";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
 
 describe("auto-await decorations", () => {
@@ -154,11 +154,11 @@ describe("auto-await decorations", () => {
     await writeFile(mainFile, mainSource, "utf8");
 
     const baseSession = createAnalysisSession(mainSource);
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+    const importedSymbols = (await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(mainFile).toString(),
       sourceRoots: [root]
-    });
-    const session = createAnalysisSession(mainSource, [], importedSymbolTypes);
+    })).importedSymbols;
+    const session = createAnalysisSession(mainSource, { importedSymbols: importedSymbols });
 
     const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
     expect(decorations.map((decoration) => decoration.range.start.line)).toEqual([2, 3]);
@@ -205,18 +205,18 @@ describe("auto-await decorations", () => {
     await writeFile(depFile, depSource, "utf8");
     await writeFile(mainFile, mainSource, "utf8");
 
-    const baseSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
+    const baseSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
+    const importedSymbols = (await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(mainFile).toString(),
       sourceRoots: [root],
       getSessionForFilePath: async (filePath) => {
         if (filePath !== depFile) {
           return null;
         }
-        return createAnalysisSession(depSource, [], new Map(), ambientDeclarations);
+        return createAnalysisSession(depSource, { ambientDeclarations: ambientDeclarations });
       },
-    });
-    const session = createAnalysisSession(mainSource, [], importedSymbolTypes, ambientDeclarations);
+    })).importedSymbols;
+    const session = createAnalysisSession(mainSource, { importedSymbols: importedSymbols, ambientDeclarations: ambientDeclarations });
 
     const decorations = createAutoAwaitDecorations(session.ast!, session.analysis!);
     expect(decorations.map((decoration) => decoration.range.start.line)).toEqual([3, 4]);

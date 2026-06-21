@@ -12,7 +12,7 @@ import {
 } from "./completion";
 import { createClassResolverCache, resolveClassMemberNames, resolveClassStatementAcrossFiles } from "./classResolver";
 import { resolveDefinitionAcrossFiles } from "./crossFileNavigation";
-import { collectAllImportedDeclarations, collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { getProjectIndex } from "./projectAnalysis";
 import { buildVisibleSymbolCompletionItems } from "./symbolCompletion";
 import { Vfs } from "compiler/vfs";
@@ -29,18 +29,7 @@ function parseAmbientModule(src: string, moduleName: string) {
 }
 
 function recoverSessionFrom(source: string, session: ReturnType<typeof createAnalysisSession>) {
-  return createAnalysisSession(
-    source,
-    session.externalDeclarations,
-    new Map(),
-    session.ambientDeclarations,
-    session.ambientModuleDeclarations,
-    session.ambientModuleLocations,
-    new Map(),
-    session.invalidImportedBindings,
-    session.ambientDeclarationLocations,
-    session.importedSymbols
-  );
+  return createAnalysisSession(source, { externalDeclarations: session.externalDeclarations, ambientDeclarations: session.ambientDeclarations, ambientModuleDeclarations: session.ambientModuleDeclarations, ambientModuleLocations: session.ambientModuleLocations, invalidImportedBindings: session.invalidImportedBindings, ambientDeclarationLocations: session.ambientDeclarationLocations, importedSymbols: session.importedSymbols });
 }
 
 describe("createCompletionItemsForPosition", () => {
@@ -618,7 +607,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -1032,11 +1021,8 @@ describe("createCompletionItemsForPosition", () => {
       vfs,
       getSessionForFilePath
     };
-    const [externalDeclarations, importedSymbolTypes] = await Promise.all([
-      collectImportedTypeDeclarations(baseSession.ast!, resolverContext),
-      collectImportedSymbolTypes(baseSession.ast!, resolverContext)
-    ]);
-    const session = createAnalysisSession(source, externalDeclarations, importedSymbolTypes);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, resolverContext);
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const items = await createCompletionItemsForPosition(
       session.ast!,
@@ -1110,16 +1096,7 @@ describe("createCompletionItemsForPosition", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const resolverOptions = {
       uri: pathToFileURL(mainPath).toString(),
       sourceRoots: [root],
@@ -1374,7 +1351,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -1394,7 +1371,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -1411,7 +1388,7 @@ describe("createCompletionItemsForPosition", () => {
       document.crea^^^
     `);
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       ambientDeclarations,
@@ -1436,7 +1413,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -1453,7 +1430,7 @@ describe("createCompletionItemsForPosition", () => {
       document.crea^^^
     `);
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       ambientDeclarations,
@@ -1479,22 +1456,13 @@ describe("createCompletionItemsForPosition", () => {
         "node:util"
       )]
     ]);
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: "file:///virtual/main.vx",
@@ -1527,22 +1495,13 @@ describe("createCompletionItemsForPosition", () => {
         "node:fs/promises"
       )]
     ]);
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
 
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
@@ -1577,22 +1536,13 @@ describe("createCompletionItemsForPosition", () => {
         "node:fs/promises"
       )]
     ]);
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
 
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
@@ -1624,22 +1574,13 @@ describe("createCompletionItemsForPosition", () => {
         "node:util"
       )]
     ]);
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: "file:///virtual/main.vx",
@@ -1845,16 +1786,7 @@ describe("createCompletionItemsForPosition", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(mainPath).toString(),
@@ -1882,7 +1814,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
     const location = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(file).toString(),
       line,
@@ -1909,8 +1841,8 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const baseSession = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+    const baseSession = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(file).toString(),
       sourceRoots: [root],
       getSessionForFilePath: async (filePath) => {
@@ -1918,21 +1850,10 @@ describe("createCompletionItemsForPosition", () => {
           return null;
         }
         const counterSource = await readFile(counterFile, "utf8");
-        return createAnalysisSession(counterSource, [], new Map(), (await ensureDomProgram()).body);
+        return createAnalysisSession(counterSource, { ambientDeclarations: (await ensureDomProgram()).body });
       }
     });
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-      uri: pathToFileURL(file).toString(),
-      sourceRoots: [root],
-      getSessionForFilePath: async (filePath) => {
-        if (filePath !== counterFile) {
-          return null;
-        }
-        const counterSource = await readFile(counterFile, "utf8");
-        return createAnalysisSession(counterSource, [], new Map(), (await ensureDomProgram()).body);
-      }
-    });
-    const session = createAnalysisSession(source, externalDeclarations, importedSymbolTypes, (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols, ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -1942,7 +1863,7 @@ describe("createCompletionItemsForPosition", () => {
           return null;
         }
         const counterSource = await readFile(counterFile, "utf8");
-        return createAnalysisSession(counterSource, [], new Map(), (await ensureDomProgram()).body);
+        return createAnalysisSession(counterSource, { ambientDeclarations: (await ensureDomProgram()).body });
       },
       recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
@@ -1961,7 +1882,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -1979,7 +1900,7 @@ describe("createCompletionItemsForPosition", () => {
       root.^^^
     `);
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       ambientDeclarations,
@@ -2001,7 +1922,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -2023,7 +1944,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -2045,7 +1966,7 @@ describe("createCompletionItemsForPosition", () => {
     `);
     await writeFile(file, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), (await ensureDomProgram()).body);
+    const session = createAnalysisSession(source, { ambientDeclarations: (await ensureDomProgram()).body });
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       uri: pathToFileURL(file).toString(),
@@ -2379,9 +2300,8 @@ describe("createCompletionItemsForPosition", () => {
 
     const baseSession = createAnalysisSession(source);
     const ctx = { uri: pathToFileURL(mainPath).href, sourceRoots: [root], getSessionForFilePath: () => null };
-    const declarations = await collectImportedTypeDeclarations(baseSession.ast!, ctx);
-    const symbolTypes = await collectImportedSymbolTypes(baseSession.ast!, ctx);
-    const session = createAnalysisSession(source, declarations, symbolTypes);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, ctx);
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const items = await createCompletionItemsForPosition(
       session.ast!, line, character, session.analysis!, [],
@@ -2510,17 +2430,12 @@ describe("createCompletionItemsForPosition", () => {
 
     const baseSession = createAnalysisSession(marked.source);
     const projectIndex = getProjectIndex([root]);
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(optimizerPath).href,
       sourceRoots: [root],
       getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
     });
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-      uri: pathToFileURL(optimizerPath).href,
-      sourceRoots: [root],
-      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
-    });
-    const session = createAnalysisSession(marked.source, externalDeclarations, importedSymbolTypes);
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const items = await createCompletionItemsForPosition(
       session.ast!,
       marked.line,
@@ -2532,7 +2447,7 @@ describe("createCompletionItemsForPosition", () => {
         uri: pathToFileURL(optimizerPath).href,
         sourceRoots: [root],
         getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath),
-        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, externalDeclarations, importedSymbolTypes)
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols })
       }
     );
     const labels = items.map((item) => item.label);
@@ -2567,17 +2482,12 @@ describe("createCompletionItemsForPosition", () => {
 
     const baseSession = createAnalysisSession(marked.source);
     const projectIndex = getProjectIndex([root]);
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(optimizerPath).href,
       sourceRoots: [root],
       getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
     });
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-      uri: pathToFileURL(optimizerPath).href,
-      sourceRoots: [root],
-      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
-    });
-    const session = createAnalysisSession(marked.source, externalDeclarations, importedSymbolTypes);
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const items = await createCompletionItemsForPosition(
       session.ast!,
       marked.line,
@@ -2589,7 +2499,7 @@ describe("createCompletionItemsForPosition", () => {
         uri: pathToFileURL(optimizerPath).href,
         sourceRoots: [root],
         getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath),
-        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, externalDeclarations, importedSymbolTypes)
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols })
       }
     );
     const labels = items.map((item) => item.label);
@@ -2628,17 +2538,12 @@ describe("createCompletionItemsForPosition", () => {
 
     const baseSession = createAnalysisSession(marked.source);
     const projectIndex = getProjectIndex([root]);
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(optimizerPath).href,
       sourceRoots: [root],
       getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
     });
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-      uri: pathToFileURL(optimizerPath).href,
-      sourceRoots: [root],
-      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
-    });
-    const session = createAnalysisSession(marked.source, externalDeclarations, importedSymbolTypes);
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const items = await createCompletionItemsForPosition(
       session.ast!,
       marked.line,
@@ -2650,7 +2555,7 @@ describe("createCompletionItemsForPosition", () => {
         uri: pathToFileURL(optimizerPath).href,
         sourceRoots: [root],
         getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath),
-        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, externalDeclarations, importedSymbolTypes)
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols })
       }
     );
     const labels = items.map((item) => item.label);
@@ -2683,17 +2588,12 @@ describe("createCompletionItemsForPosition", () => {
 
     const baseSession = createAnalysisSession(source);
     const projectIndex = getProjectIndex([root]);
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(mainPath).href,
       sourceRoots: [root],
       getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
     });
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-      uri: pathToFileURL(mainPath).href,
-      sourceRoots: [root],
-      getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath)
-    });
-    const session = createAnalysisSession(source, externalDeclarations, importedSymbolTypes);
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const items = await createCompletionItemsForPosition(
       session.ast!,
       line,
@@ -2705,7 +2605,7 @@ describe("createCompletionItemsForPosition", () => {
         uri: pathToFileURL(mainPath).href,
         sourceRoots: [root],
         getSessionForFilePath: (filePath) => projectIndex.getSessionForFilePath(filePath),
-        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, externalDeclarations, importedSymbolTypes)
+        recoverAnalysisSession: (recovered) => createAnalysisSession(recovered, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols })
       }
     );
     const labels = items.map((item) => item.label);

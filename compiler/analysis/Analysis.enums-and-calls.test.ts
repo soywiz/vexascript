@@ -38,7 +38,7 @@ describe("enum semantic analysis", () => {
     const source = 'import { Color } from "./colors"\nlet chosen = Color.Red\nlet missing = Color.Nope\n';
     const analysis = new Analysis(parseFile(tokenizeReader(source)), {
       externalDeclarations,
-      importedSymbolTypes: new Map([["Color", namedType("Color")]])
+      importedSymbols: new Map([["Color", { type: namedType("Color") }]])
     });
     const messages = analysis.getIssues().map((issue) => issue.message);
 

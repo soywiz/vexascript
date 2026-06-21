@@ -4,7 +4,7 @@ import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { createSignatureHelp } from "./signatureHelp";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
-import { collectAllImportedDeclarations, collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { parseSource } from "compiler/pipeline/parse";
 import type { Statement } from "compiler/ast/ast";
 
@@ -530,9 +530,8 @@ describe("signature help", () => {
 
     const ctx = { uri: pathToFileURL(mainPath).href, sourceRoots: [root], getSessionForFilePath: () => null };
     const baseSession = createAnalysisSession(source);
-    const declarations = await collectImportedTypeDeclarations(baseSession.ast!, ctx);
-    const symbolTypes = await collectImportedSymbolTypes(baseSession.ast!, ctx);
-    const session = createAnalysisSession(source, declarations, symbolTypes);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, ctx);
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 16, ctx);
     expect(help).not.toBeNull();
@@ -644,15 +643,7 @@ describe("signature help", () => {
       sourceRoots: [root],
       ambientModuleDeclarations: ambient.moduleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      ambient.globalDeclarations,
-      ambient.moduleDeclarations,
-      ambient.moduleDeclarationLocations,
-      imported.importedSymbolDisplayTypes
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, importedSymbols: imported.importedSymbols });
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
     expect(help).not.toBeNull();
@@ -671,22 +662,13 @@ describe("signature help", () => {
       )]
     ]);
 
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 12, {
       ambientModuleDeclarations
@@ -721,22 +703,13 @@ describe("signature help", () => {
       )]
     ]);
 
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 24, {
       ambientModuleDeclarations
@@ -757,22 +730,13 @@ describe("signature help", () => {
       )]
     ]);
 
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 12, {
       ambientModuleDeclarations
@@ -806,22 +770,13 @@ describe("signature help", () => {
       )]
     ]);
 
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 12, {
       ambientModuleDeclarations
@@ -844,22 +799,13 @@ describe("signature help", () => {
       )]
     ]);
 
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 16, {
       ambientModuleDeclarations
@@ -879,18 +825,10 @@ describe("signature help", () => {
 
     // Provide a display type string but no structured type — this forces the
     // display-string fallback path in buildSignaturesFromSymbol.
-    const importedSymbolDisplayTypes = new Map<string, string>([
-      ["transform", "(a: number, b: number) => number"]
+    const importedSymbols = new Map([
+      ["transform", { displayType: "(a: number, b: number) => number" }]
     ]);
-    const session = createAnalysisSession(
-      source,
-      [],
-      new Map(),
-      [],
-      new Map(),
-      new Map(),
-      importedSymbolDisplayTypes
-    );
+    const session = createAnalysisSession(source, { importedSymbols: importedSymbols });
 
     const help = await createSignatureHelp(session.ast!, session.analysis!, line, character);
     expect(help).not.toBeNull();
@@ -917,22 +855,13 @@ describe("signature help", () => {
     ]);
 
     const source = 'import { process } from "helpers"\nprocess("test", 16)\n';
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, importedSymbols: imported.importedSymbols });
 
     // Cursor is past the second argument (character 18 = inside 16)
     const help = await createSignatureHelp(session.ast!, session.analysis!, 1, 18, {

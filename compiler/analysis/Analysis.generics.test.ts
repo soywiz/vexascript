@@ -1652,7 +1652,7 @@ describe("Analysis", () => {
     const externalDeclarations = parseFile(tokenizeReader(externalSource)).body;
     const analysis = new Analysis(ast, {
       externalDeclarations,
-      importedSymbolTypes: new Map([["Point", namedType("Point")]])
+      importedSymbols: new Map([["Point", { type: namedType("Point") }]])
     });
 
     expect(analysis.getIssues().map((issue) => issue.message)).toEqual([]);

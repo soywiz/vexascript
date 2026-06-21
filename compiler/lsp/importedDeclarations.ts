@@ -3352,10 +3352,8 @@ function ambientModuleDeclarationCandidates(
 }
 
 /**
- * Collects both imported type declarations and imported symbol types in a single
- * pass over the document's import statements. Prefer this over calling
- * `collectImportedTypeDeclarations` and `collectImportedSymbolTypes` separately
- * to avoid resolving each import path twice.
+ * Collects imported type declarations and imported symbol details in a single
+ * pass over the document's import statements.
  */
 export async function collectAllImportedDeclarations(
   ast: Program,
@@ -3753,19 +3751,4 @@ export async function collectImportedTypeDeclarations(
   context: CollectImportedDeclarationsContext
 ): Promise<Statement[]> {
   return (await collectAllImportedDeclarations(ast, context)).externalDeclarations;
-}
-
-/**
- * Resolves the types of values imported by a document's `import { ... } from "..."`
- * statements, keyed by the local name they are bound to. The type is taken from
- * the imported file's own analysis, so it reflects inferred return types (e.g. a
- * function whose body returns a `Promise`). Intended to be passed to `Analysis`
- * as `importedSymbolTypes` so cross-file calls resolve their value type and
- * participate in pervasive auto-await.
- */
-export async function collectImportedSymbolTypes(
-  ast: Program,
-  context: CollectImportedDeclarationsContext
-): Promise<Map<string, AnalysisType>> {
-  return (await collectAllImportedDeclarations(ast, context)).importedSymbolTypes;
 }

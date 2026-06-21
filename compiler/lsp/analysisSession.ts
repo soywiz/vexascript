@@ -1,6 +1,5 @@
 import type { Analysis, AnalysisIssue } from "compiler/analysis/Analysis";
 import type { Program, Statement } from "compiler/ast/ast";
-import type { AnalysisType } from "compiler/analysis/types";
 import type { ParseIssue } from "compiler/parser/parser";
 import type { TokenizeError } from "compiler/parser/tokenizer";
 import { compileSource } from "compiler/pipeline/compile";
@@ -27,33 +26,34 @@ export interface AnalysisSession {
   ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation>;
 }
 
+export interface AnalysisSessionOptions {
+  externalDeclarations?: Statement[];
+  ambientDeclarations?: Statement[];
+  ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
+  ambientModuleLocations?: ReadonlyMap<string, AmbientModuleLocation>;
+  invalidImportedBindings?: ReadonlySet<string>;
+  ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;
+  importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
+}
+
 export function createAnalysisSession(
   source: string,
-  externalDeclarations: Statement[] = [],
-  importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
-  ambientDeclarations: Statement[] = [],
-  ambientModuleDeclarations: ReadonlyMap<string, Statement[]> = new Map(),
-  ambientModuleLocations: ReadonlyMap<string, AmbientModuleLocation> = new Map(),
-  importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map(),
-  invalidImportedBindings: ReadonlySet<string> = new Set(),
-  ambientDeclarationLocations: ReadonlyMap<Statement, AmbientModuleLocation> = new Map(),
-  importedSymbols: ReadonlyMap<string, ImportedSymbolResolution> = new Map()
+  options: AnalysisSessionOptions = {}
 ): AnalysisSession {
+  const externalDeclarations = options.externalDeclarations ?? [];
+  const ambientDeclarations = options.ambientDeclarations ?? [];
+  const ambientDeclarationLocations = options.ambientDeclarationLocations ?? new Map();
+  const ambientModuleDeclarations = options.ambientModuleDeclarations ?? new Map();
+  const ambientModuleLocations = options.ambientModuleLocations ?? new Map();
   const {
     importedSymbols: normalizedImportedSymbols,
-    importedSymbolTypes: normalizedImportedSymbolTypes,
-    importedSymbolDisplayTypes: normalizedImportedSymbolDisplayTypes,
     invalidImportedBindings: normalizedInvalidImportedBindings
   } = normalizeImportedSymbolSources({
-    importedSymbols,
-    importedSymbolTypes,
-    importedSymbolDisplayTypes,
-    invalidImportedBindings
+    importedSymbols: options.importedSymbols,
+    invalidImportedBindings: options.invalidImportedBindings
   });
   const artifacts = compileSource(source, {}, {
     externalDeclarations,
-    importedSymbolTypes: normalizedImportedSymbolTypes,
-    importedSymbolDisplayTypes: normalizedImportedSymbolDisplayTypes,
     importedSymbols: normalizedImportedSymbols,
     ambientDeclarations,
     invalidImportedBindings: normalizedInvalidImportedBindings
@@ -88,8 +88,6 @@ export function buildAnalysisForSource(source: string): Analysis | null {
 export interface ResolvedExternals {
   externalDeclarations: Statement[];
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
-  importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
-  importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
   invalidImportedBindings?: ReadonlySet<string>;
   ambientDeclarations?: Statement[];
   ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;
@@ -109,8 +107,6 @@ function buildSessionFromResolved(
 ): AnalysisSession {
   const externalDeclarations = resolved.externalDeclarations ?? [];
   const importedSymbols = resolved.importedSymbols ?? new Map();
-  const importedSymbolTypes = resolved.importedSymbolTypes ?? new Map();
-  const importedSymbolDisplayTypes = resolved.importedSymbolDisplayTypes ?? new Map();
   const ambientDeclarations = resolved.ambientDeclarations ?? [];
   const ambientDeclarationLocations = resolved.ambientDeclarationLocations ?? new Map();
   const ambientModuleDeclarations = resolved.ambientModuleDeclarations ?? new Map();
@@ -119,8 +115,6 @@ function buildSessionFromResolved(
   if (
     externalDeclarations.length === 0 &&
     importedSymbols.size === 0 &&
-    importedSymbolTypes.size === 0 &&
-    importedSymbolDisplayTypes.size === 0 &&
     invalidImportedBindings.size === 0 &&
     ambientDeclarations.length === 0 &&
     ambientDeclarationLocations.size === 0 &&
@@ -128,18 +122,15 @@ function buildSessionFromResolved(
   ) {
     return baseSession;
   }
-  return createAnalysisSession(
-    docText,
+  return createAnalysisSession(docText, {
     externalDeclarations,
-    importedSymbolTypes,
     ambientDeclarations,
     ambientModuleDeclarations,
     ambientModuleLocations,
-    importedSymbolDisplayTypes,
     invalidImportedBindings,
     ambientDeclarationLocations,
     importedSymbols
-  );
+  });
 }
 
 export class AnalysisSessionCache {

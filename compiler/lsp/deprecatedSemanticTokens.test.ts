@@ -66,16 +66,7 @@ describe("deprecated semantic token modifiers", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, importedSymbols: imported.importedSymbols });
     const modifiers = await collectDeprecatedSemanticTokenModifiers({
       uri: pathToFileURL(mainPath).toString(),
       sourceRoots: [root],

@@ -237,6 +237,46 @@ This is the kind of DRY that actually matters:
 - fewer hidden differences between analysis/runtime/LSP paths
 - a clearer next step for deleting the remaining legacy narrow-map APIs
 
+## Positional session API removal
+
+The next cleanup removed a different kind of duplication: the long positional
+`createAnalysisSession(...)` argument list.
+
+That old API had become a compatibility trap because callers had to pass
+placeholder `new Map()` / `new Set()` / `[]` values just to reach the one piece
+of context they cared about. It made call sites hard to read and encouraged
+tests to keep wiring legacy narrow maps because that was the historical
+parameter order.
+
+The session factory now takes named options instead. That keeps simple calls as
+`createAnalysisSession(source)` while making richer calls explicit about what
+they provide:
+
+- external declarations
+- ambient declarations
+- imported symbols
+- invalid imported bindings
+
+The useful lesson here is that compatibility debt can hide in function
+signatures, not only in data structures. If a factory needs many unrelated
+positional placeholders, it is usually preserving an old migration path.
+
+## Removed imported-symbol helper
+
+After the shared imported-symbol map became the canonical collector output, the
+standalone `collectImportedSymbolTypes(...)` helper was only protecting the old
+view.
+
+That helper is now deleted. Tests that still need the derived symbol-type view
+read it from `collectAllImportedDeclarations(...)`, and one test whose only job
+was comparing the combined path against the old separated helper path was
+removed.
+
+That deletion matters because future call sites now naturally choose the
+single-pass collector that also carries declaration origins and invalid-binding
+state. The type-only helper no longer invites new code to resolve imports once
+for types and then rediscover declaration ownership later.
+
 ## Regression guidance
 
 - If an imported symbol has a stable resolved type, treat "no definition" as a
@@ -247,3 +287,32 @@ This is the kind of DRY that actually matters:
   type resolution and navigation agree for the same binding.
 - Keep full `pnpm test` and `pnpm cli vexa testFixtures/sample.vx` mandatory,
   because these cross-surface drifts are easy to miss with only narrow tests.
+
+## Session input unification
+
+The next safe destructive slice was to close the LSP session boundary itself:
+
+- `createAnalysisSession(...)` no longer accepts `importedSymbolTypes`
+- `createAnalysisSession(...)` no longer accepts `importedSymbolDisplayTypes`
+- `ResolvedExternals` from `AnalysisSessionCache` no longer accepts those
+  narrow maps either
+
+Callers now pass `importedSymbols` into sessions. That means hover, definition,
+signature help, semantic diagnostics, and completions all receive the same rich
+imported-binding record instead of each caller choosing a narrower view.
+
+The important dead end in this round was trying to delete the lower-level
+`Analysis` / `TranspileOptions.importedSymbolTypes` compatibility at the same
+time. That broke the CLI bundler for untyped CommonJS packages such as the
+`tiny-cjs` fixture, because runtime bundling can still carry an invalid imported
+symbol as a tolerated JavaScript import while LSP diagnostics need explicit
+invalid-binding reporting.
+
+So the durable boundary is now:
+
+- LSP sessions are canonical and rich-only
+- lower compiler/transpile inputs still keep legacy narrow maps until the
+  bundler/runtime path is migrated deliberately
+
+This preserves the real CLI contract while still preventing new LSP code from
+reintroducing duplicated imported-symbol session state.

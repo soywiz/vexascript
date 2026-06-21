@@ -54,11 +54,10 @@ export interface AnalysisOptions {
    */
   ambientDeclarations?: Statement[];
   /**
-   * Resolved types for imported symbols, keyed by the local name they are bound
-   * to in this program (e.g. `delay` from `import { delay } from "./other"`).
-   * They let cross-file value imports — in particular functions whose return
-   * type is inferred from their body — participate in type resolution and
-   * pervasive auto-await, instead of being treated as `unknown`.
+   * Resolved imported symbols, keyed by the local name they are bound to in
+   * this program (e.g. `delay` from `import { delay } from "./other"`). This
+   * keeps type, display text, declaration origin, and invalid-binding state in
+   * one canonical structure so analysis, hover, and definition agree.
    */
   importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
   importedSymbolDisplayTypes?: ReadonlyMap<string, string>;

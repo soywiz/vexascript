@@ -6,7 +6,7 @@ import {
   findNodeModuleExportLocation,
   findNodeModuleMemberLocation
 } from "./nodeModulesTypings";
-import { collectImportedTypeDeclarations, collectImportedSymbolTypes, collectAllImportedDeclarations } from "./importedDeclarations";
+import { collectImportedTypeDeclarations, collectAllImportedDeclarations } from "./importedDeclarations";
 import { createAnalysisSession } from "./analysisSession";
 import dedent from "compiler/utils/dedent";
 import { typeToString } from "compiler/analysis/types";
@@ -141,7 +141,7 @@ describe("node_modules typings resolution", () => {
     expect(names).toContain("pkg");
   });
 
-  it("collectImportedSymbolTypes assigns callable type to default imports backed by export-equals functions", async () => {
+  it("collectAllImportedDeclarations assigns callable type to default imports backed by export-equals functions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     await makePackageWithTypings(root, "pkg", MINI_DTS);
 
@@ -150,11 +150,11 @@ describe("node_modules typings resolution", () => {
     await writeFile(mainPath, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const symbolTypes = await collectImportedSymbolTypes(session.ast!, {
+    const symbolTypes = (await collectAllImportedDeclarations(session.ast!, {
       uri: `file://${mainPath}`,
       sourceRoots: [root],
       getSessionForFilePath: () => null
-    });
+    })).importedSymbolTypes;
 
     expect(typeToString(symbolTypes.get("pkg")!)).toBe("(x: string) => pkg.Result & { Result: Result, helper: () => Result }");
   });
@@ -169,10 +169,9 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
-    const declarations = await collectImportedTypeDeclarations(session.ast!, ctx);
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
 
-    const richSession = createAnalysisSession(source, declarations, symbolTypes);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const symbol = richSession.analysis?.getTopLevelSymbolType("pkg");
     expect(typeToString(symbol!)).toBe("(x: string) => pkg.Result & { Result: Result, helper: () => Result }");
@@ -188,9 +187,8 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
-    const declarations = await collectImportedTypeDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(source, declarations, symbolTypes);
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain("Type 'pkg' is not callable");
   });
@@ -209,9 +207,9 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
-    const declarations = await collectImportedTypeDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(source, declarations, symbolTypes);
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const symbolTypes = collected.importedSymbolTypes;
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(symbolTypes.get("render")?.kind).toBe("function");
     expect(typeToString(symbolTypes.get("render")!)).toBe("(value: unknown) => string");
@@ -231,7 +229,7 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
+    const symbolTypes = (await collectAllImportedDeclarations(session.ast!, ctx)).importedSymbolTypes;
 
     expect(typeToString(symbolTypes.get("render")!)).toBe("<P>(vnode: VNode<P>, context: any) => string");
   });
@@ -253,7 +251,7 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
+    const symbolTypes = (await collectAllImportedDeclarations(session.ast!, ctx)).importedSymbolTypes;
 
     expect(typeToString(symbolTypes.get("defaultOptions")!)).toBe("FormatterOptions");
   });
@@ -303,7 +301,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(source, collected.externalDeclarations, collected.importedSymbolTypes);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.externalDeclarations.some((statement) => {
       const declaration = statement.kind === "ExportStatement"
@@ -372,7 +370,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(source, collected.externalDeclarations, collected.importedSymbolTypes);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.externalDeclarations.some((statement) => {
       const declaration = statement.kind === "ExportStatement"
@@ -475,16 +473,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(marked.source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("expression: string");
@@ -546,7 +535,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(source, collected.externalDeclarations, collected.importedSymbolTypes);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
       "Property 'pipe' does not exist on type 'unknown'"
@@ -632,7 +621,7 @@ describe("node_modules typings resolution", () => {
       return declaration.kind === "TypeAliasStatement"
         && (declaration as { name?: { name?: string } }).name?.name === "ValueFromArray";
     })).toBe(true);
-    const richSession = createAnalysisSession(source, collected.externalDeclarations, collected.importedSymbolTypes);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
@@ -683,16 +672,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(typeToString(collected.importedSymbolTypes.get("useState")!)).toBe("<S>(initialState: S | () => S) => [S, Dispatch<StateUpdater<S>>]");
     expect(typeToString(collected.importedSymbolTypes.get("render")!)).toBe("(vnode: unknown, parent: unknown) => void");
@@ -744,16 +724,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.importedSymbolTypes.get("useState")?.kind).toBe("union");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
@@ -789,16 +760,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(typeToString(collected.importedSymbolTypes.get("useThing")!)).toBe("<T>(value: T) => T");
     expect(collected.invalidImportedBindings.has("useThing")).toBe(false);
@@ -849,16 +811,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(typeToString(collected.importedSymbolTypes.get("z")!)).toContain("string");
     expect(collected.invalidImportedBindings.has("z")).toBe(false);
@@ -949,16 +902,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(marked.source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.invalidImportedBindings.has("z")).toBe(false);
     expect(typeToString(collected.importedSymbolTypes.get("z")!)).toContain("infer");
@@ -1052,16 +996,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(marked.source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
@@ -1153,16 +1088,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
@@ -1226,16 +1152,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(marked.source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(typeToString(collected.importedSymbolTypes.get("useThing")!)).toBe("<TData, TError>() => UseThingResult<TData, TError>");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
@@ -1319,16 +1236,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(marked.source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
@@ -1408,16 +1316,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(marked.source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
@@ -1503,16 +1402,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(marked.source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
@@ -1564,16 +1454,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(typeToString(collected.importedSymbolTypes.get("useEffect")!)).toBe("(effect: EffectCallback, inputs: Inputs) => void");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
@@ -1626,16 +1507,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
@@ -1716,16 +1588,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.invalidImportedBindings.has("InputHTMLAttributes")).toBe(false);
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain("No parameter named 'style'");
@@ -1830,16 +1693,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const externalNames = collected.externalDeclarations.map((statement) => {
       const candidate = statement as {
@@ -1922,16 +1776,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
   });
@@ -2001,16 +1846,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.externalDeclarations.some((statement) => statement.kind === "ImportStatement")).toBe(true);
     expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
@@ -2111,16 +1947,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(
       collected.externalDeclarations.some((statement) => {
@@ -2166,16 +1993,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(typeToString(collected.importedSymbolTypes.get("ComponentChildren")!)).toBe("ComponentChildren");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
@@ -2228,16 +2046,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.analysis?.getIssues().map((issue) => issue.message) ?? []).toEqual([]);
   });
@@ -2520,16 +2329,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const messages = richSession.analysis?.getIssues().map((issue) => issue.message) ?? [];
     expect(messages).not.toContain("Expected at most 0 type argument(s), but got 1");
@@ -2545,9 +2345,8 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = await collectImportedSymbolTypes(session.ast!, ctx);
-    const declarations = await collectImportedTypeDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(source, declarations, symbolTypes);
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     // `pkg.helper` should resolve to a function type (not unknown)
     const hover = richSession.analysis?.getHoverAt(1, 5);
@@ -2579,16 +2378,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const hoverOffset = source.indexOf("ComponentChildren");
     const prefix = source.slice(0, hoverOffset);
@@ -2632,16 +2422,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -2692,16 +2473,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -2736,16 +2508,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -2795,16 +2558,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -2841,16 +2595,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -2887,16 +2632,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -2927,16 +2663,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -2967,16 +2694,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3009,11 +2727,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([
       "Type 'readonly string[]' is not assignable to type 'string[]'",
@@ -3054,16 +2768,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([
       "Cannot assign to readonly member 'id'",
@@ -3100,16 +2805,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3138,16 +2834,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3179,16 +2866,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3231,16 +2909,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3276,16 +2945,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3313,16 +2973,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3350,16 +3001,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3391,16 +3033,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toContain(
       "Unknown type 'Component<any, { time: number }>'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter"
@@ -3450,16 +3083,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(cleanSource);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      cleanSource,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(cleanSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const prefix = cleanSource.slice(0, hoverOffset);
     const hoverLine = prefix.split("\n").length - 1;
@@ -3518,16 +3142,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3575,16 +3190,7 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(richSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -3654,45 +3260,12 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const richSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const messages = richSession.semanticIssues.map((issue) => issue.message);
     expect(messages).not.toContain(
       "Argument 2 of type 'HTMLDivElement' is not assignable to parameter 'parent' of type 'ContainerNode'"
     );
-  });
-
-  it("collectAllImportedDeclarations produces the same declarations and symbol types as calling both functions separately", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
-    await makePackageWithTypings(root, "pkg", MINI_DTS);
-
-    const mainPath = join(root, "main.vx");
-    const source = `import pkg from "pkg"\npkg.helper()\n`;
-    await writeFile(mainPath, source, "utf8");
-
-    const session = createAnalysisSession(source);
-    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-
-    const [combined, separateDeclarations, separateSymbolTypes] = await Promise.all([
-      collectAllImportedDeclarations(session.ast!, ctx),
-      collectImportedTypeDeclarations(session.ast!, ctx),
-      collectImportedSymbolTypes(session.ast!, ctx)
-    ]);
-
-    expect(combined.externalDeclarations.length).toBe(separateDeclarations.length);
-    expect(combined.importedSymbolTypes.size).toBe(separateSymbolTypes.size);
-    for (const [key, value] of separateSymbolTypes) {
-      expect(typeToString(combined.importedSymbolTypes.get(key)!)).toBe(typeToString(value));
-    }
   });
 
   it("collectAllImportedDeclarations returns empty results for unknown file URI", async () => {

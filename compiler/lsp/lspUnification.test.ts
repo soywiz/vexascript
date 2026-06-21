@@ -26,7 +26,7 @@ import {
   resolveRenameAcrossFiles
 } from "./crossFileNavigation";
 import { createSignatureHelp } from "./signatureHelp";
-import { collectImportedTypeDeclarations, collectImportedSymbolTypes } from "./importedDeclarations";
+import { collectAllImportedDeclarations } from "./importedDeclarations";
 import {
   ensureEcmaScriptRuntimeProgram,
   getEcmaScriptRuntimeProgram
@@ -268,9 +268,8 @@ describe("LSP unification", () => {
       await writeFile(fileB, sigMarked.source, "utf8");
       const sigCtx = { uri: pathToFileURL(fileB).toString(), sourceRoots: [root] };
       const sigBaseSession = createAnalysisSession(sigMarked.source);
-      const sigDeclarations = await collectImportedTypeDeclarations(sigBaseSession.ast!, sigCtx);
-      const sigSymbolTypes = await collectImportedSymbolTypes(sigBaseSession.ast!, sigCtx);
-      const sigSession = createAnalysisSession(sigMarked.source, sigDeclarations, sigSymbolTypes);
+      const sigCollected = await collectAllImportedDeclarations(sigBaseSession.ast!, sigCtx);
+      const sigSession = createAnalysisSession(sigMarked.source, { externalDeclarations: sigCollected.externalDeclarations, importedSymbols: sigCollected.importedSymbols });
       const sigHelp = await createSignatureHelp(sigSession.ast!, sigSession.analysis!, sigMarked.line, sigMarked.character, sigCtx);
 
       expect(sigHelp?.signatures.length).toBe(1);
@@ -480,7 +479,7 @@ describe("LSP unification", () => {
       const file = join(root, "main.vx");
       await writeFile(file, marked.source, "utf8");
 
-      const session = createAnalysisSession(marked.source, [], new Map(), runtimeDeclarations);
+      const session = createAnalysisSession(marked.source, { ambientDeclarations: runtimeDeclarations });
       const context = {
         uri: pathToFileURL(file).toString(),
         line: marked.line,
@@ -503,7 +502,7 @@ describe("LSP unification", () => {
       const sigMarked = sourceWithCursor(dedent`
         val result = parseInt(^^^"42", 10)
       `);
-      const sigSession = createAnalysisSession(sigMarked.source, [], new Map(), runtimeDeclarations);
+      const sigSession = createAnalysisSession(sigMarked.source, { ambientDeclarations: runtimeDeclarations });
       const signatureHelp = await createSignatureHelp(sigSession.ast!, sigSession.analysis!, sigMarked.line, sigMarked.character);
 
       expect(signatureHelp?.signatures.length).toBe(1);
@@ -521,7 +520,7 @@ describe("LSP unification", () => {
       const file = join(root, "main.vx");
       await writeFile(file, marked.source, "utf8");
 
-      const session = createAnalysisSession(marked.source, [], new Map(), runtimeDeclarations);
+      const session = createAnalysisSession(marked.source, { ambientDeclarations: runtimeDeclarations });
       const context = {
         uri: pathToFileURL(file).toString(),
         line: marked.line,

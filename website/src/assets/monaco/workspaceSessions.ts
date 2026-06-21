@@ -42,12 +42,9 @@ export function createCachedWorkspaceSessionResolver(
         return createAnalysisSession(source);
       }
 
-      return createAnalysisSession(
-        source,
-        [],
-        new Map(),
-        await options.getAmbientDeclarations()
-      );
+      return createAnalysisSession(source, {
+        ambientDeclarations: await options.getAmbientDeclarations()
+      });
     })();
 
     cache.set(filePath, {

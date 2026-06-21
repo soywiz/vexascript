@@ -15,10 +15,10 @@ export interface ImportedSymbolResolution {
 }
 
 export interface ImportedSymbolSources {
-  importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
-  importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
-  importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
-  invalidImportedBindings?: ReadonlySet<string>;
+  importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution> | undefined;
+  importedSymbolTypes?: ReadonlyMap<string, AnalysisType> | undefined;
+  importedSymbolDisplayTypes?: ReadonlyMap<string, string> | undefined;
+  invalidImportedBindings?: ReadonlySet<string> | undefined;
 }
 
 export interface ImportedSymbolViews {

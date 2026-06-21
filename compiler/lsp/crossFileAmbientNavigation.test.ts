@@ -52,22 +52,13 @@ describe("crossFileAmbientNavigation", () => {
     const ambientModuleLocations = new Map([
       ["node:fs/promises", { filePath: "/virtual/@types/node/fs/promises.d.ts", line: 0, character: 0 }]
     ]);
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations, ambientModuleLocations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations, ambientModuleLocations: ambientModuleLocations });
     const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      ambientModuleLocations,
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, ambientModuleDeclarations, ambientModuleLocations, importedSymbols: collected.importedSymbols });
 
     const location = await resolveAmbientImportedSymbolDefinition(
       contextFor(session, 1, source.split("\n")[1]!.indexOf("readFile") + 2)
@@ -93,22 +84,13 @@ describe("crossFileAmbientNavigation", () => {
     const ambientModuleLocations = new Map([
       ["node:util", { filePath: "/virtual/@types/node/util.d.ts", line: 0, character: 0 }]
     ]);
-    const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations, ambientModuleLocations);
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations, ambientModuleLocations: ambientModuleLocations });
     const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      ambientModuleLocations,
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, ambientModuleDeclarations, ambientModuleLocations, importedSymbols: collected.importedSymbols });
     const line = 1;
     const character = source.split("\n")[1]!.indexOf("format") + 2;
     const memberExpression = findMemberExpressionAtPosition(session.ast!, line, character);

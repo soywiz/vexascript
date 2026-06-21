@@ -281,14 +281,13 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
     if (!baseSession.ast) {
       return {
         externalDeclarations: [],
-        importedSymbolTypes: new Map(),
-        importedSymbolDisplayTypes: new Map(),
+        importedSymbols: new Map(),
         ambientDeclarations: [],
         ambientModuleDeclarations: new Map()
       };
     }
 
-    const { externalDeclarations, importedSymbolTypes, importedSymbolDisplayTypes, invalidImportedBindings } =
+    const { externalDeclarations, importedSymbols, invalidImportedBindings } =
       await collectAllImportedDeclarations(baseSession.ast, {
         uri: document.uri,
         sourceRoots: [workspaceRoot],
@@ -299,8 +298,7 @@ async function createWorkspaceAnalysisSessionCache(workspaceRoot: string): Promi
 
     return {
       externalDeclarations,
-      importedSymbolTypes,
-      importedSymbolDisplayTypes,
+      importedSymbols,
       invalidImportedBindings,
       ambientDeclarations: [],
       ambientDeclarationLocations: new Map(),

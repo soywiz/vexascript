@@ -43,16 +43,7 @@ describe("deprecated diagnostics", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, importedSymbols: imported.importedSymbols });
     const diagnostics = await collectDeprecatedDiagnostics({
       uri,
       sourceRoots: [root],

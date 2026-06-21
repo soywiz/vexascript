@@ -31,7 +31,7 @@ describe("crossFileMemberDefinitionSources", () => {
       uri,
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(mainSource, externalDeclarations);
+    const session = createAnalysisSession(mainSource, { externalDeclarations: externalDeclarations });
 
     const location = await resolveExtensionMemberDefinitionAcrossFiles({
       uri,

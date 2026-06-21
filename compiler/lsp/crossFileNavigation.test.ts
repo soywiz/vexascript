@@ -4,7 +4,7 @@ import dedent from "compiler/utils/dedent";
 import { createAnalysisSession } from "./analysisSession";
 import { ensureDomProgram, getDomDeclarationFilePath } from "compiler/runtime/domDeclarations";
 import { loadAmbientTypesForProject } from "./ambientTypesLoader";
-import { collectAllImportedDeclarations, collectImportedSymbolTypes, collectImportedTypeDeclarations } from "./importedDeclarations";
+import { collectAllImportedDeclarations, collectImportedTypeDeclarations } from "./importedDeclarations";
 import {
   resolveDefinitionAcrossFiles,
   resolveDefinitionWithLocalFallback,
@@ -181,16 +181,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const lines = source.split("\n");
     const pkgLines = pkgSource.split("\n");
@@ -290,18 +281,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings,
-      new Map(),
-      collected.importedSymbols
-    );
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const pkgLines = pkgSource.split("\n");
     const antialiasLine = pkgLines.findIndex((line) => line.includes("antialias?: boolean"));
@@ -455,16 +435,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const sharedSystemsSource = await readFile(join(renderersDir, "shared", "system", "SharedSystems.d.ts"), "utf8");
     const antialiasLine = sharedSystemsSource.split("\n").findIndex((line) => line.includes("antialias?: boolean"));
@@ -539,16 +510,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const lines = source.split("\n");
     const pkgLines = pkgSource.split("\n");
@@ -617,16 +579,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const pkgLines = pkgSource.split("\n");
     const resizeLine = pkgLines.findIndex((line) => line.includes("resize(desiredScreenWidth"));
@@ -711,16 +664,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const externalLines = externalSource.split("\n");
     const objectLine = externalLines.findIndex((line) => line.includes("declare function objectType"));
@@ -782,16 +726,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const pkgLines = pkgSource.split("\n");
     const textLine = pkgLines.findIndex((line) => line.includes("set text(value: TextString);"));
@@ -871,16 +806,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      marked.source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const abstractLines = abstractTextSource.split("\n");
     const textLine = abstractLines.findIndex((line) => line.includes("set text(value: TextString);"));
@@ -986,7 +912,7 @@ describe("cross-file navigation", () => {
       uri,
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(mainSource, externalDeclarations);
+    const session = createAnalysisSession(mainSource, { externalDeclarations: externalDeclarations });
 
     // Cursor on the `+` operator of `Point(1, 2) + Point(3, 4)`.
     const location = await resolveDefinitionAcrossFiles({
@@ -1028,7 +954,7 @@ describe("cross-file navigation", () => {
       uri,
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(mainSource, externalDeclarations);
+    const session = createAnalysisSession(mainSource, { externalDeclarations: externalDeclarations });
 
     // Cursor on `seconds` in `1.seconds`.
     const location = await resolveDefinitionAcrossFiles({
@@ -1080,16 +1006,7 @@ describe("cross-file navigation", () => {
       uri,
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(
-      marked.source,
-      resolved.externalDeclarations,
-      resolved.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      resolved.importedSymbolDisplayTypes,
-      resolved.invalidImportedBindings
-    );
+    const session = createAnalysisSession(marked.source, { externalDeclarations: resolved.externalDeclarations, importedSymbols: resolved.importedSymbols });
 
     const location = await resolveDefinitionWithLocalFallback({
       uri,
@@ -1136,7 +1053,7 @@ describe("cross-file navigation", () => {
       uri,
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(mainSource, externalDeclarations);
+    const session = createAnalysisSession(mainSource, { externalDeclarations: externalDeclarations });
 
     // Cursor on `magnitude` in `Point(1, 2).magnitude()`.
     const location = await resolveDefinitionAcrossFiles({
@@ -1188,16 +1105,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: (filePath) => filePath === other ? createAnalysisSession(otherSource) : null
     });
-    const session = createAnalysisSession(
-      mainSource,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(mainSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const lines = mainSource.split("\n");
     const pointLine = lines[3]!;
@@ -1391,15 +1299,11 @@ describe("cross-file navigation", () => {
     await writeFile(mainPath, mainSource, "utf8");
 
     const baseSession = createAnalysisSession(mainSource);
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(mainPath).toString(),
       sourceRoots: [root]
     });
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-      uri: pathToFileURL(mainPath).toString(),
-      sourceRoots: [root]
-    });
-    const session = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+    const session = createAnalysisSession(mainSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const definition = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(mainPath).toString(),
@@ -1455,15 +1359,11 @@ describe("cross-file navigation", () => {
     await writeFile(mainPath, mainSource, "utf8");
 
     const baseSession = createAnalysisSession(mainSource);
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(mainPath).toString(),
       sourceRoots: [root]
     });
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-      uri: pathToFileURL(mainPath).toString(),
-      sourceRoots: [root]
-    });
-    const session = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+    const session = createAnalysisSession(mainSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const definition = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(mainPath).toString(),
@@ -1519,15 +1419,11 @@ describe("cross-file navigation", () => {
     await writeFile(mainPath, mainSource, "utf8");
 
     const baseSession = createAnalysisSession(mainSource);
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, {
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: pathToFileURL(mainPath).toString(),
       sourceRoots: [root]
     });
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, {
-      uri: pathToFileURL(mainPath).toString(),
-      sourceRoots: [root]
-    });
-    const session = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+    const session = createAnalysisSession(mainSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     const definition = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(mainPath).toString(),
@@ -1569,7 +1465,7 @@ describe("cross-file navigation", () => {
     await writeFile(file, source, "utf8");
 
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
 
     const typeDefinition = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(file).toString(),
@@ -2387,7 +2283,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [],
       getSessionForFilePath: (filePath) => filePath === pointPath ? pointSession : null
     });
-    const mainSession = createAnalysisSession(mainSource, externalDeclarations);
+    const mainSession = createAnalysisSession(mainSource, { externalDeclarations: externalDeclarations });
 
     expect(mainSession.semanticIssues.map((issue) => issue.message)).not.toContain(
       "Operator '+' is not defined for types 'unknown' and 'unknown'"
@@ -2437,9 +2333,8 @@ describe("cross-file navigation", () => {
       sourceRoots: [],
       getSessionForFilePath: (filePath: string) => filePath === timePath ? timeSession : null
     };
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, context);
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, context);
-    const mainSession = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, context);
+    const mainSession = createAnalysisSession(mainSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(mainSession.semanticIssues.map((issue) => issue.message)).not.toContain(
       "Operator '+' is not defined for types 'unknown' and 'unknown'"
@@ -2470,9 +2365,8 @@ describe("cross-file navigation", () => {
       sourceRoots: [],
       getSessionForFilePath: (filePath: string) => filePath === timePath ? timeSession : null
     };
-    const externalDeclarations = await collectImportedTypeDeclarations(baseSession.ast!, context);
-    const importedSymbolTypes = await collectImportedSymbolTypes(baseSession.ast!, context);
-    const mainSession = createAnalysisSession(mainSource, externalDeclarations, importedSymbolTypes);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, context);
+    const mainSession = createAnalysisSession(mainSource, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(mainSession.semanticIssues.map((issue) => issue.message)).toEqual([]);
     expect(mainSession.analysis!.getHoverAt(1, mainSource.split("\n")[1]!.indexOf("seconds") + 2)?.contents).toBe(
@@ -2489,7 +2383,7 @@ describe("cross-file navigation", () => {
     const mainSource = 'const div = document.createElement("div")\n';
     const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const mainSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
     const domSession = createAnalysisSession(domSource);
 
     const location = await resolveDefinitionAcrossFiles({
@@ -2521,7 +2415,7 @@ describe("cross-file navigation", () => {
     const mainSource = 'const app = document.querySelector("#app")\n';
     const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const mainSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
     const domSession = createAnalysisSession(domSource);
 
     const location = await resolveDefinitionAcrossFiles({
@@ -2553,7 +2447,7 @@ describe("cross-file navigation", () => {
     const mainSource = 'const app = document.querySelector("#app")\n';
     const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const mainSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
     const domSession = createAnalysisSession(domSource);
 
     const location = await resolveDefinitionAcrossFiles({
@@ -2585,7 +2479,7 @@ describe("cross-file navigation", () => {
     const mainSource = 'fetch("https://example.com/data.json")\n';
     const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const mainSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
     const domSession = createAnalysisSession(domSource);
 
     const location = await resolveDefinitionAcrossFiles({
@@ -2637,17 +2531,7 @@ describe("cross-file navigation", () => {
     await writeFile(mainPath, source, "utf8");
 
     const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
-    const session = createAnalysisSession(
-      source,
-      [],
-      new Map(),
-      ambient.globalDeclarations,
-      ambient.moduleDeclarations,
-      ambient.moduleDeclarationLocations,
-      new Map(),
-      new Set(),
-      ambient.globalDeclarationLocations
-    );
+    const session = createAnalysisSession(source, { ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, ambientDeclarationLocations: ambient.globalDeclarationLocations });
 
     const consoleLocation = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(mainPath).toString(),
@@ -2684,29 +2568,13 @@ describe("cross-file navigation", () => {
     const ambientModuleLocations = new Map([
       ["node:util", { filePath: "/virtual/@types/node/util.d.ts", line: 0, character: 0 }]
     ]);
-    const baseSession = createAnalysisSession(
-      source,
-      [],
-      new Map(),
-      [],
-      ambientModuleDeclarations,
-      ambientModuleLocations
-    );
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations, ambientModuleLocations: ambientModuleLocations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      ambientModuleLocations,
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, ambientModuleLocations, importedSymbols: imported.importedSymbols });
 
     const location = await resolveDefinitionAcrossFiles({
       uri: "file:///virtual/main.vx",
@@ -2734,29 +2602,13 @@ describe("cross-file navigation", () => {
     const ambientModuleLocations = new Map([
       ["node:util", { filePath: "/virtual/@types/node/util.d.ts", line: 0, character: 0 }]
     ]);
-    const baseSession = createAnalysisSession(
-      source,
-      [],
-      new Map(),
-      [],
-      ambientModuleDeclarations,
-      ambientModuleLocations
-    );
+    const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations, ambientModuleLocations: ambientModuleLocations });
     const imported = await collectAllImportedDeclarations(baseSession.ast!, {
       uri: "file:///virtual/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      ambientModuleDeclarations,
-      ambientModuleLocations,
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations, ambientModuleLocations, importedSymbols: imported.importedSymbols });
 
     const location = await resolveDefinitionAcrossFiles({
       uri: "file:///virtual/main.vx",
@@ -2807,16 +2659,7 @@ describe("cross-file navigation", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const pkgLines = pkgSource.split("\n");
     const sourceLines = source.split("\n");
     const perspectiveLine = sourceLines.findIndex((line) => line.includes("PerspectiveCamera"));
@@ -2901,20 +2744,10 @@ describe("cross-file navigation", () => {
     await writeFile(mainPath, source, "utf8");
 
     const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
-    const session = createAnalysisSession(
-      source,
-      [],
-      new Map(),
-      [...domDeclarations, ...ambient.globalDeclarations],
-      ambient.moduleDeclarations,
-      ambient.moduleDeclarationLocations,
-      new Map(),
-      new Set(),
-      new Map([
+    const session = createAnalysisSession(source, { ambientDeclarations: [...domDeclarations, ...ambient.globalDeclarations], ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, ambientDeclarationLocations: new Map([
         ...domDeclarationLocations,
         ...ambient.globalDeclarationLocations
-      ])
-    );
+      ]) });
 
     const consoleLocation = await resolveDefinitionAcrossFiles({
       uri: pathToFileURL(mainPath).toString(),
@@ -2944,7 +2777,7 @@ describe("cross-file navigation", () => {
     const mainSource = "fetch(URL('hello'))\n";
     const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const mainSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
     const domSession = createAnalysisSession(domSource);
 
     const location = await resolveDefinitionAcrossFiles({
@@ -2981,7 +2814,7 @@ describe("cross-file navigation", () => {
     ].join("\n");
     const domSource = await readFile(getDomDeclarationFilePath(), "utf8");
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const mainSession = createAnalysisSession(mainSource, [], new Map(), ambientDeclarations);
+    const mainSession = createAnalysisSession(mainSource, { ambientDeclarations: ambientDeclarations });
     const domSession = createAnalysisSession(domSource);
 
     const beginPathLine = 1;
@@ -3030,28 +2863,13 @@ describe("cross-file navigation", () => {
         ["path", { filePath: "/virtual/@types/node/path.d.ts", line: 0, character: 0 }]
       ]);
 
-      const baseSession = createAnalysisSession(
-        source,
-        [],
-        new Map(),
-        [],
-        ambientModuleDeclarations,
-        ambientModuleLocations
-      );
+      const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations, ambientModuleLocations: ambientModuleLocations });
       const collected = await collectAllImportedDeclarations(baseSession.ast!, {
         uri: "file:///virtual/main.vx",
         sourceRoots: [],
         ambientModuleDeclarations
       });
-      const session = createAnalysisSession(
-        source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        ambientModuleDeclarations,
-        ambientModuleLocations,
-        collected.importedSymbolDisplayTypes
-      );
+      const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, ambientModuleDeclarations, ambientModuleLocations, importedSymbols: collected.importedSymbols });
 
       const location = await resolveDefinitionWithLocalFallback({
         uri: "file:///virtual/main.vx",
@@ -3081,28 +2899,13 @@ describe("cross-file navigation", () => {
         ["fs/promises", { filePath: "/virtual/@types/node/fs/promises.d.ts", line: 0, character: 0 }]
       ]);
 
-      const baseSession = createAnalysisSession(
-        source,
-        [],
-        new Map(),
-        [],
-        ambientModuleDeclarations,
-        ambientModuleLocations
-      );
+      const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations, ambientModuleLocations: ambientModuleLocations });
       const collected = await collectAllImportedDeclarations(baseSession.ast!, {
         uri: "file:///virtual/main.vx",
         sourceRoots: [],
         ambientModuleDeclarations
       });
-      const session = createAnalysisSession(
-        source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        ambientModuleDeclarations,
-        ambientModuleLocations,
-        collected.importedSymbolDisplayTypes
-      );
+      const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, ambientModuleDeclarations, ambientModuleLocations, importedSymbols: collected.importedSymbols });
 
       const location = await resolveDefinitionWithLocalFallback({
         uri: "file:///virtual/main.vx",
@@ -3182,15 +2985,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         ambientModuleDeclarations: ambient.moduleDeclarations
       });
-      const session = createAnalysisSession(
-        source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        ambient.globalDeclarations,
-        ambient.moduleDeclarations,
-        ambient.moduleDeclarationLocations,
-        collected.importedSymbolDisplayTypes
-      );
+      const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, importedSymbols: collected.importedSymbols });
 
       const hover = session.analysis?.getHoverAt(1, source.split("\n")[1]!.indexOf("readFile") + 1);
 
@@ -3217,22 +3012,13 @@ describe("cross-file navigation", () => {
         )]
       ]);
 
-      const baseSession = createAnalysisSession(source, [], new Map(), [], ambientModuleDeclarations);
+      const baseSession = createAnalysisSession(source, { ambientModuleDeclarations: ambientModuleDeclarations });
       const collected = await collectAllImportedDeclarations(baseSession.ast!, {
         uri: "file:///virtual/main.vx",
         sourceRoots: [],
         ambientModuleDeclarations
       });
-      const session = createAnalysisSession(
-        source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        ambientModuleDeclarations,
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, ambientModuleDeclarations, importedSymbols: collected.importedSymbols });
 
       const hover = await resolveHoverWithLocalFallback({
         uri: "file:///virtual/main.vx",
@@ -3310,15 +3096,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         ambientModuleDeclarations: ambient.moduleDeclarations
       });
-      const session = createAnalysisSession(
-        source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        ambient.globalDeclarations,
-        ambient.moduleDeclarations,
-        ambient.moduleDeclarationLocations,
-        collected.importedSymbolDisplayTypes
-      );
+      const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, importedSymbols: collected.importedSymbols });
 
       const location = await resolveDefinitionWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -3436,16 +3214,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
-      const session = createAnalysisSession(
-        source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        new Map(),
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
       const location = await resolveDefinitionWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -3505,16 +3274,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
-      const session = createAnalysisSession(
-        source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        new Map(),
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
       const location = await resolveDefinitionWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -3572,16 +3332,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
-      const session = createAnalysisSession(
-        marked.source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        new Map(),
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
       const hover = await resolveHoverWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -3680,16 +3431,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
-      const session = createAnalysisSession(
-        marked.source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        new Map(),
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
       const hover = await resolveHoverWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -3788,16 +3530,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
-      const session = createAnalysisSession(
-        marked.source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        new Map(),
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
       const hover = await resolveHoverWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -3881,16 +3614,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
-      const session = createAnalysisSession(
-        baseMarked.source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        new Map(),
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(baseMarked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
       const baseLocation = await resolveDefinitionWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -3909,16 +3633,7 @@ describe("cross-file navigation", () => {
         uri: pathToFileURL(mainPath).toString(),
         line: genericMarked.line,
         character: genericMarked.character,
-        session: createAnalysisSession(
-          genericMarked.source,
-          collected.externalDeclarations,
-          collected.importedSymbolTypes,
-          [],
-          new Map(),
-          new Map(),
-          collected.importedSymbolDisplayTypes,
-          collected.invalidImportedBindings
-        ),
+        session: createAnalysisSession(genericMarked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols }),
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
@@ -3982,16 +3697,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
-      const session = createAnalysisSession(
-        marked.source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        new Map(),
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
       const location = await resolveDefinitionWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -4057,17 +3763,7 @@ describe("cross-file navigation", () => {
       await writeFile(mainPath, reactMarked.source, "utf8");
 
       const ambient = await loadAmbientTypesForProject(mainPath, ["react"]);
-      const sessionFor = (source: string) => createAnalysisSession(
-        source,
-        [],
-        new Map(),
-        ambient.globalDeclarations,
-        ambient.moduleDeclarations,
-        ambient.moduleDeclarationLocations,
-        new Map(),
-        new Set(),
-        ambient.globalDeclarationLocations
-      );
+      const sessionFor = (source: string) => createAnalysisSession(source, { ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, ambientDeclarationLocations: ambient.globalDeclarationLocations });
 
       const reactLocation = await resolveDefinitionWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -4146,16 +3842,7 @@ describe("cross-file navigation", () => {
         sourceRoots: [root],
         getSessionForFilePath: () => null
       });
-      const session = createAnalysisSession(
-        marked.source,
-        collected.externalDeclarations,
-        collected.importedSymbolTypes,
-        [],
-        new Map(),
-        new Map(),
-        collected.importedSymbolDisplayTypes,
-        collected.invalidImportedBindings
-      );
+      const session = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
       const location = await resolveDefinitionWithLocalFallback({
         uri: pathToFileURL(mainPath).toString(),
@@ -4336,7 +4023,7 @@ describe("cross-file navigation", () => {
       const file = join(root, "main.vx");
       await writeFile(file, source, "utf8");
 
-      const session = createAnalysisSession(source, [], new Map(), runtimeDeclarations);
+      const session = createAnalysisSession(source, { ambientDeclarations: runtimeDeclarations });
       const edit = await resolveRenameAcrossFiles(
         {
           uri: pathToFileURL(file).toString(),
@@ -4391,7 +4078,7 @@ describe("cross-file navigation", () => {
       const file = join(root, "main.vx");
       await writeFile(file, source, "utf8");
 
-      const session = createAnalysisSession(source, [], new Map(), runtimeDeclarations);
+      const session = createAnalysisSession(source, { ambientDeclarations: runtimeDeclarations });
       const result = await resolvePrepareRenameAcrossFiles({
         uri: pathToFileURL(file).toString(),
         line,

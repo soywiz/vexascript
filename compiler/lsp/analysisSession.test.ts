@@ -50,18 +50,7 @@ describe("lsp analysis session", () => {
       ["missing", { invalid: true }]
     ]);
 
-    const session = createAnalysisSession(
-      'import { readFile, missing } from "node:fs"\n',
-      [],
-      new Map(),
-      [],
-      new Map(),
-      new Map(),
-      new Map(),
-      new Set(),
-      new Map(),
-      importedSymbols
-    );
+    const session = createAnalysisSession('import { readFile, missing } from "node:fs"\n', { importedSymbols: importedSymbols });
 
     expect(session.importedSymbols.get("readFile")?.displayType).toBe('typeof import("node:fs").readFile');
     expect(session.importedSymbols.get("readFile")?.type).toEqual({ kind: "named", name: "ReadFileFn" });
@@ -177,11 +166,7 @@ describe("lsp analysis session", () => {
       uri: `file://${mainPath}`,
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, importedSymbols: imported.importedSymbols });
 
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -242,7 +227,7 @@ describe("lsp analysis session", () => {
     `;
     const source = "init({ width: 480, height: 320, antialias: true, autoStart: true })\n";
     const ambientDeclarations = parseFile(tokenizeReader(ambientSource), { language: "typescript" }).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
 
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
   });
@@ -256,7 +241,7 @@ describe("lsp analysis session", () => {
 
     const cache = new AnalysisSessionCache(async () => ({
       externalDeclarations: [],
-      importedSymbolTypes: new Map(),
+      importedSymbols: new Map(),
       ambientDeclarations: (await ensureDomProgram()).body
     }));
     const session = await cache.getForDocumentAsync(TextDocument.create(`file://${filePath}`, "vexa", 1, source));
@@ -273,7 +258,7 @@ describe("lsp analysis session", () => {
       resolveCount++;
       // Simulate async work
       await new Promise((resolve) => setTimeout(resolve, 5));
-      return { externalDeclarations: [], importedSymbolTypes: new Map() };
+      return { externalDeclarations: [], importedSymbols: new Map() };
     });
 
     const [s1, s2] = await Promise.all([
@@ -293,7 +278,7 @@ describe("lsp analysis session", () => {
     const cache = new AnalysisSessionCache(async () => {
       resolveCount++;
       await new Promise((resolve) => setTimeout(resolve, 5));
-      return { externalDeclarations: [], importedSymbolTypes: new Map() };
+      return { externalDeclarations: [], importedSymbols: new Map() };
     });
 
     cache.getForDocument(doc);
@@ -315,7 +300,7 @@ describe("lsp analysis session", () => {
     let callCount = 0;
     const cache = new AnalysisSessionCache(async () => {
       callCount++;
-      return { externalDeclarations: [], importedSymbolTypes: new Map() };
+      return { externalDeclarations: [], importedSymbols: new Map() };
     });
 
     // Establish a v1 session in the cache

@@ -390,16 +390,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
       sourceRoots: [],
       ambientModuleDeclarations: new Map([["node:util", utilDecls]])
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      new Map([["node:util", utilDecls]]),
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientModuleDeclarations: new Map([["node:util", utilDecls]]), importedSymbols: imported.importedSymbols });
 
     expect(session.semanticIssues.map((issue: { message: string }) => issue.message)).toContain(
       "Property 'missing' does not exist on type '{ format: (value: string) => string }'"

@@ -420,11 +420,11 @@ async function getSessionForModel(model: monaco.editor.ITextModel): Promise<Retu
     const ambientDeclarations = await getDomAmbientDeclarations();
     const source = model.getValue();
     if (!workspaceContext) {
-      return createAnalysisSession(source, [], new Map(), ambientDeclarations);
+      return createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
     }
     const { ast } = parseSource(source);
     if (!ast) {
-      return createAnalysisSession(source, [], new Map(), ambientDeclarations);
+      return createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
     }
     const resolverContext = {
       uri: model.uri.toString(),
@@ -435,18 +435,12 @@ async function getSessionForModel(model: monaco.editor.ITextModel): Promise<Retu
     };
     const { externalDeclarations, importedSymbols, invalidImportedBindings } =
       await collectAllImportedDeclarations(ast, resolverContext);
-    return createAnalysisSession(
-      source,
+    return createAnalysisSession(source, {
       externalDeclarations,
-      new Map(),
       ambientDeclarations,
-      new Map(),
-      new Map(),
-      new Map(),
       invalidImportedBindings,
-      new Map(),
       importedSymbols
-    );
+    });
   })();
   const classResolverCache = createClassResolverCache();
   modelSessionCache.set(model.uri.toString(), {
@@ -643,18 +637,15 @@ function registerCompletionProvider(): void {
           text: model.getValue(),
           ...resolverContext(model, workspaceContext),
           ambientDeclarations: session.ambientDeclarations,
-          recoverAnalysisSession: (source) => createAnalysisSession(
-            source,
-            session.externalDeclarations,
-            new Map(),
-            session.ambientDeclarations,
-            session.ambientModuleDeclarations,
-            session.ambientModuleLocations,
-            new Map(),
-            session.invalidImportedBindings,
-            session.ambientDeclarationLocations,
-            session.importedSymbols
-          ),
+          recoverAnalysisSession: (source) => createAnalysisSession(source, {
+            externalDeclarations: session.externalDeclarations,
+            ambientDeclarations: session.ambientDeclarations,
+            ambientModuleDeclarations: session.ambientModuleDeclarations,
+            ambientModuleLocations: session.ambientModuleLocations,
+            invalidImportedBindings: session.invalidImportedBindings,
+            ambientDeclarationLocations: session.ambientDeclarationLocations,
+            importedSymbols: session.importedSymbols
+          }),
           classResolverCache: cachedEntry?.classResolverCache,
         }
       );

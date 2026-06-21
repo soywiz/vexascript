@@ -199,25 +199,18 @@ dedent`
         val bytes = readFile("test")
       }
       `;
-    const session = createAnalysisSession(
-      source,
-      externalSession.ast?.body ?? [],
-      new Map([
+    const session = createAnalysisSession(source, { externalDeclarations: externalSession.ast?.body ?? [], importedSymbols: new Map([
         [
           "readFile",
-          functionType(
-            [{ name: "path", type: builtinType("string") }],
-            namedType("Promise", [namedType("BufferAlias")])
-          )
+          {
+            type: functionType(
+              [{ name: "path", type: builtinType("string") }],
+              namedType("Promise", [namedType("BufferAlias")])
+            ),
+            displayType: "(path: string) => Promise<BufferAlias>"
+          }
         ]
-      ]),
-      [],
-      new Map(),
-      new Map(),
-      new Map([
-        ["readFile", "(path: string) => Promise<BufferAlias>"]
-      ])
-    );
+      ]) });
     const hints = await createInlayHints(
       session.ast!,
       session.analysis!,
@@ -236,7 +229,7 @@ dedent`
       }
       `;
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
 
     const hints = await createInlayHints(
       session.ast!,
@@ -256,7 +249,7 @@ dedent`
       }
       `;
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
 
     const hints = await createInlayHints(
       session.ast!,
@@ -276,7 +269,7 @@ dedent`
       }
       `;
     const ambientDeclarations = (await ensureDomProgram()).body;
-    const session = createAnalysisSession(source, [], new Map(), ambientDeclarations);
+    const session = createAnalysisSession(source, { ambientDeclarations: ambientDeclarations });
 
     const hints = await createInlayHints(
       session.ast!,
@@ -353,15 +346,7 @@ dedent`
       sourceRoots: [root],
       ambientModuleDeclarations: ambient.moduleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      ambient.globalDeclarations,
-      ambient.moduleDeclarations,
-      ambient.moduleDeclarationLocations,
-      imported.importedSymbolDisplayTypes
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, importedSymbols: imported.importedSymbols });
 
     const hints = await createInlayHints(
       session.ast!,

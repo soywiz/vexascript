@@ -33,16 +33,7 @@ describe("cross-file type diagnostics", () => {
       uri: pathToFileURL(htmlFile).toString(),
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(htmlFile).toString(),
       session,
@@ -79,16 +70,7 @@ describe("cross-file type diagnostics", () => {
       uri: pathToFileURL(htmlFile).toString(),
       sourceRoots: [root]
     });
-    const session = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      collected.importedSymbolDisplayTypes,
-      collected.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
     const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(htmlFile).toString(),
       session,
@@ -188,12 +170,7 @@ describe("cross-file type diagnostics", () => {
       scores.set("Linus", 8)
     `;
 
-    const session = createAnalysisSession(
-      source,
-      [],
-      new Map(),
-      getEcmaScriptRuntimeProgram().body
-    );
+    const session = createAnalysisSession(source, { ambientDeclarations: getEcmaScriptRuntimeProgram().body });
     const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: "file:///map-constructor-call.vx",
       session,
@@ -273,14 +250,7 @@ describe("cross-file type diagnostics", () => {
     await writeFile(mainPath, source, "utf8");
 
     const ambient = await loadAmbientTypesForProject(mainPath, ["node"]);
-    const session = createAnalysisSession(
-      source,
-      [],
-      new Map(),
-      ambient.globalDeclarations,
-      ambient.moduleDeclarations,
-      ambient.moduleDeclarationLocations
-    );
+    const session = createAnalysisSession(source, { ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations });
 
     const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(mainPath).toString(),
@@ -294,16 +264,7 @@ describe("cross-file type diagnostics", () => {
       ambientGlobalDeclarations: ambient.globalDeclarations,
       ambientModuleDeclarations: ambient.moduleDeclarations
     });
-    const resolvedSession = createAnalysisSession(
-      source,
-      collected.externalDeclarations,
-      collected.importedSymbolTypes,
-      ambient.globalDeclarations,
-      ambient.moduleDeclarations,
-      ambient.moduleDeclarationLocations,
-      collected.importedSymbolDisplayTypes ?? new Map(),
-      collected.invalidImportedBindings ?? new Set()
-    );
+    const resolvedSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, importedSymbols: collected.importedSymbols });
 
     expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
       "Module 'fs/promises' has no exported symbol 'UNEXISTANT_UNEXISTANT_UNEXISTANT'"
@@ -485,14 +446,7 @@ describe("cross-file type diagnostics", () => {
       sourceRoots: [root],
       ambientModuleDeclarations: ambient.moduleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      ambient.globalDeclarations,
-      ambient.moduleDeclarations,
-      ambient.moduleDeclarationLocations
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, importedSymbols: imported.importedSymbols });
 
     const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(mainPath).toString(),
@@ -551,16 +505,7 @@ describe("cross-file type diagnostics", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, importedSymbols: imported.importedSymbols });
 
     const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(mainPath).toString(),
@@ -640,16 +585,7 @@ describe("cross-file type diagnostics", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, importedSymbols: imported.importedSymbols });
 
     const diagnostics = await collectCrossFileTypeDiagnostics({
       uri: pathToFileURL(mainPath).toString(),
@@ -715,16 +651,7 @@ describe("cross-file type diagnostics", () => {
       sourceRoots: [root],
       getSessionForFilePath: () => null
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      [],
-      new Map(),
-      new Map(),
-      imported.importedSymbolDisplayTypes,
-      imported.invalidImportedBindings
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, importedSymbols: imported.importedSymbols });
 
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
 
@@ -801,14 +728,7 @@ describe("cross-file type diagnostics", () => {
       sourceRoots: [root],
       ambientModuleDeclarations: ambient.moduleDeclarations
     });
-    const session = createAnalysisSession(
-      source,
-      imported.externalDeclarations,
-      imported.importedSymbolTypes,
-      ambient.globalDeclarations,
-      ambient.moduleDeclarations,
-      ambient.moduleDeclarationLocations
-    );
+    const session = createAnalysisSession(source, { externalDeclarations: imported.externalDeclarations, ambientDeclarations: ambient.globalDeclarations, ambientModuleDeclarations: ambient.moduleDeclarations, ambientModuleLocations: ambient.moduleDeclarationLocations, importedSymbols: imported.importedSymbols });
 
     expect(session.semanticIssues.map((issue) => issue.message)).toEqual([]);
 
@@ -1026,7 +946,7 @@ describe("cross-file type diagnostics", () => {
     const source = 'import { tmpdir } from "node:os"\n';
     await writeFile(mainFile, source, "utf8");
 
-    const session = createAnalysisSession(source, [], new Map(), [], new Map([["os", []]]));
+    const session = createAnalysisSession(source, { ambientModuleDeclarations: new Map([["os", []]]) });
     const diagnostics = await collectModuleNotFoundDiagnostics({
       uri: pathToFileURL(mainFile).toString(),
       session
