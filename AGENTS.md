@@ -46,7 +46,9 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Do not modify repository samples just to make tests pass. Changing sample code is only acceptable when it reflects the real intended user-facing API or behavior. Sample-side workarounds that hide compiler, runtime, or LSP bugs do not satisfy project goals.
 - When a bug is first observed through a larger sample, reproduce it in a small, isolated, fast automated test in the same change whenever possible. The sample regression may remain as broader coverage, but the minimal test is required so the bug stays covered even if the sample later changes or is removed.
 - Minimum acceptance criterion: a feature is not considered complete without automated tests validating its behavior.
-- Before closing any task, the full test suite must pass.
+- Before closing any task, running the full test suite with `pnpm test` is mandatory.
+- Focused or partial test runs are useful during development, but they never replace the final full-suite run.
+- Do not finish a task, report success, commit, or hand off work until `pnpm test` has been run successfully in the current state of the branch.
 - In LSP/editor tests, prefer the `^^^` cursor-marker style with the shared helper in `compiler/test/sourceWithCursor.ts` instead of hardcoded line/column coordinates whenever practical.
 - For UI-facing changes (Monaco plugin, browser flows, visual interactions), validate the final behavior in a real browser before handing off. Use Playwright or another browser automation path when available, and treat that browser check as part of completion rather than an optional extra.
 - If tests fail, they must be fixed before finishing the task.

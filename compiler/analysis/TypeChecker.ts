@@ -2338,8 +2338,12 @@ export class TypeChecker {
         const call = expression as CallExpression;
         const calleeType = this.visitExpression(call.callee, scope);
         const argumentTypes: AnalysisType[] = [];
+        const initialArgumentIssueRanges: Array<{ start: number; end: number } | null> = [];
         for (const argument of call.arguments) {
+          const issueStart = this.issues.length;
           argumentTypes.push(this.visitExpression(argument, scope));
+          const issueEnd = this.issues.length;
+          initialArgumentIssueRanges.push(issueEnd > issueStart ? { start: issueStart, end: issueEnd } : null);
         }
         const overloadArgumentTypes = this.preserveCallLiteralArgumentTypes(call.arguments, argumentTypes);
         const calledClass =
@@ -2435,6 +2439,26 @@ export class TypeChecker {
                 firstPassCalleeType,
                 argumentTypes
               );
+          if (!hasNamedArguments) {
+            const contextualizedIndices: number[] = [];
+            for (let index = 0; index < call.arguments.length && index < firstPassCalleeType.parameters.length; index += 1) {
+              const contextualExpectedType = this.contextualExpectedTypeForCallArgument(
+                call.arguments[index]!,
+                firstPassCalleeType.parameters[index]?.type,
+                firstPassCalleeType.typeParameters ?? []
+              );
+              if (contextualExpectedType) {
+                contextualizedIndices.push(index);
+              }
+            }
+            for (const index of [...contextualizedIndices].reverse()) {
+              const range = initialArgumentIssueRanges[index];
+              if (!range) {
+                continue;
+              }
+              this.issues.splice(range.start, range.end - range.start);
+            }
+          }
           const instantiatedCalleeType = contextualArgumentTypes === argumentTypes
             ? firstPassCalleeType
             : this.instantiateFunctionType(bestCallableType, explicitTypeArguments, contextualArgumentTypes, expectedType);
@@ -4171,13 +4195,11 @@ export class TypeChecker {
 
     for (let index = 0; index < call.arguments.length && index < calleeType.parameters.length; index += 1) {
       const argument = call.arguments[index]!;
-      const expectedParameterType = calleeType.parameters[index]?.type;
-      const contextualExpectedType = expectedParameterType
-        ? this.contextualTypeForExpressionArgument(
-            argument,
-            this.contextualTypeWithoutUnresolvedReturnType(expectedParameterType, calleeType.typeParameters ?? [])
-          )
-        : null;
+      const contextualExpectedType = this.contextualExpectedTypeForCallArgument(
+        argument,
+        calleeType.parameters[index]?.type,
+        calleeType.typeParameters ?? []
+      );
       if (!contextualExpectedType) {
         continue;
       }
@@ -4190,6 +4212,19 @@ export class TypeChecker {
     }
 
     return contextualArgumentTypes ?? argumentTypes;
+  }
+
+  private contextualExpectedTypeForCallArgument(
+    argument: Expr,
+    expectedParameterType: AnalysisType | undefined,
+    typeParameters: string[]
+  ): AnalysisType | null {
+    return expectedParameterType
+      ? this.contextualTypeForExpressionArgument(
+          argument,
+          this.contextualTypeWithoutUnresolvedReturnType(expectedParameterType, typeParameters)
+        )
+      : null;
   }
 
   private preserveCallLiteralArgumentTypes(args: readonly Expr[], argumentTypes: AnalysisType[]): AnalysisType[] {
@@ -4316,6 +4351,9 @@ export class TypeChecker {
     argument: Expr,
     expectedType: AnalysisType
   ): AnalysisType | null {
+    if (argument.kind === "CallExpression" || argument.kind === "NewExpression") {
+      return expectedType;
+    }
     if (this.isFunctionLikeExpression(argument)) {
       const arrow = argument.kind === "ArrowFunctionExpression" ? argument as ArrowFunctionExpression : undefined;
       return this.contextualFunctionExpectedType(expectedType) ?? (arrow?.contextualObjectLiteral ? expectedType : null);
@@ -4915,6 +4953,15 @@ export class TypeChecker {
 
     if (previousType.kind === "named" && previousType.name === typeParameter) {
       substitutions.set(typeParameter, inferredType);
+      return;
+    }
+
+    if (isUnknownType(previousType) && !isUnknownType(inferredType)) {
+      substitutions.set(typeParameter, inferredType);
+      return;
+    }
+
+    if (!isUnknownType(previousType) && isUnknownType(inferredType)) {
       return;
     }
 
@@ -11227,6 +11274,13 @@ export class TypeChecker {
       const mappedUtilityTarget = this.resolveMappedUtilityAliasTarget(typeAlias, substitutions);
       if (mappedUtilityTarget) {
         return this.expandTypeAliases(mappedUtilityTarget);
+      }
+      const conditionalTarget = this.resolveConditionalTypeAliasTarget(typeAlias, substitutions, this.bound.rootScope);
+      if (
+        conditionalTarget &&
+        !this.typeContainsUnresolvedNamedReference(conditionalTarget, this.bound.rootScope, new Set())
+      ) {
+        return this.expandTypeAliases(conditionalTarget);
       }
       const typeParameterNames = (typeAlias.typeParameters ?? []).map((parameter) => parameter.name.name);
       this.activeTypeAliasNames.add(type.name);

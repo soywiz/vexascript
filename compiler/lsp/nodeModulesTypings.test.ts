@@ -455,6 +455,87 @@ describe("node_modules typings resolution", () => {
     );
   });
 
+  it("contextually types imported callable interfaces through pipe operator helpers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "streamy");
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "streamy", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      dedent`
+        export { Observable } from "./Observable";
+        export { of } from "./of";
+        export { map } from "./map";
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "types.d.ts"),
+      dedent`
+        import { Observable } from "./Observable";
+        export interface UnaryFunction<T, R> {
+          (source: T): R;
+        }
+        export interface OperatorFunction<T, R> extends UnaryFunction<Observable<T>, Observable<R>> {}
+        export type ValueFromArray<A extends readonly unknown[]> =
+          A extends readonly (infer T)[] ? T : never;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "Observable.d.ts"),
+      dedent`
+        import { OperatorFunction } from "./types";
+        export declare class Observable<T> {
+          pipe<A>(op1: OperatorFunction<T, A>): Observable<A>;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "of.d.ts"),
+      dedent`
+        import { Observable } from "./Observable";
+        import { ValueFromArray } from "./types";
+        export declare function of<A extends readonly unknown[]>(...values: A): Observable<ValueFromArray<A>>;
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "map.d.ts"),
+      dedent`
+        import { OperatorFunction } from "./types";
+        export declare function map<T, R>(project: (value: T, index: number) => R): OperatorFunction<T, R>;
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { map, of } from "streamy"
+      val piped = of(1, 2, 3).pipe(map({ value -> value * 2 }))
+    `;
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    expect(collected.externalDeclarations.some((statement) => {
+      const declaration = statement.kind === "ExportStatement"
+        ? (statement as { declaration?: Statement }).declaration ?? statement
+        : statement;
+      return declaration.kind === "TypeAliasStatement"
+        && (declaration as { name?: { name?: string } }).name?.name === "ValueFromArray";
+    })).toBe(true);
+    const richSession = createAnalysisSession(source, collected.externalDeclarations, collected.importedSymbolTypes);
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
   it("assigns callable generic named imports from package exports subpath typings such as preact/hooks", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");
@@ -2798,14 +2879,16 @@ describe("node_modules typings resolution", () => {
       dedent`
         export type ReadonlyElement<T> = T extends readonly (infer U)[] ? U : T;
         export type ReadonlyElementValue = ReadonlyElement<readonly string[]>;
+        export type ReadonlyTupleElementValue = ReadonlyElement<readonly [string, string]>;
       `
     );
 
     const mainPath = join(root, "main.vx");
     const source = dedent`
-      import type { ReadonlyElementValue } from "infer-box"
+      import type { ReadonlyElementValue, ReadonlyTupleElementValue } from "infer-box"
 
       let element: ReadonlyElementValue = "Ada"
+      let tupleElement: ReadonlyTupleElementValue = "Lovelace"
     `;
     await writeFile(mainPath, source, "utf8");
 
