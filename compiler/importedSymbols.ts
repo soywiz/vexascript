@@ -21,8 +21,6 @@ export interface ImportedSymbolSources {
 
 export interface ImportedSymbolViews {
   importedSymbols: Map<string, ImportedSymbolResolution>;
-  importedSymbolTypes: Map<string, AnalysisType>;
-  importedSymbolDisplayTypes: Map<string, string>;
   invalidImportedBindings: Set<string>;
 }
 
@@ -39,30 +37,18 @@ export function getImportedSymbolResolution(
   return created;
 }
 
-export function collectImportedSymbolViews(
+export function collectInvalidImportedBindings(
   importedSymbols: ReadonlyMap<string, ImportedSymbolResolution>
-): Omit<ImportedSymbolViews, "importedSymbols"> {
-  const importedSymbolTypes = new Map<string, AnalysisType>();
-  const importedSymbolDisplayTypes = new Map<string, string>();
+): Set<string> {
   const invalidImportedBindings = new Set<string>();
 
   for (const [localName, resolution] of importedSymbols) {
-    if (resolution.type) {
-      importedSymbolTypes.set(localName, resolution.type);
-    }
-    if (resolution.displayType) {
-      importedSymbolDisplayTypes.set(localName, resolution.displayType);
-    }
     if (resolution.invalid) {
       invalidImportedBindings.add(localName);
     }
   }
 
-  return {
-    importedSymbolTypes,
-    importedSymbolDisplayTypes,
-    invalidImportedBindings
-  };
+  return invalidImportedBindings;
 }
 
 export function normalizeImportedSymbolSources(sources: ImportedSymbolSources = {}): ImportedSymbolViews {
@@ -77,9 +63,8 @@ export function normalizeImportedSymbolSources(sources: ImportedSymbolSources = 
     }
   }
 
-  const views = collectImportedSymbolViews(importedSymbols);
   return {
     importedSymbols,
-    ...views
+    invalidImportedBindings: collectInvalidImportedBindings(importedSymbols)
   };
 }

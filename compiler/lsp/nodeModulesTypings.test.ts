@@ -150,13 +150,13 @@ describe("node_modules typings resolution", () => {
     await writeFile(mainPath, source, "utf8");
 
     const session = createAnalysisSession(source);
-    const symbolTypes = (await collectAllImportedDeclarations(session.ast!, {
+    const importedSymbols = (await collectAllImportedDeclarations(session.ast!, {
       uri: `file://${mainPath}`,
       sourceRoots: [root],
       getSessionForFilePath: () => null
-    })).importedSymbolTypes;
+    })).importedSymbols;
 
-    expect(typeToString(symbolTypes.get("pkg")!)).toBe("(x: string) => pkg.Result & { Result: Result, helper: () => Result }");
+    expect(typeToString(importedSymbols.get("pkg")!.type!)).toBe("(x: string) => pkg.Result & { Result: Result, helper: () => Result }");
   });
 
   it("default import from node_modules gets callable type instead of unknown in analysis", async () => {
@@ -208,11 +208,11 @@ describe("node_modules typings resolution", () => {
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
-    const symbolTypes = collected.importedSymbolTypes;
+    const importedSymbols = collected.importedSymbols;
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(symbolTypes.get("render")?.kind).toBe("function");
-    expect(typeToString(symbolTypes.get("render")!)).toBe("(value: unknown) => string");
+    expect(importedSymbols.get("render")?.type?.kind).toBe("function");
+    expect(typeToString(importedSymbols.get("render")!.type!)).toBe("(value: unknown) => string");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain("Type 'renderer' is not callable");
   });
 
@@ -229,9 +229,9 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = (await collectAllImportedDeclarations(session.ast!, ctx)).importedSymbolTypes;
+    const importedSymbols = (await collectAllImportedDeclarations(session.ast!, ctx)).importedSymbols;
 
-    expect(typeToString(symbolTypes.get("render")!)).toBe("<P>(vnode: VNode<P>, context: any) => string");
+    expect(typeToString(importedSymbols.get("render")!.type!)).toBe("<P>(vnode: VNode<P>, context: any) => string");
   });
 
   it("resolves node_modules import types from package declarations", async () => {
@@ -251,9 +251,9 @@ describe("node_modules typings resolution", () => {
 
     const session = createAnalysisSession(source);
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
-    const symbolTypes = (await collectAllImportedDeclarations(session.ast!, ctx)).importedSymbolTypes;
+    const importedSymbols = (await collectAllImportedDeclarations(session.ast!, ctx)).importedSymbols;
 
-    expect(typeToString(symbolTypes.get("defaultOptions")!)).toBe("FormatterOptions");
+    expect(typeToString(importedSymbols.get("defaultOptions")!.type!)).toBe("FormatterOptions");
   });
 
   it("preserves support declarations for rxjs-style named reexports from sibling files", async () => {
@@ -310,7 +310,7 @@ describe("node_modules typings resolution", () => {
       return declaration.kind === "ClassStatement"
         && (declaration as { name?: { name?: string } }).name?.name === "Observable";
     })).toBe(true);
-    expect(typeToString(collected.importedSymbolTypes.get("of")!)).toBe("<T>(value: T) => Observable<T>");
+    expect(typeToString(collected.importedSymbols.get("of")!.type!)).toBe("<T>(value: T) => Observable<T>");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
       "Property 'pipe' does not exist on type 'unknown'"
     );
@@ -379,7 +379,7 @@ describe("node_modules typings resolution", () => {
       return declaration.kind === "ClassStatement"
         && (declaration as { name?: { name?: string } }).name?.name === "Observable";
     })).toBe(true);
-    expect(typeToString(collected.importedSymbolTypes.get("of")!)).toBe(
+    expect(typeToString(collected.importedSymbols.get("of")!.type!)).toBe(
       "<A extends readonly unknown[]>(...values: A) => Observable<ValueFromArray<A>>"
     );
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
@@ -674,8 +674,8 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(typeToString(collected.importedSymbolTypes.get("useState")!)).toBe("<S>(initialState: S | () => S) => [S, Dispatch<StateUpdater<S>>]");
-    expect(typeToString(collected.importedSymbolTypes.get("render")!)).toBe("(vnode: unknown, parent: unknown) => void");
+    expect(typeToString(collected.importedSymbols.get("useState")!.type!)).toBe("<S>(initialState: S | () => S) => [S, Dispatch<StateUpdater<S>>]");
+    expect(typeToString(collected.importedSymbols.get("render")!.type!)).toBe("(vnode: unknown, parent: unknown) => void");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
@@ -726,7 +726,7 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(collected.importedSymbolTypes.get("useState")?.kind).toBe("union");
+    expect(collected.importedSymbols.get("useState")?.type?.kind).toBe("union");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
@@ -762,7 +762,7 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(typeToString(collected.importedSymbolTypes.get("useThing")!)).toBe("<T>(value: T) => T");
+    expect(typeToString(collected.importedSymbols.get("useThing")!.type!)).toBe("<T>(value: T) => T");
     expect(collected.invalidImportedBindings.has("useThing")).toBe(false);
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
@@ -813,7 +813,7 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(typeToString(collected.importedSymbolTypes.get("z")!)).toContain("string");
+    expect(typeToString(collected.importedSymbols.get("z")!.type!)).toContain("string");
     expect(collected.invalidImportedBindings.has("z")).toBe(false);
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
@@ -905,7 +905,7 @@ describe("node_modules typings resolution", () => {
     const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
     expect(collected.invalidImportedBindings.has("z")).toBe(false);
-    expect(typeToString(collected.importedSymbolTypes.get("z")!)).toContain("infer");
+    expect(typeToString(collected.importedSymbols.get("z")!.type!)).toContain("infer");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
@@ -1044,7 +1044,7 @@ describe("node_modules typings resolution", () => {
     const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
 
-    expect(typeToString(collected.importedSymbolTypes.get("useThing")!)).toBe("<T>(value: T) => T");
+    expect(typeToString(collected.importedSymbols.get("useThing")!.type!)).toBe("<T>(value: T) => T");
     expect(collected.invalidImportedBindings.has("useThing")).toBe(false);
   });
 
@@ -1154,7 +1154,7 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(typeToString(collected.importedSymbolTypes.get("useThing")!)).toBe("<TData, TError>() => UseThingResult<TData, TError>");
+    expect(typeToString(collected.importedSymbols.get("useThing")!.type!)).toBe("<TData, TError>() => UseThingResult<TData, TError>");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
     expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
   });
@@ -1456,7 +1456,7 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(typeToString(collected.importedSymbolTypes.get("useEffect")!)).toBe("(effect: EffectCallback, inputs: Inputs) => void");
+    expect(typeToString(collected.importedSymbols.get("useEffect")!.type!)).toBe("(effect: EffectCallback, inputs: Inputs) => void");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
@@ -1995,7 +1995,7 @@ describe("node_modules typings resolution", () => {
     const collected = await collectAllImportedDeclarations(session.ast!, ctx);
     const richSession = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
 
-    expect(typeToString(collected.importedSymbolTypes.get("ComponentChildren")!)).toBe("ComponentChildren");
+    expect(typeToString(collected.importedSymbols.get("ComponentChildren")!.type!)).toBe("ComponentChildren");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).not.toContain(
       "Unknown type 'ComponentChild'. Expected builtin type (int, number, string, boolean, bigint, long, void) or declared class/interface/type parameter"
     );
@@ -3275,6 +3275,6 @@ describe("node_modules typings resolution", () => {
       getSessionForFilePath: () => null
     });
     expect(result.externalDeclarations).toEqual([]);
-    expect(result.importedSymbolTypes.size).toBe(0);
+    expect(result.importedSymbols.size).toBe(0);
   });
 });

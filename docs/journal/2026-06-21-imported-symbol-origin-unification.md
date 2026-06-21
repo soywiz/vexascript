@@ -330,3 +330,11 @@ as the explicit semantic signal to `TypeChecker`. Do not infer semantic invalid
 imports merely from `importedSymbols.invalid`, because runtime bundling can
 still tolerate untyped JavaScript/CommonJS imports that LSP diagnostics should
 report only when the invalid-binding set says so.
+
+## Collector output cleanup
+
+The collector now removes the final type/display compatibility output maps too.
+`collectAllImportedDeclarations(...)` returns `importedSymbols` plus
+`invalidImportedBindings`; tests that need the imported type or display text read
+`importedSymbols.get(name)?.type` or `.displayType`. This keeps collector tests
+useful while making the old narrow maps impossible to consume accidentally.

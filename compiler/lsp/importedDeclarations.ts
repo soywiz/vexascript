@@ -59,7 +59,7 @@ import {
 import { combineTypes, removeNullishFromType, unwrapPromiseType } from "compiler/analysis/typeOperations";
 import { getNodeModuleTypings, getNodeModuleTypingsForImportNames } from "./nodeModulesTypings";
 import {
-  collectImportedSymbolViews,
+  collectInvalidImportedBindings,
   getImportedSymbolResolution,
   type ImportedSymbolDeclarationOrigin,
   type ImportedSymbolResolution
@@ -3084,8 +3084,6 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
 export interface CollectedImportedDeclarations {
   externalDeclarations: Statement[];
   importedSymbols: Map<string, ImportedSymbolResolution>;
-  importedSymbolTypes: Map<string, AnalysisType>;
-  importedSymbolDisplayTypes: Map<string, string>;
   invalidImportedBindings: Set<string>;
 }
 
@@ -3365,7 +3363,7 @@ export async function collectAllImportedDeclarations(
     return {
       externalDeclarations: [],
       importedSymbols,
-      ...collectImportedSymbolViews(importedSymbols)
+      invalidImportedBindings: collectInvalidImportedBindings(importedSymbols)
     };
   }
 
@@ -3732,7 +3730,7 @@ export async function collectAllImportedDeclarations(
   return {
     externalDeclarations,
     importedSymbols,
-    ...collectImportedSymbolViews(importedSymbols)
+    invalidImportedBindings: collectInvalidImportedBindings(importedSymbols)
   };
 }
 

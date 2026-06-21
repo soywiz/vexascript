@@ -26,14 +26,14 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     const src = `import { readFile } from "myfs"`;
     const ast = parseSource(src, {}).ast!;
 
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
 
-    expect(importedSymbolTypes.has("readFile")).toBe(true);
-    const type = importedSymbolTypes.get("readFile")!;
+    expect(importedSymbols.has("readFile")).toBe(true);
+    const type = importedSymbols.get("readFile")!.type!;
     expect(type.kind).toBe("function");
   });
 
@@ -62,14 +62,14 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     const src = `import { join } from "node:mypath"`;
     const ast = parseSource(src, {}).ast!;
 
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
 
-    expect(importedSymbolTypes.has("join")).toBe(true);
-    const joinType = importedSymbolTypes.get("join")!;
+    expect(importedSymbols.has("join")).toBe(true);
+    const joinType = importedSymbols.get("join")!.type!;
     expect(joinType.kind).toBe("function");
   });
 
@@ -83,14 +83,14 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     const src = `import { doThing as myThing } from "simplepkg"`;
     const ast = parseSource(src, {}).ast!;
 
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
 
-    expect(importedSymbolTypes.has("myThing")).toBe(true);
-    expect(importedSymbolTypes.has("doThing")).toBe(false);
+    expect(importedSymbols.has("myThing")).toBe(true);
+    expect(importedSymbols.has("doThing")).toBe(false);
   });
 
   it("strips node: prefix and resolves from base module when node:X module only has re-export stub", async () => {
@@ -110,14 +110,14 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     const src = `import { process } from "node:simplepkg"`;
     const ast = parseSource(src, {}).ast!;
 
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
 
-    expect(importedSymbolTypes.has("process")).toBe(true);
-    expect(importedSymbolTypes.get("process")!.kind).toBe("function");
+    expect(importedSymbols.has("process")).toBe(true);
+    expect(importedSymbols.get("process")!.type!.kind).toBe("function");
   });
 
   it("preserves ambient function overloads for named imports", async () => {
@@ -144,15 +144,15 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     ]);
 
     const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
 
-    expect(importedSymbolTypes.get("readFile")?.kind).toBe("union");
-    expect(typeToString(importedSymbolTypes.get("readFile")!)).toContain("(path: string | Buffer | URL | object) => Promise<Buffer>");
-    expect(typeToString(importedSymbolTypes.get("readFile")!)).toContain("(path: string | Buffer | URL | object, options: { encoding: string }) => Promise<string>");
+    expect(importedSymbols.get("readFile")?.type?.kind).toBe("union");
+    expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("(path: string | Buffer | URL | object) => Promise<Buffer>");
+    expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("(path: string | Buffer | URL | object, options: { encoding: string }) => Promise<string>");
   });
 
   it("expands ambient object and interface types inside overload parameters", async () => {
@@ -197,13 +197,13 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     ]);
 
     const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
 
-    const rendered = typeToString(importedSymbolTypes.get("readFile")!);
+    const rendered = typeToString(importedSymbols.get("readFile")!.type!);
     expect(rendered).toContain("{ encoding: string");
     expect(rendered).toContain("flag: string?");
     expect(rendered).toContain("{ signal: object? }");
@@ -260,14 +260,14 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     ]);
 
     const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations,
       ambientGlobalDeclarations: globalDeclarations
     });
 
-    const rendered = typeToString(importedSymbolTypes.get("readFile")!);
+    const rendered = typeToString(importedSymbols.get("readFile")!.type!);
     expect(rendered).toContain('"utf8" | "utf-8"');
   });
 
@@ -309,14 +309,14 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     ]);
 
     const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations
     });
 
-    expect(importedSymbolTypes.get("readFile")?.kind).toBe("function");
-    expect(typeToString(importedSymbolTypes.get("readFile")!)).toContain("Promise<string>");
+    expect(importedSymbols.get("readFile")?.type?.kind).toBe("function");
+    expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("Promise<string>");
   });
 
   it("resolves default import type from ambient module direct exports as a module-shaped object", async () => {
@@ -329,14 +329,14 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     );
     const ast = parseSource(`import util from "node:util"`, {}).ast!;
 
-    const { importedSymbolTypes, importedSymbolDisplayTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations: new Map([["node:util", utilDecls]])
     });
 
-    expect(typeToString(importedSymbolTypes.get("util")!)).toBe("{ format: (value: string) => string, inspect: (value: unknown) => string }");
-    expect(importedSymbolDisplayTypes.get("util")).toBe('typeof import("node:util")');
+    expect(typeToString(importedSymbols.get("util")!.type!)).toBe("{ format: (value: string) => string, inspect: (value: unknown) => string }");
+    expect(importedSymbols.get("util")?.displayType).toBe('typeof import("node:util")');
   });
 
   it("resolves ambient import types and typeof import type queries", async () => {
@@ -361,7 +361,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     );
 
     const ast = parseSource(`import { logger } from "logger"`, {}).ast!;
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations: new Map([
@@ -370,7 +370,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
       ])
     });
 
-    expect(typeToString(importedSymbolTypes.get("logger")!)).toBe(
+    expect(typeToString(importedSymbols.get("logger")!.type!)).toBe(
       "{ format: (value: string, options: { trim: boolean? }) => string, options: { trim: boolean? } }"
     );
   });
@@ -414,7 +414,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     );
     const ast = parseSource(`import path from "node:mypath"`, {}).ast!;
 
-    const { importedSymbolTypes } = await collectAllImportedDeclarations(ast, {
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
       uri: "file:///tmp/main.vx",
       sourceRoots: [],
       ambientModuleDeclarations: new Map([
@@ -423,7 +423,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
       ])
     });
 
-    expect(typeToString(importedSymbolTypes.get("path")!)).toBe("{ join: (...paths: string) => string, dirname: (path: string) => string }");
+    expect(typeToString(importedSymbols.get("path")!.type!)).toBe("{ join: (...paths: string) => string, dirname: (path: string) => string }");
   });
 
   it("marks missing named imports from node_modules typings as invalid bindings", async () => {
@@ -450,7 +450,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
       }
     });
 
-    expect(imported.importedSymbolTypes.has("h")).toBe(true);
+    expect(imported.importedSymbols.has("h")).toBe(true);
     expect(imported.invalidImportedBindings.has("UNEXISTANT_SYMBOL")).toBe(true);
   });
 
