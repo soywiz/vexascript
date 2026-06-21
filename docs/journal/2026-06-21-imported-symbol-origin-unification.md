@@ -338,3 +338,12 @@ The collector now removes the final type/display compatibility output maps too.
 `invalidImportedBindings`; tests that need the imported type or display text read
 `importedSymbols.get(name)?.type` or `.displayType`. This keeps collector tests
 useful while making the old narrow maps impossible to consume accidentally.
+
+## Type-string navigation gap
+
+`z.infer<typeof UserSchema>` exposed another drift: analysis could use the type
+text, but LSP navigation did not visit `TypeAliasStatement.targetType` and
+treated qualified type text such as `z.infer` as one opaque name. The fix was to
+let the shared type-identifier finder visit alias targets, return the qualified
+name with a segment range, and let hover/definition resolve that synthetic type
+identifier through the same node_modules export and local-symbol paths.

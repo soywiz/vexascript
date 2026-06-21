@@ -682,6 +682,127 @@ describe("cross-file navigation", () => {
     expect(location?.range.start.line).toBe(objectLine);
   });
 
+  it("navigates and hovers type identifiers inside node_modules qualified type aliases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-qualified-type-nav-"));
+    const pkgDir = join(root, "node_modules", "zod");
+    const libDir = join(pkgDir, "lib");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { z } from "zod"
+
+      const UserSchema = z.object({
+        name: z.string(),
+        age: z.number()
+      })
+
+      type User = z.infer<typeof UserSchema>
+    `;
+    const inferMarked = sourceWithCursor(source.replace("z.infer", "z.in^^^fer"));
+    const schemaMarked = sourceWithCursor(source.replace("typeof UserSchema", "typeof Us^^^erSchema"));
+    const packageSource = dedent`
+      import * as z from "./external";
+      export * from "./external";
+      export { z };
+      export default z;
+    `;
+    const externalSource = dedent`
+      export interface ZType<Output> {
+        parse(value: unknown): Output;
+        _output: Output;
+      }
+
+      export interface ZString extends ZType<string> {
+      }
+
+      export interface ZNumber extends ZType<number> {
+      }
+
+      export type ZRawShape = { [key: string]: ZType<any> };
+      export interface ZObject<TShape extends ZRawShape> extends ZType<any> {
+        shape: TShape;
+      }
+      export declare type TypeOf<T extends ZType<any>> = T["_output"];
+      export type { TypeOf as infer };
+
+      declare const stringType: () => ZString;
+      declare const numberType: () => ZNumber;
+      declare function objectType<TShape extends ZRawShape>(shape: TShape): ZObject<TShape>;
+
+      export { stringType as string, numberType as number, objectType as object };
+    `;
+
+    await mkdir(libDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "zod",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(
+      join(pkgDir, "index.d.ts"),
+      'export * from "./lib";\nexport as namespace Zod;\n',
+      "utf8"
+    );
+    await writeFile(join(libDir, "index.d.ts"), packageSource, "utf8");
+    await writeFile(join(libDir, "external.d.ts"), externalSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+
+    const externalLines = externalSource.split("\n");
+    const inferLine = externalLines.findIndex((line) => line.includes("declare type TypeOf"));
+    const schemaLine = source.split("\n").findIndex((line) => line.includes("const UserSchema"));
+    const context = {
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    };
+
+    const inferLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: inferMarked.line,
+      character: inferMarked.character
+    });
+    const inferHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: inferMarked.line,
+      character: inferMarked.character
+    });
+    const schemaLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: schemaMarked.line,
+      character: schemaMarked.character
+    });
+    const schemaHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: schemaMarked.line,
+      character: schemaMarked.character
+    });
+
+    expect(inferLocation?.uri).toBe(pathToFileURL(join(libDir, "external.d.ts")).toString());
+    expect(inferLocation?.range.start.line).toBe(inferLine);
+    expect(inferHover?.contents).toEqual({ kind: "plaintext", value: "type z.infer" });
+    expect(schemaLocation?.uri).toBe(pathToFileURL(mainPath).toString());
+    expect(schemaLocation?.range.start.line).toBe(schemaLine);
+    expect(schemaHover?.contents).toEqual({
+      kind: "plaintext",
+      value: "variable UserSchema: ZObject<{ name: ZString, age: ZNumber }>"
+    });
+  });
+
   it("resolves inherited node_modules accessor members to their base declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-node-module-accessor-member-nav-"));
     const pkgDir = join(root, "node_modules", "pixi-like");

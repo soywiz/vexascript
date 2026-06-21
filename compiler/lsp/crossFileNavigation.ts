@@ -11,12 +11,13 @@ export { resolveMemberHoverAcrossFiles } from "./crossFileMemberHover";
 import type {
   Identifier,
 } from "compiler/ast/ast";
-import type { AnalysisType } from "compiler/analysis/types";
+import { type AnalysisType, typeToString } from "compiler/analysis/types";
 import type { Hover, Location } from "vscode-languageserver/node.js";
-import { pathToUri } from "./importFixes";
+import { pathToUri, uriToFilePath } from "./importFixes";
 import { nodeRange } from "./ranges";
 import {
   declarationRangeForName,
+  findModuleReceiverImport,
   findImportForSymbolNode,
   resolveCanonicalSymbol,
   type ResolveContext
@@ -58,6 +59,7 @@ import {
 } from "./importPathNavigation";
 import { findAmbientNamespaceLocation } from "./crossFileContext";
 import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
+import { findNodeModuleExportLocation } from "./nodeModulesTypings";
 
 function resolveImportedBindingDefinitionFromSession(
   context: ResolveContext,
@@ -93,6 +95,164 @@ function resolveImportedBindingDefinitionFromSession(
     uri: pathToUri(origin.filePath),
     range
   };
+}
+
+function splitQualifiedTypeName(typeName: string): { receiverName: string; memberName: string } | null {
+  const dotIndex = typeName.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === typeName.length - 1) {
+    return null;
+  }
+  return {
+    receiverName: typeName.slice(0, dotIndex),
+    memberName: typeName.slice(dotIndex + 1)
+  };
+}
+
+function visibleSymbolForTypeIdentifier(context: ResolveContext, identifier: Identifier) {
+  if (!context.session.analysis || identifier.name.includes(".")) {
+    return null;
+  }
+  const range = nodeRange(identifier);
+  if (!range) {
+    return null;
+  }
+  return context.session.analysis
+    .getVisibleSymbolsAt(range.start.line, range.start.character)
+    .find((candidate) => candidate.name === identifier.name) ?? null;
+}
+
+function resolveLocalTypeIdentifierDefinition(context: ResolveContext, identifier: Identifier): Location | null {
+  const symbol = visibleSymbolForTypeIdentifier(context, identifier);
+  const symbolRange = symbol ? nodeRange(symbol.node) : null;
+  if (!symbolRange) {
+    return null;
+  }
+  return {
+    uri: context.uri,
+    range: symbolRange
+  };
+}
+
+function resolveLocalTypeIdentifierHover(context: ResolveContext, identifier: Identifier): Hover | null {
+  const range = nodeRange(identifier);
+  if (!range) {
+    return null;
+  }
+  const symbol = visibleSymbolForTypeIdentifier(context, identifier);
+  if (!symbol) {
+    return null;
+  }
+  const typeLabel = symbol.valueType ?? (symbol.type ? typeToString(symbol.type) : "unknown");
+  return {
+    contents: {
+      kind: "plaintext",
+      value: `${symbol.kind} ${symbol.name}: ${typeLabel}`
+    },
+    range
+  };
+}
+
+async function resolveQualifiedTypeMemberDefinition(
+  context: ResolveContext,
+  identifier: Identifier
+): Promise<Location | null> {
+  if (!context.session.ast) {
+    return null;
+  }
+  const qualified = splitQualifiedTypeName(identifier.name);
+  if (!qualified) {
+    return null;
+  }
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath) {
+    return null;
+  }
+  const receiverImport = findModuleReceiverImport(context.session.ast, qualified.receiverName);
+  if (!receiverImport || receiverImport.from.startsWith(".") || receiverImport.from.startsWith("/")) {
+    return null;
+  }
+  const location = await findNodeModuleExportLocation(
+    currentFilePath,
+    receiverImport.from,
+    qualified.memberName,
+    { vfs: context.vfs }
+  );
+  if (!location) {
+    return null;
+  }
+  return {
+    uri: pathToUri(location.typingsPath),
+    range: location.range
+  };
+}
+
+async function resolveTypeIdentifierDefinition(context: ResolveContext): Promise<Location | null> {
+  if (!context.session.ast) {
+    return null;
+  }
+  for (const character of candidateCharacters(context.character)) {
+    const typeIdentifier = findTypeIdentifierAtPosition(context.session.ast, context.line, character);
+    if (!typeIdentifier) {
+      continue;
+    }
+    const qualifiedDefinition = await resolveQualifiedTypeMemberDefinition(context, typeIdentifier);
+    if (qualifiedDefinition) {
+      return qualifiedDefinition;
+    }
+    const typeDefinition = await resolveTypeDefinitionAcrossFiles(context, typeIdentifier.name);
+    if (typeDefinition) {
+      return {
+        uri: pathToUri(typeDefinition.filePath),
+        range: nodeRange(typeDefinition.declaration.name) ?? nodeRange(typeIdentifier)!
+      };
+    }
+    const localDefinition = resolveLocalTypeIdentifierDefinition(context, typeIdentifier);
+    if (localDefinition) {
+      return localDefinition;
+    }
+  }
+  return null;
+}
+
+async function resolveTypeIdentifierHover(context: ResolveContext): Promise<Hover | null> {
+  if (!context.session.ast) {
+    return null;
+  }
+  for (const character of candidateCharacters(context.character)) {
+    const typeIdentifier = findTypeIdentifierAtPosition(context.session.ast, context.line, character);
+    if (!typeIdentifier) {
+      continue;
+    }
+    const localHover = resolveLocalTypeIdentifierHover(context, typeIdentifier);
+    if (localHover) {
+      return localHover;
+    }
+    const range = nodeRange(typeIdentifier);
+    if (!range) {
+      continue;
+    }
+    const qualifiedDefinition = await resolveQualifiedTypeMemberDefinition(context, typeIdentifier);
+    if (qualifiedDefinition) {
+      return {
+        contents: {
+          kind: "plaintext",
+          value: `type ${typeIdentifier.name}`
+        },
+        range
+      };
+    }
+    const typeDefinition = await resolveTypeDefinitionAcrossFiles(context, typeIdentifier.name);
+    if (typeDefinition) {
+      return {
+        contents: {
+          kind: "plaintext",
+          value: `${typeDefinition.declaration.kind === "ClassStatement" ? "class" : "interface"} ${typeIdentifier.name}`
+        },
+        range
+      };
+    }
+  }
+  return null;
 }
 
 function collectNodeModulesReceiverTypeNames(objectType: AnalysisType): string[] {
@@ -268,17 +428,9 @@ export async function resolveDefinitionAcrossFiles(context: ResolveContext): Pro
     return implicitReceiverDefinition;
   }
 
-  const typeIdentifier = context.session.ast
-    ? findTypeIdentifierAtPosition(context.session.ast, context.line, context.character)
-    : null;
-  if (typeIdentifier) {
-    const typeDefinition = await resolveTypeDefinitionAcrossFiles(context, typeIdentifier.name);
-    if (typeDefinition) {
-      return {
-        uri: pathToUri(typeDefinition.filePath),
-        range: nodeRange(typeDefinition.declaration.name) ?? nodeRange(typeIdentifier)!
-      };
-    }
+  const typeIdentifierDefinition = await resolveTypeIdentifierDefinition(context);
+  if (typeIdentifierDefinition) {
+    return typeIdentifierDefinition;
   }
 
   for (const character of candidateCharacters(context.character)) {
@@ -385,6 +537,10 @@ export async function resolveHoverWithLocalFallback(context: ResolveContext): Pr
 
   if (!context.session.analysis) {
     return null;
+  }
+  const typeIdentifierHover = await resolveTypeIdentifierHover(context);
+  if (typeIdentifierHover) {
+    return typeIdentifierHover;
   }
   return createHover(context.session.analysis, context.line, context.character, context.session.ast ?? undefined, {
     ambientModuleDeclarations: context.session.ambientModuleDeclarations

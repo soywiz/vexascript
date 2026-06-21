@@ -58,6 +58,7 @@ export interface ObjectTypeMemberInfo {
 
 export const TYPE_ANNOTATION_KEYS = new Set([
   "typeAnnotation",
+  "targetType",
   "returnType",
   "extendsType",
   "extendsTypes",
@@ -765,10 +766,16 @@ function nestedTypeIdentifierAtOffset(
       const genericEnd = findMatchingTypeDelimiter(normalized, genericStart, "<", ">");
       if (genericEnd > genericStart) {
         if (localOffset < genericStart) {
-          const baseName = normalized.slice(0, genericStart).trim();
           const trailingWhitespace = normalized.slice(0, genericStart).match(/\s*$/)?.[0].length ?? 0;
           const baseEnd = genericStart - trailingWhitespace;
-          return makeSyntheticTypeIdentifier(identifier, baseName, baseOffset, baseOffset + baseEnd);
+          const baseIdentifier = identifierFromQualifiedTypeText(
+            normalized.slice(0, baseEnd),
+            baseOffset,
+            localOffset
+          );
+          if (baseIdentifier) {
+            return baseIdentifier;
+          }
         }
         if (localOffset > genericStart && localOffset < genericEnd) {
           const argumentBody = normalized.slice(genericStart + 1, genericEnd);
@@ -789,16 +796,40 @@ function nestedTypeIdentifierAtOffset(
       }
     }
 
+    return identifierFromQualifiedTypeText(normalized, baseOffset, localOffset);
+  };
+
+  const identifierFromQualifiedTypeText = (
+    typeText: string,
+    baseOffset: number,
+    localOffset: number
+  ): Identifier | null => {
+    const isIdentifierCharacter = (value: string | undefined) => !!value && /[A-Za-z0-9_$]/.test(value);
     let start = localOffset;
     let end = localOffset;
-    const isIdentifierCharacter = (value: string | undefined) => !!value && /[A-Za-z0-9_.$]/.test(value);
-    while (start > 0 && isIdentifierCharacter(normalized[start - 1])) {
+    while (start > 0 && isIdentifierCharacter(typeText[start - 1])) {
       start -= 1;
     }
-    while (end < normalized.length && isIdentifierCharacter(normalized[end])) {
+    while (end < typeText.length && isIdentifierCharacter(typeText[end])) {
       end += 1;
     }
-    const name = normalized.slice(start, end).trim();
+    if (start === end) {
+      return null;
+    }
+
+    let qualifiedStart = start;
+    while (qualifiedStart > 1 && typeText[qualifiedStart - 1] === ".") {
+      let previousStart = qualifiedStart - 1;
+      while (previousStart > 0 && isIdentifierCharacter(typeText[previousStart - 1])) {
+        previousStart -= 1;
+      }
+      if (previousStart === qualifiedStart - 1) {
+        break;
+      }
+      qualifiedStart = previousStart;
+    }
+
+    const name = typeText.slice(qualifiedStart, end).trim();
     if (!name) {
       return null;
     }
