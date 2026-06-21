@@ -172,7 +172,6 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     importedSymbols,
     importedSymbolTypes,
     importedSymbolDisplayTypes,
-    importedSymbolDeclarationOrigins,
     invalidImportedBindings
   } =
     await collectAllImportedDeclarations(baseSession.ast, context);
@@ -182,7 +181,6 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
     importedSymbols,
     importedSymbolTypes,
     importedSymbolDisplayTypes,
-    importedSymbolDeclarationOrigins,
     invalidImportedBindings,
     ambientDeclarations: [...domDeclarations, ...ambientTypes.globalDeclarations],
     ambientDeclarationLocations: new Map([

@@ -6,7 +6,7 @@ import type { TokenizeError } from "compiler/parser/tokenizer";
 import { compileSource } from "compiler/pipeline/compile";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { AmbientModuleLocation } from "./ambientTypesLoader";
-import type { ImportedSymbolDeclarationOrigin, ImportedSymbolResolution } from "./importedDeclarations";
+import type { ImportedSymbolResolution } from "./importedDeclarations";
 
 export interface AnalysisSession {
   ast: Program | null;
@@ -17,9 +17,6 @@ export interface AnalysisSession {
   fatalError: string | null;
   externalDeclarations: Statement[];
   importedSymbols: ReadonlyMap<string, ImportedSymbolResolution>;
-  importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
-  importedSymbolDisplayTypes: ReadonlyMap<string, string>;
-  importedSymbolDeclarationOrigins: ReadonlyMap<string, ImportedSymbolDeclarationOrigin>;
   invalidImportedBindings: ReadonlySet<string>;
   ambientDeclarations: Statement[];
   ambientDeclarationLocations: ReadonlyMap<Statement, AmbientModuleLocation>;
@@ -37,7 +34,6 @@ export function createAnalysisSession(
   importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map(),
   invalidImportedBindings: ReadonlySet<string> = new Set(),
   ambientDeclarationLocations: ReadonlyMap<Statement, AmbientModuleLocation> = new Map(),
-  importedSymbolDeclarationOrigins: ReadonlyMap<string, ImportedSymbolDeclarationOrigin> = new Map(),
   importedSymbols: ReadonlyMap<string, ImportedSymbolResolution> = new Map()
 ): AnalysisSession {
   const normalizedImportedSymbols = importedSymbols.size > 0
@@ -51,11 +47,6 @@ export function createAnalysisSession(
   for (const [localName, displayType] of importedSymbolDisplayTypes) {
     const existing = normalizedImportedSymbols.get(localName) ?? {};
     existing.displayType = displayType;
-    normalizedImportedSymbols.set(localName, existing);
-  }
-  for (const [localName, declarationOrigin] of importedSymbolDeclarationOrigins) {
-    const existing = normalizedImportedSymbols.get(localName) ?? {};
-    existing.declarationOrigin = declarationOrigin;
     normalizedImportedSymbols.set(localName, existing);
   }
   for (const localName of invalidImportedBindings) {
@@ -87,14 +78,6 @@ export function createAnalysisSession(
         .filter(([, resolution]) => resolution.invalid)
         .map(([localName]) => localName)
     );
-  const normalizedImportedSymbolDeclarationOrigins = importedSymbolDeclarationOrigins.size > 0
-    ? importedSymbolDeclarationOrigins
-    : new Map(
-      [...normalizedImportedSymbols]
-        .filter(([, resolution]) => resolution.declarationOrigin)
-        .map(([localName, resolution]) => [localName, resolution.declarationOrigin!])
-    );
-
   const artifacts = compileSource(source, {}, {
     externalDeclarations,
     importedSymbolTypes: normalizedImportedSymbolTypes,
@@ -112,9 +95,6 @@ export function createAnalysisSession(
     fatalError: artifacts.fatalError,
     externalDeclarations: [...externalDeclarations],
     importedSymbols: normalizedImportedSymbols,
-    importedSymbolTypes: normalizedImportedSymbolTypes,
-    importedSymbolDisplayTypes: normalizedImportedSymbolDisplayTypes,
-    importedSymbolDeclarationOrigins: normalizedImportedSymbolDeclarationOrigins,
     invalidImportedBindings: normalizedInvalidImportedBindings,
     ambientDeclarations: [...ambientDeclarations],
     ambientDeclarationLocations,
@@ -138,7 +118,6 @@ export interface ResolvedExternals {
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   importedSymbolTypes: ReadonlyMap<string, AnalysisType>;
   importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
-  importedSymbolDeclarationOrigins?: ReadonlyMap<string, ImportedSymbolDeclarationOrigin>;
   invalidImportedBindings?: ReadonlySet<string>;
   ambientDeclarations?: Statement[];
   ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;
@@ -160,7 +139,6 @@ function buildSessionFromResolved(
   const importedSymbols = resolved.importedSymbols ?? new Map();
   const importedSymbolTypes = resolved.importedSymbolTypes ?? new Map();
   const importedSymbolDisplayTypes = resolved.importedSymbolDisplayTypes ?? new Map();
-  const importedSymbolDeclarationOrigins = resolved.importedSymbolDeclarationOrigins ?? new Map();
   const ambientDeclarations = resolved.ambientDeclarations ?? [];
   const ambientDeclarationLocations = resolved.ambientDeclarationLocations ?? new Map();
   const ambientModuleDeclarations = resolved.ambientModuleDeclarations ?? new Map();
@@ -171,7 +149,6 @@ function buildSessionFromResolved(
     importedSymbols.size === 0 &&
     importedSymbolTypes.size === 0 &&
     importedSymbolDisplayTypes.size === 0 &&
-    importedSymbolDeclarationOrigins.size === 0 &&
     invalidImportedBindings.size === 0 &&
     ambientDeclarations.length === 0 &&
     ambientDeclarationLocations.size === 0 &&
@@ -189,7 +166,6 @@ function buildSessionFromResolved(
     importedSymbolDisplayTypes,
     invalidImportedBindings,
     ambientDeclarationLocations,
-    importedSymbolDeclarationOrigins,
     importedSymbols
   );
 }

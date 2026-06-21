@@ -43,7 +43,7 @@ describe("lsp analysis session", () => {
     expect(session.tokenizeError).toBeNull();
   });
 
-  it("derives legacy imported-symbol views from the shared importedSymbols map", () => {
+  it("keeps imported symbol details in the shared importedSymbols map", () => {
     const importedSymbols = new Map<string, ImportedSymbolResolution>([
       ["readFile", { type: { kind: "named", name: "ReadFileFn" }, displayType: 'typeof import("node:fs").readFile' }],
       ["missing", { invalid: true }]
@@ -59,13 +59,11 @@ describe("lsp analysis session", () => {
       new Map(),
       new Set(),
       new Map(),
-      new Map(),
       importedSymbols
     );
 
     expect(session.importedSymbols.get("readFile")?.displayType).toBe('typeof import("node:fs").readFile');
-    expect(session.importedSymbolTypes.get("readFile")).toEqual({ kind: "named", name: "ReadFileFn" });
-    expect(session.importedSymbolDisplayTypes.get("readFile")).toBe('typeof import("node:fs").readFile');
+    expect(session.importedSymbols.get("readFile")?.type).toEqual({ kind: "named", name: "ReadFileFn" });
     expect(session.invalidImportedBindings.has("missing")).toBe(true);
   });
 

@@ -199,6 +199,7 @@ This section is the fast onboarding map for agents and contributors.
 - Processed journal notes that have already been ingested into actionable architecture or follow-up tasks: `docs/journal/processed/`
 - Repo-local Codex skills: `.codex/skills/`
   - Sample-creation workflow skill for browser and Node samples: `.codex/skills/create-vexascript-samples/SKILL.md`
+  - Destructive subtractive-refactor workflow skill for negative-net cleanup, dead-code deletion, and removal of internal compatibility layers when compiler/CLI behavior remains stable: `.codex/skills/destructive-negative-net-refactor/SKILL.md`
   - Journal-ingestion workflow skill for turning engineering notes into actionable follow-up tasks and moving processed notes aside: `.codex/skills/ingest-vexascript-journal/SKILL.md`
   - Task-management workflow skill for creating, updating, and completing repository task docs: `.codex/skills/manage-vexascript-tasks/SKILL.md`
 - LSP services status: `docs/lsp.services.md`

@@ -79,7 +79,7 @@ function resolveImportedBindingDefinitionFromSession(
     return null;
   }
 
-  const origin = context.session.importedSymbolDeclarationOrigins?.get(importBinding.name);
+  const origin = context.session.importedSymbols?.get(importBinding.name)?.declarationOrigin;
   if (!origin) {
     return null;
   }

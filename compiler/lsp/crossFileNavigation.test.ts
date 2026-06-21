@@ -300,7 +300,7 @@ describe("cross-file navigation", () => {
       collected.importedSymbolDisplayTypes,
       collected.invalidImportedBindings,
       new Map(),
-      collected.importedSymbolDeclarationOrigins
+      collected.importedSymbols
     );
 
     const pkgLines = pkgSource.split("\n");

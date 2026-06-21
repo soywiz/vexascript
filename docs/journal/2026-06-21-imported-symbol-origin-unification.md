@@ -131,6 +131,59 @@ For future work in this area:
 
 In short: elegant cleanup here should usually look subtractive, not additive.
 
+## Destructive cleanup that finally mattered
+
+The next cleanup step was valuable precisely because it removed API surface
+instead of only documenting a future intention.
+
+We deleted two live compatibility branches:
+
+- `AnalysisSession` no longer stores or accepts a separate
+  `importedSymbolDeclarationOrigins` map
+- `collectAllImportedDeclarations(...)` no longer exposes
+  `importedSymbolDeclarationOrigins` as a parallel public result
+
+After that change, declaration origin in live code flows only through:
+
+- `importedSymbols.get(name)?.declarationOrigin`
+
+This matters more than the raw line count suggests. The main win is that new
+callers can no longer accidentally wire the old origin map while forgetting the
+shared imported-symbol record, because that separate route no longer exists.
+
+That is the standard to keep applying in this area:
+
+- remove compatibility parameters from shared constructors as soon as runtime
+  production code stops using them
+- remove legacy derived views from public return shapes once only tests depend
+  on them
+- update tests to assert the canonical structure instead of protecting legacy
+  plumbing forever
+
+## Next destructive slice
+
+The next worthwhile cut was smaller but cleaner in a very important way:
+
+- `AnalysisSession` stopped storing `importedSymbolTypes` and
+  `importedSymbolDisplayTypes` as duplicated session state
+
+Those narrower maps still exist locally when building an analysis because the
+underlying analysis pipeline still accepts them, but they no longer survive as
+long-lived LSP session fields.
+
+That changed two things:
+
+- production LSP code now treats `session.importedSymbols` as the canonical
+  imported-binding state
+- reconstruction tests that still need the older constructor shape now carry
+  that compatibility locally instead of forcing production session objects to
+  keep duplicated fields alive forever
+
+This is a good example of the desired migration direction:
+
+- temporary compatibility may still exist at the construction boundary
+- but it should retreat out of persistent runtime state first
+
 ## Regression guidance
 
 - If an imported symbol has a stable resolved type, treat "no definition" as a

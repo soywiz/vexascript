@@ -514,14 +514,13 @@ export function startLspServer(options: LspServerOptions): void {
         recoverAnalysisSession: (source) => createAnalysisSession(
           source,
           session.externalDeclarations,
-          session.importedSymbolTypes,
+          new Map(),
           session.ambientDeclarations,
           session.ambientModuleDeclarations,
           session.ambientModuleLocations,
-          session.importedSymbolDisplayTypes,
+          new Map(),
           session.invalidImportedBindings,
           session.ambientDeclarationLocations,
-          session.importedSymbolDeclarationOrigins,
           session.importedSymbols
         )
       }

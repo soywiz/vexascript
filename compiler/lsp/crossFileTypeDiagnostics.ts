@@ -289,10 +289,7 @@ export async function collectCrossFileTypeDiagnostics(
 
   const hasResolvedImportedBinding = (localName: string): boolean => {
     const resolution = session.importedSymbols?.get(localName);
-    if (resolution) {
-      return !!(resolution.type || resolution.displayType);
-    }
-    return session.importedSymbolTypes.has(localName) || session.importedSymbolDisplayTypes.has(localName);
+    return !!resolution && !!(resolution.type || resolution.displayType);
   };
 
   for (const importStatement of collectImportStatements(session.ast)) {

@@ -3081,7 +3081,6 @@ export interface CollectedImportedDeclarations {
   importedSymbolTypes: Map<string, AnalysisType>;
   importedSymbolDisplayTypes: Map<string, string>;
   invalidImportedBindings: Set<string>;
-  importedSymbolDeclarationOrigins: Map<string, ImportedSymbolDeclarationOrigin>;
 }
 
 export interface ImportedSymbolDeclarationOrigin {
@@ -3213,7 +3212,6 @@ function collectedImportedDeclarationsViews(
   const importedSymbolTypes = new Map<string, AnalysisType>();
   const importedSymbolDisplayTypes = new Map<string, string>();
   const invalidImportedBindings = new Set<string>();
-  const importedSymbolDeclarationOrigins = new Map<string, ImportedSymbolDeclarationOrigin>();
 
   for (const [localName, resolution] of importedSymbols) {
     if (resolution.type) {
@@ -3225,16 +3223,12 @@ function collectedImportedDeclarationsViews(
     if (resolution.invalid) {
       invalidImportedBindings.add(localName);
     }
-    if (resolution.declarationOrigin) {
-      importedSymbolDeclarationOrigins.set(localName, resolution.declarationOrigin);
-    }
   }
 
   return {
     importedSymbolTypes,
     importedSymbolDisplayTypes,
-    invalidImportedBindings,
-    importedSymbolDeclarationOrigins
+    invalidImportedBindings
   };
 }
 

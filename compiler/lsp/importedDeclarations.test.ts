@@ -482,7 +482,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
       sourceRoots: [root]
     });
 
-    const origin = imported.importedSymbolDeclarationOrigins.get("Greeter");
+    const origin = imported.importedSymbols.get("Greeter")?.declarationOrigin;
     expect(origin).not.toBeNull();
     expect(origin?.filePath).toBe(producerFile);
     expect((origin?.statement as { kind?: string })?.kind).toBe("ClassStatement");
@@ -511,7 +511,7 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
       sourceRoots: [root]
     });
 
-    const origin = imported.importedSymbolDeclarationOrigins.get("object");
+    const origin = imported.importedSymbols.get("object")?.declarationOrigin;
     expect(origin).not.toBeNull();
     expect(origin?.filePath).toBe(join(libDir, "types.d.ts"));
   });

@@ -28,6 +28,21 @@ function parseAmbientModule(src: string, moduleName: string) {
   return ns?.body?.body ?? [];
 }
 
+function recoverSessionFrom(source: string, session: ReturnType<typeof createAnalysisSession>) {
+  return createAnalysisSession(
+    source,
+    session.externalDeclarations,
+    new Map(),
+    session.ambientDeclarations,
+    session.ambientModuleDeclarations,
+    session.ambientModuleLocations,
+    new Map(),
+    session.invalidImportedBindings,
+    session.ambientDeclarationLocations,
+    session.importedSymbols
+  );
+}
+
 describe("createCompletionItemsForPosition", () => {
   it("includes in-scope variables and parameters inside function body", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
@@ -1034,8 +1049,7 @@ describe("createCompletionItemsForPosition", () => {
         uri: mainUri,
         vfs,
         getSessionForFilePath,
-        recoverAnalysisSession: (recoveredSource) =>
-          createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes)
+        recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
       }
     );
     const labels = items.map((item) => item.label);
@@ -1385,8 +1399,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: pathToFileURL(file).toString(),
       sourceRoots: [root],
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const labels = items.map((item) => item.label);
 
@@ -1402,8 +1415,7 @@ describe("createCompletionItemsForPosition", () => {
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       ambientDeclarations,
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const createElement = items.find((item) => item.label === "createElement");
 
@@ -1429,8 +1441,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: pathToFileURL(file).toString(),
       sourceRoots: [root],
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const labels = items.map((item) => item.label);
 
@@ -1446,8 +1457,7 @@ describe("createCompletionItemsForPosition", () => {
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       ambientDeclarations,
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const labels = items.map((item) => item.label);
 
@@ -1489,18 +1499,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: "file:///virtual/main.vx",
       ambientModuleDeclarations,
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(
-          recoveredSource,
-          session.externalDeclarations,
-          session.importedSymbolTypes,
-          session.ambientDeclarations,
-          session.ambientModuleDeclarations,
-          session.ambientModuleLocations,
-          session.importedSymbolDisplayTypes,
-          session.invalidImportedBindings,
-          session.ambientDeclarationLocations
-        )
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
 
     expect(items.map((item) => item.label)).toContain("format");
@@ -1549,18 +1548,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: "file:///virtual/main.vx",
       ambientModuleDeclarations,
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(
-          recoveredSource,
-          session.externalDeclarations,
-          session.importedSymbolTypes,
-          session.ambientDeclarations,
-          session.ambientModuleDeclarations,
-          session.ambientModuleLocations,
-          session.importedSymbolDisplayTypes,
-          session.invalidImportedBindings,
-          session.ambientDeclarationLocations
-        )
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
 
     const readFile = items.find((item) => item.label === "readFile");
@@ -1610,18 +1598,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: "file:///virtual/main.vx",
       ambientModuleDeclarations,
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(
-          recoveredSource,
-          session.externalDeclarations,
-          session.importedSymbolTypes,
-          session.ambientDeclarations,
-          session.ambientModuleDeclarations,
-          session.ambientModuleLocations,
-          session.importedSymbolDisplayTypes,
-          session.invalidImportedBindings,
-          session.ambientDeclarationLocations
-        )
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
 
     expect(items.find((item) => item.label === "readFile")?.documentation).toBe(
@@ -1667,18 +1644,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: "file:///virtual/main.vx",
       ambientModuleDeclarations,
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(
-          recoveredSource,
-          session.externalDeclarations,
-          session.importedSymbolTypes,
-          session.ambientDeclarations,
-          session.ambientModuleDeclarations,
-          session.ambientModuleLocations,
-          session.importedSymbolDisplayTypes,
-          session.invalidImportedBindings,
-          session.ambientDeclarationLocations
-        )
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
@@ -1894,17 +1860,7 @@ describe("createCompletionItemsForPosition", () => {
       uri: pathToFileURL(mainPath).toString(),
       sourceRoots: [root],
       getSessionForFilePath: () => null,
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(
-          recoveredSource,
-          session.externalDeclarations,
-          session.importedSymbolTypes,
-          [],
-          new Map(),
-          new Map(),
-          session.importedSymbolDisplayTypes,
-          session.invalidImportedBindings
-        )
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const byLabel = new Map(items.map((item) => [item.label, item]));
 
@@ -1988,8 +1944,7 @@ describe("createCompletionItemsForPosition", () => {
         const counterSource = await readFile(counterFile, "utf8");
         return createAnalysisSession(counterSource, [], new Map(), (await ensureDomProgram()).body);
       },
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const labels = items.map((item) => item.label);
 
@@ -2011,8 +1966,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: pathToFileURL(file).toString(),
       sourceRoots: [root],
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const labels = items.map((item) => item.label);
 
@@ -2029,8 +1983,7 @@ describe("createCompletionItemsForPosition", () => {
     const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], {
       text: source,
       ambientDeclarations,
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const nodeType = items.find((item) => item.label === "nodeType");
 
@@ -2053,8 +2006,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: pathToFileURL(file).toString(),
       sourceRoots: [root],
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const labels = items.map((item) => item.label);
 
@@ -2076,8 +2028,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: pathToFileURL(file).toString(),
       sourceRoots: [root],
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const labels = items.map((item) => item.label);
 
@@ -2099,8 +2050,7 @@ describe("createCompletionItemsForPosition", () => {
       text: source,
       uri: pathToFileURL(file).toString(),
       sourceRoots: [root],
-      recoverAnalysisSession: (recoveredSource) =>
-        createAnalysisSession(recoveredSource, session.externalDeclarations, session.importedSymbolTypes, session.ambientDeclarations)
+      recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
     });
     const labels = items.map((item) => item.label);
 
