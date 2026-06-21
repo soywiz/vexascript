@@ -169,6 +169,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
   };
   const {
     externalDeclarations,
+    importedSymbols,
     importedSymbolTypes,
     importedSymbolDisplayTypes,
     importedSymbolDeclarationOrigins,
@@ -178,6 +179,7 @@ const analysisSessions = new AnalysisSessionCache(async (document, baseSession) 
 
   return {
     externalDeclarations,
+    importedSymbols,
     importedSymbolTypes,
     importedSymbolDisplayTypes,
     importedSymbolDeclarationOrigins,

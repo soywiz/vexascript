@@ -520,7 +520,9 @@ export function startLspServer(options: LspServerOptions): void {
           session.ambientModuleLocations,
           session.importedSymbolDisplayTypes,
           session.invalidImportedBindings,
-          session.ambientDeclarationLocations
+          session.ambientDeclarationLocations,
+          session.importedSymbolDeclarationOrigins,
+          session.importedSymbols
         )
       }
     );

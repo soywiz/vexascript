@@ -287,6 +287,14 @@ export async function collectCrossFileTypeDiagnostics(
     diagnostics.push(diagnostic);
   };
 
+  const hasResolvedImportedBinding = (localName: string): boolean => {
+    const resolution = session.importedSymbols?.get(localName);
+    if (resolution) {
+      return !!(resolution.type || resolution.displayType);
+    }
+    return session.importedSymbolTypes.has(localName) || session.importedSymbolDisplayTypes.has(localName);
+  };
+
   for (const importStatement of collectImportStatements(session.ast)) {
     if (!currentFilePath) {
       continue;
@@ -302,10 +310,7 @@ export async function collectCrossFileTypeDiagnostics(
       }
       for (const specifier of importStatement.specifiers) {
         const localName = (specifier.local ?? specifier.imported).name;
-        if (
-          session.importedSymbolTypes.has(localName)
-          || session.importedSymbolDisplayTypes.has(localName)
-        ) {
+        if (hasResolvedImportedBinding(localName)) {
           continue;
         }
         if (session.invalidImportedBindings.has(localName)) {
@@ -336,10 +341,7 @@ export async function collectCrossFileTypeDiagnostics(
     }
     for (const specifier of importStatement.specifiers) {
       const localName = (specifier.local ?? specifier.imported).name;
-      if (
-        session.importedSymbolTypes.has(localName)
-        || session.importedSymbolDisplayTypes.has(localName)
-      ) {
+      if (hasResolvedImportedBinding(localName)) {
         continue;
       }
       if (session.invalidImportedBindings.has(localName)) {
@@ -355,10 +357,7 @@ export async function collectCrossFileTypeDiagnostics(
     const exportedNames = await exportedNamesForTarget(targetFilePath);
     for (const specifier of importStatement.specifiers) {
       const localName = (specifier.local ?? specifier.imported).name;
-      if (
-        session.importedSymbolTypes.has(localName)
-        || session.importedSymbolDisplayTypes.has(localName)
-      ) {
+      if (hasResolvedImportedBinding(localName)) {
         continue;
       }
       if (exportedNames.has(specifier.imported.name)) {

@@ -82,6 +82,17 @@ The first high-impact slice is now in place:
 * `resolveDefinitionAcrossFiles(...)` now consults the shared imported-symbol
   declaration origin before falling back to older per-feature heuristics.
 
+The second DRY slice is now in place too:
+
+* `CollectedImportedDeclarations` now carries `importedSymbols` as the shared
+  per-binding record.
+* `importedSymbolTypes`, `importedSymbolDisplayTypes`,
+  `importedSymbolDeclarationOrigins`, and `invalidImportedBindings` are now
+  derived compatibility views instead of being written independently throughout
+  the collector.
+* analysis sessions now preserve that same shared imported-symbol map so LSP
+  surfaces can gradually stop reading parallel maps directly.
+
 The remaining work is mostly cleanup and further DRY reduction:
 
 * hover should be fed from the same shared imported-symbol record, not only

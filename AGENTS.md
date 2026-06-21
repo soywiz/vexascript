@@ -20,6 +20,10 @@ VexaScript is a language derived from TypeScript with some features and ideas fr
 - Follow KISS, DRY, and clean code principles: keep implementations simple, avoid duplication, and prefer readable, maintainable designs over case-by-case branching.
 - Prefer unified code paths. When similar functionality exists, look for a common route and architecture instead of adding parallel implementations.
 - For areas such as module imports, symbol processing, hover, go to declaration, signature helpers, and similar compiler or LSP features, keep behavior simple and unified so each different combination of cases does not create its own branch that must be tested and maintained separately.
+- When refactoring or "unifying" code, prefer deleting old paths over layering new adapters on top of them. A change that adds a shared abstraction but leaves most previous branches in place is usually incomplete.
+- Treat net code growth during cleanup work as a warning sign. If a change adds significantly more code than it removes, explicitly justify why the added structure is temporary and identify which old paths should be deleted next.
+- Before introducing a new shared model or compatibility layer, first look for the more direct simplification: understand which old branches can be removed, collapsed, or made impossible rather than preserved.
+- Prefer one durable source of truth over multiple synchronized maps, caches, or representations. If compatibility views are temporarily necessary, document them as migration shims and plan their removal.
 
 ## Commands
 

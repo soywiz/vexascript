@@ -15,6 +15,11 @@ import { type AnalysisType, typeToString } from "./types";
 
 export type { AnalysisIssue, AnalysisSymbol, AnalysisSymbolKind, AnalysisValueType } from "./model";
 
+interface ImportedAnalysisSymbolResolution {
+  type?: AnalysisType;
+  displayType?: string;
+}
+
 export interface AnalysisRange {
   start: { line: number; character: number };
   end: { line: number; character: number };
@@ -61,6 +66,7 @@ export interface AnalysisOptions {
    */
   importedSymbolTypes?: ReadonlyMap<string, AnalysisType>;
   importedSymbolDisplayTypes?: ReadonlyMap<string, string>;
+  importedSymbols?: ReadonlyMap<string, ImportedAnalysisSymbolResolution>;
   invalidImportedBindings?: ReadonlySet<string>;
 }
 
@@ -85,7 +91,8 @@ export class Analysis {
       externalDeclarations,
       options.importedSymbolTypes,
       ambientDeclarations,
-      options.importedSymbolDisplayTypes
+      options.importedSymbolDisplayTypes,
+      options.importedSymbols
     ).bind();
     this.rootScope = bound.rootScope;
 

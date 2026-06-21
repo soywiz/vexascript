@@ -9,7 +9,7 @@ import {
   buildAnalysisForSource,
   createAnalysisSession
 } from "./analysisSession";
-import { collectAllImportedDeclarations } from "./importedDeclarations";
+import { collectAllImportedDeclarations, type ImportedSymbolResolution } from "./importedDeclarations";
 
 describe("lsp analysis session", () => {
   it("builds analysis even when parser recovered from syntax errors", () => {
@@ -41,6 +41,32 @@ describe("lsp analysis session", () => {
     expect(session.semanticIssues.some((issue) => issue.message.includes("'missing'"))).toBe(true);
     expect(session.analysis?.getIssues()).toEqual(session.semanticIssues);
     expect(session.tokenizeError).toBeNull();
+  });
+
+  it("derives legacy imported-symbol views from the shared importedSymbols map", () => {
+    const importedSymbols = new Map<string, ImportedSymbolResolution>([
+      ["readFile", { type: { kind: "named", name: "ReadFileFn" }, displayType: 'typeof import("node:fs").readFile' }],
+      ["missing", { invalid: true }]
+    ]);
+
+    const session = createAnalysisSession(
+      'import { readFile, missing } from "node:fs"\n',
+      [],
+      new Map(),
+      [],
+      new Map(),
+      new Map(),
+      new Map(),
+      new Set(),
+      new Map(),
+      new Map(),
+      importedSymbols
+    );
+
+    expect(session.importedSymbols.get("readFile")?.displayType).toBe('typeof import("node:fs").readFile');
+    expect(session.importedSymbolTypes.get("readFile")).toEqual({ kind: "named", name: "ReadFileFn" });
+    expect(session.importedSymbolDisplayTypes.get("readFile")).toBe('typeof import("node:fs").readFile');
+    expect(session.invalidImportedBindings.has("missing")).toBe(true);
   });
 
   it("reuses cached session for same uri+version and rebuilds on version change", () => {

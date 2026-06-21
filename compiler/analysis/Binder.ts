@@ -46,6 +46,11 @@ import { getVexaScriptRuntimeProgram } from "compiler/runtime/vexascriptDeclarat
 import { bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import { declarationIndexForStatements } from "./declarationIndex";
 
+interface ImportedAnalysisSymbolResolution {
+  type?: AnalysisType;
+  displayType?: string;
+}
+
 const BUILTIN_IDENTIFIERS = new Map<string, ReturnType<typeof builtinType> | typeof UNKNOWN_TYPE>([
   ["true", builtinType("boolean")],
   ["false", builtinType("boolean")],
@@ -92,9 +97,22 @@ export class Binder {
     private readonly externalDeclarations: Statement[] = [],
     private readonly importedSymbolTypes: ReadonlyMap<string, AnalysisType> = new Map(),
     private readonly ambientDeclarations: Statement[] = [],
-    private readonly importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map()
+    private readonly importedSymbolDisplayTypes: ReadonlyMap<string, string> = new Map(),
+    private readonly importedSymbols: ReadonlyMap<string, ImportedAnalysisSymbolResolution> = new Map()
   ) {
     this.rootScope = this.createScope(undefined, program);
+  }
+
+  private importedSymbolType(localName: string): AnalysisType {
+    return this.importedSymbols.get(localName)?.type
+      ?? this.importedSymbolTypes.get(localName)
+      ?? UNKNOWN_TYPE;
+  }
+
+  private importedSymbolValueType(localName: string, resolvedType: AnalysisType): string {
+    return this.importedSymbols.get(localName)?.displayType
+      ?? this.importedSymbolDisplayTypes.get(localName)
+      ?? typeToString(resolvedType);
   }
 
   bind(): BoundAnalysis {
@@ -230,26 +248,26 @@ export class Binder {
         continue;
       }
 
-      if (statement.kind === "ImportStatement") {
-        const importStatement = statement as ImportStatement;
-        if (importStatement.defaultImport) {
-          const resolvedType = this.importedSymbolTypes.get(importStatement.defaultImport.name) ?? UNKNOWN_TYPE;
+        if (statement.kind === "ImportStatement") {
+          const importStatement = statement as ImportStatement;
+          if (importStatement.defaultImport) {
+          const resolvedType = this.importedSymbolType(importStatement.defaultImport.name);
           this.declare(scope, {
             name: importStatement.defaultImport.name,
             kind: resolvedType.kind === "function" ? "function" : "variable",
             node: importStatement.defaultImport,
             type: resolvedType,
-            valueType: this.importedSymbolDisplayTypes.get(importStatement.defaultImport.name) ?? typeToString(resolvedType)
+            valueType: this.importedSymbolValueType(importStatement.defaultImport.name, resolvedType)
           }, declaredOffsetOverride);
         }
         if (importStatement.namespaceImport) {
-          const resolvedType = this.importedSymbolTypes.get(importStatement.namespaceImport.name) ?? UNKNOWN_TYPE;
+          const resolvedType = this.importedSymbolType(importStatement.namespaceImport.name);
           this.declare(scope, {
             name: importStatement.namespaceImport.name,
             kind: resolvedType.kind === "function" ? "function" : "variable",
             node: importStatement.namespaceImport,
             type: resolvedType,
-            valueType: this.importedSymbolDisplayTypes.get(importStatement.namespaceImport.name) ?? typeToString(resolvedType)
+            valueType: this.importedSymbolValueType(importStatement.namespaceImport.name, resolvedType)
           }, declaredOffsetOverride);
         }
         for (const specifier of importStatement.specifiers) {
@@ -257,13 +275,13 @@ export class Binder {
           // Prefer a cross-file resolved type when the importer provided one, so
           // imported values (e.g. functions returning a Promise) keep their type
           // instead of degrading to `unknown`.
-          const resolvedType = this.importedSymbolTypes.get(local.name) ?? UNKNOWN_TYPE;
+          const resolvedType = this.importedSymbolType(local.name);
           this.declare(scope, {
             name: local.name,
             kind: resolvedType.kind === "function" ? "function" : "variable",
             node: local,
             type: resolvedType,
-            valueType: this.importedSymbolDisplayTypes.get(local.name) ?? typeToString(resolvedType)
+            valueType: this.importedSymbolValueType(local.name, resolvedType)
           }, declaredOffsetOverride);
         }
         continue;

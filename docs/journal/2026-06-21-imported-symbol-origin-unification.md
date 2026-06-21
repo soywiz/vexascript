@@ -81,6 +81,56 @@ the broader follow-up is still the right direction:
 - one imported-symbol resolution product
 - multiple LSP features reading that same product
 
+## Second step
+
+The next useful reduction was to stop writing four parallel collections during
+import analysis:
+
+- imported symbol types
+- imported symbol display strings
+- imported symbol declaration origins
+- invalid imported bindings
+
+Those are now modeled first as one shared `importedSymbols` map, with the older
+maps derived from it for compatibility.
+
+That does not remove every legacy path yet, but it changes the direction of the
+architecture:
+
+- the collector writes one source of truth
+- older consumers can keep working during the migration
+- newer consumers can read the richer shared record directly
+
+The most important follow-up from here is to keep deleting direct reads of the
+parallel legacy maps as each feature is migrated.
+
+## Process failure to remember
+
+This workstream also exposed a process smell, not only a code smell.
+
+Several rounds moved in the right architectural direction, but they still added
+ much more code than they removed. That creates exactly the kind of risk we are
+ trying to reduce:
+
+- more compatibility plumbing
+- more state to keep synchronized
+- more places where the old and new paths can diverge
+
+The important lesson is that "unification" is not achieved just by adding a new
+ shared abstraction. If the old branches remain in place, most of the
+ complexity remains in place too.
+
+For future work in this area:
+
+- treat additive refactors as incomplete unless they also retire old branches
+- prefer understanding the old path deeply enough to delete it
+- favor the more direct and durable simplification over migration-heavy
+  scaffolding
+- be suspicious of changes that claim DRY or unification benefits while mostly
+  increasing total code volume
+
+In short: elegant cleanup here should usually look subtractive, not additive.
+
 ## Regression guidance
 
 - If an imported symbol has a stable resolved type, treat "no definition" as a

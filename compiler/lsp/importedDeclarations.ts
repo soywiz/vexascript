@@ -3077,6 +3077,7 @@ function unwrapDeclaration(statement: Statement): ImportableDeclaration | null {
 
 export interface CollectedImportedDeclarations {
   externalDeclarations: Statement[];
+  importedSymbols: Map<string, ImportedSymbolResolution>;
   importedSymbolTypes: Map<string, AnalysisType>;
   importedSymbolDisplayTypes: Map<string, string>;
   invalidImportedBindings: Set<string>;
@@ -3087,6 +3088,13 @@ export interface ImportedSymbolDeclarationOrigin {
   statement: Statement;
   filePath: string;
   exportedName: string;
+}
+
+export interface ImportedSymbolResolution {
+  type?: AnalysisType;
+  displayType?: string;
+  declarationOrigin?: ImportedSymbolDeclarationOrigin;
+  invalid?: boolean;
 }
 
 function importableDeclarationName(statement: Statement): string | null {
@@ -3143,17 +3151,91 @@ function nodeModuleExportedNamesForStatement(statement: Statement): string[] {
   return (exportStatement.specifiers ?? []).map((specifier) => specifier.exported.name);
 }
 
+function importedSymbolResolutionFor(
+  importedSymbols: Map<string, ImportedSymbolResolution>,
+  localName: string
+): ImportedSymbolResolution {
+  const existing = importedSymbols.get(localName);
+  if (existing) {
+    return existing;
+  }
+  const created: ImportedSymbolResolution = {};
+  importedSymbols.set(localName, created);
+  return created;
+}
+
+function setImportedSymbolType(
+  importedSymbols: Map<string, ImportedSymbolResolution>,
+  localName: string,
+  type: AnalysisType
+): void {
+  const resolution = importedSymbolResolutionFor(importedSymbols, localName);
+  resolution.type = type;
+  delete resolution.invalid;
+}
+
+function setImportedSymbolDisplayType(
+  importedSymbols: Map<string, ImportedSymbolResolution>,
+  localName: string,
+  displayType: string
+): void {
+  importedSymbolResolutionFor(importedSymbols, localName).displayType = displayType;
+}
+
 function setImportedSymbolDeclarationOrigin(
-  importedSymbolDeclarationOrigins: Map<string, ImportedSymbolDeclarationOrigin>,
+  importedSymbols: Map<string, ImportedSymbolResolution>,
   localName: string,
   statement: Statement,
   filePath: string,
   exportedName: string
 ): void {
-  if (importedSymbolDeclarationOrigins.has(localName)) {
+  const resolution = importedSymbolResolutionFor(importedSymbols, localName);
+  if (resolution.declarationOrigin) {
     return;
   }
-  importedSymbolDeclarationOrigins.set(localName, { statement, filePath, exportedName });
+  resolution.declarationOrigin = { statement, filePath, exportedName };
+}
+
+function markInvalidImportedBinding(
+  importedSymbols: Map<string, ImportedSymbolResolution>,
+  localName: string
+): void {
+  const resolution = importedSymbolResolutionFor(importedSymbols, localName);
+  if (resolution.type || resolution.displayType || resolution.declarationOrigin) {
+    return;
+  }
+  resolution.invalid = true;
+}
+
+function collectedImportedDeclarationsViews(
+  importedSymbols: ReadonlyMap<string, ImportedSymbolResolution>
+): Omit<CollectedImportedDeclarations, "externalDeclarations" | "importedSymbols"> {
+  const importedSymbolTypes = new Map<string, AnalysisType>();
+  const importedSymbolDisplayTypes = new Map<string, string>();
+  const invalidImportedBindings = new Set<string>();
+  const importedSymbolDeclarationOrigins = new Map<string, ImportedSymbolDeclarationOrigin>();
+
+  for (const [localName, resolution] of importedSymbols) {
+    if (resolution.type) {
+      importedSymbolTypes.set(localName, resolution.type);
+    }
+    if (resolution.displayType) {
+      importedSymbolDisplayTypes.set(localName, resolution.displayType);
+    }
+    if (resolution.invalid) {
+      invalidImportedBindings.add(localName);
+    }
+    if (resolution.declarationOrigin) {
+      importedSymbolDeclarationOrigins.set(localName, resolution.declarationOrigin);
+    }
+  }
+
+  return {
+    importedSymbolTypes,
+    importedSymbolDisplayTypes,
+    invalidImportedBindings,
+    importedSymbolDeclarationOrigins
+  };
 }
 
 function shouldIncludeNodeModuleExternalDeclaration(
@@ -3332,21 +3414,16 @@ export async function collectAllImportedDeclarations(
   context: CollectImportedDeclarationsContext
 ): Promise<CollectedImportedDeclarations> {
   const currentFilePath = context.uri ? uriToFilePath(context.uri) : null;
+  const importedSymbols = new Map<string, ImportedSymbolResolution>();
   if (!currentFilePath) {
     return {
       externalDeclarations: [],
-      importedSymbolTypes: new Map(),
-      importedSymbolDisplayTypes: new Map(),
-      invalidImportedBindings: new Set(),
-      importedSymbolDeclarationOrigins: new Map()
+      importedSymbols,
+      ...collectedImportedDeclarationsViews(importedSymbols)
     };
   }
 
   const externalDeclarations: Statement[] = [];
-  const importedSymbolTypes = new Map<string, AnalysisType>();
-  const importedSymbolDisplayTypes = new Map<string, string>();
-  const invalidImportedBindings = new Set<string>();
-  const importedSymbolDeclarationOrigins = new Map<string, ImportedSymbolDeclarationOrigin>();
   const seen = new Set<ImportableDeclaration>();
 
   for (const statement of ast.body) {
@@ -3474,15 +3551,15 @@ export async function collectAllImportedDeclarations(
             : null;
           if (importStatement.defaultImport) {
             if (defaultImportType) {
-              importedSymbolTypes.set(importStatement.defaultImport.name, defaultImportType);
+              setImportedSymbolType(importedSymbols, importStatement.defaultImport.name, defaultImportType);
               const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, nodeModuleTypings.defaultExportName);
               if (displayType) {
-                importedSymbolDisplayTypes.set(importStatement.defaultImport.name, displayType);
+                setImportedSymbolDisplayType(importedSymbols, importStatement.defaultImport.name, displayType);
               }
               const declarationOrigin = declarationOriginByExportedName.get(nodeModuleTypings.defaultExportName);
               if (declarationOrigin) {
                 setImportedSymbolDeclarationOrigin(
-                  importedSymbolDeclarationOrigins,
+                  importedSymbols,
                   importStatement.defaultImport.name,
                   declarationOrigin.statement,
                   declarationOrigin.filePath,
@@ -3492,11 +3569,15 @@ export async function collectAllImportedDeclarations(
             }
           }
           if (importStatement.namespaceImport) {
-            importedSymbolTypes.set(importStatement.namespaceImport.name, namespaceImportType ?? exportType ?? namedType(nodeModuleTypings.defaultExportName));
+            setImportedSymbolType(
+              importedSymbols,
+              importStatement.namespaceImport.name,
+              namespaceImportType ?? exportType ?? namedType(nodeModuleTypings.defaultExportName)
+            );
             const declarationOrigin = declarationOriginByExportedName.get(nodeModuleTypings.defaultExportName);
             if (declarationOrigin) {
               setImportedSymbolDeclarationOrigin(
-                importedSymbolDeclarationOrigins,
+                importedSymbols,
                 importStatement.namespaceImport.name,
                 declarationOrigin.statement,
                 declarationOrigin.filePath,
@@ -3508,15 +3589,15 @@ export async function collectAllImportedDeclarations(
             const localName = (specifier.local ?? specifier.imported).name;
             const importedType = resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, specifier.imported.name);
             if (importedType) {
-              importedSymbolTypes.set(localName, importedType);
+              setImportedSymbolType(importedSymbols, localName, importedType);
               const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, specifier.imported.name);
               if (displayType) {
-                importedSymbolDisplayTypes.set(localName, displayType);
+                setImportedSymbolDisplayType(importedSymbols, localName, displayType);
               }
               const declarationOrigin = declarationOriginByExportedName.get(specifier.imported.name);
               if (declarationOrigin) {
                 setImportedSymbolDeclarationOrigin(
-                  importedSymbolDeclarationOrigins,
+                  importedSymbols,
                   localName,
                   declarationOrigin.statement,
                   declarationOrigin.filePath,
@@ -3526,24 +3607,24 @@ export async function collectAllImportedDeclarations(
             }
           }
         } else if (importStatement.defaultImport) {
-          invalidImportedBindings.add(importStatement.defaultImport.name);
+          markInvalidImportedBinding(importedSymbols, importStatement.defaultImport.name);
         }
         for (const specifier of importStatement.specifiers) {
           const localName = (specifier.local ?? specifier.imported).name;
-          if (importedSymbolTypes.has(localName)) {
+          if (importedSymbols.get(localName)?.type) {
             continue;
           }
           const importedType = resolveNodeModuleNamedImportType(nodeModuleTypings.declarations, specifier.imported.name);
           if (importedType) {
-            importedSymbolTypes.set(localName, importedType);
+            setImportedSymbolType(importedSymbols, localName, importedType);
             const displayType = displayTypeForExternalFunction(nodeModuleTypings.declarations, specifier.imported.name);
             if (displayType) {
-              importedSymbolDisplayTypes.set(localName, displayType);
+              setImportedSymbolDisplayType(importedSymbols, localName, displayType);
             }
             const declarationOrigin = declarationOriginByExportedName.get(specifier.imported.name);
             if (declarationOrigin) {
               setImportedSymbolDeclarationOrigin(
-                importedSymbolDeclarationOrigins,
+                importedSymbols,
                 localName,
                 declarationOrigin.statement,
                 declarationOrigin.filePath,
@@ -3551,7 +3632,7 @@ export async function collectAllImportedDeclarations(
               );
             }
           } else {
-            invalidImportedBindings.add(localName);
+            markInvalidImportedBinding(importedSymbols, localName);
           }
         }
       } else {
@@ -3566,6 +3647,7 @@ export async function collectAllImportedDeclarations(
               externalDeclarations.push(targetStatement);
             }
           }
+        }
         if (context.ambientModuleDeclarations) {
           const defaultImportType = importStatement.defaultImport
             ? resolveAmbientDefaultImportType(
@@ -3576,55 +3658,56 @@ export async function collectAllImportedDeclarations(
             : null;
           if (importStatement.defaultImport) {
             if (defaultImportType) {
-              importedSymbolTypes.set(importStatement.defaultImport.name, defaultImportType);
-              importedSymbolDisplayTypes.set(
+              setImportedSymbolType(importedSymbols, importStatement.defaultImport.name, defaultImportType);
+              setImportedSymbolDisplayType(
+                importedSymbols,
                 importStatement.defaultImport.name,
                 ambientDefaultImportDisplayType(importPath)
               );
             } else {
-              invalidImportedBindings.add(importStatement.defaultImport.name);
+              markInvalidImportedBinding(importedSymbols, importStatement.defaultImport.name);
             }
           }
           if (importStatement.namespaceImport) {
             if (defaultImportType) {
-              importedSymbolTypes.set(importStatement.namespaceImport.name, defaultImportType);
-              importedSymbolDisplayTypes.set(
+              setImportedSymbolType(importedSymbols, importStatement.namespaceImport.name, defaultImportType);
+              setImportedSymbolDisplayType(
+                importedSymbols,
                 importStatement.namespaceImport.name,
                 ambientDefaultImportDisplayType(importPath)
               );
             } else {
-              invalidImportedBindings.add(importStatement.namespaceImport.name);
+              markInvalidImportedBinding(importedSymbols, importStatement.namespaceImport.name);
             }
           }
           for (const specifier of importStatement.specifiers) {
             const localName = (specifier.local ?? specifier.imported).name;
             const importedName = specifier.imported.name;
-              const type = resolveAmbientNamedImportType(
-                importPath,
-                importedName,
-                context.ambientModuleDeclarations,
-                context.ambientGlobalDeclarations ?? []
-              );
-              if (type) {
-                importedSymbolTypes.set(localName, type);
-              } else {
-                invalidImportedBindings.add(localName);
-              }
-              const displayType = resolveAmbientNamedImportDisplayType(importPath, importedName, context.ambientModuleDeclarations);
-              if (displayType) {
-                importedSymbolDisplayTypes.set(localName, displayType);
-              }
+            const type = resolveAmbientNamedImportType(
+              importPath,
+              importedName,
+              context.ambientModuleDeclarations,
+              context.ambientGlobalDeclarations ?? []
+            );
+            if (type) {
+              setImportedSymbolType(importedSymbols, localName, type);
+            } else {
+              markInvalidImportedBinding(importedSymbols, localName);
+            }
+            const displayType = resolveAmbientNamedImportDisplayType(importPath, importedName, context.ambientModuleDeclarations);
+            if (displayType) {
+              setImportedSymbolDisplayType(importedSymbols, localName, displayType);
             }
           }
         } else {
           for (const specifier of importStatement.specifiers) {
-            invalidImportedBindings.add((specifier.local ?? specifier.imported).name);
+            markInvalidImportedBinding(importedSymbols, (specifier.local ?? specifier.imported).name);
           }
           if (importStatement.defaultImport) {
-            invalidImportedBindings.add(importStatement.defaultImport.name);
+            markInvalidImportedBinding(importedSymbols, importStatement.defaultImport.name);
           }
           if (importStatement.namespaceImport) {
-            invalidImportedBindings.add(importStatement.namespaceImport.name);
+            markInvalidImportedBinding(importedSymbols, importStatement.namespaceImport.name);
           }
         }
       }
@@ -3661,11 +3744,11 @@ export async function collectAllImportedDeclarations(
         const localName = (specifier.local ?? specifier.imported).name;
         const importedType = targetSession.analysis.getTopLevelSymbolType(specifier.imported.name);
         if (importedType) {
-          importedSymbolTypes.set(localName, importedType);
+          setImportedSymbolType(importedSymbols, localName, importedType);
           const declaration = declarationByExportedName.get(specifier.imported.name);
           if (declaration) {
             setImportedSymbolDeclarationOrigin(
-              importedSymbolDeclarationOrigins,
+              importedSymbols,
               localName,
               declaration,
               targetFilePath,
@@ -3673,7 +3756,7 @@ export async function collectAllImportedDeclarations(
             );
           }
         } else if (!exportedNames.has(specifier.imported.name)) {
-          invalidImportedBindings.add(localName);
+          markInvalidImportedBinding(importedSymbols, localName);
         }
       }
     }
@@ -3683,18 +3766,18 @@ export async function collectAllImportedDeclarations(
         const declaration = declarationByExportedName.get(specifier.imported.name);
         if (declaration) {
           setImportedSymbolDeclarationOrigin(
-            importedSymbolDeclarationOrigins,
+            importedSymbols,
             localName,
             declaration,
             targetFilePath,
             specifier.imported.name
           );
         }
-        if (importedSymbolTypes.has(localName)) {
+        if (importedSymbols.get(localName)?.type) {
           continue;
         }
         if (!exportedNames.has(specifier.imported.name)) {
-          invalidImportedBindings.add(localName);
+          markInvalidImportedBinding(importedSymbols, localName);
         }
       }
     }
@@ -3702,10 +3785,8 @@ export async function collectAllImportedDeclarations(
 
   return {
     externalDeclarations,
-    importedSymbolTypes,
-    importedSymbolDisplayTypes,
-    invalidImportedBindings,
-    importedSymbolDeclarationOrigins
+    importedSymbols,
+    ...collectedImportedDeclarationsViews(importedSymbols)
   };
 }
 

@@ -31,6 +31,7 @@ export interface SessionLike {
   ast: Program | null;
   analysis: Analysis | null;
   externalDeclarations?: Statement[];
+  importedSymbols?: ReadonlyMap<string, import("./importedDeclarations").ImportedSymbolResolution>;
   importedSymbolDeclarationOrigins?: ReadonlyMap<string, ImportedSymbolDeclarationOrigin>;
   ambientDeclarations?: Statement[];
   ambientDeclarationLocations?: ReadonlyMap<Statement, { filePath: string; line: number; character: number }>;
