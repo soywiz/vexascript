@@ -4716,6 +4716,8 @@ export class Parser {
             declaration = this.parseClassStatement();
         } else if (next?.type === "identifier" && next.value === "interface") {
             declaration = this.parseInterfaceStatement();
+        } else if (next?.type === "identifier" && (next.value === "namespace" || next.value === "module")) {
+            declaration = this.parseNamespaceStatement(false);
         } else if (next?.type === "identifier" && (next.value === "enum" || this.isConstEnumStart())) {
             declaration = this.parseEnumStatement();
         } else {

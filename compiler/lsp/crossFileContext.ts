@@ -111,6 +111,22 @@ export function findImportForSymbolNode(ast: Program, symbolNode: unknown): { fr
       continue;
     }
     const importStatement = statement as ImportStatement;
+    const defaultImport = importStatement.defaultImport;
+    if (defaultImport && defaultImport === symbolNode) {
+      return {
+        from: importStatement.from.value,
+        name: defaultImport.name,
+        localName: defaultImport.name
+      };
+    }
+    const namespaceImport = importStatement.namespaceImport;
+    if (namespaceImport && namespaceImport === symbolNode) {
+      return {
+        from: importStatement.from.value,
+        name: namespaceImport.name,
+        localName: namespaceImport.name
+      };
+    }
     for (const specifier of importStatement.specifiers) {
       if (specifier.imported === symbolNode || specifier.local === symbolNode) {
         return {

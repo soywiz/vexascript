@@ -59,7 +59,7 @@ import {
 } from "./importPathNavigation";
 import { findAmbientNamespaceLocation } from "./crossFileContext";
 import { candidateCharacters, createDefinitionLocation, createHover } from "./navigation";
-import { findNodeModuleExportLocation } from "./nodeModulesTypings";
+import { findNodeModuleExportLocation, findNodeModuleMemberLocation, type NodeModuleMemberLocation } from "./nodeModulesTypings";
 
 function resolveImportedSymbolDefinitionLocation(
   context: ResolveContext,
@@ -115,6 +115,16 @@ function splitQualifiedTypeName(typeName: string): { receiverName: string; membe
   };
 }
 
+function splitImportTypeMemberName(typeName: string): { packageName: string; memberPath: string[] } | null {
+  const match = /^import\("([^"]+)"\)\.([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)$/.exec(typeName);
+  const packageName = match?.[1];
+  const memberPath = match?.[2]?.split(".").filter(Boolean) ?? [];
+  if (!packageName || memberPath.length === 0 || packageName.startsWith(".") || packageName.startsWith("/")) {
+    return null;
+  }
+  return { packageName, memberPath };
+}
+
 function visibleSymbolForTypeIdentifier(context: ResolveContext, identifier: Identifier) {
   if (!context.session.analysis || identifier.name.includes(".")) {
     return null;
@@ -168,6 +178,68 @@ function resolveLocalTypeIdentifierHover(context: ResolveContext, identifier: Id
   };
 }
 
+async function resolveNodeModuleLocation(
+  context: ResolveContext,
+  lookup: (currentFilePath: string) => Promise<NodeModuleMemberLocation | null>
+): Promise<Location | null> {
+  const currentFilePath = uriToFilePath(context.uri);
+  if (!currentFilePath) {
+    return null;
+  }
+  const location = await lookup(currentFilePath);
+  if (!location) {
+    return null;
+  }
+  return {
+    uri: pathToUri(location.typingsPath),
+    range: location.range
+  };
+}
+
+async function resolveNodeModuleExportDefinition(
+  context: ResolveContext,
+  packageName: string,
+  exportName: string
+): Promise<Location | null> {
+  return resolveNodeModuleLocation(context, (currentFilePath) =>
+    findNodeModuleExportLocation(currentFilePath, packageName, exportName, { vfs: context.vfs })
+  );
+}
+
+async function resolveNodeModuleMemberDefinition(
+  context: ResolveContext,
+  packageName: string,
+  typeName: string,
+  memberName: string
+): Promise<Location | null> {
+  return resolveNodeModuleLocation(context, (currentFilePath) =>
+    findNodeModuleMemberLocation(currentFilePath, packageName, typeName, memberName, { vfs: context.vfs })
+  );
+}
+
+async function resolveImportTypeMemberDefinition(
+  context: ResolveContext,
+  identifier: Identifier
+): Promise<Location | null> {
+  const importType = splitImportTypeMemberName(identifier.name);
+  if (!importType) {
+    return null;
+  }
+  const memberName = importType.memberPath.at(-1);
+  if (!memberName) {
+    return null;
+  }
+  if (importType.memberPath.length === 1) {
+    return resolveNodeModuleExportDefinition(context, importType.packageName, memberName);
+  }
+  return resolveNodeModuleMemberDefinition(
+    context,
+    importType.packageName,
+    importType.memberPath.slice(0, -1).join("."),
+    memberName
+  );
+}
+
 async function resolveQualifiedTypeMemberDefinition(
   context: ResolveContext,
   identifier: Identifier
@@ -179,27 +251,11 @@ async function resolveQualifiedTypeMemberDefinition(
   if (!qualified) {
     return null;
   }
-  const currentFilePath = uriToFilePath(context.uri);
-  if (!currentFilePath) {
-    return null;
-  }
   const receiverImport = findModuleReceiverImport(context.session.ast, qualified.receiverName);
   if (!receiverImport || receiverImport.from.startsWith(".") || receiverImport.from.startsWith("/")) {
     return null;
   }
-  const location = await findNodeModuleExportLocation(
-    currentFilePath,
-    receiverImport.from,
-    qualified.memberName,
-    { vfs: context.vfs }
-  );
-  if (!location) {
-    return null;
-  }
-  return {
-    uri: pathToUri(location.typingsPath),
-    range: location.range
-  };
+  return resolveNodeModuleExportDefinition(context, receiverImport.from, qualified.memberName);
 }
 
 async function resolveTypeIdentifierDefinition(context: ResolveContext): Promise<Location | null> {
@@ -210,6 +266,10 @@ async function resolveTypeIdentifierDefinition(context: ResolveContext): Promise
     const typeIdentifier = findTypeIdentifierAtPosition(context.session.ast, context.line, character);
     if (!typeIdentifier) {
       continue;
+    }
+    const importTypeDefinition = await resolveImportTypeMemberDefinition(context, typeIdentifier);
+    if (importTypeDefinition) {
+      return importTypeDefinition;
     }
     const qualifiedDefinition = await resolveQualifiedTypeMemberDefinition(context, typeIdentifier);
     if (qualifiedDefinition) {
@@ -246,6 +306,16 @@ async function resolveTypeIdentifierHover(context: ResolveContext): Promise<Hove
     const range = nodeRange(typeIdentifier);
     if (!range) {
       continue;
+    }
+    const importTypeDefinition = await resolveImportTypeMemberDefinition(context, typeIdentifier);
+    if (importTypeDefinition) {
+      return {
+        contents: {
+          kind: "plaintext",
+          value: `type ${typeIdentifier.name}`
+        },
+        range
+      };
     }
     const qualifiedDefinition = await resolveQualifiedTypeMemberDefinition(context, typeIdentifier);
     if (qualifiedDefinition) {

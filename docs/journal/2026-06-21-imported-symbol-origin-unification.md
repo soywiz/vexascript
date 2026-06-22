@@ -358,3 +358,107 @@ origin collection did not record inline value exports such as
 name when recognizing import bindings, reuse imported declaration origins from
 type-identifier navigation, and record inline value export names when building
 node_modules declaration origins.
+
+## Default import origins in type queries
+
+A follow-up stress pass found the same type/definition drift for
+`typeof defaultImport`. The collector already had the default import's type and
+declaration origin, so hover worked, but navigation still returned the local
+import binding because `findImportForSymbolNode` only recognized named import
+specifiers. The fix was to make the shared import-binding helper recognize
+`defaultImport` and `namespaceImport` nodes too, so expression navigation and
+type-query navigation use the same imported-symbol origin path.
+
+## Inline import-type member origins
+
+A later stress pass found one more member of the same family:
+`import("pkg").Type` and `typeof import("pkg").value`. These do not create an
+import declaration, so the normal imported-symbol collector cannot record a
+binding origin for them. The first useful dead end was trying to reason about
+them as missing collected imports; the evidence against that was that
+`externalDeclarations` was correctly empty for the file.
+
+The better fix was to preserve the package specifier in the synthetic type
+identifier produced by the shared type-string cursor finder, then resolve that
+synthetic `import("pkg").member` through the existing node_modules export
+location helper. That keeps the behavior aligned with normal qualified
+node_modules members without adding another package-specific declaration
+collector path.
+
+The same pass then exposed `typeof import("pkg").default`. That failed for a
+different but related reason: the public export name is `default`, while the
+declaration range belongs to the local declaration name, for example
+`export default function createSchema()`. The durable fix belongs in
+`findNodeModuleExportLocation`, where default export statements can map the
+public `default` export back to the declared name range for every caller.
+
+## Exported namespace import-type paths
+
+Another stress pass tried `import("pkg").Models.User`. The first hypothesis was
+that type-string navigation only preserved one segment after `import("pkg")`.
+That was true for the nested `User` segment, but the more useful failure was
+earlier: even `Models` had no definition because the TypeScript parser rejected
+`export namespace Models { ... }` and produced no declaration entry at all.
+
+The fix therefore had two layers:
+
+- parse `export namespace` / `export module` as exported namespace declarations
+  in the shared parser
+- preserve the full inline import-type member path so navigation can resolve
+  `import("pkg").Models.User` through the existing node_modules member-location
+  helper
+
+This is a good example of why LSP bugs should be reduced through the full
+infrastructure path. A navigation-looking failure was partly a parser
+compatibility gap, and patching only the LSP would have left declaration-file
+parsing broken for other callers.
+
+## Aliased default reexport origins
+
+Another pass found that `export { createSchema as default } from "./factory"`
+could give a usable public type while go-to-definition landed on the barrel
+specifier instead of the source declaration. The direct symptom showed up with
+`typeof import("pkg").default`, but the real issue was in node_modules typings
+collection: following a named reexport preserved that a declaration was
+exported, but not the exact local/exported-name pair.
+
+The first attempted fix was too narrow and accidentally broke existing renamed
+reexports such as `export { b as QueryClient } from "dep"`, because older logic
+also matched the public exported name as a compatibility fallback. The durable
+fix was to preserve both facts:
+
+- `localName -> exportedName`, so `createSchema` can become public `default`
+- `exportedName -> exportedName`, so existing renamed-reexport flows that
+  expose a declaration under its public name keep working
+
+The resolver also must not return the barrel specifier range for `from`
+reexports before it has a chance to reach the source declaration entry.
+
+## Export-star namespace reexports
+
+Another pass tried the TypeScript declaration-file pattern
+`export * as Models from "./models"`. This was a useful counterexample because
+the parser already accepted the syntax, so the failure was not another parser
+gap. The node_modules typings collector treated it like a plain `export *` and
+discarded the public namespace name. That meant `import("pkg").Models.User` and
+`import { Models } from "pkg"` could not share the same declaration path.
+
+The initial focused fix made inline `import("pkg").Models.User` navigation work
+by creating a synthetic namespace entry whose body reuses the reexported source
+declarations. A second test then showed that named imports still inferred
+`unknown` for `Models.User`: `importedDeclarations` had its own older
+export-name helper and `resolveNodeModuleNamedImportType` ignored
+`NamespaceStatement`.
+
+The durable fix was to converge those paths:
+
+- expose one shared `nodeModuleExportedNamesForStatement` helper from
+  `nodeModulesTypings`, including `namespaceExport`
+- treat `NamespaceStatement` as an importable declaration name
+- resolve named namespace imports as object types built from the namespace
+  body's exported properties
+
+The lesson is the same as the Zod/Pixi failures: parsing support is not enough.
+Imported type, hover, definition, and named-import analysis all need to consume
+the same declaration model, otherwise one editor feature can appear fixed while
+another still sees `unknown`.

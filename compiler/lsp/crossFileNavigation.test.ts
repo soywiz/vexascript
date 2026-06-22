@@ -823,6 +823,333 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("navigates default imports used inside node_modules type queries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-default-typeof-nav-"));
+    const pkgDir = join(root, "node_modules", "shape-kit");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import defaultSchema from "shape-kit"
+
+      type SchemaCopy = typeof defaultSchema
+    `;
+    const marked = sourceWithCursor(source.replace("typeof defaultSchema", "typeof defaultSc^^^hema"));
+    const packageSource = dedent`
+      export interface Schema {
+        title: string;
+      }
+
+      export default function defaultSchema(): Schema;
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "shape-kit",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), packageSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+    const context = {
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    };
+    const packageLines = packageSource.split("\n");
+    const defaultLine = packageLines.findIndex((line) => line.includes("defaultSchema"));
+
+    const location = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: marked.line,
+      character: marked.character
+    });
+    const hover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: marked.line,
+      character: marked.character
+    });
+
+    expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(location?.range.start.line).toBe(defaultLine);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: "function defaultSchema: () => Schema"
+    });
+  });
+
+  it("navigates import type members from node_modules type queries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-import-type-nav-"));
+    const pkgDir = join(root, "node_modules", "shape-kit");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      type ExternalSchema = import("shape-kit").Schema
+      type SchemaFactory = typeof import("shape-kit").defaultSchema
+      type DefaultSchemaFactory = typeof import("shape-kit").default
+      type ImportedUser = import("shape-kit").Models.User
+    `;
+    const schemaMarked = sourceWithCursor(source.replace(".Schema", ".Sch^^^ema"));
+    const defaultSchemaMarked = sourceWithCursor(source.replace(".defaultSchema", ".defaultSc^^^hema"));
+    const defaultExportMarked = sourceWithCursor(source.replace(
+      'type DefaultSchemaFactory = typeof import("shape-kit").default',
+      'type DefaultSchemaFactory = typeof import("shape-kit").def^^^ault'
+    ));
+    const namespaceMarked = sourceWithCursor(source.replace(".Models", ".Mod^^^els"));
+    const nestedUserMarked = sourceWithCursor(source.replace(".User", ".Us^^^er"));
+    const packageSource = dedent`
+      export interface Schema {
+        title: string;
+      }
+
+      export declare const defaultSchema: () => Schema;
+      export default function createSchema(): Schema;
+      export namespace Models {
+        export interface User {
+          name: string;
+        }
+      }
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "shape-kit",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), packageSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const baseSession = createAnalysisSession(source);
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+    const context = {
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    };
+    const packageLines = packageSource.split("\n");
+    const schemaLine = packageLines.findIndex((line) => line.includes("interface Schema"));
+    const defaultSchemaLine = packageLines.findIndex((line) => line.includes("defaultSchema"));
+    const defaultExportLine = packageLines.findIndex((line) => line.includes("createSchema"));
+    const namespaceLine = packageLines.findIndex((line) => line.includes("namespace Models"));
+    const nestedUserLine = packageLines.findIndex((line) => line.includes("interface User"));
+
+    const schemaLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: schemaMarked.line,
+      character: schemaMarked.character
+    });
+    const schemaHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: schemaMarked.line,
+      character: schemaMarked.character
+    });
+    const defaultSchemaLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: defaultSchemaMarked.line,
+      character: defaultSchemaMarked.character
+    });
+    const defaultSchemaHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: defaultSchemaMarked.line,
+      character: defaultSchemaMarked.character
+    });
+    const defaultExportLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: defaultExportMarked.line,
+      character: defaultExportMarked.character
+    });
+    const defaultExportHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: defaultExportMarked.line,
+      character: defaultExportMarked.character
+    });
+    const namespaceLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: namespaceMarked.line,
+      character: namespaceMarked.character
+    });
+    const namespaceHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: namespaceMarked.line,
+      character: namespaceMarked.character
+    });
+    const nestedUserLocation = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: nestedUserMarked.line,
+      character: nestedUserMarked.character
+    });
+    const nestedUserHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: nestedUserMarked.line,
+      character: nestedUserMarked.character
+    });
+
+    expect(schemaLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(schemaLocation?.range.start.line).toBe(schemaLine);
+    expect(schemaHover?.contents).toEqual({
+      kind: "plaintext",
+      value: 'type import("shape-kit").Schema'
+    });
+    expect(defaultSchemaLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(defaultSchemaLocation?.range.start.line).toBe(defaultSchemaLine);
+    expect(defaultSchemaHover?.contents).toEqual({
+      kind: "plaintext",
+      value: 'type import("shape-kit").defaultSchema'
+    });
+    expect(defaultExportLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(defaultExportLocation?.range.start.line).toBe(defaultExportLine);
+    expect(defaultExportHover?.contents).toEqual({
+      kind: "plaintext",
+      value: 'type import("shape-kit").default'
+    });
+    expect(namespaceLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(namespaceLocation?.range.start.line).toBe(namespaceLine);
+    expect(namespaceHover?.contents).toEqual({
+      kind: "plaintext",
+      value: 'type import("shape-kit").Models'
+    });
+    expect(nestedUserLocation?.uri).toBe(pathToFileURL(join(pkgDir, "index.d.ts")).toString());
+    expect(nestedUserLocation?.range.start.line).toBe(nestedUserLine);
+    expect(nestedUserHover?.contents).toEqual({
+      kind: "plaintext",
+      value: 'type import("shape-kit").Models.User'
+    });
+  });
+
+  it("navigates import type members through export-star namespace reexports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-import-namespace-reexport-nav-"));
+    const pkgDir = join(root, "node_modules", "shape-kit");
+    const mainPath = join(root, "main.vx");
+    const source = 'type ImportedUser = import("shape-kit").Models.Us^^^er\n';
+    const marked = sourceWithCursor(source);
+    const modelsSource = dedent`
+      export interface User {
+        name: string;
+      }
+    `;
+
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "shape-kit",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * as Models from "./src/models";\n', "utf8");
+    await writeFile(join(pkgDir, "src", "models.d.ts"), modelsSource, "utf8");
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const context = {
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    };
+
+    const location = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: marked.line,
+      character: marked.character
+    });
+    const hover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: marked.line,
+      character: marked.character
+    });
+
+    expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "src", "models.d.ts")).toString());
+    expect(location?.range.start.line).toBe(0);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: 'type import("shape-kit").Models.User'
+    });
+  });
+
+  it("navigates import type default reexports to the source declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-node-module-import-default-reexport-nav-"));
+    const pkgDir = join(root, "node_modules", "shape-kit");
+    const mainPath = join(root, "main.vx");
+    const source = 'type SchemaFactory = typeof import("shape-kit").def^^^ault\n';
+    const marked = sourceWithCursor(source);
+    const factorySource = dedent`
+      export interface Schema {
+        title: string;
+      }
+
+      export function createSchema(): Schema;
+    `;
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "shape-kit",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export { createSchema as default } from "./factory";\n', "utf8");
+    await writeFile(join(pkgDir, "factory.d.ts"), factorySource, "utf8");
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const context = {
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath: () => null
+    };
+    const sourceLine = factorySource.split("\n").findIndex((line) => line.includes("createSchema"));
+
+    const location = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: marked.line,
+      character: marked.character
+    });
+    const hover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: marked.line,
+      character: marked.character
+    });
+
+    expect(location?.uri).toBe(pathToFileURL(join(pkgDir, "factory.d.ts")).toString());
+    expect(location?.range.start.line).toBe(sourceLine);
+    expect(hover?.contents).toEqual({
+      kind: "plaintext",
+      value: 'type import("shape-kit").default'
+    });
+  });
+
   it("resolves inherited node_modules accessor members to their base declaration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-node-module-accessor-member-nav-"));
     const pkgDir = join(root, "node_modules", "pixi-like");

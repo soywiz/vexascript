@@ -2187,6 +2187,107 @@ describe("node_modules typings resolution", () => {
     expect(location?.range.start.line).toBe(2);
   });
 
+  it("findNodeModuleExportLocation resolves exported namespaces", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const source = dedent`
+      export namespace Models {
+        export interface User {
+          name: string;
+        }
+      }
+    `;
+    await makePackageWithTypings(root, "shape-kit", source);
+
+    const importerPath = join(root, "main.vx");
+    const location = await findNodeModuleExportLocation(importerPath, "shape-kit", "Models");
+    const memberLocation = await findNodeModuleMemberLocation(importerPath, "shape-kit", "Models", "User");
+
+    expect(location).not.toBeNull();
+    expect(location?.range.start.line).toBe(0);
+    expect(memberLocation).not.toBeNull();
+    expect(memberLocation?.range.start.line).toBe(1);
+  });
+
+  it("findNodeModuleExportLocation resolves export-star namespace reexports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "shape-kit");
+
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "shape-kit",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * as Models from "./src/models";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "src", "models.d.ts"),
+      dedent`
+        export interface User {
+          name: string;
+        }
+      `,
+      "utf8"
+    );
+
+    const importerPath = join(root, "main.vx");
+    const location = await findNodeModuleExportLocation(importerPath, "shape-kit", "Models");
+    const memberLocation = await findNodeModuleMemberLocation(importerPath, "shape-kit", "Models", "User");
+
+    expect(location).not.toBeNull();
+    expect(location?.typingsPath).toContain("index.d.ts");
+    expect(location?.range.start.line).toBe(0);
+    expect(memberLocation).not.toBeNull();
+    expect(memberLocation?.typingsPath).toContain("src/models.d.ts");
+    expect(memberLocation?.range.start.line).toBe(0);
+  });
+
+  it("collectAllImportedDeclarations exposes export-star namespace reexports as named imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "shape-kit");
+    const mainPath = join(root, "main.vx");
+    const source = dedent`
+      import { Models } from "shape-kit"
+
+      const user: Models.User = { name: "Ada" }
+      const userName = user.name
+    `;
+
+    await mkdir(join(pkgDir, "src"), { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "shape-kit",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * as Models from "./src/models";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "src", "models.d.ts"),
+      dedent`
+        export interface User {
+          name: string;
+        }
+      `,
+      "utf8"
+    );
+    await writeFile(mainPath, source, "utf8");
+
+    const session = createAnalysisSession(source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols
+    });
+
+    expect(collected.importedSymbols.has("Models")).toBe(true);
+    expect(typeToString(richSession.analysis?.getTopLevelSymbolType("userName")!)).toBe("string");
+  });
+
   it("findNodeModuleExportLocation follows export-star reexports to the original declaration file", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "preact");
@@ -2265,6 +2366,41 @@ describe("node_modules typings resolution", () => {
     expect(location?.typingsPath).toContain("lib/types.d.ts");
     expect(location?.range.start.line).toBe(0);
     expect(location?.range.start.character).toBe(14);
+  });
+
+  it("findNodeModuleExportLocation resolves aliased default reexports to the source declaration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "shape-kit");
+
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "shape-kit",
+        types: "./index.d.ts"
+      }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export { createSchema as default } from "./factory";\n', "utf8");
+    await writeFile(
+      join(pkgDir, "factory.d.ts"),
+      dedent`
+        export interface Schema {
+          title: string;
+        }
+
+        export function createSchema(): Schema;
+      `,
+      "utf8"
+    );
+
+    const importerPath = join(root, "main.vx");
+    const location = await findNodeModuleExportLocation(importerPath, "shape-kit", "default");
+
+    expect(location).not.toBeNull();
+    expect(location?.typingsPath).toContain("factory.d.ts");
+    expect(location?.range.start.line).toBe(4);
+    expect(location?.range.start.character).toBe(16);
   });
 
   it("preserves imported interface type parameters when export-import aliases share the same name", async () => {

@@ -1,6 +1,8 @@
 import type {
+  BlockStatement,
   ClassStatement,
   EnumStatement,
+  ExportSpecifier,
   ExprStatement,
   ExportStatement,
   FunctionStatement,
@@ -201,24 +203,97 @@ function asExportedTypingsEntry(entry: NodeModuleDeclarationEntry): NodeModuleDe
       };
 }
 
-function nodeModuleDeclarationName(entry: NodeModuleDeclarationEntry): string | null {
-  const statement = entry.statement.kind === "ExportStatement"
+function reexportedDeclaration(entry: NodeModuleDeclarationEntry): Statement {
+  return entry.statement.kind === "ExportStatement"
     ? (entry.statement as ExportStatement).declaration ?? entry.statement
     : entry.statement;
-  const named = statement as { name?: { kind?: string; name?: string } };
+}
+
+function asAliasedExportedTypingsEntry(
+  entry: NodeModuleDeclarationEntry,
+  exportedName: string,
+  localName: string
+): NodeModuleDeclarationEntry {
+  if (exportedName === localName) {
+    return asExportedTypingsEntry(entry);
+  }
+  const specifier: ExportSpecifier = {
+    kind: "ExportSpecifier",
+    local: { kind: "Identifier", name: localName } as Identifier,
+    exported: { kind: "Identifier", name: exportedName } as Identifier
+  };
+  return {
+    statement: {
+      kind: "ExportStatement",
+      declaration: reexportedDeclaration(entry),
+      specifiers: [specifier]
+    } as ExportStatement,
+    typingsPath: entry.typingsPath
+  };
+}
+
+function asNamespaceReexportedTypingsEntry(
+  namespaceExport: Identifier,
+  entries: readonly NodeModuleDeclarationEntry[]
+): NodeModuleDeclarationEntry | null {
+  const firstEntry = entries[0];
+  if (!firstEntry) {
+    return null;
+  }
+  const namespaceName: Identifier = {
+    kind: "Identifier",
+    name: namespaceExport.name
+  };
+  const namespaceDeclaration: NamespaceStatement = {
+    kind: "NamespaceStatement",
+    declarationKind: "namespace",
+    names: [namespaceName],
+    body: {
+      kind: "BlockStatement",
+      body: entries.map((entry) => asExportedTypingsEntry(entry).statement)
+    } as BlockStatement
+  };
+  return {
+    statement: {
+      kind: "ExportStatement",
+      declaration: namespaceDeclaration
+    } as ExportStatement,
+    typingsPath: firstEntry.typingsPath
+  };
+}
+
+function declarationNameFromStatement(statement: Statement): string | null {
+  const declaration = statement.kind === "ExportStatement"
+    ? (statement as ExportStatement).declaration ?? statement
+    : statement;
+  if (declaration.kind === "NamespaceStatement") {
+    return (declaration as NamespaceStatement).names?.[0]?.name ?? null;
+  }
+  const named = declaration as { name?: { kind?: string; name?: string } };
   return named.name?.kind === "Identifier" ? named.name.name ?? null : null;
 }
 
-function nodeModuleExportedNames(entry: NodeModuleDeclarationEntry): string[] {
-  const directName = nodeModuleDeclarationName(entry);
+function nodeModuleDeclarationName(entry: NodeModuleDeclarationEntry): string | null {
+  return declarationNameFromStatement(reexportedDeclaration(entry));
+}
+
+export function nodeModuleExportedNamesForStatement(statement: Statement): string[] {
+  const directName = declarationNameFromStatement(statement);
   if (directName) {
     return [directName];
   }
-  if (entry.statement.kind !== "ExportStatement") {
+  if (statement.kind !== "ExportStatement") {
     return [];
   }
-  const exportStatement = entry.statement as ExportStatement;
+  const exportStatement = statement as ExportStatement;
+  if (exportStatement.namespaceExport) {
+    return [exportStatement.namespaceExport.name];
+  }
   return (exportStatement.specifiers ?? []).map((specifier) => specifier.exported.name);
+}
+
+function nodeModuleExportedNames(entry: NodeModuleDeclarationEntry): string[] {
+  return nodeModuleExportedNamesForStatement(entry.statement);
 }
 
 async function collectTypingsDeclarations(
@@ -266,20 +341,27 @@ async function collectTypingsDeclarations(
     }
     const reexportedDeclarations = await collectTypingsDeclarations(targetTypingsPath, options, visited);
     if (exportStatement.exportAll) {
-      declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
+      if (exportStatement.namespaceExport) {
+        const namespaceEntry = asNamespaceReexportedTypingsEntry(exportStatement.namespaceExport, reexportedDeclarations);
+        if (namespaceEntry) {
+          declarations.push(namespaceEntry);
+        }
+      } else {
+        declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
+      }
       continue;
     }
-    const exportedNames = new Set<string>();
+    const exportedNameByLocalName = new Map<string, string>();
     for (const specifier of exportStatement.specifiers ?? []) {
-      exportedNames.add(specifier.exported.name);
-      if (specifier.local?.name) {
-        exportedNames.add(specifier.local.name);
-      }
+      const localName = specifier.local?.name ?? specifier.exported.name;
+      exportedNameByLocalName.set(localName, specifier.exported.name);
+      exportedNameByLocalName.set(specifier.exported.name, specifier.exported.name);
     }
     for (const entry of reexportedDeclarations) {
       const declarationName = nodeModuleDeclarationName(entry);
-      if (declarationName && exportedNames.has(declarationName)) {
-        declarations.push(asExportedTypingsEntry(entry));
+      const exportedName = declarationName ? exportedNameByLocalName.get(declarationName) : undefined;
+      if (declarationName && exportedName) {
+        declarations.push(asAliasedExportedTypingsEntry(entry, exportedName, declarationName));
         continue;
       }
       declarations.push(entry);
@@ -365,38 +447,51 @@ async function collectSelectiveTypingsDeclarations(
     }
 
     if (exportStatement.exportAll) {
+      if (exportStatement.namespaceExport && !includeAllTopLevel && !exportedNamesWanted.has(exportStatement.namespaceExport.name)) {
+        continue;
+      }
       const reexportedDeclarations = await collectSelectiveTypingsDeclarations(
         targetTypingsPath,
         exportedNamesWanted,
         options,
         visited,
-        includeAllTopLevel
+        includeAllTopLevel || Boolean(exportStatement.namespaceExport)
       );
-      declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
+      if (exportStatement.namespaceExport) {
+        const namespaceEntry = asNamespaceReexportedTypingsEntry(exportStatement.namespaceExport, reexportedDeclarations);
+        if (namespaceEntry) {
+          declarations.push(namespaceEntry);
+        }
+      } else {
+        declarations.push(...reexportedDeclarations.map(asExportedTypingsEntry));
+      }
       continue;
     }
 
-    const targetWantedLocalNames = new Set<string>();
+    const exportedNameByLocalName = new Map<string, string>();
     for (const specifier of exportStatement.specifiers ?? []) {
       if (!followAllNamedReexports && !exportedNamesWanted.has(specifier.exported.name)) {
         continue;
       }
-      targetWantedLocalNames.add(specifier.local?.name ?? specifier.exported.name);
+      const localName = specifier.local?.name ?? specifier.exported.name;
+      exportedNameByLocalName.set(localName, specifier.exported.name);
+      exportedNameByLocalName.set(specifier.exported.name, specifier.exported.name);
     }
-    if (targetWantedLocalNames.size === 0) {
+    if (exportedNameByLocalName.size === 0) {
       continue;
     }
 
     const reexportedDeclarations = await collectSelectiveTypingsDeclarations(
       targetTypingsPath,
-      targetWantedLocalNames,
+      new Set(exportedNameByLocalName.keys()),
       options,
       visited
     );
     for (const entry of reexportedDeclarations) {
       const declarationName = nodeModuleDeclarationName(entry);
-      if (declarationName && targetWantedLocalNames.has(declarationName)) {
-        declarations.push(asExportedTypingsEntry(entry));
+      const exportedName = declarationName ? exportedNameByLocalName.get(declarationName) : undefined;
+      if (declarationName && exportedName) {
+        declarations.push(asAliasedExportedTypingsEntry(entry, exportedName, declarationName));
         continue;
       }
       declarations.push(entry);
@@ -1286,12 +1381,7 @@ function findMemberInNamespaceBody(
   return null;
 }
 
-function topLevelBindingRangeFromStatement(statement: Statement, bindingName: string): Range | null {
-  const declaration =
-    statement.kind === "ExportStatement"
-      ? (statement as { declaration?: Statement }).declaration ?? statement
-      : statement;
-
+function declarationNameNode(declaration: Statement): Identifier | null {
   switch (declaration.kind) {
     case "FunctionStatement":
     case "InterfaceStatement":
@@ -1304,12 +1394,40 @@ function topLevelBindingRangeFromStatement(statement: Statement, bindingName: st
         | ClassStatement
         | EnumStatement
         | TypeAliasStatement;
-      return namedDeclaration.name.name === bindingName ? nodeRange(namedDeclaration.name) : null;
+      return namedDeclaration.name;
     }
     case "NamespaceStatement": {
       const namespace = declaration as NamespaceStatement;
-      const nameNode = namespace.names?.[0];
-      return nameNode?.name === bindingName ? nodeRange(nameNode as Parameters<typeof nodeRange>[0]) : null;
+      return namespace.names?.[0] ?? null;
+    }
+    default:
+      return null;
+  }
+}
+
+function declarationNameRange(declaration: Statement): Range | null {
+  const nameNode = declarationNameNode(declaration);
+  return nameNode ? nodeRange(nameNode) : null;
+}
+
+function topLevelBindingRangeFromStatement(statement: Statement, bindingName: string): Range | null {
+  const declaration =
+    statement.kind === "ExportStatement"
+      ? (statement as { declaration?: Statement }).declaration ?? statement
+      : statement;
+
+  switch (declaration.kind) {
+    case "FunctionStatement":
+    case "InterfaceStatement":
+    case "ClassStatement":
+    case "EnumStatement":
+    case "TypeAliasStatement": {
+      const nameNode = declarationNameNode(declaration);
+      return nameNode?.name === bindingName ? nodeRange(nameNode) : null;
+    }
+    case "NamespaceStatement": {
+      const nameNode = declarationNameNode(declaration);
+      return nameNode?.name === bindingName ? nodeRange(nameNode) : null;
     }
     case "VarStatement": {
       const variable = declaration as VarStatement;
@@ -1360,11 +1478,23 @@ function namedExportRangeFromStatement(
 ): Range | null {
   if (statement.kind === "ExportStatement") {
     const exportStatement = statement as ExportStatement;
+    if (exportName === "default" && exportStatement.default && exportStatement.declaration) {
+      return declarationNameRange(exportStatement.declaration);
+    }
+    if (exportStatement.namespaceExport?.name === exportName) {
+      return nodeRange(exportStatement.namespaceExport);
+    }
     const matchingSpecifier = exportStatement.specifiers?.find((specifier) => specifier.exported.name === exportName);
     if (matchingSpecifier) {
       const localName = matchingSpecifier.local?.name ?? matchingSpecifier.exported.name;
-      return findTopLevelBindingRangeInEntries(declarationEntries, typingsPath, localName)
-        ?? nodeRange(matchingSpecifier.local ?? matchingSpecifier.exported);
+      const localRange = findTopLevelBindingRangeInEntries(declarationEntries, typingsPath, localName);
+      if (localRange) {
+        return localRange;
+      }
+      if (exportStatement.from?.value) {
+        return null;
+      }
+      return nodeRange(matchingSpecifier.local ?? matchingSpecifier.exported);
     }
   }
   return topLevelBindingRangeFromStatement(statement, exportName);

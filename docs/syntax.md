@@ -554,6 +554,9 @@ export sync fun loadCachedAnswer(): number {
   return loadAnswer()
 }
 export class Point
+export namespace Geometry {
+  export class Circle
+}
 export default Point
 export { Point as RenamedPoint }
 export { Shape } from "./shape"
@@ -582,7 +585,7 @@ import { greet } from "./helpers"
 
 The explicit `export` keyword is still supported and remains useful for re-exports, default exports, type-only exports, and codebases that prefer the extra clarity at the declaration site.
 
-Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output. `export as namespace` is supported for TypeScript-style global UMD declarations; it participates in parsing and editor highlighting and is omitted from JavaScript output. Namespace re-exports such as `export * as MathHelpers from "./math"` emit as standard JavaScript namespace re-exports in ESM mode and as CommonJS namespace assignments in CommonJS mode.
+Type-only exports and exported type aliases/interfaces participate in analysis but are omitted from emitted JavaScript output. Exported namespaces are supported both as runtime VexaScript declarations and in TypeScript declaration files such as `export namespace Models { ... }`. `export as namespace` is supported for TypeScript-style global UMD declarations; it participates in parsing and editor highlighting and is omitted from JavaScript output. Namespace re-exports such as `export * as MathHelpers from "./math"` emit as standard JavaScript namespace re-exports in ESM mode and as CommonJS namespace assignments in CommonJS mode.
 
 ## Classes
 

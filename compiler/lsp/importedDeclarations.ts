@@ -57,7 +57,11 @@ import {
   tupleElementTypeText
 } from "compiler/analysis/typeNames";
 import { combineTypes, removeNullishFromType, unwrapPromiseType } from "compiler/analysis/typeOperations";
-import { getNodeModuleTypings, getNodeModuleTypingsForImportNames } from "./nodeModulesTypings";
+import {
+  getNodeModuleTypings,
+  getNodeModuleTypingsForImportNames,
+  nodeModuleExportedNamesForStatement
+} from "./nodeModulesTypings";
 import {
   collectInvalidImportedBindings,
   getImportedSymbolResolution,
@@ -635,6 +639,14 @@ function resolveNodeModuleNamedImportType(
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
         return resolved;
+      }
+      if (declaration.kind === "NamespaceStatement") {
+        const namespaceName = (declaration as NamespaceStatement).names?.[0]?.name;
+        if (namespaceName === candidateName) {
+          const resolved = nodeModuleNamespaceStatementType(declaration as NamespaceStatement);
+          resolutionCache.namedImportTypes.set(importedName, resolved);
+          return resolved;
+        }
       }
       if (declaration.kind === "VarStatement") {
         const varStatement = declaration as VarStatement;
@@ -2474,6 +2486,10 @@ function collectAmbientNamespaceExportedProperties(
   return properties;
 }
 
+function nodeModuleNamespaceStatementType(namespaceStatement: NamespaceStatement): AnalysisType {
+  return objectTypeWithProperties(collectNodeModuleNamespaceExportedProperties(namespaceStatement.body.body));
+}
+
 function collectNodeModuleNamespaceExportedProperties(
   statements: readonly Statement[]
 ): Record<string, AnalysisType> {
@@ -2535,9 +2551,10 @@ function collectNodeModuleNamespaceExportedProperties(
       continue;
     }
     if (declaration.kind === "NamespaceStatement") {
-      const namespaceName = (declaration as NamespaceStatement).names?.[0]?.name;
+      const namespace = declaration as NamespaceStatement;
+      const namespaceName = namespace.names?.[0]?.name;
       if (namespaceName) {
-        properties[namespaceName] = namedType(namespaceName);
+        properties[namespaceName] = nodeModuleNamespaceStatementType(namespace);
       }
     }
   }
@@ -3088,61 +3105,48 @@ export interface CollectedImportedDeclarations {
 }
 
 function importableDeclarationName(statement: Statement): string | null {
+  const namedDeclarationName = (candidate: Statement): string | null => {
+    switch (candidate.kind) {
+      case "ClassStatement":
+      case "InterfaceStatement":
+      case "EnumStatement":
+      case "TypeAliasStatement":
+      case "FunctionStatement":
+        return (candidate as
+          | ClassStatement
+          | InterfaceStatement
+          | EnumStatement
+          | TypeAliasStatement
+          | FunctionStatement).name.name;
+      case "NamespaceStatement":
+        return (candidate as NamespaceStatement).names?.[0]?.name ?? null;
+      default:
+        return null;
+    }
+  };
   const declaration = unwrapDeclaration(statement);
   if (!declaration) {
     const rawDeclaration =
       statement.kind === "ExportStatement"
         ? (statement as { declaration?: Statement }).declaration ?? statement
         : statement;
-    if (
-      rawDeclaration.kind === "ClassStatement"
-      || rawDeclaration.kind === "InterfaceStatement"
-      || rawDeclaration.kind === "EnumStatement"
-      || rawDeclaration.kind === "TypeAliasStatement"
-      || rawDeclaration.kind === "FunctionStatement"
-    ) {
-      return (rawDeclaration as
-        | ClassStatement
-        | InterfaceStatement
-        | EnumStatement
-        | TypeAliasStatement
-        | FunctionStatement).name.name;
+    const name = namedDeclarationName(rawDeclaration);
+    if (name) {
+      return name;
     }
     if (rawDeclaration.kind === "VarStatement" && (rawDeclaration as VarStatement).name.kind === "Identifier") {
       return ((rawDeclaration as VarStatement).name as Identifier).name;
     }
     return null;
   }
-  if (
-    declaration.kind === "ClassStatement"
-    || declaration.kind === "InterfaceStatement"
-    || declaration.kind === "EnumStatement"
-    || declaration.kind === "TypeAliasStatement"
-    || declaration.kind === "FunctionStatement"
-  ) {
-    return declaration.name.name;
+  const name = namedDeclarationName(declaration);
+  if (name) {
+    return name;
   }
   if (declaration.kind === "VarStatement" && declaration.name.kind === "Identifier") {
     return declaration.name.name;
   }
   return null;
-}
-
-function nodeModuleExportedNamesForStatement(statement: Statement): string[] {
-  const declaration = unwrapDeclaration(statement);
-  if (declaration) {
-    const name = importableDeclarationName(declaration);
-    return name ? [name] : [];
-  }
-  if (statement.kind !== "ExportStatement") {
-    return [];
-  }
-  const exportStatement = statement as ExportStatement;
-  const inlineName = importableDeclarationName(exportStatement);
-  if (inlineName) {
-    return [inlineName];
-  }
-  return (exportStatement.specifiers ?? []).map((specifier) => specifier.exported.name);
 }
 
 function setImportedSymbolType(

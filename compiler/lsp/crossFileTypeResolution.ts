@@ -829,6 +829,20 @@ function nestedTypeIdentifierAtOffset(
       qualifiedStart = previousStart;
     }
 
+    const memberName = typeText.slice(start, end).trim();
+    const importTypeMatch = typeText
+      .slice(0, qualifiedStart)
+      .match(/(?:^|[^\w$])(?:typeof\s+)?import\s*\(\s*["']([^"']+)["']\s*\)\s*\.\s*$/);
+    if (importTypeMatch && memberName) {
+      const qualifiedName = typeText.slice(qualifiedStart, end).trim();
+      return makeSyntheticTypeIdentifier(
+        identifier,
+        `import("${importTypeMatch[1]}").${qualifiedName}`,
+        baseOffset + start,
+        baseOffset + end
+      );
+    }
+
     const name = typeText.slice(qualifiedStart, end).trim();
     if (!name) {
       return null;
