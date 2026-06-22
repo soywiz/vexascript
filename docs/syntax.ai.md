@@ -68,6 +68,23 @@ class Rect(val w: number, val h: number) {
 }
 ```
 
+Operator overloads use `operator` methods. Binary operators receive the right-hand operand. Index getter operators receive all bracket dimensions. Index setter operators receive the assigned value first, then the bracket dimensions; rest parameters support variable-dimensional indexers.
+
+```vexa
+class Array2<T>(val fallback: T) {
+  operator[](x: int, y: int): T => fallback
+  operator[]=(value: T, x: int, y: int): void { }
+}
+
+class MultiArray<T>(val fallback: T) {
+  operator[](...dimensions: int[]): T => fallback
+  operator[]=(value: T, ...dimensions: int[]): void { }
+}
+
+val cell = array[1, 2]
+array[1, 2] = "next"
+```
+
 Interface delegation via `by`:
 
 ```vexa

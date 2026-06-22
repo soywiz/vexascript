@@ -611,6 +611,131 @@ let after = bind`));
     });
   });
 
+  describe("index operator overloads", () => {
+    it("resolves class index getter and setter operator overloads", () => {
+      const source = dedent`
+        class Bag {
+          operator[](index: int): string => "item"
+          operator[]=(value: string, index: int): void { }
+        }
+        val bag = Bag()
+        val item = bag[0]
+        bag[1] = "next"
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      const itemStatement = ast.body[2] as VarStatement;
+      const itemType = analysis.getExpressionTypes().get(itemStatement.initializer!);
+
+      expect(messages).toEqual([]);
+      expect(itemType ? typeToString(itemType) : "unknown").toBe("string");
+    });
+
+    it("resolves extension index getter and setter operator overloads", () => {
+      const source = dedent`
+        class Bag
+        fun Bag.operator[](index: int): string => "item"
+        fun Bag.operator[]=(value: string, index: int): void { }
+        val bag = Bag()
+        val item = bag[0]
+        bag[1] = "next"
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      const itemStatement = ast.body[4] as VarStatement;
+      const itemType = analysis.getExpressionTypes().get(itemStatement.initializer!);
+
+      expect(messages).toEqual([]);
+      expect(itemType ? typeToString(itemType) : "unknown").toBe("string");
+    });
+
+    it("resolves fixed-arity multidimensional index operator overloads", () => {
+      const source = dedent`
+        class Grid {
+          operator[](x: int, y: int): string => "cell"
+          operator[]=(value: string, x: int, y: int): void { }
+        }
+        val grid = Grid()
+        val item = grid[1, 2]
+        grid[1, 2] = "next"
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      const itemStatement = ast.body[2] as VarStatement;
+      const itemType = analysis.getExpressionTypes().get(itemStatement.initializer!);
+
+      expect(messages).toEqual([]);
+      expect(itemType ? typeToString(itemType) : "unknown").toBe("string");
+    });
+
+    it("resolves rest-parameter multidimensional index operator overloads", () => {
+      const source = dedent`
+        class MultiArray {
+          operator[](...dimensions: int[]): string => "cell"
+          operator[]=(value: string, ...dimensions: int[]): void { }
+        }
+        val array = MultiArray()
+        val item = array[1, 2, 3]
+        array[1, 2, 3] = "next"
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      const itemStatement = ast.body[2] as VarStatement;
+      const itemType = analysis.getExpressionTypes().get(itemStatement.initializer!);
+
+      expect(messages).toEqual([]);
+      expect(itemType ? typeToString(itemType) : "unknown").toBe("string");
+    });
+
+    it("substitutes generic class type arguments in index operator overloads", () => {
+      const source = dedent`
+        class Array2<T>(val fallback: T) {
+          operator[](x: int, y: int): T => fallback
+          operator[]=(value: T, x: int, y: int): void { }
+        }
+        val array = Array2<string>("seed")
+        val item = array[1, 2]
+        array[1, 2] = "next"
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      const itemStatement = ast.body[2] as VarStatement;
+      const itemType = analysis.getExpressionTypes().get(itemStatement.initializer!);
+
+      expect(messages).toEqual([]);
+      expect(itemType ? typeToString(itemType) : "unknown").toBe("string");
+    });
+
+    it("reports index getter and setter argument mismatches", () => {
+      const source = dedent`
+        class Bag {
+          operator[](index: int): string => "item"
+          operator[]=(value: string, index: int): void { }
+        }
+        val bag = Bag()
+        val missing = bag["name"]
+        bag[0] = 42
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages).toContain("Operator '[]' is not defined for types 'Bag' and 'string'");
+      expect(messages).toContain("Operator '[]=' is not defined for types 'Bag', 'int', and 'int'");
+    });
+  });
+
   describe("operator arity validation", () => {
     it("reports an error when operator* has 0 parameters", () => {
       const source = dedent`
@@ -623,6 +748,22 @@ let after = bind`));
       const analysis = new Analysis(ast);
       const messages = analysis.getIssues().map((issue) => issue.message);
       expect(messages).toContain("Operator '*' must declare exactly one parameter");
+    });
+
+    it("reports arity errors for index operators", () => {
+      const source = dedent`
+        class Bag {
+          operator[](): string => "item"
+          operator[]=(index: int): void { }
+        }
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+
+      expect(messages).toContain("Operator '[]' must declare at least one parameter");
+      expect(messages).toContain("Operator '[]=' must declare at least two parameters");
     });
 
     it("reports an error when operator+ has more than one parameter", () => {

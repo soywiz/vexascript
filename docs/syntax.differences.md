@@ -247,7 +247,32 @@ class Vector(val x: number, val y: number) {
 val v = Vector(1, 2) + Vector(3, 4)  // calls operator+
 ```
 
-TypeScript has no operator overloading.
+Computed index access can also be overloaded. `operator[]` receives the bracket dimensions in order. `operator[]=` receives the assigned value first, followed by the dimensions, which keeps multidimensional setters consistent.
+
+```vexa
+class Array2<T>(val fallback: T) {
+  operator[](x: int, y: int): T => fallback
+  operator[]=(value: T, x: int, y: int): void { }
+}
+
+val array = Array2<string>("empty")
+val cell = array[1, 2]
+array[1, 2] = "next"
+```
+
+Variable-dimensional indexers use rest parameters:
+
+```vexa
+class MultiArray<T>(val fallback: T) {
+  operator[](...dimensions: int[]): T => fallback
+  operator[]=(value: T, ...dimensions: int[]): void { }
+}
+
+val item = multi[1, 2, 3]
+multi[1, 2, 3] = item
+```
+
+TypeScript has no operator overloading, so equivalent code must use named methods such as `get(x, y)` and `set(value, x, y)`.
 
 ### Class interface delegates
 

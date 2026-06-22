@@ -76,6 +76,7 @@ import {
     ObjectProperty,
     ObjectSpreadProperty,
     NamedArgument,
+    OverloadableOperator,
     Program,
     RangeExpression,
     ReturnStatement,
@@ -102,7 +103,6 @@ import {
 
 type BinaryOperator = BinaryExpression["operator"];
 type AssignmentOperator = AssignmentExpression["operator"];
-type OverloadableOperator = BinaryExpression["operator"];
 type BinaryAssoc = "left" | "right";
 type InfixOperator = BinaryOperator | "..." | "..<";
 
@@ -4914,14 +4914,12 @@ export class Parser {
                 this.fail("Expected imported symbol name", this.tokenAt(nameToken));
             }
             if (nameToken.value === "operator") {
-                const operatorToken = this.tokens.peek();
-                const overloadedOperator = this.operatorOverloadFromToken(operatorToken);
-                if (overloadedOperator) {
-                    this.tokens.skip();
+                const parsedOperator = this.parseOperatorOverload();
+                if (parsedOperator) {
                     nameToken = {
                         ...nameToken,
-                        value: `operator${overloadedOperator}`,
-                        range: { start: nameToken.range.start, end: operatorToken!.range.end }
+                        value: `operator${parsedOperator.operator}`,
+                        range: { start: nameToken.range.start, end: parsedOperator.endToken.range.end }
                     };
                 }
             }
@@ -5150,16 +5148,15 @@ export class Parser {
                 this.fail("Expected extension method name after receiver type", this.tokenAt(nameToken));
             }
             if (nameToken.value === "operator") {
-                const operatorToken = this.tokens.peek();
-                overloadedOperator = this.operatorOverloadFromToken(operatorToken);
-                if (!overloadedOperator) {
-                    this.fail("Expected overloadable operator after 'operator'", this.tokenAt(operatorToken));
+                const parsedOperator = this.parseOperatorOverload();
+                if (!parsedOperator) {
+                    this.fail("Expected overloadable operator after 'operator'", this.tokenAt(this.tokens.peek()));
                 }
-                this.tokens.skip();
+                overloadedOperator = parsedOperator.operator;
                 nameToken = {
                     ...nameToken,
                     value: `operator${overloadedOperator}`,
-                    range: { start: nameToken.range.start, end: operatorToken!.range.end }
+                    range: { start: nameToken.range.start, end: parsedOperator.endToken.range.end }
                 };
             }
         }
@@ -5667,12 +5664,37 @@ export class Parser {
         return parameters;
     }
 
-    private operatorOverloadFromToken(token: Token | undefined): OverloadableOperator | undefined {
+    private operatorOverloadFromToken(token: Token | undefined): BinaryExpression["operator"] | undefined {
         if (token?.type !== "symbol") {
             return undefined;
         }
-        const candidate = token.value as OverloadableOperator;
+        const candidate = token.value as BinaryExpression["operator"];
         return candidate in BINARY_OPERATOR_INFO && candidate !== "in" && candidate !== "instanceof" ? candidate : undefined;
+    }
+
+    private parseOperatorOverload(): { operator: OverloadableOperator; endToken: Token } | undefined {
+        const token = this.tokens.peek();
+        if (token?.type !== "symbol") {
+            return undefined;
+        }
+        if (token.value === "[") {
+            this.tokens.skip();
+            const closeBracket = this.tokens.read();
+            if (closeBracket?.type !== "symbol" || closeBracket.value !== "]") {
+                this.fail("Expected ']' after 'operator['", this.tokenAt(closeBracket));
+            }
+            if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "=") {
+                const equalsToken = this.tokens.read()!;
+                return { operator: "[]=", endToken: equalsToken };
+            }
+            return { operator: "[]", endToken: closeBracket };
+        }
+        const operator = this.operatorOverloadFromToken(token);
+        if (!operator) {
+            return undefined;
+        }
+        this.tokens.skip();
+        return { operator, endToken: token };
     }
 
     private parseClassMember(allowSignatureOnly: boolean = false): ClassMember[] {
@@ -5784,19 +5806,18 @@ export class Parser {
         let overloadedOperator: OverloadableOperator | undefined;
         let resolvedMemberNameToken = effectiveMemberNameToken;
         if (!computedMemberKey && effectiveMemberNameToken?.value === "operator") {
-            const operatorToken = this.tokens.peek();
-            overloadedOperator = this.operatorOverloadFromToken(operatorToken);
-            if (!overloadedOperator) {
-                this.fail("Expected overloadable operator after 'operator'", this.tokenAt(operatorToken));
+            const parsedOperator = this.parseOperatorOverload();
+            if (!parsedOperator) {
+                this.fail("Expected overloadable operator after 'operator'", this.tokenAt(this.tokens.peek()));
             }
-            this.tokens.skip();
+            overloadedOperator = parsedOperator.operator;
             resolvedMemberNameToken = {
                 ...effectiveMemberNameToken,
                 type: effectiveMemberNameToken.type,
                 value: `operator${overloadedOperator}`,
                 range: {
                     start: effectiveMemberNameToken.range.start,
-                    end: operatorToken!.range.end
+                    end: parsedOperator.endToken.range.end
                 }
             };
         }

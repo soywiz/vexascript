@@ -44,6 +44,7 @@ import type {
   ObjectLiteral,
   ObjectProperty,
   ObjectSpreadProperty,
+  OverloadableOperator,
   StringLiteral,
   SpreadExpression,
   BooleanLiteral,
@@ -1381,18 +1382,26 @@ export class TypeChecker {
     return arrayType(elements.reduce((current, next) => this.commonSupertype(current, next)));
   }
 
+  private operatorArityMessage(operator: OverloadableOperator, parameterCount: number): string | null {
+    if (operator === "[]=") {
+      return parameterCount >= 2 ? null : "Operator '[]=' must declare at least two parameters";
+    }
+    if (operator === "[]") {
+      return parameterCount >= 1 ? null : "Operator '[]' must declare at least one parameter";
+    }
+    if (operator === "+" || operator === "-") {
+      return parameterCount <= 1 ? null : `Operator '${operator}' must declare at most one parameter`;
+    }
+    return parameterCount === 1 ? null : `Operator '${operator}' must declare exactly one parameter`;
+  }
+
   private visitFunctionStatement(statement: FunctionStatement, scope: Scope): void {
     if (statement.operator) {
-      const isUnaryAllowed = statement.operator === "+" || statement.operator === "-";
       const nonThisParams = statement.parameters.filter((p) => p.thisParameter !== true);
-      if (nonThisParams.length > 1) {
+      const arityMessage = this.operatorArityMessage(statement.operator, nonThisParams.length);
+      if (arityMessage) {
         this.issues.push({
-          message: `Operator '${statement.operator}' must declare at most one parameter`,
-          node: statement.name
-        });
-      } else if (!isUnaryAllowed && nonThisParams.length !== 1) {
-        this.issues.push({
-          message: `Operator '${statement.operator}' must declare exactly one parameter`,
+          message: arityMessage,
           node: statement.name
         });
       }
@@ -1635,15 +1644,10 @@ export class TypeChecker {
           });
         }
         if (method.operator) {
-          const isUnaryAllowed = method.operator === "+" || method.operator === "-";
-          if (method.parameters.length > 1) {
+          const arityMessage = this.operatorArityMessage(method.operator, method.parameters.length);
+          if (arityMessage) {
             this.issues.push({
-              message: `Operator '${method.operator}' must declare at most one parameter`,
-              node: method.name
-            });
-          } else if (!isUnaryAllowed && method.parameters.length !== 1) {
-            this.issues.push({
-              message: `Operator '${method.operator}' must declare exactly one parameter`,
+              message: arityMessage,
               node: method.name
             });
           }
@@ -2199,7 +2203,21 @@ export class TypeChecker {
         }
         const leftType = this.visitExpression(assignment.left, scope);
         const rightType = this.visitExpression(assignment.right, scope, leftType);
+        const indexSetterOverload = assignment.operator === "="
+          ? this.resolveIndexSetterOperatorOverload(assignment.left, rightType, scope)
+          : null;
+        const hasIndexSetterCandidates = assignment.operator === "=" &&
+          this.hasIndexOperatorCandidates(assignment.left, "[]=");
+        if (!indexSetterOverload && hasIndexSetterCandidates && assignment.left.kind === "MemberExpression") {
+          const member = assignment.left as MemberExpression;
+          const rawObjectType = this.expressionTypes.get(member.object as unknown as Node) ?? UNKNOWN_TYPE;
+          const objectType = member.nonNullAsserted === true ? removeNullishFromType(rawObjectType) : rawObjectType;
+          const indexTypes = this.computedMemberIndexArgumentTypes(member);
+          this.reportMissingOperatorOverload("[]=", assignment.left, objectType, [rightType, ...indexTypes]);
+        }
         if (
+          !indexSetterOverload &&
+          !hasIndexSetterCandidates &&
           !isUnknownType(leftType) &&
           !isUnknownType(rightType) &&
           !this.isTypeAssignable(rightType, leftType)
@@ -2308,6 +2326,7 @@ export class TypeChecker {
             break;
           }
           const propertyType = this.visitExpression(member.property, scope);
+          const indexArgumentTypes = this.computedMemberIndexArgumentTypes(member, propertyType);
           if (objectType.kind === "named") {
             const enumStatement = this.enumStatementsByName.get(objectType.name);
             if (enumStatement) {
@@ -2317,6 +2336,15 @@ export class TypeChecker {
               );
               break;
             }
+          }
+          const indexGetterOverload = this.resolveOperatorOverloadForArguments("[]", objectType, indexArgumentTypes, scope);
+          if (indexGetterOverload) {
+            result = this.resolveOptionalAccessType(indexGetterOverload.type, member.optional === true);
+            result = this.narrowedExpressionType(scope, member) ?? result;
+            break;
+          }
+          if (!this.pureWriteTargetNodes.has(member) && this.hasOperatorOverloadCandidates("[]", objectType)) {
+            this.reportMissingOperatorOverload("[]", member, objectType, indexArgumentTypes);
           }
           result = this.resolveOptionalAccessType(this.resolveComputedMemberType(objectType, propertyType), member.optional === true);
           result = this.narrowedExpressionType(scope, member) ?? result;
@@ -3062,27 +3090,39 @@ export class TypeChecker {
     rightType: AnalysisType,
     scope: Scope
   ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
+    return this.resolveOperatorOverloadForArguments(operator, leftType, [rightType], scope);
+  }
+
+  private resolveOperatorOverloadForArguments(
+    operator: OverloadableOperator,
+    leftType: AnalysisType,
+    argumentTypes: AnalysisType[],
+    scope: Scope
+  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
     if (leftType.kind !== "named") {
       return null;
     }
     const classStatement = this.classStatementsByName.get(leftType.name);
+    const classSubstitutions = classStatement
+      ? this.typeParameterSubstitutions(classStatement.typeParameters ?? [], leftType)
+      : new Map<string, AnalysisType>();
     for (const member of classStatement?.members ?? []) {
       if (member.kind !== "ClassMethodMember") {
         continue;
       }
       const method = member as ClassMethodMember;
-      if (method.operator !== operator || method.parameters.length !== 1 || !this.operatorParameterMatches(method.parameters[0], rightType, scope)) {
+      if (method.operator !== operator || !this.operatorParametersMatch(method.parameters, argumentTypes, scope, classSubstitutions)) {
         continue;
       }
       return {
         type: method.returnType
-          ? this.resolveTypeAnnotation(method.returnType, scope) ?? UNKNOWN_TYPE
+          ? this.resolveOperatorTypeAnnotation(method.returnType, scope, classSubstitutions) ?? UNKNOWN_TYPE
           : namedType(leftType.name),
         symbol: this.createMethodSymbol(method)
       };
     }
     for (const extension of this.extensionOperatorsByReceiver.get(leftType.name) ?? []) {
-      if (extension.operator !== operator || extension.parameters.length !== 1 || !this.operatorParameterMatches(extension.parameters[0], rightType, scope)) {
+      if (extension.operator !== operator || !this.operatorParametersMatch(extension.parameters, argumentTypes, scope)) {
         continue;
       }
       return {
@@ -3093,6 +3133,87 @@ export class TypeChecker {
       };
     }
     return null;
+  }
+
+  private resolveIndexSetterOperatorOverload(
+    left: Expr,
+    valueType: AnalysisType,
+    scope: Scope
+  ): { type: AnalysisType; symbol: AnalysisSymbol } | null {
+    if (left.kind !== "MemberExpression") {
+      return null;
+    }
+    const member = left as MemberExpression;
+    if (!member.computed) {
+      return null;
+    }
+    const rawObjectType = this.expressionTypes.get(member.object as unknown as Node) ?? UNKNOWN_TYPE;
+    const objectType = member.nonNullAsserted === true ? removeNullishFromType(rawObjectType) : rawObjectType;
+    const indexTypes = this.computedMemberIndexArgumentTypes(member);
+    return this.resolveOperatorOverloadForArguments("[]=", objectType, [valueType, ...indexTypes], scope);
+  }
+
+  private computedMemberIndexArguments(member: MemberExpression): Expr[] {
+    return member.property.kind === "CommaExpression"
+      ? (member.property as CommaExpression).expressions
+      : [member.property];
+  }
+
+  private computedMemberIndexArgumentTypes(
+    member: MemberExpression,
+    singlePropertyType?: AnalysisType
+  ): AnalysisType[] {
+    const indexArguments = this.computedMemberIndexArguments(member);
+    if (indexArguments.length === 1 && indexArguments[0] === member.property && singlePropertyType) {
+      return [singlePropertyType];
+    }
+    return indexArguments.map((argument) => this.expressionTypes.get(argument as unknown as Node) ?? UNKNOWN_TYPE);
+  }
+
+  private hasIndexOperatorCandidates(left: Expr, operator: "[]" | "[]="): boolean {
+    if (left.kind !== "MemberExpression") {
+      return false;
+    }
+    const member = left as MemberExpression;
+    if (!member.computed) {
+      return false;
+    }
+    const rawObjectType = this.expressionTypes.get(member.object as unknown as Node) ?? UNKNOWN_TYPE;
+    const objectType = member.nonNullAsserted === true ? removeNullishFromType(rawObjectType) : rawObjectType;
+    return this.hasOperatorOverloadCandidates(operator, objectType);
+  }
+
+  private hasOperatorOverloadCandidates(operator: OverloadableOperator, leftType: AnalysisType): boolean {
+    if (leftType.kind !== "named") {
+      return false;
+    }
+    const classStatement = this.classStatementsByName.get(leftType.name);
+    if (classStatement?.members.some((member) =>
+      member.kind === "ClassMethodMember" && (member as ClassMethodMember).operator === operator
+    )) {
+      return true;
+    }
+    return (this.extensionOperatorsByReceiver.get(leftType.name) ?? []).some((extension) => extension.operator === operator);
+  }
+
+  private reportMissingOperatorOverload(
+    operator: OverloadableOperator,
+    node: Node,
+    leftType: AnalysisType,
+    argumentTypes: readonly AnalysisType[]
+  ): void {
+    if ([leftType, ...argumentTypes].some(isUnknownType)) {
+      return;
+    }
+    const labels = [leftType, ...argumentTypes].map((type) => `'${typeToDiagnosticLabel(type)}'`);
+    const joinedLabels = labels.length <= 2
+      ? labels.join(" and ")
+      : `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+    this.issues.push({
+      message: `Operator '${operator}' is not defined for types ${joinedLabels}`,
+      node,
+      code: ANALYSIS_ISSUE_CODES.OPERATOR_NOT_DEFINED
+    });
   }
 
   private resolveUnaryOperatorOverload(
@@ -3289,10 +3410,99 @@ export class TypeChecker {
   }
 
   private operatorParameterMatches(parameter: FunctionParameter | undefined, rightType: AnalysisType, scope: Scope): boolean {
-    const parameterType = parameter?.typeAnnotation
-      ? this.resolveTypeAnnotation(parameter.typeAnnotation, scope) ?? UNKNOWN_TYPE
-      : UNKNOWN_TYPE;
+    const parameterType = this.operatorParameterType(parameter, scope);
     return isUnknownType(parameterType) || isUnknownType(rightType) || this.isTypeAssignable(rightType, parameterType);
+  }
+
+  private operatorParameterType(
+    parameter: FunctionParameter | undefined,
+    scope: Scope,
+    substitutions: Map<string, AnalysisType> = new Map()
+  ): AnalysisType {
+    if (!parameter) {
+      return UNKNOWN_TYPE;
+    }
+    if (!parameter.typeAnnotation) {
+      return UNKNOWN_TYPE;
+    }
+    return this.resolveOperatorTypeAnnotation(parameter.typeAnnotation, scope, substitutions) ?? UNKNOWN_TYPE;
+  }
+
+  private resolveOperatorTypeAnnotation(
+    annotation: Identifier | undefined,
+    scope: Scope,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType | undefined {
+    if (!annotation) {
+      return undefined;
+    }
+    if (substitutions.has(annotation.name)) {
+      return substitutions.get(annotation.name);
+    }
+    if (substitutions.size > 0) {
+      return this.substituteTypeParameters(this.typeFromTypeNameLoose(annotation.name), substitutions);
+    }
+    return this.resolveTypeAnnotation(annotation, scope);
+  }
+
+  private operatorParametersMatch(
+    parameters: readonly FunctionParameter[],
+    argumentTypes: readonly AnalysisType[],
+    scope: Scope,
+    substitutions: Map<string, AnalysisType> = new Map()
+  ): boolean {
+    const restParameter = parameters[parameters.length - 1]?.rest === true
+      ? parameters[parameters.length - 1]
+      : undefined;
+    const fixedParameters = restParameter ? parameters.slice(0, -1) : parameters;
+    if (argumentTypes.length < fixedParameters.filter((parameter) =>
+      parameter.optional !== true && parameter.defaultValue === undefined
+    ).length) {
+      return false;
+    }
+    if (!restParameter && argumentTypes.length > fixedParameters.length) {
+      return false;
+    }
+    for (const [index, parameter] of fixedParameters.entries()) {
+      const argumentType = argumentTypes[index];
+      if (!argumentType) {
+        if (parameter.optional === true || parameter.defaultValue !== undefined) {
+          continue;
+        }
+        return false;
+      }
+      if (!this.operatorParameterMatchesWithSubstitutions(parameter, argumentType, scope, substitutions)) {
+        return false;
+      }
+    }
+    if (!restParameter) {
+      return true;
+    }
+    const restParameterType = this.operatorParameterType(restParameter, scope, substitutions);
+    for (let index = fixedParameters.length; index < argumentTypes.length; index += 1) {
+      const expectedType = this.restParameterExpectedTypeAt(restParameterType, index - fixedParameters.length);
+      if (
+        !isUnknownType(expectedType) &&
+        !isUnknownType(argumentTypes[index]!) &&
+        !this.isTypeAssignable(argumentTypes[index]!, expectedType)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private operatorParameterMatchesWithSubstitutions(
+    parameter: FunctionParameter | undefined,
+    argumentType: AnalysisType,
+    scope: Scope,
+    substitutions: Map<string, AnalysisType>
+  ): boolean {
+    if (substitutions.size === 0) {
+      return this.operatorParameterMatches(parameter, argumentType, scope);
+    }
+    const parameterType = this.operatorParameterType(parameter, scope, substitutions);
+    return isUnknownType(parameterType) || isUnknownType(argumentType) || this.isTypeAssignable(argumentType, parameterType);
   }
 
   private inferBinaryType(

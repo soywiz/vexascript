@@ -1,8 +1,8 @@
 import type {
-  BinaryExpression,
   FunctionParameter,
   FunctionStatement,
   Identifier,
+  OverloadableOperator,
   Program,
   Statement,
   VarStatement
@@ -27,7 +27,7 @@ function parameterTypeNameForExport(parameter: FunctionParameter): string {
 function overloadSuffixForExport(parameters: FunctionParameter[]): string {
   const visibleParameters = parameters.filter((parameter) => parameter.thisParameter !== true);
   return visibleParameters
-    .map((parameter) => sanitizeRuntimeManglePart(parameterTypeNameForExport(parameter)))
+    .map((parameter) => sanitizeRuntimeManglePart(`${parameter.rest ? "rest " : ""}${parameterTypeNameForExport(parameter)}`))
     .join("$$") || "void";
 }
 
@@ -35,8 +35,8 @@ function overloadedRuntimeName(name: string, parameters: FunctionParameter[]): s
   return `${name}$$${overloadSuffixForExport(parameters)}`;
 }
 
-function operatorBaseRuntimeName(operator: BinaryExpression["operator"]): string {
-  const map: Record<BinaryExpression["operator"], string> = {
+function operatorBaseRuntimeName(operator: OverloadableOperator): string {
+  const map: Partial<Record<OverloadableOperator, string>> = {
     "+": "operator$plus",
     "-": "operator$minus",
     "*": "operator$multiply",
@@ -62,7 +62,9 @@ function operatorBaseRuntimeName(operator: BinaryExpression["operator"]): string
     "^": "operator$bitXor",
     "||": "operator$or",
     "&&": "operator$and",
-    "??": "operator$nullishCoalesce"
+    "??": "operator$nullishCoalesce",
+    "[]": "operator$get",
+    "[]=": "operator$set"
   };
   return map[operator] ?? `operator$${sanitizeRuntimeManglePart(operator)}`;
 }

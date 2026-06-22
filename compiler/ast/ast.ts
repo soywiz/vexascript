@@ -106,6 +106,8 @@ export interface BinaryExpression extends Node {
     right: Expr
 }
 
+export type OverloadableOperator = BinaryExpression["operator"] | "[]" | "[]=";
+
 export interface RangeExpression extends Node {
     kind: "RangeExpression"
     start: Expr
@@ -382,7 +384,7 @@ export interface FunctionStatement extends Statement {
     name: Identifier
     receiverType?: Identifier
     receiverTypeArguments?: Identifier[]
-    operator?: BinaryExpression["operator"]
+    operator?: OverloadableOperator
     typeParameters?: TypeParameter[]
     parameters: FunctionParameter[]
     parametersCloseParen?: Token
@@ -441,7 +443,7 @@ export interface ClassMethodMember extends Node, ClassMemberModifiers {
     computed?: boolean
     computedKey?: Expr
     name: Identifier
-    operator?: BinaryExpression["operator"]
+    operator?: OverloadableOperator
     override?: boolean
     optional?: boolean
     missingBody?: boolean

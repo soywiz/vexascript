@@ -4,6 +4,7 @@ import { parseFile } from "compiler/parser/parser";
 import { tokenizeReader } from "compiler/parser/tokenizer";
 import { emitProgram, emitProgramStatements } from "./emitter";
 import { lowerProgram } from "./lowering";
+import { Analysis } from "compiler/analysis/Analysis";
 
 describe("emitProgram", () => {
   it("lowers runtime namespaces to JavaScript objects and IIFEs", () => {
@@ -526,6 +527,48 @@ let promise = go fetchValue()
     expect(emitted).toContain("operator$star$$Point(other) {");
     expect(emitted).toContain("return new Point(x * other.x, y * other.y);");
   });
+
+  it("emits overloaded index getter and setter calls", () => {
+    const program = parseFile(tokenizeReader(dedent`
+      class Bag {
+        operator[](index: int): string => "item"
+        operator[]=(value: string, index: int): void { }
+      }
+      class Grid {
+        operator[](x: int, y: int): string => "cell"
+        operator[]=(value: string, x: int, y: int): void { }
+      }
+      class MultiArray {
+        operator[](...dimensions: int[]): string => "cell"
+        operator[]=(value: string, ...dimensions: int[]): void { }
+      }
+      val bag = Bag()
+      val item = bag[0]
+      bag[1] = "next"
+      val grid = Grid()
+      val cell = grid[1, 2]
+      grid[1, 2] = "wide"
+      val multi = MultiArray()
+      val wide = multi[1, 2, 3]
+      multi[1, 2, 3] = "deep"
+    `.trimEnd()));
+    const analysis = new Analysis(program);
+    const emitted = emitProgram(program, analysis.getExpressionTypes());
+
+    expect(emitted).toContain("operator$get$$int(index) {");
+    expect(emitted).toContain("operator$set$$string$$int(value, index) {");
+    expect(emitted).toContain("operator$get$$int$$int(x, y) {");
+    expect(emitted).toContain("operator$set$$string$$int$$int(value, x, y) {");
+    expect(emitted).toContain("operator$get$$rest$int(...dimensions) {");
+    expect(emitted).toContain("operator$set$$string$$rest$int(value, ...dimensions) {");
+    expect(emitted).toContain("const item = bag.operator$get$$int(0);");
+    expect(emitted).toContain('bag.operator$set$$string$$int("next", 1);');
+    expect(emitted).toContain("const cell = grid.operator$get$$int$$int(1, 2);");
+    expect(emitted).toContain('grid.operator$set$$string$$int$$int("wide", 1, 2);');
+    expect(emitted).toContain("const wide = multi.operator$get$$rest$int(1, 2, 3);");
+    expect(emitted).toContain('multi.operator$set$$string$$rest$int("deep", 1, 2, 3);');
+  });
+
   it("emits optional call, optional element access, spread expressions, and rest parameters", () => {
     const program = parseFile(tokenizeReader(dedent`
       fun collect(...values: int[]) { return values }

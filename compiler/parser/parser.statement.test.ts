@@ -496,6 +496,32 @@ describe("parseStatement", () => {
         });
     });
 
+    it("parses extension index operator function statements", () => {
+        expect(parseStatement(tokenizeReader("fun Bag.operator[](index: int): string { return \"item\" }"))).toMatchObject({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            receiverType: { kind: "Identifier", name: "Bag" },
+            name: { kind: "Identifier", name: "operator[]" },
+            operator: "[]",
+            parameters: [
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "index" }, typeAnnotation: { kind: "Identifier", name: "int" } }
+            ],
+            returnType: { kind: "Identifier", name: "string" }
+        });
+        expect(parseStatement(tokenizeReader("fun Bag.operator[]=(value: string, index: int): void { }"))).toMatchObject({
+            kind: "FunctionStatement",
+            declarationKind: "fun",
+            receiverType: { kind: "Identifier", name: "Bag" },
+            name: { kind: "Identifier", name: "operator[]=" },
+            operator: "[]=",
+            parameters: [
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "value" }, typeAnnotation: { kind: "Identifier", name: "string" } },
+                { kind: "FunctionParameter", name: { kind: "Identifier", name: "index" }, typeAnnotation: { kind: "Identifier", name: "int" } }
+            ],
+            returnType: { kind: "Identifier", name: "void" }
+        });
+    });
+
     it("parses a generic extension method on a generic receiver", () => {
         expect(parseStatement(tokenizeReader("fun <T> Array<T>.demo(): int { return length }"))).toEqual({
             kind: "FunctionStatement",
@@ -964,6 +990,40 @@ describe("parseStatement", () => {
                             }
                         ]
                     }
+                }
+            ]
+        });
+    });
+
+    it("parses class index operator methods", () => {
+        expect(
+            parseStatement(
+                tokenizeReader("class Bag {\noperator[](x: int, y: int): string => \"item\"\noperator[]=(value: string, x: int, y: int): void { }\n}")
+            )
+        ).toMatchObject({
+            kind: "ClassStatement",
+            name: { kind: "Identifier", name: "Bag" },
+            members: [
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "operator[]" },
+                    operator: "[]",
+                    parameters: [
+                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "x" }, typeAnnotation: { kind: "Identifier", name: "int" } },
+                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "y" }, typeAnnotation: { kind: "Identifier", name: "int" } }
+                    ],
+                    returnType: { kind: "Identifier", name: "string" }
+                },
+                {
+                    kind: "ClassMethodMember",
+                    name: { kind: "Identifier", name: "operator[]=" },
+                    operator: "[]=",
+                    parameters: [
+                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "value" }, typeAnnotation: { kind: "Identifier", name: "string" } },
+                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "x" }, typeAnnotation: { kind: "Identifier", name: "int" } },
+                        { kind: "FunctionParameter", name: { kind: "Identifier", name: "y" }, typeAnnotation: { kind: "Identifier", name: "int" } }
+                    ],
+                    returnType: { kind: "Identifier", name: "void" }
                 }
             ]
         });
@@ -2593,6 +2653,17 @@ describe("parseStatement", () => {
                 }
             ],
             from: { kind: "StringLiteral", value: "./a" }
+        });
+    });
+
+    it("parses index operator overloads in named import specifiers", () => {
+        expect(parseStatement(tokenizeReader("import { operator[], operator[]= } from \"./grid\""))).toMatchObject({
+            kind: "ImportStatement",
+            specifiers: [
+                { kind: "ImportSpecifier", imported: { kind: "Identifier", name: "operator[]" } },
+                { kind: "ImportSpecifier", imported: { kind: "Identifier", name: "operator[]=" } }
+            ],
+            from: { kind: "StringLiteral", value: "./grid" }
         });
     });
 

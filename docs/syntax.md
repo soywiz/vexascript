@@ -393,6 +393,31 @@ fun Point.operator+(other: Point): Point => Point(this.x + other.x, this.y + oth
 let c = a + b // emits as Point$$operator$plus$$Point(a, b)
 ```
 
+Classes and extension methods can overload computed indexing with `operator[]` and `operator[]=`. Getter index operators receive the bracket dimensions in order. Setter index operators receive the assigned value first, followed by the bracket dimensions, so multidimensional setters keep a stable leading value parameter:
+
+```my
+class Array2<T>(val fallback: T) {
+  operator[](x: int, y: int): T => fallback
+  operator[]=(value: T, x: int, y: int): void { }
+}
+
+let array = Array2<string>("empty")
+let cell = array[1, 2] // calls array.operator$get$$int$$int(1, 2)
+array[1, 2] = "next" // calls array.operator$set$$string$$int$$int("next", 1, 2)
+```
+
+Rest parameters are supported for variable-dimensional indexers:
+
+```my
+class MultiArray<T>(val fallback: T) {
+  operator[](...dimensions: int[]): T => fallback
+  operator[]=(value: T, ...dimensions: int[]): void { }
+}
+
+let item = multi[1, 2, 3]
+multi[1, 2, 3] = item
+```
+
 Named extension methods follow the same scheme, so a call lowers to a plain function call with the receiver passed first:
 
 ```my

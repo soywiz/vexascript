@@ -49,6 +49,7 @@ import type {
   ObjectLiteral,
   ObjectProperty,
   ObjectSpreadProperty,
+  OverloadableOperator,
   Program,
   RangeExpression,
   RegExpLiteral,
@@ -90,7 +91,7 @@ function rewriteImportPath(path: string): string {
   return path.replace(/\.(vx|ts|tsx)$/, ".js").replace(/\.mts$/, ".mjs");
 }
 
-const OPERATOR_METHOD_NAMES: Partial<Record<BinaryExpression["operator"], string>> = {
+const OPERATOR_METHOD_NAMES: Partial<Record<OverloadableOperator, string>> = {
   "+": "operator$plus",
   "-": "operator$minus",
   "*": "operator$star",
@@ -113,17 +114,20 @@ const OPERATOR_METHOD_NAMES: Partial<Record<BinaryExpression["operator"], string
   "^": "operator$bitXor",
   "||": "operator$logicalOr",
   "&&": "operator$logicalAnd",
-  "??": "operator$nullish"
+  "??": "operator$nullish",
+  "[]": "operator$get",
+  "[]=": "operator$set"
 };
 
 interface RuntimeOverloadInfo {
   emittedName: string;
   parameterTypes: string[];
   hasBody: boolean;
+  rest?: boolean;
 }
 
 interface RuntimeOperatorInfo extends RuntimeOverloadInfo {
-  operator: BinaryExpression["operator"];
+  operator: OverloadableOperator;
   // Extension operators (declared as `fun Receiver.operator+`) are emitted as
   // standalone receiver-mangled functions and called as `name(left, right)`,
   // while class operators stay prototype methods called as `left.name(right)`.
@@ -399,7 +403,9 @@ function parameterTypeName(parameter: FunctionParameter): string {
 
 function overloadSuffix(parameters: FunctionParameter[]): string {
   const visibleParameters = parameters.filter((parameter) => parameter.thisParameter !== true);
-  return visibleParameters.map((parameter) => sanitizeManglePart(parameterTypeName(parameter))).join("$$") || "void";
+  return visibleParameters.map((parameter) =>
+    sanitizeManglePart(`${parameter.rest ? "rest " : ""}${parameterTypeName(parameter)}`)
+  ).join("$$") || "void";
 }
 
 function overloadedFunctionName(name: string, parameters: FunctionParameter[]): string {
@@ -427,14 +433,44 @@ function typeMangleName(type: AnalysisType | undefined): string | null {
   return sanitizeManglePart(typeToString(type));
 }
 
+function restRuntimeParameterTypeName(parameterType: string): string {
+  const trimmed = parameterType.trim();
+  if (trimmed.endsWith("[]")) {
+    return trimmed.slice(0, -2);
+  }
+  const arrayMatch = /^Array<(.+)>$/.exec(trimmed);
+  return arrayMatch ? arrayMatch[1]!.trim() : parameterType;
+}
+
+function runtimeParameterTypeMatches(parameterType: string, argumentType: string | null): boolean {
+  return !argumentType ||
+    sanitizeManglePart(parameterType) === sanitizeManglePart(argumentType) ||
+    parameterType === "number" && argumentType === "int";
+}
+
 function isOverloadMatch(overload: RuntimeOverloadInfo, argumentTypes: Array<string | null>): boolean {
-  if (overload.parameterTypes.length !== argumentTypes.length) {
+  const restParameterType = overload.rest === true
+    ? overload.parameterTypes[overload.parameterTypes.length - 1]
+    : undefined;
+  const fixedParameterTypes = restParameterType
+    ? overload.parameterTypes.slice(0, -1)
+    : overload.parameterTypes;
+  if (argumentTypes.length < fixedParameterTypes.length) {
     return false;
   }
-  return overload.parameterTypes.every((parameterType, index) => {
-    const argumentType = argumentTypes[index];
-    return !argumentType || sanitizeManglePart(parameterType) === sanitizeManglePart(argumentType) || parameterType === "number" && argumentType === "int";
-  });
+  if (!restParameterType && argumentTypes.length !== fixedParameterTypes.length) {
+    return false;
+  }
+  if (!fixedParameterTypes.every((parameterType, index) => runtimeParameterTypeMatches(parameterType, argumentTypes[index] ?? null))) {
+    return false;
+  }
+  if (!restParameterType) {
+    return true;
+  }
+  const restElementType = restRuntimeParameterTypeName(restParameterType);
+  return argumentTypes.slice(fixedParameterTypes.length).every((argumentType) =>
+    runtimeParameterTypeMatches(restElementType, argumentType)
+  );
 }
 
 function resolveOverloadedFunctionCall(call: CallExpression): string | null {
@@ -478,19 +514,27 @@ function emitJavaScriptImplementationCall(call: CallExpression): string | null {
   return emitted;
 }
 
-function resolveOperatorMethod(binary: BinaryExpression): RuntimeOperatorInfo | null {
-  const leftType = activeState.expressionTypes?.get(binary.left as unknown as Node);
+function resolveOperatorMethodForArguments(
+  receiver: Expr,
+  operator: OverloadableOperator,
+  argumentExpressions: readonly Expr[]
+): RuntimeOperatorInfo | null {
+  const leftType = activeState.expressionTypes?.get(receiver as unknown as Node);
   if (leftType?.kind !== "named") {
     return null;
   }
-  const operators = activeState.operators.get(leftType.name)?.filter((candidate) => candidate.operator === binary.operator);
+  const operators = activeState.operators.get(leftType.name)?.filter((candidate) => candidate.operator === operator);
   if (!operators || operators.length === 0) {
     return null;
   }
-  const rightType = typeMangleName(activeState.expressionTypes?.get(binary.right as unknown as Node));
-  return operators.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, [rightType]))
+  const argumentTypes = argumentExpressions.map((argument) => typeMangleName(activeState.expressionTypes?.get(argument as unknown as Node)));
+  return operators.find((candidate) => candidate.hasBody && isOverloadMatch(candidate, argumentTypes))
     ?? operators.find((candidate) => candidate.hasBody)
     ?? null;
+}
+
+function resolveOperatorMethod(binary: BinaryExpression): RuntimeOperatorInfo | null {
+  return resolveOperatorMethodForArguments(binary.left, binary.operator, [binary.right]);
 }
 
 function resolveUnaryOperatorMethod(unary: UnaryExpression): RuntimeOperatorInfo | null {
@@ -613,11 +657,11 @@ function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, righ
   }
 }
 
-function operatorBaseName(operator: BinaryExpression["operator"]): string {
+function operatorBaseName(operator: OverloadableOperator): string {
   return OPERATOR_METHOD_NAMES[operator] ?? `operator$${sanitizeManglePart(operator)}`;
 }
 
-function operatorMethodName(operator: BinaryExpression["operator"], parameters: FunctionParameter[]): string {
+function operatorMethodName(operator: OverloadableOperator, parameters: FunctionParameter[]): string {
   return overloadedFunctionName(operatorBaseName(operator), parameters);
 }
 
@@ -865,6 +909,33 @@ function emitExtensionPropertyAssignment(assignment: AssignmentExpression): stri
   const receiverText = emitExpression(member.object, PREC_MEMBER, "left");
   const valueText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
   return `${extensionPropertySetterRuntimeName(receiverType, propertyName)}(${receiverText}, ${valueText})`;
+}
+
+function computedMemberIndexArguments(member: MemberExpression): Expr[] {
+  return member.property.kind === "CommaExpression"
+    ? (member.property as CommaExpression).expressions
+    : [member.property];
+}
+
+function emitIndexOperatorAssignment(assignment: AssignmentExpression): string | null {
+  if (assignment.operator !== "=" || assignment.left.kind !== "MemberExpression") {
+    return null;
+  }
+  const member = assignment.left as MemberExpression;
+  if (!member.computed || member.optional === true) {
+    return null;
+  }
+  const indexArguments = computedMemberIndexArguments(member);
+  const operatorMethod = resolveOperatorMethodForArguments(member.object, "[]=", [assignment.right, ...indexArguments]);
+  if (!operatorMethod) {
+    return null;
+  }
+  const objectText = emitExpression(member.object, PREC_MEMBER, "left");
+  const valueText = emitExpression(assignment.right, PREC_ASSIGNMENT, "right");
+  const argumentTexts = [valueText, ...indexArguments.map((argument) => emitExpression(argument, PREC_ASSIGNMENT, "right"))];
+  return operatorMethod.extension
+    ? `${operatorMethod.emittedName}(${objectText}, ${argumentTexts.join(", ")})`
+    : `${objectText}.${operatorMethod.emittedName}(${argumentTexts.join(", ")})`;
 }
 
 function isConstructableCallee(expression: Expr): boolean {
@@ -1262,6 +1333,10 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         if (extensionPropertyAssignment) {
           return extensionPropertyAssignment;
         }
+        const indexOperatorAssignment = emitIndexOperatorAssignment(assignment);
+        if (indexOperatorAssignment) {
+          return indexOperatorAssignment;
+        }
         const optionalAssignment = emitOptionalAssignmentTarget(assignment);
         if (optionalAssignment) {
           return optionalAssignment;
@@ -1301,6 +1376,16 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
           const enumComputed = emitEnumComputedMemberExpression(member, objectText);
           if (enumComputed) {
             return enumComputed;
+          }
+          if (member.optional !== true) {
+            const indexArguments = computedMemberIndexArguments(member);
+            const operatorMethod = resolveOperatorMethodForArguments(member.object, "[]", indexArguments);
+            if (operatorMethod) {
+              const argumentTexts = indexArguments.map((argument) => emitExpression(argument, PREC_ASSIGNMENT, "right"));
+              return operatorMethod.extension
+                ? `${operatorMethod.emittedName}(${objectText}, ${argumentTexts.join(", ")})`
+                : `${objectText}.${operatorMethod.emittedName}(${argumentTexts.join(", ")})`;
+            }
           }
           return member.optional
             ? `${objectText}?.[${emitExpression(member.property)}]`
@@ -2524,6 +2609,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
           emittedName,
           parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
           hasBody: fn.missingBody !== true,
+          rest: fn.parameters.some((parameter) => parameter.rest === true),
           extension: true
         };
         appendMapArrayValue(operators, fn.receiverType.name, info);
@@ -2534,7 +2620,8 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
           name: fn.name.name,
           emittedName,
           parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
-          hasBody: fn.missingBody !== true
+          hasBody: fn.missingBody !== true,
+          rest: fn.parameters.some((parameter) => parameter.rest === true)
         };
         appendMapArrayValue(extensionMethods, fn.receiverType.name, info);
         appendUniqueMapArrayValue(importedExtensionRuntimeNames, fn.name.name, emittedName);
@@ -2570,6 +2657,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
           emittedName: operatorMethodName(member.operator, member.parameters),
           parameterTypes: member.parameters.map(parameterTypeName),
           hasBody: member.missingBody !== true,
+          rest: member.parameters.some((parameter) => parameter.rest === true),
           extension: false
         });
       }
@@ -2774,7 +2862,8 @@ function collectEmitProgramRuntimeContext(
     overloads.set(name, functions.map((fn) => ({
       emittedName: overloadedFunctionName(name, fn.parameters),
       parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
-      hasBody: fn.missingBody !== true
+      hasBody: fn.missingBody !== true,
+      rest: fn.parameters.some((parameter) => parameter.rest === true)
     })));
   }
 
@@ -2789,7 +2878,8 @@ function collectEmitProgramRuntimeContext(
     overloads.set(localName, functions.map((fn) => ({
       emittedName: overloadedFunctionName(localName, fn.parameters),
       parameterTypes: fn.parameters.filter((parameter) => parameter.thisParameter !== true).map(parameterTypeName),
-      hasBody: fn.missingBody !== true
+      hasBody: fn.missingBody !== true,
+      rest: fn.parameters.some((parameter) => parameter.rest === true)
     })));
   }
 
