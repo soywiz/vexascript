@@ -167,6 +167,17 @@ export interface PropertyReferenceExpression extends Node {
     property: Identifier
 }
 
+export function memberExpressionFromPropertyReference(propertyReference: PropertyReferenceExpression): MemberExpression {
+    return {
+        kind: "MemberExpression",
+        object: propertyReference.object,
+        property: propertyReference.property,
+        computed: false,
+        firstToken: propertyReference.firstToken,
+        lastToken: propertyReference.lastToken
+    } as MemberExpression;
+}
+
 export interface CallExpression extends Node {
     kind: "CallExpression"
     callee: Expr

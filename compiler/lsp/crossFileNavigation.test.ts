@@ -134,6 +134,90 @@ describe("cross-file navigation", () => {
     });
   });
 
+  it("resolves property-reference member hover and definition like member access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-property-ref-nav-"));
+    const vectorPath = join(root, "vector.vx");
+    const mainPath = join(root, "main.vx");
+
+    const vectorSource = "export class Vec2(val x: number, val y: number)\n";
+    const source = dedent`
+      import { Vec2 } from "./vector"
+
+      val center = Vec2(1, 2)
+      val dotValue = center.x
+      val propertyRef = center::x
+    `;
+
+    await writeFile(vectorPath, vectorSource, "utf8");
+    await writeFile(mainPath, source, "utf8");
+
+    const vectorSession = createAnalysisSession(vectorSource);
+    const baseSession = createAnalysisSession(source);
+    const getSessionForFilePath = (filePath: string) => {
+      if (filePath === vectorPath) {
+        return vectorSession;
+      }
+      if (filePath === mainPath) {
+        return baseSession;
+      }
+      return null;
+    };
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, {
+      uri: pathToFileURL(mainPath).toString(),
+      sourceRoots: [root],
+      getSessionForFilePath
+    });
+    const session = createAnalysisSession(source, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+
+    const lines = source.split("\n");
+    const dotLine = lines.findIndex((line) => line.includes("center.x"));
+    const refLine = lines.findIndex((line) => line.includes("center::x"));
+    const dotCharacter = lines[dotLine]!.indexOf("center.x") + "center.".length;
+    const refCharacter = lines[refLine]!.indexOf("center::x") + "center::".length;
+    const context = {
+      uri: pathToFileURL(mainPath).toString(),
+      session,
+      sourceRoots: [root],
+      getSessionForFilePath
+    };
+
+    const dotHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: dotLine,
+      character: dotCharacter
+    });
+    const refHover = await resolveHoverWithLocalFallback({
+      ...context,
+      line: refLine,
+      character: refCharacter
+    });
+    const dotDefinition = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: dotLine,
+      character: dotCharacter
+    });
+    const refDefinition = await resolveDefinitionWithLocalFallback({
+      ...context,
+      line: refLine,
+      character: refCharacter
+    });
+
+    expect((dotHover?.contents as { value?: string } | undefined)?.value).toContain("x: number");
+    expect((refHover?.contents as { value?: string } | undefined)?.value).toContain("x: number");
+    expect(dotDefinition).toEqual(refDefinition);
+    expect(refDefinition).toEqual({
+      uri: pathToFileURL(vectorPath).toString(),
+      range: {
+        start: { line: 0, character: vectorSource.indexOf("x: number") },
+        end: { line: 0, character: vectorSource.indexOf("x: number") + 1 }
+      }
+    });
+  });
+
   it("resolves merged node_modules class members from class declarations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-node-module-merged-members-"));
     const pkgDir = join(root, "node_modules", "pkg");

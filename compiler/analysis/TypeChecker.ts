@@ -71,6 +71,7 @@ import type {
   JsxSpreadAttribute,
   JsxAttribute
 } from "compiler/ast/ast";
+import { memberExpressionFromPropertyReference } from "compiler/ast/ast";
 import { bindingElementPropertyName, bindingElements, bindingIdentifiers, bindingNameText } from "compiler/ast/bindingPatterns";
 import type { Node } from "compiler/ast/ast";
 import type {
@@ -2382,7 +2383,7 @@ export class TypeChecker {
       }
       case "PropertyReferenceExpression": {
         const propertyReference = expression as PropertyReferenceExpression;
-        const member = this.memberExpressionForPropertyReference(propertyReference);
+        const member = memberExpressionFromPropertyReference(propertyReference);
         const rawObjectType = this.visitExpression(propertyReference.object, scope);
         this.validateNullableMemberAccess(member, rawObjectType);
         this.validateKnownMemberAccess(member, rawObjectType, scope);
@@ -9534,17 +9535,6 @@ export class TypeChecker {
       return type;
     }
     return unionType([type, builtinType("undefined")]);
-  }
-
-  private memberExpressionForPropertyReference(propertyReference: PropertyReferenceExpression): MemberExpression {
-    return {
-      kind: "MemberExpression",
-      object: propertyReference.object,
-      property: propertyReference.property,
-      computed: false,
-      firstToken: propertyReference.firstToken,
-      lastToken: propertyReference.lastToken
-    } as MemberExpression;
   }
 
   private validateNullableMemberAccess(member: MemberExpression, objectType: AnalysisType): void {
