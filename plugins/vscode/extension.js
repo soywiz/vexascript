@@ -13,7 +13,8 @@ const {
 } = require("./parameterHints.js");
 const {
   shouldTriggerValueSuggestions,
-  shouldKeepValueSuggestions
+  shouldKeepValueSuggestions,
+  shouldTriggerMemberSuggestions
 } = require("./suggestTrigger.js");
 const {
   collectDeprecatedDiagnosticRanges
@@ -187,6 +188,21 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
     }, 90);
   }
 
+  function linePrefixAfterChange(document, change) {
+    if (!change || !change.range || typeof change.text !== "string") {
+      return undefined;
+    }
+    if (change.text.includes("\n") || change.text.includes("\r")) {
+      return undefined;
+    }
+    const line = change.range.start.line;
+    const character = change.range.start.character + change.text.length;
+    if (line < 0 || line >= document.lineCount) {
+      return undefined;
+    }
+    return document.lineAt(line).text.slice(0, character);
+  }
+
   async function updateEditor(editor) {
     if (!editor || !isVexaScript(editor.document)) {
       return;
@@ -224,7 +240,13 @@ function registerAutoAwaitGutterIcons(context, client, ready) {
         if (shouldRetriggerParameterHints(event.contentChanges)) {
           scheduleParameterHints(editor, "typing");
         }
-        if (shouldTriggerValueSuggestions(event.contentChanges)) {
+        const linePrefix = linePrefixAfterChange(event.document, event.contentChanges[0]);
+        if (shouldTriggerMemberSuggestions(
+          event.contentChanges,
+          linePrefix
+        )) {
+          scheduleValueSuggestions();
+        } else if (shouldTriggerValueSuggestions(event.contentChanges)) {
           scheduleValueSuggestions();
         } else if (shouldKeepValueSuggestions(event.contentChanges, { valueSuggestionsArmed })) {
           scheduleValueSuggestions();

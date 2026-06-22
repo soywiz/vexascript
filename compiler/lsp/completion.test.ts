@@ -933,6 +933,38 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).not.toContain("point");
   });
 
+  it("offers receiver members for property-reference completion", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Point(val x: int, val y: int) {
+        sum() {
+          return x + y
+        }
+      }
+      fun demo() {
+        const point = new Point(1, 2)
+        point::^^^x
+      }
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      { text: source }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("x");
+    expect(labels).toContain("y");
+    expect(labels).toContain("sum");
+    expect(labels).not.toContain("demo");
+    expect(labels).not.toContain("point");
+    expect(labels).not.toContain("true");
+  });
+
   it("matches camelCase member completions with lowercase typed prefixes", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class Stage {
@@ -1044,6 +1076,156 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toContain("addChildAt");
     expect(labels).not.toContain("demo");
     expect(labels).not.toContain("stage");
+  });
+
+  it("resolves imported class member completions for property references", async () => {
+    const mainPath = "/workspace/main.vx";
+    const vectorPath = "/workspace/vector.vx";
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { Vec2 } from "./vector"
+
+      const center = Vec2(1, 2)
+      center::^^^x
+    `);
+    const vectorSource = dedent`
+      export class Vec2(val x: number, val y: number)
+    `;
+
+    class TestVfs extends Vfs {
+      override async readFile(filePath: string): Promise<string> {
+        if (filePath === mainPath) {
+          return source;
+        }
+        if (filePath === vectorPath) {
+          return vectorSource;
+        }
+        throw new Error(`Unexpected file read: ${filePath}`);
+      }
+
+      override async stat(filePath: string) {
+        if (filePath === mainPath || filePath === vectorPath) {
+          return { mtimeMs: 0, isFile: true, isDirectory: false };
+        }
+        throw new Error(`Unexpected stat: ${filePath}`);
+      }
+    }
+
+    const vfs = new TestVfs();
+    const mainUri = "file:///workspace/main.vx";
+    const vectorSession = createAnalysisSession(vectorSource);
+    const baseSession = createAnalysisSession(source);
+    const getSessionForFilePath = async (filePath: string) => {
+      if (filePath === vectorPath) {
+        return vectorSession;
+      }
+      if (filePath === mainPath) {
+        return baseSession;
+      }
+      return null;
+    };
+    const resolverContext = {
+      uri: mainUri,
+      vfs,
+      getSessionForFilePath
+    };
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, resolverContext);
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: mainUri,
+        vfs,
+        getSessionForFilePath,
+        recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("x");
+    expect(labels).toContain("y");
+    expect(labels).not.toContain("center");
+    expect(labels).not.toContain("true");
+  });
+
+  it("resolves imported class member completions after a bare property-reference operator", async () => {
+    const mainPath = "/workspace/main.vx";
+    const vectorPath = "/workspace/vector.vx";
+    const { source, line, character } = sourceWithCursor(dedent`
+      import { Vec2 } from "./vector"
+
+      const center = Vec2(1, 2)
+      center::^^^
+    `);
+    const vectorSource = dedent`
+      export class Vec2(val x: number, val y: number)
+    `;
+
+    class TestVfs extends Vfs {
+      override async readFile(filePath: string): Promise<string> {
+        if (filePath === mainPath) {
+          return source;
+        }
+        if (filePath === vectorPath) {
+          return vectorSource;
+        }
+        throw new Error(`Unexpected file read: ${filePath}`);
+      }
+
+      override async stat(filePath: string) {
+        if (filePath === mainPath || filePath === vectorPath) {
+          return { mtimeMs: 0, isFile: true, isDirectory: false };
+        }
+        throw new Error(`Unexpected stat: ${filePath}`);
+      }
+    }
+
+    const vfs = new TestVfs();
+    const mainUri = "file:///workspace/main.vx";
+    const vectorSession = createAnalysisSession(vectorSource);
+    const baseSession = createAnalysisSession(source);
+    const getSessionForFilePath = async (filePath: string) => {
+      if (filePath === vectorPath) {
+        return vectorSession;
+      }
+      if (filePath === mainPath) {
+        return baseSession;
+      }
+      return null;
+    };
+    const resolverContext = {
+      uri: mainUri,
+      vfs,
+      getSessionForFilePath
+    };
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, resolverContext);
+    const session = createAnalysisSession(source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    const items = await createCompletionItemsForPosition(
+      session.ast!,
+      line,
+      character,
+      session.analysis!,
+      [],
+      {
+        text: source,
+        uri: mainUri,
+        vfs,
+        getSessionForFilePath,
+        recoverAnalysisSession: (recoveredSource) => recoverSessionFrom(recoveredSource, session)
+      }
+    );
+    const labels = items.map((item) => item.label);
+
+    expect(labels).toContain("x");
+    expect(labels).toContain("y");
+    expect(labels).not.toContain("center");
+    expect(labels).not.toContain("true");
   });
 
   it("includes members from merged interfaces on imported classes", async () => {

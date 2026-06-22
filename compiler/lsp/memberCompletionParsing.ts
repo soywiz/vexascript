@@ -15,7 +15,7 @@ export function parseMemberAccessTarget(
   }
   const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
   const uptoCursor = lineText.slice(0, clampedCharacter);
-  const match = /((?:[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?)(?:(?:\s*\?\.\s*|\s*!\.\s*|\s*\.\s*)[A-Za-z_][A-Za-z0-9_]*)*)(\?\.|!\.|\.)(?:\s*([A-Za-z_][A-Za-z0-9_]*))?$/.exec(uptoCursor);
+  const match = /((?:[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?)(?:(?:\s*\?\.\s*|\s*!\.\s*|\s*\.\s*)[A-Za-z_][A-Za-z0-9_]*)*)(\?\.|!\.|::|\.)(?:\s*([A-Za-z_][A-Za-z0-9_]*))?$/.exec(uptoCursor);
   if (!match || !match[1]) {
     return null;
   }
@@ -55,7 +55,7 @@ export function findMemberAccessDot(
   }
   const clampedCharacter = Math.max(0, Math.min(character, lineText.length));
   const uptoCursor = lineText.slice(0, clampedCharacter);
-  const match = /(\?\.|!\.|\.\.|\.)(?:\s*([A-Za-z_][A-Za-z0-9_]*))?$/.exec(uptoCursor);
+  const match = /(\?\.|!\.|::|\.\.|\.)(?:\s*([A-Za-z_][A-Za-z0-9_]*))?$/.exec(uptoCursor);
   if (!match) {
     return null;
   }

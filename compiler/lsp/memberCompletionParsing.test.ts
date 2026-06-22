@@ -24,6 +24,16 @@ describe("memberCompletionParsing", () => {
     });
   });
 
+  it("parses property-reference member-access targets", () => {
+    const propertyReference = sourceWithCursor("point::he^^^ight");
+    expect(parseMemberAccessTarget(propertyReference.source, propertyReference.line, propertyReference.character)).toEqual({
+      objectPath: "point",
+      objectStartCharacter: 0,
+      memberAccessStartCharacter: 6,
+      prefix: "he"
+    });
+  });
+
   it("finds lenient member-access dots after complex receivers", () => {
     const chained = sourceWithCursor("fetch(url).arrayBuf^^^fer");
     expect(findMemberAccessDot(chained.source, chained.line, chained.character)).toEqual({
@@ -44,6 +54,15 @@ describe("memberCompletionParsing", () => {
       dotCharacter: 8,
       receiverEndCharacter: 7,
       prefix: "val"
+    });
+  });
+
+  it("finds property-reference operators after complex receivers", () => {
+    const propertyReference = sourceWithCursor("makePoint()::he^^^ight");
+    expect(findMemberAccessDot(propertyReference.source, propertyReference.line, propertyReference.character)).toEqual({
+      dotCharacter: 12,
+      receiverEndCharacter: 11,
+      prefix: "he"
     });
   });
 
