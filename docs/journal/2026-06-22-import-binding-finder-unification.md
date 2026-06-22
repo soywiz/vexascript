@@ -121,18 +121,36 @@ plain `if (statement.kind === "ExportStatement")` guards.
 This is purely behavior-preserving (the full suite cannot distinguish it), so its
 value is the single source of truth for unwrapping, not new coverage.
 
-## Higher-value target identified (not yet done)
+## Slice: shared `export =` interface-member traversal
 
 `resolveAmbientNamedImportType`, `resolveAmbientNamedImportDisplayType`, and
 `ambientModuleHasNamedExport` share one traversal skeleton (candidate modules →
 direct export match → `export =` namespace body → var-typed interface members)
 and differ only in what they project at each match (an `AnalysisType`, a display
-string, or a boolean) and how they combine results. This is the real parallel
-implementation to collapse next — but it is riskier than the slices above
-because the display path has small asymmetries (it does its own function-only
-namespace search and skips the direct `extractDirectTypeForName` step). A safe
-unification needs a visitor/projector with per-consumer hooks plus tests that
-pin the current display output *before* refactoring, so it deserves its own pass.
+string, or a boolean).
+
+A *full* merge is unsafe to do blind: the display path has real asymmetries
+(its step-2a does a function-only namespace search and it skips the direct
+`extractDirectTypeForName` step), and `ambientModuleHasNamedExport` uses a
+*bidirectional* `node:` candidate set while the other two only strip the prefix.
+Forcing those together would either change behavior or keep per-consumer filters.
+
+So this slice collapsed only the part that is byte-identical across all three:
+the step-2b var-typed interface-member search (`const x: ns.Iface` → members
+named `symbolName`). It now lives in one generator
+`ambientExportEqualsInterfaceMembers(decls, exportEqualsName, symbolName)` that
+yields `{ member, searchNsBody }`; each resolver projects the yielded members its
+own way (type / display string / `return true`). Net −23 lines in
+`importedDeclarations.ts`, behavior-preserving.
+
+Before refactoring, the display output for the `export =` interface-member case
+was pinned with a test (`displayType === "(...paths: string[]) => string"`),
+which incidentally documented that the display path renders the member's
+function type *without* the member name — a real asymmetry vs the member-name
+the type path keeps. The remaining asymmetric steps (candidate enumeration,
+step-1 direct loop, step-2a) still differ per resolver and are left for a future
+pass that should deliberately decide whether to make display/has-export as
+complete as the type path.
 
 ## Tests
 

@@ -2735,6 +2735,46 @@ function ambientDefaultImportDisplayType(importName: string): string {
 }
 
 /**
+ * Yields each ambient interface member named `symbolName` reached through an
+ * `export = <name>` whose declared type points at `namespace.Interface`
+ * (e.g. `const path: path.PlatformPath`). Shared by the type, display, and
+ * has-export ambient resolvers so they search identically and differ only in
+ * how they project each matched member.
+ */
+function* ambientExportEqualsInterfaceMembers(
+  decls: readonly Statement[],
+  exportEqualsName: string,
+  symbolName: string
+): Generator<{ member: InterfaceMember; searchNsBody: readonly Statement[] }> {
+  for (const statement of decls) {
+    if (statement.kind !== "VarStatement") continue;
+    const variable = statement as VarStatement;
+    const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
+    const typeName = variable.typeAnnotation?.name;
+    if (varName !== exportEqualsName || !typeName) continue;
+
+    // Parse "path.PlatformPath" → namespace "path", interface "PlatformPath"
+    const dotIdx = typeName.lastIndexOf(".");
+    const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
+    const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
+    const searchNsBody = nsName ? findAmbientNamespaceBody(decls, nsName) : decls;
+    if (!searchNsBody) continue;
+
+    for (const nsStatement of searchNsBody) {
+      const declaration = unwrapExportedDeclaration(nsStatement) ?? nsStatement;
+      if (declaration.kind !== "InterfaceStatement") continue;
+      const iface = declaration as InterfaceStatement;
+      if (iface.name?.name !== ifaceName) continue;
+      for (const member of iface.members ?? []) {
+        if (member.name?.name === symbolName) {
+          yield { member, searchNsBody };
+        }
+      }
+    }
+  }
+}
+
+/**
  * Resolves the AnalysisType for a named import (`symbolName`) from an ambient
  * module (`importName`). Handles:
  * - Direct `export function` / `export const` declarations
@@ -2823,38 +2863,16 @@ export function resolveAmbientNamedImportType(
       }
     }
 
-    // 2b. Find the var statement for the export= name to get its type (e.g. `const path: path.PlatformPath`)
-    for (const stmt of decls) {
-      if (stmt.kind !== "VarStatement") continue;
-      const v = stmt as VarStatement;
-      const varName = v.name?.kind === "Identifier" ? (v.name as Identifier).name : null;
-      const typeName = (v as { typeAnnotation?: { name?: string } }).typeAnnotation?.name;
-      if (varName !== exportEqualsName || !typeName) continue;
-
-      // Parse "path.PlatformPath" → namespace "path", interface "PlatformPath"
-      const dotIdx = typeName.lastIndexOf(".");
-      const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
-      const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
-
-      const searchNsBody = nsName ? findAmbientNamespaceBody(decls, nsName) : decls;
-      if (!searchNsBody) continue;
-
-      for (const s of searchNsBody) {
-        const d = unwrapExportedDeclaration(s) ?? s;
-        if (d.kind !== "InterfaceStatement") continue;
-        const iface = d as InterfaceStatement;
-        if (iface.name?.name !== ifaceName) continue;
-        const members = (iface.members ?? []).filter((m) => m.name?.name === symbolName);
-        for (const member of members) {
-          pushOverload(typeFromAmbientInterfaceMember(
-            member,
-            searchNsBody,
-            ambientModuleDeclarations,
-            ambientGlobalDeclarations,
-            new Set()
-          ));
-        }
-      }
+    // 2b. Resolve the var statement for the export= name through its interface
+    //     members (e.g. `const path: path.PlatformPath`).
+    for (const { member, searchNsBody } of ambientExportEqualsInterfaceMembers(decls, exportEqualsName, symbolName)) {
+      pushOverload(typeFromAmbientInterfaceMember(
+        member,
+        searchNsBody,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations,
+        new Set()
+      ));
     }
   }
 
@@ -2933,29 +2951,8 @@ function resolveAmbientNamedImportDisplayType(
       }
     }
 
-    for (const stmt of decls) {
-      if (stmt.kind !== "VarStatement") continue;
-      const v = stmt as VarStatement;
-      const varName = v.name?.kind === "Identifier" ? (v.name as Identifier).name : null;
-      const typeName = (v as { typeAnnotation?: { name?: string } }).typeAnnotation?.name;
-      if (varName !== exportEqualsName || !typeName) continue;
-
-      const dotIdx = typeName.lastIndexOf(".");
-      const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
-      const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
-      const searchNsBody = nsName ? findAmbientNamespaceBody(decls, nsName) : decls;
-      if (!searchNsBody) continue;
-
-      for (const s of searchNsBody) {
-        const d = unwrapExportedDeclaration(s) ?? s;
-        if (d.kind !== "InterfaceStatement") continue;
-        const iface = d as InterfaceStatement;
-        if (iface.name?.name !== ifaceName) continue;
-        const members = (iface.members ?? []).filter((m) => m.name?.name === symbolName);
-        for (const member of members) {
-          pushOverload(renderAmbientInterfaceMemberDisplay(member));
-        }
-      }
+    for (const { member } of ambientExportEqualsInterfaceMembers(decls, exportEqualsName, symbolName)) {
+      pushOverload(renderAmbientInterfaceMemberDisplay(member));
     }
   }
 
@@ -3020,28 +3017,8 @@ export function ambientModuleHasNamedExport(
       return true;
     }
 
-    for (const stmt of decls) {
-      if (stmt.kind !== "VarStatement") continue;
-      const variable = stmt as VarStatement;
-      const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
-      const typeName = variable.typeAnnotation?.name;
-      if (varName !== exportEqualsName || !typeName) continue;
-
-      const dotIdx = typeName.lastIndexOf(".");
-      const nsName = dotIdx > 0 ? typeName.slice(0, dotIdx) : null;
-      const ifaceName = dotIdx > 0 ? typeName.slice(dotIdx + 1) : typeName;
-      const searchNsBody = nsName ? findAmbientNamespaceBody(decls, nsName) : decls;
-      if (!searchNsBody) continue;
-
-      for (const statement of searchNsBody) {
-        const declaration = unwrapExportedDeclaration(statement) ?? statement;
-        if (declaration.kind !== "InterfaceStatement") continue;
-        const iface = declaration as InterfaceStatement;
-        if (iface.name?.name !== ifaceName) continue;
-        if ((iface.members ?? []).some((member) => member.name?.name === symbolName)) {
-          return true;
-        }
-      }
+    for (const _ of ambientExportEqualsInterfaceMembers(decls, exportEqualsName, symbolName)) {
+      return true;
     }
   }
 

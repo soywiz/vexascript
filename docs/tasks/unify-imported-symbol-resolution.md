@@ -131,12 +131,14 @@ The remaining work is mostly cleanup and further DRY reduction:
 
 * hover should be fed from the same shared imported-symbol record, not only
   from downstream analysis/display fallbacks
-* **next high-value target:** `resolveAmbientNamedImportType`,
-  `resolveAmbientNamedImportDisplayType`, and `ambientModuleHasNamedExport`
-  share one traversal skeleton and differ only in what they project (type /
-  display string / boolean). Collapse them behind one traversal with
-  per-consumer projection — but pin the current display output with tests first,
-  because the display path has small asymmetries.
+* `resolveAmbientNamedImportType`, `resolveAmbientNamedImportDisplayType`, and
+  `ambientModuleHasNamedExport` now share the `export =` interface-member search
+  via the `ambientExportEqualsInterfaceMembers` generator. The remaining
+  asymmetric steps (candidate-module enumeration — `ambientModuleHasNamedExport`
+  is bidirectional while the others strip-only; the step-1 direct loop; and the
+  step-2a namespace search where display is function-only) still differ per
+  resolver. Fully merging them is a deliberate behavior decision (whether display
+  and has-export should be as complete as the type path) and needs its own pass.
 * the inline import scan inside `resolveNodeModuleNamedImportType` still carries
   its own traversal because it needs export-statement unwrapping plus a
   rename-only recursion guard

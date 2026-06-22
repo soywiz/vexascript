@@ -71,6 +71,9 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     expect(importedSymbols.has("join")).toBe(true);
     const joinType = importedSymbols.get("join")!.type!;
     expect(joinType.kind).toBe("function");
+    // Pin the display path through the `export =` interface-member traversal so
+    // the shared member-search generator keeps both type and display in sync.
+    expect(importedSymbols.get("join")!.displayType).toBe("(...paths: string[]) => string");
   });
 
   it("resolves aliased named import (import { fn as alias })", async () => {
