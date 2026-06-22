@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, join, mkdir, mkdtemp, resolve, rm, tmpdir, writeFile } from "./test/expect";
 import {
   clearNodeModulesTypingsPathCache,
+  nodeBuiltinSpecifierCandidates,
   resolveImportTargetFilePath,
-  resolveNodeModulesTypingsPath
+  resolveNodeModulesTypingsPath,
+  stripNodeBuiltinPrefix
 } from "./moduleResolution";
 import { compileSource } from "./pipeline/compile";
 import { Vfs, VfsStat } from "./vfs";
@@ -243,5 +245,27 @@ describe("resolveNodeModulesTypingsPath", () => {
     clearNodeModulesTypingsPathCache();
 
     expect(await resolveNodeModulesTypingsPath(importerPath, "minimist")).toBe(replacementPath);
+  });
+});
+
+describe("node builtin specifier helpers", () => {
+  it("strips the node: prefix only when present", () => {
+    expect(stripNodeBuiltinPrefix("node:path")).toBe("path");
+    expect(stripNodeBuiltinPrefix("path")).toBe("path");
+    expect(stripNodeBuiltinPrefix("lodash")).toBe("lodash");
+  });
+
+  it("yields prefixed and base candidates for a node: specifier", () => {
+    expect(nodeBuiltinSpecifierCandidates("node:path")).toEqual(["node:path", "path"]);
+  });
+
+  it("yields only the bare specifier by default", () => {
+    expect(nodeBuiltinSpecifierCandidates("path")).toEqual(["path"]);
+  });
+
+  it("adds the node: form for a bare specifier when bidirectional", () => {
+    expect(nodeBuiltinSpecifierCandidates("path", { bidirectional: true })).toEqual(["path", "node:path"]);
+    // A node: specifier ignores bidirectional and still strips to the base name.
+    expect(nodeBuiltinSpecifierCandidates("node:fs", { bidirectional: true })).toEqual(["node:fs", "fs"]);
   });
 });

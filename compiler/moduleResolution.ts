@@ -2,8 +2,28 @@ import { LANGUAGE_FILE_EXTENSION } from "./language";
 import { dirname, extname, resolve } from "./utils/path";
 import { vfs, type Vfs } from "./vfs";
 
-function normalizeNodeBuiltinSpecifier(packageName: string): string {
-  return packageName.startsWith("node:") ? packageName.slice("node:".length) : packageName;
+/** Returns the specifier without the Node builtin `node:` prefix (no-op otherwise). */
+export function stripNodeBuiltinPrefix(specifier: string): string {
+  return specifier.startsWith("node:") ? specifier.slice("node:".length) : specifier;
+}
+
+/**
+ * The module-name candidates to try when resolving a Node builtin specifier
+ * against ambient module declarations, since `@types/node` may register either
+ * the prefixed (`node:path`) or bare (`path`) name.
+ *
+ * - For a `node:`-prefixed specifier: `[specifier, baseName]`.
+ * - Otherwise: `[specifier]`, plus the `node:`-prefixed form when `bidirectional`
+ *   is set (used where the bare name might only be registered under `node:`).
+ */
+export function nodeBuiltinSpecifierCandidates(
+  specifier: string,
+  options: { bidirectional?: boolean } = {}
+): string[] {
+  if (specifier.startsWith("node:")) {
+    return [specifier, specifier.slice("node:".length)];
+  }
+  return options.bidirectional ? [specifier, `node:${specifier}`] : [specifier];
 }
 
 
@@ -222,7 +242,7 @@ export async function resolveNodeModulesTypingsPath(
   if (cached !== undefined) {
     return cached;
   }
-  const normalizedPackageName = normalizeNodeBuiltinSpecifier(packageName);
+  const normalizedPackageName = stripNodeBuiltinPrefix(packageName);
   const packagePathParts = normalizedPackageName.startsWith("@")
     ? normalizedPackageName.split("/").slice(0, 2)
     : normalizedPackageName.split("/").slice(0, 1);

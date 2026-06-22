@@ -127,6 +127,13 @@ The fifth slice converged the open-coded `ExportStatement` unwrap idiom:
   expressions in `importedDeclarations.ts` now call the shared
   `unwrapExportedDeclaration` helper (~57 lines removed, behavior-preserving).
 
+The sixth slice unified the `node:` builtin-specifier handling:
+
+* `moduleResolution.ts` now exports `stripNodeBuiltinPrefix` and
+  `nodeBuiltinSpecifierCandidates`; `crossFileAmbientNavigation`,
+  `crossFileContext`, `documentation`, and the three ambient resolvers in
+  `importedDeclarations` consume them instead of open-coding the prefix dance.
+
 The remaining work is mostly cleanup and further DRY reduction:
 
 * hover should be fed from the same shared imported-symbol record, not only

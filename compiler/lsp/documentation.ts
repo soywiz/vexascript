@@ -11,6 +11,7 @@ import type {
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { TokenComment, SourcePosition, SourceRange } from "compiler/parser/tokenizer";
+import { nodeBuiltinSpecifierCandidates } from "compiler/moduleResolution";
 
 export interface DocumentationInfo {
   text: string;
@@ -350,11 +351,7 @@ export function readDocumentationInfoForSymbol(
       return externalDocumentation;
     }
 
-    const moduleCandidates = [candidate.importPath];
-    if (candidate.importPath.startsWith("node:")) {
-      moduleCandidates.push(candidate.importPath.slice("node:".length));
-    }
-    for (const moduleName of moduleCandidates) {
+    for (const moduleName of nodeBuiltinSpecifierCandidates(candidate.importPath)) {
       const ambientDeclarations = options.ambientModuleDeclarations?.get(moduleName);
       if (!ambientDeclarations) {
         continue;

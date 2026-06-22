@@ -13,13 +13,8 @@ import {
   type ResolveContext
 } from "./crossFileContext";
 import { buildFunctionTypeFromStatement } from "./importedDeclarations";
+import { nodeBuiltinSpecifierCandidates } from "compiler/moduleResolution";
 import type { Location } from "vscode-languageserver/node.js";
-
-function ambientModuleCandidateNames(moduleName: string): string[] {
-  return moduleName.startsWith("node:")
-    ? [moduleName, moduleName.slice("node:".length)]
-    : [moduleName];
-}
 
 export function findAmbientImportedOverloadRange(
   context: ResolveContext,
@@ -75,7 +70,7 @@ export async function resolveAmbientImportedSymbolDefinition(
     return null;
   }
 
-  for (const moduleName of ambientModuleCandidateNames(importBinding.from)) {
+  for (const moduleName of nodeBuiltinSpecifierCandidates(importBinding.from)) {
     const declarations = context.session.ambientModuleDeclarations?.get(moduleName);
     const location = context.session.ambientModuleLocations?.get(moduleName);
     if (!declarations || !location) {

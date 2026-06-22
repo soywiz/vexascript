@@ -17,7 +17,7 @@ import type {
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { getProjectSessionForFilePath, type ProjectContext } from "./projectAnalysis";
 import { uriToFilePath } from "./importFixes";
-import { resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { nodeBuiltinSpecifierCandidates, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { importableTopLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody, findImportBindingByLocalName, importBindings } from "./crossFileContext";
@@ -2805,10 +2805,7 @@ export function resolveAmbientNamedImportType(
     overloads.push(type);
   };
 
-  const candidates = [importName];
-  if (importName.startsWith("node:")) {
-    candidates.push(importName.slice("node:".length));
-  }
+  const candidates = nodeBuiltinSpecifierCandidates(importName);
 
   for (const candidate of candidates) {
     const decls = ambientModuleDeclarations.get(candidate);
@@ -2911,10 +2908,7 @@ function resolveAmbientNamedImportDisplayType(
     overloads.push(display);
   };
 
-  const candidates = [importName];
-  if (importName.startsWith("node:")) {
-    candidates.push(importName.slice("node:".length));
-  }
+  const candidates = nodeBuiltinSpecifierCandidates(importName);
 
   for (const candidate of candidates) {
     const decls = ambientModuleDeclarations.get(candidate);
@@ -2975,12 +2969,7 @@ export function ambientModuleHasNamedExport(
   symbolName: string,
   ambientModuleDeclarations: ReadonlyMap<string, Statement[]>
 ): boolean {
-  const candidates = [importName];
-  if (importName.startsWith("node:")) {
-    candidates.push(importName.slice("node:".length));
-  } else {
-    candidates.push(`node:${importName}`);
-  }
+  const candidates = nodeBuiltinSpecifierCandidates(importName, { bidirectional: true });
 
   for (const candidate of candidates) {
     const decls = ambientModuleDeclarations.get(candidate);

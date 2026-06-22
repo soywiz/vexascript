@@ -16,7 +16,7 @@ import type { AnnotationStatement, ArrowFunctionExpression, BlockStatement, Call
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { ImportedSymbolResolution } from "compiler/importedSymbols";
-import { candidateImportTargetFilePaths, resolveImportTargetFilePath } from "compiler/moduleResolution";
+import { candidateImportTargetFilePaths, nodeBuiltinSpecifierCandidates, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { getDomDeclarationFilePath, isDomRuntimeNode } from "compiler/runtime/domDeclarations";
 import {
   getEcmaScriptRuntimeDeclarationFilePath,
@@ -200,11 +200,7 @@ export function findAmbientModuleReceiverCandidates(
 ): string[] | null {
   const receiverImport = findModuleReceiverImport(ast, receiverName);
   if (receiverImport) {
-    const moduleCandidates = [receiverImport.from];
-    if (receiverImport.from.startsWith("node:")) {
-      moduleCandidates.push(receiverImport.from.slice("node:".length));
-    }
-    return moduleCandidates;
+    return nodeBuiltinSpecifierCandidates(receiverImport.from);
   }
   return null;
 }

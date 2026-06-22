@@ -152,8 +152,38 @@ step-1 direct loop, step-2a) still differ per resolver and are left for a future
 pass that should deliberately decide whether to make display/has-export as
 complete as the type path.
 
+## Slice: shared `node:` specifier candidate helpers
+
+The `node:` builtin-prefix dance was open-coded across the LSP (and once
+privately in `moduleResolution.ts`): strip the prefix, or build a
+`[specifier, baseName]` candidate list. `moduleResolution.ts` now exports two
+canonical helpers:
+
+- `stripNodeBuiltinPrefix(specifier)` — base name (no-op when unprefixed)
+- `nodeBuiltinSpecifierCandidates(specifier, { bidirectional? })` — the module
+  names to try against ambient declarations (`[node:x, x]`, or `[x]`, or
+  `[x, node:x]` when bidirectional)
+
+Consumers converged on them: `crossFileAmbientNavigation` (deleting its local
+`ambientModuleCandidateNames`), `crossFileContext.findAmbientModuleReceiverCandidates`,
+`documentation`, and the three ambient resolvers in `importedDeclarations`
+(`ambientModuleHasNamedExport` uses the bidirectional form). The guarded direct
+lookups (`importFixes`, the `ambientModuleDeclarations.get(base)` fallbacks) were
+left as-is because they are not candidate-list shaped.
+
+### Flaky test to remember
+
+While verifying, `cli/cli.test.ts:420` ("serve writes browser-open URL") failed
+once with `ERR_INVALID_URL input: ''` under full-suite load, then passed 26/26 in
+isolation and on the next full run. It is a spawn-the-server + poll-a-file
+integration test, so it can read the URL file before the child has written it.
+If it fails intermittently, re-run before assuming a real regression; the empty
+URL means the poll won, not that resolution broke.
+
 ## Tests
 
+- `compiler/moduleResolution.test.ts`: unit coverage pinning
+  `stripNodeBuiltinPrefix` and both `nodeBuiltinSpecifierCandidates` modes.
 - `compiler/lsp/crossFileContext.test.ts` (new): unit coverage for the shared
   enumeration, the `kind` tag, and both node-identity and by-name finders.
 - `compiler/lsp/importedDeclarations.test.ts`: added regressions that resolve an
