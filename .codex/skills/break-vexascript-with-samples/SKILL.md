@@ -1,11 +1,13 @@
 ---
 name: break-vexascript-with-samples
-description: Stress-test VexaScript by intentionally trying to break the compiler, parser, type checker, emitter, or LSP hover/go-to-definition behavior with realistic samples, library typings, node_modules packages, and editor-session reproductions; use when asked to add samples, import problematic libraries, find unsupported TypeScript cases, or turn a real sample/library failure into compiler and LSP fixes.
+description: Stress-test VexaScript by intentionally trying to break the compiler, parser, type checker, emitter, or LSP hover/go-to-definition behavior with realistic samples, library typings, node_modules packages, and editor-session reproductions; use when asked to add or expand samples with code that verifies previously broken behavior, import problematic libraries, find unsupported TypeScript cases, or turn a real sample/library failure into compiler and LSP fixes.
 ---
 
 # Break VexaScript With Samples
 
 Use this skill to find real gaps instead of polishing already-covered paths. The goal is to expose a compiler or LSP failure with realistic code, reduce it to a focused regression test, fix the shared implementation, and keep the sample as broad coverage only when it represents a useful user-facing scenario.
+
+When a bug was already found and fixed, grow an existing runnable sample with a small realistic use of that exact surface whenever it is useful user-facing coverage. Samples should accumulate representative "this used to break" code, so the project keeps exercising real editor/runtime paths instead of only hidden unit tests.
 
 ## Workflow
 
@@ -28,6 +30,9 @@ Use this skill to find real gaps instead of polishing already-covered paths. The
    - Prefer a focused compiler or LSP test over relying only on a large sample.
    - Use `sourceWithCursor` marker tests for hover/definition cursor cases.
    - Keep a sample update only when the sample itself is valuable user-facing coverage.
+   - If the bug came from a real sample or user-visible editor flow, also add a compact sample use that would have failed before the fix.
+   - For runnable samples, make the new code affect `expected.txt` or browser bundling/LSP diagnostics instead of sitting as dead code.
+   - Prefer extending an existing sample that already owns the concept over creating a new sample for every regression.
 5. Fix the shared layer, not the symptom wrapper.
    - Parser bugs belong near parsing/AST conversion.
    - Type knowledge belongs in analysis/type resolution.

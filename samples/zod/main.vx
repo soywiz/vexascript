@@ -5,11 +5,43 @@ const UserSchema = z.object({
   age: z.number().int()
 })
 
+const SettingsSchema = z.object({
+  tags: z.array(z.string()),
+  active: z.boolean()
+})
+
+const RoleSchema = z.enum(["admin", "user"])
+const UnionRoleSchema = z.union([z.literal("admin"), z.literal("user")])
+const ProfileSchema = z.object({
+  name: z.string(),
+  role: UnionRoleSchema.default("user")
+})
+
 type User = z.infer<typeof UserSchema>
+type Settings = z.infer<typeof SettingsSchema>
+type Role = z.infer<typeof RoleSchema>
+type UnionRole = z.infer<typeof UnionRoleSchema>
+type Profile = z.infer<typeof ProfileSchema>
 
 const user: User = UserSchema.parse({
   name: "Ada",
   age: 42
 })
 
-console.log(`${user.name}:${user.age}`)
+const settings: Settings = SettingsSchema.parse({
+  tags: ["types", "runtime"],
+  active: true
+})
+
+const upperName: string = user.name.toUpperCase()
+const nextAge: number = user.age + 1
+const firstTag: string = settings.tags[0]
+const role: Role = RoleSchema.parse("admin")
+const roleLabel: string = role.toUpperCase()
+const unionRole: UnionRole = UnionRoleSchema.parse("user")
+const profile: Profile = ProfileSchema.parse({
+  name: "Grace"
+})
+const profileRole: UnionRole = profile.role
+
+console.log(`${user.name}:${user.age}:${upperName}:${nextAge}:${firstTag}:${settings.active}:${roleLabel}:${unionRole}:${profile.name}:${profileRole}`)

@@ -194,6 +194,7 @@ export class TypeChecker {
   private readonly setterOnlyMembersCache: Map<string, Set<string>> = new Map();
   private readonly pureWriteTargetNodes = new WeakSet<Node>();
   private readonly activeTypeAliasNames: Set<string> = new Set();
+  private readonly resolvingLooseTypeQueries: Set<string> = new Set();
   private readonly generatorFunctionStack: boolean[] = [];
   private readonly syncFunctionStack: boolean[] = [];
   // Tracks whether the innermost enclosing function is async-like (declared `async` or `sync`).
@@ -3705,6 +3706,10 @@ export class TypeChecker {
       );
     }
 
+    if (sourceType.kind === "array" && targetType.kind === "tuple") {
+      return this.arrayTypeIsAssignableToTuple(sourceType, targetType);
+    }
+
     if (targetType.kind === "builtin" && targetType.name === "any") {
       return true;
     }
@@ -3903,6 +3908,50 @@ export class TypeChecker {
     }
   }
 
+  private arrayTypeIsAssignableToTuple(
+    sourceType: AnalysisType & { kind: "array" },
+    targetType: AnalysisType & { kind: "tuple" }
+  ): boolean {
+    if (sourceType.readonly === true && targetType.readonly !== true) {
+      return false;
+    }
+    if (targetType.elements.length === 0) {
+      return false;
+    }
+    const sourceElementType = sourceType.elementType;
+    if (isUnknownType(sourceElementType) || (sourceElementType.kind === "builtin" && sourceElementType.name === "unknown")) {
+      return true;
+    }
+
+    const collapsedRestElementType = this.collapsedRestTupleElementType(targetType);
+    if (collapsedRestElementType) {
+      const fixedElements = targetType.elements.slice(0, -1);
+      return fixedElements.every((element) => this.isTypeAssignable(sourceElementType, element))
+        && this.isTypeAssignable(sourceElementType, collapsedRestElementType);
+    }
+
+    return targetType.elements.every((element) => this.isTypeAssignable(sourceElementType, element));
+  }
+
+  private collapsedRestTupleElementType(targetType: AnalysisType & { kind: "tuple" }): AnalysisType | null {
+    const lastElement = targetType.elements[targetType.elements.length - 1];
+    if (!lastElement) {
+      return null;
+    }
+    const normalizedLastElement = this.normalizeLooseNamedType(this.expandTypeAliases(lastElement));
+    if (normalizedLastElement.kind === "array") {
+      return normalizedLastElement.elementType;
+    }
+    if (
+      normalizedLastElement.kind === "named"
+      && (normalizedLastElement.name === "Array" || normalizedLastElement.name === "ReadonlyArray")
+      && normalizedLastElement.typeArguments?.[0]
+    ) {
+      return normalizedLastElement.typeArguments[0];
+    }
+    return null;
+  }
+
   private isDomNodeAssignableToContainerLikeType(
     sourceType: AnalysisType & { kind: "named" },
     targetType: AnalysisType & { kind: "named" }
@@ -4029,16 +4078,10 @@ export class TypeChecker {
     if (classStatement) {
       const substitutions = this.typeParameterSubstitutions(classStatement.typeParameters ?? [], type);
       if (classStatement.extendsType) {
-        pushParent(this.substituteTypeParameters(
-          this.typeFromTypeNameLoose(classStatement.extendsType.name),
-          substitutions
-        ));
+        pushParent(this.typeFromTypeNameLooseWithSubstitutions(classStatement.extendsType.name, substitutions));
       }
       for (const implementedType of classStatement.implementsTypes ?? []) {
-        pushParent(this.substituteTypeParameters(
-          this.typeFromTypeNameLoose(implementedType.name),
-          substitutions
-        ));
+        pushParent(this.typeFromTypeNameLooseWithSubstitutions(implementedType.name, substitutions));
       }
     }
 
@@ -4046,10 +4089,7 @@ export class TypeChecker {
     if (interfaceStatement) {
       const substitutions = this.typeParameterSubstitutions(interfaceStatement.typeParameters ?? [], type);
       for (const parentType of interfaceStatement.extendsTypes ?? []) {
-        pushParent(this.substituteTypeParameters(
-          this.typeFromTypeNameLoose(parentType.name),
-          substitutions
-        ));
+        pushParent(this.typeFromTypeNameLooseWithSubstitutions(parentType.name, substitutions));
       }
     }
 
@@ -4272,6 +4312,10 @@ export class TypeChecker {
     if (objectType) {
       return objectType;
     }
+    const typeQueryType = this.typeFromTypeQueryNameLoose(typeName);
+    if (typeQueryType) {
+      return typeQueryType;
+    }
     if (looksLikeFunctionTypeAnnotation(typeName)) {
       return UNKNOWN_TYPE;
     }
@@ -4330,7 +4374,7 @@ export class TypeChecker {
       return this.keyofType(targetType);
     }
     if (normalizedTypeName.startsWith("typeof ")) {
-      return UNKNOWN_TYPE;
+      return this.typeFromTypeQueryNameLoose(normalizedTypeName) ?? UNKNOWN_TYPE;
     }
     const indexedAccess = splitIndexedAccessTypeName(normalizedTypeName);
     if (indexedAccess) {
@@ -5245,22 +5289,24 @@ export class TypeChecker {
     if (!substitutions) {
       return;
     }
-    for (const typeParameter of typeParameters) {
-      const constraint = constraints[typeParameter];
-      const typeArgument = substitutions.get(typeParameter);
-      if (!constraint || !typeArgument) {
-        continue;
+    this.withTypeParameters(typeParameters, () => {
+      for (const typeParameter of typeParameters) {
+        const constraint = constraints[typeParameter];
+        const typeArgument = substitutions.get(typeParameter);
+        if (!constraint || !typeArgument) {
+          continue;
+        }
+        if (typeArgument.kind === "named" && typeParameters.includes(typeArgument.name)) {
+          continue;
+        }
+        this.validateTypeArgumentConstraint(
+          typeParameter,
+          typeArgument,
+          this.substituteTypeParameters(constraint, substitutions),
+          node
+        );
       }
-      if (typeArgument.kind === "named" && typeParameters.includes(typeArgument.name)) {
-        continue;
-      }
-      this.validateTypeArgumentConstraint(
-        typeParameter,
-        typeArgument,
-        this.substituteTypeParameters(constraint, substitutions),
-        node
-      );
-    }
+    }, constraints);
   }
 
   private inferredFunctionTypeConstraintSubstitutions(
@@ -5298,22 +5344,26 @@ export class TypeChecker {
     if (!substitutions) {
       return true;
     }
-    for (const typeParameter of typeParameters) {
-      const constraint = constraints[typeParameter];
-      const typeArgument = substitutions.get(typeParameter);
-      if (!constraint || !typeArgument) {
-        continue;
+    let satisfies = true;
+    this.withTypeParameters(typeParameters, () => {
+      for (const typeParameter of typeParameters) {
+        const constraint = constraints[typeParameter];
+        const typeArgument = substitutions.get(typeParameter);
+        if (!constraint || !typeArgument) {
+          continue;
+        }
+        if (typeArgument.kind === "named" && typeParameters.includes(typeArgument.name)) {
+          continue;
+        }
+        const substitutedConstraint = this.substituteTypeParameters(constraint, substitutions);
+        const assignable = this.isTypeAssignable(typeArgument, substitutedConstraint);
+        if (!assignable) {
+          satisfies = false;
+          return;
+        }
       }
-      if (typeArgument.kind === "named" && typeParameters.includes(typeArgument.name)) {
-        continue;
-      }
-      const substitutedConstraint = this.substituteTypeParameters(constraint, substitutions);
-      const assignable = this.isTypeAssignable(typeArgument, substitutedConstraint);
-      if (!assignable) {
-        return false;
-      }
-    }
-    return true;
+    }, constraints);
+    return satisfies;
   }
 
 
@@ -7270,7 +7320,7 @@ export class TypeChecker {
     return (
       typeName.startsWith("infer ") ||
       /^\{ (?:[+-]?readonly )?\[/.test(typeName) ||
-      /(?:^| )extends .+ \? /.test(typeName)
+      parseConditionalTypeText(typeName) !== null
     );
   }
 
@@ -7307,7 +7357,7 @@ export class TypeChecker {
       }
       const propertyType = this.memberTypeFromObjectType(objectType, propertyName);
       if (propertyType) {
-        return propertyType;
+        return this.expandTypeAliases(propertyType);
       }
       if (node) {
         this.issues.push({
@@ -7719,6 +7769,10 @@ export class TypeChecker {
     substitutions: Map<string, AnalysisType>
   ): AnalysisType | null {
     const trimmedTarget = stripEnclosingTypeParens(typeAlias.targetType.name.trim());
+    const indexedMappedTarget = this.resolveMappedUtilityIndexedAccessAliasTarget(trimmedTarget, substitutions);
+    if (indexedMappedTarget) {
+      return indexedMappedTarget;
+    }
     if (!trimmedTarget.startsWith("{") || !trimmedTarget.endsWith("}")) {
       return null;
     }
@@ -7770,6 +7824,7 @@ export class TypeChecker {
           valueTypeText.trim(),
           sourceTypeParameterName,
           keyParameterName,
+          propertyName,
           propertyType,
           substitutions
         );
@@ -7833,6 +7888,39 @@ export class TypeChecker {
     return objectTypeWithProperties(properties);
   }
 
+  private resolveMappedUtilityIndexedAccessAliasTarget(
+    trimmedTarget: string,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType | null {
+    const indexedAccess = splitIndexedAccessTypeName(trimmedTarget);
+    if (!indexedAccess) {
+      return null;
+    }
+
+    const objectTypeName = stripEnclosingTypeParens(indexedAccess.objectTypeName.trim());
+    if (!objectTypeName.startsWith("{") || !objectTypeName.endsWith("}")) {
+      return null;
+    }
+
+    const objectType = this.resolveMappedUtilityAliasTarget({
+      kind: "TypeAliasStatement",
+      name: { kind: "Identifier", name: "<mapped>" },
+      targetType: { kind: "Identifier", name: objectTypeName }
+    } as TypeAliasStatement, substitutions);
+    if (!objectType) {
+      return null;
+    }
+
+    const indexTypeText = this.substituteTypeParametersInComputedName(
+      indexedAccess.indexTypeName,
+      substitutions
+    );
+    return this.indexedAccessType(
+      objectType,
+      this.expandTypeAliases(this.typeFromTypeNameLoose(indexTypeText))
+    );
+  }
+
   private resolveMappedUtilityRemappedKeys(
     keyRemapText: string | undefined,
     keyParameterName: string,
@@ -7888,6 +7976,7 @@ export class TypeChecker {
     valueTypeText: string,
     sourceTypeParameterName: string,
     keyParameterName: string,
+    propertyName: string,
     propertyType: AnalysisType,
     substitutions: Map<string, AnalysisType>
   ): AnalysisType {
@@ -7898,37 +7987,43 @@ export class TypeChecker {
       return propertyType;
     }
 
-    const conditionalMatch = new RegExp(
-      `^${sourceTypeParameterName}\\s*\\[\\s*${keyParameterName}\\s*\\]\\s+extends\\s+(.+?)\\s+\\?\\s+(.+?)\\s*:\\s*(.+)$`
-    ).exec(valueTypeText);
-    if (conditionalMatch) {
-      const conditionText = conditionalMatch[1]?.trim();
-      const trueBranchText = conditionalMatch[2]?.trim();
-      const falseBranchText = conditionalMatch[3]?.trim();
-      if (!conditionText || !trueBranchText || !falseBranchText) {
-        return UNKNOWN_TYPE;
-      }
-      const conditionType = this.typeFromTypeNameLoose(
-        this.substituteTypeParametersInComputedName(conditionText, substitutions)
-      );
-      const selectedBranch = this.isTypeAssignable(propertyType, conditionType)
-        ? trueBranchText
-        : falseBranchText;
+    const conditional = parseConditionalTypeText(valueTypeText);
+    if (conditional) {
+      const checkType = this.typeFromTypeNameLoose(this.mappedUtilitySubstitutedPropertyText(
+        conditional.checkTypeText,
+        sourceTypeParameterName,
+        keyParameterName,
+        propertyName,
+        propertyType,
+        substitutions
+      ));
+      const extendsType = this.typeFromTypeNameLoose(this.mappedUtilitySubstitutedPropertyText(
+        conditional.extendsTypeText,
+        sourceTypeParameterName,
+        keyParameterName,
+        propertyName,
+        propertyType,
+        substitutions
+      ));
+      const selectedBranch = this.isTypeAssignable(checkType, extendsType)
+        ? conditional.trueTypeText
+        : conditional.falseTypeText;
       return this.resolveMappedUtilityBranchType(
         selectedBranch,
         sourceTypeParameterName,
         keyParameterName,
+        propertyName,
         propertyType,
         substitutions
       );
     }
 
-    const indexedPropertyPattern = new RegExp(
-      `${sourceTypeParameterName}\\s*\\[\\s*${keyParameterName}\\s*\\]`,
-      "g"
-    );
-    const substitutedValueText = this.substituteTypeParametersInComputedName(
-      valueTypeText.replace(indexedPropertyPattern, typeToString(propertyType)),
+    const substitutedValueText = this.mappedUtilitySubstitutedPropertyText(
+      valueTypeText,
+      sourceTypeParameterName,
+      keyParameterName,
+      propertyName,
+      propertyType,
       substitutions
     );
     return this.expandTypeAliases(this.typeFromTypeNameLoose(substitutedValueText));
@@ -7938,18 +8033,39 @@ export class TypeChecker {
     branchText: string,
     sourceTypeParameterName: string,
     keyParameterName: string,
+    propertyName: string,
     propertyType: AnalysisType,
     substitutions: Map<string, AnalysisType>
   ): AnalysisType {
+    return this.typeFromTypeNameLoose(this.mappedUtilitySubstitutedPropertyText(
+      branchText,
+      sourceTypeParameterName,
+      keyParameterName,
+      propertyName,
+      propertyType,
+      substitutions
+    ));
+  }
+
+  private mappedUtilitySubstitutedPropertyText(
+    typeText: string,
+    sourceTypeParameterName: string,
+    keyParameterName: string,
+    propertyName: string,
+    propertyType: AnalysisType,
+    substitutions: Map<string, AnalysisType>
+  ): string {
     const indexedPropertyPattern = new RegExp(
       `${sourceTypeParameterName}\\s*\\[\\s*${keyParameterName}\\s*\\]`,
       "g"
     );
-    const substitutedBranchText = this.substituteTypeParametersInComputedName(
-      branchText.replace(indexedPropertyPattern, typeToString(propertyType)),
+    const keyPattern = new RegExp(`\\b${this.escapeRegexForTypePattern(keyParameterName)}\\b`, "g");
+    return this.substituteTypeParametersInComputedName(
+      typeText
+        .replace(indexedPropertyPattern, typeToString(propertyType))
+        .replace(keyPattern, JSON.stringify(normalizePropertyName(propertyName))),
       substitutions
     );
-    return this.typeFromTypeNameLoose(substitutedBranchText);
   }
 
   private resolveMappedUtilityExpressionPropertyType(
@@ -7999,10 +8115,13 @@ export class TypeChecker {
     }
 
     const keyType = substitutions.get(keySourceText);
-    if (!keyType) {
-      return null;
+    if (keyType) {
+      return this.literalPropertyNamesFromType(keyType);
     }
-    return this.literalPropertyNamesFromType(keyType);
+    const resolvedKeyType = this.expandTypeAliases(this.typeFromTypeNameLoose(
+      this.substituteTypeParametersInComputedName(keySourceText, substitutions)
+    ));
+    return this.literalPropertyNamesFromType(resolvedKeyType);
   }
 
   private literalPropertyNamesFromType(type: AnalysisType): string[] | null {
@@ -10614,10 +10733,7 @@ export class TypeChecker {
     }
 
     for (const parentType of interfaceStatement.extendsTypes ?? []) {
-      const resolvedParentType = this.substituteTypeParameters(
-        this.typeFromTypeNameLoose(parentType.name),
-        substitutions
-      );
+      const resolvedParentType = this.typeFromTypeNameLooseWithSubstitutions(parentType.name, substitutions);
       const parentMembers = resolvedParentType.kind === "named"
         ? this.resolveNamedTypeMembersInternal(resolvedParentType, visited)
         : this.membersForType(resolvedParentType);
@@ -10806,10 +10922,7 @@ export class TypeChecker {
       }
 
       for (const classDelegate of classStatement.classDelegates ?? []) {
-        const delegateType = this.substituteTypeParameters(
-          this.typeFromTypeNameLoose(classDelegate.typeAnnotation.name),
-          substitutions
-        );
+        const delegateType = this.typeFromTypeNameLooseWithSubstitutions(classDelegate.typeAnnotation.name, substitutions);
         if (delegateType.kind !== "named") {
           continue;
         }
@@ -10825,10 +10938,7 @@ export class TypeChecker {
       }
 
       if (classStatement.extendsType) {
-        const resolvedExtendsType = this.substituteTypeParameters(
-          this.typeFromTypeNameLoose(classStatement.extendsType.name),
-          substitutions
-        );
+        const resolvedExtendsType = this.typeFromTypeNameLooseWithSubstitutions(classStatement.extendsType.name, substitutions);
         if (resolvedExtendsType.kind === "named" && this.classStatementsByName.has(resolvedExtendsType.name)) {
           const inheritedMembers = this.resolveNamedTypeMembersInternal(resolvedExtendsType, visited);
           if (inheritedMembers) {
@@ -11115,6 +11225,10 @@ export class TypeChecker {
     if (objectType) {
       return objectType;
     }
+    const typeQueryType = this.typeFromTypeQueryNameLoose(typeAnnotation.name);
+    if (typeQueryType) {
+      return typeQueryType;
+    }
     const computedType = this.typeFromComputedTypeNameLoose(typeAnnotation.name);
     if (computedType) {
       return computedType;
@@ -11202,6 +11316,10 @@ export class TypeChecker {
     if (objectType) {
       return objectType;
     }
+    const typeQueryType = this.typeFromTypeQueryNameLoose(typeName);
+    if (typeQueryType) {
+      return typeQueryType;
+    }
     const computedType = this.typeFromComputedTypeNameLoose(typeName);
     if (computedType) {
       return computedType;
@@ -11275,6 +11393,73 @@ export class TypeChecker {
       resolved = arrayType(resolved);
     }
     return this.expandTypeAliases(resolved);
+  }
+
+  private typeFromTypeQueryNameLoose(typeName: string): AnalysisType | null {
+    const normalizedTypeName = stripEnclosingTypeParens(typeName.trim());
+    if (!normalizedTypeName.startsWith("typeof ")) {
+      return null;
+    }
+
+    const path = normalizedTypeName.slice("typeof ".length).trim().split(".").filter((part) => part.length > 0);
+    const baseName = path.shift();
+    if (!baseName) {
+      return UNKNOWN_TYPE;
+    }
+
+    const queryKey = `${baseName}.${path.join(".")}`;
+    if (this.resolvingLooseTypeQueries.has(queryKey)) {
+      return UNKNOWN_TYPE;
+    }
+    this.resolvingLooseTypeQueries.add(queryKey);
+    try {
+      let currentType = this.valueTypeFromLooseTypeQueryBase(baseName);
+      if (!currentType) {
+        return UNKNOWN_TYPE;
+      }
+      for (const memberName of path) {
+        currentType = this.memberTypeFromObjectType(currentType, memberName) ?? UNKNOWN_TYPE;
+        if (isUnknownType(currentType)) {
+          return UNKNOWN_TYPE;
+        }
+      }
+      return currentType;
+    } finally {
+      this.resolvingLooseTypeQueries.delete(queryKey);
+    }
+  }
+
+  private valueTypeFromLooseTypeQueryBase(baseName: string): AnalysisType | null {
+    const functionStatement = this.functionStatementsByName.get(baseName);
+    if (functionStatement) {
+      return this.memberTypeFromExternalDeclaration(functionStatement, baseName);
+    }
+
+    const varStatement = this.varStatementsByName.get(baseName);
+    if (varStatement) {
+      return this.typeFromAnnotationLoose(varStatement.declarations?.[0]?.typeAnnotation)
+        ?? this.typeFromAnnotationLoose(varStatement.typeAnnotation)
+        ?? UNKNOWN_TYPE;
+    }
+
+    if (this.classStatementsByName.has(baseName)) {
+      return namedType(baseName);
+    }
+    if (this.enumStatementsByName.has(baseName)) {
+      return namedType(baseName);
+    }
+    if (this.namespaceStatementsByName.has(baseName)) {
+      return namedType(baseName);
+    }
+
+    return this.bound.rootScope.symbols.get(baseName)?.type ?? null;
+  }
+
+  private typeFromTypeNameLooseWithSubstitutions(
+    typeName: string,
+    substitutions: Map<string, AnalysisType>
+  ): AnalysisType {
+    return this.typeFromTypeNameLoose(this.substituteTypeParametersInComputedName(typeName, substitutions));
   }
 
   private resolveSpecialNamedTypeLoose(baseName: string, typeArguments: string[]): AnalysisType | null {

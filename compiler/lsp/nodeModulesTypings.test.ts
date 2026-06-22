@@ -818,6 +818,58 @@ describe("node_modules typings resolution", () => {
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
   });
 
+  it("resolves namespace const members declared as typeof function declarations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "pkg");
+    const libDir = join(pkgDir, "lib");
+    await mkdir(libDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "pkg", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), 'export * from "./lib";\n', "utf8");
+    await writeFile(
+      join(libDir, "index.d.ts"),
+      dedent`
+        import * as pkg from "./external";
+        export * from "./external";
+        export { pkg };
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "external.d.ts"),
+      dedent`
+        export interface Thing {
+          value: string;
+        }
+
+        declare function createThing(name: string): Thing;
+        declare const makeThing: typeof createThing;
+        export { makeThing };
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { pkg } from "pkg"
+
+      const thing = pkg.makeThing("Ada")
+      const value: string = thing.val^^^ue
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string");
+  });
+
   it("supports zod-style namespace builders and z.infer type extraction", async () => {
     const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
     const pkgDir = join(root, "node_modules", "zod");
@@ -862,6 +914,12 @@ describe("node_modules typings resolution", () => {
           int(): ZNumber;
         }
 
+        export interface ZBoolean extends ZType<boolean> {
+        }
+
+        export interface ZArray<T extends ZType<any>> extends ZType<output<T>[]> {
+        }
+
         export type output<T extends ZType<any>> = T["_output"];
         export type infer<T extends ZType<any>> = output<T>;
         export type ZRawShape = { [key: string]: ZType<any> };
@@ -875,9 +933,11 @@ describe("node_modules typings resolution", () => {
 
         declare const stringType: () => ZString;
         declare const numberType: () => ZNumber;
+        declare const booleanType: () => ZBoolean;
+        declare function array<T extends ZType<any>>(schema: T): ZArray<T>;
         declare function object<TShape extends ZRawShape>(shape: TShape): ZObject<TShape>;
 
-        export { stringType as string, numberType as number, object };
+        export { stringType as string, numberType as number, booleanType as boolean, array, object };
       `,
       "utf8"
     );
@@ -888,14 +948,20 @@ describe("node_modules typings resolution", () => {
 
       val schema = z.object({
         name: z.string(),
-        age: z.number()
+        age: z.number(),
+        tags: z.array(z.string()),
+        active: z.boolean()
       })
       val parsed: z.inf^^^er<typeof schema> = schema.parse({
         name: "Ada",
-        age: 42
+        age: 42,
+        tags: ["types", "runtime"],
+        active: true
       })
       val upper = parsed.name.toUpperCase()
       val fixed = parsed.age.toFixed()
+      val first = parsed.tags[0].toUpperCase()
+      val enabled: boolean = parsed.active
     `);
     await writeFile(mainPath, marked.source, "utf8");
 
@@ -907,6 +973,152 @@ describe("node_modules typings resolution", () => {
     expect(collected.invalidImportedBindings.has("z")).toBe(false);
     expect(typeToString(collected.importedSymbols.get("z")!.type!)).toContain("infer");
     expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+  });
+
+  it("specializes real zod-style object output through mapped helper aliases", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-nm-typings-"));
+    const pkgDir = join(root, "node_modules", "zod");
+    const libDir = join(pkgDir, "lib");
+    await mkdir(libDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "zod", types: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), `export * from "./lib";\n`, "utf8");
+    await writeFile(
+      join(libDir, "index.d.ts"),
+      dedent`
+        import * as z from "./external";
+        export * from "./external";
+        export { z };
+      `,
+      "utf8"
+    );
+    await writeFile(
+      join(libDir, "external.d.ts"),
+      dedent`
+        export interface ZodTypeDef {}
+        export declare abstract class ZodType<Output = any, Def extends ZodTypeDef = ZodTypeDef, Input = Output> {
+          readonly _output: Output;
+          readonly _input: Input;
+          parse(value: unknown): Output;
+        }
+
+        export type ZodTypeAny = ZodType<any, any, any>;
+        export type TypeOf<T extends ZodType<any, any, any>> = T["_output"];
+        export type output<T extends ZodType<any, any, any>> = T["_output"];
+        export type infer<T extends ZodType<any, any, any>> = TypeOf<T>;
+        export type ZodRawShape = { [k: string]: ZodTypeAny };
+
+        export interface ZodStringDef extends ZodTypeDef {}
+        export declare class ZodString extends ZodType<string, ZodStringDef, string> {
+          min(size: number): ZodString;
+        }
+
+        export interface ZodBooleanDef extends ZodTypeDef {}
+        export declare class ZodBoolean extends ZodType<boolean, ZodBooleanDef, boolean> {}
+
+        export type Primitive = string | number | boolean | null | undefined;
+        export interface ZodLiteralDef<T = any> extends ZodTypeDef {}
+        export declare class ZodLiteral<T> extends ZodType<T, ZodLiteralDef<T>, T> {}
+
+        export type EnumValues = readonly [string, ...string[]];
+        export declare class ZodEnum<T extends EnumValues> extends ZodType<T[number], ZodTypeDef, T[number]> {}
+
+        export type ZodUnionOptions = readonly [ZodTypeAny, ...ZodTypeAny[]];
+        export declare class ZodUnion<T extends ZodUnionOptions> extends ZodType<T[number]["_output"], ZodTypeDef, T[number]["_input"]> {}
+
+        export type ArrayCardinality = "many" | "atleastone";
+        export type arrayOutputType<T extends ZodTypeAny, Cardinality extends ArrayCardinality = "many"> =
+          Cardinality extends "atleastone" ? [T["_output"], ...T["_output"][]] : T["_output"][];
+        export interface ZodArrayDef<T extends ZodTypeAny = ZodTypeAny> extends ZodTypeDef {}
+        export declare class ZodArray<T extends ZodTypeAny, Cardinality extends ArrayCardinality = "many">
+          extends ZodType<arrayOutputType<T, Cardinality>, ZodArrayDef<T>, T["_input"][]> {}
+
+        export declare namespace objectUtil {
+          type optionalKeys<T extends object> = {
+            [k in keyof T]: undefined extends T[k] ? k : never;
+          }[keyof T];
+          type requiredKeys<T extends object> = {
+            [k in keyof T]: undefined extends T[k] ? never : k;
+          }[keyof T];
+          export type addQuestionMarks<T extends object, _O = any> = {
+            [K in requiredKeys<T>]: T[K];
+          } & {
+            [K in optionalKeys<T>]?: T[K];
+          } & {
+            [k in keyof T]?: unknown;
+          };
+          export type identity<T> = T;
+          export type flatten<T> = identity<{
+            [k in keyof T]: T[k];
+          }>;
+        }
+
+        export type baseObjectOutputType<Shape extends ZodRawShape> = {
+          [k in keyof Shape]: Shape[k]["_output"];
+        };
+        export type objectOutputType<Shape extends ZodRawShape> =
+          objectUtil.flatten<objectUtil.addQuestionMarks<baseObjectOutputType<Shape>>>;
+
+        export declare class ZodObject<T extends ZodRawShape, Output = objectOutputType<T>>
+          extends ZodType<Output, ZodTypeDef, Output> {
+          shape: T;
+        }
+
+        declare const stringType: () => ZodString;
+        declare const booleanType: () => ZodBoolean;
+        declare const arrayType: <T extends ZodTypeAny>(schema: T) => ZodArray<T, "many">;
+        declare function createZodEnum<U extends string, T extends readonly [U, ...U[]]>(values: T): ZodEnum<T>;
+        declare const enumType: typeof createZodEnum;
+        declare const literalType: <T extends Primitive>(value: T) => ZodLiteral<T>;
+        declare const unionType: <T extends readonly [ZodTypeAny, ZodTypeAny, ...ZodTypeAny[]]>(types: T) => ZodUnion<T>;
+        declare const objectType: <T extends ZodRawShape>(shape: T) => ZodObject<T, {
+          [k in keyof objectUtil.addQuestionMarks<baseObjectOutputType<T>, any>]:
+            objectUtil.addQuestionMarks<baseObjectOutputType<T>, any>[k];
+        }>;
+
+        export { stringType as string, booleanType as boolean, arrayType as array, enumType as enum, literalType as literal, unionType as union, objectType as object };
+      `,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const marked = sourceWithCursor(dedent`
+      import { z } from "zod"
+
+      const SettingsSchema = z.object({
+        tags: z.array(z.string()),
+        active: z.boolean()
+      })
+      type Settings = z.infer<typeof SettingsSchema>
+      const settings: Settings = SettingsSchema.parse({
+        tags: ["types", "runtime"],
+        active: true
+      })
+      const RoleSchema = z.enum(["admin", "user"])
+      type Role = z.infer<typeof RoleSchema>
+      const role: Role = RoleSchema.parse("admin")
+      const UnionRoleSchema = z.union([z.literal("admin"), z.literal("user")])
+      type UnionRole = z.infer<typeof UnionRoleSchema>
+      const unionRole: UnionRole = UnionRoleSchema.parse("user")
+      const firstTag: string = settings.ta^^^gs[0]
+      const enabled: boolean = settings.active
+      const roleLabel: string = role.toUpperCase()
+      const unionRoleLabel: string = unionRole.toUpperCase()
+    `);
+    await writeFile(mainPath, marked.source, "utf8");
+
+    const session = createAnalysisSession(marked.source);
+    const ctx = { uri: `file://${mainPath}`, sourceRoots: [root], getSessionForFilePath: () => null };
+    const collected = await collectAllImportedDeclarations(session.ast!, ctx);
+    const richSession = createAnalysisSession(marked.source, { externalDeclarations: collected.externalDeclarations, importedSymbols: collected.importedSymbols });
+
+    expect(richSession.analysis?.getIssues().map((issue) => issue.message)).toEqual([]);
+    expect(richSession.analysis?.getHoverAt(marked.line, marked.character)?.contents).toContain("string[]");
+    expect(typeToString(richSession.analysis?.getTopLevelSymbolType("role")!)).toBe("string");
+    expect(typeToString(richSession.analysis?.getTopLevelSymbolType("unionRole")!)).toBe("string");
   });
 
   it("keeps zod inferred object properties specialized through a named type alias", async () => {

@@ -1042,7 +1042,12 @@ export class Parser {
                     this.tokens.skip();
                     break;
                 }
-                let elementType = this.parseConditionalTypeAnnotationText();
+                let elementPrefix = "";
+                if (this.tokens.peek()?.type === "symbol" && this.tokens.peek()?.value === "...") {
+                    this.tokens.skip();
+                    elementPrefix = "...";
+                }
+                let elementType = `${elementPrefix}${this.parseConditionalTypeAnnotationText()}`;
                 const optionalLabel = this.tokens.peek();
                 if (optionalLabel?.type === "symbol" && optionalLabel.value === "?") {
                     const afterQuestion = this.tokens.items[this.tokens.offset + 1];

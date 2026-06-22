@@ -1819,6 +1819,10 @@ describe("parseStatement", () => {
             kind: "TypeAliasStatement",
             targetType: { kind: "Identifier", name: "T extends string ? true : T extends number ? false : never" }
         });
+        expect(parseStatement(tokenizeReader('type ArrayOutputType<T, C> = C extends "one" ? [T["_output"], ...T["_output"][]] : T["_output"][]'))).toMatchObject({
+            kind: "TypeAliasStatement",
+            targetType: { kind: "Identifier", name: 'C extends "one" ? [T["_output"], ...T["_output"][]] : T["_output"][]' }
+        });
     });
 
     it("parses keyof, typeof type queries, and indexed access type annotations", () => {

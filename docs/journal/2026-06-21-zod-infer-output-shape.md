@@ -72,3 +72,83 @@ The repository is now green again with the Zod sample included:
 The useful lesson is that ecosystem libraries sometimes need a small
 compatibility bridge at the API surface even when their internal declaration
 machinery is much more complex than we want to model wholesale.
+
+## 2026-06-22 follow-up: real helper aliases still matter
+
+Expanding the runnable Zod sample with `z.array(z.string())` and `z.boolean()`
+showed that the earlier bridge was not enough. The real package declarations
+still broke in two reusable ways:
+
+- tuple-rest type aliases such as
+  `Cardinality extends "atleastone" ? [T["_output"], ...T["_output"][]] : ...`
+  were skipped by the parser;
+- generic parent types were resolved before class type parameters were
+  substituted, so `ZodArray<T>` inherited `_output` as `unknown[]` instead of
+  `string[]`;
+- mapped helper aliases such as `{ [K in keyof T]: ... }[keyof T]`,
+  `requiredKeys<T>`, and `optionalKeys<T>` needed generic evaluation rather
+  than a Zod-specific special case.
+
+What worked this time was to fix those shared pieces:
+
+- parse tuple rest elements in type annotation text;
+- only defer top-level conditional types, not conditionals nested inside generic
+  arguments;
+- substitute generic parameters into inherited type text before resolving type
+  aliases;
+- evaluate indexed mapped helper aliases and conditional mapped property values.
+
+The sample now keeps real user-facing coverage for `settings.tags[0]` as
+`string` and `settings.active` as `boolean`, while the focused
+`node_modules` regression keeps hover on `settings.tags` at `string[]`.
+
+## 2026-06-22 follow-up: enum builders expose indirect constraints
+
+Adding `z.enum(["admin", "user"])` to the same sample exposed another reusable
+declaration pattern from real library typings:
+
+- exported namespace members can be declared as `declare const enumType: typeof
+  createZodEnum`, so `typeof function` type queries must produce callable
+  imported values;
+- enum builders constrain one type parameter through another,
+  `T extends readonly [U, ...U[]]`, so validating `T = string[]` must treat
+  the still-unresolved `U` as an active type parameter inside that constraint;
+- the parser currently represents rest tuples as ordinary tuple elements, so
+  assignability needs to recognize the collapsed `[U, U[]]` shape when an array
+  is checked against a rest-tuple constraint.
+
+The fix kept this in the shared type system instead of a Zod-only branch:
+
+- imported declaration resolution now resolves `typeof` queries against
+  function declarations, preserving callable namespace members;
+- function type-argument constraint validation now runs inside the generic
+  function's active type-parameter scope;
+- array-to-tuple assignability accepts collapsed rest-tuple constraints while
+  keeping readonly direction checks.
+
+The focused regression covers the `typeof createZodEnum` and
+`readonly [U, ...U[]]` path, while `samples/zod` now exercises
+`z.infer<typeof RoleSchema>` at runtime by printing `ADMIN`.
+
+## 2026-06-22 follow-up: readonly tuple text can lose whitespace
+
+Extending the sample with `z.union([z.literal("admin"), z.literal("user")])`
+exposed a smaller but reusable parser/typing mismatch. Zod's union builder uses
+a minimum-length variadic tuple constraint:
+
+- `T extends readonly [ZodTypeAny, ZodTypeAny, ...ZodTypeAny[]]`
+
+In one declaration path the type annotation text reached analysis as
+`readonly[ZodTypeAny,ZodTypeAny,...ZodTypeAny[]]`, without the whitespace after
+`readonly`. Our readonly container parser only accepted `readonly [...]`, so the
+constraint stayed as an opaque named type and the array-to-rest-tuple
+assignability path never ran.
+
+The fix was to make `parseReadonlyContainerTypeText` accept both spellings:
+
+- `readonly [A, B, ...Rest[]]`
+- `readonly[A, B, ...Rest[]]`
+
+The focused test now covers the whitespace-free form directly, the imported
+Zod regression covers `z.union`, and `samples/zod` keeps runtime coverage for
+the union plus a defaulted object property.

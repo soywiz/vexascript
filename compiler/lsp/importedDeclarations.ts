@@ -250,21 +250,33 @@ function unionIfNeeded(types: AnalysisType[]): AnalysisType {
   return unionType(unique);
 }
 
-function importedTypeParameterConstraintMap(typeParameters: readonly { name: Identifier; constraint?: { name?: string } }[] | undefined): Record<string, AnalysisType> | undefined {
+function importedTypeParameterConstraintMap(
+  typeParameters: readonly { name: Identifier; constraint?: { name?: string } }[] | undefined,
+  declarations: readonly Statement[] = [],
+  resolvingImportTypes: Set<string> = new Set()
+): Record<string, AnalysisType> | undefined {
   const entries = (typeParameters ?? [])
     .map((parameter) => {
       const constraintName = parameter.constraint?.name;
-      return constraintName ? [parameter.name.name, typeFromAnnotationText(constraintName)] as const : null;
+      return constraintName
+        ? [parameter.name.name, typeFromAnnotationText(constraintName, declarations, resolvingImportTypes)] as const
+        : null;
     })
     .filter((entry): entry is readonly [string, AnalysisType] => entry !== null);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
-function importedTypeParameterDefaultMap(typeParameters: readonly { name: Identifier; defaultType?: { name?: string } }[] | undefined): Record<string, AnalysisType> | undefined {
+function importedTypeParameterDefaultMap(
+  typeParameters: readonly { name: Identifier; defaultType?: { name?: string } }[] | undefined,
+  declarations: readonly Statement[] = [],
+  resolvingImportTypes: Set<string> = new Set()
+): Record<string, AnalysisType> | undefined {
   const entries = (typeParameters ?? [])
     .map((parameter) => {
       const defaultName = parameter.defaultType?.name;
-      return defaultName ? [parameter.name.name, typeFromAnnotationText(defaultName)] as const : null;
+      return defaultName
+        ? [parameter.name.name, typeFromAnnotationText(defaultName, declarations, resolvingImportTypes)] as const
+        : null;
     })
     .filter((entry): entry is readonly [string, AnalysisType] => entry !== null);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
@@ -427,6 +439,10 @@ function typeFromAnnotationText(
   if (importedType) {
     return importedType;
   }
+  const typeQueryType = resolveNodeModuleTypeQueryReference(normalized, declarations, resolvingImportTypes);
+  if (typeQueryType) {
+    return typeQueryType;
+  }
   if (normalized === "unique symbol") {
     return builtinType("symbol");
   }
@@ -509,6 +525,60 @@ function typeFromAnnotationText(
     resolvedBase = arrayType(resolvedBase);
   }
   return resolvedBase;
+}
+
+function resolveNodeModuleTypeQueryReference(
+  typeName: string,
+  declarations: readonly Statement[],
+  resolvingImportTypes: Set<string>
+): AnalysisType | null {
+  if (!typeName.startsWith("typeof ")) {
+    return null;
+  }
+  const path = typeName.slice("typeof ".length).trim().split(".").filter((part) => part.length > 0);
+  const baseName = path.shift();
+  if (!baseName) {
+    return UNKNOWN_TYPE;
+  }
+  const cacheKey = `typeof:${baseName}`;
+  if (resolvingImportTypes.has(cacheKey)) {
+    return UNKNOWN_TYPE;
+  }
+  resolvingImportTypes.add(cacheKey);
+  try {
+    const candidates = getNodeModuleDeclarationIndex(declarations).declarationsByName.get(baseName) ?? [];
+    for (const candidate of candidates) {
+      const declaration = candidate.kind === "ExportStatement"
+        ? (candidate as ExportStatement).declaration
+        : candidate;
+      let resolved: AnalysisType | null = null;
+      if (declaration?.kind === "FunctionStatement") {
+        resolved = buildFunctionTypeFromStatement(
+          declaration as FunctionStatement,
+          declarations,
+          resolvingImportTypes
+        );
+      } else if (declaration?.kind === "VarStatement") {
+        const variable = declaration as VarStatement;
+        resolved = typeFromAnnotationText(
+          variable.declarations?.[0]?.typeAnnotation?.name ?? variable.typeAnnotation?.name,
+          declarations,
+          resolvingImportTypes
+        );
+      } else if (declaration?.kind === "ClassStatement") {
+        resolved = namedType((declaration as ClassStatement).name.name);
+      }
+      if (!resolved) {
+        continue;
+      }
+      return path.length > 0
+        ? resolveImportTypeQueryMembers(resolved, path)
+        : resolved;
+    }
+    return UNKNOWN_TYPE;
+  } finally {
+    resolvingImportTypes.delete(cacheKey);
+  }
 }
 
 function externalFunctionOverloads(
@@ -693,12 +763,16 @@ function resolveNodeModuleNamedImportType(
   return null;
 }
 
-export function buildFunctionTypeFromStatement(fn: FunctionStatement): AnalysisType {
+export function buildFunctionTypeFromStatement(
+  fn: FunctionStatement,
+  declarations: readonly Statement[] = [],
+  resolvingImportTypes: Set<string> = new Set()
+): AnalysisType {
   return functionType(
     fn.parameters
       .filter((p) => p.thisParameter !== true)
       .map((p) => {
-        const rawType = typeFromAnnotationText(p.typeAnnotation?.name);
+        const rawType = typeFromAnnotationText(p.typeAnnotation?.name, declarations, resolvingImportTypes);
         const isRest = p.rest === true;
         const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
         return {
@@ -708,11 +782,11 @@ export function buildFunctionTypeFromStatement(fn: FunctionStatement): AnalysisT
           rest: isRest
         };
     }),
-    typeFromAnnotationText(fn.returnType?.name),
+    typeFromAnnotationText(fn.returnType?.name, declarations, resolvingImportTypes),
     fn.typeParameters?.map((tp) => tp.name.name),
-    importedTypeParameterConstraintMap(fn.typeParameters),
-    importedTypeParameterDefaultMap(fn.typeParameters),
-    importedAssertionTypeFromText(fn.returnType?.name, [])
+    importedTypeParameterConstraintMap(fn.typeParameters, declarations, resolvingImportTypes),
+    importedTypeParameterDefaultMap(fn.typeParameters, declarations, resolvingImportTypes),
+    importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes)
   );
 }
 

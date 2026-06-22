@@ -277,6 +277,13 @@ describe("parseReadonlyContainerTypeText", () => {
     });
   });
 
+  it("parses readonly tuple shorthand without whitespace before the tuple", () => {
+    expect(parseReadonlyContainerTypeText("readonly[ZodTypeAny, ZodTypeAny, ...ZodTypeAny[]]")).toEqual({
+      kind: "tuple",
+      tupleElementTypeTexts: ["ZodTypeAny", "ZodTypeAny", "ZodTypeAny[]"]
+    });
+  });
+
   it("returns null for non-readonly containers", () => {
     expect(parseReadonlyContainerTypeText("string[]")).toBeNull();
   });

@@ -443,11 +443,11 @@ export function parseConditionalTypeText(typeName: string): ConditionalTypeText 
 
 export function parseReadonlyContainerTypeText(typeName: string): ReadonlyContainerTypeText | null {
   const trimmed = stripEnclosingTypeParens(typeName.trim());
-  if (!trimmed.startsWith("readonly ")) {
+  if (!/^readonly(?:\s+|\[)/.test(trimmed)) {
     return null;
   }
 
-  const inner = trimmed.slice("readonly ".length).trim();
+  const inner = trimmed.slice("readonly".length).trim();
   if (inner.startsWith("[") && inner.endsWith("]")) {
     const tupleBody = inner.slice(1, -1).trim();
     return {

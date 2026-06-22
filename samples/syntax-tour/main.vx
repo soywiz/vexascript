@@ -109,6 +109,20 @@ class PathKey {
   }
 }
 
+class MultiGrid {
+  var lastKey = ""
+  var lastValue: number = 0
+
+  operator[](...dimensions: int[]): string {
+    return `${dimensions.join(":")}=${lastValue}`
+  }
+
+  operator[]=(value: number, ...dimensions: int[]) {
+    lastKey = dimensions.join(":")
+    lastValue = value
+  }
+}
+
 class Slider(var x: number)
 
 class TweenTarget(val property: Property<number>, val src: number, val dst: number)
@@ -163,14 +177,17 @@ const configuredCounter = Counter()
 var state by useState(2)
 const grid = Grid()
 const pathKey = PathKey()[2, 3, 4]
+const multiGrid = MultiGrid()
 const slider = Slider(5)
 const sliderProperty = slider::x
+const pointXProperty = point::x
 const initialSlider = sliderProperty.value
 
 state++
 state += 3
 grid[1, 0] = 9
 grid[0, 1] = 4
+multiGrid[2, 3, 4] = 12
 sliderProperty.value = 10
 var boundSlider by sliderProperty
 boundSlider += 5
@@ -211,8 +228,8 @@ console.log(`class:${thing.description}:${makeDescription()}:${point.label}:${mo
 console.log(`counter:${counter.increment(2)}:${[...counter.values()].join("|")}:${counter.id}:${counter.service}`)
 console.log(`chain:${configuredCounter.value}:${configuredCounter.service}`)
 console.log(`delegates:${state}`)
-console.log(`indexers:${grid[1, 0]}:${grid[0, 1]}:${grid[1, 0] + grid[0, 1]}:${pathKey}`)
-console.log(`propertyRefs:${sliderProperty.name}:${initialSlider}:${afterDelegate}:${tweenLabel}:${slider.x}`)
+console.log(`indexers:${grid[1, 0]}:${grid[0, 1]}:${grid[1, 0] + grid[0, 1]}:${pathKey}:${multiGrid[2, 3, 4]}`)
+console.log(`propertyRefs:${sliderProperty.name}:${initialSlider}:${afterDelegate}:${tweenLabel}:${slider.x}:${pointXProperty.name}:${pointXProperty.value}`)
 console.log(`destructure:${head}:${third}:${unpack({ name: sampleName, describe: function(): string { return thing.description }, tag: "tag" } as Described & { tag: string }, ["a", "b", "c", "d"])}:${objectLiteral.method()}`)
 console.log(`expressions:${arrayLiteral.length}:${arrayLiteral[1] === undefined}:${regex.test("Ada")}:${maybeObject?.nested?.value}:${asserted}:${delete objectLiteral[dynamicKey]}`)
 console.log(`operators:${assign}:${unary}:${binary}:${conditional}:${commaValue}:${"score" in objectLiteral}:${point instanceof Point}:${point is Point}`)
