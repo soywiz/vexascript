@@ -105,36 +105,71 @@ export function localRenameWorkspaceEdit(context: ResolveContext, newName: strin
   );
 }
 
+/**
+ * A single binding introduced by an import statement. This is the canonical
+ * shape every import-binding lookup reads from, so default, namespace, and
+ * (renamed) named specifiers are handled by one enumeration instead of each
+ * feature re-deriving the default/namespace/specifier cases on its own.
+ */
+export interface ImportBinding {
+  /** Identifier node bound in the importing module (the local alias). */
+  localNode: Identifier;
+  /**
+   * Identifier node naming the export in the source module. Equal to
+   * `localNode` for default and namespace imports; the `imported` node for
+   * named specifiers (so `b` in `import { b as c }`).
+   */
+  importedNode: Identifier;
+  /** Module specifier the binding is imported from. */
+  from: string;
+  /** Exported name in the source module. */
+  importedName: string;
+  /** Local binding name in the importing module. */
+  localName: string;
+}
+
+/** Yields every binding a single import statement introduces. */
+export function* importStatementBindings(importStatement: ImportStatement): Generator<ImportBinding> {
+  const from = importStatement.from.value;
+  const { defaultImport, namespaceImport } = importStatement;
+  if (defaultImport) {
+    yield { localNode: defaultImport, importedNode: defaultImport, from, importedName: defaultImport.name, localName: defaultImport.name };
+  }
+  if (namespaceImport) {
+    yield { localNode: namespaceImport, importedNode: namespaceImport, from, importedName: namespaceImport.name, localName: namespaceImport.name };
+  }
+  for (const specifier of importStatement.specifiers) {
+    const localNode = specifier.local ?? specifier.imported;
+    yield { localNode, importedNode: specifier.imported, from, importedName: specifier.imported.name, localName: localNode.name };
+  }
+}
+
+/** Yields every import binding across a list of statements (direct imports only). */
+export function* importBindings(statements: readonly Statement[]): Generator<ImportBinding> {
+  for (const statement of statements) {
+    if (statement.kind === "ImportStatement") {
+      yield* importStatementBindings(statement as ImportStatement);
+    }
+  }
+}
+
+/** Finds the import binding whose local (alias) name matches `localName`. */
+export function findImportBindingByLocalName(
+  statements: readonly Statement[],
+  localName: string
+): ImportBinding | null {
+  for (const binding of importBindings(statements)) {
+    if (binding.localName === localName) {
+      return binding;
+    }
+  }
+  return null;
+}
+
 export function findImportForSymbolNode(ast: Program, symbolNode: unknown): { from: string; name: string; localName: string } | null {
-  for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    const defaultImport = importStatement.defaultImport;
-    if (defaultImport && defaultImport === symbolNode) {
-      return {
-        from: importStatement.from.value,
-        name: defaultImport.name,
-        localName: defaultImport.name
-      };
-    }
-    const namespaceImport = importStatement.namespaceImport;
-    if (namespaceImport && namespaceImport === symbolNode) {
-      return {
-        from: importStatement.from.value,
-        name: namespaceImport.name,
-        localName: namespaceImport.name
-      };
-    }
-    for (const specifier of importStatement.specifiers) {
-      if (specifier.imported === symbolNode || specifier.local === symbolNode) {
-        return {
-          from: importStatement.from.value,
-          name: specifier.imported.name,
-          localName: (specifier.local ?? specifier.imported).name
-        };
-      }
+  for (const binding of importBindings(ast.body)) {
+    if (binding.localNode === symbolNode || binding.importedNode === symbolNode) {
+      return { from: binding.from, name: binding.importedName, localName: binding.localName };
     }
   }
   return null;
@@ -144,23 +179,8 @@ export function findModuleReceiverImport(
   ast: Program,
   receiverName: string
 ): { from: string } | null {
-  for (const statement of ast.body) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    const defaultImport = importStatement.defaultImport as Identifier | undefined;
-    const namespaceImport = importStatement.namespaceImport as Identifier | undefined;
-    const matchesDefault = defaultImport?.kind === "Identifier" && defaultImport.name === receiverName;
-    const matchesNamespace = namespaceImport?.kind === "Identifier" && namespaceImport.name === receiverName;
-    const matchesNamedSpecifier = importStatement.specifiers.some((specifier) =>
-      (specifier.local ?? specifier.imported).name === receiverName
-    );
-    if (matchesDefault || matchesNamespace || matchesNamedSpecifier) {
-      return { from: importStatement.from.value };
-    }
-  }
-  return null;
+  const binding = findImportBindingByLocalName(ast.body, receiverName);
+  return binding ? { from: binding.from } : null;
 }
 
 /**

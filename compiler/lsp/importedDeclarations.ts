@@ -20,7 +20,7 @@ import { uriToFilePath } from "./importFixes";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { importableTopLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
-import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
+import { detectAmbientExportEqualsName, findAmbientNamespaceBody, findImportBindingByLocalName } from "./crossFileContext";
 import {
   renderAmbientFunctionDisplayFromStatement,
   renderAmbientInterfaceMemberDisplay,
@@ -788,28 +788,6 @@ export function buildFunctionTypeFromStatement(
     importedTypeParameterDefaultMap(fn.typeParameters, declarations, resolvingImportTypes),
     importedAssertionTypeFromText(fn.returnType?.name, declarations, resolvingImportTypes)
   );
-}
-
-function findAmbientImportedTypeReference(
-  declarations: readonly Statement[],
-  localName: string
-): { importPath: string; importedName: string } | null {
-  for (const statement of declarations) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    for (const specifier of importStatement.specifiers) {
-      const boundName = (specifier.local ?? specifier.imported).name;
-      if (boundName === localName) {
-        return {
-          importPath: importStatement.from.value,
-          importedName: specifier.imported.name
-        };
-      }
-    }
-  }
-  return null;
 }
 
 function findAmbientTypeAliasStatement(
@@ -1987,10 +1965,10 @@ function typeFromAmbientAnnotationText(
             );
             visited.delete(`global:${visitKey}`);
           } else {
-            const importedReference = findAmbientImportedTypeReference(declarations, parsed.baseName);
+            const importedReference = findImportBindingByLocalName(declarations, parsed.baseName);
             if (importedReference) {
               resolvedBase = resolveAmbientTypeReference(
-                importedReference.importPath,
+                importedReference.from,
                 importedReference.importedName,
                 ambientModuleDeclarations,
                 ambientGlobalDeclarations,

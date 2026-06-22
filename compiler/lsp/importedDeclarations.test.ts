@@ -155,6 +155,38 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("(path: string | Buffer | URL | object, options: { encoding: string }) => Promise<string>");
   });
 
+  it("resolves an ambient type reference through a renamed named import", async () => {
+    const fsDecls = parseAmbientModule(
+      `declare module "node:fs" {
+        export class Buffer {}
+        export type PathLike = string | Buffer;
+      }`,
+      "node:fs"
+    );
+    const fsPromisesDecls = parseAmbientModule(
+      `declare module "fs/promises" {
+        import { PathLike as P } from "node:fs";
+        export function readFile(path: P): Promise<Buffer>;
+      }`,
+      "fs/promises"
+    );
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["node:fs", fsDecls],
+      ["fs/promises", fsPromisesDecls]
+    ]);
+
+    const ast = parseSource(`import { readFile } from "fs/promises"`, {}).ast!;
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+
+    // The local alias `P` must resolve to the exported `PathLike` type, proving
+    // the shared import-binding finder preserves exported-vs-local naming.
+    expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("(path: string | Buffer) => Promise<Buffer>");
+  });
+
   it("expands ambient object and interface types inside overload parameters", async () => {
     const fsDecls = parseAmbientModule(
       `declare module "node:fs" {

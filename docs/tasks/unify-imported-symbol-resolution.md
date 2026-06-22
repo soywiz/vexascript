@@ -93,12 +93,28 @@ The second DRY slice is now in place too:
 * analysis sessions now preserve that same shared imported-symbol map so LSP
   surfaces can gradually stop reading parallel maps directly.
 
+The third slice collapses the bespoke import-binding scanners:
+
+* `crossFileContext.ts` now exposes one canonical import-binding enumeration
+  (`ImportBinding`, `importStatementBindings`, `importBindings`,
+  `findImportBindingByLocalName`). Default, namespace, and renamed named
+  specifiers are derived in a single place instead of each lookup re-deriving
+  the cases.
+* `findImportForSymbolNode` and `findModuleReceiverImport` now read from that
+  shared enumeration.
+* `importedDeclarations.ts` deleted its private `findAmbientImportedTypeReference`
+  duplicate and resolves ambient imported type references through the shared
+  finder, so ambient type-reference resolution now follows default/namespace
+  imports consistently (previously only named specifiers).
+
 The remaining work is mostly cleanup and further DRY reduction:
 
 * hover should be fed from the same shared imported-symbol record, not only
   from downstream analysis/display fallbacks
-* remaining bespoke navigation/type bridges should be collapsed into the same
-  resolution model where possible
+* the inline import scans inside `resolveNodeModuleNamedImportType` and
+  `resolveAmbientQualifiedImportedType` still carry their own traversal because
+  they need export-statement unwrapping / namespace-only matching; revisit
+  whether the shared enumeration can absorb them without changing semantics
 
 ## Related Files
 
