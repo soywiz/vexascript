@@ -27,7 +27,7 @@
     "vscodeext:package": "pnpm --dir plugins/vscode run package",
     "website:build": "pnpm --dir website build",
     "website": "pnpm --dir website dev",
-    "website:deploy": "git push -u origin HEAD:web",
+    "website:deploy": "git push origin HEAD:web",
     "package": "pnpm clean && pnpm build && pnpm pack"
   },
   "dependencies": {
