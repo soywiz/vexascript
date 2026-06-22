@@ -68,6 +68,10 @@ describe("website project", () => {
     expect(playgroundPage.includes("requestAnimationFrame")).toBe(false);
     expect(samplesPage.includes("<h3>Cascade operator</h3>")).toBe(true);
     expect(samplesPage.includes("..drawRoundedRect(-110, -64, 220, 128, 28)")).toBe(true);
+    expect(samplesPage.includes("<h3>Index operator overloads</h3>")).toBe(true);
+    expect(samplesPage.includes("operator[]=(value: T, x: int, y: int)")).toBe(true);
+    expect(samplesPage.includes("<h3>Property references</h3>")).toBe(true);
+    expect(samplesPage.includes("var x by xRef")).toBe(true);
     expect(syntaxPage.includes('class="doc-shell"')).toBe(true);
     expect(cliPage.includes("<code>bundle</code>")).toBe(true);
     expect(cliPage.includes("<code>serve</code>")).toBe(true);

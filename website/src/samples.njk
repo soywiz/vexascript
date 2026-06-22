@@ -7,7 +7,7 @@ permalink: /samples.html
   <div class="section-heading">
     <p class="eyebrow">Samples</p>
     <h1>Patterns that teach the language</h1>
-    <p class="lead">Focused VexaScript snippets covering operator overloads, delegates, sync functions, ranges, extensions, and more.</p>
+    <p class="lead">Focused VexaScript snippets covering operator overloads, indexers, property references, delegates, sync functions, ranges, extensions, and more.</p>
   </div>
 
   <h2 class="samples-group-heading">Classes &amp; Objects</h2>
@@ -21,6 +21,34 @@ class Vec2(val x: number, val y: number) {
   operator-(other: Vec2) => Vec2(x - other.x, y - other.y)
 }
 Vec2(1, 2) + Vec2(3, 4)
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Index operator overloads</h3>
+      <p>Classes can overload <code>[]</code> and <code>[]=</code> with one or more index arguments, including rest dimensions.</p>
+{% highlightVexaScript %}
+class Grid<T> {
+  var data: T[] = []
+
+  operator[](x: int, y: int): T {
+    return data[y * 10 + x]
+  }
+
+  operator[]=(value: T, x: int, y: int) {
+    data[y * 10 + x] = value
+  }
+}
+
+class PathKey {
+  operator[](...dimensions: int[]): string {
+    return dimensions.join(":")
+  }
+}
+
+val grid = Grid<string>()
+grid[2, 4] = "selected"
+val cell = grid[2, 4]
+val key = PathKey()[2, 4, 8]
 {% endhighlightVexaScript %}
     </article>
     <article class="card">
@@ -96,6 +124,32 @@ total = observed + 2
 source = 5
 total += observed
 total++
+{% endhighlightVexaScript %}
+    </article>
+    <article class="card">
+      <h3>Property references</h3>
+      <p><code>expr::field</code> creates a live <code>Property&lt;T&gt;</code> reference with <code>name</code> and <code>value</code>, so it works with delegates and APIs that animate or bind properties.</p>
+{% highlightVexaScript %}
+class Slider(var x: number)
+
+class TweenTarget(val property: Property<number>, val src: number, val dst: number)
+
+fun Property<number>.operator[](src: number, dst: number): TweenTarget {
+  return TweenTarget(this, src, dst)
+}
+
+fun tween(target: TweenTarget) {
+  target.property.value = target.dst
+}
+
+val slider = Slider(5)
+val xRef = slider::x
+var x by xRef
+
+x += 10
+tween(slider::x[0, 100])
+
+console.log(`${xRef.name}:${xRef.value}`)
 {% endhighlightVexaScript %}
     </article>
   </div>
