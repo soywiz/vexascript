@@ -91,6 +91,35 @@ fun useState(value: number) {
   return [() => value, (newValue: number) => { value = newValue }]
 }
 
+class Grid {
+  var cells: number[] = [0, 0, 0, 0]
+
+  operator[](x: int, y: int): number {
+    return cells[y * 2 + x]
+  }
+
+  operator[]=(value: number, x: int, y: int) {
+    cells[y * 2 + x] = value
+  }
+}
+
+class PathKey {
+  operator[](...dimensions: int[]): string {
+    return dimensions.join(":")
+  }
+}
+
+class Slider(var x: number)
+
+class TweenTarget(val property: Property<number>, val src: number, val dst: number)
+
+fun Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
+
+fun tween(target: TweenTarget): string {
+  target.property.value = target.dst
+  return `${target.property.name}:${target.src}->${target.property.value}`
+}
+
 fun withTailLambda(values: number[], transform: (value: number) => number): string {
   return values.map(transform).join(",")
 }
@@ -132,9 +161,21 @@ const configuredCounter = Counter()
   ..increment()
   ..increment(2)
 var state by useState(2)
+const grid = Grid()
+const pathKey = PathKey()[2, 3, 4]
+const slider = Slider(5)
+const sliderProperty = slider::x
+const initialSlider = sliderProperty.value
 
 state++
 state += 3
+grid[1, 0] = 9
+grid[0, 1] = 4
+sliderProperty.value = 10
+var boundSlider by sliderProperty
+boundSlider += 5
+const afterDelegate = boundSlider
+const tweenLabel = tween(slider::x[0, 100])
 
 let { name : string, describe :: makeDescription } = describedThing
 let [head : string, , third = "third"] = ["first", , "actual"]
@@ -170,6 +211,8 @@ console.log(`class:${thing.description}:${makeDescription()}:${point.label}:${mo
 console.log(`counter:${counter.increment(2)}:${[...counter.values()].join("|")}:${counter.id}:${counter.service}`)
 console.log(`chain:${configuredCounter.value}:${configuredCounter.service}`)
 console.log(`delegates:${state}`)
+console.log(`indexers:${grid[1, 0]}:${grid[0, 1]}:${grid[1, 0] + grid[0, 1]}:${pathKey}`)
+console.log(`propertyRefs:${sliderProperty.name}:${initialSlider}:${afterDelegate}:${tweenLabel}:${slider.x}`)
 console.log(`destructure:${head}:${third}:${unpack({ name: sampleName, describe: function(): string { return thing.description }, tag: "tag" } as Described & { tag: string }, ["a", "b", "c", "d"])}:${objectLiteral.method()}`)
 console.log(`expressions:${arrayLiteral.length}:${arrayLiteral[1] === undefined}:${regex.test("Ada")}:${maybeObject?.nested?.value}:${asserted}:${delete objectLiteral[dynamicKey]}`)
 console.log(`operators:${assign}:${unary}:${binary}:${conditional}:${commaValue}:${"score" in objectLiteral}:${point instanceof Point}:${point is Point}`)
