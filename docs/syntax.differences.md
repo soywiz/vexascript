@@ -272,6 +272,14 @@ val item = multi[1, 2, 3]
 multi[1, 2, 3] = item
 ```
 
+Extension index operators can also target `Property<T>` values produced by property references:
+
+```vexa
+fun Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
+
+tween(view::x[0, 100], time: 1.seconds)
+```
+
 TypeScript has no operator overloading, so equivalent code must use named methods such as `get(x, y)` and `set(value, x, y)`.
 
 ### Class interface delegates
@@ -339,10 +347,27 @@ The delegate shape determines the accessor logic:
 |---|---|---|
 | `[value, setter]` | first element | call second element |
 | `[getter, setter]` | call first | call second |
+| `Property<T>` from `expr::field` | `.value` getter | `.value = ...` setter |
 | `{ value: T }` | `.value` | `.value = ...` |
 | `() => T` | call function | — |
 
 TypeScript has no delegated variable syntax.
+
+### Property references
+
+`expr::field` captures a concrete property as `Property<T>`. At runtime the receiver is evaluated once and the property reference exposes `name: string` plus a get/set `value: T` property. It is intentionally different from the `::` used inside destructuring patterns: in expression position it creates a bindable property reference, while in object binding patterns it renames a source property.
+
+```vexa
+class View(var x: number)
+
+val view = View(0)
+val property = view::x
+property.value = 1
+var x by property
+x = 100 // writes view.x
+```
+
+TypeScript has no direct property-reference expression. The closest equivalent is hand-written getter/setter closures.
 
 ## Numeric types
 

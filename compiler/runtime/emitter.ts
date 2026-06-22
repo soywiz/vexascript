@@ -51,6 +51,7 @@ import type {
   ObjectSpreadProperty,
   OverloadableOperator,
   Program,
+  PropertyReferenceExpression,
   RangeExpression,
   RegExpLiteral,
   SatisfiesExpression,
@@ -375,6 +376,7 @@ function expressionPrecedence(expression: Expr): number {
     case "UpdateExpression":
       return (expression as UpdateExpression).prefix ? PREC_UNARY : PREC_UPDATE;
     case "MemberExpression":
+    case "PropertyReferenceExpression":
     case "CallExpression":
     case "NewExpression":
     case "RangeExpression":
@@ -785,6 +787,9 @@ function variableDelegateKind(type: AnalysisType | undefined, program: Program):
   if (type?.kind === "function") {
     return "function";
   }
+  if (type?.kind === "named" && type.name === "Property" && (type.typeArguments?.length ?? 0) === 1) {
+    return "objectValue";
+  }
   if (type?.kind === "tuple") {
     const first = type.elements[0];
     if (first?.kind === "function") {
@@ -848,6 +853,13 @@ function emitVariableDelegateWrite(delegate: RuntimeVariableDelegateInfo, valueT
     case "unknownTuple":
       return `${delegate.backingName}[1](${valueText})`;
   }
+}
+
+function emitPropertyReferenceExpression(propertyReference: PropertyReferenceExpression): string {
+  const receiverName = nextGeneratedSymbol("$$propertyReceiver");
+  const receiverText = emitExpression(propertyReference.object, PREC_ASSIGNMENT, "right");
+  const propertyName = propertyReference.property.name;
+  return `((${receiverName}) => ({name: ${JSON.stringify(propertyName)}, get value() { return ${receiverName}.${propertyName}; }, set value(__$propertyValue) { ${receiverName}.${propertyName} = __$propertyValue; }}))(${receiverText})`;
 }
 
 function variableDelegateForTarget(target: Expr): RuntimeVariableDelegateInfo | null {
@@ -1283,6 +1295,8 @@ function emitExpression(expression: Expr, parentPrecedence: number = 0, side: "l
         return "undefined";
       case "Identifier":
         return emitIdentifier(expression as Identifier);
+      case "PropertyReferenceExpression":
+        return emitPropertyReferenceExpression(expression as PropertyReferenceExpression);
       case "CommaExpression": {
         const comma = expression as CommaExpression;
         return comma.expressions.map((child) => emitExpression(child, PREC_ASSIGNMENT)).join(", ");

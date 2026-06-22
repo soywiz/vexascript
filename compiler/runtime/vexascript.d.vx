@@ -1,2 +1,7 @@
 annotation JsName(val name: string)
 annotation JsInline(val replacement: string)
+
+declare interface Property<T> {
+  name: string
+  value: T
+}

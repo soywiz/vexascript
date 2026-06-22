@@ -736,6 +736,56 @@ let after = bind`));
     });
   });
 
+  describe("property reference expressions", () => {
+    it("types property references as Property<T> and accepts them as delegated variables", () => {
+      const source = dedent`
+        class View(var x: number)
+        val view = View(1)
+        val ref = view::x
+        val refName: string = ref.name
+        val refValue: number = ref.value
+        ref.value = 2
+        var x by ref
+        val result = x
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      const refStatement = ast.body[2] as VarStatement;
+      const refType = analysis.getExpressionTypes().get(refStatement.initializer!);
+      const symbols = symbolsOfVisibleSymbolsAt(source, 7, 5);
+
+      expect(messages).toEqual([]);
+      expect(refType ? typeToString(refType) : "unknown").toBe("Property<number>");
+      expect(symbols.get("x")?.valueType).toBe("number");
+      expect(symbols.get("refName")?.valueType).toBe("string");
+      expect(symbols.get("refValue")?.valueType).toBe("number");
+      expect(symbols.get("result")?.valueType).toBe("number");
+    });
+
+    it("resolves extension index operators on property references", () => {
+      const source = dedent`
+        class View(var x: number)
+        class TweenTarget(val property: Property<number>, val src: number, val dst: number)
+        fun Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
+        fun tween(target: TweenTarget, time: number): void { }
+        val view = View(1)
+        val target = view::x[0, 100]
+        tween(view::x[0, 100], time: 1)
+
+`;
+      const ast = parseFile(tokenizeReader(source));
+      const analysis = new Analysis(ast);
+      const messages = analysis.getIssues().map((issue) => issue.message);
+      const targetStatement = ast.body[5] as VarStatement;
+      const targetType = analysis.getExpressionTypes().get(targetStatement.initializer!);
+
+      expect(messages).toEqual([]);
+      expect(targetType ? typeToString(targetType) : "unknown").toBe("TweenTarget");
+    });
+  });
+
   describe("operator arity validation", () => {
     it("reports an error when operator* has 0 parameters", () => {
       const source = dedent`

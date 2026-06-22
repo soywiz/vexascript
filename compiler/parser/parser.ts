@@ -78,6 +78,7 @@ import {
     NamedArgument,
     OverloadableOperator,
     Program,
+    PropertyReferenceExpression,
     RangeExpression,
     ReturnStatement,
     RegExpLiteral,
@@ -3070,6 +3071,22 @@ export class Parser {
         return this.parsePostfixFrom(this.parsePrimary());
     }
 
+    private parsePropertyReferencePostfix(receiver: Expr, operator: Token): Expr {
+        this.tokens.skip();
+        const property = this.tokens.read();
+        if (property?.type !== "identifier") {
+            this.fail(
+                "Expected identifier after '::'",
+                this.tokenAt(property?.type === "eof" ? operator : property ?? operator)
+            );
+        }
+        return this.attachNodeBounds({
+            kind: "PropertyReferenceExpression",
+            object: receiver,
+            property: this.buildIdentifierFromToken(property)
+        } as PropertyReferenceExpression, receiver.firstToken, property);
+    }
+
     private parsePostfixFrom(initialExpr: Expr): Expr {
         let expr = initialExpr;
         let pendingTypeArguments: Identifier[] | undefined;
@@ -3116,6 +3133,14 @@ export class Parser {
                     optional: true
                 } as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "::") {
+                if (hasLineBreakBetween(expr.lastToken, token)) {
+                    break;
+                }
+                expr = this.parsePropertyReferencePostfix(expr, token);
                 continue;
             }
 
@@ -3338,6 +3363,14 @@ export class Parser {
                     optional: true
                 } as MemberExpression;
                 this.attachNodeBounds(expr as MemberExpression, (expr as MemberExpression).object.firstToken, close);
+                continue;
+            }
+
+            if (token?.type === "symbol" && token.value === "::") {
+                if (hasLineBreakBetween(expr.lastToken, token)) {
+                    break;
+                }
+                expr = this.parsePropertyReferencePostfix(expr, token);
                 continue;
             }
 

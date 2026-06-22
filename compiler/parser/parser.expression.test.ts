@@ -862,6 +862,25 @@ describe("parseExpression", () => {
         });
     });
 
+    it("builds an AST for property reference expressions", () => {
+        expect(parseExpression(tokenizeReader("view::x[0, 100]"))).toEqual({
+            kind: "MemberExpression",
+            object: {
+                kind: "PropertyReferenceExpression",
+                object: { kind: "Identifier", name: "view" },
+                property: { kind: "Identifier", name: "x" }
+            },
+            property: {
+                kind: "CommaExpression",
+                expressions: [
+                    { kind: "IntLiteral", value: 0 },
+                    { kind: "IntLiteral", value: 100 }
+                ]
+            },
+            computed: true
+        });
+    });
+
     it("parses private member access", () => {
         expect(parseExpression(tokenizeReader("this.#value"), { language: "typescript" })).toEqual({
             kind: "MemberExpression",

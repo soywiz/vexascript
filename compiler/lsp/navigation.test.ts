@@ -367,6 +367,29 @@ describe("lsp navigation", () => {
     });
   });
 
+  it("provides hover and definition for property reference fields", () => {
+    const marked = sourceWithCursor(dedent`
+      class View(var x: number)
+      val view = View(1)
+      val ref = view::^^^x
+    `);
+    const ast = parseFile(tokenizeReader(marked.source));
+    const analysis = new Analysis(ast);
+
+    expect(createHover(analysis, marked.line, marked.character, ast)?.contents).toEqual({
+      kind: "plaintext",
+      value: "variable x: number"
+    });
+
+    expect(createDefinitionLocation(analysis, URI, marked.line, marked.character, ast)).toEqual({
+      uri: URI,
+      range: {
+        start: { line: 0, character: 15 },
+        end: { line: 0, character: 16 }
+      }
+    });
+  });
+
   it("supports prepare rename and rename workspace edits", () => {
     const source = "fun demo() {\n  let local = 1\n  return local\n}\n";
     const analysis = analysisOf(source);

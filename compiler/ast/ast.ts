@@ -161,6 +161,12 @@ export interface MemberExpression extends Node {
     nonNullAsserted?: boolean
 }
 
+export interface PropertyReferenceExpression extends Node {
+    kind: "PropertyReferenceExpression"
+    object: Expr
+    property: Identifier
+}
+
 export interface CallExpression extends Node {
     kind: "CallExpression"
     callee: Expr

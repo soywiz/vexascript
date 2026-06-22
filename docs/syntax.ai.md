@@ -15,6 +15,15 @@ Destructuring: `:` = type annotation, `::` = rename (reversed from TS):
 let { name :: alias, age: number } = obj
 ```
 
+Property references: `expr::field` captures a bindable `Property<T>` for the field. The receiver is evaluated once, and the emitted value has `name: string` plus a get/set `value: T` property compatible with `by`.
+
+```vexa
+val property = view::x
+property.value = 1
+var x by property
+tween(view::x[0, 100], time: 1.seconds) // if Property<number>.operator[] is defined
+```
+
 ## Functions
 
 ```vexa
@@ -83,6 +92,12 @@ class MultiArray<T>(val fallback: T) {
 
 val cell = array[1, 2]
 array[1, 2] = "next"
+```
+
+Extension index operators may target `Property<T>`:
+
+```vexa
+fun Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
 ```
 
 Interface delegation via `by`:

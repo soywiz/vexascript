@@ -45,6 +45,7 @@ Variables may use a Kotlin-like `by` delegate instead of an initializer. The del
 
 - `[value, setter]` reads from the first tuple element and writes with the second element as a `(newValue) => void` setter.
 - `[getter, setter]` calls a zero-argument getter for reads and calls the setter for writes.
+- `Property<T>` values produced by property references (`expr::field`) read and write through the delegate object's `value` property.
 - `{ value: T }` reads and writes the delegate object's `value` property.
 - A zero-argument function delegate is read by calling the function.
 
@@ -59,6 +60,28 @@ var count by useState(0)
 count = count + 1
 count += 1
 count++
+```
+
+### Property references
+
+`expr::field` captures a reference to a concrete property. Its semantic type is `Property<T>`, where `T` is the property type. At runtime the receiver expression is evaluated once and lowered to an object with `name: string` and a get/set `value: T` property:
+
+```vexa
+class View(var x: number)
+
+val view = View(0)
+val property = view::x
+property.value = 1
+var x by property
+x = 42 // writes view.x
+```
+
+Because `Property<T>` is a normal named type, extension operators can target property references. This makes property references useful for APIs that animate or bind a property without immediately reading it:
+
+```vexa
+fun Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
+
+tween(view::x[0, 100], time: 1.seconds)
 ```
 
 ### Destructuring declarations
@@ -416,6 +439,14 @@ class MultiArray<T>(val fallback: T) {
 
 let item = multi[1, 2, 3]
 multi[1, 2, 3] = item
+```
+
+The same extension index operators can be declared on `Property<T>`, so property-reference expressions can act like lightweight bindable values:
+
+```my
+fun Property<number>.operator[](src: number, dst: number): TweenTarget => TweenTarget(this, src, dst)
+
+tween(view::x[0, 100], time: 1.seconds)
 ```
 
 Named extension methods follow the same scheme, so a call lowers to a plain function call with the receiver passed first:

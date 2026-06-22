@@ -994,6 +994,43 @@ c += 5`;
     expect(result.code).toContain("let result = __$delegate_fromObject.value;");
   });
 
+  it("lowers property references to delegate-compatible value objects", () => {
+    const source = [
+      "class View(var x: number)",
+      "val view = View(1)",
+      "val property = view::x",
+      "var x by property",
+      "x += 2",
+      "let result = x",
+      "let direct = property.value"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("const property = (($$propertyReceiver_");
+    expect(result.code).toContain("name: \"x\"");
+    expect(result.code).toContain("get value() { return $$propertyReceiver_");
+    expect(result.code).toContain("set value(__$propertyValue) { $$propertyReceiver_");
+    expect(result.code).toContain("__$delegate_x.value = __$delegate_x.value + 2;");
+    expect(result.code).toContain("let result = __$delegate_x.value;");
+    expect(result.code).toContain("let direct = property.value;");
+  });
+
+  it("lowers property reference index operator extensions", () => {
+    const source = [
+      "class View(var x: number)",
+      "fun Property<number>.operator[](src: number, dst: number): string => \"tween\"",
+      "val view = View(1)",
+      "val result = view::x[0, 100]"
+    ].join("\n");
+
+    const result = transpile(source);
+
+    expect(result.errors).toEqual([]);
+    expect(result.code).toContain("Property$$operator$get$$number$$number(");
+  });
+
   it("emits for await when iterating a sync generator result through the full pipeline", () => {
     const source = [
       "sync fun * produce() {",

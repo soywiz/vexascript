@@ -110,23 +110,27 @@ export class Binder {
   }
 
   bind(): BoundAnalysis {
+    const vexaRuntimeProgram = getVexaScriptRuntimeProgram();
     // External (imported) declarations are collected first so that same-file
     // declarations override them on name clashes.
     this.collectClassStatements(this.externalDeclarations);
     this.collectClassStatements(this.ambientDeclarations);
+    this.collectClassStatements(vexaRuntimeProgram.body);
     this.collectClassStatements(this.program.body);
     // Interface declarations (including ambient runtime types such as `Array`)
     // feed implicit receiver member access inside extension methods/properties,
     // e.g. the `length` reference in `val <T> Array<T>.doubledLength => length`.
     this.collectInterfaceStatements(getEcmaScriptRuntimeProgram().body);
+    this.collectInterfaceStatements(vexaRuntimeProgram.body);
     this.collectInterfaceStatements(this.externalDeclarations);
     this.collectInterfaceStatements(this.ambientDeclarations);
     this.collectInterfaceStatements(this.program.body);
+    this.collectExtensionStatements(vexaRuntimeProgram.body);
     this.collectExtensionStatements(this.externalDeclarations);
     this.collectExtensionStatements(this.ambientDeclarations);
     this.collectExtensionStatements(this.program.body);
     this.bindBuiltins();
-    this.bindGlobalDeclarations(getVexaScriptRuntimeProgram().body, this.rootScope, -1);
+    this.bindGlobalDeclarations(vexaRuntimeProgram.body, this.rootScope, -1);
     this.bindGlobalDeclarations(getEcmaScriptRuntimeProgram().body, this.rootScope, -1);
     this.bindGlobalDeclarations(this.ambientDeclarations, this.rootScope, -1);
     this.bindGlobalDeclarations(this.program.body, this.rootScope);
@@ -615,7 +619,7 @@ export class Binder {
     if (statement.receiverType) {
       const extensionScope = this.createScope(scope, statement);
       this.declareReceiverMembers(extensionScope, statement.receiverType.name);
-      const receiverType = this.typeFromAnnotationLoose(statement.receiverType) ?? namedType(statement.receiverType.name);
+      const receiverType = this.typeFromReceiverAnnotation(statement.receiverType, statement.receiverTypeArguments);
       this.declare(extensionScope, {
         name: "this",
         kind: "variable",
@@ -699,7 +703,7 @@ export class Binder {
     const functionScope = this.createScope(scope, statement);
     if (statement.receiverType) {
       this.declareReceiverMembers(functionScope, statement.receiverType.name);
-      const receiverType = this.typeFromAnnotationLoose(statement.receiverType) ?? namedType(statement.receiverType.name);
+      const receiverType = this.typeFromReceiverAnnotation(statement.receiverType, statement.receiverTypeArguments);
       this.declare(functionScope, {
         name: "this",
         kind: "variable",
@@ -1323,6 +1327,16 @@ export class Binder {
     return namedType(
       parsed.baseName,
       parsed.typeArguments.map((typeArgument) => this.typeFromTypeNameLoose(typeArgument))
+    );
+  }
+
+  private typeFromReceiverAnnotation(receiverType: Identifier, receiverTypeArguments?: Identifier[]): AnalysisType {
+    if (!receiverTypeArguments || receiverTypeArguments.length === 0) {
+      return this.typeFromAnnotationLoose(receiverType) ?? namedType(receiverType.name);
+    }
+    return namedType(
+      receiverType.name,
+      receiverTypeArguments.map((argument) => this.typeFromAnnotationLoose(argument) ?? UNKNOWN_TYPE)
     );
   }
 

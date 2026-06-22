@@ -45,6 +45,7 @@ import type {
   ObjectProperty,
   ObjectSpreadProperty,
   OverloadableOperator,
+  PropertyReferenceExpression,
   StringLiteral,
   SpreadExpression,
   BooleanLiteral,
@@ -150,6 +151,12 @@ type EnumResolvedValue =
   | { kind: "computed-string" }
   | { kind: "invalid" };
 
+type ExtensionPropertyInfo = {
+  type: AnalysisType;
+  receiverTypeArguments?: Identifier[];
+  typeParameterNames: string[];
+};
+
 export class TypeChecker {
   private readonly issues: CheckedAnalysis["issues"] = [];
   private readonly identifierResolutions: IdentifierResolution[] = [];
@@ -164,7 +171,7 @@ export class TypeChecker {
   private readonly functionStatementsByName: Map<string, FunctionStatement> = new Map();
   private readonly extensionOperatorsByReceiver: Map<string, FunctionStatement[]> = new Map();
   private readonly extensionMethodsByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
-  private readonly extensionPropertiesByReceiver: Map<string, Map<string, AnalysisType>> = new Map();
+  private readonly extensionPropertiesByReceiver: Map<string, Map<string, ExtensionPropertyInfo>> = new Map();
   private readonly importedExtensionPropertyNames: Set<string> = new Set();
   private readonly importedExtensionPropertyTypes: Map<string, AnalysisType> = new Map();
   private readonly importedBindingNames: Set<string> = new Set();
@@ -210,9 +217,13 @@ export class TypeChecker {
     this.collectExternalDeclarationNodes(externalDeclarations);
     this.collectFunctionStatements(runtimeProgram.body);
     this.collectClassStatements(runtimeProgram.body, this.nonExternalNamedTypeNames);
+    this.collectClassStatements(vexaRuntimeProgram.body, this.nonExternalNamedTypeNames);
     this.collectEnumStatements(runtimeProgram.body, this.nonExternalNamedTypeNames);
     this.collectInterfaceStatements(runtimeProgram.body, this.nonExternalNamedTypeNames);
+    this.collectInterfaceStatements(vexaRuntimeProgram.body, this.nonExternalNamedTypeNames);
     this.collectTypeAliasStatements(runtimeProgram.body, this.nonExternalNamedTypeNames);
+    this.collectTypeAliasStatements(vexaRuntimeProgram.body, this.nonExternalNamedTypeNames);
+    this.collectVarStatements(vexaRuntimeProgram.body, this.nonExternalNamedTypeNames);
     this.collectAnnotationStatements(vexaRuntimeProgram.body);
     // An explicit import shadows the ambient runtime declaration of the same
     // name. Drop the runtime declarations first so the imported (external)
@@ -858,104 +869,112 @@ export class TypeChecker {
 
   private visitVarStatement(statement: VarStatement, scope: Scope): void {
     if (statement.receiverType) {
-      const extensionScope = this.scopeFor(statement, scope);
-      this.resolveTypeAnnotation(statement.receiverType, extensionScope);
-      const explicitType = this.resolveTypeAnnotation(statement.typeAnnotation, extensionScope);
-      let initializerType = statement.initializer
-        ? this.visitExpression(statement.initializer, extensionScope, explicitType)
-        : UNKNOWN_TYPE;
-      if (statement.accessors && statement.accessors.length > 0) {
-        let getterType: AnalysisType | undefined;
-        let setterType: AnalysisType | undefined;
-        for (const accessor of statement.accessors) {
-          if (accessor.accessorKind === "get" && accessor.parameters.length !== 0) {
-            this.issues.push({
-              message: `Getter '${accessor.name.name}' cannot declare parameters`,
-              node: accessor.name
-            });
-          }
-          if (accessor.accessorKind === "set" && accessor.parameters.length !== 1) {
-            this.issues.push({
-              message: `Setter '${accessor.name.name}' must declare exactly one parameter`,
-              node: accessor.name
-            });
+      const receiverType = statement.receiverType;
+      const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
+      this.withTypeParameters(typeParameterNames, () => {
+        const extensionScope = this.scopeFor(statement, scope);
+        this.resolveReceiverTypeAnnotation(receiverType, statement.receiverTypeArguments, extensionScope);
+        const explicitType = this.resolveTypeAnnotation(statement.typeAnnotation, extensionScope);
+        let initializerType = statement.initializer
+          ? this.visitExpression(statement.initializer, extensionScope, explicitType)
+          : UNKNOWN_TYPE;
+        if (statement.accessors && statement.accessors.length > 0) {
+          let getterType: AnalysisType | undefined;
+          let setterType: AnalysisType | undefined;
+          for (const accessor of statement.accessors) {
+            if (accessor.accessorKind === "get" && accessor.parameters.length !== 0) {
+              this.issues.push({
+                message: `Getter '${accessor.name.name}' cannot declare parameters`,
+                node: accessor.name
+              });
+            }
+            if (accessor.accessorKind === "set" && accessor.parameters.length !== 1) {
+              this.issues.push({
+                message: `Setter '${accessor.name.name}' must declare exactly one parameter`,
+                node: accessor.name
+              });
+            }
+
+            const accessorScope = this.scopeFor(accessor, extensionScope);
+            for (const parameter of accessor.parameters) {
+              if (parameter.thisParameter === true) {
+                continue;
+              }
+              this.reportMissingParameterType(parameter);
+              const parameterType =
+                this.resolveTypeAnnotation(parameter.typeAnnotation, accessorScope) ??
+                (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, accessorScope) : UNKNOWN_TYPE);
+              this.validateRestParameterType(parameter, parameterType);
+              for (const identifier of bindingIdentifiers(parameter.name)) {
+                this.updateSymbolType(accessorScope, identifier.name, parameterType);
+              }
+            }
+
+            if (accessor.accessorKind === "get") {
+              const declaredGetterType = this.resolveTypeAnnotation(accessor.returnType, accessorScope);
+              const actualGetterType = declaredGetterType
+                ?? this.inferReturnTypeFromBlock(accessor.body);
+              getterType = actualGetterType;
+              if (
+                explicitType &&
+                actualGetterType &&
+                !isUnknownType(explicitType) &&
+                !isUnknownType(actualGetterType) &&
+                !this.isTypeAssignable(actualGetterType, explicitType)
+              ) {
+                this.reportTypeMismatch(actualGetterType, explicitType, statement.name, accessor.body);
+              }
+            } else if (accessor.accessorKind === "set") {
+              setterType = accessor.parameters[0]
+                ? this.resolveTypeAnnotation(accessor.parameters[0].typeAnnotation, accessorScope) ?? UNKNOWN_TYPE
+                : UNKNOWN_TYPE;
+            }
+
+            const accessorFlow: FlowContext = {
+              loopDepth: 0,
+              switchDepth: 0,
+              labels: [],
+              expectedReturnType: accessor.accessorKind === "set"
+                ? builtinType("void")
+                : explicitType ?? getterType ?? UNKNOWN_TYPE,
+              inAsync: false,
+              inGenerator: false
+            };
+            for (const bodyStatement of accessor.body.body) {
+              this.visitStatement(bodyStatement, accessorScope, accessorFlow);
+            }
           }
 
-          const accessorScope = this.scopeFor(accessor, extensionScope);
-          for (const parameter of accessor.parameters) {
-            if (parameter.thisParameter === true) {
-              continue;
-            }
-            this.reportMissingParameterType(parameter);
-            const parameterType =
-              this.resolveTypeAnnotation(parameter.typeAnnotation, accessorScope) ??
-              (parameter.defaultValue ? this.visitExpression(parameter.defaultValue, accessorScope) : UNKNOWN_TYPE);
-            this.validateRestParameterType(parameter, parameterType);
-            for (const identifier of bindingIdentifiers(parameter.name)) {
-              this.updateSymbolType(accessorScope, identifier.name, parameterType);
-            }
+          if (
+            explicitType &&
+            setterType &&
+            !isUnknownType(explicitType) &&
+            !isUnknownType(setterType) &&
+            !this.isTypeAssignable(setterType, explicitType)
+          ) {
+            this.reportTypeMismatch(setterType, explicitType, statement.name, statement.name);
           }
 
-          if (accessor.accessorKind === "get") {
-            const declaredGetterType = this.resolveTypeAnnotation(accessor.returnType, accessorScope);
-            const actualGetterType = declaredGetterType
-              ?? this.inferReturnTypeFromBlock(accessor.body);
-            getterType = actualGetterType;
-            if (
-              explicitType &&
-              actualGetterType &&
-              !isUnknownType(explicitType) &&
-              !isUnknownType(actualGetterType) &&
-              !this.isTypeAssignable(actualGetterType, explicitType)
-            ) {
-              this.reportTypeMismatch(actualGetterType, explicitType, statement.name, accessor.body);
-            }
-          } else if (accessor.accessorKind === "set") {
-            setterType = accessor.parameters[0]
-              ? this.resolveTypeAnnotation(accessor.parameters[0].typeAnnotation, accessorScope) ?? UNKNOWN_TYPE
-              : UNKNOWN_TYPE;
-          }
-
-          const accessorFlow: FlowContext = {
-            loopDepth: 0,
-            switchDepth: 0,
-            labels: [],
-            expectedReturnType: accessor.accessorKind === "set"
-              ? builtinType("void")
-              : explicitType ?? getterType ?? UNKNOWN_TYPE,
-            inAsync: false,
-            inGenerator: false
-          };
-          for (const bodyStatement of accessor.body.body) {
-            this.visitStatement(bodyStatement, accessorScope, accessorFlow);
-          }
+          initializerType = explicitType ?? getterType ?? setterType ?? UNKNOWN_TYPE;
         }
-
         if (
           explicitType &&
-          setterType &&
+          statement.initializer &&
           !isUnknownType(explicitType) &&
-          !isUnknownType(setterType) &&
-          !this.isTypeAssignable(setterType, explicitType)
+          !isUnknownType(initializerType) &&
+          !this.isTypeAssignable(initializerType, explicitType)
         ) {
-          this.reportTypeMismatch(setterType, explicitType, statement.name, statement.name);
+          this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer ?? statement.delegate);
         }
-
-        initializerType = explicitType ?? getterType ?? setterType ?? UNKNOWN_TYPE;
-      }
-      if (
-        explicitType &&
-        statement.initializer &&
-        !isUnknownType(explicitType) &&
-        !isUnknownType(initializerType) &&
-        !this.isTypeAssignable(initializerType, explicitType)
-      ) {
-        this.reportTypeMismatch(initializerType, explicitType, statement.name, statement.initializer ?? statement.delegate);
-      }
-      const propertyType = explicitType ?? initializerType;
-      const properties = this.extensionPropertiesByReceiver.get(statement.receiverType.name) ?? new Map<string, AnalysisType>();
-      properties.set(bindingIdentifiers(statement.name)[0]!.name, propertyType);
-      this.extensionPropertiesByReceiver.set(statement.receiverType.name, properties);
+        const propertyType = explicitType ?? initializerType;
+        this.setExtensionProperty(
+          receiverType,
+          statement.receiverTypeArguments,
+          bindingIdentifiers(statement.name)[0]!.name,
+          propertyType,
+          typeParameterNames
+        );
+      }, this.typeParameterConstraintMap(statement.typeParameters ?? [], scope));
       return;
     }
     if (statement.declarations && statement.declarations.length > 0) {
@@ -1245,7 +1264,6 @@ export class TypeChecker {
     return UNKNOWN_TYPE;
   }
 
-
   private updateBindingSymbolTypes(scope: Scope, binding: BindingName, sourceType: AnalysisType): void {
     if (binding.kind === "Identifier") {
       this.updateSymbolType(scope, binding.name, sourceType);
@@ -1412,7 +1430,7 @@ export class TypeChecker {
       this.withTypeParameters(typeParameterNames, () => {
         const functionScope = this.scopeFor(statement, scope);
         if (statement.receiverType) {
-          this.resolveTypeAnnotation(statement.receiverType, functionScope);
+          this.resolveReceiverTypeAnnotation(statement.receiverType, statement.receiverTypeArguments, functionScope);
         }
         const declaredReturnType = this.resolveTypeAnnotation(
           statement.returnType,
@@ -2360,6 +2378,22 @@ export class TypeChecker {
         }
         result = this.resolveOptionalAccessType(this.resolveKnownMemberType(member, objectType) ?? UNKNOWN_TYPE, member.optional === true);
         result = this.narrowedExpressionType(scope, member) ?? result;
+        break;
+      }
+      case "PropertyReferenceExpression": {
+        const propertyReference = expression as PropertyReferenceExpression;
+        const member = this.memberExpressionForPropertyReference(propertyReference);
+        const rawObjectType = this.visitExpression(propertyReference.object, scope);
+        this.validateNullableMemberAccess(member, rawObjectType);
+        this.validateKnownMemberAccess(member, rawObjectType, scope);
+        const memberSymbol = this.resolveKnownMemberSymbol(member, rawObjectType);
+        if (memberSymbol) {
+          this.identifierResolutions.push({
+            identifier: propertyReference.property,
+            symbol: memberSymbol
+          });
+        }
+        result = namedType("Property", [this.resolveKnownMemberType(member, rawObjectType) ?? UNKNOWN_TYPE]);
         break;
       }
       case "CallExpression": {
@@ -7478,6 +7512,21 @@ export class TypeChecker {
     this.validateTypeParameterConstraints(typeParameters, typeArguments, node, scope);
   }
 
+  private resolveReceiverTypeAnnotation(
+    receiverType: Identifier,
+    receiverTypeArguments: Identifier[] | undefined,
+    scope: Scope
+  ): AnalysisType {
+    if (!receiverTypeArguments || receiverTypeArguments.length === 0) {
+      return this.resolveTypeAnnotation(receiverType, scope) ?? namedType(receiverType.name);
+    }
+    const typeArguments = receiverTypeArguments.map((argument) =>
+      this.resolveTypeAnnotation(argument, scope) ?? UNKNOWN_TYPE
+    );
+    this.validateNamedTypeArgumentConstraints(receiverType.name, typeArguments, receiverType, scope);
+    return namedType(receiverType.name, typeArguments);
+  }
+
   private typeParametersForNamedType(typeName: string): TypeParameter[] | null {
     return this.classStatementsByName.get(typeName)?.typeParameters
       ?? this.interfaceStatementsByName.get(typeName)?.typeParameters
@@ -8329,7 +8378,7 @@ export class TypeChecker {
     }
     if (type.kind === "named") {
       const expanded = this.expandTypeAliases(type);
-      if (expanded !== type) {
+      if (!isSameType(expanded, type)) {
         return this.hasReadonlyProperty(expanded, propertyName);
       }
       const members = this.resolveNamedTypeMembers(type);
@@ -9124,15 +9173,42 @@ export class TypeChecker {
   private collectExtensionProperties(statements: readonly Statement[], fallbackScope: Scope): void {
     for (const statement of declarationIndexForStatements(statements).vars) {
       if (!statement.receiverType) continue;
-      const extensionScope = this.scopeFor(statement, fallbackScope);
-      const propertyType = this.resolveTypeAnnotation(statement.typeAnnotation, extensionScope)
-        ?? this.inferExternalExtensionPropertyType(statement.initializer);
-      const propertyName = bindingIdentifiers(statement.name)[0]?.name;
-      if (!propertyName) continue;
-      const properties = this.extensionPropertiesByReceiver.get(statement.receiverType.name) ?? new Map<string, AnalysisType>();
-      properties.set(propertyName, propertyType);
-      this.extensionPropertiesByReceiver.set(statement.receiverType.name, properties);
+      const receiverType = statement.receiverType;
+      const typeParameterNames = statement.typeParameters?.map((parameter) => parameter.name.name) ?? [];
+      this.withTypeParameters(typeParameterNames, () => {
+        const extensionScope = this.scopeFor(statement, fallbackScope);
+        const propertyType = this.resolveTypeAnnotation(statement.typeAnnotation, extensionScope)
+          ?? this.inferExternalExtensionPropertyType(statement.initializer);
+        const propertyName = bindingIdentifiers(statement.name)[0]?.name;
+        if (!propertyName) return;
+        this.setExtensionProperty(
+          receiverType,
+          statement.receiverTypeArguments,
+          propertyName,
+          propertyType,
+          typeParameterNames
+        );
+      }, this.typeParameterConstraintMap(statement.typeParameters ?? [], fallbackScope));
     }
+  }
+
+  private setExtensionProperty(
+    receiverType: Identifier,
+    receiverTypeArguments: Identifier[] | undefined,
+    propertyName: string,
+    propertyType: AnalysisType,
+    typeParameterNames: string[]
+  ): void {
+    const properties = this.extensionPropertiesByReceiver.get(receiverType.name) ?? new Map<string, ExtensionPropertyInfo>();
+    const info: ExtensionPropertyInfo = {
+      type: propertyType,
+      typeParameterNames
+    };
+    if (receiverTypeArguments && receiverTypeArguments.length > 0) {
+      info.receiverTypeArguments = receiverTypeArguments;
+    }
+    properties.set(propertyName, info);
+    this.extensionPropertiesByReceiver.set(receiverType.name, properties);
   }
 
   private inferExternalExtensionPropertyType(initializer: Expr | undefined): AnalysisType {
@@ -9202,10 +9278,55 @@ export class TypeChecker {
   private resolveExtensionPropertyType(objectType: AnalysisType, propertyName: string): AnalysisType | null {
     const receiverNames = this.extensionReceiverNames(objectType);
     for (const receiverName of receiverNames) {
-      const type = this.extensionPropertiesByReceiver.get(receiverName)?.get(propertyName);
-      if (type) return type;
+      const property = this.extensionPropertiesByReceiver.get(receiverName)?.get(propertyName);
+      if (property) {
+        return this.specializeExtensionPropertyType(objectType, receiverName, property);
+      }
     }
     return null;
+  }
+
+  private specializeExtensionPropertyType(
+    objectType: AnalysisType,
+    receiverName: string,
+    property: ExtensionPropertyInfo
+  ): AnalysisType {
+    if (property.typeParameterNames.length === 0 || !property.receiverTypeArguments) {
+      return property.type;
+    }
+    const receiverTypeArguments = this.extensionReceiverTypeArguments(objectType, receiverName);
+    if (receiverTypeArguments.length === 0) {
+      return property.type;
+    }
+
+    const localTypeParameterNames = new Set(property.typeParameterNames);
+    const substitutions = new Map<string, AnalysisType>();
+    for (let index = 0; index < property.receiverTypeArguments.length; index += 1) {
+      const receiverArgument = property.receiverTypeArguments[index];
+      if (!receiverArgument || !localTypeParameterNames.has(receiverArgument.name)) {
+        continue;
+      }
+      substitutions.set(receiverArgument.name, receiverTypeArguments[index] ?? namedType(receiverArgument.name));
+    }
+    return substitutions.size > 0
+      ? this.substituteTypeParameters(property.type, substitutions)
+      : property.type;
+  }
+
+  private extensionReceiverTypeArguments(objectType: AnalysisType, receiverName: string): AnalysisType[] {
+    if (objectType.kind === "array" && receiverName === "Array") {
+      return [objectType.elementType];
+    }
+    if (objectType.kind === "tuple" && receiverName === "Array") {
+      if (objectType.elements.length === 0) {
+        return [UNKNOWN_TYPE];
+      }
+      return [objectType.elements.length === 1 ? objectType.elements[0]! : combineTypes(objectType.elements)];
+    }
+    if (objectType.kind === "named" && objectType.name === receiverName) {
+      return objectType.typeArguments ?? [];
+    }
+    return [];
   }
 
 
@@ -9413,6 +9534,17 @@ export class TypeChecker {
       return type;
     }
     return unionType([type, builtinType("undefined")]);
+  }
+
+  private memberExpressionForPropertyReference(propertyReference: PropertyReferenceExpression): MemberExpression {
+    return {
+      kind: "MemberExpression",
+      object: propertyReference.object,
+      property: propertyReference.property,
+      computed: false,
+      firstToken: propertyReference.firstToken,
+      lastToken: propertyReference.lastToken
+    } as MemberExpression;
   }
 
   private validateNullableMemberAccess(member: MemberExpression, objectType: AnalysisType): void {

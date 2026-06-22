@@ -175,8 +175,10 @@ console.log(result.y)
   });
   it("executes generic extension methods and properties on Array receivers", () => {
     const source = `fun <T> Array<T>.second(): T { return this[1] }
+val <T> Array<T>.firstItem: T => this[0]
 val <T> Array<T>.doubledLength => length * 2
 let xs = [10, 20, 30]
+console.log(xs.firstItem)
 console.log(xs.second())
 console.log(xs.doubledLength)
 console.log([].doubledLength)
@@ -184,7 +186,26 @@ console.log([].doubledLength)
 
     const logs = executeTranspiled(source);
 
-    expect(logs).toEqual([[20], [6], [0]]);
+    expect(logs).toEqual([[10], [20], [6], [0]]);
+  });
+
+  it("executes property references as value delegates", () => {
+    const source = `class View(var x: number)
+let view = View(1)
+let property = view::x
+console.log(property.name)
+console.log(property.value)
+property.value = 3
+console.log(view.x)
+var delegated by property
+delegated += 4
+console.log(property.value)
+console.log(view.x)
+`;
+
+    const logs = executeTranspiled(source);
+
+    expect(logs).toEqual([["x"], [1], [3], [7], [7]]);
   });
 
   it("executes computed async-iterator class methods", () => {

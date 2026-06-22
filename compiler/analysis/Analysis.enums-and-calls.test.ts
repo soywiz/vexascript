@@ -187,8 +187,10 @@ describe("enum semantic analysis", () => {
   it("resolves generic extension methods and properties on Array receivers", () => {
     const analysis = new Analysis(parseFile(tokenizeReader(dedent`
       fun <T> Array<T>.second(): T { return this[1] }
+      val <T> Array<T>.firstItem: T => this[0]
       val <T> Array<T>.doubledLength => length * 2
       let xs: int[] = [10, 20, 30]
+      let first: int = xs.firstItem
       let value: int = xs.second()
       let total: number = xs.doubledLength
     `.trimEnd())));
