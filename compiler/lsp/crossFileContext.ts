@@ -112,6 +112,8 @@ export function localRenameWorkspaceEdit(context: ResolveContext, newName: strin
  * feature re-deriving the default/namespace/specifier cases on its own.
  */
 export interface ImportBinding {
+  /** Which import clause introduced the binding. */
+  kind: "default" | "namespace" | "named";
   /** Identifier node bound in the importing module (the local alias). */
   localNode: Identifier;
   /**
@@ -133,14 +135,14 @@ export function* importStatementBindings(importStatement: ImportStatement): Gene
   const from = importStatement.from.value;
   const { defaultImport, namespaceImport } = importStatement;
   if (defaultImport) {
-    yield { localNode: defaultImport, importedNode: defaultImport, from, importedName: defaultImport.name, localName: defaultImport.name };
+    yield { kind: "default", localNode: defaultImport, importedNode: defaultImport, from, importedName: defaultImport.name, localName: defaultImport.name };
   }
   if (namespaceImport) {
-    yield { localNode: namespaceImport, importedNode: namespaceImport, from, importedName: namespaceImport.name, localName: namespaceImport.name };
+    yield { kind: "namespace", localNode: namespaceImport, importedNode: namespaceImport, from, importedName: namespaceImport.name, localName: namespaceImport.name };
   }
   for (const specifier of importStatement.specifiers) {
     const localNode = specifier.local ?? specifier.imported;
-    yield { localNode, importedNode: specifier.imported, from, importedName: specifier.imported.name, localName: localNode.name };
+    yield { kind: "named", localNode, importedNode: specifier.imported, from, importedName: specifier.imported.name, localName: localNode.name };
   }
 }
 

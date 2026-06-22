@@ -187,6 +187,37 @@ describe("collectAllImportedDeclarations — ambient module type resolution", ()
     expect(typeToString(importedSymbols.get("readFile")!.type!)).toContain("(path: string | Buffer) => Promise<Buffer>");
   });
 
+  it("resolves a namespace-qualified ambient type through a namespace import", async () => {
+    const modelsDecls = parseAmbientModule(
+      `declare module "models" {
+        export interface User { id: string; }
+      }`,
+      "models"
+    );
+    const appDecls = parseAmbientModule(
+      `declare module "app" {
+        import * as Models from "models";
+        export function load(): Models.User;
+      }`,
+      "app"
+    );
+    const ambientModuleDeclarations = new Map<string, Statement[]>([
+      ["models", modelsDecls],
+      ["app", appDecls]
+    ]);
+
+    const ast = parseSource(`import { load } from "app"`, {}).ast!;
+    const { importedSymbols } = await collectAllImportedDeclarations(ast, {
+      uri: "file:///tmp/main.vx",
+      sourceRoots: [],
+      ambientModuleDeclarations
+    });
+
+    // `Models.User` must resolve through the `import * as Models` namespace
+    // binding, proving the shared import enumeration drives qualified lookup.
+    expect(typeToString(importedSymbols.get("load")!.type!)).toContain("() => { id: string }");
+  });
+
   it("expands ambient object and interface types inside overload parameters", async () => {
     const fsDecls = parseAmbientModule(
       `declare module "node:fs" {

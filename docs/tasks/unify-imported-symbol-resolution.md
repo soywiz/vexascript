@@ -107,14 +107,39 @@ The third slice collapses the bespoke import-binding scanners:
   finder, so ambient type-reference resolution now follows default/namespace
   imports consistently (previously only named specifiers).
 
+The fourth slice extends the shared enumeration and removes two more bespoke
+scans:
+
+* `ImportBinding` now carries `kind` (`default` | `namespace` | `named`), so
+  clause-specific lookups read from the shared enumeration instead of matching
+  `importStatement.namespaceImport` directly.
+* `resolveAmbientQualifiedImportedType` now resolves the namespace receiver of a
+  qualified type (`Models.User`) through `importBindings(...)` filtered by
+  `kind === "namespace"`.
+* The near-identical `findAmbientTypeAliasStatement` and
+  `findAmbientInterfaceStatement` collapsed onto one
+  `findAmbientDeclarationByKindAndName` helper that reuses the shared
+  `unwrapExportedDeclaration`.
+
+The fifth slice converged the open-coded `ExportStatement` unwrap idiom:
+
+* all 19 inline `statement.kind === "ExportStatement" ? ...declaration ?? statement : statement`
+  expressions in `importedDeclarations.ts` now call the shared
+  `unwrapExportedDeclaration` helper (~57 lines removed, behavior-preserving).
+
 The remaining work is mostly cleanup and further DRY reduction:
 
 * hover should be fed from the same shared imported-symbol record, not only
   from downstream analysis/display fallbacks
-* the inline import scans inside `resolveNodeModuleNamedImportType` and
-  `resolveAmbientQualifiedImportedType` still carry their own traversal because
-  they need export-statement unwrapping / namespace-only matching; revisit
-  whether the shared enumeration can absorb them without changing semantics
+* **next high-value target:** `resolveAmbientNamedImportType`,
+  `resolveAmbientNamedImportDisplayType`, and `ambientModuleHasNamedExport`
+  share one traversal skeleton and differ only in what they project (type /
+  display string / boolean). Collapse them behind one traversal with
+  per-consumer projection — but pin the current display output with tests first,
+  because the display path has small asymmetries.
+* the inline import scan inside `resolveNodeModuleNamedImportType` still carries
+  its own traversal because it needs export-statement unwrapping plus a
+  rename-only recursion guard
 
 ## Related Files
 

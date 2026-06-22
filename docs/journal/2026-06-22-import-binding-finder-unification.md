@@ -74,13 +74,74 @@ cleanup here should usually look subtractive" — this slice is only mildly
 subtractive in logic, so it is justified by removing a divergent branch, not by
 line count.
 
+## Follow-up slice: clause-kind enumeration + ambient finder collapse
+
+Continuing the same direction, two more bespoke scans were removed:
+
+- `ImportBinding` gained a `kind` field (`default` | `namespace` | `named`).
+  This lets clause-specific lookups (e.g. "is this a namespace import?") read
+  from the one shared enumeration instead of poking at
+  `importStatement.namespaceImport` directly.
+- `resolveAmbientQualifiedImportedType` (`Models.User`) now finds the namespace
+  receiver via `importBindings(...)` filtered by `kind === "namespace"`.
+- `findAmbientTypeAliasStatement` and `findAmbientInterfaceStatement` were near
+  duplicates (same unwrap-export + match-kind-and-name loop). They now delegate
+  to one `findAmbientDeclarationByKindAndName` that reuses the shared
+  `unwrapExportedDeclaration` helper, so the loop exists once.
+
+This slice is net subtractive in `importedDeclarations.ts` (−6 lines) — the
+right shape for cleanup here.
+
+Still intentionally left alone: the `resolveNodeModuleNamedImportType` inline
+scan needs `ExportStatement` unwrapping plus a rename-only recursion guard, and
+there are ~25 inline `ExportStatement` unwrap idioms that could later converge
+on `unwrapExportedDeclaration`.
+
+## Follow-up slice: ExportStatement unwrap convergence
+
+The same file open-coded the "unwrap an exported declaration" idiom ~19 times:
+
+```ts
+const declaration = statement.kind === "ExportStatement"
+  ? (statement as { declaration?: Statement }).declaration ?? statement
+  : statement;
+```
+
+That is exactly `unwrapExportedDeclaration(statement) ?? statement` (and the few
+variants that omitted the `?? statement` fallback are exactly
+`unwrapExportedDeclaration(statement)`, because the downstream code already used
+optional `declaration?.kind` access). All 19 were converted to the shared
+`unwrapExportedDeclaration` helper, removing ~57 lines net. The conversion was
+done with an anchored regex keyed on the distinctive
+`(X as { declaration?: Statement }).declaration ?? X` shape and a backreference
+to the variable name, so it could not touch the two non-idiom sites that look
+similar: the `&& (...).declaration?.kind === "ImportStatement"` detector and the
+plain `if (statement.kind === "ExportStatement")` guards.
+
+This is purely behavior-preserving (the full suite cannot distinguish it), so its
+value is the single source of truth for unwrapping, not new coverage.
+
+## Higher-value target identified (not yet done)
+
+`resolveAmbientNamedImportType`, `resolveAmbientNamedImportDisplayType`, and
+`ambientModuleHasNamedExport` share one traversal skeleton (candidate modules →
+direct export match → `export =` namespace body → var-typed interface members)
+and differ only in what they project at each match (an `AnalysisType`, a display
+string, or a boolean) and how they combine results. This is the real parallel
+implementation to collapse next — but it is riskier than the slices above
+because the display path has small asymmetries (it does its own function-only
+namespace search and skips the direct `extractDirectTypeForName` step). A safe
+unification needs a visitor/projector with per-consumer hooks plus tests that
+pin the current display output *before* refactoring, so it deserves its own pass.
+
 ## Tests
 
 - `compiler/lsp/crossFileContext.test.ts` (new): unit coverage for the shared
-  enumeration and both node-identity and by-name finders.
-- `compiler/lsp/importedDeclarations.test.ts`: added a regression that resolves
-  an ambient type reference through a *renamed* named import
-  (`import { PathLike as P }`), locking exported-vs-local naming through the
-  shared finder.
-- Full `pnpm test` (2135 tests) and `pnpm cli vexa testFixtures/sample.vx`
+  enumeration, the `kind` tag, and both node-identity and by-name finders.
+- `compiler/lsp/importedDeclarations.test.ts`: added regressions that resolve an
+  ambient type reference through a *renamed* named import
+  (`import { PathLike as P }`) and a *namespace-qualified* type through a
+  namespace import (`import * as Models` → `Models.User`), locking the shared
+  enumeration paths.
+- Full `pnpm test` (2137 tests) and `pnpm cli vexa testFixtures/sample.vx`
   green.

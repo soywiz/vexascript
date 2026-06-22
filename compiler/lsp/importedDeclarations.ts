@@ -20,7 +20,7 @@ import { uriToFilePath } from "./importFixes";
 import { resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { importableTopLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
-import { detectAmbientExportEqualsName, findAmbientNamespaceBody, findImportBindingByLocalName } from "./crossFileContext";
+import { detectAmbientExportEqualsName, findAmbientNamespaceBody, findImportBindingByLocalName, importBindings } from "./crossFileContext";
 import {
   renderAmbientFunctionDisplayFromStatement,
   renderAmbientInterfaceMemberDisplay,
@@ -548,9 +548,7 @@ function resolveNodeModuleTypeQueryReference(
   try {
     const candidates = getNodeModuleDeclarationIndex(declarations).declarationsByName.get(baseName) ?? [];
     for (const candidate of candidates) {
-      const declaration = candidate.kind === "ExportStatement"
-        ? (candidate as ExportStatement).declaration
-        : candidate;
+      const declaration = unwrapExportedDeclaration(candidate);
       let resolved: AnalysisType | null = null;
       if (declaration?.kind === "FunctionStatement") {
         resolved = buildFunctionTypeFromStatement(
@@ -597,7 +595,7 @@ function externalFunctionOverloads(
         continue;
       }
       seenStatements.add(statement);
-      const declaration = statement.kind === "ExportStatement" ? unwrapExportedDeclaration(statement) : statement;
+      const declaration = unwrapExportedDeclaration(statement);
       if (declaration?.kind !== "FunctionStatement") {
         continue;
       }
@@ -687,9 +685,7 @@ function resolveNodeModuleNamedImportType(
         continue;
       }
       seenStatements.add(statement);
-      const declaration = statement.kind === "ExportStatement"
-        ? unwrapExportedDeclaration(statement) ?? statement
-        : statement;
+      const declaration = unwrapExportedDeclaration(statement) ?? statement;
       if (declaration.kind === "ClassStatement") {
         const resolved = namedType(importedName);
         resolutionCache.namedImportTypes.set(importedName, resolved);
@@ -790,34 +786,32 @@ export function buildFunctionTypeFromStatement(
   );
 }
 
+function findAmbientDeclarationByKindAndName(
+  declarations: readonly Statement[],
+  kind: Statement["kind"],
+  name: string
+): Statement | null {
+  for (const statement of declarations) {
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
+    if (declaration.kind === kind && (declaration as { name?: { name?: string } }).name?.name === name) {
+      return declaration;
+    }
+  }
+  return null;
+}
+
 function findAmbientTypeAliasStatement(
   declarations: readonly Statement[],
   typeName: string
 ): TypeAliasStatement | null {
-  for (const statement of declarations) {
-    const declaration = statement.kind === "ExportStatement"
-      ? (statement as { declaration?: Statement }).declaration ?? statement
-      : statement;
-    if (declaration.kind === "TypeAliasStatement" && (declaration as TypeAliasStatement).name.name === typeName) {
-      return declaration as TypeAliasStatement;
-    }
-  }
-  return null;
+  return findAmbientDeclarationByKindAndName(declarations, "TypeAliasStatement", typeName) as TypeAliasStatement | null;
 }
 
 function findAmbientInterfaceStatement(
   declarations: readonly Statement[],
   typeName: string
 ): InterfaceStatement | null {
-  for (const statement of declarations) {
-    const declaration = statement.kind === "ExportStatement"
-      ? (statement as { declaration?: Statement }).declaration ?? statement
-      : statement;
-    if (declaration.kind === "InterfaceStatement" && (declaration as InterfaceStatement).name.name === typeName) {
-      return declaration as InterfaceStatement;
-    }
-  }
-  return null;
+  return findAmbientDeclarationByKindAndName(declarations, "InterfaceStatement", typeName) as InterfaceStatement | null;
 }
 
 function parseAmbientObjectTypeAnnotation(
@@ -1058,16 +1052,12 @@ function resolveAmbientQualifiedImportedType(
     return null;
   }
 
-  for (const statement of declarations) {
-    if (statement.kind !== "ImportStatement") {
-      continue;
-    }
-    const importStatement = statement as ImportStatement;
-    if (importStatement.namespaceImport?.name !== localNamespaceName) {
+  for (const binding of importBindings(declarations)) {
+    if (binding.kind !== "namespace" || binding.localName !== localNamespaceName) {
       continue;
     }
     return resolveAmbientTypeReference(
-      importStatement.from.value,
+      binding.from,
       nestedTypeName,
       ambientModuleDeclarations,
       ambientGlobalDeclarations,
@@ -1577,10 +1567,7 @@ function findAmbientClassStatement(
   name: string
 ): ClassStatement | null {
   for (const statement of declarations) {
-    const declaration =
-      statement.kind === "ExportStatement"
-        ? (statement as { declaration?: Statement }).declaration ?? statement
-        : statement;
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
     if (declaration.kind === "ClassStatement" && (declaration as ClassStatement).name.name === name) {
       return declaration as ClassStatement;
     }
@@ -1593,9 +1580,7 @@ function hasAmbientNamedTypeDeclaration(
   typeName: string
 ): boolean {
   for (const statement of declarations) {
-    const declaration = statement.kind === "ExportStatement"
-      ? (statement as { declaration?: Statement }).declaration ?? statement
-      : statement;
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
     if (
       (declaration.kind === "ClassStatement" ||
         declaration.kind === "InterfaceStatement" ||
@@ -2432,10 +2417,7 @@ function typeFromAmbientInterfaceMember(
 
 function extractDirectTypeForName(stmts: Statement[], symbolName: string): AnalysisType | null {
   for (const stmt of stmts) {
-    const decl =
-      stmt.kind === "ExportStatement"
-        ? (stmt as { declaration?: Statement }).declaration ?? stmt
-        : stmt;
+    const decl = unwrapExportedDeclaration(stmt) ?? stmt;
 
     if (decl.kind === "FunctionStatement") {
       const fn = decl as FunctionStatement;
@@ -2474,10 +2456,7 @@ function collectAmbientNamespaceExportedProperties(
 ): Record<string, AnalysisType> {
   const properties: Record<string, AnalysisType> = {};
   for (const statement of statements) {
-    const declaration =
-      statement.kind === "ExportStatement"
-        ? (statement as { declaration?: Statement }).declaration ?? statement
-        : statement;
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
 
     if (statement.kind === "ExportStatement") {
       const exportStatement = statement as ExportStatement;
@@ -2552,10 +2531,7 @@ function collectNodeModuleNamespaceExportedProperties(
   const properties: Record<string, AnalysisType> = {};
   const functionOverloads = new Map<string, FunctionType[]>();
   for (const statement of statements) {
-    const declaration =
-      statement.kind === "ExportStatement"
-        ? (statement as { declaration?: Statement }).declaration ?? statement
-        : statement;
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
 
     if (statement.kind === "ExportStatement") {
       const exportStatement = statement as ExportStatement;
@@ -2800,10 +2776,7 @@ export function resolveAmbientNamedImportType(
 
     // 1. Try direct export with ambient-aware type expansion
     for (const statement of decls) {
-      const declaration =
-        statement.kind === "ExportStatement"
-          ? (statement as { declaration?: Statement }).declaration ?? statement
-          : statement;
+      const declaration = unwrapExportedDeclaration(statement) ?? statement;
 
       if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
         pushOverload(buildAmbientFunctionTypeFromStatement(
@@ -2867,10 +2840,7 @@ export function resolveAmbientNamedImportType(
       if (!searchNsBody) continue;
 
       for (const s of searchNsBody) {
-        const d =
-          s.kind === "ExportStatement"
-            ? (s as { declaration?: Statement }).declaration ?? s
-            : s;
+        const d = unwrapExportedDeclaration(s) ?? s;
         if (d.kind !== "InterfaceStatement") continue;
         const iface = d as InterfaceStatement;
         if (iface.name?.name !== ifaceName) continue;
@@ -2933,10 +2903,7 @@ function resolveAmbientNamedImportDisplayType(
     if (!decls || decls.length === 0) continue;
 
     for (const statement of decls) {
-      const declaration =
-        statement.kind === "ExportStatement"
-          ? (statement as { declaration?: Statement }).declaration ?? statement
-          : statement;
+      const declaration = unwrapExportedDeclaration(statement) ?? statement;
 
       if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
         pushOverload(renderAmbientFunctionDisplayFromStatement(declaration as FunctionStatement));
@@ -2959,10 +2926,7 @@ function resolveAmbientNamedImportDisplayType(
     const nsBody = findAmbientNamespaceBody(decls, exportEqualsName);
     if (nsBody) {
       for (const statement of nsBody) {
-        const declaration =
-          statement.kind === "ExportStatement"
-            ? (statement as { declaration?: Statement }).declaration ?? statement
-            : statement;
+        const declaration = unwrapExportedDeclaration(statement) ?? statement;
         if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
           return renderAmbientFunctionDisplayFromStatement(declaration as FunctionStatement);
         }
@@ -2983,10 +2947,7 @@ function resolveAmbientNamedImportDisplayType(
       if (!searchNsBody) continue;
 
       for (const s of searchNsBody) {
-        const d =
-          s.kind === "ExportStatement"
-            ? (s as { declaration?: Statement }).declaration ?? s
-            : s;
+        const d = unwrapExportedDeclaration(s) ?? s;
         if (d.kind !== "InterfaceStatement") continue;
         const iface = d as InterfaceStatement;
         if (iface.name?.name !== ifaceName) continue;
@@ -3031,10 +2992,7 @@ export function ambientModuleHasNamedExport(
     }
 
     for (const statement of decls) {
-      const declaration =
-        statement.kind === "ExportStatement"
-          ? (statement as { declaration?: Statement }).declaration ?? statement
-          : statement;
+      const declaration = unwrapExportedDeclaration(statement) ?? statement;
 
       if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
         return true;
@@ -3076,10 +3034,7 @@ export function ambientModuleHasNamedExport(
       if (!searchNsBody) continue;
 
       for (const statement of searchNsBody) {
-        const declaration =
-          statement.kind === "ExportStatement"
-            ? (statement as { declaration?: Statement }).declaration ?? statement
-            : statement;
+        const declaration = unwrapExportedDeclaration(statement) ?? statement;
         if (declaration.kind !== "InterfaceStatement") continue;
         const iface = declaration as InterfaceStatement;
         if (iface.name?.name !== ifaceName) continue;
@@ -3178,10 +3133,7 @@ function importableDeclarationName(statement: Statement): string | null {
   };
   const declaration = unwrapDeclaration(statement);
   if (!declaration) {
-    const rawDeclaration =
-      statement.kind === "ExportStatement"
-        ? (statement as { declaration?: Statement }).declaration ?? statement
-        : statement;
+    const rawDeclaration = unwrapExportedDeclaration(statement) ?? statement;
     const name = namedDeclarationName(rawDeclaration);
     if (name) {
       return name;
@@ -3248,10 +3200,7 @@ function shouldIncludeNodeModuleExternalDeclaration(
   statement: Statement,
   wantedNames: ReadonlySet<string>
 ): boolean {
-  const rawDeclaration =
-    statement.kind === "ExportStatement"
-      ? (statement as { declaration?: Statement }).declaration ?? statement
-      : statement;
+  const rawDeclaration = unwrapExportedDeclaration(statement) ?? statement;
   if (rawDeclaration.kind === "ImportStatement") {
     return true;
   }
@@ -3338,10 +3287,7 @@ function collectTypeQueryDependencyNamesFromText(typeText: string | undefined, c
 }
 
 function collectTypeQueryDependencyNames(statement: Statement, collected: Set<string>): void {
-  const rawDeclaration =
-    statement.kind === "ExportStatement"
-      ? (statement as { declaration?: Statement }).declaration ?? statement
-      : statement;
+  const rawDeclaration = unwrapExportedDeclaration(statement) ?? statement;
   const queue: unknown[] = [rawDeclaration];
   const visited = new WeakSet<object>();
   const typeBearingKeys = new Set([
@@ -3496,10 +3442,7 @@ export async function collectAllImportedDeclarations(
           const declaration = unwrapDeclaration(targetStatement);
           if (!declaration) {
             seenNodeModuleStatements.add(targetStatement);
-            const rawDeclaration =
-              targetStatement.kind === "ExportStatement"
-                ? (targetStatement as { declaration?: Statement }).declaration ?? targetStatement
-                : targetStatement;
+            const rawDeclaration = unwrapExportedDeclaration(targetStatement) ?? targetStatement;
             importedNodeModuleDeclarations.push(rawDeclaration);
             queueSupportingDependencyNames(targetStatement);
             return;

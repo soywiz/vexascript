@@ -53,6 +53,13 @@ describe("import binding enumeration", () => {
     expect(bindings.map((binding) => binding.localName)).toEqual(["a", "c"]);
     expect(bindings.map((binding) => binding.importedName)).toEqual(["a", "b"]);
   });
+
+  it("tags each binding with the import clause that introduced it", () => {
+    expect(findImportBindingByLocalName(ast.body, "def")?.kind).toBe("default");
+    expect(findImportBindingByLocalName(ast.body, "ns")?.kind).toBe("namespace");
+    expect(findImportBindingByLocalName(ast.body, "a")?.kind).toBe("named");
+    expect(findImportBindingByLocalName(ast.body, "c")?.kind).toBe("named");
+  });
 });
 
 describe("findImportForSymbolNode", () => {
