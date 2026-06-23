@@ -148,13 +148,16 @@ The remaining work is mostly cleanup and further DRY reduction:
 * hover should be fed from the same shared imported-symbol record, not only
   from downstream analysis/display fallbacks
 * `resolveAmbientNamedImportType`, `resolveAmbientNamedImportDisplayType`, and
-  `ambientModuleHasNamedExport` now share the `export =` interface-member search
-  via the `ambientExportEqualsInterfaceMembers` generator. The remaining
-  asymmetric steps (candidate-module enumeration — `ambientModuleHasNamedExport`
-  is bidirectional while the others strip-only; the step-1 direct loop; and the
-  step-2a namespace search where display is function-only) still differ per
-  resolver. Fully merging them is a deliberate behavior decision (whether display
-  and has-export should be as complete as the type path) and needs its own pass.
+  `ambientModuleHasNamedExport` now share both the step-1 direct-export match
+  (`ambientDirectExportMatches` generator) and the `export =` interface-member
+  search (`ambientExportEqualsInterfaceMembers` generator); each resolver only
+  supplies its own projection (type / display string / boolean). The only
+  remaining per-resolver differences are deliberate: the candidate-module
+  enumeration (`ambientModuleHasNamedExport` is bidirectional, the others
+  strip-only) and the step-2a namespace search (display does a function-only
+  search while type/has-export use `extractDirectTypeForName`). Making display
+  and has-export as complete as the type path at step-2a is a behavior decision,
+  not a mechanical merge, so it is intentionally left.
 * `resolveNodeModuleNamedImportType`'s lookup scan now iterates
   `importStatementBindings(...)` (switching on `binding.kind`) instead of
   hand-rolling the namespace/specifier cases, so every import-binding *lookup*

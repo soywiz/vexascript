@@ -2751,6 +2751,33 @@ function* ambientExportEqualsInterfaceMembers(
 }
 
 /**
+ * Yields each top-level direct export named `symbolName` from an ambient module's
+ * declarations — an `export function` (as a `FunctionStatement`) or an
+ * `export const`/`export let` (as a `VarStatement`), unwrapping `ExportStatement`
+ * wrappers. Shared by the type, display, and has-export resolvers so they match
+ * direct exports identically and differ only in how they project each match.
+ */
+function* ambientDirectExportMatches(
+  decls: readonly Statement[],
+  symbolName: string
+): Generator<{ kind: "function"; fn: FunctionStatement } | { kind: "var"; variable: VarStatement }> {
+  for (const statement of decls) {
+    const declaration = unwrapExportedDeclaration(statement) ?? statement;
+    if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
+      yield { kind: "function", fn: declaration as FunctionStatement };
+      continue;
+    }
+    if (declaration.kind === "VarStatement") {
+      const variable = declaration as VarStatement;
+      const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
+      if (varName === symbolName) {
+        yield { kind: "var", variable };
+      }
+    }
+  }
+}
+
+/**
  * Resolves the AnalysisType for a named import (`symbolName`) from an ambient
  * module (`importName`). Handles:
  * - Direct `export function` / `export const` declarations
@@ -2788,32 +2815,24 @@ export function resolveAmbientNamedImportType(
     if (!decls || decls.length === 0) continue;
 
     // 1. Try direct export with ambient-aware type expansion
-    for (const statement of decls) {
-      const declaration = unwrapExportedDeclaration(statement) ?? statement;
-
-      if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
+    for (const match of ambientDirectExportMatches(decls, symbolName)) {
+      if (match.kind === "function") {
         pushOverload(buildAmbientFunctionTypeFromStatement(
-          declaration as FunctionStatement,
+          match.fn,
           decls,
           ambientModuleDeclarations,
           ambientGlobalDeclarations
         ));
         continue;
       }
-      if (declaration.kind === "VarStatement") {
-        const variable = declaration as VarStatement;
-          const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
-        if (varName === symbolName) {
-          const resolved = typeFromAmbientAnnotationText(
-            variable.typeAnnotation?.name,
-            decls,
-            ambientModuleDeclarations,
-            ambientGlobalDeclarations
-          );
-          resolutionCache.namedImportTypes.set(cacheKey, resolved);
-          return resolved;
-        }
-      }
+      const resolved = typeFromAmbientAnnotationText(
+        match.variable.typeAnnotation?.name,
+        decls,
+        ambientModuleDeclarations,
+        ambientGlobalDeclarations
+      );
+      resolutionCache.namedImportTypes.set(cacheKey, resolved);
+      return resolved;
     }
 
     const direct = extractDirectTypeForName(decls, symbolName);
@@ -2890,22 +2909,14 @@ function resolveAmbientNamedImportDisplayType(
     const decls = ambientModuleDeclarations.get(candidate);
     if (!decls || decls.length === 0) continue;
 
-    for (const statement of decls) {
-      const declaration = unwrapExportedDeclaration(statement) ?? statement;
-
-      if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
-        pushOverload(renderAmbientFunctionDisplayFromStatement(declaration as FunctionStatement));
+    for (const match of ambientDirectExportMatches(decls, symbolName)) {
+      if (match.kind === "function") {
+        pushOverload(renderAmbientFunctionDisplayFromStatement(match.fn));
         continue;
       }
-      if (declaration.kind === "VarStatement") {
-        const variable = declaration as VarStatement;
-        const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
-        if (varName === symbolName) {
-          const resolved = renderAmbientTypeAnnotationText(variable.typeAnnotation?.name);
-          resolutionCache.namedImportDisplayTypes.set(cacheKey, resolved);
-          return resolved;
-        }
-      }
+      const resolved = renderAmbientTypeAnnotationText(match.variable.typeAnnotation?.name);
+      resolutionCache.namedImportDisplayTypes.set(cacheKey, resolved);
+      return resolved;
     }
 
     const exportEqualsName = detectAmbientExportEqualsName(decls);
@@ -2953,19 +2964,8 @@ export function ambientModuleHasNamedExport(
       continue;
     }
 
-    for (const statement of decls) {
-      const declaration = unwrapExportedDeclaration(statement) ?? statement;
-
-      if (declaration.kind === "FunctionStatement" && (declaration as FunctionStatement).name?.name === symbolName) {
-        return true;
-      }
-      if (declaration.kind === "VarStatement") {
-        const variable = declaration as VarStatement;
-        const varName = variable.name?.kind === "Identifier" ? (variable.name as Identifier).name : null;
-        if (varName === symbolName) {
-          return true;
-        }
-      }
+    for (const _ of ambientDirectExportMatches(decls, symbolName)) {
+      return true;
     }
 
     if (extractDirectTypeForName(decls, symbolName)) {
