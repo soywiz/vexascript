@@ -25,6 +25,7 @@ import {
 import { vfs } from "compiler/vfs";
 import { dirname, extname, resolve } from "compiler/utils/path";
 import { nodeRange } from "./ranges";
+import { extractTripleSlashReferencePaths } from "./dtsModuleGraph";
 import type { Range } from "vscode-languageserver";
 import { splitTopLevelTypeText } from "compiler/analysis/typeNames";
 
@@ -161,20 +162,6 @@ async function resolveReexportedTypingsPath(
     return resolveRelativeTypingsPath(importerTypingsPath, specifier, options);
   }
   return resolveNodeModulesTypingsPath(importerTypingsPath, specifier, options);
-}
-
-function extractReferencedTypingsSpecifiers(source: string): string[] {
-  const specifiers = new Set<string>();
-  const referencePathPattern = /^\s*\/\/\/\s*<reference\s+path=["']([^"']+)["'][^>]*\/>\s*$/gm;
-
-  for (const match of source.matchAll(referencePathPattern)) {
-    const specifier = match[1]?.trim();
-    if (specifier) {
-      specifiers.add(specifier);
-    }
-  }
-
-  return [...specifiers];
 }
 
 function extractImportedTypingsSpecifiers(ast: Program): string[] {
@@ -317,7 +304,7 @@ async function collectTypingsDeclarations(
     typingsPath
   }));
   const supportSpecifiers = new Set<string>([
-    ...(source ? extractReferencedTypingsSpecifiers(source) : []),
+    ...(source ? extractTripleSlashReferencePaths(source) : []),
     ...extractImportedTypingsSpecifiers(ast)
   ]);
   for (const specifier of supportSpecifiers) {
@@ -414,7 +401,7 @@ async function collectSelectiveTypingsDeclarations(
   }
 
   const supportSpecifiers = new Set<string>([
-    ...(source ? extractReferencedTypingsSpecifiers(source) : []),
+    ...(source ? extractTripleSlashReferencePaths(source) : []),
     ...extractImportedTypingsSpecifiers(ast)
   ]);
   for (const specifier of supportSpecifiers) {

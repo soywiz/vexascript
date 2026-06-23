@@ -7,6 +7,7 @@ import type {
   Statement
 } from "compiler/ast/ast";
 import { parseSource } from "compiler/pipeline/parse";
+import { extractTripleSlashReferencePaths } from "./dtsModuleGraph";
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { dirname, resolve } from "compiler/utils/path";
 import { vfs, type Vfs } from "compiler/vfs";
@@ -38,16 +39,6 @@ export function clearAmbientTypesCache(): void {
   projectCache.clear();
 }
 
-function extractReferencePaths(source: string): string[] {
-  const paths: string[] = [];
-  const regex = /^\/\/\/\s*<reference\s+path="([^"]+)"/gm;
-  let match;
-  while ((match = regex.exec(source)) !== null) {
-    if (match[1]) paths.push(match[1]);
-  }
-  return paths;
-}
-
 async function parseAndCollect(
   filePath: string,
   visited: Set<string>,
@@ -69,7 +60,7 @@ async function parseAndCollect(
 
   // Follow /// <reference path="..."> directives before adding statements from this file
   const dir = dirname(filePath);
-  for (const refPath of extractReferencePaths(source)) {
+  for (const refPath of extractTripleSlashReferencePaths(source)) {
     await parseAndCollect(
       resolve(dir, refPath),
       visited,

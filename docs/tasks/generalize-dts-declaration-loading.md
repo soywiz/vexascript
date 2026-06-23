@@ -82,6 +82,7 @@ stays subtractive.
 ## Scope
 
 * [x] Identify which parts of `nodeModulesTypings.ts` are general `.d.ts` graph logic and which parts are specifically package or `node_modules` resolution. (See "Seam inventory" above.)
+* [~] Extract the general graph traversal, declaration parsing, re-export handling, and declaration-origin collection into a package-independent module. **Started:** `compiler/lsp/dtsModuleGraph.ts` now owns the canonical `/// <reference path>` extractor (`extractTripleSlashReferencePaths`), consumed by both `nodeModulesTypings.ts` and `ambientTypesLoader.ts`. This collapsed a real divergence: the two loaders previously used different regexes (ambient missed single-quoted paths and leading whitespace). Remaining: move `parseTypingsProgram`/`readTypingsSource`/`resolveRelativeTypingsPath`/the entry helpers/`collectTypingsDeclarations` here too, parameterized by a bare-specifier policy.
 * [ ] Extract the general graph traversal, declaration parsing, re-export handling, and declaration-origin collection into a package-independent module.
 * [ ] Keep bare-specifier and package-export lookup in a `node_modules` adapter.
 * [ ] Route ambient/runtime declaration loading through the same declaration-entry representation where practical.
