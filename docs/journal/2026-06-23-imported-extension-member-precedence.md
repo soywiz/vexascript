@@ -93,20 +93,29 @@ genuine same-name shadows. Covered by a new completion test.
 So all four surfaces — diagnostics, hover, definition, completion — now agree on
 which member is in effect.
 
-## Known remaining surface: references / rename (not yet fixed)
+## References / rename: the fifth surface, now aligned
 
-`resolveCanonicalMemberSymbol` (in `crossFileTypeResolution.ts`, used by both
-find-references and rename) resolves the member class-only — via
-`resolveTypeDefinitionAcrossFiles` + `classMemberInfoByName` — and never consults
-extensions. So for a shadowed member it anchors on the class member, meaning
-rename would rename the class member + usages but leave the extension
-`var Box.position` declaration untouched. This is the same precedence divergence,
-but it was left deliberately: the scenario is niche (a shadowing extension *and*
-using references/rename on it), and the fix is not a quick safe slice — it must
-make `resolveCanonicalMemberSymbol` prefer the in-scope extension declaration
-(reusing the `extensionMemberInScope` gate) AND cross-file rename of an extension
-property needs end-to-end verification. Worth doing as a deliberate, reviewed
-change rather than an autonomous slice.
+`resolveCanonicalMemberSymbol` (in `crossFileTypeResolution.ts`, the shared
+resolver behind both find-references and rename) resolved the member class-only —
+via `resolveTypeDefinitionAcrossFiles` + `classMemberInfoByName` — and never
+consulted extensions, so for a shadowed member it anchored on the class member.
+It now first calls `resolveInScopeExtensionMemberDeclarationAcrossFiles` (the same
+gated resolver definition/hover use) and, when an in-scope extension shadows the
+member, returns a canonical symbol anchored on the extension declaration. So
+references and rename follow the extension too: renaming the shadowed member
+renames the extension declaration plus its usages, and leaves the inaccessible
+class member alone.
+
+This makes `resolveCanonicalMemberSymbol` consume the same extension-aware
+resolution as every other surface, so all five — diagnostics, hover, definition,
+completion, references/rename — agree on which member is in effect. (The
+crossFileTypeResolution → crossFileMemberDefinitionSources import is a runtime-safe
+cycle: the resolver is only called inside an async function, never at module
+evaluation.)
+
+Regression coverage in `importedExtensionMemberPrecedence.test.ts` now also
+asserts references anchor on the extension when imported, and on the class member
+(not the extension file) when only a sibling export is imported.
 
 ## Lesson
 

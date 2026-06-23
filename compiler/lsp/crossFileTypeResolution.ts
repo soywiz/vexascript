@@ -14,6 +14,7 @@ import {
 } from "./crossFileContext";
 import type { ResolveContext } from "./crossFileContext";
 import { resolveTopLevelDeclarationAcrossFiles } from "./declarationResolver";
+import { resolveInScopeExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberDefinitionSources";
 import { uriToFilePath } from "./importFixes";
 import { findBestMatchAtPosition } from "./nodeSearch";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
@@ -1036,12 +1037,31 @@ export async function resolveCanonicalMemberSymbol(context: ResolveContext): Pro
   }
 
   const resolvedClassName = objectType.kind === "array" ? "Array" : objectType.name;
+  const memberName = (memberExpression.property as Identifier).name;
+
+  // An in-scope extension member shadows the class member of the same name (the
+  // type checker resolves the extension), so references and rename must anchor on
+  // the extension declaration too — keeping every resolving surface (diagnostics,
+  // hover, definition, completion, references/rename) consistent about which
+  // member is in effect.
+  const inScopeExtension = await resolveInScopeExtensionMemberDeclarationAcrossFiles(context, objectType, memberName);
+  if (inScopeExtension) {
+    const extensionRange = nodeRange(inScopeExtension.declaration.name);
+    if (extensionRange) {
+      return {
+        className: resolvedClassName,
+        memberName,
+        filePath: inScopeExtension.filePath,
+        range: extensionRange
+      };
+    }
+  }
+
   const classResolution = await resolveTypeDefinitionAcrossFiles(context, resolvedClassName);
   if (!classResolution) {
     return null;
   }
 
-  const memberName = (memberExpression.property as Identifier).name;
   const memberInfo = classMemberInfoByName(classResolution.declaration, memberName);
   if (!memberInfo) {
     return null;

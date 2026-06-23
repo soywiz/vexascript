@@ -4,7 +4,7 @@ import type { MemberExpression } from "compiler/ast/ast";
 import { typeToString } from "compiler/analysis/types";
 import { createAnalysisSession } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
-import { resolveDefinitionWithLocalFallback, resolveHoverWithLocalFallback } from "./crossFileNavigation";
+import { resolveDefinitionWithLocalFallback, resolveHoverWithLocalFallback, resolveReferencesAcrossFiles } from "./crossFileNavigation";
 import { findMemberExpressionAtPosition } from "./crossFileTypeResolution";
 
 // Mirrors samples/pixi: a class member (Container.position from node_modules) is
@@ -67,8 +67,9 @@ async function resolvePositionMember(mainSource: string, cursorNeedle: string) {
     hover && typeof hover.contents === "object" && "value" in hover.contents
       ? String((hover.contents as { value: string }).value)
       : "";
+  const references = await resolveReferencesAcrossFiles({ ...context, line, character }, true);
 
-  return { extUri: pathToFileURL(extPath).toString(), memberType, definition, hoverValue };
+  return { extUri: pathToFileURL(extPath).toString(), memberType, definition, hoverValue, references };
 }
 
 describe("imported extension member precedence (class vs extension)", () => {
@@ -79,7 +80,7 @@ describe("imported extension member precedence (class vs extension)", () => {
       val b = Box()
       val p = b.position
     `;
-    const { extUri, memberType, definition, hoverValue } = await resolvePositionMember(mainSource, "b.position");
+    const { extUri, memberType, definition, hoverValue, references } = await resolvePositionMember(mainSource, "b.position");
 
     // Type checker resolves the imported extension property (string).
     expect(memberType && typeToString(memberType)).toBe("string");
@@ -87,6 +88,8 @@ describe("imported extension member precedence (class vs extension)", () => {
     expect(definition?.uri).toBe(extUri);
     expect(hoverValue).toContain("string");
     expect(hoverValue).not.toContain("number");
+    // References/rename anchor on the extension declaration too.
+    expect(references.some((reference) => reference.uri === extUri)).toBe(true);
   });
 
   it("keeps definition/hover consistent with the type when position is not imported", async () => {
@@ -100,13 +103,14 @@ describe("imported extension member precedence (class vs extension)", () => {
       val b = Box()
       val p = b.position
     `;
-    const { extUri, memberType, definition, hoverValue } = await resolvePositionMember(mainSource, "b.position");
+    const { extUri, memberType, definition, hoverValue, references } = await resolvePositionMember(mainSource, "b.position");
 
     expect(memberType && typeToString(memberType)).toBe("number");
-    // No divergence: definition/hover follow the class member the type checker used.
+    // No divergence: definition/hover/references follow the class member the type checker used.
     expect(definition?.uri).not.toBe(extUri);
     expect(hoverValue).toContain("number");
     expect(hoverValue).not.toContain("string");
+    expect(references.some((reference) => reference.uri === extUri)).toBe(false);
   });
 
   it("agrees on the extension member through a cascade assignment (..position)", async () => {
