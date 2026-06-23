@@ -6,8 +6,12 @@ import type {
   NamespaceStatement,
   Statement
 } from "compiler/ast/ast";
-import { parseSource } from "compiler/pipeline/parse";
-import { extractTripleSlashReferencePaths } from "./dtsModuleGraph";
+import {
+  clearDtsModuleGraphCache,
+  extractTripleSlashReferencePaths,
+  parseDtsProgram,
+  readDtsSource
+} from "./dtsModuleGraph";
 import { resolveNodeModulesTypingsPath } from "compiler/moduleResolution";
 import { dirname, resolve } from "compiler/utils/path";
 import { vfs, type Vfs } from "compiler/vfs";
@@ -37,6 +41,7 @@ const projectCache = new Map<string, AmbientTypesResult>();
 export function clearAmbientTypesCache(): void {
   cache.clear();
   projectCache.clear();
+  clearDtsModuleGraphCache();
 }
 
 async function parseAndCollect(
@@ -53,7 +58,7 @@ async function parseAndCollect(
   }
   visited.add(filePath);
 
-  const source = await vfs.readFile(filePath);
+  const source = await readDtsSource(filePath, { vfs });
   if (source === null) {
     return;
   }
@@ -72,12 +77,12 @@ async function parseAndCollect(
     );
   }
 
-  const parsed = parseSource(source, { language: "typescript" });
-  if (!parsed.ast) {
+  const ast = await parseDtsProgram(filePath, { vfs });
+  if (!ast) {
     return;
   }
 
-  for (const stmt of parsed.ast.body) {
+  for (const stmt of ast.body) {
     if (stmt.kind === "NamespaceStatement") {
       const ns = stmt as NamespaceStatement;
       if (ns.externalModuleName) {

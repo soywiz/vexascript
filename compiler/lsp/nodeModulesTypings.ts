@@ -16,16 +16,20 @@ import type {
   VarStatement
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
-import { parseSource } from "compiler/pipeline/parse";
 import {
   clearNodeModulesTypingsPathCache,
   resolveNodeModulesTypingsPath,
   type ModuleResolutionOptions
 } from "compiler/moduleResolution";
 import { vfs } from "compiler/vfs";
-import { dirname, extname, resolve } from "compiler/utils/path";
 import { nodeRange } from "./ranges";
-import { extractTripleSlashReferencePaths } from "./dtsModuleGraph";
+import {
+  clearDtsModuleGraphCache,
+  extractTripleSlashReferencePaths,
+  parseDtsProgram,
+  readDtsSource,
+  resolveRelativeDtsPath
+} from "./dtsModuleGraph";
 import type { Range } from "vscode-languageserver";
 import { splitTopLevelTypeText } from "compiler/analysis/typeNames";
 
@@ -54,16 +58,6 @@ interface CacheEntry {
   result: NodeModuleTypings;
 }
 
-interface SourceCacheEntry {
-  mtimeMs: number;
-  result: string | null;
-}
-
-interface ProgramCacheEntry {
-  mtimeMs: number;
-  result: Program | null;
-}
-
 interface SelectiveCacheEntry {
   typingsPath: string;
   mtimeMs: number;
@@ -72,85 +66,13 @@ interface SelectiveCacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const sourceCache = new Map<string, SourceCacheEntry>();
-const programCache = new Map<string, ProgramCacheEntry>();
 const selectiveCache = new Map<string, SelectiveCacheEntry>();
 
 export function clearNodeModuleTypingsCache(): void {
   cache.clear();
-  sourceCache.clear();
-  programCache.clear();
   selectiveCache.clear();
+  clearDtsModuleGraphCache();
   clearNodeModulesTypingsPathCache();
-}
-
-async function parseTypingsProgram(typingsPath: string, options: ModuleResolutionOptions): Promise<Program | null> {
-  const activeVfs = options.vfs ?? vfs();
-  const stat = await activeVfs.stat(typingsPath);
-  const mtimeMs = stat?.mtimeMs ?? -1;
-  const cached = programCache.get(typingsPath);
-  if (cached && cached.mtimeMs === mtimeMs) {
-    return cached.result;
-  }
-
-  const source = await activeVfs.readFile(typingsPath);
-  if (source === null) return null;
-  const parsed = parseSource(source, { language: "typescript" });
-  const result = parsed.ast ?? null;
-  programCache.set(typingsPath, { mtimeMs, result });
-  return result;
-}
-
-async function readTypingsSource(typingsPath: string, options: ModuleResolutionOptions): Promise<string | null> {
-  const activeVfs = options.vfs ?? vfs();
-  const stat = await activeVfs.stat(typingsPath);
-  const mtimeMs = stat?.mtimeMs ?? -1;
-  const cached = sourceCache.get(typingsPath);
-  if (cached && cached.mtimeMs === mtimeMs) {
-    return cached.result;
-  }
-
-  const result = await activeVfs.readFile(typingsPath);
-  sourceCache.set(typingsPath, { mtimeMs, result });
-  return result;
-}
-
-async function resolveRelativeTypingsPath(
-  importerTypingsPath: string,
-  specifier: string,
-  options: ModuleResolutionOptions
-): Promise<string | null> {
-  if (!specifier.startsWith(".")) {
-    return null;
-  }
-  const activeVfs = options.vfs ?? vfs();
-  const basePath = resolve(dirname(importerTypingsPath), specifier);
-  const baseExt = extname(basePath);
-  const declarationSiblingCandidates = [".js", ".mjs", ".cjs", ".jsx"].includes(baseExt)
-    ? [
-        `${basePath.slice(0, -baseExt.length)}.d.ts`,
-        `${basePath.slice(0, -baseExt.length)}.ts`
-      ]
-    : [];
-  const candidates = [
-    ...declarationSiblingCandidates,
-    basePath,
-    extname(basePath) === "" ? `${basePath}.d.ts` : "",
-    extname(basePath) === "" ? `${basePath}.ts` : "",
-    resolve(basePath, "index.d.ts"),
-    resolve(basePath, "index.ts")
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    const stat = await activeVfs.stat(candidate).catch(() => null);
-    if (stat?.isDirectory) {
-      continue;
-    }
-    if (stat?.isFile || await activeVfs.fileExists(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
 }
 
 async function resolveReexportedTypingsPath(
@@ -159,7 +81,7 @@ async function resolveReexportedTypingsPath(
   options: ModuleResolutionOptions
 ): Promise<string | null> {
   if (specifier.startsWith(".")) {
-    return resolveRelativeTypingsPath(importerTypingsPath, specifier, options);
+    return resolveRelativeDtsPath(importerTypingsPath, specifier, options);
   }
   return resolveNodeModulesTypingsPath(importerTypingsPath, specifier, options);
 }
@@ -293,11 +215,11 @@ async function collectTypingsDeclarations(
   }
   visited.add(typingsPath);
 
-  const ast = await parseTypingsProgram(typingsPath, options);
+  const ast = await parseDtsProgram(typingsPath, options);
   if (!ast) {
     return [];
   }
-  const source = await readTypingsSource(typingsPath, options);
+  const source = await readDtsSource(typingsPath, options);
 
   const declarations: NodeModuleDeclarationEntry[] = ast.body.map((statement) => ({
     statement,
@@ -373,11 +295,11 @@ async function collectSelectiveTypingsDeclarations(
   }
   visited.add(visitKey);
 
-  const ast = await parseTypingsProgram(typingsPath, options);
+  const ast = await parseDtsProgram(typingsPath, options);
   if (!ast) {
     return [];
   }
-  const source = await readTypingsSource(typingsPath, options);
+  const source = await readDtsSource(typingsPath, options);
   const declarations: NodeModuleDeclarationEntry[] = [];
   const directNamedEntries = ast.body.map((statement) => ({
     statement,
@@ -560,7 +482,7 @@ export async function getNodeModuleTypings(
     return cached.result;
   }
 
-  const ast = await parseTypingsProgram(typingsPath, { vfs: activeVfs });
+  const ast = await parseDtsProgram(typingsPath, { vfs: activeVfs });
   if (!ast) {
     return null;
   }
@@ -605,7 +527,7 @@ export async function getNodeModuleTypingsForImportNames(
     return cached.result;
   }
 
-  const ast = await parseTypingsProgram(typingsPath, { vfs: activeVfs });
+  const ast = await parseDtsProgram(typingsPath, { vfs: activeVfs });
   if (!ast) {
     return null;
   }
