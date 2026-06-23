@@ -633,6 +633,28 @@ describe("createCompletionItemsForPosition", () => {
     expect(labels).toEqual(expect.arrayContaining(["milliseconds", "seconds"]));
   });
 
+  it("offers only the in-scope extension member when it shadows a class member of the same name", async () => {
+    const { source, line, character } = sourceWithCursor(dedent`
+      class Box { var position: number = 0 }
+      var Box.position: string {
+        get => "x"
+        set { }
+      }
+      val b = Box()
+      b.^^^
+      `
+    );
+    const session = createAnalysisSession(source);
+    const items = await createCompletionItemsForPosition(session.ast!, line, character, session.analysis!, [], { text: source });
+    const positionItems = items.filter((item) => item.label === "position");
+
+    // The extension shadows the class member (the type checker resolves the
+    // extension), so completion must offer it once — not the inaccessible class
+    // member too — matching hover/definition/diagnostics.
+    expect(positionItems).toHaveLength(1);
+    expect(positionItems[0]!.detail).toContain("Extension");
+  });
+
   it("merges boxed Number members with extension members for class numeric properties", async () => {
     const { source, line, character } = sourceWithCursor(dedent`
       class TimeSpan(val ms: number)

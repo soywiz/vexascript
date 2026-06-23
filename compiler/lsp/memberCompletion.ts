@@ -67,10 +67,9 @@ export async function buildMemberCompletionItemsForType(
     resolverOptions,
     resolverCache
   ))?.classStatement;
-  return [
-    ...await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis),
-    ...(classStatement
-        ? await buildClassMemberCompletionItems(
+  const extensionItems = await buildExtensionMemberCompletionItems(ast, className, prefix, options, analysis);
+  const classItems = classStatement
+    ? await buildClassMemberCompletionItems(
         classStatement,
         resolvedClassName,
         prefix,
@@ -78,22 +77,30 @@ export async function buildMemberCompletionItemsForType(
         {
           line,
           dotCharacter,
-            prefixEndCharacter
-          },
-          {
-            ast,
-            options: resolverOptions,
-            cache: resolverCache
-          }
-        )
-      : await buildNonClassMemberCompletionItems(
+          prefixEndCharacter
+        },
+        {
+          ast,
+          options: resolverOptions,
+          cache: resolverCache
+        }
+      )
+    : await buildNonClassMemberCompletionItems(
         ast,
         resolvedClassName,
         prefix,
         options,
         resolverOptions,
         resolverCache
-      ))
+      );
+  // An in-scope extension member shadows the class member of the same name (the
+  // type checker resolves the extension), so drop the shadowed class item. This
+  // keeps completion consistent with hover/definition/diagnostics, which all
+  // prefer the extension. When no extension is in scope there is nothing to drop.
+  const extensionLabels = new Set(extensionItems.map((item) => item.label));
+  return [
+    ...extensionItems,
+    ...classItems.filter((item) => !extensionLabels.has(item.label))
   ];
 }
 

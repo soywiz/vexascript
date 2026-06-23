@@ -79,6 +79,20 @@ Regression coverage in `importedExtensionMemberPrecedence.test.ts` now pins all
 three: imported → extension wins; sibling-only import → class member wins (no
 divergence); and the `..position` cascade → extension wins.
 
+## Completion was the third diverging surface
+
+Member completion listed BOTH a `position` item (the in-scope extension) and a
+`position` item (the shadowed class member). Since the type checker resolves the
+extension, the class-member item is inaccessible and misleading. Fixed in
+`buildMemberCompletionItemsForType` by dropping class-member items whose label is
+already produced by an in-scope extension item (`extensionLabels` filter). The
+existing "merge boxed Number members with extension members" behaviour is
+unaffected because that case has *distinct* names — the filter only removes
+genuine same-name shadows. Covered by a new completion test.
+
+So all four surfaces — diagnostics, hover, definition, completion — now agree on
+which member is in effect.
+
 ## Lesson
 
 When hover/definition disagree with diagnostics about a member, suspect inverted
