@@ -4,6 +4,23 @@
 
 * [ ] Active
 
+## Update 2026-06-23: symptoms already resolved; remaining work is code unification
+
+Regression tests added this pass show the user-facing symptoms are **already
+fixed** by the imported-symbol-origin / `nodeModulesTypings` work:
+
+* `compiler/lsp/crossFileDeclaredMemberDefinition.test.ts` — "resolves a member
+  declared behind an export-star barrel to its source file" passes: member
+  definition through `export *` lands in the deep source file, not the barrel.
+* `compiler/lsp/objectLiteralBarrelDefinition.test.ts` — object-literal property
+  definition through an `export *` barrel lands in the source file, not the
+  barrel.
+
+So this task no longer fixes a bug; the remaining value is purely the **code
+unification** below (one shared `DeclarationOrigin` model, removing feature-local
+path reconstruction). That is optional refactoring in a fragile area — weigh it
+against regression risk before doing it, and prefer subtractive changes.
+
 ## Context
 
 Recent Pixi LSP debugging exposed a structural weakness in cross-file declaration handling:
@@ -54,8 +71,8 @@ The exact name and structure can change during implementation, but the important
 
 ## Tests
 
-* [ ] Add LSP regression tests for object-literal property definition through a package export-star barrel.
-* [ ] Add regression coverage for member definition where the declaration statement comes from a different file than the package entry point.
+* [x] Add LSP regression tests for object-literal property definition through a package export-star barrel. (`objectLiteralBarrelDefinition.test.ts`)
+* [x] Add regression coverage for member definition where the declaration statement comes from a different file than the package entry point. (`crossFileDeclaredMemberDefinition.test.ts`)
 * [ ] Add a test proving hover and definition use the same declaration origin for imported object-literal members.
 * [ ] Add coverage proving the same declaration origin survives through both imported symbol typing and later navigation.
 * [ ] Run `pnpm test`.

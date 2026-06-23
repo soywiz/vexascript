@@ -1,4 +1,4 @@
-import { describe, expect, it, join, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
+import { describe, expect, it, join, mkdir, mkdtemp, pathToFileURL, tmpdir, writeFile } from "../test/expect";
 import dedent from "compiler/utils/dedent";
 import type { Identifier } from "compiler/ast/ast";
 import { createAnalysisSession } from "./analysisSession";
@@ -144,5 +144,47 @@ describe("crossFileDeclaredMemberDefinition", () => {
         end: { line: 3, character: 35 }
       }
     });
+  });
+
+  it("resolves a member declared behind an export-star barrel to its source file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-member-barrel-"));
+    const pkgDir = join(root, "node_modules", "shapes-pkg");
+    const shapesDir = join(pkgDir, "shapes");
+    await mkdir(shapesDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name: "shapes-pkg", types: "./index.d.ts", typings: "./index.d.ts" }),
+      "utf8"
+    );
+    await writeFile(join(pkgDir, "index.d.ts"), `export * from "./shapes";\n`, "utf8");
+    await writeFile(
+      join(shapesDir, "index.d.ts"),
+      `export declare class Box {\n  width: number;\n}\n`,
+      "utf8"
+    );
+
+    const mainPath = join(root, "main.vx");
+    const mainSource = dedent`
+      import { Box } from "shapes-pkg"
+      fun demo() {
+        const box = new Box()
+        box.width
+      }
+    `;
+    await writeFile(mainPath, mainSource, "utf8");
+
+    const location = await resolveDeclaredMemberDefinitionFromSource({
+      root,
+      filePath: mainPath,
+      source: mainSource,
+      line: 3,
+      character: mainSource.split("\n")[3]!.indexOf(".width") + 2
+    });
+
+    // `width` is declared in shapes/index.d.ts, reached through the package's
+    // `export *` barrel. Definition must land in that source file, not the
+    // barrel index.d.ts.
+    expect(location).toBeTruthy();
+    expect(location!.uri).toContain("shapes/index.d.ts");
   });
 });
