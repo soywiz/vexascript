@@ -93,6 +93,21 @@ genuine same-name shadows. Covered by a new completion test.
 So all four surfaces — diagnostics, hover, definition, completion — now agree on
 which member is in effect.
 
+## Known remaining surface: references / rename (not yet fixed)
+
+`resolveCanonicalMemberSymbol` (in `crossFileTypeResolution.ts`, used by both
+find-references and rename) resolves the member class-only — via
+`resolveTypeDefinitionAcrossFiles` + `classMemberInfoByName` — and never consults
+extensions. So for a shadowed member it anchors on the class member, meaning
+rename would rename the class member + usages but leave the extension
+`var Box.position` declaration untouched. This is the same precedence divergence,
+but it was left deliberately: the scenario is niche (a shadowing extension *and*
+using references/rename on it), and the fix is not a quick safe slice — it must
+make `resolveCanonicalMemberSymbol` prefer the in-scope extension declaration
+(reusing the `extensionMemberInScope` gate) AND cross-file rename of an extension
+property needs end-to-end verification. Worth doing as a deliberate, reviewed
+change rather than an autonomous slice.
+
 ## Lesson
 
 When hover/definition disagree with diagnostics about a member, suspect inverted
