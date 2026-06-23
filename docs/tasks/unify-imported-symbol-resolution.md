@@ -146,9 +146,13 @@ The remaining work is mostly cleanup and further DRY reduction:
   step-2a namespace search where display is function-only) still differ per
   resolver. Fully merging them is a deliberate behavior decision (whether display
   and has-export should be as complete as the type path) and needs its own pass.
-* the inline import scan inside `resolveNodeModuleNamedImportType` still carries
-  its own traversal because it needs export-statement unwrapping plus a
-  rename-only recursion guard
+* `resolveNodeModuleNamedImportType`'s lookup scan now iterates
+  `importStatementBindings(...)` (switching on `binding.kind`) instead of
+  hand-rolling the namespace/specifier cases, so every import-binding *lookup*
+  in `importedDeclarations.ts` reads from the shared enumeration. The
+  `collectAllImportedDeclarations` driver loops still iterate specifiers
+  directly because they populate per-clause state rather than looking a binding
+  up by name.
 
 ## Related Files
 

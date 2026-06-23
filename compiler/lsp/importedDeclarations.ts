@@ -20,7 +20,7 @@ import { uriToFilePath } from "./importFixes";
 import { nodeBuiltinSpecifierCandidates, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { importableTopLevelDeclarationNames } from "./declarationResolver";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
-import { detectAmbientExportEqualsName, findAmbientNamespaceBody, findImportBindingByLocalName, importBindings } from "./crossFileContext";
+import { detectAmbientExportEqualsName, findAmbientNamespaceBody, findImportBindingByLocalName, importBindings, importStatementBindings } from "./crossFileContext";
 import {
   renderAmbientFunctionDisplayFromStatement,
   renderAmbientInterfaceMemberDisplay,
@@ -736,22 +736,22 @@ function resolveNodeModuleNamedImportType(
     if (!importStatement) {
       continue;
     }
-    if (importStatement.namespaceImport?.name === importedName) {
-      const resolved = objectTypeWithProperties(collectNodeModuleNamespaceExportedProperties(declarations));
-      resolutionCache.namedImportTypes.set(importedName, resolved);
-      return resolved;
-    }
-    for (const specifier of importStatement.specifiers) {
-      const localName = (specifier.local ?? specifier.imported).name;
-      if (localName !== importedName) {
+    for (const binding of importStatementBindings(importStatement)) {
+      if (binding.localName !== importedName) {
         continue;
       }
-      if (specifier.imported.name === importedName) {
-        continue;
+      if (binding.kind === "namespace") {
+        const resolved = objectTypeWithProperties(collectNodeModuleNamespaceExportedProperties(declarations));
+        resolutionCache.namedImportTypes.set(importedName, resolved);
+        return resolved;
       }
-      const resolved = resolveNodeModuleNamedImportType(declarations, specifier.imported.name, resolvingImportTypes);
-      resolutionCache.namedImportTypes.set(importedName, resolved);
-      return resolved;
+      // Follow renamed re-imports (`import { a as b }`) to their source name;
+      // skip non-renamed bindings to avoid resolving a name through itself.
+      if (binding.kind === "named" && binding.importedName !== importedName) {
+        const resolved = resolveNodeModuleNamedImportType(declarations, binding.importedName, resolvingImportTypes);
+        resolutionCache.namedImportTypes.set(importedName, resolved);
+        return resolved;
+      }
     }
   }
 
