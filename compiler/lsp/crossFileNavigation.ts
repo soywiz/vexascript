@@ -424,20 +424,13 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   const preferredAmbientReceiverFilePath = receiverSymbol
     ? resolveAmbientReceiverDeclarationFilePath(context, receiverSymbol.symbol.node, receiverSymbol.symbol.name)
     : null;
-  const declaredMemberDefinition = await resolveDeclaredMemberDefinitionAcrossFiles(
-    context,
-    objectType,
-    memberName,
-    preferredAmbientReceiverFilePath
-  );
-  if (declaredMemberDefinition) {
-    return declaredMemberDefinition;
-  }
-
-  // Otherwise the member may be an extension property/method (e.g.
-  // `val number.seconds` or `fun Point.foo()`) declared at the top level of this
-  // or an imported file. These are not class members, so resolve them by
-  // matching the receiver type.
+  // An extension property/method (e.g. `val number.seconds`, `fun Point.foo()`,
+  // or `var Container.position` imported from another file) takes precedence over
+  // the receiver's own class member, matching the type checker
+  // (`resolveKnownMemberType` checks extensions before class members). Resolving
+  // it first keeps definition/hover on the same member the diagnostics use, so an
+  // imported `var Container.position` shadows the node_modules `Container.position`
+  // everywhere instead of only in type analysis.
   const extensionDeclaration = await resolveExtensionMemberDeclarationAcrossFiles(
     context,
     objectType,
@@ -451,6 +444,16 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
         range
       };
     }
+  }
+
+  const declaredMemberDefinition = await resolveDeclaredMemberDefinitionAcrossFiles(
+    context,
+    objectType,
+    memberName,
+    preferredAmbientReceiverFilePath
+  );
+  if (declaredMemberDefinition) {
+    return declaredMemberDefinition;
   }
 
   const importedExtensionDeclaration = await resolveImportedExtensionMemberDeclarationAcrossFiles(

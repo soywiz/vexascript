@@ -261,14 +261,20 @@ export async function resolveMemberHoverAcrossFiles(
       referencesUnsubstitutedTypeParameter(resolvedTypeLabel, primaryResolution.declaration)
       || referencesUnsubstitutedTypeParameter(fallbackTypeLabel, fallbackClassResolution?.classStatement ?? fallbackInterfaceResolution?.interfaceStatement ?? null)
     );
-  const typeLabel = shouldPreferInferredType
-    ? inferredMemberTypeLabel
-    : resolvedTypeLabel
-      ?? fallbackTypeLabel
-      ?? structuralMember?.typeLabel
-      ?? extensionTypeLabel
-      ?? inferredMemberTypeLabel!;
-  const documentation = resolvedMember?.documentation ?? extensionDocumentation;
+  // A receiver-matched extension member takes precedence over the class member,
+  // matching the type checker (`resolveKnownMemberType` checks extensions first)
+  // and go-to-definition, so an imported `var Container.position` hovers as the
+  // extension instead of the shadowed node_modules class member.
+  const typeLabel = extensionTypeLabel
+    ?? (shouldPreferInferredType
+      ? inferredMemberTypeLabel
+      : resolvedTypeLabel
+        ?? fallbackTypeLabel
+        ?? structuralMember?.typeLabel
+        ?? inferredMemberTypeLabel!);
+  const documentation = extensionTypeLabel
+    ? extensionDocumentation ?? resolvedMember?.documentation
+    : resolvedMember?.documentation ?? extensionDocumentation;
   const hoverValue = documentation ? `${memberName}: ${typeLabel}\n\n${documentation}` : `${memberName}: ${typeLabel}`;
   return {
     contents: {

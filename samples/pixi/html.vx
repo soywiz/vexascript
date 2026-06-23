@@ -1,4 +1,4 @@
-import { Application, Graphics, Text, TextStyle } from "pixi.js"
+import { Application, Graphics, Text, TextStyle, type Container } from "pixi.js"
 import { position, addTo, Vec2 } from "./utils.vx"
 
 val width = 480
