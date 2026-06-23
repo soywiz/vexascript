@@ -2,6 +2,7 @@ import type {
   ClassStatement,
   EnumStatement,
   ExportStatement,
+  FunctionParameter,
   FunctionStatement,
   Identifier,
   ImportStatement,
@@ -601,17 +602,7 @@ function externalFunctionOverloads(
       }
       const fn = declaration as FunctionStatement;
       overloads.push(functionType(
-        fn.parameters.filter((parameter) => parameter.thisParameter !== true).map((parameter) => {
-          const rawType = typeFromAnnotationText(parameter.typeAnnotation?.name, declarations, resolvingImportTypes);
-          const isRest = parameter.rest === true;
-          const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
-          return {
-            name: parameter.name.kind === "Identifier" ? parameter.name.name : "arg",
-            type,
-            optional: parameter.optional === true || parameter.defaultValue !== undefined || isRest,
-            rest: isRest
-          };
-        }),
+        mapFunctionParameters(fn.parameters, (name) => typeFromAnnotationText(name, declarations, resolvingImportTypes)),
         typeFromAnnotationText(fn.returnType?.name, declarations, resolvingImportTypes),
         fn.typeParameters?.map((parameter) => parameter.name.name),
         importedTypeParameterConstraintMap(fn.typeParameters),
@@ -759,25 +750,38 @@ function resolveNodeModuleNamedImportType(
   return null;
 }
 
+/**
+ * Maps a parameter list to the `functionType(...)` parameter shape, applying the
+ * same `this`-parameter filtering, rest-element unwrapping, and optional/rest
+ * flags everywhere. The caller supplies `resolveType`, which is the only thing
+ * that differs between the import-typed and ambient-typed callers.
+ */
+function mapFunctionParameters(
+  parameters: readonly FunctionParameter[],
+  resolveType: (typeName: string | undefined) => AnalysisType
+): Array<{ name: string; type: AnalysisType; optional: boolean; rest: boolean }> {
+  return parameters
+    .filter((parameter) => parameter.thisParameter !== true)
+    .map((parameter) => {
+      const rawType = resolveType(parameter.typeAnnotation?.name);
+      const isRest = parameter.rest === true;
+      const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
+      return {
+        name: parameter.name.kind === "Identifier" ? (parameter.name as Identifier).name : "arg",
+        type,
+        optional: parameter.optional === true || parameter.defaultValue !== undefined || isRest,
+        rest: isRest
+      };
+    });
+}
+
 export function buildFunctionTypeFromStatement(
   fn: FunctionStatement,
   declarations: readonly Statement[] = [],
   resolvingImportTypes: Set<string> = new Set()
 ): AnalysisType {
   return functionType(
-    fn.parameters
-      .filter((p) => p.thisParameter !== true)
-      .map((p) => {
-        const rawType = typeFromAnnotationText(p.typeAnnotation?.name, declarations, resolvingImportTypes);
-        const isRest = p.rest === true;
-        const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
-        return {
-          name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
-          type,
-          optional: p.optional === true || p.defaultValue !== undefined || isRest,
-          rest: isRest
-        };
-    }),
+    mapFunctionParameters(fn.parameters, (name) => typeFromAnnotationText(name, declarations, resolvingImportTypes)),
     typeFromAnnotationText(fn.returnType?.name, declarations, resolvingImportTypes),
     fn.typeParameters?.map((tp) => tp.name.name),
     importedTypeParameterConstraintMap(fn.typeParameters, declarations, resolvingImportTypes),
@@ -2310,24 +2314,10 @@ function buildAmbientFunctionTypeFromStatement(
   ambientGlobalDeclarations: readonly Statement[] = []
 ): AnalysisType {
   return functionType(
-    fn.parameters
-      .filter((p) => p.thisParameter !== true)
-      .map((p) => {
-        const rawType = typeFromAmbientAnnotationText(
-          p.typeAnnotation?.name,
-          declarations,
-          ambientModuleDeclarations,
-          ambientGlobalDeclarations
-        );
-        const isRest = p.rest === true;
-        const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
-        return {
-          name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
-          type,
-          optional: p.optional === true || p.defaultValue !== undefined || isRest,
-          rest: isRest
-        };
-      }),
+    mapFunctionParameters(
+      fn.parameters,
+      (name) => typeFromAmbientAnnotationText(name, declarations, ambientModuleDeclarations, ambientGlobalDeclarations)
+    ),
     typeFromAmbientAnnotationText(fn.returnType?.name, declarations, ambientModuleDeclarations, ambientGlobalDeclarations),
     fn.typeParameters?.map((tp) => tp.name.name),
     undefined,
@@ -2350,25 +2340,10 @@ function buildAmbientFunctionTypeFromInterfaceMember(
   visited: Set<string>
 ): AnalysisType {
   return functionType(
-    member.parameters
-      .filter((p) => p.thisParameter !== true)
-      .map((p) => {
-        const rawType = typeFromAmbientAnnotationText(
-          p.typeAnnotation?.name,
-          declarations,
-          ambientModuleDeclarations,
-          ambientGlobalDeclarations,
-          visited
-        );
-        const isRest = p.rest === true;
-        const type = isRest && rawType.kind === "array" ? (rawType as ArrayType).elementType : rawType;
-        return {
-          name: p.name.kind === "Identifier" ? (p.name as Identifier).name : "arg",
-          type,
-          optional: p.optional === true || p.defaultValue !== undefined || isRest,
-          rest: isRest
-        };
-      }),
+    mapFunctionParameters(
+      member.parameters,
+      (name) => typeFromAmbientAnnotationText(name, declarations, ambientModuleDeclarations, ambientGlobalDeclarations, visited)
+    ),
     typeFromAmbientAnnotationText(
       member.returnType?.name,
       declarations,

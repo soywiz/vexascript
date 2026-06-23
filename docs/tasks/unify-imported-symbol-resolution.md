@@ -134,6 +134,15 @@ The sixth slice unified the `node:` builtin-specifier handling:
   `crossFileContext`, `documentation`, and the three ambient resolvers in
   `importedDeclarations` consume them instead of open-coding the prefix dance.
 
+The seventh slice unified function-parameter mapping:
+
+* `mapFunctionParameters(parameters, resolveType)` now holds the shared
+  `this`-filtering / rest-unwrapping / optional-flag logic; the four builders
+  (`buildFunctionTypeFromStatement`, `externalFunctionOverloads`,
+  `buildAmbientFunctionTypeFromStatement`,
+  `buildAmbientFunctionTypeFromInterfaceMember`) pass only a `resolveType`
+  closure. (−25 lines, behavior-preserving.)
+
 The remaining work is mostly cleanup and further DRY reduction:
 
 * hover should be fed from the same shared imported-symbol record, not only
