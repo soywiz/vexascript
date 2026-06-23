@@ -1,6 +1,7 @@
 import { parseTypeNameShape } from "compiler/analysis/typeNames";
 import type { AnalysisType } from "compiler/analysis/types";
-import type { ClassStatement, FunctionStatement, ImportStatement, InterfaceStatement, VarStatement } from "compiler/ast/ast";
+import type { ClassStatement, FunctionStatement, ImportStatement, InterfaceStatement, Statement, VarStatement } from "compiler/ast/ast";
+import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import type { Location } from "vscode-languageserver/node.js";
 import { resolveTypeDefinitionAcrossFiles } from "./crossFileTypeResolution";
 import type { ResolveContext } from "./crossFileContext";
@@ -232,6 +233,68 @@ export async function resolveExtensionMemberDeclarationAcrossFiles(
   memberName: string
 ): Promise<ResolvedExtensionMemberDeclaration | null> {
   const receiverTypeNames = await collectExtensionReceiverTypeNames(context, objectType);
+  return resolveExtensionMemberDeclarationByReceiverNames(context, receiverTypeNames, memberName);
+}
+
+/**
+ * True when an extension member for `memberName` on one of `receiverTypeNames`
+ * is in the declarations the analysis actually sees — the selectively collected
+ * `externalDeclarations` plus the local program. This mirrors
+ * `TypeChecker.collectExtensionProperties`, which only registers extensions from
+ * those same sets, so a cross-file extension that was not imported (e.g. only a
+ * sibling export was imported from its file) is correctly treated as not in
+ * effect.
+ */
+function extensionMemberInScope(
+  context: ResolveContext,
+  receiverTypeNames: readonly string[],
+  memberName: string
+): boolean {
+  const receiverNames = new Set(receiverTypeNames);
+  const inScopeStatements: readonly Statement[] = [
+    ...(context.session.externalDeclarations ?? []),
+    ...(context.session.ast?.body ?? [])
+  ];
+  for (const statement of inScopeStatements) {
+    if (statement.kind !== "VarStatement" && statement.kind !== "FunctionStatement") {
+      continue;
+    }
+    const declaration = statement as VarStatement | FunctionStatement;
+    if (!declaration.receiverType) {
+      continue;
+    }
+    if (statement.kind === "FunctionStatement" && (declaration as FunctionStatement).operator) {
+      continue;
+    }
+    if (!receiverNames.has(normalizeReceiverTypeName(declaration.receiverType.name) ?? "")) {
+      continue;
+    }
+    const bindingName = statement.kind === "VarStatement"
+      ? bindingIdentifiers((declaration as VarStatement).name)[0]?.name
+      : (declaration as FunctionStatement).name?.name;
+    if (bindingName === memberName) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Like `resolveExtensionMemberDeclarationAcrossFiles`, but only returns the
+ * extension when it is in scope for the analysis (see `extensionMemberInScope`).
+ * Definition/hover use this so an extension only takes precedence over a class
+ * member when the type checker would also prefer it, keeping all surfaces in
+ * agreement about which member is in effect.
+ */
+export async function resolveInScopeExtensionMemberDeclarationAcrossFiles(
+  context: ResolveContext,
+  objectType: AnalysisType,
+  memberName: string
+): Promise<ResolvedExtensionMemberDeclaration | null> {
+  const receiverTypeNames = await collectExtensionReceiverTypeNames(context, objectType);
+  if (!extensionMemberInScope(context, receiverTypeNames, memberName)) {
+    return null;
+  }
   return resolveExtensionMemberDeclarationByReceiverNames(context, receiverTypeNames, memberName);
 }
 

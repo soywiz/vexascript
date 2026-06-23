@@ -30,7 +30,7 @@ import {
 import { resolveDeclaredMemberDefinitionAcrossFiles } from "./crossFileDeclaredMemberDefinition";
 import {
   resolveNodeModulesModuleObjectMemberDefinition,
-  resolveExtensionMemberDeclarationAcrossFiles,
+  resolveInScopeExtensionMemberDeclarationAcrossFiles,
   resolveImportedExtensionMemberDeclarationAcrossFiles,
   resolveNodeModulesMemberDefinition
 } from "./crossFileMemberDefinitionSources";
@@ -424,14 +424,15 @@ async function resolveMemberDefinitionAcrossFiles(context: ResolveContext): Prom
   const preferredAmbientReceiverFilePath = receiverSymbol
     ? resolveAmbientReceiverDeclarationFilePath(context, receiverSymbol.symbol.node, receiverSymbol.symbol.name)
     : null;
-  // An extension property/method (e.g. `val number.seconds`, `fun Point.foo()`,
-  // or `var Container.position` imported from another file) takes precedence over
-  // the receiver's own class member, matching the type checker
-  // (`resolveKnownMemberType` checks extensions before class members). Resolving
-  // it first keeps definition/hover on the same member the diagnostics use, so an
-  // imported `var Container.position` shadows the node_modules `Container.position`
-  // everywhere instead of only in type analysis.
-  const extensionDeclaration = await resolveExtensionMemberDeclarationAcrossFiles(
+  // An in-scope extension property/method (e.g. `val number.seconds`,
+  // `fun Point.foo()`, or `var Container.position` imported from another file)
+  // takes precedence over the receiver's own class member, matching the type
+  // checker (`resolveKnownMemberType` checks extensions before class members).
+  // Resolving it first keeps definition/hover on the same member the diagnostics
+  // use. It is gated on the extension being in scope (see
+  // `resolveInScopeExtensionMemberDeclarationAcrossFiles`) so a not-imported
+  // cross-file extension does not shadow the class member the type checker uses.
+  const extensionDeclaration = await resolveInScopeExtensionMemberDeclarationAcrossFiles(
     context,
     objectType,
     memberName

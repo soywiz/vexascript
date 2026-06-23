@@ -55,9 +55,35 @@ an imported `var Box.position: string`, and asserts the inferred type, hover, an
 definition all resolve to the extension — for both plain member access and the
 `..position` cascade form the sample uses.
 
+## Gating correction (the first cut over-applied)
+
+The first version of this fix preferred the extension over the class member
+*whenever* a receiver-matched extension existed anywhere across files. That
+over-applied: if a sibling export is imported from the extension's file but the
+extension property itself is NOT imported (e.g. samples/pixi removing `position`
+from the import while still importing `addTo`/`Vec2`), selective declaration
+collection means the type checker does NOT see the extension and resolves the
+class member. So the over-eager fix re-introduced divergence in the other
+direction (definition/hover → extension, diagnostics → class member).
+
+The correct gate mirrors `TypeChecker.collectExtensionProperties`, which only
+registers extensions from the selectively collected `externalDeclarations` plus
+the local program. `resolveInScopeExtensionMemberDeclarationAcrossFiles` now
+prefers the extension only when an extension for the receiver + member name is
+present in those same in-scope statements (`extensionMemberInScope`). This also
+handles the rename case correctly, because it keys on the collected declarations
+the analysis used, not on the local import name. Definition and hover both use
+the gated resolver for the extension-over-class preference.
+
+Regression coverage in `importedExtensionMemberPrecedence.test.ts` now pins all
+three: imported → extension wins; sibling-only import → class member wins (no
+divergence); and the `..position` cascade → extension wins.
+
 ## Lesson
 
 When hover/definition disagree with diagnostics about a member, suspect inverted
 precedence between the type checker and the LSP navigation, not a missing case.
-The durable fix is to make the surfaces consume the same precedence, not to patch
-one surface's ordering in isolation.
+The durable fix is to make the surfaces consume the same precedence — and that
+includes the *gating*: an extension must only win where the type checker would
+actually see it (the selectively collected declarations), or you just move the
+divergence to the not-imported case.

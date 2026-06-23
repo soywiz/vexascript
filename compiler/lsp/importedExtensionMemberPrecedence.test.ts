@@ -26,6 +26,7 @@ async function resolvePositionMember(mainSource: string, cursorNeedle: string) {
   const mainPath = join(root, "main.vx");
   const extSource = dedent`
     import { Box } from "shapes-pkg"
+    fun Box.touch() { }
     var Box.position: string {
       get => "hi"
       set { }
@@ -86,6 +87,26 @@ describe("imported extension member precedence (class vs extension)", () => {
     expect(definition?.uri).toBe(extUri);
     expect(hoverValue).toContain("string");
     expect(hoverValue).not.toContain("number");
+  });
+
+  it("keeps definition/hover consistent with the type when position is not imported", async () => {
+    // samples/pixi removed `position` from the import but still imports a sibling
+    // (addTo/Vec2) from the same file. Selective collection means the extension is
+    // NOT brought in, so the type checker resolves the class member. Definition and
+    // hover must agree with that — they must not diverge to the extension.
+    const mainSource = dedent`
+      import { Box } from "shapes-pkg"
+      import { touch } from "./ext.vx"
+      val b = Box()
+      val p = b.position
+    `;
+    const { extUri, memberType, definition, hoverValue } = await resolvePositionMember(mainSource, "b.position");
+
+    expect(memberType && typeToString(memberType)).toBe("number");
+    // No divergence: definition/hover follow the class member the type checker used.
+    expect(definition?.uri).not.toBe(extUri);
+    expect(hoverValue).toContain("number");
+    expect(hoverValue).not.toContain("string");
   });
 
   it("agrees on the extension member through a cascade assignment (..position)", async () => {

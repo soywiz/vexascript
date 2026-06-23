@@ -21,7 +21,7 @@ import {
   type ClassMemberInfo
 } from "./crossFileTypeResolution";
 import { uriToFilePath } from "./importFixes";
-import { resolveExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberDefinitionSources";
+import { resolveInScopeExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberDefinitionSources";
 import { inferExtensionReturnTypeName } from "./memberCompletionExtensions";
 import { nodeRange } from "./ranges";
 
@@ -51,7 +51,7 @@ export function createMemberHoverContents(
   return `${member.memberName}: ${member.typeLabel}`;
 }
 
-function extensionDocumentationValue(extensionMember: Awaited<ReturnType<typeof resolveExtensionMemberDeclarationAcrossFiles>>): string | undefined {
+function extensionDocumentationValue(extensionMember: Awaited<ReturnType<typeof resolveInScopeExtensionMemberDeclarationAcrossFiles>>): string | undefined {
   if (!extensionMember) {
     return undefined;
   }
@@ -108,7 +108,7 @@ export async function resolveMemberHoverAcrossFiles(
   const memberName = (memberExpression.property as Identifier).name;
   const objectTypeLabel = typeToString(objectType);
   const structuralMember = parseObjectTypeMemberInfo(objectTypeLabel, memberName);
-  const extensionMember = await resolveExtensionMemberDeclarationAcrossFiles(
+  const extensionMember = await resolveInScopeExtensionMemberDeclarationAcrossFiles(
     context,
     objectType,
     memberName
