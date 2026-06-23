@@ -21,6 +21,7 @@ import {
 } from "./diagnosticCodes";
 import { detectAmbientExportEqualsName, findAmbientNamespaceBody } from "./crossFileContext";
 import { getNodeModuleTypings } from "./nodeModulesTypings";
+import type { AmbientModuleLocation } from "./ambientTypesLoader";
 
 export interface SymbolExport {
   name: string;
@@ -177,7 +178,7 @@ function collectExportEqualsAmbientExports(
 
 export function buildAmbientModuleSymbolExports(params: {
   moduleDeclarations: ReadonlyMap<string, Statement[]>;
-  moduleLocations?: ReadonlyMap<string, { filePath: string; line: number; character: number }>;
+  moduleLocations?: ReadonlyMap<string, AmbientModuleLocation>;
 }): SymbolExport[] {
   const { moduleDeclarations, moduleLocations } = params;
   const exports: SymbolExport[] = [];

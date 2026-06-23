@@ -16,6 +16,7 @@ import type { AnnotationStatement, ArrowFunctionExpression, BlockStatement, Call
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { unwrapExportedDeclaration } from "compiler/ast/traversal";
 import type { ImportedSymbolResolution } from "compiler/importedSymbols";
+import type { AmbientModuleLocation } from "./ambientTypesLoader";
 import { candidateImportTargetFilePaths, nodeBuiltinSpecifierCandidates, resolveImportTargetFilePath } from "compiler/moduleResolution";
 import { getDomDeclarationFilePath, isDomRuntimeNode } from "compiler/runtime/domDeclarations";
 import {
@@ -32,9 +33,9 @@ export interface SessionLike {
   externalDeclarations?: Statement[];
   importedSymbols?: ReadonlyMap<string, ImportedSymbolResolution>;
   ambientDeclarations?: Statement[];
-  ambientDeclarationLocations?: ReadonlyMap<Statement, { filePath: string; line: number; character: number }>;
+  ambientDeclarationLocations?: ReadonlyMap<Statement, AmbientModuleLocation>;
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
-  ambientModuleLocations?: ReadonlyMap<string, { filePath: string; line: number; character: number }>;
+  ambientModuleLocations?: ReadonlyMap<string, AmbientModuleLocation>;
 }
 
 export interface ResolveContext {
