@@ -251,20 +251,29 @@ function unionIfNeeded(types: AnalysisType[]): AnalysisType {
   return unionType(unique);
 }
 
-function importedTypeParameterConstraintMap(
-  typeParameters: readonly { name: Identifier; constraint?: { name?: string } }[] | undefined,
+function importedTypeParameterTypeMap<T extends { name: Identifier }>(
+  typeParameters: readonly T[] | undefined,
+  selectTypeName: (parameter: T) => string | undefined,
   declarations: readonly Statement[] = [],
   resolvingImportTypes: Set<string> = new Set()
 ): Record<string, AnalysisType> | undefined {
   const entries = (typeParameters ?? [])
     .map((parameter) => {
-      const constraintName = parameter.constraint?.name;
-      return constraintName
-        ? [parameter.name.name, typeFromAnnotationText(constraintName, declarations, resolvingImportTypes)] as const
+      const typeName = selectTypeName(parameter);
+      return typeName
+        ? [parameter.name.name, typeFromAnnotationText(typeName, declarations, resolvingImportTypes)] as const
         : null;
     })
     .filter((entry): entry is readonly [string, AnalysisType] => entry !== null);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function importedTypeParameterConstraintMap(
+  typeParameters: readonly { name: Identifier; constraint?: { name?: string } }[] | undefined,
+  declarations: readonly Statement[] = [],
+  resolvingImportTypes: Set<string> = new Set()
+): Record<string, AnalysisType> | undefined {
+  return importedTypeParameterTypeMap(typeParameters, (parameter) => parameter.constraint?.name, declarations, resolvingImportTypes);
 }
 
 function importedTypeParameterDefaultMap(
@@ -272,15 +281,7 @@ function importedTypeParameterDefaultMap(
   declarations: readonly Statement[] = [],
   resolvingImportTypes: Set<string> = new Set()
 ): Record<string, AnalysisType> | undefined {
-  const entries = (typeParameters ?? [])
-    .map((parameter) => {
-      const defaultName = parameter.defaultType?.name;
-      return defaultName
-        ? [parameter.name.name, typeFromAnnotationText(defaultName, declarations, resolvingImportTypes)] as const
-        : null;
-    })
-    .filter((entry): entry is readonly [string, AnalysisType] => entry !== null);
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  return importedTypeParameterTypeMap(typeParameters, (parameter) => parameter.defaultType?.name, declarations, resolvingImportTypes);
 }
 
 function localExportBindingNamesForExportedName(
