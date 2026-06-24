@@ -82,6 +82,12 @@ export type ClassResolverSessionLike = ProjectSessionLike;
 export interface ClassResolverOptions extends ProjectContext {
   uri?: string;
   ambientModuleDeclarations?: ReadonlyMap<string, Statement[]>;
+  /**
+   * The session's selectively-collected external declarations. Signature help
+   * uses these to detect an in-scope extension member that shadows a class
+   * member, so it can prefer the extension's signature like the other surfaces.
+   */
+  externalDeclarations?: readonly Statement[];
   classResolverCache?: ClassResolverCache;
 }
 

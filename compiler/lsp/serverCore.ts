@@ -781,7 +781,8 @@ export function startLspServer(options: LspServerOptions): void {
       params.position.character,
       {
         ...featureContext(params.textDocument.uri),
-        ambientModuleDeclarations: session.ambientModuleDeclarations
+        ambientModuleDeclarations: session.ambientModuleDeclarations,
+        externalDeclarations: session.externalDeclarations
       }
     );
   }));

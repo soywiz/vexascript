@@ -28,6 +28,8 @@ import {
   resolveConstructorSignature,
   type ClassResolverOptions
 } from "./classResolver";
+import { resolveInScopeExtensionMemberDeclarationAcrossFiles } from "./crossFileMemberDefinitionSources";
+import type { ResolveContext } from "./crossFileContext";
 import {
   readDocumentationForSymbol,
   readDocumentationFromNamedNode
@@ -498,6 +500,39 @@ async function buildSignaturesFromSymbol(
     );
     if (nodeModuleSignatures.length > 0) {
       return nodeModuleSignatures;
+    }
+  }
+
+  // An in-scope extension member shadows the class member of the same name (the
+  // type checker resolves the extension), so prefer the extension's signature —
+  // taken from the analysis-inferred member type — before the class-member
+  // resolution below. Keeps signature help consistent with the other surfaces.
+  if (context.callee.kind === "MemberExpression" && options.uri) {
+    const member = context.callee as MemberExpression;
+    if (!member.computed && member.property.kind === "Identifier") {
+      const objectType = analysis.getExpressionTypes().get(member.object);
+      if (objectType) {
+        const memberName = (member.property as Identifier).name;
+        const extensionContext: ResolveContext = {
+          uri: options.uri,
+          line: 0,
+          character: 0,
+          session: {
+            ast: program,
+            analysis,
+            externalDeclarations: options.externalDeclarations ? [...options.externalDeclarations] : []
+          },
+          sourceRoots: options.sourceRoots ?? [],
+          ...(options.getSessionForFilePath ? { getSessionForFilePath: options.getSessionForFilePath } : {})
+        };
+        const inScopeExtension = await resolveInScopeExtensionMemberDeclarationAcrossFiles(extensionContext, objectType, memberName);
+        if (inScopeExtension) {
+          const extensionSignatures = signatureInfosFromAnalysisType(memberName, analysis.getExpressionTypes().get(context.callee));
+          if (extensionSignatures.length > 0) {
+            return extensionSignatures;
+          }
+        }
+      }
     }
   }
 

@@ -6,6 +6,7 @@ import { createAnalysisSession } from "./analysisSession";
 import { collectAllImportedDeclarations } from "./importedDeclarations";
 import { resolveDefinitionWithLocalFallback, resolveHoverWithLocalFallback, resolveReferencesAcrossFiles } from "./crossFileNavigation";
 import { findMemberExpressionAtPosition } from "./crossFileTypeResolution";
+import { createSignatureHelp } from "./signatureHelp";
 
 // Mirrors samples/pixi: a class member (Container.position from node_modules) is
 // shadowed by an imported extension property (var Container.position: Vec2 in
@@ -123,5 +124,63 @@ describe("imported extension member precedence (class vs extension)", () => {
     const { extUri, definition } = await resolvePositionMember(mainSource, "..position");
 
     expect(definition?.uri).toBe(extUri);
+  });
+
+  it("shows the imported extension method's signature, not the shadowed class method", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vexa-ext-sig-"));
+    const boxPath = join(root, "box.vx");
+    const extPath = join(root, "ext.vx");
+    const mainPath = join(root, "main.vx");
+    const boxSource = dedent`
+      export class Box {
+        fun describe(n: number): number => n
+      }
+    `;
+    const extSource = dedent`
+      import { Box } from "./box.vx"
+      fun Box.describe(label: string): string => label
+    `;
+    const mainSource = dedent`
+      import { Box } from "./box.vx"
+      import { describe } from "./ext.vx"
+      val b = Box()
+      b.describe()
+    `;
+    await writeFile(boxPath, boxSource, "utf8");
+    await writeFile(extPath, extSource, "utf8");
+    await writeFile(mainPath, mainSource, "utf8");
+
+    const uri = pathToFileURL(mainPath).toString();
+    const boxSession = createAnalysisSession(boxSource);
+    const extSession = createAnalysisSession(extSource);
+    const baseSession = createAnalysisSession(mainSource);
+    const getSessionForFilePath = (filePath: string) => {
+      if (filePath === boxPath) return boxSession;
+      if (filePath === extPath) return extSession;
+      if (filePath === mainPath) return baseSession;
+      return null;
+    };
+    const collected = await collectAllImportedDeclarations(baseSession.ast!, { uri, sourceRoots: [root], getSessionForFilePath });
+    const session = createAnalysisSession(mainSource, {
+      externalDeclarations: collected.externalDeclarations,
+      importedSymbols: collected.importedSymbols,
+      invalidImportedBindings: collected.invalidImportedBindings
+    });
+
+    const lines = mainSource.split("\n");
+    const line = lines.findIndex((l) => l.includes("b.describe()"));
+    const character = lines[line]!.indexOf("b.describe(") + "b.describe(".length;
+    const help = await createSignatureHelp(session.ast!, session.analysis!, line, character, {
+      uri,
+      sourceRoots: [root],
+      getSessionForFilePath,
+      externalDeclarations: collected.externalDeclarations
+    });
+    const labels = help?.signatures.map((signature) => signature.label) ?? [];
+
+    // The extension shadows the class method, so signature help shows the
+    // extension's signature (string param), not the class method's (number).
+    expect(labels.some((label) => label.includes("label: string"))).toBe(true);
+    expect(labels.some((label) => label.includes("n: number"))).toBe(false);
   });
 });

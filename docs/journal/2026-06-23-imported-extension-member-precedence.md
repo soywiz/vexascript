@@ -117,6 +117,31 @@ Regression coverage in `importedExtensionMemberPrecedence.test.ts` now also
 asserts references anchor on the extension when imported, and on the class member
 (not the extension file) when only a sibling export is imported.
 
+## Signature help: the sixth surface, now aligned
+
+Signature help also diverged for a shadowed extension **method**: with
+`class Box { fun describe(n: number) }` and `fun Box.describe(label: string)`,
+`b.describe(` showed the class signature even though the analysis resolves the
+member to the extension `(label: string) => string`. Same precedence ordering —
+`resolveCallableSignatures` (class/interface members) ran before the analysis-type
+branch.
+
+Unlike the other surfaces, signature help could not reach the
+`extensionMemberInScope` gate because `createSignatureHelp(program, analysis, …)`
+was not given the session's `externalDeclarations`, so it could not see cross-file
+in-scope extensions. Fixed by threading `externalDeclarations` through
+`ClassResolverOptions` (the signature-help options) — `serverCore` now passes
+`session.externalDeclarations` — and, for a member callee, building a
+`ResolveContext` and consulting `resolveInScopeExtensionMemberDeclarationAcrossFiles`
+before `resolveCallableSignatures`. When an in-scope extension shadows the member,
+signature help returns the extension's signature derived from the analysis member
+type; otherwise the class-member resolution (with its overloads/docs) is used
+unchanged.
+
+So all six surfaces — diagnostics, hover, definition, completion,
+references/rename, and signature help — now resolve a shadowed member through the
+same in-scope extension gate.
+
 ## Lesson
 
 When hover/definition disagree with diagnostics about a member, suspect inverted
