@@ -611,6 +611,88 @@ let after = bind`));
     });
   });
 
+  describe("comparison operator type checking", () => {
+    function comparisonIssues(source: string): string[] {
+      const ast = parseFile(tokenizeReader(source));
+      return new Analysis(ast)
+        .getIssues()
+        .map((issue) => issue.message)
+        .filter((message) => message.includes("is not defined"));
+    }
+
+    it("reports '<' between two class instances without an overload", () => {
+      const messages = comparisonIssues(dedent`
+        class Test
+        val r = Test() < Test()
+      `);
+      expect(messages).toContain("Operator '<' is not defined for types 'Test' and 'Test'");
+    });
+
+    it("reports '<=>' between two class instances without an overload", () => {
+      const messages = comparisonIssues(dedent`
+        class Test
+        val r = Test() <=> Test()
+      `);
+      expect(messages).toContain("Operator '<=>' is not defined for types 'Test' and 'Test'");
+    });
+
+    it("reports a comparison between a string and a number", () => {
+      const messages = comparisonIssues(dedent`
+        val a: string = "test"
+        val b: int = 10
+        val r = a < b
+      `);
+      expect(messages.some((message) => message.startsWith("Operator '<' is not defined"))).toBe(true);
+    });
+
+    it("accepts native numeric and string ordering comparisons", () => {
+      const messages = comparisonIssues(dedent`
+        val n = 1 < 2
+        val m = 3 >= 4
+        val s = "a" < "b"
+        val o = 5 <=> 6
+      `);
+      expect(messages).toEqual([]);
+    });
+
+    it("accepts a comparison when one operand is 'any'", () => {
+      const messages = comparisonIssues(dedent`
+        class Test
+        val a: any = 1
+        val r = a < Test()
+      `);
+      expect(messages).toEqual([]);
+    });
+
+    it("accepts relational operators derived from an operator<=> overload", () => {
+      const messages = comparisonIssues(dedent`
+        class Money(val cents: int) {
+          operator<=>(other: Money): int => cents <=> other.cents
+        }
+        val r = Money(1) < Money(2)
+        val q = Money(3) >= Money(4)
+      `);
+      expect(messages).toEqual([]);
+    });
+
+    it("accepts a direct operator< overload", () => {
+      const messages = comparisonIssues(dedent`
+        class Box(val n: int) {
+          operator<(other: Box): boolean => n < other.n
+        }
+        val r = Box(1) < Box(2)
+      `);
+      expect(messages).toEqual([]);
+    });
+
+    it("does not police comparisons on bare generic type parameters", () => {
+      const messages = comparisonIssues(dedent`
+        fun <T> pick(a: T, b: T): T => a < b ? a : b
+      `);
+      expect(messages).toEqual([]);
+    });
+  });
+
   describe("index operator overloads", () => {
     it("resolves class index getter and setter operator overloads", () => {
       const source = dedent`

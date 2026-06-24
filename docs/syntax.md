@@ -467,6 +467,28 @@ class Tag(val name: string) {
 let different = Tag("a") != Tag("b")   // !(Tag("a") == Tag("b"))
 ```
 
+#### Required definition for ordering comparisons
+
+The ordering operators `<`, `>`, `<=`, `>=`, and `<=>` are only accepted when the
+comparison is actually defined. A comparison is considered defined when either:
+
+- one of the operands provides a matching overload — a direct one (e.g.
+  `operator<`) or an `operator<=>` that derives the four relational operators; or
+- the operands are natively comparable: a number with a number, a string with a
+  string, or one operand is `any`/untyped/a bare generic type parameter.
+
+Otherwise the operator is reported as undefined, for example comparing two
+unrelated class instances or a string against a number:
+
+```my
+class Test
+Test() < Test()   // error: Operator '<' is not defined for types 'Test' and 'Test'
+"test" < 10       // error: Operator '<' is not defined for types 'string' and 'int'
+```
+
+Equality (`==`, `!=`, `===`, `!==`) and the logical operators are not restricted
+this way.
+
 Classes and extension methods can overload computed indexing with `operator[]` and `operator[]=`. Getter index operators receive the bracket dimensions in order. Setter index operators receive the assigned value first, followed by the bracket dimensions, so multidimensional setters keep a stable leading value parameter:
 
 ```my

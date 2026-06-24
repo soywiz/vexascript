@@ -2190,6 +2190,13 @@ export class TypeChecker {
               node: this.operatorDiagnosticNode(binary),
               code: ANALYSIS_ISSUE_CODES.OPERATOR_NOT_DEFINED
             });
+          } else if (this.shouldReportUndefinedComparison(binary.operator, leftType, rightType, scope)) {
+            this.reportMissingOperatorOverload(
+              binary.operator,
+              this.operatorDiagnosticNode(binary),
+              leftType,
+              [rightType]
+            );
           }
         }
         break;
@@ -3313,6 +3320,74 @@ export class TypeChecker {
       operator === "&" ||
       operator === "|" ||
       operator === "^";
+  }
+
+  private isOrderingComparisonOperator(operator: BinaryExpression["operator"]): boolean {
+    return (
+      operator === "<" ||
+      operator === ">" ||
+      operator === "<=" ||
+      operator === ">=" ||
+      operator === "<=>"
+    );
+  }
+
+  /**
+   * Operands whose comparison capabilities cannot (or should not) be policed:
+   * `any`, untyped (`unknown`) expressions, and bare generic type parameters
+   * (which may be instantiated with a comparable type). These never trigger an
+   * undefined-comparison diagnostic.
+   */
+  private isUncheckableComparisonOperand(type: AnalysisType): boolean {
+    if (isUnknownType(type) || (type.kind === "builtin" && type.name === "any")) {
+      return true;
+    }
+    return type.kind === "named" && this.isActiveTypeParameter(type.name);
+  }
+
+  /**
+   * Native ordering category of a type. Numbers (the whole numeric family plus
+   * int-backed enums) and strings are the only built-ins that support
+   * `< > <= >= <=>` without an operator overload; both sides must share the
+   * same category. Returns null for anything else.
+   */
+  private nativeOrderingCategory(type: AnalysisType): "numeric" | "string" | null {
+    const expanded = this.expandTypeAliases(type);
+    if (isStringLikeType(expanded)) {
+      return "string";
+    }
+    if (isNumericFamilyType(expanded) || this.isIntEnumLikeType(expanded)) {
+      return "numeric";
+    }
+    return null;
+  }
+
+  /**
+   * Ordering comparisons (`< > <= >= <=>`) are only meaningful when an operator
+   * overload applies or the operands are natively comparable. A direct overload
+   * has already been resolved (and consumed) by the caller, so this additionally
+   * honours `operator<=>` (which derives the four relational operators) and the
+   * native-type rule: number-with-number, string-with-string, or an
+   * `any`/untyped/generic operand. Comparing two unrelated class instances, or a
+   * `string` against a `number`, is reported as an undefined operator.
+   */
+  private shouldReportUndefinedComparison(
+    operator: BinaryExpression["operator"],
+    leftType: AnalysisType,
+    rightType: AnalysisType,
+    scope: Scope
+  ): boolean {
+    if (!this.isOrderingComparisonOperator(operator)) {
+      return false;
+    }
+    if (this.isUncheckableComparisonOperand(leftType) || this.isUncheckableComparisonOperand(rightType)) {
+      return false;
+    }
+    if (operator !== "<=>" && this.resolveOperatorOverload("<=>", leftType, rightType, scope)) {
+      return false;
+    }
+    const leftCategory = this.nativeOrderingCategory(leftType);
+    return leftCategory === null || leftCategory !== this.nativeOrderingCategory(rightType);
   }
 
   private operatorDiagnosticNode(binary: BinaryExpression): Node {
