@@ -59,6 +59,7 @@ This section is the fast onboarding map for agents and contributors.
   - Lowering pass boundary: `compiler/runtime/lowering.ts`
   - Lowering tests: `compiler/runtime/lowering.test.ts`
   - JavaScript emission: `compiler/runtime/emitter.ts`
+  - Single source of truth mapping overloadable operators to their mangled runtime method names (`operator$star`, ...) plus the shared identifier `sanitizeManglePart`, consumed by both the emitter and the implicit-export planner so an exported operator overload is always re-exported under the exact name it was emitted with: `compiler/runtime/operatorNames.ts`
   - CommonJS-specific import/export emission helpers extracted from the generic emitter path: `compiler/runtime/commonJsEmitter.ts`, `compiler/runtime/commonJsEmitter.test.ts`
   - Shared implicit Vexa export planning used by both module-graph ESM output and module-graph CommonJS-shaped output: `compiler/runtime/implicitExports.ts`, `compiler/runtime/implicitExports.test.ts`
   - Pure bundling-syntax-stripping helpers (stripBundledImports, stripBundledModuleSyntax, stripBundledCommonJsImports) extracted from module-graph for independent reuse and testing: `compiler/runtime/bundlingStripping.ts`, `compiler/runtime/bundlingStripping.test.ts`

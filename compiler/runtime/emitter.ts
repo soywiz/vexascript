@@ -80,6 +80,7 @@ import {
   emitCommonJsImportStatement,
   type CommonJsRuntimeExportBinding
 } from "./commonJsEmitter";
+import { operatorBaseRuntimeName, sanitizeManglePart } from "./operatorNames";
 
 type Assoc = "left" | "right";
 
@@ -91,35 +92,6 @@ function rewriteImportPath(path: string): string {
   if (!path.startsWith("./") && !path.startsWith("../")) return path;
   return path.replace(/\.(vx|ts|tsx)$/, ".js").replace(/\.mts$/, ".mjs");
 }
-
-const OPERATOR_METHOD_NAMES: Partial<Record<OverloadableOperator, string>> = {
-  "+": "operator$plus",
-  "-": "operator$minus",
-  "*": "operator$star",
-  "/": "operator$slash",
-  "%": "operator$percent",
-  "**": "operator$power",
-  "<<": "operator$shiftLeft",
-  ">>": "operator$shiftRight",
-  ">>>": "operator$unsignedShiftRight",
-  "<": "operator$less",
-  ">": "operator$greater",
-  "<=": "operator$lessEqual",
-  ">=": "operator$greaterEqual",
-  "<=>": "operator$spaceship",
-  "==": "operator$equals",
-  "!=": "operator$notEquals",
-  "===": "operator$strictEquals",
-  "!==": "operator$strictNotEquals",
-  "&": "operator$bitAnd",
-  "|": "operator$bitOr",
-  "^": "operator$bitXor",
-  "||": "operator$logicalOr",
-  "&&": "operator$logicalAnd",
-  "??": "operator$nullish",
-  "[]": "operator$get",
-  "[]=": "operator$set"
-};
 
 interface RuntimeOverloadInfo {
   emittedName: string;
@@ -394,11 +366,6 @@ function maybeWrap(text: string, shouldWrap: boolean): string {
   return shouldWrap ? `(${text})` : text;
 }
 
-
-function sanitizeManglePart(text: string): string {
-  const normalized = text.replace(/[^A-Za-z0-9]+/g, "$").replace(/^\$+|\$+$/g, "");
-  return normalized.length > 0 ? normalized : "unknown";
-}
 
 function parameterTypeName(parameter: FunctionParameter): string {
   return parameter.typeAnnotation?.name ?? "unknown";
@@ -699,12 +666,8 @@ function emitTypedIntegerBinary(binary: BinaryExpression, leftText: string, righ
   }
 }
 
-function operatorBaseName(operator: OverloadableOperator): string {
-  return OPERATOR_METHOD_NAMES[operator] ?? `operator$${sanitizeManglePart(operator)}`;
-}
-
 function operatorMethodName(operator: OverloadableOperator, parameters: FunctionParameter[]): string {
-  return overloadedFunctionName(operatorBaseName(operator), parameters);
+  return overloadedFunctionName(operatorBaseRuntimeName(operator), parameters);
 }
 
 /**
@@ -2161,7 +2124,7 @@ function commonJsRuntimeExportBindings(statement: Statement): CommonJsRuntimeExp
   if (statement.kind === "FunctionStatement") {
     const fn = statement as FunctionStatement;
     if (fn.receiverType) {
-      const baseName = fn.operator ? operatorBaseName(fn.operator) : fn.name.name;
+      const baseName = fn.operator ? operatorBaseRuntimeName(fn.operator) : fn.name.name;
       const runtimeName = extensionMethodRuntimeName(fn.receiverType.name, baseName, fn.parameters);
       return [{ exportedName: runtimeName, valueExpression: runtimeName }];
     }
@@ -2374,7 +2337,7 @@ export function emitStatement(statement: Statement): string {
         // Extension methods/operators are emitted as standalone receiver-mangled
         // functions whose first parameter is the receiver (`$this`). Implicit
         // member references and `this` inside the body resolve to `$this`.
-        const baseName = fn.operator ? operatorBaseName(fn.operator) : fn.name.name;
+        const baseName = fn.operator ? operatorBaseRuntimeName(fn.operator) : fn.name.name;
         const emittedName = extensionMethodRuntimeName(fn.receiverType.name, baseName, fn.parameters);
         const visibleParameters = emitFunctionParameters(fn.parameters);
         const parameterList = visibleParameters.length > 0 ? `$this, ${visibleParameters}` : "$this";
@@ -2668,7 +2631,7 @@ export function createEmitProgramRuntimeSeed(contextProgram: Program): EmitProgr
         continue;
       }
       if (fn.operator) {
-        const emittedName = extensionMethodRuntimeName(fn.receiverType.name, operatorBaseName(fn.operator), fn.parameters);
+        const emittedName = extensionMethodRuntimeName(fn.receiverType.name, operatorBaseRuntimeName(fn.operator), fn.parameters);
         const info: RuntimeOperatorInfo = {
           operator: fn.operator,
           emittedName,

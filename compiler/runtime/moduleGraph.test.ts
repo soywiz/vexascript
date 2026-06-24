@@ -254,6 +254,67 @@ describe("bundleModuleGraph", () => {
     );
   });
 
+  it("re-exports and resolves an extension operator overload across CommonJS modules", async () => {
+    // Regression: the emitter and the implicit `.vx` export planner used two
+    // disagreeing operator->name maps. For `*` the function was emitted as
+    // `Vec2$$operator$star$$Vec2` but implicitly exported as
+    // `Vec2$$operator$multiply$$Vec2`, so a cross-module call resolved to
+    // `undefined`. Both now share one map, so the dependency must export the
+    // exact name the emitter defines and the entry imports.
+    await ensureEcmaScriptRuntimeProgram();
+    await withTempProject(
+      {
+        "vec.vx": dedent`
+          class Vec2(val x: number, val y: number)
+          fun Vec2.operator*(other: Vec2) => Vec2(x * other.x, y * other.y)
+        `,
+        "main.vx": dedent`
+          import { Vec2, operator* } from "./vec"
+          const scaled = Vec2(2, 3) * Vec2(4, 5)
+          console.log(scaled.x, scaled.y)
+        `
+      },
+      async (dir) => {
+        const result = await bundleModuleGraphAsModules(join(dir, "main.vx"), "conservative", {
+          moduleFormat: "commonjs"
+        });
+
+        expect(result.errors).toEqual([]);
+        const dependencySource = result.moduleSources.get(join(dir, "vec.vx")) ?? "";
+        // The emitted definition and the implicit export must use the same name.
+        expect(dependencySource).toContain("function Vec2$$operator$star$$Vec2($this, other)");
+        expect(dependencySource).toContain("exports.Vec2$$operator$star$$Vec2 = Vec2$$operator$star$$Vec2;");
+        // The consumer imports and calls that same name.
+        expect(result.entrySource).toContain('require("./vec")');
+        expect(result.entrySource).toContain("Vec2$$operator$star$$Vec2(new Vec2(2, 3), new Vec2(4, 5))");
+
+        // End-to-end: wiring the CommonJS modules together must compute a value,
+        // not throw a ReferenceError or read `undefined`.
+        const logs: unknown[][] = [];
+        const modules = new Map<string, { exports: Record<string, unknown> }>();
+        const runModule = (source: string): { exports: Record<string, unknown> } => {
+          const moduleObject = { exports: {} as Record<string, unknown> };
+          const require = (specifier: string) => {
+            const key = specifier.replace(/^\.\//, "").replace(/\.(vx|js)$/, "");
+            return modules.get(key)?.exports ?? {};
+          };
+          const context = createContext({
+            exports: moduleObject.exports,
+            module: moduleObject,
+            require,
+            console: { log: (...args: unknown[]) => logs.push(args) }
+          });
+          new Script(source).runInContext(context);
+          return moduleObject;
+        };
+        modules.set("vec", runModule(dependencySource));
+        runModule(result.entrySource);
+
+        expect(logs).toEqual([[8, 15]]);
+      }
+    );
+  });
+
   it("emits each module once for diamond-shaped dependencies", async () => {
     await ensureEcmaScriptRuntimeProgram();
     await withTempProject(

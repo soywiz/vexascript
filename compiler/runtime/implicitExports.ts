@@ -2,22 +2,17 @@ import type {
   FunctionParameter,
   FunctionStatement,
   Identifier,
-  OverloadableOperator,
   Program,
   Statement,
   VarStatement
 } from "compiler/ast/ast";
 import { bindingIdentifiers } from "compiler/ast/bindingPatterns";
 import { extname } from "compiler/utils/path";
+import { operatorBaseRuntimeName, sanitizeManglePart } from "./operatorNames";
 
 export interface ImplicitVexaExportPlan {
   esmSpecifiers: string[];
   commonJsLines: string[];
-}
-
-function sanitizeRuntimeManglePart(text: string): string {
-  const normalized = text.replace(/[^A-Za-z0-9]+/g, "$").replace(/^\$+|\$+$/g, "");
-  return normalized.length > 0 ? normalized : "unknown";
 }
 
 function parameterTypeNameForExport(parameter: FunctionParameter): string {
@@ -27,7 +22,7 @@ function parameterTypeNameForExport(parameter: FunctionParameter): string {
 function overloadSuffixForExport(parameters: FunctionParameter[]): string {
   const visibleParameters = parameters.filter((parameter) => parameter.thisParameter !== true);
   return visibleParameters
-    .map((parameter) => sanitizeRuntimeManglePart(`${parameter.rest ? "rest " : ""}${parameterTypeNameForExport(parameter)}`))
+    .map((parameter) => sanitizeManglePart(`${parameter.rest ? "rest " : ""}${parameterTypeNameForExport(parameter)}`))
     .join("$$") || "void";
 }
 
@@ -35,47 +30,12 @@ function overloadedRuntimeName(name: string, parameters: FunctionParameter[]): s
   return `${name}$$${overloadSuffixForExport(parameters)}`;
 }
 
-function operatorBaseRuntimeName(operator: OverloadableOperator): string {
-  const map: Partial<Record<OverloadableOperator, string>> = {
-    "+": "operator$plus",
-    "-": "operator$minus",
-    "*": "operator$multiply",
-    "/": "operator$divide",
-    "%": "operator$mod",
-    "**": "operator$power",
-    "<<": "operator$shiftLeft",
-    ">>": "operator$shiftRight",
-    ">>>": "operator$unsignedShiftRight",
-    "<": "operator$lessThan",
-    ">": "operator$greaterThan",
-    "<=": "operator$lessThanOrEqual",
-    ">=": "operator$greaterThanOrEqual",
-    "<=>": "operator$spaceship",
-    "in": "operator$in",
-    "is": "operator$is",
-    "instanceof": "operator$instanceof",
-    "==": "operator$equals",
-    "!=": "operator$notEquals",
-    "===": "operator$strictEquals",
-    "!==": "operator$strictNotEquals",
-    "&": "operator$bitAnd",
-    "|": "operator$bitOr",
-    "^": "operator$bitXor",
-    "||": "operator$or",
-    "&&": "operator$and",
-    "??": "operator$nullishCoalesce",
-    "[]": "operator$get",
-    "[]=": "operator$set"
-  };
-  return map[operator] ?? `operator$${sanitizeRuntimeManglePart(operator)}`;
-}
-
 function extensionMethodRuntimeExportName(receiverType: string, baseName: string, parameters: FunctionParameter[]): string {
-  return `${sanitizeRuntimeManglePart(receiverType)}$$${overloadedRuntimeName(baseName, parameters)}`;
+  return `${sanitizeManglePart(receiverType)}$$${overloadedRuntimeName(baseName, parameters)}`;
 }
 
 function extensionPropertyRuntimeExportName(receiverType: string, propertyName: string): string {
-  return `${sanitizeRuntimeManglePart(receiverType)}$$${sanitizeRuntimeManglePart(propertyName)}`;
+  return `${sanitizeManglePart(receiverType)}$$${sanitizeManglePart(propertyName)}`;
 }
 
 function extensionPropertySetterRuntimeExportName(receiverType: string, propertyName: string): string {
